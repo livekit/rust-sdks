@@ -1,4 +1,581 @@
 // @generated
+impl serde::Serialize for ApiCallInfo {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.project_id.is_empty() {
+            len += 1;
+        }
+        if self.request.is_some() {
+            len += 1;
+        }
+        if !self.service.is_empty() {
+            len += 1;
+        }
+        if !self.method.is_empty() {
+            len += 1;
+        }
+        if !self.node_id.is_empty() {
+            len += 1;
+        }
+        if self.status != 0 {
+            len += 1;
+        }
+        if !self.twirp_error_code.is_empty() {
+            len += 1;
+        }
+        if !self.twirp_error_message.is_empty() {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        if !self.room_id.is_empty() {
+            len += 1;
+        }
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
+        if !self.participant_id.is_empty() {
+            len += 1;
+        }
+        if !self.track_id.is_empty() {
+            len += 1;
+        }
+        if self.started_at.is_some() {
+            len += 1;
+        }
+        if self.duration_ns != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.APICallInfo", len)?;
+        if !self.project_id.is_empty() {
+            struct_ser.serialize_field("projectId", &self.project_id)?;
+        }
+        if let Some(v) = self.request.as_ref() {
+            struct_ser.serialize_field("request", v)?;
+        }
+        if !self.service.is_empty() {
+            struct_ser.serialize_field("service", &self.service)?;
+        }
+        if !self.method.is_empty() {
+            struct_ser.serialize_field("method", &self.method)?;
+        }
+        if !self.node_id.is_empty() {
+            struct_ser.serialize_field("nodeId", &self.node_id)?;
+        }
+        if self.status != 0 {
+            struct_ser.serialize_field("status", &self.status)?;
+        }
+        if !self.twirp_error_code.is_empty() {
+            struct_ser.serialize_field("twirpErrorCode", &self.twirp_error_code)?;
+        }
+        if !self.twirp_error_message.is_empty() {
+            struct_ser.serialize_field("twirpErrorMessage", &self.twirp_error_message)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        if !self.room_id.is_empty() {
+            struct_ser.serialize_field("roomId", &self.room_id)?;
+        }
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
+        }
+        if !self.participant_id.is_empty() {
+            struct_ser.serialize_field("participantId", &self.participant_id)?;
+        }
+        if !self.track_id.is_empty() {
+            struct_ser.serialize_field("trackId", &self.track_id)?;
+        }
+        if let Some(v) = self.started_at.as_ref() {
+            struct_ser.serialize_field("startedAt", v)?;
+        }
+        if self.duration_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("durationNs", ToString::to_string(&self.duration_ns).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ApiCallInfo {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "project_id",
+            "projectId",
+            "request",
+            "service",
+            "method",
+            "node_id",
+            "nodeId",
+            "status",
+            "twirp_error_code",
+            "twirpErrorCode",
+            "twirp_error_message",
+            "twirpErrorMessage",
+            "room_name",
+            "roomName",
+            "room_id",
+            "roomId",
+            "participant_identity",
+            "participantIdentity",
+            "participant_id",
+            "participantId",
+            "track_id",
+            "trackId",
+            "started_at",
+            "startedAt",
+            "duration_ns",
+            "durationNs",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ProjectId,
+            Request,
+            Service,
+            Method,
+            NodeId,
+            Status,
+            TwirpErrorCode,
+            TwirpErrorMessage,
+            RoomName,
+            RoomId,
+            ParticipantIdentity,
+            ParticipantId,
+            TrackId,
+            StartedAt,
+            DurationNs,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "projectId" | "project_id" => Ok(GeneratedField::ProjectId),
+                            "request" => Ok(GeneratedField::Request),
+                            "service" => Ok(GeneratedField::Service),
+                            "method" => Ok(GeneratedField::Method),
+                            "nodeId" | "node_id" => Ok(GeneratedField::NodeId),
+                            "status" => Ok(GeneratedField::Status),
+                            "twirpErrorCode" | "twirp_error_code" => Ok(GeneratedField::TwirpErrorCode),
+                            "twirpErrorMessage" | "twirp_error_message" => Ok(GeneratedField::TwirpErrorMessage),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            "roomId" | "room_id" => Ok(GeneratedField::RoomId),
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
+                            "participantId" | "participant_id" => Ok(GeneratedField::ParticipantId),
+                            "trackId" | "track_id" => Ok(GeneratedField::TrackId),
+                            "startedAt" | "started_at" => Ok(GeneratedField::StartedAt),
+                            "durationNs" | "duration_ns" => Ok(GeneratedField::DurationNs),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ApiCallInfo;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.APICallInfo")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ApiCallInfo, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut project_id__ = None;
+                let mut request__ = None;
+                let mut service__ = None;
+                let mut method__ = None;
+                let mut node_id__ = None;
+                let mut status__ = None;
+                let mut twirp_error_code__ = None;
+                let mut twirp_error_message__ = None;
+                let mut room_name__ = None;
+                let mut room_id__ = None;
+                let mut participant_identity__ = None;
+                let mut participant_id__ = None;
+                let mut track_id__ = None;
+                let mut started_at__ = None;
+                let mut duration_ns__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ProjectId => {
+                            if project_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("projectId"));
+                            }
+                            project_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Request => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("request"));
+                            }
+                            request__ = map_.next_value()?;
+                        }
+                        GeneratedField::Service => {
+                            if service__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("service"));
+                            }
+                            service__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Method => {
+                            if method__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("method"));
+                            }
+                            method__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::NodeId => {
+                            if node_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nodeId"));
+                            }
+                            node_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Status => {
+                            if status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("status"));
+                            }
+                            status__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::TwirpErrorCode => {
+                            if twirp_error_code__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("twirpErrorCode"));
+                            }
+                            twirp_error_code__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TwirpErrorMessage => {
+                            if twirp_error_message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("twirpErrorMessage"));
+                            }
+                            twirp_error_message__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomId => {
+                            if room_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomId"));
+                            }
+                            room_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantId => {
+                            if participant_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantId"));
+                            }
+                            participant_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TrackId => {
+                            if track_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("trackId"));
+                            }
+                            track_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::StartedAt => {
+                            if started_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startedAt"));
+                            }
+                            started_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::DurationNs => {
+                            if duration_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("durationNs"));
+                            }
+                            duration_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ApiCallInfo {
+                    project_id: project_id__.unwrap_or_default(),
+                    request: request__,
+                    service: service__.unwrap_or_default(),
+                    method: method__.unwrap_or_default(),
+                    node_id: node_id__.unwrap_or_default(),
+                    status: status__.unwrap_or_default(),
+                    twirp_error_code: twirp_error_code__.unwrap_or_default(),
+                    twirp_error_message: twirp_error_message__.unwrap_or_default(),
+                    room_name: room_name__.unwrap_or_default(),
+                    room_id: room_id__.unwrap_or_default(),
+                    participant_identity: participant_identity__.unwrap_or_default(),
+                    participant_id: participant_id__.unwrap_or_default(),
+                    track_id: track_id__.unwrap_or_default(),
+                    started_at: started_at__,
+                    duration_ns: duration_ns__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.APICallInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ApiCallRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.message.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.APICallRequest", len)?;
+        if let Some(v) = self.message.as_ref() {
+            match v {
+                api_call_request::Message::CreateRoomRequest(v) => {
+                    struct_ser.serialize_field("createRoomRequest", v)?;
+                }
+                api_call_request::Message::ListRoomsRequest(v) => {
+                    struct_ser.serialize_field("listRoomsRequest", v)?;
+                }
+                api_call_request::Message::DeleteRoomRequest(v) => {
+                    struct_ser.serialize_field("deleteRoomRequest", v)?;
+                }
+                api_call_request::Message::ListParticipantsRequest(v) => {
+                    struct_ser.serialize_field("listParticipantsRequest", v)?;
+                }
+                api_call_request::Message::RoomParticipantIdentity(v) => {
+                    struct_ser.serialize_field("roomParticipantIdentity", v)?;
+                }
+                api_call_request::Message::MuteRoomTrackRequest(v) => {
+                    struct_ser.serialize_field("muteRoomTrackRequest", v)?;
+                }
+                api_call_request::Message::UpdateParticipantRequest(v) => {
+                    struct_ser.serialize_field("updateParticipantRequest", v)?;
+                }
+                api_call_request::Message::UpdateSubscriptionsRequest(v) => {
+                    struct_ser.serialize_field("updateSubscriptionsRequest", v)?;
+                }
+                api_call_request::Message::SendDataRequest(v) => {
+                    struct_ser.serialize_field("sendDataRequest", v)?;
+                }
+                api_call_request::Message::UpdateRoomMetadataRequest(v) => {
+                    struct_ser.serialize_field("updateRoomMetadataRequest", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ApiCallRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "create_room_request",
+            "createRoomRequest",
+            "list_rooms_request",
+            "listRoomsRequest",
+            "delete_room_request",
+            "deleteRoomRequest",
+            "list_participants_request",
+            "listParticipantsRequest",
+            "room_participant_identity",
+            "roomParticipantIdentity",
+            "mute_room_track_request",
+            "muteRoomTrackRequest",
+            "update_participant_request",
+            "updateParticipantRequest",
+            "update_subscriptions_request",
+            "updateSubscriptionsRequest",
+            "send_data_request",
+            "sendDataRequest",
+            "update_room_metadata_request",
+            "updateRoomMetadataRequest",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            CreateRoomRequest,
+            ListRoomsRequest,
+            DeleteRoomRequest,
+            ListParticipantsRequest,
+            RoomParticipantIdentity,
+            MuteRoomTrackRequest,
+            UpdateParticipantRequest,
+            UpdateSubscriptionsRequest,
+            SendDataRequest,
+            UpdateRoomMetadataRequest,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "createRoomRequest" | "create_room_request" => Ok(GeneratedField::CreateRoomRequest),
+                            "listRoomsRequest" | "list_rooms_request" => Ok(GeneratedField::ListRoomsRequest),
+                            "deleteRoomRequest" | "delete_room_request" => Ok(GeneratedField::DeleteRoomRequest),
+                            "listParticipantsRequest" | "list_participants_request" => Ok(GeneratedField::ListParticipantsRequest),
+                            "roomParticipantIdentity" | "room_participant_identity" => Ok(GeneratedField::RoomParticipantIdentity),
+                            "muteRoomTrackRequest" | "mute_room_track_request" => Ok(GeneratedField::MuteRoomTrackRequest),
+                            "updateParticipantRequest" | "update_participant_request" => Ok(GeneratedField::UpdateParticipantRequest),
+                            "updateSubscriptionsRequest" | "update_subscriptions_request" => Ok(GeneratedField::UpdateSubscriptionsRequest),
+                            "sendDataRequest" | "send_data_request" => Ok(GeneratedField::SendDataRequest),
+                            "updateRoomMetadataRequest" | "update_room_metadata_request" => Ok(GeneratedField::UpdateRoomMetadataRequest),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ApiCallRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.APICallRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ApiCallRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut message__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::CreateRoomRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createRoomRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::CreateRoomRequest)
+;
+                        }
+                        GeneratedField::ListRoomsRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("listRoomsRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::ListRoomsRequest)
+;
+                        }
+                        GeneratedField::DeleteRoomRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("deleteRoomRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::DeleteRoomRequest)
+;
+                        }
+                        GeneratedField::ListParticipantsRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("listParticipantsRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::ListParticipantsRequest)
+;
+                        }
+                        GeneratedField::RoomParticipantIdentity => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomParticipantIdentity"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::RoomParticipantIdentity)
+;
+                        }
+                        GeneratedField::MuteRoomTrackRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("muteRoomTrackRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::MuteRoomTrackRequest)
+;
+                        }
+                        GeneratedField::UpdateParticipantRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateParticipantRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::UpdateParticipantRequest)
+;
+                        }
+                        GeneratedField::UpdateSubscriptionsRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateSubscriptionsRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::UpdateSubscriptionsRequest)
+;
+                        }
+                        GeneratedField::SendDataRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sendDataRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::SendDataRequest)
+;
+                        }
+                        GeneratedField::UpdateRoomMetadataRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateRoomMetadataRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(api_call_request::Message::UpdateRoomMetadataRequest)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ApiCallRequest {
+                    message: message__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.APICallRequest", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for AcceptWhatsAppCallRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -1450,6 +2027,2724 @@ impl<'de> serde::Deserialize<'de> for AliOssUpload {
             }
         }
         deserializer.deserialize_struct("livekit.AliOSSUpload", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsClientMeta {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.region.is_empty() {
+            len += 1;
+        }
+        if !self.node.is_empty() {
+            len += 1;
+        }
+        if !self.client_addr.is_empty() {
+            len += 1;
+        }
+        if self.client_connect_time != 0 {
+            len += 1;
+        }
+        if !self.connection_type.is_empty() {
+            len += 1;
+        }
+        if self.reconnect_reason != 0 {
+            len += 1;
+        }
+        if self.geo_hash.is_some() {
+            len += 1;
+        }
+        if self.country.is_some() {
+            len += 1;
+        }
+        if self.isp_asn.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsClientMeta", len)?;
+        if !self.region.is_empty() {
+            struct_ser.serialize_field("region", &self.region)?;
+        }
+        if !self.node.is_empty() {
+            struct_ser.serialize_field("node", &self.node)?;
+        }
+        if !self.client_addr.is_empty() {
+            struct_ser.serialize_field("clientAddr", &self.client_addr)?;
+        }
+        if self.client_connect_time != 0 {
+            struct_ser.serialize_field("clientConnectTime", &self.client_connect_time)?;
+        }
+        if !self.connection_type.is_empty() {
+            struct_ser.serialize_field("connectionType", &self.connection_type)?;
+        }
+        if self.reconnect_reason != 0 {
+            let v = ReconnectReason::try_from(self.reconnect_reason)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.reconnect_reason)))?;
+            struct_ser.serialize_field("reconnectReason", &v)?;
+        }
+        if let Some(v) = self.geo_hash.as_ref() {
+            struct_ser.serialize_field("geoHash", v)?;
+        }
+        if let Some(v) = self.country.as_ref() {
+            struct_ser.serialize_field("country", v)?;
+        }
+        if let Some(v) = self.isp_asn.as_ref() {
+            struct_ser.serialize_field("ispAsn", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsClientMeta {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "region",
+            "node",
+            "client_addr",
+            "clientAddr",
+            "client_connect_time",
+            "clientConnectTime",
+            "connection_type",
+            "connectionType",
+            "reconnect_reason",
+            "reconnectReason",
+            "geo_hash",
+            "geoHash",
+            "country",
+            "isp_asn",
+            "ispAsn",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Region,
+            Node,
+            ClientAddr,
+            ClientConnectTime,
+            ConnectionType,
+            ReconnectReason,
+            GeoHash,
+            Country,
+            IspAsn,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "region" => Ok(GeneratedField::Region),
+                            "node" => Ok(GeneratedField::Node),
+                            "clientAddr" | "client_addr" => Ok(GeneratedField::ClientAddr),
+                            "clientConnectTime" | "client_connect_time" => Ok(GeneratedField::ClientConnectTime),
+                            "connectionType" | "connection_type" => Ok(GeneratedField::ConnectionType),
+                            "reconnectReason" | "reconnect_reason" => Ok(GeneratedField::ReconnectReason),
+                            "geoHash" | "geo_hash" => Ok(GeneratedField::GeoHash),
+                            "country" => Ok(GeneratedField::Country),
+                            "ispAsn" | "isp_asn" => Ok(GeneratedField::IspAsn),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsClientMeta;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsClientMeta")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsClientMeta, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut region__ = None;
+                let mut node__ = None;
+                let mut client_addr__ = None;
+                let mut client_connect_time__ = None;
+                let mut connection_type__ = None;
+                let mut reconnect_reason__ = None;
+                let mut geo_hash__ = None;
+                let mut country__ = None;
+                let mut isp_asn__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Region => {
+                            if region__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("region"));
+                            }
+                            region__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Node => {
+                            if node__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("node"));
+                            }
+                            node__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ClientAddr => {
+                            if client_addr__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientAddr"));
+                            }
+                            client_addr__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ClientConnectTime => {
+                            if client_connect_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientConnectTime"));
+                            }
+                            client_connect_time__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::ConnectionType => {
+                            if connection_type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectionType"));
+                            }
+                            connection_type__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ReconnectReason => {
+                            if reconnect_reason__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reconnectReason"));
+                            }
+                            reconnect_reason__ = Some(map_.next_value::<ReconnectReason>()? as i32);
+                        }
+                        GeneratedField::GeoHash => {
+                            if geo_hash__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("geoHash"));
+                            }
+                            geo_hash__ = map_.next_value()?;
+                        }
+                        GeneratedField::Country => {
+                            if country__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("country"));
+                            }
+                            country__ = map_.next_value()?;
+                        }
+                        GeneratedField::IspAsn => {
+                            if isp_asn__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ispAsn"));
+                            }
+                            isp_asn__ = 
+                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsClientMeta {
+                    region: region__.unwrap_or_default(),
+                    node: node__.unwrap_or_default(),
+                    client_addr: client_addr__.unwrap_or_default(),
+                    client_connect_time: client_connect_time__.unwrap_or_default(),
+                    connection_type: connection_type__.unwrap_or_default(),
+                    reconnect_reason: reconnect_reason__.unwrap_or_default(),
+                    geo_hash: geo_hash__,
+                    country: country__,
+                    isp_asn: isp_asn__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsClientMeta", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsEvent {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.id.is_empty() {
+            len += 1;
+        }
+        if self.r#type != 0 {
+            len += 1;
+        }
+        if self.timestamp.is_some() {
+            len += 1;
+        }
+        if !self.room_id.is_empty() {
+            len += 1;
+        }
+        if self.room.is_some() {
+            len += 1;
+        }
+        if !self.participant_id.is_empty() {
+            len += 1;
+        }
+        if self.participant.is_some() {
+            len += 1;
+        }
+        if !self.track_id.is_empty() {
+            len += 1;
+        }
+        if self.track.is_some() {
+            len += 1;
+        }
+        if !self.analytics_key.is_empty() {
+            len += 1;
+        }
+        if self.client_info.is_some() {
+            len += 1;
+        }
+        if self.client_meta.is_some() {
+            len += 1;
+        }
+        if !self.egress_id.is_empty() {
+            len += 1;
+        }
+        if !self.ingress_id.is_empty() {
+            len += 1;
+        }
+        if self.max_subscribed_video_quality != 0 {
+            len += 1;
+        }
+        if self.publisher.is_some() {
+            len += 1;
+        }
+        if !self.mime.is_empty() {
+            len += 1;
+        }
+        if self.egress.is_some() {
+            len += 1;
+        }
+        if self.ingress.is_some() {
+            len += 1;
+        }
+        if !self.error.is_empty() {
+            len += 1;
+        }
+        if self.rtp_stats.is_some() {
+            len += 1;
+        }
+        if self.video_layer != 0 {
+            len += 1;
+        }
+        if !self.node_id.is_empty() {
+            len += 1;
+        }
+        if !self.sip_call_id.is_empty() {
+            len += 1;
+        }
+        if self.sip_call.is_some() {
+            len += 1;
+        }
+        if !self.sip_trunk_id.is_empty() {
+            len += 1;
+        }
+        if self.sip_inbound_trunk.is_some() {
+            len += 1;
+        }
+        if self.sip_outbound_trunk.is_some() {
+            len += 1;
+        }
+        if !self.sip_dispatch_rule_id.is_empty() {
+            len += 1;
+        }
+        if self.sip_dispatch_rule.is_some() {
+            len += 1;
+        }
+        if self.sip_transfer.is_some() {
+            len += 1;
+        }
+        if self.report.is_some() {
+            len += 1;
+        }
+        if self.api_call.is_some() {
+            len += 1;
+        }
+        if self.webhook.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsEvent", len)?;
+        if !self.id.is_empty() {
+            struct_ser.serialize_field("id", &self.id)?;
+        }
+        if self.r#type != 0 {
+            let v = AnalyticsEventType::try_from(self.r#type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.r#type)))?;
+            struct_ser.serialize_field("type", &v)?;
+        }
+        if let Some(v) = self.timestamp.as_ref() {
+            struct_ser.serialize_field("timestamp", v)?;
+        }
+        if !self.room_id.is_empty() {
+            struct_ser.serialize_field("roomId", &self.room_id)?;
+        }
+        if let Some(v) = self.room.as_ref() {
+            struct_ser.serialize_field("room", v)?;
+        }
+        if !self.participant_id.is_empty() {
+            struct_ser.serialize_field("participantId", &self.participant_id)?;
+        }
+        if let Some(v) = self.participant.as_ref() {
+            struct_ser.serialize_field("participant", v)?;
+        }
+        if !self.track_id.is_empty() {
+            struct_ser.serialize_field("trackId", &self.track_id)?;
+        }
+        if let Some(v) = self.track.as_ref() {
+            struct_ser.serialize_field("track", v)?;
+        }
+        if !self.analytics_key.is_empty() {
+            struct_ser.serialize_field("analyticsKey", &self.analytics_key)?;
+        }
+        if let Some(v) = self.client_info.as_ref() {
+            struct_ser.serialize_field("clientInfo", v)?;
+        }
+        if let Some(v) = self.client_meta.as_ref() {
+            struct_ser.serialize_field("clientMeta", v)?;
+        }
+        if !self.egress_id.is_empty() {
+            struct_ser.serialize_field("egressId", &self.egress_id)?;
+        }
+        if !self.ingress_id.is_empty() {
+            struct_ser.serialize_field("ingressId", &self.ingress_id)?;
+        }
+        if self.max_subscribed_video_quality != 0 {
+            let v = VideoQuality::try_from(self.max_subscribed_video_quality)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.max_subscribed_video_quality)))?;
+            struct_ser.serialize_field("maxSubscribedVideoQuality", &v)?;
+        }
+        if let Some(v) = self.publisher.as_ref() {
+            struct_ser.serialize_field("publisher", v)?;
+        }
+        if !self.mime.is_empty() {
+            struct_ser.serialize_field("mime", &self.mime)?;
+        }
+        if let Some(v) = self.egress.as_ref() {
+            struct_ser.serialize_field("egress", v)?;
+        }
+        if let Some(v) = self.ingress.as_ref() {
+            struct_ser.serialize_field("ingress", v)?;
+        }
+        if !self.error.is_empty() {
+            struct_ser.serialize_field("error", &self.error)?;
+        }
+        if let Some(v) = self.rtp_stats.as_ref() {
+            struct_ser.serialize_field("rtpStats", v)?;
+        }
+        if self.video_layer != 0 {
+            struct_ser.serialize_field("videoLayer", &self.video_layer)?;
+        }
+        if !self.node_id.is_empty() {
+            struct_ser.serialize_field("nodeId", &self.node_id)?;
+        }
+        if !self.sip_call_id.is_empty() {
+            struct_ser.serialize_field("sipCallId", &self.sip_call_id)?;
+        }
+        if let Some(v) = self.sip_call.as_ref() {
+            struct_ser.serialize_field("sipCall", v)?;
+        }
+        if !self.sip_trunk_id.is_empty() {
+            struct_ser.serialize_field("sipTrunkId", &self.sip_trunk_id)?;
+        }
+        if let Some(v) = self.sip_inbound_trunk.as_ref() {
+            struct_ser.serialize_field("sipInboundTrunk", v)?;
+        }
+        if let Some(v) = self.sip_outbound_trunk.as_ref() {
+            struct_ser.serialize_field("sipOutboundTrunk", v)?;
+        }
+        if !self.sip_dispatch_rule_id.is_empty() {
+            struct_ser.serialize_field("sipDispatchRuleId", &self.sip_dispatch_rule_id)?;
+        }
+        if let Some(v) = self.sip_dispatch_rule.as_ref() {
+            struct_ser.serialize_field("sipDispatchRule", v)?;
+        }
+        if let Some(v) = self.sip_transfer.as_ref() {
+            struct_ser.serialize_field("sipTransfer", v)?;
+        }
+        if let Some(v) = self.report.as_ref() {
+            struct_ser.serialize_field("report", v)?;
+        }
+        if let Some(v) = self.api_call.as_ref() {
+            struct_ser.serialize_field("apiCall", v)?;
+        }
+        if let Some(v) = self.webhook.as_ref() {
+            struct_ser.serialize_field("webhook", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsEvent {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "id",
+            "type",
+            "timestamp",
+            "room_id",
+            "roomId",
+            "room",
+            "participant_id",
+            "participantId",
+            "participant",
+            "track_id",
+            "trackId",
+            "track",
+            "analytics_key",
+            "analyticsKey",
+            "client_info",
+            "clientInfo",
+            "client_meta",
+            "clientMeta",
+            "egress_id",
+            "egressId",
+            "ingress_id",
+            "ingressId",
+            "max_subscribed_video_quality",
+            "maxSubscribedVideoQuality",
+            "publisher",
+            "mime",
+            "egress",
+            "ingress",
+            "error",
+            "rtp_stats",
+            "rtpStats",
+            "video_layer",
+            "videoLayer",
+            "node_id",
+            "nodeId",
+            "sip_call_id",
+            "sipCallId",
+            "sip_call",
+            "sipCall",
+            "sip_trunk_id",
+            "sipTrunkId",
+            "sip_inbound_trunk",
+            "sipInboundTrunk",
+            "sip_outbound_trunk",
+            "sipOutboundTrunk",
+            "sip_dispatch_rule_id",
+            "sipDispatchRuleId",
+            "sip_dispatch_rule",
+            "sipDispatchRule",
+            "sip_transfer",
+            "sipTransfer",
+            "report",
+            "api_call",
+            "apiCall",
+            "webhook",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Id,
+            Type,
+            Timestamp,
+            RoomId,
+            Room,
+            ParticipantId,
+            Participant,
+            TrackId,
+            Track,
+            AnalyticsKey,
+            ClientInfo,
+            ClientMeta,
+            EgressId,
+            IngressId,
+            MaxSubscribedVideoQuality,
+            Publisher,
+            Mime,
+            Egress,
+            Ingress,
+            Error,
+            RtpStats,
+            VideoLayer,
+            NodeId,
+            SipCallId,
+            SipCall,
+            SipTrunkId,
+            SipInboundTrunk,
+            SipOutboundTrunk,
+            SipDispatchRuleId,
+            SipDispatchRule,
+            SipTransfer,
+            Report,
+            ApiCall,
+            Webhook,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "id" => Ok(GeneratedField::Id),
+                            "type" => Ok(GeneratedField::Type),
+                            "timestamp" => Ok(GeneratedField::Timestamp),
+                            "roomId" | "room_id" => Ok(GeneratedField::RoomId),
+                            "room" => Ok(GeneratedField::Room),
+                            "participantId" | "participant_id" => Ok(GeneratedField::ParticipantId),
+                            "participant" => Ok(GeneratedField::Participant),
+                            "trackId" | "track_id" => Ok(GeneratedField::TrackId),
+                            "track" => Ok(GeneratedField::Track),
+                            "analyticsKey" | "analytics_key" => Ok(GeneratedField::AnalyticsKey),
+                            "clientInfo" | "client_info" => Ok(GeneratedField::ClientInfo),
+                            "clientMeta" | "client_meta" => Ok(GeneratedField::ClientMeta),
+                            "egressId" | "egress_id" => Ok(GeneratedField::EgressId),
+                            "ingressId" | "ingress_id" => Ok(GeneratedField::IngressId),
+                            "maxSubscribedVideoQuality" | "max_subscribed_video_quality" => Ok(GeneratedField::MaxSubscribedVideoQuality),
+                            "publisher" => Ok(GeneratedField::Publisher),
+                            "mime" => Ok(GeneratedField::Mime),
+                            "egress" => Ok(GeneratedField::Egress),
+                            "ingress" => Ok(GeneratedField::Ingress),
+                            "error" => Ok(GeneratedField::Error),
+                            "rtpStats" | "rtp_stats" => Ok(GeneratedField::RtpStats),
+                            "videoLayer" | "video_layer" => Ok(GeneratedField::VideoLayer),
+                            "nodeId" | "node_id" => Ok(GeneratedField::NodeId),
+                            "sipCallId" | "sip_call_id" => Ok(GeneratedField::SipCallId),
+                            "sipCall" | "sip_call" => Ok(GeneratedField::SipCall),
+                            "sipTrunkId" | "sip_trunk_id" => Ok(GeneratedField::SipTrunkId),
+                            "sipInboundTrunk" | "sip_inbound_trunk" => Ok(GeneratedField::SipInboundTrunk),
+                            "sipOutboundTrunk" | "sip_outbound_trunk" => Ok(GeneratedField::SipOutboundTrunk),
+                            "sipDispatchRuleId" | "sip_dispatch_rule_id" => Ok(GeneratedField::SipDispatchRuleId),
+                            "sipDispatchRule" | "sip_dispatch_rule" => Ok(GeneratedField::SipDispatchRule),
+                            "sipTransfer" | "sip_transfer" => Ok(GeneratedField::SipTransfer),
+                            "report" => Ok(GeneratedField::Report),
+                            "apiCall" | "api_call" => Ok(GeneratedField::ApiCall),
+                            "webhook" => Ok(GeneratedField::Webhook),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsEvent;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsEvent")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsEvent, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut id__ = None;
+                let mut r#type__ = None;
+                let mut timestamp__ = None;
+                let mut room_id__ = None;
+                let mut room__ = None;
+                let mut participant_id__ = None;
+                let mut participant__ = None;
+                let mut track_id__ = None;
+                let mut track__ = None;
+                let mut analytics_key__ = None;
+                let mut client_info__ = None;
+                let mut client_meta__ = None;
+                let mut egress_id__ = None;
+                let mut ingress_id__ = None;
+                let mut max_subscribed_video_quality__ = None;
+                let mut publisher__ = None;
+                let mut mime__ = None;
+                let mut egress__ = None;
+                let mut ingress__ = None;
+                let mut error__ = None;
+                let mut rtp_stats__ = None;
+                let mut video_layer__ = None;
+                let mut node_id__ = None;
+                let mut sip_call_id__ = None;
+                let mut sip_call__ = None;
+                let mut sip_trunk_id__ = None;
+                let mut sip_inbound_trunk__ = None;
+                let mut sip_outbound_trunk__ = None;
+                let mut sip_dispatch_rule_id__ = None;
+                let mut sip_dispatch_rule__ = None;
+                let mut sip_transfer__ = None;
+                let mut report__ = None;
+                let mut api_call__ = None;
+                let mut webhook__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Id => {
+                            if id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Type => {
+                            if r#type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("type"));
+                            }
+                            r#type__ = Some(map_.next_value::<AnalyticsEventType>()? as i32);
+                        }
+                        GeneratedField::Timestamp => {
+                            if timestamp__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timestamp"));
+                            }
+                            timestamp__ = map_.next_value()?;
+                        }
+                        GeneratedField::RoomId => {
+                            if room_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomId"));
+                            }
+                            room_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Room => {
+                            if room__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("room"));
+                            }
+                            room__ = map_.next_value()?;
+                        }
+                        GeneratedField::ParticipantId => {
+                            if participant_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantId"));
+                            }
+                            participant_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Participant => {
+                            if participant__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participant"));
+                            }
+                            participant__ = map_.next_value()?;
+                        }
+                        GeneratedField::TrackId => {
+                            if track_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("trackId"));
+                            }
+                            track_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Track => {
+                            if track__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("track"));
+                            }
+                            track__ = map_.next_value()?;
+                        }
+                        GeneratedField::AnalyticsKey => {
+                            if analytics_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("analyticsKey"));
+                            }
+                            analytics_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ClientInfo => {
+                            if client_info__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientInfo"));
+                            }
+                            client_info__ = map_.next_value()?;
+                        }
+                        GeneratedField::ClientMeta => {
+                            if client_meta__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientMeta"));
+                            }
+                            client_meta__ = map_.next_value()?;
+                        }
+                        GeneratedField::EgressId => {
+                            if egress_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("egressId"));
+                            }
+                            egress_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::IngressId => {
+                            if ingress_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ingressId"));
+                            }
+                            ingress_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::MaxSubscribedVideoQuality => {
+                            if max_subscribed_video_quality__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("maxSubscribedVideoQuality"));
+                            }
+                            max_subscribed_video_quality__ = Some(map_.next_value::<VideoQuality>()? as i32);
+                        }
+                        GeneratedField::Publisher => {
+                            if publisher__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("publisher"));
+                            }
+                            publisher__ = map_.next_value()?;
+                        }
+                        GeneratedField::Mime => {
+                            if mime__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mime"));
+                            }
+                            mime__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Egress => {
+                            if egress__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("egress"));
+                            }
+                            egress__ = map_.next_value()?;
+                        }
+                        GeneratedField::Ingress => {
+                            if ingress__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ingress"));
+                            }
+                            ingress__ = map_.next_value()?;
+                        }
+                        GeneratedField::Error => {
+                            if error__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("error"));
+                            }
+                            error__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RtpStats => {
+                            if rtp_stats__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("rtpStats"));
+                            }
+                            rtp_stats__ = map_.next_value()?;
+                        }
+                        GeneratedField::VideoLayer => {
+                            if video_layer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("videoLayer"));
+                            }
+                            video_layer__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::NodeId => {
+                            if node_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nodeId"));
+                            }
+                            node_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SipCallId => {
+                            if sip_call_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipCallId"));
+                            }
+                            sip_call_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SipCall => {
+                            if sip_call__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipCall"));
+                            }
+                            sip_call__ = map_.next_value()?;
+                        }
+                        GeneratedField::SipTrunkId => {
+                            if sip_trunk_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipTrunkId"));
+                            }
+                            sip_trunk_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SipInboundTrunk => {
+                            if sip_inbound_trunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipInboundTrunk"));
+                            }
+                            sip_inbound_trunk__ = map_.next_value()?;
+                        }
+                        GeneratedField::SipOutboundTrunk => {
+                            if sip_outbound_trunk__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipOutboundTrunk"));
+                            }
+                            sip_outbound_trunk__ = map_.next_value()?;
+                        }
+                        GeneratedField::SipDispatchRuleId => {
+                            if sip_dispatch_rule_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipDispatchRuleId"));
+                            }
+                            sip_dispatch_rule_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SipDispatchRule => {
+                            if sip_dispatch_rule__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipDispatchRule"));
+                            }
+                            sip_dispatch_rule__ = map_.next_value()?;
+                        }
+                        GeneratedField::SipTransfer => {
+                            if sip_transfer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipTransfer"));
+                            }
+                            sip_transfer__ = map_.next_value()?;
+                        }
+                        GeneratedField::Report => {
+                            if report__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("report"));
+                            }
+                            report__ = map_.next_value()?;
+                        }
+                        GeneratedField::ApiCall => {
+                            if api_call__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("apiCall"));
+                            }
+                            api_call__ = map_.next_value()?;
+                        }
+                        GeneratedField::Webhook => {
+                            if webhook__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("webhook"));
+                            }
+                            webhook__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsEvent {
+                    id: id__.unwrap_or_default(),
+                    r#type: r#type__.unwrap_or_default(),
+                    timestamp: timestamp__,
+                    room_id: room_id__.unwrap_or_default(),
+                    room: room__,
+                    participant_id: participant_id__.unwrap_or_default(),
+                    participant: participant__,
+                    track_id: track_id__.unwrap_or_default(),
+                    track: track__,
+                    analytics_key: analytics_key__.unwrap_or_default(),
+                    client_info: client_info__,
+                    client_meta: client_meta__,
+                    egress_id: egress_id__.unwrap_or_default(),
+                    ingress_id: ingress_id__.unwrap_or_default(),
+                    max_subscribed_video_quality: max_subscribed_video_quality__.unwrap_or_default(),
+                    publisher: publisher__,
+                    mime: mime__.unwrap_or_default(),
+                    egress: egress__,
+                    ingress: ingress__,
+                    error: error__.unwrap_or_default(),
+                    rtp_stats: rtp_stats__,
+                    video_layer: video_layer__.unwrap_or_default(),
+                    node_id: node_id__.unwrap_or_default(),
+                    sip_call_id: sip_call_id__.unwrap_or_default(),
+                    sip_call: sip_call__,
+                    sip_trunk_id: sip_trunk_id__.unwrap_or_default(),
+                    sip_inbound_trunk: sip_inbound_trunk__,
+                    sip_outbound_trunk: sip_outbound_trunk__,
+                    sip_dispatch_rule_id: sip_dispatch_rule_id__.unwrap_or_default(),
+                    sip_dispatch_rule: sip_dispatch_rule__,
+                    sip_transfer: sip_transfer__,
+                    report: report__,
+                    api_call: api_call__,
+                    webhook: webhook__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsEvent", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsEventType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::RoomCreated => "ROOM_CREATED",
+            Self::RoomEnded => "ROOM_ENDED",
+            Self::ParticipantJoined => "PARTICIPANT_JOINED",
+            Self::ParticipantLeft => "PARTICIPANT_LEFT",
+            Self::ParticipantConnectionAborted => "PARTICIPANT_CONNECTION_ABORTED",
+            Self::TrackPublished => "TRACK_PUBLISHED",
+            Self::TrackPublishRequested => "TRACK_PUBLISH_REQUESTED",
+            Self::TrackUnpublished => "TRACK_UNPUBLISHED",
+            Self::TrackSubscribed => "TRACK_SUBSCRIBED",
+            Self::TrackSubscribeRequested => "TRACK_SUBSCRIBE_REQUESTED",
+            Self::TrackSubscribeFailed => "TRACK_SUBSCRIBE_FAILED",
+            Self::TrackUnsubscribed => "TRACK_UNSUBSCRIBED",
+            Self::TrackPublishedUpdate => "TRACK_PUBLISHED_UPDATE",
+            Self::TrackMuted => "TRACK_MUTED",
+            Self::TrackUnmuted => "TRACK_UNMUTED",
+            Self::TrackPublishStats => "TRACK_PUBLISH_STATS",
+            Self::TrackSubscribeStats => "TRACK_SUBSCRIBE_STATS",
+            Self::ParticipantActive => "PARTICIPANT_ACTIVE",
+            Self::ParticipantResumed => "PARTICIPANT_RESUMED",
+            Self::EgressStarted => "EGRESS_STARTED",
+            Self::EgressEnded => "EGRESS_ENDED",
+            Self::EgressUpdated => "EGRESS_UPDATED",
+            Self::TrackMaxSubscribedVideoQuality => "TRACK_MAX_SUBSCRIBED_VIDEO_QUALITY",
+            Self::Reconnected => "RECONNECTED",
+            Self::IngressCreated => "INGRESS_CREATED",
+            Self::IngressDeleted => "INGRESS_DELETED",
+            Self::IngressStarted => "INGRESS_STARTED",
+            Self::IngressEnded => "INGRESS_ENDED",
+            Self::IngressUpdated => "INGRESS_UPDATED",
+            Self::SipInboundTrunkCreated => "SIP_INBOUND_TRUNK_CREATED",
+            Self::SipInboundTrunkDeleted => "SIP_INBOUND_TRUNK_DELETED",
+            Self::SipOutboundTrunkCreated => "SIP_OUTBOUND_TRUNK_CREATED",
+            Self::SipOutboundTrunkDeleted => "SIP_OUTBOUND_TRUNK_DELETED",
+            Self::SipDispatchRuleCreated => "SIP_DISPATCH_RULE_CREATED",
+            Self::SipDispatchRuleDeleted => "SIP_DISPATCH_RULE_DELETED",
+            Self::SipParticipantCreated => "SIP_PARTICIPANT_CREATED",
+            Self::SipCallIncoming => "SIP_CALL_INCOMING",
+            Self::SipCallStarted => "SIP_CALL_STARTED",
+            Self::SipCallEnded => "SIP_CALL_ENDED",
+            Self::SipTransferRequested => "SIP_TRANSFER_REQUESTED",
+            Self::SipTransferComplete => "SIP_TRANSFER_COMPLETE",
+            Self::SipCallUpdate => "SIP_CALL_UPDATE",
+            Self::Report => "REPORT",
+            Self::ApiCall => "API_CALL",
+            Self::Webhook => "WEBHOOK",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsEventType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ROOM_CREATED",
+            "ROOM_ENDED",
+            "PARTICIPANT_JOINED",
+            "PARTICIPANT_LEFT",
+            "PARTICIPANT_CONNECTION_ABORTED",
+            "TRACK_PUBLISHED",
+            "TRACK_PUBLISH_REQUESTED",
+            "TRACK_UNPUBLISHED",
+            "TRACK_SUBSCRIBED",
+            "TRACK_SUBSCRIBE_REQUESTED",
+            "TRACK_SUBSCRIBE_FAILED",
+            "TRACK_UNSUBSCRIBED",
+            "TRACK_PUBLISHED_UPDATE",
+            "TRACK_MUTED",
+            "TRACK_UNMUTED",
+            "TRACK_PUBLISH_STATS",
+            "TRACK_SUBSCRIBE_STATS",
+            "PARTICIPANT_ACTIVE",
+            "PARTICIPANT_RESUMED",
+            "EGRESS_STARTED",
+            "EGRESS_ENDED",
+            "EGRESS_UPDATED",
+            "TRACK_MAX_SUBSCRIBED_VIDEO_QUALITY",
+            "RECONNECTED",
+            "INGRESS_CREATED",
+            "INGRESS_DELETED",
+            "INGRESS_STARTED",
+            "INGRESS_ENDED",
+            "INGRESS_UPDATED",
+            "SIP_INBOUND_TRUNK_CREATED",
+            "SIP_INBOUND_TRUNK_DELETED",
+            "SIP_OUTBOUND_TRUNK_CREATED",
+            "SIP_OUTBOUND_TRUNK_DELETED",
+            "SIP_DISPATCH_RULE_CREATED",
+            "SIP_DISPATCH_RULE_DELETED",
+            "SIP_PARTICIPANT_CREATED",
+            "SIP_CALL_INCOMING",
+            "SIP_CALL_STARTED",
+            "SIP_CALL_ENDED",
+            "SIP_TRANSFER_REQUESTED",
+            "SIP_TRANSFER_COMPLETE",
+            "SIP_CALL_UPDATE",
+            "REPORT",
+            "API_CALL",
+            "WEBHOOK",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsEventType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "ROOM_CREATED" => Ok(AnalyticsEventType::RoomCreated),
+                    "ROOM_ENDED" => Ok(AnalyticsEventType::RoomEnded),
+                    "PARTICIPANT_JOINED" => Ok(AnalyticsEventType::ParticipantJoined),
+                    "PARTICIPANT_LEFT" => Ok(AnalyticsEventType::ParticipantLeft),
+                    "PARTICIPANT_CONNECTION_ABORTED" => Ok(AnalyticsEventType::ParticipantConnectionAborted),
+                    "TRACK_PUBLISHED" => Ok(AnalyticsEventType::TrackPublished),
+                    "TRACK_PUBLISH_REQUESTED" => Ok(AnalyticsEventType::TrackPublishRequested),
+                    "TRACK_UNPUBLISHED" => Ok(AnalyticsEventType::TrackUnpublished),
+                    "TRACK_SUBSCRIBED" => Ok(AnalyticsEventType::TrackSubscribed),
+                    "TRACK_SUBSCRIBE_REQUESTED" => Ok(AnalyticsEventType::TrackSubscribeRequested),
+                    "TRACK_SUBSCRIBE_FAILED" => Ok(AnalyticsEventType::TrackSubscribeFailed),
+                    "TRACK_UNSUBSCRIBED" => Ok(AnalyticsEventType::TrackUnsubscribed),
+                    "TRACK_PUBLISHED_UPDATE" => Ok(AnalyticsEventType::TrackPublishedUpdate),
+                    "TRACK_MUTED" => Ok(AnalyticsEventType::TrackMuted),
+                    "TRACK_UNMUTED" => Ok(AnalyticsEventType::TrackUnmuted),
+                    "TRACK_PUBLISH_STATS" => Ok(AnalyticsEventType::TrackPublishStats),
+                    "TRACK_SUBSCRIBE_STATS" => Ok(AnalyticsEventType::TrackSubscribeStats),
+                    "PARTICIPANT_ACTIVE" => Ok(AnalyticsEventType::ParticipantActive),
+                    "PARTICIPANT_RESUMED" => Ok(AnalyticsEventType::ParticipantResumed),
+                    "EGRESS_STARTED" => Ok(AnalyticsEventType::EgressStarted),
+                    "EGRESS_ENDED" => Ok(AnalyticsEventType::EgressEnded),
+                    "EGRESS_UPDATED" => Ok(AnalyticsEventType::EgressUpdated),
+                    "TRACK_MAX_SUBSCRIBED_VIDEO_QUALITY" => Ok(AnalyticsEventType::TrackMaxSubscribedVideoQuality),
+                    "RECONNECTED" => Ok(AnalyticsEventType::Reconnected),
+                    "INGRESS_CREATED" => Ok(AnalyticsEventType::IngressCreated),
+                    "INGRESS_DELETED" => Ok(AnalyticsEventType::IngressDeleted),
+                    "INGRESS_STARTED" => Ok(AnalyticsEventType::IngressStarted),
+                    "INGRESS_ENDED" => Ok(AnalyticsEventType::IngressEnded),
+                    "INGRESS_UPDATED" => Ok(AnalyticsEventType::IngressUpdated),
+                    "SIP_INBOUND_TRUNK_CREATED" => Ok(AnalyticsEventType::SipInboundTrunkCreated),
+                    "SIP_INBOUND_TRUNK_DELETED" => Ok(AnalyticsEventType::SipInboundTrunkDeleted),
+                    "SIP_OUTBOUND_TRUNK_CREATED" => Ok(AnalyticsEventType::SipOutboundTrunkCreated),
+                    "SIP_OUTBOUND_TRUNK_DELETED" => Ok(AnalyticsEventType::SipOutboundTrunkDeleted),
+                    "SIP_DISPATCH_RULE_CREATED" => Ok(AnalyticsEventType::SipDispatchRuleCreated),
+                    "SIP_DISPATCH_RULE_DELETED" => Ok(AnalyticsEventType::SipDispatchRuleDeleted),
+                    "SIP_PARTICIPANT_CREATED" => Ok(AnalyticsEventType::SipParticipantCreated),
+                    "SIP_CALL_INCOMING" => Ok(AnalyticsEventType::SipCallIncoming),
+                    "SIP_CALL_STARTED" => Ok(AnalyticsEventType::SipCallStarted),
+                    "SIP_CALL_ENDED" => Ok(AnalyticsEventType::SipCallEnded),
+                    "SIP_TRANSFER_REQUESTED" => Ok(AnalyticsEventType::SipTransferRequested),
+                    "SIP_TRANSFER_COMPLETE" => Ok(AnalyticsEventType::SipTransferComplete),
+                    "SIP_CALL_UPDATE" => Ok(AnalyticsEventType::SipCallUpdate),
+                    "REPORT" => Ok(AnalyticsEventType::Report),
+                    "API_CALL" => Ok(AnalyticsEventType::ApiCall),
+                    "WEBHOOK" => Ok(AnalyticsEventType::Webhook),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsEvents {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.events.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsEvents", len)?;
+        if !self.events.is_empty() {
+            struct_ser.serialize_field("events", &self.events)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsEvents {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "events",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Events,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "events" => Ok(GeneratedField::Events),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsEvents;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsEvents")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsEvents, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut events__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Events => {
+                            if events__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("events"));
+                            }
+                            events__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsEvents {
+                    events: events__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsEvents", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsNodeRooms {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.node_id.is_empty() {
+            len += 1;
+        }
+        if self.sequence_number != 0 {
+            len += 1;
+        }
+        if self.timestamp.is_some() {
+            len += 1;
+        }
+        if !self.rooms.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsNodeRooms", len)?;
+        if !self.node_id.is_empty() {
+            struct_ser.serialize_field("nodeId", &self.node_id)?;
+        }
+        if self.sequence_number != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sequenceNumber", ToString::to_string(&self.sequence_number).as_str())?;
+        }
+        if let Some(v) = self.timestamp.as_ref() {
+            struct_ser.serialize_field("timestamp", v)?;
+        }
+        if !self.rooms.is_empty() {
+            struct_ser.serialize_field("rooms", &self.rooms)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsNodeRooms {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "node_id",
+            "nodeId",
+            "sequence_number",
+            "sequenceNumber",
+            "timestamp",
+            "rooms",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            NodeId,
+            SequenceNumber,
+            Timestamp,
+            Rooms,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "nodeId" | "node_id" => Ok(GeneratedField::NodeId),
+                            "sequenceNumber" | "sequence_number" => Ok(GeneratedField::SequenceNumber),
+                            "timestamp" => Ok(GeneratedField::Timestamp),
+                            "rooms" => Ok(GeneratedField::Rooms),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsNodeRooms;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsNodeRooms")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsNodeRooms, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut node_id__ = None;
+                let mut sequence_number__ = None;
+                let mut timestamp__ = None;
+                let mut rooms__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::NodeId => {
+                            if node_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nodeId"));
+                            }
+                            node_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SequenceNumber => {
+                            if sequence_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sequenceNumber"));
+                            }
+                            sequence_number__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Timestamp => {
+                            if timestamp__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timestamp"));
+                            }
+                            timestamp__ = map_.next_value()?;
+                        }
+                        GeneratedField::Rooms => {
+                            if rooms__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("rooms"));
+                            }
+                            rooms__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsNodeRooms {
+                    node_id: node_id__.unwrap_or_default(),
+                    sequence_number: sequence_number__.unwrap_or_default(),
+                    timestamp: timestamp__,
+                    rooms: rooms__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsNodeRooms", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsRoom {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.id.is_empty() {
+            len += 1;
+        }
+        if !self.name.is_empty() {
+            len += 1;
+        }
+        if !self.project_id.is_empty() {
+            len += 1;
+        }
+        if self.created_at.is_some() {
+            len += 1;
+        }
+        if !self.participants.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsRoom", len)?;
+        if !self.id.is_empty() {
+            struct_ser.serialize_field("id", &self.id)?;
+        }
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
+        }
+        if !self.project_id.is_empty() {
+            struct_ser.serialize_field("projectId", &self.project_id)?;
+        }
+        if let Some(v) = self.created_at.as_ref() {
+            struct_ser.serialize_field("createdAt", v)?;
+        }
+        if !self.participants.is_empty() {
+            struct_ser.serialize_field("participants", &self.participants)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsRoom {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "id",
+            "name",
+            "project_id",
+            "projectId",
+            "created_at",
+            "createdAt",
+            "participants",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Id,
+            Name,
+            ProjectId,
+            CreatedAt,
+            Participants,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "id" => Ok(GeneratedField::Id),
+                            "name" => Ok(GeneratedField::Name),
+                            "projectId" | "project_id" => Ok(GeneratedField::ProjectId),
+                            "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
+                            "participants" => Ok(GeneratedField::Participants),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsRoom;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsRoom")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsRoom, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut id__ = None;
+                let mut name__ = None;
+                let mut project_id__ = None;
+                let mut created_at__ = None;
+                let mut participants__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Id => {
+                            if id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Name => {
+                            if name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ProjectId => {
+                            if project_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("projectId"));
+                            }
+                            project_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::CreatedAt => {
+                            if created_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createdAt"));
+                            }
+                            created_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::Participants => {
+                            if participants__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participants"));
+                            }
+                            participants__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsRoom {
+                    id: id__.unwrap_or_default(),
+                    name: name__.unwrap_or_default(),
+                    project_id: project_id__.unwrap_or_default(),
+                    created_at: created_at__,
+                    participants: participants__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsRoom", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsRoomParticipant {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.id.is_empty() {
+            len += 1;
+        }
+        if !self.identity.is_empty() {
+            len += 1;
+        }
+        if !self.name.is_empty() {
+            len += 1;
+        }
+        if self.state != 0 {
+            len += 1;
+        }
+        if self.joined_at.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsRoomParticipant", len)?;
+        if !self.id.is_empty() {
+            struct_ser.serialize_field("id", &self.id)?;
+        }
+        if !self.identity.is_empty() {
+            struct_ser.serialize_field("identity", &self.identity)?;
+        }
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
+        }
+        if self.state != 0 {
+            let v = participant_info::State::try_from(self.state)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.state)))?;
+            struct_ser.serialize_field("state", &v)?;
+        }
+        if let Some(v) = self.joined_at.as_ref() {
+            struct_ser.serialize_field("joinedAt", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsRoomParticipant {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "id",
+            "identity",
+            "name",
+            "state",
+            "joined_at",
+            "joinedAt",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Id,
+            Identity,
+            Name,
+            State,
+            JoinedAt,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "id" => Ok(GeneratedField::Id),
+                            "identity" => Ok(GeneratedField::Identity),
+                            "name" => Ok(GeneratedField::Name),
+                            "state" => Ok(GeneratedField::State),
+                            "joinedAt" | "joined_at" => Ok(GeneratedField::JoinedAt),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsRoomParticipant;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsRoomParticipant")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsRoomParticipant, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut id__ = None;
+                let mut identity__ = None;
+                let mut name__ = None;
+                let mut state__ = None;
+                let mut joined_at__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Id => {
+                            if id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Identity => {
+                            if identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("identity"));
+                            }
+                            identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Name => {
+                            if name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::State => {
+                            if state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("state"));
+                            }
+                            state__ = Some(map_.next_value::<participant_info::State>()? as i32);
+                        }
+                        GeneratedField::JoinedAt => {
+                            if joined_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("joinedAt"));
+                            }
+                            joined_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsRoomParticipant {
+                    id: id__.unwrap_or_default(),
+                    identity: identity__.unwrap_or_default(),
+                    name: name__.unwrap_or_default(),
+                    state: state__.unwrap_or_default(),
+                    joined_at: joined_at__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsRoomParticipant", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsStat {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.id.is_empty() {
+            len += 1;
+        }
+        if !self.analytics_key.is_empty() {
+            len += 1;
+        }
+        if self.kind != 0 {
+            len += 1;
+        }
+        if self.time_stamp.is_some() {
+            len += 1;
+        }
+        if !self.node.is_empty() {
+            len += 1;
+        }
+        if !self.room_id.is_empty() {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        if !self.participant_id.is_empty() {
+            len += 1;
+        }
+        if !self.track_id.is_empty() {
+            len += 1;
+        }
+        if self.score != 0. {
+            len += 1;
+        }
+        if !self.streams.is_empty() {
+            len += 1;
+        }
+        if !self.mime.is_empty() {
+            len += 1;
+        }
+        if self.min_score != 0. {
+            len += 1;
+        }
+        if self.median_score != 0. {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsStat", len)?;
+        if !self.id.is_empty() {
+            struct_ser.serialize_field("id", &self.id)?;
+        }
+        if !self.analytics_key.is_empty() {
+            struct_ser.serialize_field("analyticsKey", &self.analytics_key)?;
+        }
+        if self.kind != 0 {
+            let v = StreamType::try_from(self.kind)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.kind)))?;
+            struct_ser.serialize_field("kind", &v)?;
+        }
+        if let Some(v) = self.time_stamp.as_ref() {
+            struct_ser.serialize_field("timeStamp", v)?;
+        }
+        if !self.node.is_empty() {
+            struct_ser.serialize_field("node", &self.node)?;
+        }
+        if !self.room_id.is_empty() {
+            struct_ser.serialize_field("roomId", &self.room_id)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        if !self.participant_id.is_empty() {
+            struct_ser.serialize_field("participantId", &self.participant_id)?;
+        }
+        if !self.track_id.is_empty() {
+            struct_ser.serialize_field("trackId", &self.track_id)?;
+        }
+        if self.score != 0. {
+            struct_ser.serialize_field("score", &self.score)?;
+        }
+        if !self.streams.is_empty() {
+            struct_ser.serialize_field("streams", &self.streams)?;
+        }
+        if !self.mime.is_empty() {
+            struct_ser.serialize_field("mime", &self.mime)?;
+        }
+        if self.min_score != 0. {
+            struct_ser.serialize_field("minScore", &self.min_score)?;
+        }
+        if self.median_score != 0. {
+            struct_ser.serialize_field("medianScore", &self.median_score)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsStat {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "id",
+            "analytics_key",
+            "analyticsKey",
+            "kind",
+            "time_stamp",
+            "timeStamp",
+            "node",
+            "room_id",
+            "roomId",
+            "room_name",
+            "roomName",
+            "participant_id",
+            "participantId",
+            "track_id",
+            "trackId",
+            "score",
+            "streams",
+            "mime",
+            "min_score",
+            "minScore",
+            "median_score",
+            "medianScore",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Id,
+            AnalyticsKey,
+            Kind,
+            TimeStamp,
+            Node,
+            RoomId,
+            RoomName,
+            ParticipantId,
+            TrackId,
+            Score,
+            Streams,
+            Mime,
+            MinScore,
+            MedianScore,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "id" => Ok(GeneratedField::Id),
+                            "analyticsKey" | "analytics_key" => Ok(GeneratedField::AnalyticsKey),
+                            "kind" => Ok(GeneratedField::Kind),
+                            "timeStamp" | "time_stamp" => Ok(GeneratedField::TimeStamp),
+                            "node" => Ok(GeneratedField::Node),
+                            "roomId" | "room_id" => Ok(GeneratedField::RoomId),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            "participantId" | "participant_id" => Ok(GeneratedField::ParticipantId),
+                            "trackId" | "track_id" => Ok(GeneratedField::TrackId),
+                            "score" => Ok(GeneratedField::Score),
+                            "streams" => Ok(GeneratedField::Streams),
+                            "mime" => Ok(GeneratedField::Mime),
+                            "minScore" | "min_score" => Ok(GeneratedField::MinScore),
+                            "medianScore" | "median_score" => Ok(GeneratedField::MedianScore),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsStat;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsStat")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsStat, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut id__ = None;
+                let mut analytics_key__ = None;
+                let mut kind__ = None;
+                let mut time_stamp__ = None;
+                let mut node__ = None;
+                let mut room_id__ = None;
+                let mut room_name__ = None;
+                let mut participant_id__ = None;
+                let mut track_id__ = None;
+                let mut score__ = None;
+                let mut streams__ = None;
+                let mut mime__ = None;
+                let mut min_score__ = None;
+                let mut median_score__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Id => {
+                            if id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::AnalyticsKey => {
+                            if analytics_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("analyticsKey"));
+                            }
+                            analytics_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Kind => {
+                            if kind__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("kind"));
+                            }
+                            kind__ = Some(map_.next_value::<StreamType>()? as i32);
+                        }
+                        GeneratedField::TimeStamp => {
+                            if time_stamp__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timeStamp"));
+                            }
+                            time_stamp__ = map_.next_value()?;
+                        }
+                        GeneratedField::Node => {
+                            if node__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("node"));
+                            }
+                            node__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomId => {
+                            if room_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomId"));
+                            }
+                            room_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantId => {
+                            if participant_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantId"));
+                            }
+                            participant_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TrackId => {
+                            if track_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("trackId"));
+                            }
+                            track_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Score => {
+                            if score__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("score"));
+                            }
+                            score__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Streams => {
+                            if streams__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("streams"));
+                            }
+                            streams__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Mime => {
+                            if mime__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mime"));
+                            }
+                            mime__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::MinScore => {
+                            if min_score__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("minScore"));
+                            }
+                            min_score__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::MedianScore => {
+                            if median_score__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("medianScore"));
+                            }
+                            median_score__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsStat {
+                    id: id__.unwrap_or_default(),
+                    analytics_key: analytics_key__.unwrap_or_default(),
+                    kind: kind__.unwrap_or_default(),
+                    time_stamp: time_stamp__,
+                    node: node__.unwrap_or_default(),
+                    room_id: room_id__.unwrap_or_default(),
+                    room_name: room_name__.unwrap_or_default(),
+                    participant_id: participant_id__.unwrap_or_default(),
+                    track_id: track_id__.unwrap_or_default(),
+                    score: score__.unwrap_or_default(),
+                    streams: streams__.unwrap_or_default(),
+                    mime: mime__.unwrap_or_default(),
+                    min_score: min_score__.unwrap_or_default(),
+                    median_score: median_score__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsStat", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsStats {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.stats.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsStats", len)?;
+        if !self.stats.is_empty() {
+            struct_ser.serialize_field("stats", &self.stats)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsStats {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "stats",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Stats,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "stats" => Ok(GeneratedField::Stats),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsStats;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsStats")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsStats, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut stats__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Stats => {
+                            if stats__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("stats"));
+                            }
+                            stats__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsStats {
+                    stats: stats__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsStats", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsStream {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.ssrc != 0 {
+            len += 1;
+        }
+        if self.primary_packets != 0 {
+            len += 1;
+        }
+        if self.primary_bytes != 0 {
+            len += 1;
+        }
+        if self.retransmit_packets != 0 {
+            len += 1;
+        }
+        if self.retransmit_bytes != 0 {
+            len += 1;
+        }
+        if self.padding_packets != 0 {
+            len += 1;
+        }
+        if self.padding_bytes != 0 {
+            len += 1;
+        }
+        if self.packets_lost != 0 {
+            len += 1;
+        }
+        if self.frames != 0 {
+            len += 1;
+        }
+        if self.rtt != 0 {
+            len += 1;
+        }
+        if self.jitter != 0 {
+            len += 1;
+        }
+        if self.nacks != 0 {
+            len += 1;
+        }
+        if self.plis != 0 {
+            len += 1;
+        }
+        if self.firs != 0 {
+            len += 1;
+        }
+        if !self.video_layers.is_empty() {
+            len += 1;
+        }
+        if self.start_time.is_some() {
+            len += 1;
+        }
+        if self.end_time.is_some() {
+            len += 1;
+        }
+        if self.packets_out_of_order != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsStream", len)?;
+        if self.ssrc != 0 {
+            struct_ser.serialize_field("ssrc", &self.ssrc)?;
+        }
+        if self.primary_packets != 0 {
+            struct_ser.serialize_field("primaryPackets", &self.primary_packets)?;
+        }
+        if self.primary_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("primaryBytes", ToString::to_string(&self.primary_bytes).as_str())?;
+        }
+        if self.retransmit_packets != 0 {
+            struct_ser.serialize_field("retransmitPackets", &self.retransmit_packets)?;
+        }
+        if self.retransmit_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("retransmitBytes", ToString::to_string(&self.retransmit_bytes).as_str())?;
+        }
+        if self.padding_packets != 0 {
+            struct_ser.serialize_field("paddingPackets", &self.padding_packets)?;
+        }
+        if self.padding_bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("paddingBytes", ToString::to_string(&self.padding_bytes).as_str())?;
+        }
+        if self.packets_lost != 0 {
+            struct_ser.serialize_field("packetsLost", &self.packets_lost)?;
+        }
+        if self.frames != 0 {
+            struct_ser.serialize_field("frames", &self.frames)?;
+        }
+        if self.rtt != 0 {
+            struct_ser.serialize_field("rtt", &self.rtt)?;
+        }
+        if self.jitter != 0 {
+            struct_ser.serialize_field("jitter", &self.jitter)?;
+        }
+        if self.nacks != 0 {
+            struct_ser.serialize_field("nacks", &self.nacks)?;
+        }
+        if self.plis != 0 {
+            struct_ser.serialize_field("plis", &self.plis)?;
+        }
+        if self.firs != 0 {
+            struct_ser.serialize_field("firs", &self.firs)?;
+        }
+        if !self.video_layers.is_empty() {
+            struct_ser.serialize_field("videoLayers", &self.video_layers)?;
+        }
+        if let Some(v) = self.start_time.as_ref() {
+            struct_ser.serialize_field("startTime", v)?;
+        }
+        if let Some(v) = self.end_time.as_ref() {
+            struct_ser.serialize_field("endTime", v)?;
+        }
+        if self.packets_out_of_order != 0 {
+            struct_ser.serialize_field("packetsOutOfOrder", &self.packets_out_of_order)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsStream {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "ssrc",
+            "primary_packets",
+            "primaryPackets",
+            "primary_bytes",
+            "primaryBytes",
+            "retransmit_packets",
+            "retransmitPackets",
+            "retransmit_bytes",
+            "retransmitBytes",
+            "padding_packets",
+            "paddingPackets",
+            "padding_bytes",
+            "paddingBytes",
+            "packets_lost",
+            "packetsLost",
+            "frames",
+            "rtt",
+            "jitter",
+            "nacks",
+            "plis",
+            "firs",
+            "video_layers",
+            "videoLayers",
+            "start_time",
+            "startTime",
+            "end_time",
+            "endTime",
+            "packets_out_of_order",
+            "packetsOutOfOrder",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Ssrc,
+            PrimaryPackets,
+            PrimaryBytes,
+            RetransmitPackets,
+            RetransmitBytes,
+            PaddingPackets,
+            PaddingBytes,
+            PacketsLost,
+            Frames,
+            Rtt,
+            Jitter,
+            Nacks,
+            Plis,
+            Firs,
+            VideoLayers,
+            StartTime,
+            EndTime,
+            PacketsOutOfOrder,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "ssrc" => Ok(GeneratedField::Ssrc),
+                            "primaryPackets" | "primary_packets" => Ok(GeneratedField::PrimaryPackets),
+                            "primaryBytes" | "primary_bytes" => Ok(GeneratedField::PrimaryBytes),
+                            "retransmitPackets" | "retransmit_packets" => Ok(GeneratedField::RetransmitPackets),
+                            "retransmitBytes" | "retransmit_bytes" => Ok(GeneratedField::RetransmitBytes),
+                            "paddingPackets" | "padding_packets" => Ok(GeneratedField::PaddingPackets),
+                            "paddingBytes" | "padding_bytes" => Ok(GeneratedField::PaddingBytes),
+                            "packetsLost" | "packets_lost" => Ok(GeneratedField::PacketsLost),
+                            "frames" => Ok(GeneratedField::Frames),
+                            "rtt" => Ok(GeneratedField::Rtt),
+                            "jitter" => Ok(GeneratedField::Jitter),
+                            "nacks" => Ok(GeneratedField::Nacks),
+                            "plis" => Ok(GeneratedField::Plis),
+                            "firs" => Ok(GeneratedField::Firs),
+                            "videoLayers" | "video_layers" => Ok(GeneratedField::VideoLayers),
+                            "startTime" | "start_time" => Ok(GeneratedField::StartTime),
+                            "endTime" | "end_time" => Ok(GeneratedField::EndTime),
+                            "packetsOutOfOrder" | "packets_out_of_order" => Ok(GeneratedField::PacketsOutOfOrder),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsStream;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsStream")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsStream, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut ssrc__ = None;
+                let mut primary_packets__ = None;
+                let mut primary_bytes__ = None;
+                let mut retransmit_packets__ = None;
+                let mut retransmit_bytes__ = None;
+                let mut padding_packets__ = None;
+                let mut padding_bytes__ = None;
+                let mut packets_lost__ = None;
+                let mut frames__ = None;
+                let mut rtt__ = None;
+                let mut jitter__ = None;
+                let mut nacks__ = None;
+                let mut plis__ = None;
+                let mut firs__ = None;
+                let mut video_layers__ = None;
+                let mut start_time__ = None;
+                let mut end_time__ = None;
+                let mut packets_out_of_order__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Ssrc => {
+                            if ssrc__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ssrc"));
+                            }
+                            ssrc__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::PrimaryPackets => {
+                            if primary_packets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("primaryPackets"));
+                            }
+                            primary_packets__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::PrimaryBytes => {
+                            if primary_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("primaryBytes"));
+                            }
+                            primary_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::RetransmitPackets => {
+                            if retransmit_packets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("retransmitPackets"));
+                            }
+                            retransmit_packets__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::RetransmitBytes => {
+                            if retransmit_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("retransmitBytes"));
+                            }
+                            retransmit_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::PaddingPackets => {
+                            if padding_packets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("paddingPackets"));
+                            }
+                            padding_packets__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::PaddingBytes => {
+                            if padding_bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("paddingBytes"));
+                            }
+                            padding_bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::PacketsLost => {
+                            if packets_lost__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("packetsLost"));
+                            }
+                            packets_lost__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Frames => {
+                            if frames__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("frames"));
+                            }
+                            frames__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Rtt => {
+                            if rtt__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("rtt"));
+                            }
+                            rtt__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Jitter => {
+                            if jitter__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("jitter"));
+                            }
+                            jitter__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Nacks => {
+                            if nacks__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nacks"));
+                            }
+                            nacks__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Plis => {
+                            if plis__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("plis"));
+                            }
+                            plis__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Firs => {
+                            if firs__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("firs"));
+                            }
+                            firs__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::VideoLayers => {
+                            if video_layers__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("videoLayers"));
+                            }
+                            video_layers__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::StartTime => {
+                            if start_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startTime"));
+                            }
+                            start_time__ = map_.next_value()?;
+                        }
+                        GeneratedField::EndTime => {
+                            if end_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("endTime"));
+                            }
+                            end_time__ = map_.next_value()?;
+                        }
+                        GeneratedField::PacketsOutOfOrder => {
+                            if packets_out_of_order__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("packetsOutOfOrder"));
+                            }
+                            packets_out_of_order__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsStream {
+                    ssrc: ssrc__.unwrap_or_default(),
+                    primary_packets: primary_packets__.unwrap_or_default(),
+                    primary_bytes: primary_bytes__.unwrap_or_default(),
+                    retransmit_packets: retransmit_packets__.unwrap_or_default(),
+                    retransmit_bytes: retransmit_bytes__.unwrap_or_default(),
+                    padding_packets: padding_packets__.unwrap_or_default(),
+                    padding_bytes: padding_bytes__.unwrap_or_default(),
+                    packets_lost: packets_lost__.unwrap_or_default(),
+                    frames: frames__.unwrap_or_default(),
+                    rtt: rtt__.unwrap_or_default(),
+                    jitter: jitter__.unwrap_or_default(),
+                    nacks: nacks__.unwrap_or_default(),
+                    plis: plis__.unwrap_or_default(),
+                    firs: firs__.unwrap_or_default(),
+                    video_layers: video_layers__.unwrap_or_default(),
+                    start_time: start_time__,
+                    end_time: end_time__,
+                    packets_out_of_order: packets_out_of_order__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsStream", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AnalyticsVideoLayer {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.layer != 0 {
+            len += 1;
+        }
+        if self.packets != 0 {
+            len += 1;
+        }
+        if self.bytes != 0 {
+            len += 1;
+        }
+        if self.frames != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AnalyticsVideoLayer", len)?;
+        if self.layer != 0 {
+            struct_ser.serialize_field("layer", &self.layer)?;
+        }
+        if self.packets != 0 {
+            struct_ser.serialize_field("packets", &self.packets)?;
+        }
+        if self.bytes != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("bytes", ToString::to_string(&self.bytes).as_str())?;
+        }
+        if self.frames != 0 {
+            struct_ser.serialize_field("frames", &self.frames)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AnalyticsVideoLayer {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "layer",
+            "packets",
+            "bytes",
+            "frames",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Layer,
+            Packets,
+            Bytes,
+            Frames,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "layer" => Ok(GeneratedField::Layer),
+                            "packets" => Ok(GeneratedField::Packets),
+                            "bytes" => Ok(GeneratedField::Bytes),
+                            "frames" => Ok(GeneratedField::Frames),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AnalyticsVideoLayer;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AnalyticsVideoLayer")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AnalyticsVideoLayer, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut layer__ = None;
+                let mut packets__ = None;
+                let mut bytes__ = None;
+                let mut frames__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Layer => {
+                            if layer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("layer"));
+                            }
+                            layer__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Packets => {
+                            if packets__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("packets"));
+                            }
+                            packets__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Bytes => {
+                            if bytes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("bytes"));
+                            }
+                            bytes__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Frames => {
+                            if frames__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("frames"));
+                            }
+                            frames__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AnalyticsVideoLayer {
+                    layer: layer__.unwrap_or_default(),
+                    packets: packets__.unwrap_or_default(),
+                    bytes: bytes__.unwrap_or_default(),
+                    frames: frames__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AnalyticsVideoLayer", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for AudioChannel {
@@ -6364,6 +9659,15 @@ impl serde::Serialize for CreateSipParticipantRequest {
         if self.trunk.is_some() {
             len += 1;
         }
+        if self.sip_request_uri.is_some() {
+            len += 1;
+        }
+        if self.sip_to_header.is_some() {
+            len += 1;
+        }
+        if self.sip_from_header.is_some() {
+            len += 1;
+        }
         if !self.sip_call_to.is_empty() {
             len += 1;
         }
@@ -6433,6 +9737,15 @@ impl serde::Serialize for CreateSipParticipantRequest {
         }
         if let Some(v) = self.trunk.as_ref() {
             struct_ser.serialize_field("trunk", v)?;
+        }
+        if let Some(v) = self.sip_request_uri.as_ref() {
+            struct_ser.serialize_field("sipRequestUri", v)?;
+        }
+        if let Some(v) = self.sip_to_header.as_ref() {
+            struct_ser.serialize_field("sipToHeader", v)?;
+        }
+        if let Some(v) = self.sip_from_header.as_ref() {
+            struct_ser.serialize_field("sipFromHeader", v)?;
         }
         if !self.sip_call_to.is_empty() {
             struct_ser.serialize_field("sipCallTo", &self.sip_call_to)?;
@@ -6514,6 +9827,12 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             "sip_trunk_id",
             "sipTrunkId",
             "trunk",
+            "sip_request_uri",
+            "sipRequestUri",
+            "sip_to_header",
+            "sipToHeader",
+            "sip_from_header",
+            "sipFromHeader",
             "sip_call_to",
             "sipCallTo",
             "sip_number",
@@ -6558,6 +9877,9 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
         enum GeneratedField {
             SipTrunkId,
             Trunk,
+            SipRequestUri,
+            SipToHeader,
+            SipFromHeader,
             SipCallTo,
             SipNumber,
             RoomName,
@@ -6603,6 +9925,9 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                         match value {
                             "sipTrunkId" | "sip_trunk_id" => Ok(GeneratedField::SipTrunkId),
                             "trunk" => Ok(GeneratedField::Trunk),
+                            "sipRequestUri" | "sip_request_uri" => Ok(GeneratedField::SipRequestUri),
+                            "sipToHeader" | "sip_to_header" => Ok(GeneratedField::SipToHeader),
+                            "sipFromHeader" | "sip_from_header" => Ok(GeneratedField::SipFromHeader),
                             "sipCallTo" | "sip_call_to" => Ok(GeneratedField::SipCallTo),
                             "sipNumber" | "sip_number" => Ok(GeneratedField::SipNumber),
                             "roomName" | "room_name" => Ok(GeneratedField::RoomName),
@@ -6645,6 +9970,9 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             {
                 let mut sip_trunk_id__ = None;
                 let mut trunk__ = None;
+                let mut sip_request_uri__ = None;
+                let mut sip_to_header__ = None;
+                let mut sip_from_header__ = None;
                 let mut sip_call_to__ = None;
                 let mut sip_number__ = None;
                 let mut room_name__ = None;
@@ -6679,6 +10007,24 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                                 return Err(serde::de::Error::duplicate_field("trunk"));
                             }
                             trunk__ = map_.next_value()?;
+                        }
+                        GeneratedField::SipRequestUri => {
+                            if sip_request_uri__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipRequestUri"));
+                            }
+                            sip_request_uri__ = map_.next_value()?;
+                        }
+                        GeneratedField::SipToHeader => {
+                            if sip_to_header__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipToHeader"));
+                            }
+                            sip_to_header__ = map_.next_value()?;
+                        }
+                        GeneratedField::SipFromHeader => {
+                            if sip_from_header__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sipFromHeader"));
+                            }
+                            sip_from_header__ = map_.next_value()?;
                         }
                         GeneratedField::SipCallTo => {
                             if sip_call_to__.is_some() {
@@ -6818,6 +10164,9 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                 Ok(CreateSipParticipantRequest {
                     sip_trunk_id: sip_trunk_id__.unwrap_or_default(),
                     trunk: trunk__,
+                    sip_request_uri: sip_request_uri__,
+                    sip_to_header: sip_to_header__,
+                    sip_from_header: sip_from_header__,
                     sip_call_to: sip_call_to__.unwrap_or_default(),
                     sip_number: sip_number__.unwrap_or_default(),
                     room_name: room_name__.unwrap_or_default(),
@@ -13880,6 +17229,326 @@ impl<'de> serde::Deserialize<'de> for ExportReplayRequest {
         deserializer.deserialize_struct("livekit.ExportReplayRequest", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for FeatureUsageInfo {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.feature != 0 {
+            len += 1;
+        }
+        if !self.project_id.is_empty() {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        if !self.room_id.is_empty() {
+            len += 1;
+        }
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
+        if !self.participant_id.is_empty() {
+            len += 1;
+        }
+        if !self.track_id.is_empty() {
+            len += 1;
+        }
+        if !self.time_ranges.is_empty() {
+            len += 1;
+        }
+        if !self.feature_info.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.FeatureUsageInfo", len)?;
+        if self.feature != 0 {
+            let v = feature_usage_info::Feature::try_from(self.feature)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.feature)))?;
+            struct_ser.serialize_field("feature", &v)?;
+        }
+        if !self.project_id.is_empty() {
+            struct_ser.serialize_field("projectId", &self.project_id)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        if !self.room_id.is_empty() {
+            struct_ser.serialize_field("roomId", &self.room_id)?;
+        }
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
+        }
+        if !self.participant_id.is_empty() {
+            struct_ser.serialize_field("participantId", &self.participant_id)?;
+        }
+        if !self.track_id.is_empty() {
+            struct_ser.serialize_field("trackId", &self.track_id)?;
+        }
+        if !self.time_ranges.is_empty() {
+            struct_ser.serialize_field("timeRanges", &self.time_ranges)?;
+        }
+        if !self.feature_info.is_empty() {
+            struct_ser.serialize_field("featureInfo", &self.feature_info)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for FeatureUsageInfo {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "feature",
+            "project_id",
+            "projectId",
+            "room_name",
+            "roomName",
+            "room_id",
+            "roomId",
+            "participant_identity",
+            "participantIdentity",
+            "participant_id",
+            "participantId",
+            "track_id",
+            "trackId",
+            "time_ranges",
+            "timeRanges",
+            "feature_info",
+            "featureInfo",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Feature,
+            ProjectId,
+            RoomName,
+            RoomId,
+            ParticipantIdentity,
+            ParticipantId,
+            TrackId,
+            TimeRanges,
+            FeatureInfo,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "feature" => Ok(GeneratedField::Feature),
+                            "projectId" | "project_id" => Ok(GeneratedField::ProjectId),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            "roomId" | "room_id" => Ok(GeneratedField::RoomId),
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
+                            "participantId" | "participant_id" => Ok(GeneratedField::ParticipantId),
+                            "trackId" | "track_id" => Ok(GeneratedField::TrackId),
+                            "timeRanges" | "time_ranges" => Ok(GeneratedField::TimeRanges),
+                            "featureInfo" | "feature_info" => Ok(GeneratedField::FeatureInfo),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = FeatureUsageInfo;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.FeatureUsageInfo")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<FeatureUsageInfo, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut feature__ = None;
+                let mut project_id__ = None;
+                let mut room_name__ = None;
+                let mut room_id__ = None;
+                let mut participant_identity__ = None;
+                let mut participant_id__ = None;
+                let mut track_id__ = None;
+                let mut time_ranges__ = None;
+                let mut feature_info__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Feature => {
+                            if feature__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("feature"));
+                            }
+                            feature__ = Some(map_.next_value::<feature_usage_info::Feature>()? as i32);
+                        }
+                        GeneratedField::ProjectId => {
+                            if project_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("projectId"));
+                            }
+                            project_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomId => {
+                            if room_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomId"));
+                            }
+                            room_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantId => {
+                            if participant_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantId"));
+                            }
+                            participant_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TrackId => {
+                            if track_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("trackId"));
+                            }
+                            track_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TimeRanges => {
+                            if time_ranges__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("timeRanges"));
+                            }
+                            time_ranges__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::FeatureInfo => {
+                            if feature_info__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("featureInfo"));
+                            }
+                            feature_info__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(FeatureUsageInfo {
+                    feature: feature__.unwrap_or_default(),
+                    project_id: project_id__.unwrap_or_default(),
+                    room_name: room_name__.unwrap_or_default(),
+                    room_id: room_id__.unwrap_or_default(),
+                    participant_identity: participant_identity__.unwrap_or_default(),
+                    participant_id: participant_id__.unwrap_or_default(),
+                    track_id: track_id__.unwrap_or_default(),
+                    time_ranges: time_ranges__.unwrap_or_default(),
+                    feature_info: feature_info__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.FeatureUsageInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for feature_usage_info::Feature {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::KrispNoiseCancellation => "KRISP_NOISE_CANCELLATION",
+            Self::KrispBackgroundVoiceCancellation => "KRISP_BACKGROUND_VOICE_CANCELLATION",
+            Self::AicAudioEnhancement => "AIC_AUDIO_ENHANCEMENT",
+            Self::KrispViva => "KRISP_VIVA",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for feature_usage_info::Feature {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "KRISP_NOISE_CANCELLATION",
+            "KRISP_BACKGROUND_VOICE_CANCELLATION",
+            "AIC_AUDIO_ENHANCEMENT",
+            "KRISP_VIVA",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = feature_usage_info::Feature;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "KRISP_NOISE_CANCELLATION" => Ok(feature_usage_info::Feature::KrispNoiseCancellation),
+                    "KRISP_BACKGROUND_VOICE_CANCELLATION" => Ok(feature_usage_info::Feature::KrispBackgroundVoiceCancellation),
+                    "AIC_AUDIO_ENHANCEMENT" => Ok(feature_usage_info::Feature::AicAudioEnhancement),
+                    "KRISP_VIVA" => Ok(feature_usage_info::Feature::KrispViva),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for FileInfo {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -19628,6 +23297,9 @@ impl serde::Serialize for ListEgressRequest {
         if self.active {
             len += 1;
         }
+        if self.page_token.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.ListEgressRequest", len)?;
         if !self.room_name.is_empty() {
             struct_ser.serialize_field("roomName", &self.room_name)?;
@@ -19637,6 +23309,9 @@ impl serde::Serialize for ListEgressRequest {
         }
         if self.active {
             struct_ser.serialize_field("active", &self.active)?;
+        }
+        if let Some(v) = self.page_token.as_ref() {
+            struct_ser.serialize_field("pageToken", v)?;
         }
         struct_ser.end()
     }
@@ -19653,6 +23328,8 @@ impl<'de> serde::Deserialize<'de> for ListEgressRequest {
             "egress_id",
             "egressId",
             "active",
+            "page_token",
+            "pageToken",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -19660,6 +23337,7 @@ impl<'de> serde::Deserialize<'de> for ListEgressRequest {
             RoomName,
             EgressId,
             Active,
+            PageToken,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -19685,6 +23363,7 @@ impl<'de> serde::Deserialize<'de> for ListEgressRequest {
                             "roomName" | "room_name" => Ok(GeneratedField::RoomName),
                             "egressId" | "egress_id" => Ok(GeneratedField::EgressId),
                             "active" => Ok(GeneratedField::Active),
+                            "pageToken" | "page_token" => Ok(GeneratedField::PageToken),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -19707,6 +23386,7 @@ impl<'de> serde::Deserialize<'de> for ListEgressRequest {
                 let mut room_name__ = None;
                 let mut egress_id__ = None;
                 let mut active__ = None;
+                let mut page_token__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RoomName => {
@@ -19727,6 +23407,12 @@ impl<'de> serde::Deserialize<'de> for ListEgressRequest {
                             }
                             active__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::PageToken => {
+                            if page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pageToken"));
+                            }
+                            page_token__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -19736,6 +23422,7 @@ impl<'de> serde::Deserialize<'de> for ListEgressRequest {
                     room_name: room_name__.unwrap_or_default(),
                     egress_id: egress_id__.unwrap_or_default(),
                     active: active__.unwrap_or_default(),
+                    page_token: page_token__,
                 })
             }
         }
@@ -19753,9 +23440,15 @@ impl serde::Serialize for ListEgressResponse {
         if !self.items.is_empty() {
             len += 1;
         }
+        if self.next_page_token.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.ListEgressResponse", len)?;
         if !self.items.is_empty() {
             struct_ser.serialize_field("items", &self.items)?;
+        }
+        if let Some(v) = self.next_page_token.as_ref() {
+            struct_ser.serialize_field("nextPageToken", v)?;
         }
         struct_ser.end()
     }
@@ -19768,11 +23461,14 @@ impl<'de> serde::Deserialize<'de> for ListEgressResponse {
     {
         const FIELDS: &[&str] = &[
             "items",
+            "next_page_token",
+            "nextPageToken",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Items,
+            NextPageToken,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -19796,6 +23492,7 @@ impl<'de> serde::Deserialize<'de> for ListEgressResponse {
                     {
                         match value {
                             "items" => Ok(GeneratedField::Items),
+                            "nextPageToken" | "next_page_token" => Ok(GeneratedField::NextPageToken),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -19816,6 +23513,7 @@ impl<'de> serde::Deserialize<'de> for ListEgressResponse {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut items__ = None;
+                let mut next_page_token__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Items => {
@@ -19824,6 +23522,12 @@ impl<'de> serde::Deserialize<'de> for ListEgressResponse {
                             }
                             items__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::NextPageToken => {
+                            if next_page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nextPageToken"));
+                            }
+                            next_page_token__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -19831,6 +23535,7 @@ impl<'de> serde::Deserialize<'de> for ListEgressResponse {
                 }
                 Ok(ListEgressResponse {
                     items: items__.unwrap_or_default(),
+                    next_page_token: next_page_token__,
                 })
             }
         }
@@ -28814,6 +32519,107 @@ impl<'de> serde::Deserialize<'de> for RemoveParticipantResponse {
         deserializer.deserialize_struct("livekit.RemoveParticipantResponse", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ReportInfo {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.message.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.ReportInfo", len)?;
+        if let Some(v) = self.message.as_ref() {
+            match v {
+                report_info::Message::FeatureUsage(v) => {
+                    struct_ser.serialize_field("featureUsage", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ReportInfo {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "feature_usage",
+            "featureUsage",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            FeatureUsage,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "featureUsage" | "feature_usage" => Ok(GeneratedField::FeatureUsage),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ReportInfo;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.ReportInfo")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ReportInfo, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut message__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::FeatureUsage => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("featureUsage"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(report_info::Message::FeatureUsage)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ReportInfo {
+                    message: message__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.ReportInfo", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for RequestResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -30687,12 +34493,20 @@ impl serde::Serialize for RoomParticipantIdentity {
         if !self.identity.is_empty() {
             len += 1;
         }
+        if self.revoke_token_ts != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.RoomParticipantIdentity", len)?;
         if !self.room.is_empty() {
             struct_ser.serialize_field("room", &self.room)?;
         }
         if !self.identity.is_empty() {
             struct_ser.serialize_field("identity", &self.identity)?;
+        }
+        if self.revoke_token_ts != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("revokeTokenTs", ToString::to_string(&self.revoke_token_ts).as_str())?;
         }
         struct_ser.end()
     }
@@ -30706,12 +34520,15 @@ impl<'de> serde::Deserialize<'de> for RoomParticipantIdentity {
         const FIELDS: &[&str] = &[
             "room",
             "identity",
+            "revoke_token_ts",
+            "revokeTokenTs",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Room,
             Identity,
+            RevokeTokenTs,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -30736,6 +34553,7 @@ impl<'de> serde::Deserialize<'de> for RoomParticipantIdentity {
                         match value {
                             "room" => Ok(GeneratedField::Room),
                             "identity" => Ok(GeneratedField::Identity),
+                            "revokeTokenTs" | "revoke_token_ts" => Ok(GeneratedField::RevokeTokenTs),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -30757,6 +34575,7 @@ impl<'de> serde::Deserialize<'de> for RoomParticipantIdentity {
             {
                 let mut room__ = None;
                 let mut identity__ = None;
+                let mut revoke_token_ts__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Room => {
@@ -30771,6 +34590,14 @@ impl<'de> serde::Deserialize<'de> for RoomParticipantIdentity {
                             }
                             identity__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::RevokeTokenTs => {
+                            if revoke_token_ts__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("revokeTokenTs"));
+                            }
+                            revoke_token_ts__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -30779,6 +34606,7 @@ impl<'de> serde::Deserialize<'de> for RoomParticipantIdentity {
                 Ok(RoomParticipantIdentity {
                     room: room__.unwrap_or_default(),
                     identity: identity__.unwrap_or_default(),
+                    revoke_token_ts: revoke_token_ts__.unwrap_or_default(),
                 })
             }
         }
@@ -33880,6 +37708,9 @@ impl serde::Serialize for SipInboundTrunkInfo {
         if !self.auth_password.is_empty() {
             len += 1;
         }
+        if !self.auth_realm.is_empty() {
+            len += 1;
+        }
         if !self.headers.is_empty() {
             len += 1;
         }
@@ -33934,6 +37765,9 @@ impl serde::Serialize for SipInboundTrunkInfo {
         }
         if !self.auth_password.is_empty() {
             struct_ser.serialize_field("authPassword", &self.auth_password)?;
+        }
+        if !self.auth_realm.is_empty() {
+            struct_ser.serialize_field("authRealm", &self.auth_realm)?;
         }
         if !self.headers.is_empty() {
             struct_ser.serialize_field("headers", &self.headers)?;
@@ -33992,6 +37826,8 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkInfo {
             "authUsername",
             "auth_password",
             "authPassword",
+            "auth_realm",
+            "authRealm",
             "headers",
             "headers_to_attributes",
             "headersToAttributes",
@@ -34023,6 +37859,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkInfo {
             AllowedNumbers,
             AuthUsername,
             AuthPassword,
+            AuthRealm,
             Headers,
             HeadersToAttributes,
             AttributesToHeaders,
@@ -34063,6 +37900,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkInfo {
                             "allowedNumbers" | "allowed_numbers" => Ok(GeneratedField::AllowedNumbers),
                             "authUsername" | "auth_username" => Ok(GeneratedField::AuthUsername),
                             "authPassword" | "auth_password" => Ok(GeneratedField::AuthPassword),
+                            "authRealm" | "auth_realm" => Ok(GeneratedField::AuthRealm),
                             "headers" => Ok(GeneratedField::Headers),
                             "headersToAttributes" | "headers_to_attributes" => Ok(GeneratedField::HeadersToAttributes),
                             "attributesToHeaders" | "attributes_to_headers" => Ok(GeneratedField::AttributesToHeaders),
@@ -34100,6 +37938,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkInfo {
                 let mut allowed_numbers__ = None;
                 let mut auth_username__ = None;
                 let mut auth_password__ = None;
+                let mut auth_realm__ = None;
                 let mut headers__ = None;
                 let mut headers_to_attributes__ = None;
                 let mut attributes_to_headers__ = None;
@@ -34159,6 +37998,12 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkInfo {
                                 return Err(serde::de::Error::duplicate_field("authPassword"));
                             }
                             auth_password__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::AuthRealm => {
+                            if auth_realm__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("authRealm"));
+                            }
+                            auth_realm__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Headers => {
                             if headers__.is_some() {
@@ -34240,6 +38085,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkInfo {
                     allowed_numbers: allowed_numbers__.unwrap_or_default(),
                     auth_username: auth_username__.unwrap_or_default(),
                     auth_password: auth_password__.unwrap_or_default(),
+                    auth_realm: auth_realm__.unwrap_or_default(),
                     headers: headers__.unwrap_or_default(),
                     headers_to_attributes: headers_to_attributes__.unwrap_or_default(),
                     attributes_to_headers: attributes_to_headers__.unwrap_or_default(),
@@ -34279,6 +38125,9 @@ impl serde::Serialize for SipInboundTrunkUpdate {
         if self.auth_password.is_some() {
             len += 1;
         }
+        if self.auth_realm.is_some() {
+            len += 1;
+        }
         if self.name.is_some() {
             len += 1;
         }
@@ -34303,6 +38152,9 @@ impl serde::Serialize for SipInboundTrunkUpdate {
         }
         if let Some(v) = self.auth_password.as_ref() {
             struct_ser.serialize_field("authPassword", v)?;
+        }
+        if let Some(v) = self.auth_realm.as_ref() {
+            struct_ser.serialize_field("authRealm", v)?;
         }
         if let Some(v) = self.name.as_ref() {
             struct_ser.serialize_field("name", v)?;
@@ -34334,6 +38186,8 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkUpdate {
             "authUsername",
             "auth_password",
             "authPassword",
+            "auth_realm",
+            "authRealm",
             "name",
             "metadata",
             "media_encryption",
@@ -34347,6 +38201,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkUpdate {
             AllowedNumbers,
             AuthUsername,
             AuthPassword,
+            AuthRealm,
             Name,
             Metadata,
             MediaEncryption,
@@ -34377,6 +38232,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkUpdate {
                             "allowedNumbers" | "allowed_numbers" => Ok(GeneratedField::AllowedNumbers),
                             "authUsername" | "auth_username" => Ok(GeneratedField::AuthUsername),
                             "authPassword" | "auth_password" => Ok(GeneratedField::AuthPassword),
+                            "authRealm" | "auth_realm" => Ok(GeneratedField::AuthRealm),
                             "name" => Ok(GeneratedField::Name),
                             "metadata" => Ok(GeneratedField::Metadata),
                             "mediaEncryption" | "media_encryption" => Ok(GeneratedField::MediaEncryption),
@@ -34404,6 +38260,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkUpdate {
                 let mut allowed_numbers__ = None;
                 let mut auth_username__ = None;
                 let mut auth_password__ = None;
+                let mut auth_realm__ = None;
                 let mut name__ = None;
                 let mut metadata__ = None;
                 let mut media_encryption__ = None;
@@ -34439,6 +38296,12 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkUpdate {
                             }
                             auth_password__ = map_.next_value()?;
                         }
+                        GeneratedField::AuthRealm => {
+                            if auth_realm__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("authRealm"));
+                            }
+                            auth_realm__ = map_.next_value()?;
+                        }
                         GeneratedField::Name => {
                             if name__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("name"));
@@ -34468,6 +38331,7 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkUpdate {
                     allowed_numbers: allowed_numbers__,
                     auth_username: auth_username__,
                     auth_password: auth_password__,
+                    auth_realm: auth_realm__,
                     name: name__,
                     metadata: metadata__,
                     media_encryption: media_encryption__,
@@ -34494,6 +38358,9 @@ impl serde::Serialize for SipMediaConfig {
         if self.encryption.is_some() {
             len += 1;
         }
+        if self.media_timeout.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.SIPMediaConfig", len)?;
         if self.only_listed_codecs {
             struct_ser.serialize_field("onlyListedCodecs", &self.only_listed_codecs)?;
@@ -34505,6 +38372,9 @@ impl serde::Serialize for SipMediaConfig {
             let v = SipMediaEncryption::try_from(*v)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
             struct_ser.serialize_field("encryption", &v)?;
+        }
+        if let Some(v) = self.media_timeout.as_ref() {
+            struct_ser.serialize_field("mediaTimeout", v)?;
         }
         struct_ser.end()
     }
@@ -34520,6 +38390,8 @@ impl<'de> serde::Deserialize<'de> for SipMediaConfig {
             "onlyListedCodecs",
             "codecs",
             "encryption",
+            "media_timeout",
+            "mediaTimeout",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -34527,6 +38399,7 @@ impl<'de> serde::Deserialize<'de> for SipMediaConfig {
             OnlyListedCodecs,
             Codecs,
             Encryption,
+            MediaTimeout,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -34552,6 +38425,7 @@ impl<'de> serde::Deserialize<'de> for SipMediaConfig {
                             "onlyListedCodecs" | "only_listed_codecs" => Ok(GeneratedField::OnlyListedCodecs),
                             "codecs" => Ok(GeneratedField::Codecs),
                             "encryption" => Ok(GeneratedField::Encryption),
+                            "mediaTimeout" | "media_timeout" => Ok(GeneratedField::MediaTimeout),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -34574,6 +38448,7 @@ impl<'de> serde::Deserialize<'de> for SipMediaConfig {
                 let mut only_listed_codecs__ = None;
                 let mut codecs__ = None;
                 let mut encryption__ = None;
+                let mut media_timeout__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::OnlyListedCodecs => {
@@ -34594,6 +38469,12 @@ impl<'de> serde::Deserialize<'de> for SipMediaConfig {
                             }
                             encryption__ = map_.next_value::<::std::option::Option<SipMediaEncryption>>()?.map(|x| x as i32);
                         }
+                        GeneratedField::MediaTimeout => {
+                            if media_timeout__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mediaTimeout"));
+                            }
+                            media_timeout__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -34603,6 +38484,7 @@ impl<'de> serde::Deserialize<'de> for SipMediaConfig {
                     only_listed_codecs: only_listed_codecs__.unwrap_or_default(),
                     codecs: codecs__.unwrap_or_default(),
                     encryption: encryption__,
+                    media_timeout: media_timeout__,
                 })
             }
         }
@@ -34681,6 +38563,136 @@ impl<'de> serde::Deserialize<'de> for SipMediaEncryption {
             }
         }
         deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SipNamedDest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.display_name.is_empty() {
+            len += 1;
+        }
+        if self.uri.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.SIPNamedDest", len)?;
+        if !self.display_name.is_empty() {
+            struct_ser.serialize_field("displayName", &self.display_name)?;
+        }
+        if let Some(v) = self.uri.as_ref() {
+            match v {
+                sip_named_dest::Uri::Raw(v) => {
+                    struct_ser.serialize_field("raw", v)?;
+                }
+                sip_named_dest::Uri::Values(v) => {
+                    struct_ser.serialize_field("values", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SipNamedDest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "display_name",
+            "displayName",
+            "raw",
+            "values",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            DisplayName,
+            Raw,
+            Values,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "displayName" | "display_name" => Ok(GeneratedField::DisplayName),
+                            "raw" => Ok(GeneratedField::Raw),
+                            "values" => Ok(GeneratedField::Values),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SipNamedDest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.SIPNamedDest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SipNamedDest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut display_name__ = None;
+                let mut uri__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::DisplayName => {
+                            if display_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("displayName"));
+                            }
+                            display_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Raw => {
+                            if uri__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("raw"));
+                            }
+                            uri__ = map_.next_value::<::std::option::Option<_>>()?.map(sip_named_dest::Uri::Raw);
+                        }
+                        GeneratedField::Values => {
+                            if uri__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("values"));
+                            }
+                            uri__ = map_.next_value::<::std::option::Option<_>>()?.map(sip_named_dest::Uri::Values)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SipNamedDest {
+                    display_name: display_name__.unwrap_or_default(),
+                    uri: uri__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.SIPNamedDest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for SipOutboundConfig {
@@ -35704,6 +39716,118 @@ impl<'de> serde::Deserialize<'de> for SipParticipantInfo {
             }
         }
         deserializer.deserialize_struct("livekit.SIPParticipantInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SipRequestDest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.uri.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.SIPRequestDest", len)?;
+        if let Some(v) = self.uri.as_ref() {
+            match v {
+                sip_request_dest::Uri::Raw(v) => {
+                    struct_ser.serialize_field("raw", v)?;
+                }
+                sip_request_dest::Uri::Values(v) => {
+                    struct_ser.serialize_field("values", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SipRequestDest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "raw",
+            "values",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Raw,
+            Values,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "raw" => Ok(GeneratedField::Raw),
+                            "values" => Ok(GeneratedField::Values),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SipRequestDest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.SIPRequestDest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SipRequestDest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut uri__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Raw => {
+                            if uri__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("raw"));
+                            }
+                            uri__ = map_.next_value::<::std::option::Option<_>>()?.map(sip_request_dest::Uri::Raw);
+                        }
+                        GeneratedField::Values => {
+                            if uri__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("values"));
+                            }
+                            uri__ = map_.next_value::<::std::option::Option<_>>()?.map(sip_request_dest::Uri::Values)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SipRequestDest {
+                    uri: uri__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.SIPRequestDest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for SipStatus {
@@ -41873,6 +45997,77 @@ impl<'de> serde::Deserialize<'de> for StreamStateUpdate {
         deserializer.deserialize_struct("livekit.StreamStateUpdate", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for StreamType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Upstream => "UPSTREAM",
+            Self::Downstream => "DOWNSTREAM",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for StreamType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "UPSTREAM",
+            "DOWNSTREAM",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = StreamType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "UPSTREAM" => Ok(StreamType::Upstream),
+                    "DOWNSTREAM" => Ok(StreamType::Downstream),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for SubscribedAudioCodec {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -43257,6 +47452,120 @@ impl<'de> serde::Deserialize<'de> for TemplateSource {
             }
         }
         deserializer.deserialize_struct("livekit.TemplateSource", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for TimeRange {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.started_at.is_some() {
+            len += 1;
+        }
+        if self.ended_at.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.TimeRange", len)?;
+        if let Some(v) = self.started_at.as_ref() {
+            struct_ser.serialize_field("startedAt", v)?;
+        }
+        if let Some(v) = self.ended_at.as_ref() {
+            struct_ser.serialize_field("endedAt", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for TimeRange {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "started_at",
+            "startedAt",
+            "ended_at",
+            "endedAt",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            StartedAt,
+            EndedAt,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "startedAt" | "started_at" => Ok(GeneratedField::StartedAt),
+                            "endedAt" | "ended_at" => Ok(GeneratedField::EndedAt),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = TimeRange;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.TimeRange")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<TimeRange, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut started_at__ = None;
+                let mut ended_at__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::StartedAt => {
+                            if started_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startedAt"));
+                            }
+                            started_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::EndedAt => {
+                            if ended_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("endedAt"));
+                            }
+                            ended_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(TimeRange {
+                    started_at: started_at__,
+                    ended_at: ended_at__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.TimeRange", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for TimeSeriesMetric {
@@ -50855,6 +55164,490 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
             }
         }
         deserializer.deserialize_struct("livekit.WebhookEvent", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WebhookInfo {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.event_id.is_empty() {
+            len += 1;
+        }
+        if !self.event.is_empty() {
+            len += 1;
+        }
+        if !self.project_id.is_empty() {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        if !self.room_id.is_empty() {
+            len += 1;
+        }
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
+        if !self.participant_id.is_empty() {
+            len += 1;
+        }
+        if !self.track_id.is_empty() {
+            len += 1;
+        }
+        if !self.egress_id.is_empty() {
+            len += 1;
+        }
+        if !self.ingress_id.is_empty() {
+            len += 1;
+        }
+        if self.created_at.is_some() {
+            len += 1;
+        }
+        if self.queued_at.is_some() {
+            len += 1;
+        }
+        if self.queue_duration_ns != 0 {
+            len += 1;
+        }
+        if self.sent_at.is_some() {
+            len += 1;
+        }
+        if self.send_duration_ns != 0 {
+            len += 1;
+        }
+        if !self.url.is_empty() {
+            len += 1;
+        }
+        if self.num_dropped != 0 {
+            len += 1;
+        }
+        if self.is_dropped {
+            len += 1;
+        }
+        if !self.service_status.is_empty() {
+            len += 1;
+        }
+        if self.service_error_code != 0 {
+            len += 1;
+        }
+        if !self.service_error.is_empty() {
+            len += 1;
+        }
+        if !self.send_error.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.WebhookInfo", len)?;
+        if !self.event_id.is_empty() {
+            struct_ser.serialize_field("eventId", &self.event_id)?;
+        }
+        if !self.event.is_empty() {
+            struct_ser.serialize_field("event", &self.event)?;
+        }
+        if !self.project_id.is_empty() {
+            struct_ser.serialize_field("projectId", &self.project_id)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        if !self.room_id.is_empty() {
+            struct_ser.serialize_field("roomId", &self.room_id)?;
+        }
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
+        }
+        if !self.participant_id.is_empty() {
+            struct_ser.serialize_field("participantId", &self.participant_id)?;
+        }
+        if !self.track_id.is_empty() {
+            struct_ser.serialize_field("trackId", &self.track_id)?;
+        }
+        if !self.egress_id.is_empty() {
+            struct_ser.serialize_field("egressId", &self.egress_id)?;
+        }
+        if !self.ingress_id.is_empty() {
+            struct_ser.serialize_field("ingressId", &self.ingress_id)?;
+        }
+        if let Some(v) = self.created_at.as_ref() {
+            struct_ser.serialize_field("createdAt", v)?;
+        }
+        if let Some(v) = self.queued_at.as_ref() {
+            struct_ser.serialize_field("queuedAt", v)?;
+        }
+        if self.queue_duration_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("queueDurationNs", ToString::to_string(&self.queue_duration_ns).as_str())?;
+        }
+        if let Some(v) = self.sent_at.as_ref() {
+            struct_ser.serialize_field("sentAt", v)?;
+        }
+        if self.send_duration_ns != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("sendDurationNs", ToString::to_string(&self.send_duration_ns).as_str())?;
+        }
+        if !self.url.is_empty() {
+            struct_ser.serialize_field("url", &self.url)?;
+        }
+        if self.num_dropped != 0 {
+            struct_ser.serialize_field("numDropped", &self.num_dropped)?;
+        }
+        if self.is_dropped {
+            struct_ser.serialize_field("isDropped", &self.is_dropped)?;
+        }
+        if !self.service_status.is_empty() {
+            struct_ser.serialize_field("serviceStatus", &self.service_status)?;
+        }
+        if self.service_error_code != 0 {
+            struct_ser.serialize_field("serviceErrorCode", &self.service_error_code)?;
+        }
+        if !self.service_error.is_empty() {
+            struct_ser.serialize_field("serviceError", &self.service_error)?;
+        }
+        if !self.send_error.is_empty() {
+            struct_ser.serialize_field("sendError", &self.send_error)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for WebhookInfo {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "event_id",
+            "eventId",
+            "event",
+            "project_id",
+            "projectId",
+            "room_name",
+            "roomName",
+            "room_id",
+            "roomId",
+            "participant_identity",
+            "participantIdentity",
+            "participant_id",
+            "participantId",
+            "track_id",
+            "trackId",
+            "egress_id",
+            "egressId",
+            "ingress_id",
+            "ingressId",
+            "created_at",
+            "createdAt",
+            "queued_at",
+            "queuedAt",
+            "queue_duration_ns",
+            "queueDurationNs",
+            "sent_at",
+            "sentAt",
+            "send_duration_ns",
+            "sendDurationNs",
+            "url",
+            "num_dropped",
+            "numDropped",
+            "is_dropped",
+            "isDropped",
+            "service_status",
+            "serviceStatus",
+            "service_error_code",
+            "serviceErrorCode",
+            "service_error",
+            "serviceError",
+            "send_error",
+            "sendError",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            EventId,
+            Event,
+            ProjectId,
+            RoomName,
+            RoomId,
+            ParticipantIdentity,
+            ParticipantId,
+            TrackId,
+            EgressId,
+            IngressId,
+            CreatedAt,
+            QueuedAt,
+            QueueDurationNs,
+            SentAt,
+            SendDurationNs,
+            Url,
+            NumDropped,
+            IsDropped,
+            ServiceStatus,
+            ServiceErrorCode,
+            ServiceError,
+            SendError,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "eventId" | "event_id" => Ok(GeneratedField::EventId),
+                            "event" => Ok(GeneratedField::Event),
+                            "projectId" | "project_id" => Ok(GeneratedField::ProjectId),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            "roomId" | "room_id" => Ok(GeneratedField::RoomId),
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
+                            "participantId" | "participant_id" => Ok(GeneratedField::ParticipantId),
+                            "trackId" | "track_id" => Ok(GeneratedField::TrackId),
+                            "egressId" | "egress_id" => Ok(GeneratedField::EgressId),
+                            "ingressId" | "ingress_id" => Ok(GeneratedField::IngressId),
+                            "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
+                            "queuedAt" | "queued_at" => Ok(GeneratedField::QueuedAt),
+                            "queueDurationNs" | "queue_duration_ns" => Ok(GeneratedField::QueueDurationNs),
+                            "sentAt" | "sent_at" => Ok(GeneratedField::SentAt),
+                            "sendDurationNs" | "send_duration_ns" => Ok(GeneratedField::SendDurationNs),
+                            "url" => Ok(GeneratedField::Url),
+                            "numDropped" | "num_dropped" => Ok(GeneratedField::NumDropped),
+                            "isDropped" | "is_dropped" => Ok(GeneratedField::IsDropped),
+                            "serviceStatus" | "service_status" => Ok(GeneratedField::ServiceStatus),
+                            "serviceErrorCode" | "service_error_code" => Ok(GeneratedField::ServiceErrorCode),
+                            "serviceError" | "service_error" => Ok(GeneratedField::ServiceError),
+                            "sendError" | "send_error" => Ok(GeneratedField::SendError),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WebhookInfo;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.WebhookInfo")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<WebhookInfo, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut event_id__ = None;
+                let mut event__ = None;
+                let mut project_id__ = None;
+                let mut room_name__ = None;
+                let mut room_id__ = None;
+                let mut participant_identity__ = None;
+                let mut participant_id__ = None;
+                let mut track_id__ = None;
+                let mut egress_id__ = None;
+                let mut ingress_id__ = None;
+                let mut created_at__ = None;
+                let mut queued_at__ = None;
+                let mut queue_duration_ns__ = None;
+                let mut sent_at__ = None;
+                let mut send_duration_ns__ = None;
+                let mut url__ = None;
+                let mut num_dropped__ = None;
+                let mut is_dropped__ = None;
+                let mut service_status__ = None;
+                let mut service_error_code__ = None;
+                let mut service_error__ = None;
+                let mut send_error__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::EventId => {
+                            if event_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("eventId"));
+                            }
+                            event_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Event => {
+                            if event__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("event"));
+                            }
+                            event__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ProjectId => {
+                            if project_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("projectId"));
+                            }
+                            project_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomId => {
+                            if room_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomId"));
+                            }
+                            room_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantId => {
+                            if participant_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantId"));
+                            }
+                            participant_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TrackId => {
+                            if track_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("trackId"));
+                            }
+                            track_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::EgressId => {
+                            if egress_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("egressId"));
+                            }
+                            egress_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::IngressId => {
+                            if ingress_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ingressId"));
+                            }
+                            ingress_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::CreatedAt => {
+                            if created_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("createdAt"));
+                            }
+                            created_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::QueuedAt => {
+                            if queued_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("queuedAt"));
+                            }
+                            queued_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::QueueDurationNs => {
+                            if queue_duration_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("queueDurationNs"));
+                            }
+                            queue_duration_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::SentAt => {
+                            if sent_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sentAt"));
+                            }
+                            sent_at__ = map_.next_value()?;
+                        }
+                        GeneratedField::SendDurationNs => {
+                            if send_duration_ns__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sendDurationNs"));
+                            }
+                            send_duration_ns__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Url => {
+                            if url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("url"));
+                            }
+                            url__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::NumDropped => {
+                            if num_dropped__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("numDropped"));
+                            }
+                            num_dropped__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::IsDropped => {
+                            if is_dropped__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("isDropped"));
+                            }
+                            is_dropped__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ServiceStatus => {
+                            if service_status__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serviceStatus"));
+                            }
+                            service_status__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ServiceErrorCode => {
+                            if service_error_code__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serviceErrorCode"));
+                            }
+                            service_error_code__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::ServiceError => {
+                            if service_error__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("serviceError"));
+                            }
+                            service_error__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SendError => {
+                            if send_error__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sendError"));
+                            }
+                            send_error__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(WebhookInfo {
+                    event_id: event_id__.unwrap_or_default(),
+                    event: event__.unwrap_or_default(),
+                    project_id: project_id__.unwrap_or_default(),
+                    room_name: room_name__.unwrap_or_default(),
+                    room_id: room_id__.unwrap_or_default(),
+                    participant_identity: participant_identity__.unwrap_or_default(),
+                    participant_id: participant_id__.unwrap_or_default(),
+                    track_id: track_id__.unwrap_or_default(),
+                    egress_id: egress_id__.unwrap_or_default(),
+                    ingress_id: ingress_id__.unwrap_or_default(),
+                    created_at: created_at__,
+                    queued_at: queued_at__,
+                    queue_duration_ns: queue_duration_ns__.unwrap_or_default(),
+                    sent_at: sent_at__,
+                    send_duration_ns: send_duration_ns__.unwrap_or_default(),
+                    url: url__.unwrap_or_default(),
+                    num_dropped: num_dropped__.unwrap_or_default(),
+                    is_dropped: is_dropped__.unwrap_or_default(),
+                    service_status: service_status__.unwrap_or_default(),
+                    service_error_code: service_error_code__.unwrap_or_default(),
+                    service_error: service_error__.unwrap_or_default(),
+                    send_error: send_error__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.WebhookInfo", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for WhatsAppCall {
