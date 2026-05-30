@@ -555,6 +555,7 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     timing_overlay_state: PublisherTimingOverlayState,
+    clock: bool,
 }
 
 impl eframe::App for VideoApp {
@@ -566,6 +567,10 @@ impl eframe::App for VideoApp {
 
         if let Some((width, height)) = video_size(&self.shared) {
             self.viewport.set_video_size(ctx, width, height);
+        }
+
+        if self.clock {
+            paint_clock_panel(ctx);
         }
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
@@ -631,17 +636,41 @@ impl eframe::App for VideoApp {
     }
 }
 
+/// Fraction of the window height reserved for the clock band below the video.
+const CLOCK_HEIGHT_FRACTION: f32 = 0.22;
+const CLOCK_MIN_HEIGHT: f32 = 80.0;
+const CLOCK_MAX_HEIGHT: f32 = 260.0;
+
+/// Render the millisecond clock in a fixed band at the bottom of the window.
+fn paint_clock_panel(ctx: &egui::Context) {
+    let clock_height = (ctx.content_rect().height() * CLOCK_HEIGHT_FRACTION)
+        .clamp(CLOCK_MIN_HEIGHT, CLOCK_MAX_HEIGHT);
+    egui::TopBottomPanel::bottom("clock_panel")
+        .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+        .exact_height(clock_height)
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+            let cb = egui_wgpu_backend::Callback::new_paint_callback(
+                rect,
+                crate::clock_render::ClockPaintCallback::for_rect(ctx, rect),
+            );
+            ui.painter().add(cb);
+        });
+}
+
 pub(crate) fn run_display(
     title: &str,
     shared: Arc<Mutex<SharedYuv>>,
     ctrl_c_received: Arc<AtomicBool>,
     initial_aspect: Option<f32>,
+    clock: bool,
 ) -> Result<()> {
     let app = VideoApp {
         shared,
         ctrl_c_received: ctrl_c_received.clone(),
         viewport: AspectConstrainedViewport::new(initial_aspect),
         timing_overlay_state: PublisherTimingOverlayState::default(),
+        clock,
     };
     let native_options = viewport_aspect::native_options(initial_aspect);
     let result = eframe::run_native(title, native_options, Box::new(|_| Ok(Box::new(app))));

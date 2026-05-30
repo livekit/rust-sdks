@@ -22,6 +22,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod clock_render;
 mod codec_display;
 mod viewport_aspect;
 
@@ -406,6 +407,10 @@ struct Args {
     /// Display frame timing and stats over the rendered video
     #[arg(long)]
     display_timestamp: bool,
+
+    /// Render a low-latency millisecond clock below the video
+    #[arg(long, default_value_t = false)]
+    clock: bool,
 
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
@@ -1559,6 +1564,29 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     display_timestamp: bool,
+    clock: bool,
+}
+
+/// Fraction of the window height reserved for the clock band below the video.
+const CLOCK_HEIGHT_FRACTION: f32 = 0.22;
+const CLOCK_MIN_HEIGHT: f32 = 80.0;
+const CLOCK_MAX_HEIGHT: f32 = 260.0;
+
+/// Render the millisecond clock in a fixed band at the bottom of the window.
+fn paint_clock_panel(ctx: &egui::Context) {
+    let clock_height = (ctx.content_rect().height() * CLOCK_HEIGHT_FRACTION)
+        .clamp(CLOCK_MIN_HEIGHT, CLOCK_MAX_HEIGHT);
+    egui::TopBottomPanel::bottom("clock_panel")
+        .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+        .exact_height(clock_height)
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
+            let cb = egui_wgpu_backend::Callback::new_paint_callback(
+                rect,
+                clock_render::ClockPaintCallback::for_rect(ctx, rect),
+            );
+            ui.painter().add(cb);
+        });
 }
 
 impl eframe::App for VideoApp {
@@ -1579,6 +1607,10 @@ impl eframe::App for VideoApp {
             self.display_timestamp,
             self.subscriber_timing_state.as_ref(),
         );
+
+        if self.clock {
+            paint_clock_panel(ctx);
+        }
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             // Ensure we keep repainting for smooth playback.
@@ -1805,6 +1837,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ctrl_c_received: ctrl_c_received.clone(),
         viewport: AspectConstrainedViewport::new(None),
         display_timestamp: args.display_timestamp,
+        clock: args.clock,
     };
     let native_options = viewport_aspect::native_options(None);
     eframe::run_native(

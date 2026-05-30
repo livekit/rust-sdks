@@ -29,6 +29,7 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
+mod clock_render;
 mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
@@ -187,6 +188,10 @@ struct Args {
     /// Burn publisher timing metrics into the local preview window
     #[arg(long, default_value_t = false, requires = "display_video")]
     display_timing: bool,
+
+    /// Render a low-latency millisecond clock below the preview video; has no effect unless --display-video is set
+    #[arg(long, default_value_t = false)]
+    clock: bool,
 
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
@@ -850,6 +855,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             shared,
             ctrl_c_received.clone(),
             Some(width as f32 / height as f32),
+            args.clock,
         );
 
         let capture_result = capture_task.await?;
