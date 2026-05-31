@@ -27,6 +27,7 @@ pub(crate) struct SharedYuv {
     pub(crate) fps: f32,
     pub(crate) simulcast: bool,
     pub(crate) dirty: bool,
+    repaint_ctx: Option<egui::Context>,
     pub(crate) timing_sample: Option<PublisherTimingSample>,
 }
 
@@ -117,23 +118,26 @@ pub(crate) fn pack_i420_into_shared(
     let y_bytes_per_row = align_up(width, 256);
     let uv_bytes_per_row = align_up(uv_w, 256);
 
-    let mut s = shared.lock();
-    if s.dirty {
-        return false;
-    }
+    let repaint_ctx = {
+        let mut s = shared.lock();
 
-    pack_plane(y, y_stride, width, height, y_bytes_per_row, &mut s.y);
-    pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.u);
-    pack_plane(v, v_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.v);
+        pack_plane(y, y_stride, width, height, y_bytes_per_row, &mut s.y);
+        pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.u);
+        pack_plane(v, v_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.v);
 
-    s.width = width;
-    s.height = height;
-    s.y_bytes_per_row = y_bytes_per_row;
-    s.uv_bytes_per_row = uv_bytes_per_row;
-    if let Some(timing_sample) = timing_sample {
-        s.timing_sample = Some(timing_sample);
+        s.width = width;
+        s.height = height;
+        s.y_bytes_per_row = y_bytes_per_row;
+        s.uv_bytes_per_row = uv_bytes_per_row;
+        if let Some(timing_sample) = timing_sample {
+            s.timing_sample = Some(timing_sample);
+        }
+        s.dirty = true;
+        s.repaint_ctx.clone()
+    };
+    if let Some(ctx) = repaint_ctx {
+        ctx.request_repaint();
     }
-    s.dirty = true;
     true
 }
 
@@ -269,6 +273,13 @@ fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
         Some((s.width, s.height))
     } else {
         None
+    }
+}
+
+fn register_repaint_context(shared: &Arc<Mutex<SharedYuv>>, ctx: &egui::Context) {
+    let mut s = shared.lock();
+    if s.repaint_ctx.is_none() {
+        s.repaint_ctx = Some(ctx.clone());
     }
 }
 
@@ -440,6 +451,29 @@ mod tests {
     }
 
     #[test]
+    fn preview_handoff_replaces_unconsumed_frame_with_latest() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        let first_y = [1, 2, 3, 4];
+        let first_u = [5];
+        let first_v = [6];
+        let second_y = [10, 11, 12, 13];
+        let second_u = [14];
+        let second_v = [15];
+
+        assert!(pack_i420_into_shared(&shared, 2, 2, &first_y, 2, &first_u, 1, &first_v, 1, None,));
+        assert!(pack_i420_into_shared(
+            &shared, 2, 2, &second_y, 2, &second_u, 1, &second_v, 1, None,
+        ));
+
+        let s = shared.lock();
+        assert!(s.dirty);
+        assert_eq!(s.y[0..2], second_y[0..2]);
+        assert_eq!(s.y[s.y_bytes_per_row as usize..s.y_bytes_per_row as usize + 2], second_y[2..4]);
+        assert_eq!(s.u[0], second_u[0]);
+        assert_eq!(s.v[0], second_v[0]);
+    }
+
+    #[test]
     fn publisher_timing_lines_match_requested_format() {
         let base = timestamp_us(1, 2, 3, 456);
         let sample = PublisherTimingSample {
@@ -570,6 +604,8 @@ impl eframe::App for VideoApp {
             return;
         }
 
+        register_repaint_context(&self.shared, ctx);
+
         if let Some((width, height)) = video_size(&self.shared) {
             self.viewport.set_video_size(ctx, width, height);
         }
@@ -577,18 +613,8 @@ impl eframe::App for VideoApp {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             ui.ctx().request_repaint();
 
-            let available = ui.available_size();
-            let size = if let Some(aspect) = self.viewport.aspect() {
-                let mut w = available.x.max(1.0);
-                let mut h = (w / aspect).max(1.0);
-                if h > available.y.max(1.0) {
-                    h = available.y.max(1.0);
-                    w = (h * aspect).max(1.0);
-                }
-                egui::vec2(w, h)
-            } else {
-                egui::vec2(available.x.max(1.0), available.y.max(1.0))
-            };
+            let size =
+                viewport_aspect::fitted_video_size(ui.available_size(), self.viewport.aspect());
 
             ui.with_layout(
                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -633,7 +659,7 @@ impl eframe::App for VideoApp {
                     });
             });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ctx.request_repaint_after(viewport_aspect::VIDEO_REPAINT_INTERVAL);
     }
 }
 
