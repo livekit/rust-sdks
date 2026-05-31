@@ -53,6 +53,7 @@ namespace livekit_ffi {
 namespace {
 
 constexpr char kPreferredHwEncoderEnv[] = "LIVEKIT_PREFERRED_HW_ENCODER";
+constexpr char kVideoEncoderEnv[] = "LIVEKIT_VIDEO_ENCODER";
 
 enum class PreferredHwEncoder {
   kNvenc,
@@ -63,6 +64,26 @@ struct PreferredHwEncoderConfig {
   PreferredHwEncoder encoder = PreferredHwEncoder::kNvenc;
   bool explicitly_set = false;
 };
+
+bool PreferSoftwareVideoEncoder() {
+  const char* encoder = std::getenv(kVideoEncoderEnv);
+  if (!encoder) {
+    return false;
+  }
+
+  std::string_view encoder_view(encoder);
+  if (encoder_view == "software") {
+    return true;
+  }
+  if (encoder_view == "default") {
+    return false;
+  }
+
+  RTC_LOG(LS_WARNING) << "Ignoring invalid LIVEKIT_VIDEO_ENCODER=\""
+                      << encoder
+                      << "\"; expected \"default\" or \"software\".";
+  return false;
+}
 
 PreferredHwEncoderConfig GetPreferredHwEncoderConfig() {
   const char* preferred_encoder = std::getenv(kPreferredHwEncoderEnv);
@@ -143,22 +164,37 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibvpxVp9EncoderTemplateAdapter>;
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
+  const bool prefer_software_encoder = PreferSoftwareVideoEncoder();
 #ifdef __APPLE__
-  factories_.push_back(livekit_ffi::CreateObjCVideoEncoderFactory());
+  if (!prefer_software_encoder) {
+    factories_.push_back(livekit_ffi::CreateObjCVideoEncoderFactory());
+  } else {
+    RTC_LOG(LS_INFO)
+        << "LIVEKIT_VIDEO_ENCODER=software requested; using software video "
+           "encoders before macOS VideoToolbox.";
+  }
 #endif
 
 #ifdef WEBRTC_ANDROID
-  factories_.push_back(CreateAndroidVideoEncoderFactory());
+  if (!prefer_software_encoder) {
+    factories_.push_back(CreateAndroidVideoEncoderFactory());
+  } else {
+    RTC_LOG(LS_INFO)
+        << "LIVEKIT_VIDEO_ENCODER=software requested; using software video "
+           "encoders before Android hardware encoders.";
+  }
 #endif
 
-  const PreferredHwEncoderConfig preferred_hw_encoder =
-      GetPreferredHwEncoderConfig();
-  if (preferred_hw_encoder.encoder == PreferredHwEncoder::kVaapi) {
-    AddVaapiFactory(factories_, preferred_hw_encoder.explicitly_set);
-    AddNvencFactory(factories_, false);
-  } else {
-    AddNvencFactory(factories_, preferred_hw_encoder.explicitly_set);
-    AddVaapiFactory(factories_, false);
+  if (!prefer_software_encoder) {
+    const PreferredHwEncoderConfig preferred_hw_encoder =
+        GetPreferredHwEncoderConfig();
+    if (preferred_hw_encoder.encoder == PreferredHwEncoder::kVaapi) {
+      AddVaapiFactory(factories_, preferred_hw_encoder.explicitly_set);
+      AddNvencFactory(factories_, false);
+    } else {
+      AddNvencFactory(factories_, preferred_hw_encoder.explicitly_set);
+      AddVaapiFactory(factories_, false);
+    }
   }
 }
 

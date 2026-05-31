@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Duration};
 
 use crate::{
     imp::rtp_receiver as imp_rr, media_stream_track::MediaStreamTrack,
@@ -35,6 +35,14 @@ impl RtpReceiver {
 
     pub fn parameters(&self) -> RtpParameters {
         self.handle.parameters()
+    }
+
+    /// Sets the receiver jitter buffer minimum delay.
+    ///
+    /// Pass `None` to clear the override and let WebRTC choose the default
+    /// minimum delay for this receiver.
+    pub fn set_jitter_buffer_minimum_delay(&self, delay: Option<Duration>) {
+        self.handle.set_jitter_buffer_minimum_delay(delay);
     }
 }
 
