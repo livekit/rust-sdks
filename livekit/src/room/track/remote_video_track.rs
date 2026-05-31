@@ -17,7 +17,6 @@ use std::{
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
-    time::Duration,
 };
 
 use libwebrtc::{
@@ -188,18 +187,6 @@ impl RemoteVideoTrack {
         if let Some(handler) = handler {
             self.apply_subscribe_timing_observer(&handler);
         }
-    }
-
-    /// Sets the receiver jitter buffer minimum delay for this remote video track.
-    ///
-    /// Returns `false` if the underlying transceiver is not available yet. Pass
-    /// `None` to clear the override and restore WebRTC's default behavior.
-    pub fn set_jitter_buffer_minimum_delay(&self, delay: Option<Duration>) -> bool {
-        let Some(transceiver) = self.transceiver() else {
-            return false;
-        };
-        transceiver.receiver().set_jitter_buffer_minimum_delay(delay);
-        true
     }
 
     /// Internal: set the handler that extracts packet trailers for this track.

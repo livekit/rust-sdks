@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
-
 use cxx::SharedPtr;
 use tokio::sync::oneshot;
 use webrtc_sys::rtp_receiver as sys_rr;
@@ -63,10 +61,5 @@ impl RtpReceiver {
 
     pub fn parameters(&self) -> RtpParameters {
         self.sys_handle.get_parameters().into()
-    }
-
-    pub fn set_jitter_buffer_minimum_delay(&self, delay: Option<Duration>) {
-        let delay_seconds = delay.map_or(0.0, |delay| delay.as_secs_f64());
-        self.sys_handle.set_jitter_buffer_minimum_delay(delay.is_some(), delay_seconds);
     }
 }
