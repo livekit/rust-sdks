@@ -120,6 +120,9 @@ pub(crate) fn pack_i420_into_shared(
 
     let repaint_ctx = {
         let mut s = shared.lock();
+        if s.dirty {
+            return false;
+        }
 
         pack_plane(y, y_stride, width, height, y_bytes_per_row, &mut s.y);
         pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.u);
@@ -451,7 +454,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_handoff_replaces_unconsumed_frame_with_latest() {
+    fn preview_handoff_skips_unconsumed_frame() {
         let shared = Arc::new(Mutex::new(SharedYuv::default()));
         let first_y = [1, 2, 3, 4];
         let first_u = [5];
@@ -461,16 +464,16 @@ mod tests {
         let second_v = [15];
 
         assert!(pack_i420_into_shared(&shared, 2, 2, &first_y, 2, &first_u, 1, &first_v, 1, None,));
-        assert!(pack_i420_into_shared(
+        assert!(!pack_i420_into_shared(
             &shared, 2, 2, &second_y, 2, &second_u, 1, &second_v, 1, None,
         ));
 
         let s = shared.lock();
         assert!(s.dirty);
-        assert_eq!(s.y[0..2], second_y[0..2]);
-        assert_eq!(s.y[s.y_bytes_per_row as usize..s.y_bytes_per_row as usize + 2], second_y[2..4]);
-        assert_eq!(s.u[0], second_u[0]);
-        assert_eq!(s.v[0], second_v[0]);
+        assert_eq!(s.y[0..2], first_y[0..2]);
+        assert_eq!(s.y[s.y_bytes_per_row as usize..s.y_bytes_per_row as usize + 2], first_y[2..4]);
+        assert_eq!(s.u[0], first_u[0]);
+        assert_eq!(s.v[0], first_v[0]);
     }
 
     #[test]
