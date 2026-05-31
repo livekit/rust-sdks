@@ -19,7 +19,6 @@
 
 #include <memory>
 
-#include "absl/types/optional.h"
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 
@@ -70,12 +69,6 @@ rust::String RtpReceiver::id() const {
 
 RtpParameters RtpReceiver::get_parameters() const {
   return to_rust_rtp_parameters(receiver_->GetParameters());
-}
-
-void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,
-                                                  double delay_seconds) const {
-  receiver_->SetJitterBufferMinimumDelay(
-      is_some ? absl::make_optional(delay_seconds) : absl::nullopt);
 }
 
 }  // namespace livekit_ffi

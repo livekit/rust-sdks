@@ -423,10 +423,6 @@ struct Args {
     #[arg(long)]
     render_frame_step: Option<u32>,
 
-    /// Leave the receiver jitter buffer minimum delay at WebRTC's default
-    #[arg(long)]
-    no_receiver_jitter_buffer_min_delay: bool,
-
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
@@ -1839,7 +1835,6 @@ async fn handle_track_subscribed(
     disable_stats: bool,
     record_overlay_timing: bool,
     render_frame_step: u32,
-    set_receiver_jitter_buffer_min_delay: bool,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -1888,14 +1883,6 @@ async fn handle_track_subscribed(
     {
         let mut s = shared.lock();
         s.codec = codec;
-    }
-
-    if set_receiver_jitter_buffer_min_delay {
-        if video_track.set_jitter_buffer_minimum_delay(Some(Duration::ZERO)) {
-            info!("Set receiver jitter buffer minimum delay to 0 ms");
-        } else {
-            debug!("Unable to set receiver jitter buffer minimum delay: transceiver unavailable");
-        }
     }
 
     let rtc_track = video_track.rtc_track();
@@ -2413,7 +2400,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let subscriber_timing_state_events = Some(subscriber_timing_state.clone());
     let disable_stats = args.no_stats;
     let record_overlay_timing = !args.no_overlay;
-    let set_receiver_jitter_buffer_min_delay = !args.no_receiver_jitter_buffer_min_delay;
     let render_frame_step =
         effective_render_frame_step(args.render_frame_step, args.no_overlay, args.no_stats);
     if render_frame_step > 1 {
@@ -2445,7 +2431,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         disable_stats,
                         record_overlay_timing,
                         render_frame_step,
-                        set_receiver_jitter_buffer_min_delay,
                     )
                     .await;
                 }
