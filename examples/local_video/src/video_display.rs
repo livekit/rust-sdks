@@ -168,8 +168,9 @@ fn format_optional_timing_delta_ms(
 }
 
 fn format_latency_ms(end_timestamp_us: u64, start_timestamp_us: u64) -> String {
-    let delta_us = i128::from(end_timestamp_us) - i128::from(start_timestamp_us);
-    format!("{:.1}ms", delta_us as f64 / 1_000.0)
+    end_timestamp_us
+        .checked_sub(start_timestamp_us)
+        .map_or_else(|| "NA".to_string(), |delta_us| format!("{:.1}ms", delta_us as f64 / 1_000.0))
 }
 
 const PUBLISHER_TIMING_LABEL_WIDTH: usize = 17;
@@ -507,6 +508,11 @@ mod tests {
         assert_publisher_timing_lines_are_stable(&lines);
         assert_eq!(lines[2], "got frame buffer: 00:00:02:500  +1500.0ms");
         assert_eq!(lines[3], "encoder upload:   00:00:02:600   +100.0ms");
+    }
+
+    #[test]
+    fn publisher_latency_formatter_rejects_negative_latency() {
+        assert_eq!(format_latency_ms(900, 1_000), "NA");
     }
 
     #[test]

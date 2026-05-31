@@ -162,10 +162,9 @@ impl PacketTrailerHandler {
     /// Returns `Some((user_timestamp, frame_id))` if found, `None` otherwise.
     /// The entry is removed from the map after a successful lookup.
     pub fn lookup_frame_metadata(&self, rtp_timestamp: u32) -> Option<(u64, u32)> {
-        let ts = self.sys_handle.lookup_timestamp(rtp_timestamp);
-        if ts != u64::MAX {
-            let frame_id = self.sys_handle.last_lookup_frame_id();
-            Some((ts, frame_id))
+        let metadata = self.sys_handle.lookup_metadata(rtp_timestamp);
+        if metadata.user_timestamp != u64::MAX {
+            Some((metadata.user_timestamp, metadata.frame_id))
         } else {
             None
         }

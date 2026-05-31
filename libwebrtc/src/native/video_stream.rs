@@ -19,10 +19,11 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 
 use cxx::{SharedPtr, UniquePtr};
+use futures_util::task::AtomicWaker;
 use livekit_runtime::Stream;
 use parking_lot::Mutex;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
@@ -49,7 +50,9 @@ impl NativeVideoStream {
         let handler = video_track.handle.packet_trailer_handler();
         let observer = Arc::new(VideoTrackObserver {
             frame_queue: frame_queue.clone(),
-            packet_trailer_handler: parking_lot::Mutex::new(handler),
+            packet_trailer_handler: handler,
+            packet_trailer_handler_override: parking_lot::Mutex::new(None),
+            has_packet_trailer_handler_override: AtomicBool::new(false),
         });
         let native_sink = sys_vt::ffi::new_native_video_sink(Box::new(
             sys_vt::VideoSinkWrapper::new(observer.clone()),
@@ -72,7 +75,8 @@ impl NativeVideoStream {
     /// only needed if you want to override or set the handler after
     /// construction.
     pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
-        *self.observer.packet_trailer_handler.lock() = Some(handler);
+        *self.observer.packet_trailer_handler_override.lock() = Some(handler);
+        self.observer.has_packet_trailer_handler_override.store(true, Ordering::Release);
     }
 
     pub fn track(&self) -> RtcVideoTrack {
@@ -102,15 +106,18 @@ impl Stream for NativeVideoStream {
 
 struct VideoTrackObserver {
     frame_queue: Arc<VideoFrameQueue>,
-    packet_trailer_handler: parking_lot::Mutex<Option<PacketTrailerHandler>>,
+    packet_trailer_handler: Option<PacketTrailerHandler>,
+    packet_trailer_handler_override: parking_lot::Mutex<Option<PacketTrailerHandler>>,
+    has_packet_trailer_handler_override: AtomicBool,
 }
 
-impl sys_vt::VideoSink for VideoTrackObserver {
-    fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
-        let rtp_timestamp = frame.timestamp();
-        let packet_trailer_handler = self.packet_trailer_handler.lock().clone();
-        let frame_metadata = packet_trailer_handler
-            .as_ref()
+impl VideoTrackObserver {
+    fn frame_metadata(
+        &self,
+        rtp_timestamp: u32,
+        handler: Option<&PacketTrailerHandler>,
+    ) -> Option<FrameMetadata> {
+        handler
             .and_then(|handler| {
                 handler.lookup_frame_metadata(rtp_timestamp).map(|(ts, fid)| {
                     handler.emit_subscribe_timing(SubscribeTimingStage::DecoderOutput, ts, fid);
@@ -120,7 +127,19 @@ impl sys_vt::VideoSink for VideoTrackObserver {
             .map(|(ts, fid)| FrameMetadata {
                 user_timestamp: Some(ts),
                 frame_id: if fid != 0 { Some(fid) } else { None },
-            });
+            })
+    }
+}
+
+impl sys_vt::VideoSink for VideoTrackObserver {
+    fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
+        let rtp_timestamp = frame.timestamp();
+        let frame_metadata = if self.has_packet_trailer_handler_override.load(Ordering::Acquire) {
+            let packet_trailer_handler = self.packet_trailer_handler_override.lock();
+            self.frame_metadata(rtp_timestamp, packet_trailer_handler.as_ref())
+        } else {
+            self.frame_metadata(rtp_timestamp, self.packet_trailer_handler.as_ref())
+        };
 
         self.frame_queue.push(VideoFrame {
             rotation: frame.rotation().into(),
@@ -139,12 +158,17 @@ struct VideoFrameQueue {
     kind: VideoFrameQueueKind,
     closed: AtomicBool,
     dropped_frames: AtomicU64,
-    waker: Mutex<Option<Waker>>,
+    waker: AtomicWaker,
 }
 
 enum VideoFrameQueueKind {
+    Latest(LatestVideoFrameQueue),
     Bounded(BoundedVideoFrameQueue),
     Unbounded(UnboundedVideoFrameQueue),
+}
+
+struct LatestVideoFrameQueue {
+    frame: Mutex<Option<BoxVideoFrame>>,
 }
 
 struct BoundedVideoFrameQueue {
@@ -159,6 +183,9 @@ struct UnboundedVideoFrameQueue {
 impl VideoFrameQueue {
     fn new(capacity: Option<usize>) -> Self {
         let kind = match capacity.filter(|capacity| *capacity > 0) {
+            Some(1) => {
+                VideoFrameQueueKind::Latest(LatestVideoFrameQueue { frame: Mutex::new(None) })
+            }
             Some(capacity) => {
                 let (producer, consumer) = RingBuffer::new(capacity);
                 VideoFrameQueueKind::Bounded(BoundedVideoFrameQueue {
@@ -175,7 +202,7 @@ impl VideoFrameQueue {
             kind,
             closed: AtomicBool::new(false),
             dropped_frames: AtomicU64::new(0),
-            waker: Mutex::new(None),
+            waker: AtomicWaker::new(),
         }
     }
 
@@ -185,6 +212,11 @@ impl VideoFrameQueue {
         }
 
         match &self.kind {
+            VideoFrameQueueKind::Latest(queue) => {
+                if queue.frame.lock().replace(frame).is_some() {
+                    self.record_drop();
+                }
+            }
             VideoFrameQueueKind::Bounded(queue) => self.push_bounded(queue, frame),
             VideoFrameQueueKind::Unbounded(queue) => {
                 queue.frames.lock().push_back(frame);
@@ -218,6 +250,9 @@ impl VideoFrameQueue {
         self.wake_receiver();
 
         match &self.kind {
+            VideoFrameQueueKind::Latest(queue) => {
+                queue.frame.lock().take();
+            }
             VideoFrameQueueKind::Bounded(queue) => {
                 let mut consumer = queue.consumer.lock();
                 while consumer.pop().is_ok() {}
@@ -237,10 +272,9 @@ impl VideoFrameQueue {
             return Poll::Ready(None);
         }
 
-        *self.waker.lock() = Some(cx.waker().clone());
+        self.waker.register(cx.waker());
 
         if let Some(frame) = self.try_pop() {
-            self.waker.lock().take();
             Poll::Ready(Some(frame))
         } else if self.closed.load(Ordering::Acquire) {
             Poll::Ready(None)
@@ -251,16 +285,14 @@ impl VideoFrameQueue {
 
     fn try_pop(&self) -> Option<BoxVideoFrame> {
         match &self.kind {
+            VideoFrameQueueKind::Latest(queue) => queue.frame.lock().take(),
             VideoFrameQueueKind::Bounded(queue) => queue.consumer.lock().pop().ok(),
             VideoFrameQueueKind::Unbounded(queue) => queue.frames.lock().pop_front(),
         }
     }
 
     fn wake_receiver(&self) {
-        let waker = self.waker.lock().take();
-        if let Some(waker) = waker {
-            waker.wake();
-        }
+        self.waker.wake();
     }
 
     fn record_drop(&self) {
@@ -318,6 +350,19 @@ mod tests {
 
         assert_eq!(queue.dropped_frames.load(Ordering::Relaxed), 1);
         assert_eq!(pop_timestamp(&queue), Some(2));
+        assert_eq!(pop_timestamp(&queue), Some(3));
+        assert_eq!(pop_timestamp(&queue), None);
+    }
+
+    #[test]
+    fn one_frame_queue_keeps_latest_frame() {
+        let queue = VideoFrameQueue::new(Some(1));
+
+        queue.push(test_frame(1));
+        queue.push(test_frame(2));
+        queue.push(test_frame(3));
+
+        assert_eq!(queue.dropped_frames.load(Ordering::Relaxed), 2);
         assert_eq!(pop_timestamp(&queue), Some(3));
         assert_eq!(pop_timestamp(&queue), None);
     }

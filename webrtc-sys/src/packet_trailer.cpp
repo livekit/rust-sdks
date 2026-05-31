@@ -563,6 +563,19 @@ uint32_t PacketTrailerHandler::last_lookup_frame_id() const {
   return last_frame_id_;
 }
 
+PacketTrailerLookupResult PacketTrailerHandler::lookup_metadata(
+    uint32_t rtp_timestamp) const {
+  auto meta = transformer_->lookup_frame_metadata(rtp_timestamp);
+  if (meta.has_value()) {
+    return PacketTrailerLookupResult{
+        meta->user_timestamp,
+        meta->frame_id,
+        meta->ssrc,
+    };
+  }
+  return PacketTrailerLookupResult{UINT64_MAX, 0, 0};
+}
+
 void PacketTrailerHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
