@@ -643,6 +643,15 @@ fn create_i420_buffer(width: u32, height: u32, align_for_display: bool) -> I420B
     }
 }
 
+fn create_i420_frame(width: u32, height: u32, align_for_display: bool) -> VideoFrame<I420Buffer> {
+    VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        frame_metadata: None,
+        buffer: create_i420_buffer(width, height, align_for_display),
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -1002,16 +1011,8 @@ async fn run_capture_loop(
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
     let align_buffers_for_display = display_shared.is_some();
-
-    // Reuse a single I420 buffer
-    let mut frame = VideoFrame {
-        rotation: VideoRotation::VideoRotation0,
-        timestamp_us: 0,
-        frame_metadata: None,
-        buffer: create_i420_buffer(width, height, align_buffers_for_display),
-    };
-    let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-    let stride_y_usize = stride_y as usize;
+    let isolate_capture_buffers = timestamp_overlay.is_some();
+    let mut reusable_frame = create_i420_frame(width, height, align_buffers_for_display);
 
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
@@ -1024,6 +1025,16 @@ async fn run_capture_loop(
 
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
+        let mut isolated_frame = None;
+        let frame = if isolate_capture_buffers {
+            // `capture_frame` passes a ref-counted pointer into WebRTC. Burned-in
+            // timestamps are per-frame pixels, so never overwrite an in-flight buffer.
+            isolated_frame.insert(create_i420_frame(width, height, align_buffers_for_display))
+        } else {
+            &mut reusable_frame
+        };
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let stride_y_usize = stride_y as usize;
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
         let (
             capture_wall_time_us,
@@ -1236,7 +1247,7 @@ async fn run_capture_loop(
         };
         // Monotonic, microseconds since start.
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
-        rtc_source.capture_frame(&frame);
+        rtc_source.capture_frame(frame);
         let webrtc_capture_finished_at = Instant::now();
         if let Some(shared) = display_shared.as_ref() {
             let (stride_y, stride_u, stride_v) = frame.buffer.strides();

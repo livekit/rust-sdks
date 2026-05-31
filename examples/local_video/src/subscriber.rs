@@ -2249,20 +2249,12 @@ impl eframe::App for VideoApp {
         });
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
+            ui.ctx().request_repaint();
+
             // Let the native window follow live resize, and letterbox the video instead of
             // programmatically resizing the window while the user is dragging it.
-            let available = ui.available_size();
-            let size = if let Some(aspect) = self.viewport.aspect() {
-                let mut w = available.x.max(1.0);
-                let mut h = (w / aspect).max(1.0);
-                if h > available.y.max(1.0) {
-                    h = available.y.max(1.0);
-                    w = (h * aspect).max(1.0);
-                }
-                egui::vec2(w, h)
-            } else {
-                egui::vec2(available.x.max(1.0), available.y.max(1.0))
-            };
+            let size =
+                viewport_aspect::fitted_video_size(ui.available_size(), self.viewport.aspect());
 
             ui.with_layout(
                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -2317,6 +2309,8 @@ impl eframe::App for VideoApp {
                     });
                 });
         }
+
+        ctx.request_repaint_after(viewport_aspect::VIDEO_REPAINT_INTERVAL);
     }
 }
 
@@ -2482,6 +2476,19 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         }
     });
 
+    let default_window_long_edge = if args.no_overlay && args.no_stats {
+        viewport_aspect::MIN_LONG_EDGE
+    } else {
+        viewport_aspect::DEFAULT_INITIAL_LONG_EDGE
+    };
+    let window_long_edge = args.window_long_edge.unwrap_or(default_window_long_edge);
+    let uses_default_window_long_edge =
+        (window_long_edge - viewport_aspect::DEFAULT_INITIAL_LONG_EDGE).abs() < f32::EPSILON;
+    let viewport = if uses_default_window_long_edge {
+        AspectConstrainedViewport::new(None)
+    } else {
+        AspectConstrainedViewport::with_initial_long_edge(None, window_long_edge)
+    };
     // Start UI
     let app = VideoApp {
         shared,
@@ -2492,22 +2499,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         gpu_completion_probe: args.gpu_completion_probe,
         repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
-        viewport: AspectConstrainedViewport::new(None),
+        viewport,
         display_timestamp: args.display_timestamp,
         show_overlay: !args.no_overlay,
     };
-    let default_window_long_edge = if args.no_overlay && args.no_stats {
-        viewport_aspect::MIN_LONG_EDGE
+    let native_options = if uses_default_window_long_edge {
+        viewport_aspect::native_options(None)
     } else {
-        viewport_aspect::DEFAULT_INITIAL_LONG_EDGE
+        viewport_aspect::native_options_with_initial_long_edge(None, window_long_edge)
     };
-    let window_long_edge = args.window_long_edge.unwrap_or(default_window_long_edge);
-    let native_options =
-        if (window_long_edge - viewport_aspect::DEFAULT_INITIAL_LONG_EDGE).abs() < f32::EPSILON {
-            viewport_aspect::native_options(None)
-        } else {
-            viewport_aspect::native_options_with_initial_long_edge(None, window_long_edge)
-        };
     eframe::run_native(
         "LiveKit Video Subscriber",
         native_options,
