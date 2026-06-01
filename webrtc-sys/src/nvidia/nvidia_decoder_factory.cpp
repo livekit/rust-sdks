@@ -2,6 +2,7 @@
 
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
+#include <dlfcn.h>
 #include <memory>
 
 #include "cuda_context.h"
@@ -13,6 +14,7 @@ namespace webrtc {
 
 constexpr char kSdpKeyNameCodecImpl[] = "implementation_name";
 constexpr char kCodecName[] = "NvCodec";
+constexpr char kNvcuvidLibraryName[] = "libnvcuvid.so.1";
 
 static int GetCudaDeviceCapabilityMajorVersion(CUcontext context) {
   cuCtxSetCurrent(context);
@@ -85,7 +87,24 @@ bool NvidiaVideoDecoderFactory::IsSupported() {
     return false;
   }
 
-  std::cout << "Nvidia Decoder is supported." << std::endl;
+  void* hModule = dlopen(kNvcuvidLibraryName, RTLD_LAZY | RTLD_GLOBAL);
+  if (!hModule) {
+    RTC_LOG(LS_WARNING)
+        << "NVDEC library (" << kNvcuvidLibraryName
+        << ") not found, NVIDIA hardware decoding unavailable.";
+    return false;
+  }
+
+  void* cuvidGetDecoderCaps = dlsym(hModule, "cuvidGetDecoderCaps");
+  dlclose(hModule);
+  if (!cuvidGetDecoderCaps) {
+    RTC_LOG(LS_WARNING)
+        << "NVDEC API entry points not found in " << kNvcuvidLibraryName
+        << ", NVIDIA hardware decoding unavailable.";
+    return false;
+  }
+
+  RTC_LOG(LS_INFO) << "NVIDIA NVDEC hardware decoder is available.";
   return true;
 }
 

@@ -64,6 +64,7 @@ class VideoFrameBuffer {
 
   unsigned int width() const;
   unsigned int height() const;
+  bool linux_dma_buf_descriptor(DmaBufVideoFrameDescriptor& desc) const;
 
   std::unique_ptr<I420Buffer> to_i420() const;
 

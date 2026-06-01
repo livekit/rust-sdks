@@ -185,6 +185,7 @@ fn main() {
                     .map(String::from)
                     .to_vec(),
             );
+            builder.file("src/jetson/dmabuf_video_frame_buffer.cpp");
 
             let x86 = target_arch == "x86_64" || target_arch == "i686";
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
@@ -208,6 +209,14 @@ fn main() {
                     );
                 } else {
                     println!("cargo:warning=libva not found; building without hardware accelerated video codecs");
+                }
+            }
+
+            if arm {
+                if !configure_jetson_video_codec(&mut builder) {
+                    println!(
+                        "cargo:warning=Jetson Multimedia API not found; building without Jetson hardware video decoder support"
+                    );
                 }
             }
 
@@ -403,6 +412,52 @@ fn configure_android_sysroot(builder: &mut cc::Build) {
     let toolchain = webrtc_sys_build::android_ndk_toolchain().unwrap();
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
     builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
+}
+
+fn configure_jetson_video_codec(builder: &mut cc::Build) -> bool {
+    println!("cargo:rerun-if-env-changed=JETSON_MULTIMEDIA_API");
+
+    let api_root = env::var("JETSON_MULTIMEDIA_API")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/usr/src/jetson_multimedia_api"));
+    let include_dir = api_root.join("include");
+    let common_classes_dir = api_root.join("samples/common/classes");
+
+    let required_headers = [include_dir.join("NvVideoDecoder.h"), include_dir.join("NvBuffer.h")];
+    let required_sources = [
+        common_classes_dir.join("NvBuffer.cpp"),
+        common_classes_dir.join("NvElement.cpp"),
+        common_classes_dir.join("NvElementProfiler.cpp"),
+        common_classes_dir.join("NvLogging.cpp"),
+        common_classes_dir.join("NvV4l2Element.cpp"),
+        common_classes_dir.join("NvV4l2ElementPlane.cpp"),
+        common_classes_dir.join("NvVideoDecoder.cpp"),
+    ];
+
+    if required_headers.iter().any(|path| !path.exists())
+        || required_sources.iter().any(|path| !path.exists())
+    {
+        return false;
+    }
+
+    builder
+        .include(&include_dir)
+        .include(include_dir.join("libv4l2"))
+        .include(&common_classes_dir)
+        .file("src/jetson/jetson_decoder_factory.cpp")
+        .file("src/jetson/jetson_h264_decoder.cpp")
+        .flag("-DUSE_JETSON_VIDEO_CODEC=1");
+
+    for source in required_sources {
+        builder.file(source);
+    }
+
+    println!("cargo:rustc-link-lib=dylib=v4l2");
+    println!(
+        "cargo:warning=building Jetson hardware video decoder support from {}",
+        api_root.display()
+    );
+    true
 }
 
 fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>) {

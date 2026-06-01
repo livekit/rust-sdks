@@ -372,6 +372,365 @@ mod macos_native_video {
     }
 }
 
+#[cfg(target_os = "linux")]
+mod linux_dmabuf_video {
+    use std::os::fd::{AsRawFd, IntoRawFd};
+
+    use anyhow::{anyhow, bail, Context, Result};
+    use ash::{khr, vk};
+    use eframe::wgpu;
+
+    use livekit::webrtc::video_frame::{
+        native::{DmaBufVideoFrameDescriptor, DmaBufVideoFramePlane},
+        BoxVideoFrame,
+    };
+
+    const DRM_FORMAT_NV12: u32 = fourcc(b'N', b'V', b'1', b'2');
+    const DRM_FORMAT_MOD_LINEAR: u64 = 0;
+
+    const fn fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
+        (a as u32) | ((b as u32) << 8) | ((c as u32) << 16) | ((d as u32) << 24)
+    }
+
+    unsafe extern "C" {
+        fn close(fd: i32) -> i32;
+    }
+
+    pub(crate) struct NativeFrameResources {
+        _frame: BoxVideoFrame,
+    }
+
+    // SAFETY: The frame owns ref-counted native handles. This struct only keeps
+    // them alive while wgpu owns imported textures for the same frame.
+    unsafe impl Send for NativeFrameResources {}
+    // SAFETY: The struct has no interior mutation and is used as lifetime storage.
+    unsafe impl Sync for NativeFrameResources {}
+
+    pub(crate) struct ImportedNativeFrame {
+        pub(crate) y_tex: wgpu::Texture,
+        pub(crate) uv_tex: wgpu::Texture,
+        pub(crate) y_view: wgpu::TextureView,
+        pub(crate) uv_view: wgpu::TextureView,
+        pub(crate) resources: NativeFrameResources,
+        pub(crate) full_size: (u32, u32),
+        pub(crate) y_size: (u32, u32),
+        pub(crate) uv_size: (u32, u32),
+    }
+
+    struct ImportedNativeFrameParts {
+        y_tex: wgpu::Texture,
+        uv_tex: wgpu::Texture,
+        y_view: wgpu::TextureView,
+        uv_view: wgpu::TextureView,
+        full_size: (u32, u32),
+        y_size: (u32, u32),
+        uv_size: (u32, u32),
+    }
+
+    pub(crate) struct ImportNativeFrameError {
+        pub(crate) frame: BoxVideoFrame,
+        pub(crate) error: anyhow::Error,
+    }
+
+    pub(crate) fn import_nv12_frame(
+        device: &wgpu::Device,
+        frame: BoxVideoFrame,
+    ) -> std::result::Result<ImportedNativeFrame, ImportNativeFrameError> {
+        match import_nv12_frame_inner(device, &frame) {
+            Ok(parts) => Ok(ImportedNativeFrame {
+                y_tex: parts.y_tex,
+                uv_tex: parts.uv_tex,
+                y_view: parts.y_view,
+                uv_view: parts.uv_view,
+                resources: NativeFrameResources { _frame: frame },
+                full_size: parts.full_size,
+                y_size: parts.y_size,
+                uv_size: parts.uv_size,
+            }),
+            Err(error) => Err(ImportNativeFrameError { frame, error }),
+        }
+    }
+
+    fn import_nv12_frame_inner(
+        device: &wgpu::Device,
+        frame: &BoxVideoFrame,
+    ) -> Result<ImportedNativeFrameParts> {
+        let native = frame
+            .buffer
+            .as_native()
+            .ok_or_else(|| anyhow!("frame is not backed by a native buffer"))?;
+        let descriptor = native
+            .get_linux_dma_buf_descriptor()
+            .ok_or_else(|| anyhow!("native buffer is not backed by DMA-BUF"))?;
+
+        validate_descriptor(&descriptor)?;
+        let full_size = (descriptor.width, descriptor.height);
+        let y_size = (descriptor.y.width, descriptor.y.height);
+        let uv_size = (descriptor.uv.width, descriptor.uv.height);
+
+        let y_tex = import_plane_as_texture(
+            device,
+            descriptor.y,
+            wgpu::TextureFormat::R8Unorm,
+            vk::Format::R8_UNORM,
+            "dmabuf_y_plane",
+        )?;
+        let uv_tex = import_plane_as_texture(
+            device,
+            descriptor.uv,
+            wgpu::TextureFormat::Rg8Unorm,
+            vk::Format::R8G8_UNORM,
+            "dmabuf_uv_plane",
+        )?;
+        let y_view = y_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let uv_view = uv_tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+        Ok(ImportedNativeFrameParts { y_tex, uv_tex, y_view, uv_view, full_size, y_size, uv_size })
+    }
+
+    fn validate_descriptor(descriptor: &DmaBufVideoFrameDescriptor) -> Result<()> {
+        if descriptor.fourcc != DRM_FORMAT_NV12 {
+            bail!("unsupported DMA-BUF format 0x{:08x}", descriptor.fourcc);
+        }
+        if descriptor.modifier != DRM_FORMAT_MOD_LINEAR {
+            bail!("unsupported DMA-BUF modifier 0x{:016x}", descriptor.modifier);
+        }
+        if descriptor.num_planes < 2 {
+            bail!("expected 2-plane NV12 DMA-BUF, got {} planes", descriptor.num_planes);
+        }
+        if descriptor.width == 0
+            || descriptor.height == 0
+            || descriptor.y.width == 0
+            || descriptor.y.height == 0
+            || descriptor.uv.width == 0
+            || descriptor.uv.height == 0
+        {
+            bail!("DMA-BUF frame has an empty plane");
+        }
+        if descriptor.y.stride < descriptor.y.width
+            || descriptor.uv.stride < descriptor.uv.width.saturating_mul(2)
+        {
+            bail!("DMA-BUF plane stride is smaller than the visible row");
+        }
+        Ok(())
+    }
+
+    fn import_plane_as_texture(
+        device: &wgpu::Device,
+        plane: DmaBufVideoFramePlane,
+        wgpu_format: wgpu::TextureFormat,
+        vk_format: vk::Format,
+        label: &'static str,
+    ) -> Result<wgpu::Texture> {
+        unsafe {
+            let hal_device = device
+                .as_hal::<wgpu::hal::api::Vulkan>()
+                .ok_or_else(|| anyhow!("wgpu is not using the Vulkan backend"))?;
+            let raw_device = hal_device.raw_device();
+            let raw_instance = hal_device.shared_instance().raw_instance();
+            let physical_device = hal_device.raw_physical_device();
+            let plane_width = plane.width;
+            let plane_height = plane.height;
+
+            ensure_external_memory_extensions(hal_device.enabled_device_extensions())?;
+            ensure_sampled_linear_format(raw_instance, physical_device, vk_format)?;
+
+            let image = create_linear_external_image(raw_device, vk_format, &plane, label)
+                .context("failed to create Vulkan image for DMA-BUF plane")?;
+            let subresource = vk::ImageSubresource::default()
+                .aspect_mask(vk::ImageAspectFlags::COLOR)
+                .mip_level(0)
+                .array_layer(0);
+            let layout = raw_device.get_image_subresource_layout(image, subresource);
+            if layout.row_pitch != u64::from(plane.stride) {
+                raw_device.destroy_image(image, None);
+                bail!(
+                    "DMA-BUF row pitch {} does not match Vulkan linear image row pitch {}",
+                    plane.stride,
+                    layout.row_pitch
+                );
+            }
+            if u64::from(plane.offset) < layout.offset {
+                raw_device.destroy_image(image, None);
+                bail!(
+                    "DMA-BUF plane offset {} is smaller than Vulkan subresource offset {}",
+                    plane.offset,
+                    layout.offset
+                );
+            }
+
+            let memory_requirements = raw_device.get_image_memory_requirements(image);
+            let bind_offset = u64::from(plane.offset) - layout.offset;
+            if bind_offset % memory_requirements.alignment != 0 {
+                raw_device.destroy_image(image, None);
+                bail!(
+                    "DMA-BUF bind offset {} is not aligned to Vulkan requirement {}",
+                    bind_offset,
+                    memory_requirements.alignment
+                );
+            }
+
+            let external_memory_fd = khr::external_memory_fd::Device::new(raw_instance, raw_device);
+            let fd_properties = match external_memory_fd.get_memory_fd_properties(
+                vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
+                plane.fd.as_raw_fd(),
+            ) {
+                Ok(properties) => properties,
+                Err(err) => {
+                    raw_device.destroy_image(image, None);
+                    return Err(err).context("failed to query DMA-BUF memory type bits");
+                }
+            };
+            let memory_type_bits =
+                memory_requirements.memory_type_bits & fd_properties.memory_type_bits;
+            let Some(memory_type_index) =
+                find_memory_type_index(raw_instance, physical_device, memory_type_bits)
+            else {
+                raw_device.destroy_image(image, None);
+                bail!("no compatible Vulkan memory type for DMA-BUF plane");
+            };
+
+            let allocation_size = u64::from(plane.offset)
+                .saturating_add(u64::from(plane.size))
+                .max(bind_offset.saturating_add(memory_requirements.size));
+            let memory =
+                match import_memory_fd(raw_device, plane, allocation_size, memory_type_index) {
+                    Ok(memory) => memory,
+                    Err(err) => {
+                        raw_device.destroy_image(image, None);
+                        return Err(err).context("failed to import DMA-BUF memory");
+                    }
+                };
+
+            if let Err(err) = raw_device.bind_image_memory(image, memory, bind_offset) {
+                raw_device.free_memory(memory, None);
+                raw_device.destroy_image(image, None);
+                return Err(anyhow!("failed to bind imported DMA-BUF memory: {err:?}"));
+            }
+
+            let desc = wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: plane_width,
+                    height: plane_height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu_format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            };
+            let hal_desc = wgpu::hal::TextureDescriptor {
+                label: Some(label),
+                size: desc.size,
+                mip_level_count: desc.mip_level_count,
+                sample_count: desc.sample_count,
+                dimension: desc.dimension,
+                format: desc.format,
+                usage: wgpu::TextureUses::RESOURCE,
+                memory_flags: wgpu::hal::MemoryFlags::empty(),
+                view_formats: Vec::new(),
+            };
+
+            let drop_device = (*raw_device).clone();
+            let drop_callback: wgpu::hal::DropCallback = Box::new(move || unsafe {
+                drop_device.destroy_image(image, None);
+                drop_device.free_memory(memory, None);
+            });
+
+            let hal_texture = hal_device.texture_from_raw(image, &hal_desc, Some(drop_callback));
+            Ok(device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(hal_texture, &desc))
+        }
+    }
+
+    fn ensure_external_memory_extensions(extensions: &[&'static std::ffi::CStr]) -> Result<()> {
+        if !extensions.contains(&khr::external_memory_fd::NAME) {
+            bail!("Vulkan device did not enable VK_KHR_external_memory_fd");
+        }
+        if !extensions.contains(&ash::ext::external_memory_dma_buf::NAME) {
+            bail!("Vulkan device did not enable VK_EXT_external_memory_dma_buf");
+        }
+        Ok(())
+    }
+
+    unsafe fn ensure_sampled_linear_format(
+        instance: &ash::Instance,
+        physical_device: vk::PhysicalDevice,
+        format: vk::Format,
+    ) -> Result<()> {
+        let properties = instance.get_physical_device_format_properties(physical_device, format);
+        if !properties.linear_tiling_features.contains(vk::FormatFeatureFlags::SAMPLED_IMAGE) {
+            bail!("Vulkan format {format:?} is not sampleable with linear tiling");
+        }
+        Ok(())
+    }
+
+    unsafe fn create_linear_external_image(
+        device: &ash::Device,
+        format: vk::Format,
+        plane: &DmaBufVideoFramePlane,
+        label: &'static str,
+    ) -> Result<vk::Image> {
+        let mut external_memory = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT);
+        let image_info = vk::ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(format)
+            .extent(vk::Extent3D { width: plane.width, height: plane.height, depth: 1 })
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .tiling(vk::ImageTiling::LINEAR)
+            .usage(vk::ImageUsageFlags::SAMPLED)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .push_next(&mut external_memory);
+        device
+            .create_image(&image_info, None)
+            .map_err(|err| anyhow!("{label}: vkCreateImage failed: {err:?}"))
+    }
+
+    unsafe fn import_memory_fd(
+        device: &ash::Device,
+        plane: DmaBufVideoFramePlane,
+        allocation_size: vk::DeviceSize,
+        memory_type_index: u32,
+    ) -> Result<vk::DeviceMemory> {
+        let fd = plane.fd.into_raw_fd();
+        let mut import_fd = vk::ImportMemoryFdInfoKHR::default()
+            .handle_type(vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
+            .fd(fd);
+        let allocate_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(allocation_size)
+            .memory_type_index(memory_type_index)
+            .push_next(&mut import_fd);
+
+        match device.allocate_memory(&allocate_info, None) {
+            Ok(memory) => Ok(memory),
+            Err(err) => {
+                // SAFETY: Ownership of the FD is transferred to Vulkan only on
+                // successful import, so Rust must close it on allocation failure.
+                let _ = close(fd);
+                Err(anyhow!("vkAllocateMemory failed: {err:?}"))
+            }
+        }
+    }
+
+    unsafe fn find_memory_type_index(
+        instance: &ash::Instance,
+        physical_device: vk::PhysicalDevice,
+        memory_type_bits: u32,
+    ) -> Option<u32> {
+        let properties = instance.get_physical_device_memory_properties(physical_device);
+        properties.memory_types_as_slice().iter().enumerate().find_map(|(index, _)| {
+            let bit = 1u32 << index;
+            (memory_type_bits & bit != 0).then_some(index as u32)
+        })
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -2543,6 +2902,12 @@ struct YuvGpuState {
     native_import_logged: bool,
     #[cfg(target_os = "macos")]
     native_import_failed_logged: bool,
+    #[cfg(target_os = "linux")]
+    native_resources: Option<linux_dmabuf_video::NativeFrameResources>,
+    #[cfg(target_os = "linux")]
+    native_import_logged: bool,
+    #[cfg(target_os = "linux")]
+    native_import_failed_logged: bool,
 }
 
 impl YuvGpuState {
@@ -2859,6 +3224,12 @@ impl CallbackTrait for YuvPaintCallback {
                 native_import_logged: false,
                 #[cfg(target_os = "macos")]
                 native_import_failed_logged: false,
+                #[cfg(target_os = "linux")]
+                native_resources: None,
+                #[cfg(target_os = "linux")]
+                native_import_logged: false,
+                #[cfg(target_os = "linux")]
+                native_import_failed_logged: false,
             };
             resources.insert(new_state);
         }
@@ -2978,8 +3349,79 @@ impl CallbackTrait for YuvPaintCallback {
             }
         }
 
+        #[cfg(target_os = "linux")]
+        if let Some((frame, sample)) = frame_for_cpu_upload.take() {
+            if frame.buffer.as_native().is_some() {
+                match linux_dmabuf_video::import_nv12_frame(device, frame) {
+                    Ok(imported) => {
+                        let full_size = imported.full_size;
+                        let y_size = imported.y_size;
+                        let uv_size = imported.uv_size;
+                        let resources = imported.resources;
+                        state.y_tex = imported.y_tex;
+                        state.u_tex = imported.uv_tex.clone();
+                        state.v_tex = imported.uv_tex;
+                        state.y_view = imported.y_view;
+                        state.u_view = imported.uv_view.clone();
+                        state.v_view = imported.uv_view;
+                        state.y_tex_w = y_size.0;
+                        state.uv_tex_w = uv_size.0;
+                        state.dims = full_size;
+                        state.yuv_layout = 1;
+                        state.native_resources = Some(resources);
+                        if !state.native_import_logged {
+                            info!(
+                                "Using native DMA-BUF to Vulkan texture render path \
+                                 (no CPU frame upload)"
+                            );
+                            state.native_import_logged = true;
+                        }
+                        state.recreate_bind_group(device);
+                        state.update_params(
+                            queue,
+                            ParamsUniform {
+                                src_w: full_size.0,
+                                src_h: full_size.1,
+                                y_tex_w: state.y_tex_w,
+                                uv_tex_w: state.uv_tex_w,
+                                yuv_layout: state.yuv_layout,
+                                _pad0: 0,
+                                _pad1: 0,
+                                _pad2: 0,
+                            },
+                        );
+                        match sample {
+                            Some(sample) => {
+                                state.pending_paint_sample.store(sample);
+                                if self.gpu_completion_probe {
+                                    gpu_sample_in_flight = Some(sample);
+                                }
+                            }
+                            None => state.pending_paint_sample.clear(),
+                        }
+                    }
+                    Err(err) => {
+                        if !state.native_import_failed_logged {
+                            debug!(
+                                "Unable to import DMA-BUF video frame, falling back to CPU upload: {:?}",
+                                err.error
+                            );
+                            state.native_import_failed_logged = true;
+                        }
+                        frame_for_cpu_upload = Some((err.frame, sample));
+                    }
+                }
+            } else {
+                frame_for_cpu_upload = Some((frame, sample));
+            }
+        }
+
         if let Some((frame, sample)) = frame_for_cpu_upload {
             #[cfg(target_os = "macos")]
+            {
+                state.native_resources = None;
+            }
+            #[cfg(target_os = "linux")]
             {
                 state.native_resources = None;
             }

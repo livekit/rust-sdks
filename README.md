@@ -32,7 +32,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
   - [x] H.264, H.265 using VideoToolbox (MacOS/iOS)
   - [x] H.264, H.265 on NVidia discrete GPUs (Linux)
   - [x] H.264, H.265 on AMD CPUs & GPUs (Linux)
-  - [ ] H.264, H.265 on NVidia Jetson (Linux)
+  - [x] H.264 on NVIDIA Jetson (Linux, native V4L2/DMA-BUF)
 - Supported Platforms
   - [x] Windows
   - [x] MacOS
@@ -179,6 +179,19 @@ When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implemen
 ```
 *** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector sent to instance 0x600003bc6660'
 ```
+
+### Jetson
+
+Linux ARM/aarch64 builds enable Jetson H.264 hardware video decoding when the
+Jetson Multimedia API is available. The build looks for the API in
+`/usr/src/jetson_multimedia_api`; set `JETSON_MULTIMEDIA_API` to override that
+path.
+
+The Jetson decoder uses `NvVideoDecoder`/V4L2 directly and exposes decoded NV12
+capture buffers as DMA-BUF-backed native frames. The `local_video` subscriber can
+import those DMA-BUF planes into Vulkan textures for zero-copy decode-to-render
+when the driver accepts the exported plane layout; otherwise it falls back to the
+existing CPU I420 upload path.
 
 ## Environment variables
 

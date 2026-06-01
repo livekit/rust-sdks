@@ -18,6 +18,10 @@
 
 #include "api/make_ref_counted.h"
 
+#ifdef __linux__
+#include "jetson/dmabuf_video_frame_buffer.h"
+#endif
+
 namespace livekit_ffi {
 
 VideoFrameBuffer::VideoFrameBuffer(
@@ -34,6 +38,15 @@ unsigned int VideoFrameBuffer::width() const {
 
 unsigned int VideoFrameBuffer::height() const {
   return buffer_->height();
+}
+
+bool VideoFrameBuffer::linux_dma_buf_descriptor(
+    DmaBufVideoFrameDescriptor& desc) const {
+#ifdef __linux__
+  return GetDmaBufVideoFrameDescriptor(buffer_.get(), &desc);
+#else
+  return false;
+#endif
 }
 
 std::unique_ptr<I420Buffer> VideoFrameBuffer::to_i420() const {

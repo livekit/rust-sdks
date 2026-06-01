@@ -493,6 +493,44 @@ pub mod native {
 
     new_buffer_type!(NativeBuffer, Native, as_native);
 
+    /// One DMA-BUF plane backing a Linux native video frame.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug)]
+    pub struct DmaBufVideoFramePlane {
+        /// Owned duplicate file descriptor for this plane.
+        pub fd: std::os::fd::OwnedFd,
+        /// Byte offset of the plane data within `fd`.
+        pub offset: u32,
+        /// Bytes between successive rows.
+        pub stride: u32,
+        /// Mappable byte size of this plane.
+        pub size: u32,
+        /// Plane width in pixels.
+        pub width: u32,
+        /// Plane height in pixels.
+        pub height: u32,
+    }
+
+    /// DMA-BUF metadata for a Linux native video frame.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug)]
+    pub struct DmaBufVideoFrameDescriptor {
+        /// Visible frame width in pixels.
+        pub width: u32,
+        /// Visible frame height in pixels.
+        pub height: u32,
+        /// DRM fourcc format code for the frame.
+        pub fourcc: u32,
+        /// DRM format modifier shared by the planes.
+        pub modifier: u64,
+        /// Number of valid planes in this descriptor.
+        pub num_planes: u32,
+        /// Luma plane metadata.
+        pub y: DmaBufVideoFramePlane,
+        /// Interleaved chroma plane metadata.
+        pub uv: DmaBufVideoFramePlane,
+    }
+
     impl NativeBuffer {
         /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
         ///
@@ -511,6 +549,15 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+
+        /// Returns owned DMA-BUF descriptors for a Linux native buffer.
+        ///
+        /// The returned file descriptors are duplicates and may be consumed by
+        /// graphics APIs without invalidating the underlying video frame.
+        #[cfg(target_os = "linux")]
+        pub fn get_linux_dma_buf_descriptor(&self) -> Option<DmaBufVideoFrameDescriptor> {
+            self.handle.get_linux_dma_buf_descriptor()
         }
     }
 

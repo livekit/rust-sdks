@@ -166,6 +166,74 @@ impl NativeBuffer {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
+    /// Returns owned DMA-BUF descriptors for a Linux native buffer.
+    #[cfg(target_os = "linux")]
+    pub fn get_linux_dma_buf_descriptor(&self) -> Option<vf::native::DmaBufVideoFrameDescriptor> {
+        use std::os::fd::{FromRawFd, OwnedFd};
+
+        let mut desc = vfb_sys::ffi::DmaBufVideoFrameDescriptor {
+            width: 0,
+            height: 0,
+            fourcc: 0,
+            modifier: 0,
+            num_planes: 0,
+            y: vfb_sys::ffi::DmaBufVideoFramePlane {
+                fd: -1,
+                offset: 0,
+                stride: 0,
+                size: 0,
+                width: 0,
+                height: 0,
+            },
+            uv: vfb_sys::ffi::DmaBufVideoFramePlane {
+                fd: -1,
+                offset: 0,
+                stride: 0,
+                size: 0,
+                width: 0,
+                height: 0,
+            },
+        };
+
+        if !self.sys_handle.linux_dma_buf_descriptor(&mut desc) {
+            return None;
+        }
+        if desc.y.fd < 0 || desc.uv.fd < 0 {
+            return None;
+        }
+
+        // SAFETY: The C++ bridge returns duplicated file descriptors owned by
+        // the caller when it reports success.
+        let y_fd = unsafe { OwnedFd::from_raw_fd(desc.y.fd) };
+        // SAFETY: The C++ bridge returns duplicated file descriptors owned by
+        // the caller when it reports success.
+        let uv_fd = unsafe { OwnedFd::from_raw_fd(desc.uv.fd) };
+
+        Some(vf::native::DmaBufVideoFrameDescriptor {
+            width: desc.width,
+            height: desc.height,
+            fourcc: desc.fourcc,
+            modifier: desc.modifier,
+            num_planes: desc.num_planes,
+            y: vf::native::DmaBufVideoFramePlane {
+                fd: y_fd,
+                offset: desc.y.offset,
+                stride: desc.y.stride,
+                size: desc.y.size,
+                width: desc.y.width,
+                height: desc.y.height,
+            },
+            uv: vf::native::DmaBufVideoFramePlane {
+                fd: uv_fd,
+                offset: desc.uv.offset,
+                stride: desc.uv.stride,
+                size: desc.uv.size,
+                width: desc.uv.width,
+                height: desc.uv.height,
+            },
+        })
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }

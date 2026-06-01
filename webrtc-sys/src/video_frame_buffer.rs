@@ -16,6 +16,27 @@ use crate::impl_thread_safety;
 
 #[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
+    #[derive(Debug, Copy, Clone)]
+    pub struct DmaBufVideoFramePlane {
+        pub fd: i32,
+        pub offset: u32,
+        pub stride: u32,
+        pub size: u32,
+        pub width: u32,
+        pub height: u32,
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    pub struct DmaBufVideoFrameDescriptor {
+        pub width: u32,
+        pub height: u32,
+        pub fourcc: u32,
+        pub modifier: u64,
+        pub num_planes: u32,
+        pub y: DmaBufVideoFramePlane,
+        pub uv: DmaBufVideoFramePlane,
+    }
+
     #[derive(Debug)]
     #[repr(i32)]
     pub enum VideoFrameBufferType {
@@ -48,6 +69,10 @@ pub mod ffi {
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
         fn width(self: &VideoFrameBuffer) -> u32;
         fn height(self: &VideoFrameBuffer) -> u32;
+        fn linux_dma_buf_descriptor(
+            self: &VideoFrameBuffer,
+            desc: &mut DmaBufVideoFrameDescriptor,
+        ) -> bool;
 
         /// # SAFETY
         /// If the buffer type is I420, the buffer must be cloned before

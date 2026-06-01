@@ -35,6 +35,10 @@
 #include "livekit/android.h"
 #endif
 
+#if defined(USE_JETSON_VIDEO_CODEC)
+#include "jetson/jetson_decoder_factory.h"
+#endif
+
 #if defined(USE_NVIDIA_VIDEO_CODEC)
 #include "nvidia/nvidia_decoder_factory.h"
 #endif
@@ -48,6 +52,12 @@ VideoDecoderFactory::VideoDecoderFactory() {
 
 #ifdef WEBRTC_ANDROID
   factories_.push_back(CreateAndroidVideoDecoderFactory());
+#endif
+
+#if defined(USE_JETSON_VIDEO_CODEC)
+  if (webrtc::JetsonVideoDecoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::JetsonVideoDecoderFactory>());
+  }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
