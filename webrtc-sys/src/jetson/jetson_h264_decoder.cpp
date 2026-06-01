@@ -265,7 +265,7 @@ int32_t JetsonH264Decoder::Decode(const EncodedImage& input_image,
                           std::make_move_iterator(frames.end()));
   }
 
-  for (const auto& decoded_frame : decoded_frames) {
+  for (auto& decoded_frame : decoded_frames) {
     std::optional<int32_t> decodetime;
     decoded_complete_callback_->Decoded(decoded_frame, decodetime, qp);
   }
