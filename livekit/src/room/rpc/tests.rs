@@ -239,8 +239,7 @@ async fn test_v2_v2_caller_happy_path_short() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "greet", "hello")
-            .with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "greet", "hello").with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 
@@ -466,8 +465,7 @@ async fn test_v2_v1_caller_request_fallback() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "greet", "hi")
-            .with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "greet", "hi").with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 
