@@ -54,7 +54,7 @@ impl RpcClientManager {
         data: PerformRpcData,
         transport: &(impl RpcTransport + 'static),
     ) -> Result<String, RpcError> {
-        let max_round_trip_latency = Duration::from_millis(7000);
+        let max_round_trip_latency = data.max_round_trip_latency;
         let min_effective_timeout = Duration::from_millis(1000);
 
         if let Some(version_str) = transport.server_version() {

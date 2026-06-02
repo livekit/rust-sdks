@@ -68,6 +68,10 @@ impl FfiParticipant {
                         .response_timeout_ms
                         .map(|ms| Duration::from_millis(ms as u64))
                         .unwrap_or(PerformRpcData::default().response_timeout),
+                    max_round_trip_latency: request
+                        .max_round_trip_latency_ms
+                        .map(|ms| Duration::from_millis(ms as u64))
+                        .unwrap_or(PerformRpcData::default().max_round_trip_latency),
                 })
                 .await;
 

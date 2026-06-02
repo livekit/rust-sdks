@@ -244,6 +244,7 @@ async fn test_v2_v2_caller_happy_path_short() {
             method: "greet".into(),
             payload: "hello".into(),
             response_timeout: Duration::from_secs(5),
+            ..Default::default()
         },
     )
     .await;
@@ -286,6 +287,7 @@ async fn test_v2_v2_caller_happy_path_large_payload() {
             method: "big".into(),
             payload: large_payload,
             response_timeout: Duration::from_secs(5),
+            ..Default::default()
         },
     )
     .await;
@@ -394,6 +396,7 @@ async fn test_v2_v2_response_timeout() {
                 method: "slow".into(),
                 payload: "x".into(),
                 response_timeout: Duration::from_millis(50),
+                ..Default::default()
             },
             &transport,
         )
@@ -419,6 +422,7 @@ async fn test_v2_v2_error_response() {
             method: "err".into(),
             payload: "x".into(),
             response_timeout: Duration::from_secs(5),
+            ..Default::default()
         },
     )
     .await;
@@ -456,6 +460,7 @@ async fn test_v2_v2_participant_disconnection() {
             method: "dc".into(),
             payload: "x".into(),
             response_timeout: Duration::from_secs(5),
+            ..Default::default()
         },
     )
     .await;
@@ -493,6 +498,7 @@ async fn test_v2_v1_caller_request_fallback() {
             method: "greet".into(),
             payload: "hi".into(),
             response_timeout: Duration::from_secs(5),
+            ..Default::default()
         },
     )
     .await;
@@ -563,6 +569,7 @@ async fn test_v2_v1_payload_too_large() {
                 method: "big".into(),
                 payload: large_payload,
                 response_timeout: Duration::from_secs(5),
+                ..Default::default()
             },
             &transport,
         )
@@ -585,6 +592,7 @@ async fn test_v2_v1_response_timeout() {
                 method: "slow".into(),
                 payload: "x".into(),
                 response_timeout: Duration::from_millis(50),
+                ..Default::default()
             },
             &transport,
         )
@@ -609,6 +617,7 @@ async fn test_v2_v1_error_response() {
             method: "err".into(),
             payload: "x".into(),
             response_timeout: Duration::from_secs(5),
+            ..Default::default()
         },
     )
     .await;
@@ -644,6 +653,7 @@ async fn test_v2_v1_participant_disconnection() {
             method: "dc".into(),
             payload: "x".into(),
             response_timeout: Duration::from_secs(5),
+            ..Default::default()
         },
     )
     .await;

@@ -31,6 +31,12 @@ use std::{error::Error, fmt::Display, future::Future, time::Duration};
 pub(crate) const RPC_VERSION_V1: u32 = 1;
 pub(crate) const RPC_VERSION_V2: u32 = 2;
 
+/// Default maximum amount of time it should ever take for an RPC request to reach the
+/// destination and for the ACK to come back. Set to 7 seconds to account for various
+/// relay timeouts and retries in LiveKit Cloud that occur in rare cases. Most callers
+/// should not need to change this.
+pub const DEFAULT_MAX_ROUND_TRIP_LATENCY: Duration = Duration::from_secs(7);
+
 // Data stream topic constants for RPC v2
 pub(crate) const RPC_REQUEST_TOPIC: &str = "lk.rpc_request";
 pub(crate) const RPC_RESPONSE_TOPIC: &str = "lk.rpc_response";
@@ -111,6 +117,12 @@ pub struct PerformRpcData {
     pub method: String,
     pub payload: String,
     pub response_timeout: Duration,
+    /// Maximum amount of time it should ever take for an RPC request to reach the
+    /// destination and for the ACK to come back. Defaults to
+    /// [`DEFAULT_MAX_ROUND_TRIP_LATENCY`] (7 seconds). Most callers should not need
+    /// to change this, but it can be increased to tolerate high-latency networks where
+    /// RPC requests are backed up behind other messages on the data channel.
+    pub max_round_trip_latency: Duration,
 }
 
 impl Default for PerformRpcData {
@@ -120,6 +132,7 @@ impl Default for PerformRpcData {
             method: Default::default(),
             payload: Default::default(),
             response_timeout: Duration::from_secs(15),
+            max_round_trip_latency: DEFAULT_MAX_ROUND_TRIP_LATENCY,
         }
     }
 }
