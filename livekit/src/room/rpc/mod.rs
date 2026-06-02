@@ -31,12 +31,6 @@ use std::{error::Error, fmt::Display, future::Future, time::Duration};
 pub(crate) const RPC_VERSION_V1: u32 = 1;
 pub(crate) const RPC_VERSION_V2: u32 = 2;
 
-/// Default maximum amount of time it should ever take for an RPC request to reach the
-/// destination and for the ACK to come back. Set to 7 seconds to account for various
-/// relay timeouts and retries in LiveKit Cloud that occur in rare cases. Most callers
-/// should not need to change this.
-pub const DEFAULT_MAX_ROUND_TRIP_LATENCY: Duration = Duration::from_secs(7);
-
 // Data stream topic constants for RPC v2
 pub(crate) const RPC_REQUEST_TOPIC: &str = "lk.rpc_request";
 pub(crate) const RPC_RESPONSE_TOPIC: &str = "lk.rpc_response";
@@ -113,16 +107,47 @@ impl RpcTransport for SessionTransport {
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]
 pub struct PerformRpcData {
-    pub destination_identity: String,
-    pub method: String,
-    pub payload: String,
-    pub response_timeout: Duration,
+    destination_identity: String,
+    method: String,
+    payload: String,
+    response_timeout: Duration,
+    max_round_trip_latency: Duration,
+}
+
+impl PerformRpcData {
+    fn new(destination_identity: &str, method: &str, payload: &str) -> Self {
+        let mut perform_rpc_data = Self::default();
+        perform_rpc_data.destination_identity = destination_identity.into();
+        perform_rpc_data.method = method.into();
+        perform_rpc_data.payload = payload.into();
+        perform_rpc_data
+    }
+
+    fn with_destination_identity(mut self, destination_identity: &str) -> Self {
+        self.destination_identity = destination_identity.into();
+        self
+    }
+    fn with_method(mut self, method: &str) -> Self {
+        self.method = method.into();
+        self
+    }
+    fn with_payload(mut self, payload: &str) -> Self {
+        self.payload = payload.into();
+        self
+    }
+    fn with_response_timeout(mut self, response_timeout: Duration) -> Self {
+        self.response_timeout = response_timeout;
+        self
+    }
+
     /// Maximum amount of time it should ever take for an RPC request to reach the
-    /// destination and for the ACK to come back. Defaults to
-    /// [`DEFAULT_MAX_ROUND_TRIP_LATENCY`] (7 seconds). Most callers should not need
+    /// destination and for the ACK to come back. Most callers should not need
     /// to change this, but it can be increased to tolerate high-latency networks where
     /// RPC requests are backed up behind other messages on the data channel.
-    pub max_round_trip_latency: Duration,
+    fn with_max_round_trip_latency(mut self, max_round_trip_latency: Duration) -> Self {
+        self.max_round_trip_latency = max_round_trip_latency;
+        self
+    }
 }
 
 impl Default for PerformRpcData {
@@ -132,7 +157,7 @@ impl Default for PerformRpcData {
             method: Default::default(),
             payload: Default::default(),
             response_timeout: Duration::from_secs(15),
-            max_round_trip_latency: DEFAULT_MAX_ROUND_TRIP_LATENCY,
+            max_round_trip_latency: Duration::from_secs(7),
         }
     }
 }
