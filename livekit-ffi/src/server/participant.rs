@@ -60,7 +60,7 @@ impl FfiParticipant {
 
         let handle = server.async_runtime.spawn(async move {
             let mut data =
-                PerformRpcData::new(&request.destination_identity, &request.method, &request.payload);
+                PerformRpcData::new(request.destination_identity, request.method, request.payload);
             if let Some(ms) = request.response_timeout_ms {
                 data = data.with_response_timeout(Duration::from_millis(ms as u64));
             }

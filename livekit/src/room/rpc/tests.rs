@@ -277,7 +277,7 @@ async fn test_v2_v2_caller_happy_path_large_payload() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "big", &large_payload)
+        PerformRpcData::new("dest", "big", large_payload)
             .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
@@ -532,7 +532,7 @@ async fn test_v2_v1_payload_too_large() {
     let large_payload = "x".repeat(MAX_V1_PAYLOAD_BYTES + 1);
     let result = client
         .perform_rpc(
-            PerformRpcData::new("dest", "big", &large_payload)
+            PerformRpcData::new("dest", "big", large_payload)
                 .with_response_timeout(Duration::from_secs(5)),
             &transport,
         )

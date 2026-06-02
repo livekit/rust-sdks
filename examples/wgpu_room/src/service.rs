@@ -208,7 +208,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     let ui_tx = inner.ui_tx.clone();
                     tokio::spawn(async move {
                         let result = local
-                            .perform_rpc(PerformRpcData::new(&destination, &method, &payload))
+                            .perform_rpc(PerformRpcData::new(destination, method, payload))
                             .await;
                         let _ = ui_tx.send(UiCmd::RpcSendResult { request_id, result });
                     });

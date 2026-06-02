@@ -154,9 +154,9 @@ async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: A
                 match math_genius_room
                     .local_participant()
                     .perform_rpc(PerformRpcData::new(
-                        &data.caller_identity.to_string(),
+                        data.caller_identity.clone(),
                         "provide-intermediate",
-                        &json!({"original": number}).to_string(),
+                        json!({"original": number}).to_string(),
                     ))
                     .await
                 {
@@ -206,7 +206,7 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
         .perform_rpc(PerformRpcData::new(
             "math-genius",
             "square-root",
-            &json!({"number": 16}).to_string(),
+            json!({"number": 16}).to_string(),
         ))
         .await
     {
@@ -228,7 +228,7 @@ async fn perform_quantum_hypergeometric_series(
         .perform_rpc(PerformRpcData::new(
             "math-genius",
             "quantum-hypergeometric-series",
-            &json!({"number": 42}).to_string(),
+            json!({"number": 42}).to_string(),
         ))
         .await
     {
@@ -254,7 +254,7 @@ async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
         .perform_rpc(PerformRpcData::new(
             "math-genius",
             "divide",
-            &json!({"dividend": 5, "divisor": 0}).to_string(),
+            json!({"dividend": 5, "divisor": 0}).to_string(),
         ))
         .await
     {
@@ -293,7 +293,7 @@ async fn perform_nested_calculation(room: &Arc<Room>) -> Result<(), Box<dyn std:
         .perform_rpc(PerformRpcData::new(
             "math-genius",
             "nested-calculation",
-            &json!({"number": 5.0}).to_string(),
+            json!({"number": 5.0}).to_string(),
         ))
         .await
     {

@@ -107,7 +107,7 @@ impl RpcTransport for SessionTransport {
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]
 pub struct PerformRpcData {
-    destination_identity: String,
+    destination_identity: ParticipantIdentity,
     method: String,
     payload: String,
     response_timeout: Duration,
@@ -115,7 +115,11 @@ pub struct PerformRpcData {
 }
 
 impl PerformRpcData {
-    pub fn new(destination_identity: &str, method: &str, payload: &str) -> Self {
+    pub fn new(
+        destination_identity: impl Into<ParticipantIdentity>,
+        method: impl Into<String>,
+        payload: impl Into<String>,
+    ) -> Self {
         let mut perform_rpc_data = Self::default();
         perform_rpc_data.destination_identity = destination_identity.into();
         perform_rpc_data.method = method.into();
@@ -123,15 +127,18 @@ impl PerformRpcData {
         perform_rpc_data
     }
 
-    pub fn with_destination_identity(mut self, destination_identity: &str) -> Self {
+    pub fn with_destination_identity(
+        mut self,
+        destination_identity: impl Into<ParticipantIdentity>,
+    ) -> Self {
         self.destination_identity = destination_identity.into();
         self
     }
-    pub fn with_method(mut self, method: &str) -> Self {
+    pub fn with_method(mut self, method: impl Into<String>) -> Self {
         self.method = method.into();
         self
     }
-    pub fn with_payload(mut self, payload: &str) -> Self {
+    pub fn with_payload(mut self, payload: impl Into<String>) -> Self {
         self.payload = payload.into();
         self
     }
