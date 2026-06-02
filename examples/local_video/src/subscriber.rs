@@ -571,16 +571,15 @@ mod linux_dmabuf_video {
             }
 
             let external_memory_fd = khr::external_memory_fd::Device::new(raw_instance, raw_device);
-            let fd_properties = match external_memory_fd.get_memory_fd_properties(
+            let mut fd_properties = vk::MemoryFdPropertiesKHR::default();
+            if let Err(err) = external_memory_fd.get_memory_fd_properties(
                 vk::ExternalMemoryHandleTypeFlags::DMA_BUF_EXT,
                 plane.fd.as_raw_fd(),
+                &mut fd_properties,
             ) {
-                Ok(properties) => properties,
-                Err(err) => {
-                    raw_device.destroy_image(image, None);
-                    return Err(err).context("failed to query DMA-BUF memory type bits");
-                }
-            };
+                raw_device.destroy_image(image, None);
+                return Err(err).context("failed to query DMA-BUF memory type bits");
+            }
             let memory_type_bits =
                 memory_requirements.memory_type_bits & fd_properties.memory_type_bits;
             let Some(memory_type_index) =
