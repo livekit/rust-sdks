@@ -115,7 +115,7 @@ pub struct PerformRpcData {
 }
 
 impl PerformRpcData {
-    fn new(destination_identity: &str, method: &str, payload: &str) -> Self {
+    pub fn new(destination_identity: &str, method: &str, payload: &str) -> Self {
         let mut perform_rpc_data = Self::default();
         perform_rpc_data.destination_identity = destination_identity.into();
         perform_rpc_data.method = method.into();
@@ -123,19 +123,22 @@ impl PerformRpcData {
         perform_rpc_data
     }
 
-    fn with_destination_identity(mut self, destination_identity: &str) -> Self {
+    pub fn with_destination_identity(mut self, destination_identity: &str) -> Self {
         self.destination_identity = destination_identity.into();
         self
     }
-    fn with_method(mut self, method: &str) -> Self {
+    pub fn with_method(mut self, method: &str) -> Self {
         self.method = method.into();
         self
     }
-    fn with_payload(mut self, payload: &str) -> Self {
+    pub fn with_payload(mut self, payload: &str) -> Self {
         self.payload = payload.into();
         self
     }
-    fn with_response_timeout(mut self, response_timeout: Duration) -> Self {
+
+    /// The maximum time the caller will wait for a response after the request has been
+    /// acknowledged by the remote. Defaults to 15 seconds.
+    pub fn with_response_timeout(mut self, response_timeout: Duration) -> Self {
         self.response_timeout = response_timeout;
         self
     }
@@ -144,7 +147,8 @@ impl PerformRpcData {
     /// destination and for the ACK to come back. Most callers should not need
     /// to change this, but it can be increased to tolerate high-latency networks where
     /// RPC requests are backed up behind other messages on the data channel.
-    fn with_max_round_trip_latency(mut self, max_round_trip_latency: Duration) -> Self {
+    /// Defaults to 7 seconds.
+    pub fn with_max_round_trip_latency(mut self, max_round_trip_latency: Duration) -> Self {
         self.max_round_trip_latency = max_round_trip_latency;
         self
     }

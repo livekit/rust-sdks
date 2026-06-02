@@ -24,7 +24,6 @@ pub use crate::{
     participant::{
         ConnectionQuality, DisconnectReason, LocalParticipant, Participant, PerformRpcData,
         RemoteParticipant, RpcError, RpcErrorCode, RpcInvocationData,
-        DEFAULT_MAX_ROUND_TRIP_LATENCY,
     },
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
     track::{
