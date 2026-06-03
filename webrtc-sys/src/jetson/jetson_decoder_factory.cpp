@@ -1,10 +1,7 @@
 #include "jetson_decoder_factory.h"
 
-#include <fcntl.h>
-
 #include <memory>
 
-#include "NvVideoDecoder.h"
 #include "jetson_h264_decoder.h"
 #include "media/base/media_constants.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
@@ -16,7 +13,6 @@ namespace {
 
 constexpr char kSdpKeyNameCodecImpl[] = "implementation_name";
 constexpr char kCodecName[] = "JetsonV4L2";
-constexpr int kDecoderOpenFlags = O_NONBLOCK;
 
 std::vector<SdpVideoFormat> SupportedJetsonDecoderCodecs() {
   std::vector<SdpVideoFormat> formats = {
@@ -47,16 +43,8 @@ JetsonVideoDecoderFactory::JetsonVideoDecoderFactory()
 JetsonVideoDecoderFactory::~JetsonVideoDecoderFactory() = default;
 
 bool JetsonVideoDecoderFactory::IsSupported() {
-  std::unique_ptr<NvVideoDecoder> decoder(
-      NvVideoDecoder::createVideoDecoder("livekit_jetson_probe",
-                                         kDecoderOpenFlags));
-  if (!decoder) {
-    RTC_LOG(LS_WARNING)
-        << "Jetson V4L2 decoder is not available on this system.";
-    return false;
-  }
-
-  RTC_LOG(LS_INFO) << "Jetson V4L2 hardware decoder is available.";
+  RTC_LOG(LS_INFO)
+      << "Jetson V4L2 hardware decoder support is compiled in.";
   return true;
 }
 
