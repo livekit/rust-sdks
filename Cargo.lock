@@ -3991,7 +3991,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.43"
+version = "0.7.44"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4022,7 +4022,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
@@ -4077,7 +4077,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.61"
+version = "0.12.62"
 dependencies = [
  "bytes",
  "console-subscriber",
