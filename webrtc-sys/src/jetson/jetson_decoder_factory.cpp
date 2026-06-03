@@ -1,5 +1,7 @@
 #include "jetson_decoder_factory.h"
 
+#include <fcntl.h>
+
 #include <memory>
 
 #include "NvVideoDecoder.h"
@@ -14,6 +16,7 @@ namespace {
 
 constexpr char kSdpKeyNameCodecImpl[] = "implementation_name";
 constexpr char kCodecName[] = "JetsonV4L2";
+constexpr int kDecoderOpenFlags = O_NONBLOCK;
 
 std::vector<SdpVideoFormat> SupportedJetsonDecoderCodecs() {
   std::vector<SdpVideoFormat> formats = {
@@ -45,7 +48,8 @@ JetsonVideoDecoderFactory::~JetsonVideoDecoderFactory() = default;
 
 bool JetsonVideoDecoderFactory::IsSupported() {
   std::unique_ptr<NvVideoDecoder> decoder(
-      NvVideoDecoder::createVideoDecoder("livekit_jetson_probe"));
+      NvVideoDecoder::createVideoDecoder("livekit_jetson_probe",
+                                         kDecoderOpenFlags));
   if (!decoder) {
     RTC_LOG(LS_WARNING)
         << "Jetson V4L2 decoder is not available on this system.";

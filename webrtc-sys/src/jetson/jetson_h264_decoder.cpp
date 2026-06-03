@@ -1,6 +1,7 @@
 #include "jetson_h264_decoder.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/time.h>
 
 #include <algorithm>
@@ -25,6 +26,7 @@ constexpr uint32_t kOutputBufferCount = 8;
 constexpr uint32_t kCaptureBufferSlack = 4;
 constexpr uint32_t kMaxBitstreamBufferSize = 4 * 1024 * 1024;
 constexpr uint64_t kDrmFormatModifierLinear = 0;
+constexpr int kDecoderOpenFlags = O_NONBLOCK;
 
 constexpr uint32_t FourCc(char a, char b, char c, char d) {
   return static_cast<uint32_t>(a) | (static_cast<uint32_t>(b) << 8) |
@@ -162,7 +164,8 @@ bool JetsonH264Decoder::Configure(const Settings& settings) {
   }
 
   auto state = std::make_shared<State>();
-  state->decoder.reset(NvVideoDecoder::createVideoDecoder("livekit_h264"));
+  state->decoder.reset(
+      NvVideoDecoder::createVideoDecoder("livekit_h264", kDecoderOpenFlags));
   if (!state->decoder) {
     RTC_LOG(LS_ERROR) << "Failed to create Jetson V4L2 decoder";
     return false;

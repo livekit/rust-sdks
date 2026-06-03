@@ -792,7 +792,7 @@ struct Args {
     e2ee_key: Option<String>,
 }
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum SubscriberVideoDecoder {
     Default,
     Software,
