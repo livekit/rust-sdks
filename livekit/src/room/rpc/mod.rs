@@ -118,20 +118,16 @@ impl PerformRpcData {
     pub fn new(
         destination_identity: impl Into<ParticipantIdentity>,
         method: impl Into<String>,
-        payload: impl Into<String>,
     ) -> Self {
-        let mut perform_rpc_data = Self::default();
-        perform_rpc_data.destination_identity = destination_identity.into();
-        perform_rpc_data.method = method.into();
-        perform_rpc_data.payload = payload.into();
-        perform_rpc_data
+        Self::default().with_destination_identity(destination_identity).with_method(method)
     }
 
     pub fn with_destination_identity(
         mut self,
         destination_identity: impl Into<ParticipantIdentity>,
     ) -> Self {
-        self.destination_identity = destination_identity.into();
+        let identity: ParticipantIdentity = destination_identity.into();
+        self.destination_identity = identity.into();
         self
     }
     pub fn with_method(mut self, method: impl Into<String>) -> Self {
