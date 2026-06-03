@@ -397,6 +397,7 @@ struct SessionInner {
 
     e2ee_manager: Option<E2eeManager>,
     subscriber_primary: bool,
+    pc_state_notify: Notify,
 }
 
 /// Information about the local participant needed for outgoing
@@ -449,8 +450,61 @@ impl RtcSession {
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
         let (emitter, session_events) = mpsc::unbounded_channel();
 
-        let (signal_client, mut join_response, signal_events) =
-            SignalClient::connect(url, token, options.signal_options.clone()).await?;
+        let lk_runtime = LkRuntime::instance();
+        let use_single_pc = options.signal_options.single_peer_connection;
+
+        let mut publisher_offer = None;
+        let early_publisher_pc = if use_single_pc {
+            let publisher_pc = PeerTransport::new(
+                lk_runtime.pc_factory().create_peer_connection(options.rtc_config.clone())?,
+                proto::SignalTarget::Publisher,
+                true,
+            );
+
+            let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+
+            // The JS SDK creates recv media sections in the initial offer to receive
+            // existing tracks as soon as possible. Rust cannot do this due to
+            // different `ontrack` behavior between browsers and libwebrtc:
+            // 1. The client sends an initial offer with recv sections.
+            // 2. The server responds with an answer, but with sendonly media
+            //    sections without msid because no new track has been published.
+            // 3. Later, after a track is published and subscribed to by the client,
+            //    the server may reuse the media section from step 2 with the actual
+            //    track ID.
+            // 4. Browsers fire `ontrack`:
+            //    https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc;l=2447
+            //    This is browser behavior, not libwebrtc core behavior.
+            // 5. libwebrtc does not fire `ontrack`, so the track subscription fails.
+            // Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
+
+            match publisher_pc.create_initial_offer().await {
+                Ok(Some(offer)) => {
+                    publisher_offer = Some(proto::SessionDescription {
+                        r#type: "offer".to_string(),
+                        sdp: offer.to_string(),
+                        id: 0,
+                        mid_to_track_id: Default::default(),
+                    });
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    log::warn!("failed to create initial publisher offer: {:?}", err);
+                }
+            }
+
+            Some((publisher_pc, dcs))
+        } else {
+            None
+        };
+
+        let (signal_client, mut join_response, signal_events) = SignalClient::connect(
+            url,
+            token,
+            options.signal_options.clone(),
+            publisher_offer.clone(),
+        )
+        .await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
         let subscriber_primary = join_response.subscriber_primary;
@@ -470,12 +524,28 @@ impl RtcSession {
 
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
-        let lk_runtime = LkRuntime::instance();
-        let mut publisher_pc = PeerTransport::new(
-            lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
-            proto::SignalTarget::Publisher,
-            single_pc_mode,
-        );
+        let sent_publisher_offer;
+        let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
+            if let Some((pub_pc, dcs)) = early_publisher_pc {
+                if single_pc_mode {
+                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
+                    sent_publisher_offer = publisher_offer.is_some();
+                } else {
+                    pub_pc.clear_pending_initial_offer().await;
+                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
+                    sent_publisher_offer = false;
+                }
+                (pub_pc, dcs.0, dcs.1, dcs.2)
+            } else {
+                sent_publisher_offer = false;
+                let publisher_pc = PeerTransport::new(
+                    lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
+                    proto::SignalTarget::Publisher,
+                    single_pc_mode,
+                );
+                let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+                (publisher_pc, dcs.0, dcs.1, dcs.2)
+            };
 
         // In single PC mode, subscriber_pc is None
         let mut subscriber_pc = if single_pc_mode {
@@ -487,24 +557,6 @@ impl RtcSession {
                 false,
             ))
         };
-
-        let mut reliable_dc = publisher_pc.peer_connection().create_data_channel(
-            RELIABLE_DC_LABEL,
-            // Use ordered: true for reliable delivery with ordering guarantees.
-            DataChannelInit { ordered: true, ..Default::default() },
-        )?;
-
-        let lossy_options =
-            DataChannelInit { ordered: false, max_retransmits: Some(0), ..Default::default() };
-
-        let mut lossy_dc = publisher_pc
-            .peer_connection()
-            .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
-
-        let data_track_dc = publisher_pc
-            .peer_connection()
-            .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
-        handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
 
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
@@ -557,6 +609,7 @@ impl RtcSession {
             pending_requests: Default::default(),
             e2ee_manager,
             subscriber_primary,
+            pc_state_notify: Notify::new(),
         });
 
         // Start session tasks
@@ -576,13 +629,60 @@ impl RtcSession {
             dt_sender_task,
         }));
 
-        // In single PC mode (or with fast_publish), trigger initial negotiation
-        // This matches JS SDK behavior: if (!this.subscriberPrimary || joinResponse.fastPublish) { this.negotiate(); }
-        if single_pc_mode || join_response.fast_publish || !subscriber_primary {
+        // If we already sent the publisher offer with the JoinRequest, skip initial
+        // negotiation - the server will respond with an answer via the signal channel.
+        // Otherwise, trigger negotiation as before.
+        if sent_publisher_offer {
+            inner.has_published.store(true, Ordering::Release);
+        } else if single_pc_mode || join_response.fast_publish || !subscriber_primary {
             inner.publisher_negotiation_needed();
         }
 
         Ok((Self { inner, handle }, join_response, session_events))
+    }
+
+    fn create_data_channels(
+        publisher_pc: &PeerTransport,
+        emitter: &mpsc::UnboundedSender<SessionEvent>,
+    ) -> EngineResult<(DataChannel, DataChannel, DataChannel)> {
+        let reliable_dc = publisher_pc.peer_connection().create_data_channel(
+            RELIABLE_DC_LABEL,
+            DataChannelInit { ordered: true, ..Default::default() },
+        )?;
+
+        let lossy_options =
+            DataChannelInit { ordered: false, max_retransmits: Some(0), ..Default::default() };
+
+        let lossy_dc = publisher_pc
+            .peer_connection()
+            .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
+
+        let data_track_dc = publisher_pc
+            .peer_connection()
+            .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
+        handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
+
+        Ok((reliable_dc, lossy_dc, data_track_dc))
+    }
+
+    fn add_recv_media_sections(
+        pc: &PeerConnection,
+        audio_count: u32,
+        video_count: u32,
+    ) -> EngineResult<()> {
+        let recvonly_init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::RecvOnly,
+            stream_ids: Vec::new(),
+            send_encodings: Vec::new(),
+        };
+
+        for _ in 0..audio_count {
+            pc.add_transceiver_for_media(MediaType::Audio, recvonly_init.clone())?;
+        }
+        for _ in 0..video_count {
+            pc.add_transceiver_for_media(MediaType::Video, recvonly_init.clone())?;
+        }
+        Ok(())
     }
 
     pub fn has_published(&self) -> bool {
@@ -1250,25 +1350,11 @@ impl SessionInner {
             req.num_videos
         );
 
-        let recvonly_init = RtpTransceiverInit {
-            direction: RtpTransceiverDirection::RecvOnly,
-            stream_ids: Vec::new(),
-            send_encodings: Vec::new(),
-        };
-
-        // Add audio transceivers
-        for _ in 0..req.num_audios {
-            self.publisher_pc
-                .peer_connection()
-                .add_transceiver_for_media(MediaType::Audio, recvonly_init.clone())?;
-        }
-
-        // Add video transceivers
-        for _ in 0..req.num_videos {
-            self.publisher_pc
-                .peer_connection()
-                .add_transceiver_for_media(MediaType::Video, recvonly_init.clone())?;
-        }
+        RtcSession::add_recv_media_sections(
+            &self.publisher_pc.peer_connection(),
+            req.num_audios,
+            req.num_videos,
+        )?;
 
         // Trigger renegotiation
         self.publisher_negotiation_needed();
@@ -1295,6 +1381,8 @@ impl SessionInner {
             }
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
+
+                self.pc_state_notify.notify_waiters();
 
                 if state == PeerConnectionState::Failed {
                     log::error!("{:?} pc state failed", target);
@@ -1678,6 +1766,7 @@ impl SessionInner {
 
     async fn close(&self, reason: DisconnectReason) {
         self.closed.store(true, Ordering::Release);
+        self.pc_state_notify.notify_waiters();
 
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
@@ -1913,6 +2002,8 @@ impl SessionInner {
             }
 
             loop {
+                let notified = self.pc_state_notify.notified();
+
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".into()));
                 }
@@ -1933,7 +2024,7 @@ impl SessionInner {
                     break;
                 }
 
-                livekit_runtime::sleep(Duration::from_millis(50)).await;
+                let _ = tokio::time::timeout(Duration::from_millis(50), notified).await;
             }
 
             Ok(())
