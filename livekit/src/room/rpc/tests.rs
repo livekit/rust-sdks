@@ -239,7 +239,9 @@ async fn test_v2_v2_caller_happy_path_short() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "greet", "hello").with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "greet")
+            .with_payload("hello")
+            .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 
@@ -276,7 +278,8 @@ async fn test_v2_v2_caller_happy_path_large_payload() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "big", large_payload)
+        PerformRpcData::new("dest", "big")
+            .with_payload(large_payload)
             .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
@@ -380,7 +383,8 @@ async fn test_v2_v2_response_timeout() {
     // so connection timeout fires.
     let result = client
         .perform_rpc(
-            PerformRpcData::new("dest", "slow", "x")
+            PerformRpcData::new("dest", "slow")
+                .with_payload("x")
                 .with_response_timeout(Duration::from_millis(50)),
             &transport,
         )
@@ -401,7 +405,9 @@ async fn test_v2_v2_error_response() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "err", "x").with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "err")
+            .with_payload("x")
+            .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 
@@ -433,7 +439,9 @@ async fn test_v2_v2_participant_disconnection() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "dc", "x").with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "dc")
+            .with_payload("x")
+            .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 
@@ -465,7 +473,9 @@ async fn test_v2_v1_caller_request_fallback() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "greet", "hi").with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "greet")
+            .with_payload("hi")
+            .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 
@@ -530,7 +540,8 @@ async fn test_v2_v1_payload_too_large() {
     let large_payload = "x".repeat(MAX_V1_PAYLOAD_BYTES + 1);
     let result = client
         .perform_rpc(
-            PerformRpcData::new("dest", "big", large_payload)
+            PerformRpcData::new("dest", "big")
+                .with_payload(large_payload)
                 .with_response_timeout(Duration::from_secs(5)),
             &transport,
         )
@@ -548,7 +559,8 @@ async fn test_v2_v1_response_timeout() {
 
     let result = client
         .perform_rpc(
-            PerformRpcData::new("dest", "slow", "x")
+            PerformRpcData::new("dest", "slow")
+                .with_payload("x")
                 .with_response_timeout(Duration::from_millis(50)),
             &transport,
         )
@@ -568,7 +580,9 @@ async fn test_v2_v1_error_response() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "err", "x").with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "err")
+            .with_payload("x")
+            .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 
@@ -598,7 +612,9 @@ async fn test_v2_v1_participant_disconnection() {
     let handle = spawn_perform_rpc(
         client.clone(),
         transport.clone(),
-        PerformRpcData::new("dest", "dc", "x").with_response_timeout(Duration::from_secs(5)),
+        PerformRpcData::new("dest", "dc")
+            .with_payload("x")
+            .with_response_timeout(Duration::from_secs(5)),
     )
     .await;
 

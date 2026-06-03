@@ -160,7 +160,8 @@ pub async fn test_rpc_v2_does_not_emit_data_stream_events() -> Result<()> {
     let caller_handle = tokio::spawn(collect(caller_events));
     let callee_handle = tokio::spawn(collect(callee_events));
 
-    let perform_data = PerformRpcData::new(callee_identity.clone(), "echo", "hi")
+    let perform_data = PerformRpcData::new(callee_identity.clone(), "echo")
+        .with_payload("hi")
         .with_response_timeout(Duration::from_millis(500));
     let resp = caller_room
         .local_participant()
