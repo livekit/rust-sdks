@@ -67,7 +67,7 @@ enum PublisherEncoder {
     Hardware,
     Nvenc,
     Vaapi,
-    #[value(alias = "videotoolbox")]
+    #[value(name = "videotoolbox")]
     VideoToolbox,
 }
 
@@ -79,7 +79,7 @@ impl PublisherEncoder {
             PublisherEncoder::Hardware => "hardware",
             PublisherEncoder::Nvenc => "nvenc",
             PublisherEncoder::Vaapi => "vaapi",
-            PublisherEncoder::VideoToolbox => "video-toolbox",
+            PublisherEncoder::VideoToolbox => "videotoolbox",
         }
     }
 }
@@ -104,7 +104,7 @@ fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
         VideoEncoderBackend::Hardware => "hardware",
         VideoEncoderBackend::Nvenc => "nvenc",
         VideoEncoderBackend::Vaapi => "vaapi",
-        VideoEncoderBackend::VideoToolbox => "video-toolbox",
+        VideoEncoderBackend::VideoToolbox => "videotoolbox",
         _ => "unknown",
     }
 }
