@@ -39,7 +39,8 @@ pub async fn test_rpc_invocation() -> Result<()> {
         Box::pin(async move { Ok(data.payload.to_string()) })
     });
 
-    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME, PAYLOAD)
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(PAYLOAD)
         .with_response_timeout(Duration::from_millis(500));
     let return_payload = caller_room
         .local_participant()
@@ -61,7 +62,8 @@ pub async fn test_rpc_unregistered() -> Result<()> {
     const METHOD_NAME: &str = "unregistered-method";
     const PAYLOAD: &str = "test-payload";
 
-    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME, PAYLOAD)
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(PAYLOAD)
         .with_response_timeout(Duration::from_millis(500));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error");
@@ -85,7 +87,8 @@ pub async fn test_rpc_large_payload() -> Result<()> {
     });
 
     let perform_data =
-        PerformRpcData::new(callee_identity.clone(), METHOD_NAME, large_payload.clone())
+        PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+            .with_payload(large_payload.clone())
             .with_response_timeout(Duration::from_secs(5));
     let return_payload = caller_room
         .local_participant()
@@ -114,7 +117,8 @@ pub async fn test_rpc_error_response() -> Result<()> {
         })
     });
 
-    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME, "test")
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload("test")
         .with_response_timeout(Duration::from_secs(5));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error response");
@@ -131,7 +135,8 @@ pub async fn test_rpc_unknown_destination() -> Result<()> {
     let (caller_room, _) = rooms.pop().unwrap();
 
     let perform_data =
-        PerformRpcData::new("unknown-participant", "unregistered-method", "test-payload")
+        PerformRpcData::new("unknown-participant", "unregistered-method")
+            .with_payload("test-payload")
             .with_response_timeout(Duration::from_millis(500));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error");
