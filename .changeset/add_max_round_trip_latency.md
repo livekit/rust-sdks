@@ -1,5 +1,5 @@
 ---
-livekit: patch
+livekit: minor
 livekit-ffi: patch
 ---
 
