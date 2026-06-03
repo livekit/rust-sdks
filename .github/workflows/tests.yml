@@ -210,4 +210,4 @@ jobs:
         if: ${{ matrix.e2e-testing }}
         env:
           RUST_LOG: info
-        run: cargo test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture --test-threads=1
+        run: cargo test --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture --test-threads=1
