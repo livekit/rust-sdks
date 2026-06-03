@@ -107,11 +107,11 @@ impl RpcTransport for SessionTransport {
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]
 pub struct PerformRpcData {
-    destination_identity: ParticipantIdentity,
-    method: String,
-    payload: String,
-    response_timeout: Duration,
-    max_round_trip_latency: Duration,
+    pub destination_identity: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout: Duration,
+    pub max_round_trip_latency: Duration,
 }
 
 impl PerformRpcData {
