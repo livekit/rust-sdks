@@ -17,6 +17,7 @@ use livekit_protocol as proto;
 
 use crate::prelude::*;
 
+pub use libwebrtc::rtp_sender::video_encoder_backend_list;
 /// Preferred backend for video encoding when publishing a video track.
 pub use libwebrtc::rtp_sender::VideoEncoderBackend;
 

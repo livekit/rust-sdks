@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
-    self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
-    VideoEncoderBackend, VideoEncoding, VideoPreset,
+    self, video as video_presets, video_encoder_backend_list, PacketTrailerFeatures,
+    TrackPublishOptions, VideoCodec, VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
@@ -97,6 +97,18 @@ impl From<PublisherEncoder> for VideoEncoderBackend {
     }
 }
 
+fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
+    match backend {
+        VideoEncoderBackend::Auto => "auto",
+        VideoEncoderBackend::Software => "software",
+        VideoEncoderBackend::Hardware => "hardware",
+        VideoEncoderBackend::Nvenc => "nvenc",
+        VideoEncoderBackend::Vaapi => "vaapi",
+        VideoEncoderBackend::VideoToolbox => "video-toolbox",
+        _ => "unknown",
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -104,12 +116,16 @@ struct Args {
     #[arg(long)]
     list_cameras: bool,
 
+    /// List available video encoder backends and exit
+    #[arg(long)]
+    list_encoders: bool,
+
     /// Camera index to use (numeric)
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
+    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
     test_pattern: bool,
 
     /// Desired width
@@ -533,6 +549,13 @@ fn list_cameras() -> Result<()> {
     Ok(())
 }
 
+fn list_encoders() {
+    println!("Available video encoder backends:");
+    for backend in video_encoder_backend_list() {
+        println!("- {}", video_encoder_backend_name(backend));
+    }
+}
+
 enum VideoInput {
     TestPattern(TestPattern),
     Camera { camera: Camera, is_yuyv: bool },
@@ -583,6 +606,10 @@ async fn main() -> Result<()> {
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
+    }
+    if args.list_encoders {
+        list_encoders();
+        return Ok(());
     }
 
     // LiveKit connection details
@@ -745,6 +772,21 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = VideoCodec::from(args.codec);
     let requested_encoder = VideoEncoderBackend::from(args.encoder);
+    let available_encoders = video_encoder_backend_list();
+    info!(
+        "Available video encoder backends: {}",
+        available_encoders
+            .iter()
+            .map(|backend| video_encoder_backend_name(*backend))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !available_encoders.contains(&requested_encoder) {
+        log::warn!(
+            "Requested video encoder backend '{}' is not reported as available; libwebrtc may fall back to another compatible encoder",
+            args.encoder.as_str()
+        );
+    }
     info!(
         "Attempting publish with codec: {}, encoder: {}",
         requested_codec.as_str(),

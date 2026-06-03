@@ -115,4 +115,6 @@ std::unique_ptr<LogSink> new_log_sink(
 
 rust::String create_random_uuid();
 
+rust::Vec<VideoEncoderBackend> video_encoder_backend_list();
+
 }  // namespace livekit_ffi

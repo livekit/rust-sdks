@@ -99,6 +99,24 @@ impl From<VideoEncoderBackend> for sys_webrtc::ffi::VideoEncoderBackend {
     }
 }
 
+impl From<sys_webrtc::ffi::VideoEncoderBackend> for VideoEncoderBackend {
+    fn from(value: sys_webrtc::ffi::VideoEncoderBackend) -> Self {
+        match value {
+            sys_webrtc::ffi::VideoEncoderBackend::Auto => Self::Auto,
+            sys_webrtc::ffi::VideoEncoderBackend::Software => Self::Software,
+            sys_webrtc::ffi::VideoEncoderBackend::Hardware => Self::Hardware,
+            sys_webrtc::ffi::VideoEncoderBackend::Nvenc => Self::Nvenc,
+            sys_webrtc::ffi::VideoEncoderBackend::Vaapi => Self::Vaapi,
+            sys_webrtc::ffi::VideoEncoderBackend::VideoToolbox => Self::VideoToolbox,
+            _ => panic!("unknown VideoEncoderBackend"),
+        }
+    }
+}
+
+pub fn video_encoder_backend_list() -> Vec<VideoEncoderBackend> {
+    sys_webrtc::ffi::video_encoder_backend_list().into_iter().map(Into::into).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{sys_webrtc, VideoEncoderBackend};
@@ -116,6 +134,7 @@ mod tests {
 
         for (backend, expected) in cases {
             assert_eq!(sys_webrtc::ffi::VideoEncoderBackend::from(backend), expected);
+            assert_eq!(VideoEncoderBackend::from(expected), backend);
         }
     }
 }

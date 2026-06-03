@@ -26,9 +26,11 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "livekit/objc_video_factory.h"
+#include "livekit/webrtc.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
+#include "rust/cxx.h"
 #if defined(RTC_USE_LIBAOM_AV1_ENCODER)
 #include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
 #endif
@@ -51,15 +53,6 @@
 #endif
 
 namespace livekit_ffi {
-
-enum class VideoEncoderBackend : std::int32_t {
-  Auto,
-  Software,
-  Hardware,
-  Nvenc,
-  Vaapi,
-  VideoToolbox,
-};
 
 namespace {
 
@@ -237,6 +230,46 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibaomAv1EncoderTemplateAdapter,
 #endif
     webrtc::LibvpxVp9EncoderTemplateAdapter>;
+
+rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
+  rust::Vec<VideoEncoderBackend> backends;
+  backends.push_back(VideoEncoderBackend::Auto);
+  backends.push_back(VideoEncoderBackend::Software);
+
+  bool has_hardware_backend = false;
+  bool hardware_backend_listed = false;
+
+#ifdef __APPLE__
+  backends.push_back(VideoEncoderBackend::VideoToolbox);
+  has_hardware_backend = true;
+#endif
+
+#ifdef WEBRTC_ANDROID
+  backends.push_back(VideoEncoderBackend::Hardware);
+  has_hardware_backend = true;
+  hardware_backend_listed = true;
+#endif
+
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+    backends.push_back(VideoEncoderBackend::Nvenc);
+    has_hardware_backend = true;
+  }
+#endif
+
+#if defined(USE_VAAPI_VIDEO_CODEC)
+  if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+    backends.push_back(VideoEncoderBackend::Vaapi);
+    has_hardware_backend = true;
+  }
+#endif
+
+  if (has_hardware_backend && !hardware_backend_listed) {
+    backends.push_back(VideoEncoderBackend::Hardware);
+  }
+
+  return backends;
+}
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef __APPLE__
