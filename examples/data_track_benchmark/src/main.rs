@@ -3,7 +3,9 @@ use clap::Parser;
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use livekit_api::access_token::{AccessToken, VideoGrants};
-use polars::prelude::*;
+use serde::Serialize;
+use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 
@@ -62,9 +64,9 @@ struct Args {
     #[arg(long, env = "LIVEKIT_API_SECRET")]
     api_secret: String,
 
-    /// Output raw CSV instead of a human-readable table
-    #[arg(long, default_value_t = false)]
-    csv: bool,
+    /// Output file path for CSV results (stdout if omitted)
+    #[arg(short, long)]
+    output: Option<PathBuf>,
 }
 
 struct BenchResult {
@@ -72,6 +74,21 @@ struct BenchResult {
     avg_latency_ms: f64,
     min_latency_ms: f64,
     max_latency_ms: f64,
+}
+
+#[derive(Serialize)]
+struct BenchRow {
+    size_kb: u64,
+    freq_hz: u64,
+    duration_s: u64,
+    sent: u64,
+    received: u64,
+    delivery_ratio: f64,
+    avg_latency_ms: f64,
+    min_latency_ms: f64,
+    max_latency_ms: f64,
+    expected_mibps: f64,
+    actual_mibps: f64,
 }
 
 enum SubCommand {
@@ -135,17 +152,7 @@ async fn main() -> Result<()> {
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SubCommand>();
     let sub_handle = tokio::spawn(subscriber_task(subscription, cmd_rx));
 
-    let mut col_size_kb: Vec<u64> = Vec::new();
-    let mut col_freq_hz: Vec<u64> = Vec::new();
-    let mut col_duration_s: Vec<u64> = Vec::new();
-    let mut col_sent: Vec<u64> = Vec::new();
-    let mut col_received: Vec<u64> = Vec::new();
-    let mut col_ratio: Vec<f64> = Vec::new();
-    let mut col_avg_ms: Vec<f64> = Vec::new();
-    let mut col_min_ms: Vec<f64> = Vec::new();
-    let mut col_max_ms: Vec<f64> = Vec::new();
-    let mut col_expected_mibps: Vec<f64> = Vec::new();
-    let mut col_actual_mibps: Vec<f64> = Vec::new();
+    let mut rows = Vec::new();
 
     for &size_kb in &sizes {
         for &freq_hz in &frequencies {
@@ -171,100 +178,28 @@ async fn main() -> Result<()> {
             let expected_throughput_mibps = (size_kb * freq_hz) as f64 / 1024.0;
             let actual_throughput_mibps = expected_throughput_mibps * ratio;
 
-            col_size_kb.push(size_kb);
-            col_freq_hz.push(freq_hz);
-            col_duration_s.push(args.duration);
-            col_sent.push(sent);
-            col_received.push(stats.received);
-            col_ratio.push(ratio);
-            col_avg_ms.push(stats.avg_latency_ms);
-            col_min_ms.push(stats.min_latency_ms);
-            col_max_ms.push(stats.max_latency_ms);
-            col_expected_mibps.push(expected_throughput_mibps);
-            col_actual_mibps.push(actual_throughput_mibps);
+            rows.push(BenchRow {
+                size_kb,
+                freq_hz,
+                duration_s: args.duration,
+                sent,
+                received: stats.received,
+                delivery_ratio: ratio,
+                avg_latency_ms: stats.avg_latency_ms,
+                min_latency_ms: stats.min_latency_ms,
+                max_latency_ms: stats.max_latency_ms,
+                expected_mibps: expected_throughput_mibps,
+                actual_mibps: actual_throughput_mibps,
+            });
         }
     }
 
-    let mut df = df! [
-        "size_kb"              => col_size_kb,
-        "freq_hz"              => col_freq_hz,
-        "duration_s"           => col_duration_s,
-        "sent"                 => col_sent,
-        "received"             => col_received,
-        "delivery_ratio"       => col_ratio,
-        "avg_latency_ms"       => col_avg_ms,
-        "min_latency_ms"       => col_min_ms,
-        "max_latency_ms"       => col_max_ms,
-        "expected_mibps"       => col_expected_mibps,
-        "actual_mibps"         => col_actual_mibps,
-    ]?;
-
-    if args.csv {
-        CsvWriter::new(std::io::stdout()).include_header(true).finish(&mut df)?;
-    } else {
-        let n = df.height();
-        let mut size_str = Vec::with_capacity(n);
-        let mut freq_str = Vec::with_capacity(n);
-        let mut dur_str = Vec::with_capacity(n);
-        let mut sent_str = Vec::with_capacity(n);
-        let mut received_str = Vec::with_capacity(n);
-        let mut delivery_str = Vec::with_capacity(n);
-        let mut avg_str = Vec::with_capacity(n);
-        let mut min_str = Vec::with_capacity(n);
-        let mut max_str = Vec::with_capacity(n);
-        let mut exp_str = Vec::with_capacity(n);
-        let mut act_str = Vec::with_capacity(n);
-
-        for i in 0..n {
-            let size_kb = df.column("size_kb")?.u64()?.get(i).unwrap();
-            let freq_hz = df.column("freq_hz")?.u64()?.get(i).unwrap();
-            let dur = df.column("duration_s")?.u64()?.get(i).unwrap();
-            let sent = df.column("sent")?.u64()?.get(i).unwrap();
-            let received = df.column("received")?.u64()?.get(i).unwrap();
-            let ratio = df.column("delivery_ratio")?.f64()?.get(i).unwrap();
-            let avg = df.column("avg_latency_ms")?.f64()?.get(i).unwrap();
-            let min = df.column("min_latency_ms")?.f64()?.get(i).unwrap();
-            let max = df.column("max_latency_ms")?.f64()?.get(i).unwrap();
-            let exp_mibps = df.column("expected_mibps")?.f64()?.get(i).unwrap();
-            let act_mibps = df.column("actual_mibps")?.f64()?.get(i).unwrap();
-
-            size_str.push(size_kb.to_string());
-            freq_str.push(freq_hz.to_string());
-            dur_str.push(dur.to_string());
-            sent_str.push(sent.to_string());
-            received_str.push(received.to_string());
-            delivery_str.push(format!("{:.2}%", ratio * 100.0));
-            avg_str.push(format!("{avg:.2}"));
-            min_str.push(format!("{min:.2}"));
-            max_str.push(format!("{max:.2}"));
-            exp_str.push(format!("{exp_mibps:.2} MiB/s"));
-            act_str.push(format!("{act_mibps:.2} MiB/s"));
+    match &args.output {
+        Some(path) => write_csv(&rows, std::fs::File::create(path)?)?,
+        None => {
+            let stdout = io::stdout();
+            write_csv(&rows, stdout.lock())?;
         }
-
-        let display_df = df! [
-            "size (KiB)"        => size_str,
-            "freq (Hz)"         => freq_str,
-            "dur (s)"           => dur_str,
-            "sent"              => sent_str,
-            "received"          => received_str,
-            "delivery"          => delivery_str,
-            "avg (ms)"          => avg_str,
-            "min (ms)"          => min_str,
-            "max (ms)"          => max_str,
-            "exp throughput"    => exp_str,
-            "actual throughput" => act_str,
-        ]?;
-
-        std::env::set_var("POLARS_FMT_MAX_ROWS", "-1");
-        std::env::set_var("POLARS_FMT_MAX_COLS", "-1");
-        std::env::set_var("POLARS_FMT_STR_LEN", "50");
-        std::env::set_var("POLARS_TABLE_WIDTH", "500");
-        std::env::set_var("POLARS_FMT_TABLE_FORMATTING", "ASCII_FULL_CONDENSED");
-        std::env::set_var("POLARS_FMT_TABLE_CELL_ALIGNMENT", "RIGHT");
-        std::env::set_var("POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES", "1");
-        std::env::set_var("POLARS_FMT_TABLE_HIDE_DATAFRAME_SHAPE_INFORMATION", "1");
-
-        println!("{display_df}");
     }
 
     drop(cmd_tx);
@@ -272,6 +207,15 @@ async fn main() -> Result<()> {
     pub_room.close().await?;
     sub_room.close().await?;
 
+    Ok(())
+}
+
+fn write_csv(rows: &[BenchRow], writer: impl Write) -> csv::Result<()> {
+    let mut writer = csv::Writer::from_writer(writer);
+    for row in rows {
+        writer.serialize(row)?;
+    }
+    writer.flush()?;
     Ok(())
 }
 
