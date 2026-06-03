@@ -66,7 +66,8 @@ impl RpcClientManager {
         }
 
         // Determine transport version based on remote participant's client_protocol
-        let remote_protocol = transport.remote_client_protocol(&data.destination_identity);
+        let remote_protocol = transport
+            .remote_client_protocol(&ParticipantIdentity(data.destination_identity.clone()));
         let use_v2 = remote_protocol >= CLIENT_PROTOCOL_DATA_STREAM_RPC;
 
         // Only enforce payload size limit for v1 transport
