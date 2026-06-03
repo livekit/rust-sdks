@@ -16,6 +16,9 @@
 
 #include "livekit/video_decoder_factory.h"
 
+#include <cstdlib>
+#include <string_view>
+
 #include <modules/video_coding/codecs/av1/av1_svc_config.h>
 #include "api/environment/environment.h"
 #include "api/video_codecs/av1_profile.h"
@@ -45,24 +48,73 @@
 
 namespace livekit_ffi {
 
+namespace {
+
+constexpr char kVideoDecoderEnv[] = "LIVEKIT_VIDEO_DECODER";
+
+bool PreferSoftwareVideoDecoder() {
+  const char* decoder = std::getenv(kVideoDecoderEnv);
+  if (!decoder) {
+    return false;
+  }
+
+  std::string_view decoder_view(decoder);
+  if (decoder_view == "software") {
+    return true;
+  }
+  if (decoder_view == "default") {
+    return false;
+  }
+
+  RTC_LOG(LS_WARNING) << "Ignoring invalid LIVEKIT_VIDEO_DECODER=\""
+                      << decoder
+                      << "\"; expected \"default\" or \"software\".";
+  return false;
+}
+
+}  // namespace
+
 VideoDecoderFactory::VideoDecoderFactory() {
+  const bool prefer_software_decoder = PreferSoftwareVideoDecoder();
 #ifdef __APPLE__
-  factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
+  if (!prefer_software_decoder) {
+    factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
+  } else {
+    RTC_LOG(LS_INFO)
+        << "LIVEKIT_VIDEO_DECODER=software requested; using software video "
+           "decoders before macOS VideoToolbox.";
+  }
 #endif
 
 #ifdef WEBRTC_ANDROID
-  factories_.push_back(CreateAndroidVideoDecoderFactory());
+  if (!prefer_software_decoder) {
+    factories_.push_back(CreateAndroidVideoDecoderFactory());
+  } else {
+    RTC_LOG(LS_INFO)
+        << "LIVEKIT_VIDEO_DECODER=software requested; using software video "
+           "decoders before Android hardware decoders.";
+  }
 #endif
 
 #if defined(USE_JETSON_VIDEO_CODEC)
-  if (webrtc::JetsonVideoDecoderFactory::IsSupported()) {
+  if (!prefer_software_decoder &&
+      webrtc::JetsonVideoDecoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::JetsonVideoDecoderFactory>());
+  } else if (prefer_software_decoder) {
+    RTC_LOG(LS_INFO)
+        << "LIVEKIT_VIDEO_DECODER=software requested; skipping Jetson V4L2 "
+           "hardware decoder.";
   }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
-  if (webrtc::NvidiaVideoDecoderFactory::IsSupported()) {
+  if (!prefer_software_decoder &&
+      webrtc::NvidiaVideoDecoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::NvidiaVideoDecoderFactory>());
+  } else if (prefer_software_decoder) {
+    RTC_LOG(LS_INFO)
+        << "LIVEKIT_VIDEO_DECODER=software requested; skipping NVIDIA NVDEC "
+           "hardware decoder.";
   }
 #endif
 }

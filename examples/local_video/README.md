@@ -143,11 +143,18 @@ Subscriber usage:
    --room-name demo \
    --identity viewer-1 \
    --e2ee-key my-secret-key
+
+ # force software decode, useful when Jetson V4L2 decoder startup blocks
+ cargo run -p local_video -F desktop --bin subscriber -- \
+   --room-name demo \
+   --identity viewer-1 \
+   --video-decoder software
 ```
 
 Subscriber flags (in addition to the common connection flags above):
 - `--participant <identity>`: Only subscribe to video tracks from the specified participant.
 - `--display-timestamp`: Show a top-left overlay with frame ID, the publisher's timestamp, the subscriber's current time, and the computed end-to-end latency. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
+- `--video-decoder <default|software>`: Select the video decoder preference. `software` sets `LIVEKIT_VIDEO_DECODER=software` before connecting, which skips platform hardware decoder probes such as Jetson V4L2.
 - `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
 
 Notes:

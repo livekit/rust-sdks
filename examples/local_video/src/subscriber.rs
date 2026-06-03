@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
 use egui_wgpu as egui_wgpu_backend;
@@ -29,6 +29,8 @@ mod viewport_aspect;
 
 use codec_display::{codec_from_mime, codec_with_implementation};
 use viewport_aspect::AspectConstrainedViewport;
+
+const LIVEKIT_VIDEO_DECODER_ENV: &str = "LIVEKIT_VIDEO_DECODER";
 
 #[cfg(target_os = "macos")]
 mod macos_native_video {
@@ -781,9 +783,28 @@ struct Args {
     #[arg(long)]
     render_frame_step: Option<u32>,
 
+    /// Video decoder implementation preference
+    #[arg(long, value_enum)]
+    video_decoder: Option<SubscriberVideoDecoder>,
+
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum SubscriberVideoDecoder {
+    Default,
+    Software,
+}
+
+impl SubscriberVideoDecoder {
+    fn env_value(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Software => "software",
+        }
+    }
 }
 
 struct SharedYuv {
@@ -1950,6 +1971,12 @@ mod tests {
     }
 
     #[test]
+    fn subscriber_video_decoder_env_values_match_native_factory() {
+        assert_eq!(SubscriberVideoDecoder::Default.env_value(), "default");
+        assert_eq!(SubscriberVideoDecoder::Software.env_value(), "software");
+    }
+
+    #[test]
     fn low_latency_mode_defaults_to_rendering_every_decoded_frame() {
         assert_eq!(effective_render_frame_step(None, true, true), 1);
     }
@@ -2663,6 +2690,7 @@ impl eframe::App for VideoApp {
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
+    apply_video_decoder_override(&args);
 
     let ctrl_c_received = Arc::new(AtomicBool::new(false));
     tokio::spawn({
@@ -2675,6 +2703,18 @@ async fn main() -> Result<()> {
     });
 
     run(args, ctrl_c_received).await
+}
+
+fn apply_video_decoder_override(args: &Args) {
+    let Some(video_decoder) = args.video_decoder else {
+        return;
+    };
+
+    env::set_var(LIVEKIT_VIDEO_DECODER_ENV, video_decoder.env_value());
+    info!(
+        "Set {LIVEKIT_VIDEO_DECODER_ENV}={} for subscriber video decoder selection",
+        video_decoder.env_value()
+    );
 }
 
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
