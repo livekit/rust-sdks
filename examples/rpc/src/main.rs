@@ -153,11 +153,10 @@ async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: A
 
                 match math_genius_room
                     .local_participant()
-                    .perform_rpc(PerformRpcData::new(
-                        data.caller_identity.clone(),
-                        "provide-intermediate",
-                        json!({"original": number}).to_string(),
-                    ))
+                    .perform_rpc(
+                        PerformRpcData::new(data.caller_identity.clone(), "provide-intermediate")
+                            .with_payload(json!({"original": number}).to_string()),
+                    )
                     .await
                 {
                     Ok(intermediate_response) => {
@@ -188,7 +187,7 @@ async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     println!("[{}] Letting the greeter know that I've arrived", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData::new("greeter", "arrival", "Hello"))
+        .perform_rpc(PerformRpcData::new("greeter", "arrival").with_payload("Hello"))
         .await
     {
         Ok(response) => {
@@ -203,11 +202,10 @@ async fn perform_square_root(room: &Arc<Room>) -> Result<(), Box<dyn std::error:
     println!("[{}] What's the square root of 16?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData::new(
-            "math-genius",
-            "square-root",
-            json!({"number": 16}).to_string(),
-        ))
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "square-root")
+                .with_payload(json!({"number": 16}).to_string()),
+        )
         .await
     {
         Ok(response) => {
@@ -225,11 +223,10 @@ async fn perform_quantum_hypergeometric_series(
     println!("[{}] What's the quantum hypergeometric series of 42?", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData::new(
-            "math-genius",
-            "quantum-hypergeometric-series",
-            json!({"number": 42}).to_string(),
-        ))
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "quantum-hypergeometric-series")
+                .with_payload(json!({"number": 42}).to_string()),
+        )
         .await
     {
         Ok(response) => {
@@ -251,11 +248,10 @@ async fn perform_division(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Er
     println!("[{}] Let's try dividing 5 by 0", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData::new(
-            "math-genius",
-            "divide",
-            json!({"dividend": 5, "divisor": 0}).to_string(),
-        ))
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "divide")
+                .with_payload(json!({"dividend": 5, "divisor": 0}).to_string()),
+        )
         .await
     {
         Ok(response) => {
@@ -290,11 +286,10 @@ async fn perform_nested_calculation(room: &Arc<Room>) -> Result<(), Box<dyn std:
     println!("[{}] Starting nested calculation with value 5", elapsed_time());
     match room
         .local_participant()
-        .perform_rpc(PerformRpcData::new(
-            "math-genius",
-            "nested-calculation",
-            json!({"number": 5.0}).to_string(),
-        ))
+        .perform_rpc(
+            PerformRpcData::new("math-genius", "nested-calculation")
+                .with_payload(json!({"number": 5.0}).to_string()),
+        )
         .await
     {
         Ok(response) => {
