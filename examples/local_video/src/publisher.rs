@@ -3,7 +3,7 @@ use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
     self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
-    VideoEncoding, VideoPreset,
+    VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
@@ -60,6 +60,55 @@ impl From<PublisherCodec> for VideoCodec {
     }
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherEncoder {
+    Auto,
+    Software,
+    Hardware,
+    Nvenc,
+    Vaapi,
+    #[value(name = "videotoolbox")]
+    VideoToolbox,
+}
+
+impl PublisherEncoder {
+    fn as_str(&self) -> &'static str {
+        match self {
+            PublisherEncoder::Auto => "auto",
+            PublisherEncoder::Software => "software",
+            PublisherEncoder::Hardware => "hardware",
+            PublisherEncoder::Nvenc => "nvenc",
+            PublisherEncoder::Vaapi => "vaapi",
+            PublisherEncoder::VideoToolbox => "videotoolbox",
+        }
+    }
+}
+
+impl From<PublisherEncoder> for VideoEncoderBackend {
+    fn from(encoder: PublisherEncoder) -> Self {
+        match encoder {
+            PublisherEncoder::Auto => VideoEncoderBackend::Auto,
+            PublisherEncoder::Software => VideoEncoderBackend::Software,
+            PublisherEncoder::Hardware => VideoEncoderBackend::Hardware,
+            PublisherEncoder::Nvenc => VideoEncoderBackend::Nvenc,
+            PublisherEncoder::Vaapi => VideoEncoderBackend::Vaapi,
+            PublisherEncoder::VideoToolbox => VideoEncoderBackend::VideoToolbox,
+        }
+    }
+}
+
+fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
+    match backend {
+        VideoEncoderBackend::Auto => "auto",
+        VideoEncoderBackend::Software => "software",
+        VideoEncoderBackend::Hardware => "hardware",
+        VideoEncoderBackend::Nvenc => "nvenc",
+        VideoEncoderBackend::Vaapi => "vaapi",
+        VideoEncoderBackend::VideoToolbox => "videotoolbox",
+        _ => "unknown",
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -67,12 +116,16 @@ struct Args {
     #[arg(long)]
     list_cameras: bool,
 
+    /// List available video encoder backends and exit
+    #[arg(long)]
+    list_encoders: bool,
+
     /// Camera index to use (numeric)
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
+    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
     test_pattern: bool,
 
     /// Desired width
@@ -126,6 +179,10 @@ struct Args {
     /// Video codec to use for publishing
     #[arg(long, value_enum, default_value_t = PublisherCodec::H264)]
     codec: PublisherCodec,
+
+    /// Preferred video encoder backend to use for publishing
+    #[arg(long, value_enum, default_value_t = PublisherEncoder::Auto)]
+    encoder: PublisherEncoder,
 
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
@@ -492,6 +549,13 @@ fn list_cameras() -> Result<()> {
     Ok(())
 }
 
+fn list_encoders() {
+    println!("Available video encoder backends:");
+    for backend in VideoEncoderBackend::list_available() {
+        println!("- {}", video_encoder_backend_name(backend));
+    }
+}
+
 enum VideoInput {
     TestPattern(TestPattern),
     Camera { camera: Camera, is_yuyv: bool },
@@ -542,6 +606,10 @@ async fn main() -> Result<()> {
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
+    }
+    if args.list_encoders {
+        list_encoders();
+        return Ok(());
     }
 
     // LiveKit connection details
@@ -703,7 +771,27 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = VideoCodec::from(args.codec);
-    info!("Attempting publish with codec: {}", requested_codec.as_str());
+    let requested_encoder = VideoEncoderBackend::from(args.encoder);
+    let available_encoders: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
+    info!(
+        "Available video encoder backends: {}",
+        available_encoders
+            .iter()
+            .map(|backend| video_encoder_backend_name(*backend))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !available_encoders.contains(&requested_encoder) {
+        log::warn!(
+            "Requested video encoder backend '{}' is not reported as available; libwebrtc may fall back to another compatible encoder",
+            args.encoder.as_str()
+        );
+    }
+    info!(
+        "Attempting publish with codec: {}, encoder: {}",
+        requested_codec.as_str(),
+        args.encoder.as_str()
+    );
 
     // Compute an explicit video encoding so all simulcast layers use 30 fps.
     // The SDK defaults reduce lower layers to 15/20 fps; we override that here.
@@ -740,6 +828,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         source: TrackSource::Camera,
         simulcast: args.simulcast,
         video_codec: codec,
+        video_encoder: requested_encoder,
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
         simulcast_layers: Some(simulcast_presets.clone()),

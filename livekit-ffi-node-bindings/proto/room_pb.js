@@ -53,6 +53,21 @@ const SimulateScenarioKind = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * @generated from enum livekit.proto.VideoEncoderBackend
+ */
+const VideoEncoderBackend = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.VideoEncoderBackend",
+  [
+    {no: 0, name: "ENCODER_BACKEND_AUTO"},
+    {no: 1, name: "ENCODER_BACKEND_SOFTWARE"},
+    {no: 2, name: "ENCODER_BACKEND_HARDWARE"},
+    {no: 3, name: "ENCODER_BACKEND_NVENC"},
+    {no: 4, name: "ENCODER_BACKEND_VAAPI"},
+    {no: 5, name: "ENCODER_BACKEND_VIDEOTOOLBOX"},
+  ],
+);
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 const IceTransportType = /*@__PURE__*/ proto2.makeEnum(
@@ -716,6 +731,7 @@ const TrackPublishOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 9, name: "preconnect_buffer", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
     { no: 10, name: "packet_trailer_features", kind: "enum", T: proto2.getEnumType(PacketTrailerFeature), repeated: true },
     { no: 11, name: "scalability_mode", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 12, name: "video_encoder", kind: "enum", T: proto2.getEnumType(VideoEncoderBackend), opt: true },
   ],
 );
 
@@ -1617,6 +1633,7 @@ const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
 
 
 exports.SimulateScenarioKind = SimulateScenarioKind;
+exports.VideoEncoderBackend = VideoEncoderBackend;
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;

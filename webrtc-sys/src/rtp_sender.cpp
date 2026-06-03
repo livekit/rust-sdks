@@ -17,11 +17,113 @@
 #include "livekit/rtp_sender.h"
 #include "livekit/jsep.h"
 
+#include <memory>
+#include <optional>
+
+#include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_encoder_factory.h"
 #include "rust/cxx.h"
+#include "rtc_base/logging.h"
 #include "webrtc-sys/src/rtp_sender.rs.h"
 
 namespace livekit_ffi {
 
+namespace {
+
+constexpr char kBackendParameter[] = "x-livekit-video-encoder-backend";
+
+const char* BackendName(VideoEncoderBackend backend) {
+  switch (backend) {
+    case VideoEncoderBackend::Auto:
+      return "auto";
+    case VideoEncoderBackend::Software:
+      return "software";
+    case VideoEncoderBackend::Hardware:
+      return "hardware";
+    case VideoEncoderBackend::Nvenc:
+      return "nvenc";
+    case VideoEncoderBackend::Vaapi:
+      return "vaapi";
+    case VideoEncoderBackend::VideoToolbox:
+      return "videotoolbox";
+  }
+}
+
+std::optional<VideoEncoderBackend> BackendFromFormat(
+    const webrtc::SdpVideoFormat& format) {
+  auto it = format.parameters.find(kBackendParameter);
+  if (it == format.parameters.end()) {
+    return std::nullopt;
+  }
+
+  if (it->second == BackendName(VideoEncoderBackend::Software)) {
+    return VideoEncoderBackend::Software;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::Hardware)) {
+    return VideoEncoderBackend::Hardware;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::Nvenc)) {
+    return VideoEncoderBackend::Nvenc;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::Vaapi)) {
+    return VideoEncoderBackend::Vaapi;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::VideoToolbox)) {
+    return VideoEncoderBackend::VideoToolbox;
+  }
+
+  return std::nullopt;
+}
+
+webrtc::SdpVideoFormat WithBackend(
+    const webrtc::SdpVideoFormat& format,
+    VideoEncoderBackend backend) {
+  webrtc::SdpVideoFormat tagged = format;
+  tagged.parameters[kBackendParameter] = BackendName(backend);
+  return tagged;
+}
+
+class FixedVideoEncoderSelector final
+    : public webrtc::VideoEncoderFactory::EncoderSelectorInterface {
+ public:
+  explicit FixedVideoEncoderSelector(VideoEncoderBackend backend)
+      : backend_(backend) {}
+
+  void OnCurrentEncoder(const webrtc::SdpVideoFormat& format) override {
+    current_encoder_ = format;
+    requested_ = BackendFromFormat(format) == backend_;
+  }
+
+  std::optional<webrtc::SdpVideoFormat> OnAvailableBitrate(
+      const webrtc::DataRate& /* rate */) override {
+    return SelectEncoder();
+  }
+
+  std::optional<webrtc::SdpVideoFormat> OnResolutionChange(
+      const webrtc::RenderResolution& /* resolution */) override {
+    return SelectEncoder();
+  }
+
+  std::optional<webrtc::SdpVideoFormat> OnEncoderBroken() override {
+    return std::nullopt;
+  }
+
+ private:
+  std::optional<webrtc::SdpVideoFormat> SelectEncoder() {
+    if (requested_ || !current_encoder_) {
+      return std::nullopt;
+    }
+
+    requested_ = true;
+    return WithBackend(*current_encoder_, backend_);
+  }
+
+  VideoEncoderBackend backend_;
+  bool requested_ = false;
+  std::optional<webrtc::SdpVideoFormat> current_encoder_;
+};
+
+}  // namespace
 
 
 RtpSender::RtpSender(
@@ -88,6 +190,23 @@ void RtpSender::set_parameters(RtpParameters params) const {
   auto error = sender_->SetParameters(to_native_rtp_parameters(params));
   if (!error.ok())
     throw std::runtime_error(serialize_error(to_error(error)));
+}
+
+void RtpSender::set_video_encoder_backend(VideoEncoderBackend backend) const {
+  if (sender_->media_type() != webrtc::MediaType::VIDEO) {
+    RTC_LOG(LS_WARNING)
+        << "Ignoring video encoder backend preference on non-video sender.";
+    return;
+  }
+
+  if (backend == VideoEncoderBackend::Auto) {
+    sender_->SetEncoderSelector(
+        std::unique_ptr<webrtc::VideoEncoderFactory::EncoderSelectorInterface>());
+    return;
+  }
+
+  sender_->SetEncoderSelector(
+      std::make_unique<FixedVideoEncoderSelector>(backend));
 }
 
 }  // namespace livekit_ffi
