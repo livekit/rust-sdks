@@ -20,9 +20,7 @@ use std::{
 };
 
 use libwebrtc::{
-    native::packet_trailer::{
-        self, PacketTrailerHandler, SubscribeTimingObserver as RtcSubscribeTimingObserver,
-    },
+    native::packet_trailer::{self, PacketTrailerHandler},
     prelude::*,
     stats::RtcStats,
 };
@@ -200,7 +198,7 @@ impl RemoteVideoTrack {
         let observer = tx.map(|tx| {
             Arc::new(move |event: SubscribeTimingEvent| {
                 let _ = tx.send(event);
-            }) as RtcSubscribeTimingObserver
+            }) as packet_trailer::SubscribeTimingObserver
         });
         handler.set_subscribe_timing_observer(observer);
     }
