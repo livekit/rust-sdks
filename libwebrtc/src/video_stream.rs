@@ -34,7 +34,6 @@ pub mod native {
 
     const DEFAULT_QUEUE_SIZE_FRAMES: usize = 1;
 
-    /// Options used when constructing a [`NativeVideoStream`].
     #[derive(Clone, Debug, Default)]
     pub struct NativeVideoStreamOptions {
         /// Maximum number of queued WebRTC sink frames after the video callback.
@@ -62,7 +61,6 @@ pub mod native {
     }
 
     impl NativeVideoStream {
-        /// Create a video stream that keeps only the latest queued frame.
         pub fn new(video_track: RtcVideoTrack) -> Self {
             Self {
                 handle: stream_imp::NativeVideoStream::new(
@@ -72,7 +70,6 @@ pub mod native {
             }
         }
 
-        /// Create a video stream using explicit queueing options.
         pub fn with_options(video_track: RtcVideoTrack, options: NativeVideoStreamOptions) -> Self {
             Self {
                 handle: stream_imp::NativeVideoStream::new(
