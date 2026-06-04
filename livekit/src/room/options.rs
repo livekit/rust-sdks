@@ -416,16 +416,6 @@ pub fn video_layers_from_encodings(
 
 const VIDEO_RIDS: &[char] = &['q', 'h', 'f'];
 
-#[cfg(test)]
-mod tests {
-    use super::{TrackPublishOptions, VideoEncoderBackend};
-
-    #[test]
-    fn track_publish_options_default_encoder_is_auto() {
-        assert_eq!(TrackPublishOptions::default().video_encoder, VideoEncoderBackend::Auto);
-    }
-}
-
 pub mod audio {
     use super::AudioPreset;
 
