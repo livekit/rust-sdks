@@ -18,7 +18,7 @@ use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
     Resolution,
 };
-use nokhwa::Camera;
+use nokhwa::{Camera, NokhwaError};
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::env;
@@ -469,6 +469,18 @@ fn update_shared_timing_sample(
     }
 }
 
+fn is_ctrl_c_interrupted_capture(ctrl_c_received: &AtomicBool, error: &NokhwaError) -> bool {
+    if !ctrl_c_received.load(Ordering::Acquire) {
+        return false;
+    }
+
+    let NokhwaError::ReadFrameError(message) = error else {
+        return false;
+    };
+
+    message.contains("Interrupted system call") || message.contains("os error 4")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,6 +563,36 @@ mod tests {
         assert_eq!(data_y, [1, 2, 3, 0, 4, 5, 6, 0]);
         assert_eq!(data_u, [128, 128]);
         assert_eq!(data_v, [128, 128]);
+    }
+
+    #[test]
+    fn ctrl_c_interrupted_capture_matches_linux_eintr() {
+        let ctrl_c_received = AtomicBool::new(true);
+
+        assert!(is_ctrl_c_interrupted_capture(
+            &ctrl_c_received,
+            &NokhwaError::ReadFrameError("Interrupted system call (os error 4)".to_string())
+        ));
+    }
+
+    #[test]
+    fn ctrl_c_interrupted_capture_requires_shutdown_signal() {
+        let ctrl_c_received = AtomicBool::new(false);
+
+        assert!(!is_ctrl_c_interrupted_capture(
+            &ctrl_c_received,
+            &NokhwaError::ReadFrameError("Interrupted system call (os error 4)".to_string())
+        ));
+    }
+
+    #[test]
+    fn ctrl_c_interrupted_capture_rejects_other_read_errors() {
+        let ctrl_c_received = AtomicBool::new(true);
+
+        assert!(!is_ctrl_c_interrupted_capture(
+            &ctrl_c_received,
+            &NokhwaError::ReadFrameError("device disconnected".to_string())
+        ));
     }
 }
 
@@ -1071,7 +1113,11 @@ async fn run_capture_loop(
             VideoInput::Camera { camera, conversion } => {
                 // Capture the frame as early as possible so the attached timestamp is
                 // close to the camera acquisition point.
-                let frame_buf = camera.frame()?;
+                let frame_buf = match camera.frame() {
+                    Ok(frame_buf) => frame_buf,
+                    Err(error) if is_ctrl_c_interrupted_capture(&ctrl_c_received, &error) => break,
+                    Err(error) => return Err(error.into()),
+                };
                 let read_wall_time_us = unix_time_us_now();
                 let camera_frame_acquired_at = Instant::now();
 
