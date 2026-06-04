@@ -48,6 +48,7 @@ pub mod ffi {
         fn media_type(self: &RtpReceiver) -> MediaType;
         fn id(self: &RtpReceiver) -> String;
         fn get_parameters(self: &RtpReceiver) -> RtpParameters;
+        fn set_jitter_buffer_minimum_delay(self: &RtpReceiver, is_some: bool, delay_seconds: f64);
 
         fn _shared_rtp_receiver() -> SharedPtr<RtpReceiver>;
     }

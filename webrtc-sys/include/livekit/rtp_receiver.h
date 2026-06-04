@@ -59,6 +59,9 @@ class RtpReceiver {
 
   // bool set_parameters(RtpParameters parameters) const; // Seems unsupported
 
+  void set_jitter_buffer_minimum_delay(bool is_some,
+                                       double delay_seconds) const;
+
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rtc_receiver() const {
     return receiver_;
   }
