@@ -953,16 +953,6 @@ async fn run_capture_loop(
         .then(|| TimestampOverlay::new(width, height));
     let align_buffers_for_display = display_shared.is_some();
 
-    // Reuse a single I420 buffer
-    let mut frame = VideoFrame {
-        rotation: VideoRotation::VideoRotation0,
-        timestamp_us: 0,
-        frame_metadata: None,
-        buffer: create_i420_buffer(width, height, align_buffers_for_display),
-    };
-    let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-    let stride_y_usize = stride_y as usize;
-
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -971,6 +961,18 @@ async fn run_capture_loop(
         let paced_wait_started_at = Instant::now();
         ticker.tick().await;
         let paced_wait_finished_at = Instant::now();
+
+        // WebRTC may queue the frame and hardware encoders may upload it asynchronously.
+        // Give each submitted frame unique backing storage so later captures cannot
+        // overwrite buffers that are still in-flight.
+        let mut frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: 0,
+            frame_metadata: None,
+            buffer: create_i420_buffer(width, height, align_buffers_for_display),
+        };
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let stride_y_usize = stride_y as usize;
 
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
