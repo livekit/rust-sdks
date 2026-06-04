@@ -20,9 +20,7 @@ use std::{
 };
 
 use libwebrtc::{
-    native::packet_trailer::{
-        self, PacketTrailerHandler, SubscribeTimingObserver as RtcSubscribeTimingObserver,
-    },
+    native::packet_trailer::{self, PacketTrailerHandler},
     prelude::*,
     stats::RtcStats,
 };
@@ -42,7 +40,6 @@ const SUBSCRIBE_TIMING_BUFFER: usize = 256;
 pub struct RemoteVideoTrack {
     inner: Arc<TrackInner>,
     subscribe_timing_tx: Arc<Mutex<Option<broadcast::Sender<SubscribeTimingEvent>>>>,
-    subscribe_timing_observer: Arc<Mutex<Option<RtcSubscribeTimingObserver>>>,
 }
 
 impl Debug for RemoteVideoTrack {
@@ -86,7 +83,6 @@ impl RemoteVideoTrack {
                 MediaStreamTrack::Video(rtc_track),
             )),
             subscribe_timing_tx: Arc::new(Mutex::new(None)),
-            subscribe_timing_observer: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -173,22 +169,6 @@ impl RemoteVideoTrack {
         SubscribeTimingEventStream { inner: BroadcastStream::new(tx.subscribe()) }
     }
 
-    /// Sets a direct observer for native remote video subscribe-pipeline timing events.
-    ///
-    /// This is useful for latency-sensitive consumers that want to avoid the
-    /// allocation and task wakeup overhead of [`Self::subscribe_timing_events`].
-    /// Call this before constructing a
-    /// [`NativeVideoStream`](crate::webrtc::video_stream::native::NativeVideoStream)
-    /// so decoder-output timing can be wired into the stream automatically.
-    pub fn set_subscribe_timing_observer(&self, observer: Option<RtcSubscribeTimingObserver>) {
-        *self.subscribe_timing_observer.lock() = observer;
-
-        let handler = self.ensure_subscribe_timing_handler();
-        if let Some(handler) = handler {
-            self.apply_subscribe_timing_observer(&handler);
-        }
-    }
-
     /// Internal: set the handler that extracts packet trailers for this track.
     ///
     /// The handler is stored on the underlying `RtcVideoTrack`, so any
@@ -215,18 +195,11 @@ impl RemoteVideoTrack {
 
     fn apply_subscribe_timing_observer(&self, handler: &PacketTrailerHandler) {
         let tx = self.subscribe_timing_tx.lock().clone();
-        let direct_observer = self.subscribe_timing_observer.lock().clone();
-        let observer = match (tx, direct_observer) {
-            (None, None) => None,
-            (tx, direct_observer) => Some(Arc::new(move |event: SubscribeTimingEvent| {
-                if let Some(observer) = direct_observer.as_ref() {
-                    observer(event);
-                }
-                if let Some(tx) = tx.as_ref() {
-                    let _ = tx.send(event);
-                }
-            }) as RtcSubscribeTimingObserver),
-        };
+        let observer = tx.map(|tx| {
+            Arc::new(move |event: SubscribeTimingEvent| {
+                let _ = tx.send(event);
+            }) as packet_trailer::SubscribeTimingObserver
+        });
         handler.set_subscribe_timing_observer(observer);
     }
 

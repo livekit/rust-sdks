@@ -3872,7 +3872,6 @@ version = "0.3.35"
 dependencies = [
  "cxx",
  "env_logger 0.11.10",
- "futures-util",
  "glib",
  "jni 0.21.1",
  "js-sys",

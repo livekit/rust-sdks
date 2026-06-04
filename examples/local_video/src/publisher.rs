@@ -351,7 +351,7 @@ fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Op
 
 async fn update_publisher_encoder_overlay(
     track: LocalVideoTrack,
-    shared: Option<Arc<Mutex<SharedYuv>>>,
+    shared: Arc<Mutex<SharedYuv>>,
     ctrl_c_received: Arc<AtomicBool>,
 ) {
     let mut logged_initial = false;
@@ -372,12 +372,8 @@ async fn update_publisher_encoder_overlay(
                         last_implementation = implementation.to_string();
                     }
 
-                    if let Some(shared) = shared.as_ref() {
-                        let mut shared = shared.lock();
-                        shared.codec_implementation = implementation.to_string();
-                    } else {
-                        break;
-                    }
+                    let mut shared = shared.lock();
+                    shared.codec_implementation = implementation.to_string();
                 }
                 logged_initial = true;
             }
@@ -1001,7 +997,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         }
         let stats_task = tokio::spawn(update_publisher_encoder_overlay(
             track.clone(),
-            Some(shared.clone()),
+            shared.clone(),
             ctrl_c_received.clone(),
         ));
         let capture_task = tokio::spawn(run_capture_loop(
@@ -1027,14 +1023,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_result?;
         capture_result?;
     } else {
-        let stats_task = tokio::spawn(update_publisher_encoder_overlay(
-            track.clone(),
-            None,
-            ctrl_c_received.clone(),
-        ));
         run_capture_loop(
             capture_config,
-            ctrl_c_received.clone(),
+            ctrl_c_received,
             rtc_source,
             video_input,
             width,
@@ -1043,7 +1034,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             publish_timing_state.clone(),
         )
         .await?;
-        let _ = stats_task.await;
     }
 
     Ok(())

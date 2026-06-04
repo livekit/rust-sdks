@@ -3,35 +3,22 @@ use egui_wgpu as egui_wgpu_backend;
 use std::time::Duration;
 
 const DEFAULT_ASPECT: f32 = 16.0 / 9.0;
-pub(crate) const DEFAULT_INITIAL_LONG_EDGE: f32 = 960.0;
-pub(crate) const MIN_LONG_EDGE: f32 = 320.0;
+const DEFAULT_INITIAL_LONG_EDGE: f32 = 960.0;
+const MIN_LONG_EDGE: f32 = 320.0;
 /// Repaint cadence used while a local video window is visible.
 pub(crate) const VIDEO_REPAINT_INTERVAL: Duration = Duration::from_millis(8);
 const ASPECT_EPSILON: f32 = 0.001;
 
 pub(crate) struct AspectConstrainedViewport {
     aspect: Option<f32>,
-    initial_long_edge: f32,
     fit_window_to_first_video_size: bool,
 }
 
 impl AspectConstrainedViewport {
     /// Creates viewport aspect state for a window using the default startup size.
     pub(crate) fn new(initial_aspect: Option<f32>) -> Self {
-        Self::with_initial_long_edge(initial_aspect, DEFAULT_INITIAL_LONG_EDGE)
-    }
-
-    /// Creates viewport aspect state for a window using a custom startup long edge.
-    pub(crate) fn with_initial_long_edge(
-        initial_aspect: Option<f32>,
-        initial_long_edge: f32,
-    ) -> Self {
         let aspect = initial_aspect.filter(|aspect| valid_aspect(*aspect));
-        Self {
-            aspect,
-            initial_long_edge: initial_long_edge.max(MIN_LONG_EDGE),
-            fit_window_to_first_video_size: aspect.is_none(),
-        }
+        Self { aspect, fit_window_to_first_video_size: aspect.is_none() }
     }
 
     /// Returns the active video aspect ratio when it is known.
@@ -51,10 +38,9 @@ impl AspectConstrainedViewport {
             self.aspect = Some(aspect);
             ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(minimum_window_size(aspect)));
             if fit_window_to_video {
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(initial_window_size(
-                    Some(aspect),
-                    self.initial_long_edge,
-                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(initial_window_size(Some(
+                    aspect,
+                ))));
             }
         }
         self.fit_window_to_first_video_size = false;
@@ -63,16 +49,7 @@ impl AspectConstrainedViewport {
 
 /// Returns native window options for a video display.
 pub(crate) fn native_options(initial_aspect: Option<f32>) -> eframe::NativeOptions {
-    native_options_with_initial_long_edge(initial_aspect, DEFAULT_INITIAL_LONG_EDGE)
-}
-
-/// Returns native window options for a video display with a custom startup long edge.
-pub(crate) fn native_options_with_initial_long_edge(
-    initial_aspect: Option<f32>,
-    initial_long_edge: f32,
-) -> eframe::NativeOptions {
     let aspect = initial_aspect.filter(|aspect| valid_aspect(*aspect)).unwrap_or(DEFAULT_ASPECT);
-    let initial_long_edge = initial_long_edge.max(MIN_LONG_EDGE);
     let mut wgpu_options = egui_wgpu_backend::WgpuConfiguration::default();
     #[cfg(target_os = "macos")]
     {
@@ -86,7 +63,7 @@ pub(crate) fn native_options_with_initial_long_edge(
 
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size(initial_window_size(Some(aspect), initial_long_edge))
+            .with_inner_size(initial_window_size(Some(aspect)))
             .with_min_inner_size(minimum_window_size(aspect)),
         persist_window: false,
         vsync: false,
@@ -135,8 +112,11 @@ fn aspect_size(long_edge: f32, aspect: f32) -> egui::Vec2 {
     }
 }
 
-fn initial_window_size(aspect: Option<f32>, initial_long_edge: f32) -> egui::Vec2 {
-    aspect_size(initial_long_edge, aspect.filter(|a| valid_aspect(*a)).unwrap_or(DEFAULT_ASPECT))
+fn initial_window_size(aspect: Option<f32>) -> egui::Vec2 {
+    aspect_size(
+        DEFAULT_INITIAL_LONG_EDGE,
+        aspect.filter(|a| valid_aspect(*a)).unwrap_or(DEFAULT_ASPECT),
+    )
 }
 
 fn minimum_window_size(aspect: f32) -> egui::Vec2 {

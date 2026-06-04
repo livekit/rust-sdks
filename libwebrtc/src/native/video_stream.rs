@@ -19,11 +19,10 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 
 use cxx::{SharedPtr, UniquePtr};
-use futures_util::task::AtomicWaker;
 use livekit_runtime::Stream;
 use parking_lot::Mutex;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
@@ -47,12 +46,9 @@ impl NativeVideoStream {
     pub fn new(video_track: RtcVideoTrack, queue_size_frames: Option<usize>) -> Self {
         let frame_queue = Arc::new(VideoFrameQueue::new(queue_size_frames));
         // Auto-wire the packet trailer handler from the track if one is set.
-        let handler = video_track.handle.packet_trailer_handler();
         let observer = Arc::new(VideoTrackObserver {
             frame_queue: frame_queue.clone(),
-            packet_trailer_handler: handler,
-            packet_trailer_handler_override: parking_lot::Mutex::new(None),
-            has_packet_trailer_handler_override: AtomicBool::new(false),
+            packet_trailer_handler: Mutex::new(video_track.handle.packet_trailer_handler()),
         });
         let native_sink = sys_vt::ffi::new_native_video_sink(Box::new(
             sys_vt::VideoSinkWrapper::new(observer.clone()),
@@ -75,8 +71,7 @@ impl NativeVideoStream {
     /// only needed if you want to override or set the handler after
     /// construction.
     pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
-        *self.observer.packet_trailer_handler_override.lock() = Some(handler);
-        self.observer.has_packet_trailer_handler_override.store(true, Ordering::Release);
+        *self.observer.packet_trailer_handler.lock() = Some(handler);
     }
 
     pub fn track(&self) -> RtcVideoTrack {
@@ -106,9 +101,7 @@ impl Stream for NativeVideoStream {
 
 struct VideoTrackObserver {
     frame_queue: Arc<VideoFrameQueue>,
-    packet_trailer_handler: Option<PacketTrailerHandler>,
-    packet_trailer_handler_override: parking_lot::Mutex<Option<PacketTrailerHandler>>,
-    has_packet_trailer_handler_override: AtomicBool,
+    packet_trailer_handler: Mutex<Option<PacketTrailerHandler>>,
 }
 
 impl VideoTrackObserver {
@@ -133,13 +126,9 @@ impl VideoTrackObserver {
 
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
-        let rtp_timestamp = frame.timestamp();
-        let frame_metadata = if self.has_packet_trailer_handler_override.load(Ordering::Acquire) {
-            let packet_trailer_handler = self.packet_trailer_handler_override.lock();
-            self.frame_metadata(rtp_timestamp, packet_trailer_handler.as_ref())
-        } else {
-            self.frame_metadata(rtp_timestamp, self.packet_trailer_handler.as_ref())
-        };
+        let packet_trailer_handler = self.packet_trailer_handler.lock().clone();
+        let frame_metadata =
+            self.frame_metadata(frame.timestamp(), packet_trailer_handler.as_ref());
 
         self.frame_queue.push(VideoFrame {
             rotation: frame.rotation().into(),
@@ -158,7 +147,7 @@ struct VideoFrameQueue {
     kind: VideoFrameQueueKind,
     closed: AtomicBool,
     dropped_frames: AtomicU64,
-    waker: AtomicWaker,
+    waker: Mutex<Option<Waker>>,
 }
 
 enum VideoFrameQueueKind {
@@ -202,7 +191,7 @@ impl VideoFrameQueue {
             kind,
             closed: AtomicBool::new(false),
             dropped_frames: AtomicU64::new(0),
-            waker: AtomicWaker::new(),
+            waker: Mutex::new(None),
         }
     }
 
@@ -272,9 +261,10 @@ impl VideoFrameQueue {
             return Poll::Ready(None);
         }
 
-        self.waker.register(cx.waker());
+        *self.waker.lock() = Some(cx.waker().clone());
 
         if let Some(frame) = self.try_pop() {
+            self.waker.lock().take();
             Poll::Ready(Some(frame))
         } else if self.closed.load(Ordering::Acquire) {
             Poll::Ready(None)
@@ -292,7 +282,10 @@ impl VideoFrameQueue {
     }
 
     fn wake_receiver(&self) {
-        self.waker.wake();
+        let waker = self.waker.lock().take();
+        if let Some(waker) = waker {
+            waker.wake();
+        }
     }
 
     fn record_drop(&self) {

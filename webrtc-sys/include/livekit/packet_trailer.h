@@ -43,7 +43,6 @@ class RtpSender;
 class RtpReceiver;
 enum class VideoPublishTimingStage : int32_t;
 enum class VideoSubscribeTimingStage : int32_t;
-struct PacketTrailerLookupResult;
 struct VideoPublishTimingObserverWrapper;
 struct VideoSubscribeTimingObserverWrapper;
 }  // namespace livekit_ffi
@@ -237,10 +236,6 @@ class PacketTrailerHandler {
   /// Returns the frame_id from the most recent successful
   /// lookup_timestamp() call. Returns 0 if no lookup succeeded.
   uint32_t last_lookup_frame_id() const;
-
-  /// Lookup metadata for a given RTP timestamp (receiver side).
-  /// Returns user_timestamp=UINT64_MAX if not found.
-  PacketTrailerLookupResult lookup_metadata(uint32_t rtp_timestamp) const;
 
   /// Store frame metadata for a given capture timestamp (sender side).
   void store_frame_metadata(int64_t capture_timestamp_us,

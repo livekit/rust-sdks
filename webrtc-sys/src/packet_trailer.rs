@@ -54,13 +54,6 @@ pub mod ffi {
         pub frame_id: u32,
     }
 
-    #[derive(Debug, Clone, Copy)]
-    pub struct PacketTrailerLookupResult {
-        pub user_timestamp: u64,
-        pub frame_id: u32,
-        pub ssrc: u32,
-    }
-
     unsafe extern "C++" {
         include!("livekit/packet_trailer.h");
         include!("livekit/rtp_sender.h");
@@ -88,13 +81,6 @@ pub mod ffi {
         /// Returns the frame_id from the most recent successful
         /// lookup_timestamp() call.
         fn last_lookup_frame_id(self: &PacketTrailerHandler) -> u32;
-
-        /// Lookup metadata for a given RTP timestamp (receiver side).
-        /// Returns user_timestamp=u64::MAX if not found.
-        fn lookup_metadata(
-            self: &PacketTrailerHandler,
-            rtp_timestamp: u32,
-        ) -> PacketTrailerLookupResult;
 
         /// Store frame metadata for a given capture timestamp (sender side).
         fn store_frame_metadata(
