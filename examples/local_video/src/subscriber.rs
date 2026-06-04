@@ -414,6 +414,7 @@ struct SharedYuv {
     height: u32,
     codec: String,
     codec_implementation: String,
+    bitrate_mbps: Option<f64>,
     fps: f32,
 }
 
@@ -577,6 +578,12 @@ struct JitterBufferSnapshot {
     emitted_count: u64,
 }
 
+#[derive(Clone, Copy)]
+struct ReceiveBitrateSnapshot {
+    bytes_received: u64,
+    at: Instant,
+}
+
 fn seconds_to_ms(seconds: f64) -> f64 {
     seconds * 1_000.0
 }
@@ -706,6 +713,31 @@ fn update_decoder_implementation_from_stats(
     shared.codec_implementation = inbound.inbound.decoder_implementation;
 }
 
+fn update_receive_bitrate_from_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    previous: &mut Option<ReceiveBitrateSnapshot>,
+    shared: &Arc<Mutex<SharedYuv>>,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+
+    let now = Instant::now();
+    let current =
+        ReceiveBitrateSnapshot { bytes_received: inbound.inbound.bytes_received, at: now };
+    let bitrate_mbps = previous.and_then(|prev| {
+        let byte_delta = current.bytes_received.checked_sub(prev.bytes_received)?;
+        let elapsed_secs = current.at.duration_since(prev.at).as_secs_f64();
+        (elapsed_secs > 0.0).then(|| byte_delta as f64 * 8.0 / elapsed_secs / 1_000_000.0)
+    });
+
+    *previous = Some(current);
+
+    if let Some(bitrate_mbps) = bitrate_mbps {
+        shared.lock().bitrate_mbps = Some(bitrate_mbps);
+    }
+}
+
 struct TimestampAnchor {
     unix_timestamp_us: u64,
     instant: Instant,
@@ -741,13 +773,16 @@ fn video_status_line(
     fps: f32,
     codec: &str,
     codec_implementation: &str,
+    bitrate_mbps: Option<f64>,
     simulcast: bool,
 ) -> String {
     let codec = codec_with_implementation(codec, codec_implementation);
+    let bitrate =
+        bitrate_mbps.map(|mbps| format!(" {:.1} mbps", mbps.max(0.0))).unwrap_or_default();
     if simulcast {
-        format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
+        format!("{}x{} {:.1}fps {codec}{bitrate} Simulcast", width, height, fps.max(0.0))
     } else {
-        format!("{}x{} {:.1}fps {codec}", width, height, fps.max(0.0))
+        format!("{}x{} {:.1}fps {codec}{bitrate}", width, height, fps.max(0.0))
     }
 }
 
@@ -762,6 +797,7 @@ mod tests {
             height: 720,
             codec: "H264".to_string(),
             codec_implementation: "NVIDIA H264 Decoder".to_string(),
+            bitrate_mbps: Some(1.25),
             fps: 29.6,
         }));
         let simulcast =
@@ -771,7 +807,7 @@ mod tests {
         let lines = subscriber_overlay_lines(&shared, &simulcast, false, &subscriber_timing)
             .expect("overlay should render");
 
-        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC Simulcast"]);
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC 1.2 mbps Simulcast"]);
     }
 }
 
@@ -959,6 +995,7 @@ async fn handle_track_subscribed(
     tokio::spawn(async move {
         let mut logged_initial = false;
         let mut jitter_buffer_snapshot = None;
+        let mut receive_bitrate_snapshot = None;
         let mut last_jitter_buffer_log =
             Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -983,6 +1020,11 @@ async fn handle_track_subscribed(
                         last_jitter_buffer_log = Instant::now();
                     }
                     update_decoder_implementation_from_stats(&stats, &shared_stats);
+                    update_receive_bitrate_from_stats(
+                        &stats,
+                        &mut receive_bitrate_snapshot,
+                        &shared_stats,
+                    );
                     update_simulcast_quality_from_stats(&stats, &simulcast_stats);
                 }
                 Err(e) if !logged_initial => {
@@ -1010,6 +1052,7 @@ fn clear_hud_and_simulcast(
         s.height = 0;
         s.codec.clear();
         s.codec_implementation.clear();
+        s.bitrate_mbps = None;
         s.fps = 0.0;
     }
     frame_slot.clear();
@@ -1038,6 +1081,7 @@ fn subscriber_overlay_lines(
             s.fps,
             &s.codec,
             &s.codec_implementation,
+            s.bitrate_mbps,
             simulcast_enabled,
         )
     };
@@ -1296,6 +1340,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         height: 0,
         codec: String::new(),
         codec_implementation: String::new(),
+        bitrate_mbps: None,
         fps: 0.0,
     }));
     let frame_slot = Arc::new(LatestRenderFrameSlot::new());
