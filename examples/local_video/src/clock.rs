@@ -28,9 +28,9 @@ struct Args {
     #[arg(long, default_value_t = false)]
     always_on_top: bool,
 
-    /// Enable vsync for tear-free output at the cost of extra queuing
+    /// Disable vsync and render as fast as the display backend accepts frames
     #[arg(long, default_value_t = false)]
-    vsync: bool,
+    no_vsync: bool,
 }
 
 #[repr(C)]
@@ -237,13 +237,14 @@ fn native_options(args: &Args) -> eframe::NativeOptions {
     }
 
     let mut wgpu_options = egui_wgpu_backend::WgpuConfiguration::default();
+    let vsync = !args.no_vsync;
     wgpu_options.present_mode =
-        if args.vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
+        if vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
     wgpu_options.desired_maximum_frame_latency = Some(1);
 
     eframe::NativeOptions {
         viewport,
-        vsync: args.vsync,
+        vsync,
         multisampling: 0,
         depth_buffer: 0,
         stencil_buffer: 0,

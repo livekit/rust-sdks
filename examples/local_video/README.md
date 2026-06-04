@@ -93,7 +93,7 @@ Clock usage:
 Clock flags:
 - `--fullscreen`: Start in borderless fullscreen.
 - `--always-on-top`: Keep the clock above normal windows.
-- `--vsync`: Enable vsync for tear-free output. By default the clock uses WGPU with no-vsync presentation and a maximum frame latency of 1 to minimize queuing on macOS.
+- `--no-vsync`: Disable vsync and render as fast as the display backend accepts frames. By default the clock uses WGPU with vsync and a maximum frame latency of 1 to avoid uncapped GPU usage.
 
 The clock draws a 3x9 grid below the time. The top row fills from `0` to `9` for the hundreds-of-milliseconds digit, the middle row for tens of milliseconds, and the bottom row for ones of milliseconds.
 
