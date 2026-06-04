@@ -17,7 +17,6 @@ use livekit_protocol as proto;
 
 use crate::prelude::*;
 
-pub use libwebrtc::rtp_sender::video_encoder_backend_list;
 /// Preferred backend for video encoding when publishing a video track.
 pub use libwebrtc::rtp_sender::VideoEncoderBackend;
 
@@ -505,5 +504,15 @@ pub mod screenshare {
             ),
             FPS,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TrackPublishOptions, VideoEncoderBackend};
+
+    #[test]
+    fn track_publish_options_default_encoder_is_auto() {
+        assert_eq!(TrackPublishOptions::default().video_encoder, VideoEncoderBackend::Auto);
     }
 }

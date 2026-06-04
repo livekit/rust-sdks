@@ -38,6 +38,12 @@ impl From<String> for ParticipantIdentity {
     }
 }
 
+impl From<&str> for ParticipantIdentity {
+    fn from(value: &str) -> Self {
+        Self(value.to_string())
+    }
+}
+
 macro_rules! impl_string_into {
     ($from:ty) => {
         impl From<$from> for String {

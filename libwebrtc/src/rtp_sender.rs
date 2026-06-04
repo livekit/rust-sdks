@@ -38,20 +38,22 @@ pub enum VideoEncoderBackend {
     VideoToolbox,
 }
 
-/// Returns video encoder backends available in this process.
-///
-/// The list reflects the current platform, build flags, and runtime hardware
-/// capability checks.
-///
-/// ```
-/// use libwebrtc::rtp_sender::{video_encoder_backend_list, VideoEncoderBackend};
-///
-/// let backends = video_encoder_backend_list();
-/// assert!(backends.contains(&VideoEncoderBackend::Auto));
-/// assert!(backends.contains(&VideoEncoderBackend::Software));
-/// ```
-pub fn video_encoder_backend_list() -> Vec<VideoEncoderBackend> {
-    imp_rs::video_encoder_backend_list()
+impl VideoEncoderBackend {
+    /// Returns the video encoder backends available in this process.
+    ///
+    /// The result reflects the current platform, build flags, and runtime
+    /// hardware capability checks.
+    ///
+    /// ```
+    /// use libwebrtc::rtp_sender::VideoEncoderBackend;
+    ///
+    /// let backends: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
+    /// assert!(backends.contains(&VideoEncoderBackend::Auto));
+    /// assert!(backends.contains(&VideoEncoderBackend::Software));
+    /// ```
+    pub fn list_available() -> impl IntoIterator<Item = VideoEncoderBackend> {
+        imp_rs::video_encoder_backend_list()
+    }
 }
 
 #[derive(Clone)]

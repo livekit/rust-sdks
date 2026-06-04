@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
-    self, video as video_presets, video_encoder_backend_list, PacketTrailerFeatures,
-    TrackPublishOptions, VideoCodec, VideoEncoderBackend, VideoEncoding, VideoPreset,
+    self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
+    VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
@@ -67,7 +67,7 @@ enum PublisherEncoder {
     Hardware,
     Nvenc,
     Vaapi,
-    #[value(alias = "videotoolbox")]
+    #[value(name = "videotoolbox")]
     VideoToolbox,
 }
 
@@ -79,7 +79,7 @@ impl PublisherEncoder {
             PublisherEncoder::Hardware => "hardware",
             PublisherEncoder::Nvenc => "nvenc",
             PublisherEncoder::Vaapi => "vaapi",
-            PublisherEncoder::VideoToolbox => "video-toolbox",
+            PublisherEncoder::VideoToolbox => "videotoolbox",
         }
     }
 }
@@ -104,7 +104,7 @@ fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
         VideoEncoderBackend::Hardware => "hardware",
         VideoEncoderBackend::Nvenc => "nvenc",
         VideoEncoderBackend::Vaapi => "vaapi",
-        VideoEncoderBackend::VideoToolbox => "video-toolbox",
+        VideoEncoderBackend::VideoToolbox => "videotoolbox",
         _ => "unknown",
     }
 }
@@ -663,7 +663,7 @@ fn list_cameras() -> Result<()> {
 
 fn list_encoders() {
     println!("Available video encoder backends:");
-    for backend in video_encoder_backend_list() {
+    for backend in VideoEncoderBackend::list_available() {
         println!("- {}", video_encoder_backend_name(backend));
     }
 }
@@ -893,7 +893,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = VideoCodec::from(args.codec);
     let requested_encoder = VideoEncoderBackend::from(args.encoder);
-    let available_encoders = video_encoder_backend_list();
+    let available_encoders: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
     info!(
         "Available video encoder backends: {}",
         available_encoders

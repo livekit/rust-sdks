@@ -59,17 +59,15 @@ impl FfiParticipant {
         let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {
-            let result = local
-                .perform_rpc(PerformRpcData {
-                    destination_identity: request.destination_identity.to_string(),
-                    method: request.method,
-                    payload: request.payload,
-                    response_timeout: request
-                        .response_timeout_ms
-                        .map(|ms| Duration::from_millis(ms as u64))
-                        .unwrap_or(PerformRpcData::default().response_timeout),
-                })
-                .await;
+            let mut data = PerformRpcData::new(request.destination_identity, request.method)
+                .with_payload(request.payload);
+            if let Some(ms) = request.response_timeout_ms {
+                data = data.with_response_timeout(Duration::from_millis(ms as u64));
+            }
+            if let Some(ms) = request.max_round_trip_latency_ms {
+                data = data.with_max_round_trip_latency(Duration::from_millis(ms as u64));
+            }
+            let result = local.perform_rpc(data).await;
 
             let callback = proto::PerformRpcCallback {
                 async_id,
