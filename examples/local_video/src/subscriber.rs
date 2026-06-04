@@ -778,7 +778,7 @@ fn video_status_line(
 ) -> String {
     let codec = codec_with_implementation(codec, codec_implementation);
     let bitrate =
-        bitrate_mbps.map(|mbps| format!(" {:.1} mbps", mbps.max(0.0))).unwrap_or_default();
+        bitrate_mbps.map(|mbps| format!(" {:.1}mbps", mbps.max(0.0))).unwrap_or_default();
     if simulcast {
         format!("{}x{} {:.1}fps {codec}{bitrate} Simulcast", width, height, fps.max(0.0))
     } else {
