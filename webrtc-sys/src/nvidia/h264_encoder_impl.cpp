@@ -1,10 +1,10 @@
 #include "h264_encoder_impl.h"
 
-
 #include <algorithm>
 #include <limits>
 #include <string>
 
+#include "i420_buffer_cuda.h"
 #include "absl/strings/match.h"
 #include "absl/types/optional.h"
 #include "api/video/video_codec_constants.h"
@@ -326,12 +326,8 @@ int32_t NvidiaH264EncoderImpl::Encode(
     const NvEncInputFrame* nv_enc_input_frame = encoder_->GetNextInputFrame();
 
     if (cu_memory_type_ == CU_MEMORYTYPE_DEVICE) {
-      NvEncoderCuda::CopyToDeviceFrame(
-          cu_context_, (void*)frame_buffer->DataY(), frame_buffer->StrideY(),
-          reinterpret_cast<CUdeviceptr>(nv_enc_input_frame->inputPtr),
-          nv_enc_input_frame->pitch, input_frame.width(), input_frame.height(),
-          CU_MEMORYTYPE_HOST, nv_enc_input_frame->bufferFormat,
-          nv_enc_input_frame->chromaOffsets, nv_enc_input_frame->numChromaPlanes);
+      CopyI420BufferToDeviceFrame(cu_context_, *frame_buffer,
+                                  *nv_enc_input_frame);
     }
 
     NV_ENC_PIC_PARAMS pic_params = NV_ENC_PIC_PARAMS();
