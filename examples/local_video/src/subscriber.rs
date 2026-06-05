@@ -380,7 +380,10 @@ mod linux_nvidia_native_video {
     use eframe::wgpu;
     use livekit::webrtc::video_frame::native::NvidiaCudaNv12Buffer;
 
+    const TEXTURE_RING_LEN: usize = 3;
+
     pub(crate) struct ImportedNativeFrame {
+        pub(crate) slot_index: usize,
         pub(crate) y_tex: wgpu::Texture,
         pub(crate) uv_tex: wgpu::Texture,
         pub(crate) y_view: wgpu::TextureView,
@@ -394,10 +397,15 @@ mod linux_nvidia_native_video {
         _device: ash::Device,
         _physical_device: vk::PhysicalDevice,
         external_memory_fd: khr::external_memory_fd::Device,
-        y: ExternalPlane,
-        uv: ExternalPlane,
+        frames: Vec<ExternalFrame>,
+        next_frame: usize,
         full_size: (u32, u32),
         uv_size: (u32, u32),
+    }
+
+    struct ExternalFrame {
+        y: ExternalPlane,
+        uv: ExternalPlane,
     }
 
     struct ExternalPlane {
@@ -422,16 +430,15 @@ mod linux_nvidia_native_video {
             }
 
             let importer = importer
-                .as_ref()
+                .as_mut()
                 .ok_or_else(|| anyhow!("NVIDIA CUDA/Vulkan importer was not initialized"))?;
-            importer.copy_frame(info)?;
-            Ok(Some(importer.imported_frame()))
+            importer.copy_frame(info).map(Some)
         }
 
         fn new(device: &wgpu::Device, full_size: (u32, u32), uv_size: (u32, u32)) -> Result<Self> {
             // SAFETY: This borrows wgpu's Vulkan HAL device only long enough to
             // clone the raw Vulkan handles and create compatible external images.
-            let (instance, raw_device, physical_device, external_memory_fd, y, uv) = unsafe {
+            let (instance, raw_device, physical_device, external_memory_fd, frames) = unsafe {
                 let hal_device = device
                     .as_hal::<wgpu::hal::api::Vulkan>()
                     .ok_or_else(|| anyhow!("wgpu is not using the Vulkan backend"))?;
@@ -440,31 +447,35 @@ mod linux_nvidia_native_video {
                 let physical_device = hal_device.raw_physical_device();
                 let external_memory_fd =
                     khr::external_memory_fd::Device::new(&instance, &raw_device);
-                let y = create_external_plane(
-                    device,
-                    &hal_device,
-                    &instance,
-                    &raw_device,
-                    physical_device,
-                    full_size.0,
-                    full_size.1,
-                    wgpu::TextureFormat::R8Unorm,
-                    vk::Format::R8_UNORM,
-                    "nvidia_cuda_y_plane",
-                )?;
-                let uv = create_external_plane(
-                    device,
-                    &hal_device,
-                    &instance,
-                    &raw_device,
-                    physical_device,
-                    uv_size.0,
-                    uv_size.1,
-                    wgpu::TextureFormat::Rg8Unorm,
-                    vk::Format::R8G8_UNORM,
-                    "nvidia_cuda_uv_plane",
-                )?;
-                (instance, raw_device, physical_device, external_memory_fd, y, uv)
+                let mut frames = Vec::with_capacity(TEXTURE_RING_LEN);
+                for _ in 0..TEXTURE_RING_LEN {
+                    let y = create_external_plane(
+                        device,
+                        &hal_device,
+                        &instance,
+                        &raw_device,
+                        physical_device,
+                        full_size.0,
+                        full_size.1,
+                        wgpu::TextureFormat::R8Unorm,
+                        vk::Format::R8_UNORM,
+                        "nvidia_cuda_y_plane",
+                    )?;
+                    let uv = create_external_plane(
+                        device,
+                        &hal_device,
+                        &instance,
+                        &raw_device,
+                        physical_device,
+                        uv_size.0,
+                        uv_size.1,
+                        wgpu::TextureFormat::Rg8Unorm,
+                        vk::Format::R8G8_UNORM,
+                        "nvidia_cuda_uv_plane",
+                    )?;
+                    frames.push(ExternalFrame { y, uv });
+                }
+                (instance, raw_device, physical_device, external_memory_fd, frames)
             };
 
             Ok(Self {
@@ -472,14 +483,14 @@ mod linux_nvidia_native_video {
                 _device: raw_device,
                 _physical_device: physical_device,
                 external_memory_fd,
-                y,
-                uv,
+                frames,
+                next_frame: 0,
                 full_size,
                 uv_size,
             })
         }
 
-        fn copy_frame(&self, info: NvidiaCudaNv12Buffer) -> Result<()> {
+        fn copy_frame(&mut self, info: NvidiaCudaNv12Buffer) -> Result<ImportedNativeFrame> {
             if info.width != self.full_size.0 || info.height != self.full_size.1 {
                 return Err(anyhow!(
                     "NVIDIA frame size changed from {}x{} to {}x{}",
@@ -490,8 +501,10 @@ mod linux_nvidia_native_video {
                 ));
             }
 
-            let y_fd = self.export_fd(self.y.memory).context("exporting Y plane memory fd")?;
-            let uv_fd = self.export_fd(self.uv.memory).context("exporting UV plane memory fd")?;
+            let frame_index = self.next_frame;
+            let frame = &self.frames[frame_index];
+            let y_fd = self.export_fd(frame.y.memory).context("exporting Y plane memory fd")?;
+            let uv_fd = self.export_fd(frame.uv.memory).context("exporting UV plane memory fd")?;
             let copied =
                 webrtc_sys::video_frame_buffer::ffi::copy_nvidia_cuda_nv12_to_external_images(
                     info.cuda_context,
@@ -500,14 +513,15 @@ mod linux_nvidia_native_video {
                     info.width,
                     info.height,
                     y_fd,
-                    self.y.allocation_size,
+                    frame.y.allocation_size,
                     uv_fd,
-                    self.uv.allocation_size,
+                    frame.uv.allocation_size,
                 );
             if !copied {
                 return Err(anyhow!("CUDA copy into Vulkan external images failed"));
             }
-            Ok(())
+            self.next_frame = (self.next_frame + 1) % self.frames.len();
+            Ok(self.imported_frame(frame_index))
         }
 
         fn export_fd(&self, memory: vk::DeviceMemory) -> Result<i32> {
@@ -520,12 +534,14 @@ mod linux_nvidia_native_video {
             Ok(fd)
         }
 
-        fn imported_frame(&self) -> ImportedNativeFrame {
+        fn imported_frame(&self, frame_index: usize) -> ImportedNativeFrame {
+            let frame = &self.frames[frame_index];
             ImportedNativeFrame {
-                y_tex: self.y.texture.clone(),
-                uv_tex: self.uv.texture.clone(),
-                y_view: self.y.view.clone(),
-                uv_view: self.uv.view.clone(),
+                slot_index: frame_index,
+                y_tex: frame.y.texture.clone(),
+                uv_tex: frame.uv.texture.clone(),
+                y_view: frame.y.view.clone(),
+                uv_view: frame.uv.view.clone(),
                 full_size: self.full_size,
                 uv_size: self.uv_size,
             }
@@ -1702,7 +1718,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         }
     });
 
-    let viewport = AspectConstrainedViewport::new(None);
+    let viewport = AspectConstrainedViewport::new(None).without_first_video_fit();
     // Start UI
     let app = VideoApp {
         shared,
@@ -1768,6 +1784,8 @@ struct YuvGpuState {
     #[cfg(target_os = "linux")]
     nvidia_native_disabled: bool,
     #[cfg(target_os = "linux")]
+    nvidia_bind_groups: Vec<Option<wgpu::BindGroup>>,
+    #[cfg(target_os = "linux")]
     nvidia_import_logged: bool,
     #[cfg(target_os = "linux")]
     nvidia_import_failed_logged: bool,
@@ -1811,7 +1829,25 @@ impl YuvGpuState {
     }
 
     fn recreate_bind_group(&mut self, device: &wgpu::Device) {
-        self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.bind_group = self.create_current_bind_group(device);
+    }
+
+    #[cfg(target_os = "linux")]
+    fn bind_nvidia_slot(&mut self, device: &wgpu::Device, slot_index: usize) {
+        if self.nvidia_bind_groups.len() <= slot_index {
+            self.nvidia_bind_groups.resize_with(slot_index + 1, || None);
+        }
+        if self.nvidia_bind_groups[slot_index].is_none() {
+            self.nvidia_bind_groups[slot_index] = Some(self.create_current_bind_group(device));
+        }
+        self.bind_group = self.nvidia_bind_groups[slot_index]
+            .as_ref()
+            .expect("NVIDIA bind group should exist")
+            .clone();
+    }
+
+    fn create_current_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("yuv_bind_group"),
             layout: &self.bind_layout,
             entries: &[
@@ -1833,7 +1869,7 @@ impl YuvGpuState {
                 },
                 wgpu::BindGroupEntry { binding: 4, resource: self.params_buf.as_entire_binding() },
             ],
-        });
+        })
     }
 
     fn update_params(&mut self, queue: &wgpu::Queue, params: ParamsUniform) {
@@ -2070,6 +2106,8 @@ impl CallbackTrait for YuvPaintCallback {
                 )
                 .is_ok_and(|value| value == "1"),
                 #[cfg(target_os = "linux")]
+                nvidia_bind_groups: Vec::new(),
+                #[cfg(target_os = "linux")]
                 nvidia_import_logged: false,
                 #[cfg(target_os = "linux")]
                 nvidia_import_failed_logged: false,
@@ -2198,19 +2236,21 @@ impl CallbackTrait for YuvPaintCallback {
                     Ok(Some(imported)) => {
                         let full_size = imported.full_size;
                         let uv_size = imported.uv_size;
-                        if state.dims != full_size || state.yuv_layout != 1 {
-                            state.y_tex = imported.y_tex;
-                            state.u_tex = imported.uv_tex.clone();
-                            state.v_tex = imported.uv_tex;
-                            state.y_view = imported.y_view;
-                            state.u_view = imported.uv_view.clone();
-                            state.v_view = imported.uv_view;
-                            state.y_tex_w = full_size.0;
-                            state.uv_tex_w = uv_size.0;
-                            state.dims = full_size;
-                            state.yuv_layout = 1;
-                            state.recreate_bind_group(device);
+                        let reset_bind_groups = state.dims != full_size || state.yuv_layout != 1;
+                        state.y_tex = imported.y_tex;
+                        state.u_tex = imported.uv_tex.clone();
+                        state.v_tex = imported.uv_tex;
+                        state.y_view = imported.y_view;
+                        state.u_view = imported.uv_view.clone();
+                        state.v_view = imported.uv_view;
+                        state.y_tex_w = full_size.0;
+                        state.uv_tex_w = uv_size.0;
+                        state.dims = full_size;
+                        state.yuv_layout = 1;
+                        if reset_bind_groups {
+                            state.nvidia_bind_groups.clear();
                         }
+                        state.bind_nvidia_slot(device, imported.slot_index);
                         if !state.nvidia_import_logged {
                             info!("Using NVIDIA CUDA/Vulkan GPU render path (no CPU frame upload)");
                             state.nvidia_import_logged = true;
@@ -2255,6 +2295,10 @@ impl CallbackTrait for YuvPaintCallback {
             #[cfg(target_os = "macos")]
             {
                 state.native_resources = None;
+            }
+            #[cfg(target_os = "linux")]
+            {
+                state.nvidia_bind_groups.clear();
             }
             if !state.cpu_upload_logged {
                 info!("Using CPU I420 upload render path");

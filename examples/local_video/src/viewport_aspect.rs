@@ -21,6 +21,12 @@ impl AspectConstrainedViewport {
         Self { aspect, fit_window_to_first_video_size: aspect.is_none() }
     }
 
+    /// Returns viewport aspect state that keeps the startup window size for the first video frame.
+    pub(crate) fn without_first_video_fit(mut self) -> Self {
+        self.fit_window_to_first_video_size = false;
+        self
+    }
+
     /// Returns the active video aspect ratio when it is known.
     pub(crate) fn aspect(&self) -> Option<f32> {
         self.aspect
@@ -135,6 +141,14 @@ mod tests {
     #[test]
     fn fitted_video_size_uses_available_size_without_aspect() {
         assert_eq!(fitted_video_size(egui::vec2(800.0, 600.0), None), egui::vec2(800.0, 600.0));
+    }
+
+    #[test]
+    fn without_first_video_fit_does_not_request_initial_resize() {
+        let viewport = AspectConstrainedViewport::new(None).without_first_video_fit();
+
+        assert!(!viewport.fit_window_to_first_video_size);
+        assert_eq!(viewport.aspect(), None);
     }
 
     #[test]
