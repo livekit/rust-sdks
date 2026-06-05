@@ -25,6 +25,7 @@ pub mod ffi {
 
         type MediaType = crate::webrtc::ffi::MediaType;
         type VideoEncoderBackend = crate::webrtc::ffi::VideoEncoderBackend;
+        type DegradationPreference = crate::rtp_parameters::ffi::DegradationPreference;
         type RtpEncodingParameters = crate::rtp_parameters::ffi::RtpEncodingParameters;
         type RtpParameters = crate::rtp_parameters::ffi::RtpParameters;
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
@@ -50,6 +51,10 @@ pub mod ffi {
         fn init_send_encodings(self: &RtpSender) -> Vec<RtpEncodingParameters>;
         fn get_parameters(self: &RtpSender) -> RtpParameters;
         fn set_parameters(self: &RtpSender, parameters: RtpParameters) -> Result<()>;
+        fn set_degradation_preference(
+            self: &RtpSender,
+            preference: DegradationPreference,
+        ) -> Result<()>;
         fn set_video_encoder_backend(self: &RtpSender, backend: VideoEncoderBackend);
 
         fn _shared_rtp_sender() -> SharedPtr<RtpSender>;

@@ -22,6 +22,19 @@ pub enum Priority {
     High,
 }
 
+/// Preferred tradeoff when WebRTC adapts video under bandwidth or CPU pressure.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DegradationPreference {
+    /// Disable video adaptation.
+    Disabled,
+    /// Prefer reducing resolution before reducing framerate.
+    MaintainFramerate,
+    /// Prefer reducing framerate before reducing resolution.
+    MaintainResolution,
+    /// Let WebRTC balance resolution and framerate reductions.
+    Balanced,
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtensionParameters {
     pub uri: String,

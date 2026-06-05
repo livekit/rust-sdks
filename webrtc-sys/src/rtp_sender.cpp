@@ -192,6 +192,21 @@ void RtpSender::set_parameters(RtpParameters params) const {
     throw std::runtime_error(serialize_error(to_error(error)));
 }
 
+void RtpSender::set_degradation_preference(
+    DegradationPreference preference) const {
+  if (sender_->media_type() != webrtc::MediaType::VIDEO) {
+    throw std::runtime_error(
+        "degradation preference can only be set on video senders");
+  }
+
+  auto parameters = sender_->GetParameters();
+  parameters.degradation_preference =
+      static_cast<webrtc::DegradationPreference>(preference);
+  auto error = sender_->SetParameters(parameters);
+  if (!error.ok())
+    throw std::runtime_error(serialize_error(to_error(error)));
+}
+
 void RtpSender::set_video_encoder_backend(VideoEncoderBackend backend) const {
   if (sender_->media_type() != webrtc::MediaType::VIDEO) {
     RTC_LOG(LS_WARNING)

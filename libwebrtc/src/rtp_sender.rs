@@ -15,8 +15,11 @@
 use std::fmt::Debug;
 
 use crate::{
-    imp::rtp_sender as imp_rs, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
-    stats::RtcStats, RtcError,
+    imp::rtp_sender as imp_rs,
+    media_stream_track::MediaStreamTrack,
+    rtp_parameters::{DegradationPreference, RtpParameters},
+    stats::RtcStats,
+    RtcError,
 };
 
 /// Preferred backend for video encoding on an [`RtpSender`].
@@ -80,6 +83,14 @@ impl RtpSender {
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         self.handle.set_parameters(parameters)
+    }
+
+    /// Sets how WebRTC trades video resolution against framerate when adapting this sender.
+    pub fn set_degradation_preference(
+        &self,
+        preference: DegradationPreference,
+    ) -> Result<(), RtcError> {
+        self.handle.set_degradation_preference(preference)
     }
 
     /// Sets the preferred video encoder backend for this sender.

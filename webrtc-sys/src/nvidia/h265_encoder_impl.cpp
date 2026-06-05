@@ -353,16 +353,49 @@ void NvidiaH265EncoderImpl::SetRates(
     return;
   }
 
-  codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
-  codec_.maxBitrate = parameters.bitrate.GetSpatialLayerSum(0);
+  const uint32_t target_bps = parameters.bitrate.GetSpatialLayerSum(0);
+  const uint32_t frame_rate =
+      static_cast<uint32_t>(parameters.framerate_fps);
+  const bool needs_reconfigure =
+      nv_encode_config_.rcParams.averageBitRate != target_bps ||
+      nv_initialize_params_.frameRateNum != frame_rate ||
+      nv_initialize_params_.frameRateDen != 1;
 
-  configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
+  codec_.maxFramerate = frame_rate;
+  codec_.maxBitrate = (target_bps + 999) / 1000;
+
+  configuration_.target_bps = target_bps;
+  configuration_.max_bps = target_bps;
   configuration_.max_frame_rate = parameters.framerate_fps;
 
   if (configuration_.target_bps) {
     configuration_.SetStreamState(true);
   } else {
     configuration_.SetStreamState(false);
+  }
+
+  nv_initialize_params_.frameRateNum = frame_rate;
+  nv_initialize_params_.frameRateDen = 1;
+  nv_encode_config_.rcParams.averageBitRate = configuration_.target_bps;
+  const uint64_t vbv_buffer_size =
+      (static_cast<uint64_t>(nv_encode_config_.rcParams.averageBitRate) *
+       nv_initialize_params_.frameRateDen / nv_initialize_params_.frameRateNum) *
+      5;
+  nv_encode_config_.rcParams.vbvBufferSize = static_cast<uint32_t>(
+      std::min<uint64_t>(vbv_buffer_size, std::numeric_limits<uint32_t>::max()));
+  nv_encode_config_.rcParams.vbvInitialDelay =
+      nv_encode_config_.rcParams.vbvBufferSize;
+
+  if (needs_reconfigure) {
+    NV_ENC_RECONFIGURE_PARAMS reconfigure_params = {};
+    reconfigure_params.version = NV_ENC_RECONFIGURE_PARAMS_VER;
+    reconfigure_params.reInitEncodeParams = nv_initialize_params_;
+    reconfigure_params.reInitEncodeParams.encodeConfig = &nv_encode_config_;
+    try {
+      encoder_->Reconfigure(&reconfigure_params);
+    } catch (const NVENCException& e) {
+      RTC_LOG(LS_ERROR) << "Failed Reconfigure NvEncoder " << e.what();
+    }
   }
 }
 
@@ -374,4 +407,3 @@ void NvidiaH265EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
 }
 
 }  // namespace webrtc
-

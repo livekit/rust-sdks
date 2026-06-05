@@ -28,6 +28,18 @@ impl From<sys_webrtc::ffi::Priority> for Priority {
     }
 }
 
+impl From<sys_rp::ffi::DegradationPreference> for DegradationPreference {
+    fn from(value: sys_rp::ffi::DegradationPreference) -> Self {
+        match value {
+            sys_rp::ffi::DegradationPreference::Disabled => Self::Disabled,
+            sys_rp::ffi::DegradationPreference::MaintainFramerate => Self::MaintainFramerate,
+            sys_rp::ffi::DegradationPreference::MaintainResolution => Self::MaintainResolution,
+            sys_rp::ffi::DegradationPreference::Balanced => Self::Balanced,
+            _ => panic!("unknown DegradationPreference"),
+        }
+    }
+}
+
 impl From<sys_rp::ffi::RtpExtension> for RtpHeaderExtensionParameters {
     fn from(value: sys_rp::ffi::RtpExtension) -> Self {
         Self { uri: value.uri, id: value.id, encrypted: value.encrypt }
@@ -128,6 +140,17 @@ impl From<Priority> for sys_webrtc::ffi::Priority {
             Priority::Low => Self::Low,
             Priority::Medium => Self::Medium,
             Priority::High => Self::High,
+        }
+    }
+}
+
+impl From<DegradationPreference> for sys_rp::ffi::DegradationPreference {
+    fn from(value: DegradationPreference) -> Self {
+        match value {
+            DegradationPreference::Disabled => Self::Disabled,
+            DegradationPreference::MaintainFramerate => Self::MaintainFramerate,
+            DegradationPreference::MaintainResolution => Self::MaintainResolution,
+            DegradationPreference::Balanced => Self::Balanced,
         }
     }
 }
@@ -259,5 +282,30 @@ impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
             preferred_payload_type: 0,
             rtcp_feedback: Vec::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn degradation_preference_maps_to_sys_values() {
+        assert!(matches!(
+            sys_rp::ffi::DegradationPreference::from(DegradationPreference::Disabled),
+            sys_rp::ffi::DegradationPreference::Disabled
+        ));
+        assert!(matches!(
+            sys_rp::ffi::DegradationPreference::from(DegradationPreference::MaintainFramerate),
+            sys_rp::ffi::DegradationPreference::MaintainFramerate
+        ));
+        assert!(matches!(
+            sys_rp::ffi::DegradationPreference::from(DegradationPreference::MaintainResolution),
+            sys_rp::ffi::DegradationPreference::MaintainResolution
+        ));
+        assert!(matches!(
+            sys_rp::ffi::DegradationPreference::from(DegradationPreference::Balanced),
+            sys_rp::ffi::DegradationPreference::Balanced
+        ));
     }
 }

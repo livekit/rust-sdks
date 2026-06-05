@@ -24,6 +24,7 @@ use libwebrtc::{
         self, PacketTrailerHandler, PublishTimingObserver as RtcPublishTimingObserver,
     },
     prelude::*,
+    rtp_parameters::DegradationPreference,
     stats::RtcStats,
 };
 use livekit_protocol as proto;
@@ -245,6 +246,15 @@ impl LocalVideoTrack {
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
         super::local_track::get_stats(&self.inner).await
+    }
+
+    /// Sets how WebRTC trades resolution against framerate when adapting this video track.
+    pub fn set_degradation_preference(&self, preference: DegradationPreference) -> RoomResult<()> {
+        let transceiver = self
+            .transceiver()
+            .ok_or_else(|| RoomError::Internal("no transceiver found for track".into()))?;
+        transceiver.sender().set_degradation_preference(preference)?;
+        Ok(())
     }
 
     pub(crate) fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {

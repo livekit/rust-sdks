@@ -9,6 +9,7 @@ use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
+use livekit::webrtc::{rtp_parameters::DegradationPreference, stats::QualityLimitationReason};
 use livekit_api::access_token;
 use livekit_api::services::room::{CreateRoomOptions, RoomClient};
 use livekit_api::services::{ServiceError, TwirpError, TwirpErrorCode};
@@ -329,21 +330,44 @@ struct PublisherTimingSummary {
     capture_to_webrtc_total_ms: RollingMs,
 }
 
-fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Option<&str> {
+#[derive(Clone, Debug)]
+struct PublisherOutboundVideoSnapshot {
+    implementation: String,
+    width: u32,
+    height: u32,
+    frames_per_second: f64,
+    target_bitrate: f64,
+    quality_limitation_reason: QualityLimitationReason,
+    quality_limitation_resolution_changes: u32,
+}
+
+fn find_video_outbound_snapshot(
+    stats: &[livekit::webrtc::stats::RtcStats],
+) -> Option<PublisherOutboundVideoSnapshot> {
     let mut fallback = None;
     for stat in stats {
         let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
             continue;
         };
-        if outbound.stream.kind != "video" || outbound.outbound.encoder_implementation.is_empty() {
+        if outbound.stream.kind != "video" {
             continue;
         }
 
-        let implementation = outbound.outbound.encoder_implementation.as_str();
+        let snapshot = PublisherOutboundVideoSnapshot {
+            implementation: outbound.outbound.encoder_implementation.clone(),
+            width: outbound.outbound.frame_width,
+            height: outbound.outbound.frame_height,
+            frames_per_second: outbound.outbound.frames_per_second,
+            target_bitrate: outbound.outbound.target_bitrate,
+            quality_limitation_reason: outbound.outbound.quality_limitation_reason,
+            quality_limitation_resolution_changes: outbound
+                .outbound
+                .quality_limitation_resolution_changes,
+        };
         if outbound.outbound.active {
-            return Some(implementation);
+            return Some(snapshot);
         }
-        fallback.get_or_insert(implementation);
+        fallback.get_or_insert(snapshot);
     }
 
     fallback
@@ -366,14 +390,32 @@ async fn update_publisher_encoder_overlay(
 
         match track.get_stats().await {
             Ok(stats) => {
-                if let Some(implementation) = find_video_outbound_encoder(&stats) {
-                    if implementation != last_implementation {
-                        info!("Publisher video encoder implementation: {implementation}");
-                        last_implementation = implementation.to_string();
+                if let Some(snapshot) = find_video_outbound_snapshot(&stats) {
+                    info!(
+                        "Publisher outbound video: {}x{} ~{:.1} fps, target_bitrate={:.0} bps, encoder={}, quality_limitation={:?}, resolution_changes={}",
+                        snapshot.width,
+                        snapshot.height,
+                        snapshot.frames_per_second,
+                        snapshot.target_bitrate,
+                        snapshot.implementation,
+                        snapshot.quality_limitation_reason,
+                        snapshot.quality_limitation_resolution_changes,
+                    );
+
+                    if !snapshot.implementation.is_empty()
+                        && snapshot.implementation != last_implementation
+                    {
+                        info!(
+                            "Publisher video encoder implementation: {}",
+                            snapshot.implementation
+                        );
+                        last_implementation = snapshot.implementation.clone();
                     }
 
-                    let mut shared = shared.lock();
-                    shared.codec_implementation = implementation.to_string();
+                    if !snapshot.implementation.is_empty() {
+                        let mut shared = shared.lock();
+                        shared.codec_implementation = snapshot.implementation;
+                    }
                 }
                 logged_initial = true;
             }
@@ -970,6 +1012,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         info!("Published camera track");
         requested_codec
     };
+    track.set_degradation_preference(DegradationPreference::MaintainResolution)?;
+    info!("Publisher degradation preference: maintain resolution");
 
     let capture_config = CaptureConfig {
         fps: args.fps,
