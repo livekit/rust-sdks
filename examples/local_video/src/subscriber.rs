@@ -411,7 +411,6 @@ mod linux_nvidia_native_video {
         pub(crate) fn prepare(
             importer: &mut Option<Self>,
             device: &wgpu::Device,
-            encoder: &mut wgpu::CommandEncoder,
             info: NvidiaCudaNv12Buffer,
         ) -> Result<Option<ImportedNativeFrame>> {
             let full_size = (info.width, info.height);
@@ -419,10 +418,7 @@ mod linux_nvidia_native_video {
             let needs_recreate =
                 importer.as_ref().map(|i| i.full_size != full_size).unwrap_or(true);
             if needs_recreate {
-                let new_importer = Self::new(device, full_size, uv_size)?;
-                new_importer.clear(encoder);
-                *importer = Some(new_importer);
-                return Ok(None);
+                *importer = Some(Self::new(device, full_size, uv_size)?);
             }
 
             let importer = importer
@@ -481,18 +477,6 @@ mod linux_nvidia_native_video {
                 full_size,
                 uv_size,
             })
-        }
-
-        fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
-            let range = wgpu::ImageSubresourceRange {
-                aspect: wgpu::TextureAspect::All,
-                base_mip_level: 0,
-                mip_level_count: Some(1),
-                base_array_layer: 0,
-                array_layer_count: Some(1),
-            };
-            encoder.clear_texture(&self.y.texture, &range);
-            encoder.clear_texture(&self.uv.texture, &range);
         }
 
         fn copy_frame(&self, info: NvidiaCudaNv12Buffer) -> Result<()> {
@@ -1880,8 +1864,7 @@ impl CallbackTrait for YuvPaintCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen_desc: &egui_wgpu_backend::ScreenDescriptor,
-        #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-        encoder: &mut wgpu::CommandEncoder,
+        _encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu_backend::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let Some(dims) = self.video_size.load() else {
@@ -2210,7 +2193,6 @@ impl CallbackTrait for YuvPaintCallback {
                 match linux_nvidia_native_video::NvidiaCudaVulkanImporter::prepare(
                     &mut state.nvidia_importer,
                     device,
-                    encoder,
                     info,
                 ) {
                     Ok(Some(imported)) => {

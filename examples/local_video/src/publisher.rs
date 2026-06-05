@@ -541,6 +541,11 @@ fn update_shared_timing_sample(
     }
 }
 
+fn is_interrupted_camera_read_error(error: &impl std::fmt::Display) -> bool {
+    let text = error.to_string().to_ascii_lowercase();
+    text.contains("interrupted system call") || text.contains("os error 4")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,6 +650,15 @@ mod tests {
         );
 
         assert_eq!(selected, 950);
+    }
+
+    #[test]
+    fn interrupted_camera_read_error_matches_linux_eintr_text() {
+        assert!(is_interrupted_camera_read_error(
+            &"Could not capture frame: Interrupted system call (os error 4)",
+        ));
+        assert!(is_interrupted_camera_read_error(&"interrupted system call"));
+        assert!(!is_interrupted_camera_read_error(&"Could not capture frame: No such device"));
     }
 }
 
@@ -1123,7 +1137,17 @@ async fn run_capture_loop(
             VideoInput::Camera { camera, is_yuyv } => {
                 // Capture the frame as early as possible so the attached timestamp is
                 // close to the camera acquisition point.
-                let frame_buf = camera.frame()?;
+                let frame_buf = match camera.frame() {
+                    Ok(frame_buf) => frame_buf,
+                    Err(error)
+                        if ctrl_c_received.load(Ordering::Acquire)
+                            && is_interrupted_camera_read_error(&error) =>
+                    {
+                        info!("Camera frame read interrupted during shutdown");
+                        break;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
                 let read_wall_time_us = unix_time_us_now();
                 let camera_frame_acquired_at = Instant::now();
 
