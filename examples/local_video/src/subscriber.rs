@@ -28,7 +28,7 @@ mod subscriber_timing;
 mod viewport_aspect;
 
 use codec_display::{codec_from_mime, codec_with_implementation};
-use subscriber_timing::SubscriberTimingHandle;
+use subscriber_timing::{RenderFrameDiagnostics, RenderFramePath, SubscriberTimingHandle};
 use viewport_aspect::AspectConstrainedViewport;
 
 #[cfg(target_os = "macos")]
@@ -774,12 +774,83 @@ struct PendingPaintSample {
     frame_id: Option<u32>,
     capture_timestamp_us: u64,
     prepare_timestamp_us: u64,
+    diagnostics: RenderFrameDiagnostics,
+}
+
+struct RenderFrameWork {
+    frame: BoxVideoFrame,
+    sample: Option<PendingPaintSample>,
+    prepare_start: Instant,
+    diagnostics: RenderFrameDiagnostics,
+}
+
+impl RenderFrameWork {
+    fn new(frame: BoxVideoFrame) -> Self {
+        let prepare_start = Instant::now();
+        let prepare_timestamp_us = current_timestamp_us();
+        let frame_id = frame.frame_metadata.and_then(|m| m.frame_id);
+        let sample = frame.frame_metadata.and_then(|metadata| {
+            metadata.user_timestamp.map(|capture_timestamp_us| PendingPaintSample {
+                frame_id,
+                capture_timestamp_us,
+                prepare_timestamp_us,
+                diagnostics: RenderFrameDiagnostics::default(),
+            })
+        });
+
+        Self { frame, sample, prepare_start, diagnostics: RenderFrameDiagnostics::default() }
+    }
+
+    fn finish(mut self) -> Option<PendingPaintSample> {
+        self.diagnostics.prepare_total_us = elapsed_us(self.prepare_start);
+        self.sample.map(|mut sample| {
+            sample.diagnostics = self.diagnostics;
+            sample
+        })
+    }
+
+    #[cfg(target_os = "macos")]
+    fn into_parts(
+        self,
+    ) -> (BoxVideoFrame, Option<PendingPaintSample>, Instant, RenderFrameDiagnostics) {
+        (self.frame, self.sample, self.prepare_start, self.diagnostics)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn finish_pending_paint_sample(
+    sample: Option<PendingPaintSample>,
+    prepare_start: Instant,
+    mut diagnostics: RenderFrameDiagnostics,
+) -> Option<PendingPaintSample> {
+    diagnostics.prepare_total_us = elapsed_us(prepare_start);
+    sample.map(|mut sample| {
+        sample.diagnostics = diagnostics;
+        sample
+    })
+}
+
+fn store_pending_paint_sample(slot: &PendingPaintSampleSlot, sample: Option<PendingPaintSample>) {
+    match sample {
+        Some(sample) => slot.store(sample),
+        None => slot.clear(),
+    }
 }
 
 struct PendingPaintSampleSlot {
     capture_timestamp_us: AtomicU64,
     prepare_timestamp_us: AtomicU64,
     frame_id: AtomicU32,
+    render_path: AtomicU32,
+    prepare_total_us: AtomicU64,
+    native_probe_us: AtomicU64,
+    native_import_us: AtomicU64,
+    native_bind_us: AtomicU64,
+    params_update_us: AtomicU64,
+    cpu_convert_us: AtomicU64,
+    cpu_upload_us: AtomicU64,
+    cpu_write_texture_count: AtomicU32,
+    used_to_i420: AtomicBool,
 }
 
 impl PendingPaintSampleSlot {
@@ -791,13 +862,34 @@ impl PendingPaintSampleSlot {
             capture_timestamp_us: AtomicU64::new(Self::NO_SAMPLE),
             prepare_timestamp_us: AtomicU64::new(0),
             frame_id: AtomicU32::new(Self::NO_FRAME_ID),
+            render_path: AtomicU32::new(RenderFramePath::Unknown.as_u32()),
+            prepare_total_us: AtomicU64::new(0),
+            native_probe_us: AtomicU64::new(0),
+            native_import_us: AtomicU64::new(0),
+            native_bind_us: AtomicU64::new(0),
+            params_update_us: AtomicU64::new(0),
+            cpu_convert_us: AtomicU64::new(0),
+            cpu_upload_us: AtomicU64::new(0),
+            cpu_write_texture_count: AtomicU32::new(0),
+            used_to_i420: AtomicBool::new(false),
         }
     }
 
     fn store(&self, sample: PendingPaintSample) {
         let frame_id = sample.frame_id.unwrap_or(Self::NO_FRAME_ID);
+        let diagnostics = sample.diagnostics;
         self.frame_id.store(frame_id, Ordering::Relaxed);
         self.prepare_timestamp_us.store(sample.prepare_timestamp_us, Ordering::Relaxed);
+        self.render_path.store(diagnostics.path.as_u32(), Ordering::Relaxed);
+        self.prepare_total_us.store(diagnostics.prepare_total_us, Ordering::Relaxed);
+        self.native_probe_us.store(diagnostics.native_probe_us, Ordering::Relaxed);
+        self.native_import_us.store(diagnostics.native_import_us, Ordering::Relaxed);
+        self.native_bind_us.store(diagnostics.native_bind_us, Ordering::Relaxed);
+        self.params_update_us.store(diagnostics.params_update_us, Ordering::Relaxed);
+        self.cpu_convert_us.store(diagnostics.cpu_convert_us, Ordering::Relaxed);
+        self.cpu_upload_us.store(diagnostics.cpu_upload_us, Ordering::Relaxed);
+        self.cpu_write_texture_count.store(diagnostics.cpu_write_texture_count, Ordering::Relaxed);
+        self.used_to_i420.store(diagnostics.used_to_i420, Ordering::Relaxed);
         self.capture_timestamp_us.store(sample.capture_timestamp_us, Ordering::Release);
     }
 
@@ -820,6 +912,18 @@ impl PendingPaintSampleSlot {
             frame_id,
             capture_timestamp_us,
             prepare_timestamp_us: self.prepare_timestamp_us.load(Ordering::Relaxed),
+            diagnostics: RenderFrameDiagnostics {
+                path: RenderFramePath::from_u32(self.render_path.load(Ordering::Relaxed)),
+                prepare_total_us: self.prepare_total_us.load(Ordering::Relaxed),
+                native_probe_us: self.native_probe_us.load(Ordering::Relaxed),
+                native_import_us: self.native_import_us.load(Ordering::Relaxed),
+                native_bind_us: self.native_bind_us.load(Ordering::Relaxed),
+                params_update_us: self.params_update_us.load(Ordering::Relaxed),
+                cpu_convert_us: self.cpu_convert_us.load(Ordering::Relaxed),
+                cpu_upload_us: self.cpu_upload_us.load(Ordering::Relaxed),
+                cpu_write_texture_count: self.cpu_write_texture_count.load(Ordering::Relaxed),
+                used_to_i420: self.used_to_i420.load(Ordering::Relaxed),
+            },
         })
     }
 }
@@ -889,6 +993,16 @@ struct ReceiveBitrateSnapshot {
     at: Instant,
 }
 
+#[derive(Clone, Copy)]
+struct DecodeStatsSnapshot {
+    frames_decoded: u32,
+    frames_received: u64,
+    frames_dropped: u32,
+    packets_discarded: u64,
+    total_decode_time_secs: f64,
+    total_processing_delay_secs: f64,
+}
+
 fn seconds_to_ms(seconds: f64) -> f64 {
     seconds * 1_000.0
 }
@@ -905,6 +1019,10 @@ fn window_average_delay_ms(
     let delay_delta = current_total_delay_secs - previous_total_delay_secs;
     (emitted_delta > 0 && delay_delta >= 0.0)
         .then(|| seconds_to_ms(delay_delta / emitted_delta as f64))
+}
+
+fn format_optional_ms(value: Option<f64>) -> String {
+    value.map_or_else(|| "NA".to_string(), |value| format!("{value:.1}ms"))
 }
 
 fn log_video_jitter_buffer_stats(
@@ -950,6 +1068,74 @@ fn log_video_jitter_buffer_stats(
             current.emitted_count,
         ),
     }
+
+    *previous = Some(current);
+}
+
+fn log_video_decode_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    previous: &mut Option<DecodeStatsSnapshot>,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+
+    let current = DecodeStatsSnapshot {
+        frames_decoded: inbound.inbound.frames_decoded,
+        frames_received: inbound.inbound.frames_received,
+        frames_dropped: inbound.inbound.frames_dropped,
+        packets_discarded: inbound.inbound.packets_discarded,
+        total_decode_time_secs: inbound.inbound.total_decode_time,
+        total_processing_delay_secs: inbound.inbound.total_processing_delay,
+    };
+
+    let decoded_delta = previous
+        .map(|prev| current.frames_decoded.saturating_sub(prev.frames_decoded))
+        .unwrap_or(current.frames_decoded);
+    let received_delta = previous
+        .map(|prev| current.frames_received.saturating_sub(prev.frames_received))
+        .unwrap_or(current.frames_received);
+    let dropped_delta = previous
+        .map(|prev| current.frames_dropped.saturating_sub(prev.frames_dropped))
+        .unwrap_or(current.frames_dropped);
+    let discarded_delta = previous
+        .map(|prev| current.packets_discarded.saturating_sub(prev.packets_discarded))
+        .unwrap_or(current.packets_discarded);
+
+    let decode_avg_ms = previous
+        .and_then(|prev| {
+            window_average_delay_ms(
+                current.total_decode_time_secs,
+                prev.total_decode_time_secs,
+                u64::from(decoded_delta),
+            )
+        })
+        .or_else(|| {
+            average_delay_ms(current.total_decode_time_secs, u64::from(current.frames_decoded))
+        });
+    let processing_avg_ms = previous
+        .and_then(|prev| {
+            window_average_delay_ms(
+                current.total_processing_delay_secs,
+                prev.total_processing_delay_secs,
+                u64::from(decoded_delta),
+            )
+        })
+        .or_else(|| {
+            average_delay_ms(current.total_processing_delay_secs, u64::from(current.frames_decoded))
+        });
+
+    info!(
+        "WebRTC video decode: decoded_delta={}, received_delta={}, dropped_delta={}, discarded_delta={}, decode_avg={}, processing_avg={}, frames_decoded={}, frames_received={}",
+        decoded_delta,
+        received_delta,
+        dropped_delta,
+        discarded_delta,
+        format_optional_ms(decode_avg_ms),
+        format_optional_ms(processing_avg_ms),
+        current.frames_decoded,
+        current.frames_received,
+    );
 
     *previous = Some(current);
 }
@@ -1065,6 +1251,10 @@ fn current_timestamp_us() -> u64 {
     static TIMESTAMP_ANCHOR: OnceLock<TimestampAnchor> = OnceLock::new();
     let anchor = TIMESTAMP_ANCHOR.get_or_init(TimestampAnchor::new);
     anchor.unix_timestamp_us.saturating_add(anchor.instant.elapsed().as_micros() as u64)
+}
+
+fn elapsed_us(start: Instant) -> u64 {
+    start.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
@@ -1300,6 +1490,7 @@ async fn handle_track_subscribed(
     tokio::spawn(async move {
         let mut logged_initial = false;
         let mut jitter_buffer_snapshot = None;
+        let mut decode_stats_snapshot = None;
         let mut receive_bitrate_snapshot = None;
         let mut last_jitter_buffer_log =
             Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
@@ -1322,6 +1513,7 @@ async fn handle_track_subscribed(
                     }
                     if last_jitter_buffer_log.elapsed() >= Duration::from_secs(5) {
                         log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
+                        log_video_decode_stats(&stats, &mut decode_stats_snapshot);
                         last_jitter_buffer_log = Instant::now();
                     }
                     update_decoder_implementation_from_stats(&stats, &shared_stats);
@@ -2116,18 +2308,7 @@ impl CallbackTrait for YuvPaintCallback {
         }
         let state = resources.get_mut::<YuvGpuState>().unwrap();
 
-        let frame_for_upload = self.render_frame.lock().take().map(|frame| {
-            let prepare_timestamp_us = current_timestamp_us();
-            let frame_id = frame.frame_metadata.and_then(|m| m.frame_id);
-            let sample = frame.frame_metadata.and_then(|metadata| {
-                metadata.user_timestamp.map(|capture_timestamp_us| PendingPaintSample {
-                    frame_id,
-                    capture_timestamp_us,
-                    prepare_timestamp_us,
-                })
-            });
-            (frame, sample)
-        });
+        let frame_for_upload = self.render_frame.lock().take().map(RenderFrameWork::new);
 
         // Recreate CPU-upload textures/bind group on size change.
         if state.dims != dims && state.yuv_layout == 0 {
@@ -2148,8 +2329,11 @@ impl CallbackTrait for YuvPaintCallback {
         let mut frame_for_cpu_upload = frame_for_upload;
 
         #[cfg(target_os = "macos")]
-        if let Some((frame, sample)) = frame_for_cpu_upload.take() {
-            if frame.buffer.as_native().is_some() {
+        if let Some(mut work) = frame_for_cpu_upload.take() {
+            let native_probe_start = Instant::now();
+            let has_native_frame = work.frame.buffer.as_native().is_some();
+            work.diagnostics.native_probe_us = elapsed_us(native_probe_start);
+            if has_native_frame {
                 if state.native_cache.is_none() {
                     match macos_native_video::CvMetalTextureCache::new(device) {
                         Ok(cache) => state.native_cache = Some(cache),
@@ -2162,11 +2346,15 @@ impl CallbackTrait for YuvPaintCallback {
                 }
 
                 if let Some(cache) = state.native_cache.as_ref() {
+                    let import_start = Instant::now();
+                    let (frame, sample, prepare_start, mut diagnostics) = work.into_parts();
                     match macos_native_video::import_nv12_frame(device, cache, frame) {
                         Ok(imported) => {
+                            diagnostics.native_import_us = elapsed_us(import_start);
                             let full_size = imported.full_size;
                             let uv_size = imported.uv_size;
                             let resources = imported.resources;
+                            let bind_start = Instant::now();
                             state.y_tex = imported.y_tex;
                             state.u_tex = imported.uv_tex.clone();
                             state.v_tex = imported.uv_tex;
@@ -2186,6 +2374,8 @@ impl CallbackTrait for YuvPaintCallback {
                                 state.native_import_logged = true;
                             }
                             state.recreate_bind_group(device);
+                            diagnostics.native_bind_us = elapsed_us(bind_start);
+                            let params_start = Instant::now();
                             state.update_params(
                                 queue,
                                 ParamsUniform {
@@ -2199,10 +2389,12 @@ impl CallbackTrait for YuvPaintCallback {
                                     _pad2: 0,
                                 },
                             );
-                            match sample {
-                                Some(sample) => state.pending_paint_sample.store(sample),
-                                None => state.pending_paint_sample.clear(),
-                            }
+                            diagnostics.params_update_us = elapsed_us(params_start);
+                            diagnostics.path = RenderFramePath::MacosNative;
+                            store_pending_paint_sample(
+                                &state.pending_paint_sample,
+                                finish_pending_paint_sample(sample, prepare_start, diagnostics),
+                            );
                         }
                         Err(err) => {
                             if !state.native_import_failed_logged {
@@ -2214,84 +2406,94 @@ impl CallbackTrait for YuvPaintCallback {
                         }
                     }
                 } else {
-                    frame_for_cpu_upload = Some((frame, sample));
+                    frame_for_cpu_upload = Some(work);
                 }
             } else {
-                frame_for_cpu_upload = Some((frame, sample));
+                frame_for_cpu_upload = Some(work);
             }
         }
 
         #[cfg(target_os = "linux")]
-        if let Some((frame, sample)) = frame_for_cpu_upload.take() {
+        if let Some(mut work) = frame_for_cpu_upload.take() {
             if state.nvidia_native_disabled {
-                frame_for_cpu_upload = Some((frame, sample));
-            } else if let Some(info) =
-                frame.buffer.as_native().and_then(|native| native.as_nvidia_cuda_nv12())
-            {
-                match linux_nvidia_native_video::NvidiaCudaVulkanImporter::prepare(
-                    &mut state.nvidia_importer,
-                    device,
-                    info,
-                ) {
-                    Ok(Some(imported)) => {
-                        let full_size = imported.full_size;
-                        let uv_size = imported.uv_size;
-                        let reset_bind_groups = state.dims != full_size || state.yuv_layout != 1;
-                        state.y_tex = imported.y_tex;
-                        state.u_tex = imported.uv_tex.clone();
-                        state.v_tex = imported.uv_tex;
-                        state.y_view = imported.y_view;
-                        state.u_view = imported.uv_view.clone();
-                        state.v_view = imported.uv_view;
-                        state.y_tex_w = full_size.0;
-                        state.uv_tex_w = uv_size.0;
-                        state.dims = full_size;
-                        state.yuv_layout = 1;
-                        if reset_bind_groups {
-                            state.nvidia_bind_groups.clear();
+                frame_for_cpu_upload = Some(work);
+            } else {
+                let native_probe_start = Instant::now();
+                let nvidia_info =
+                    work.frame.buffer.as_native().and_then(|native| native.as_nvidia_cuda_nv12());
+                work.diagnostics.native_probe_us = elapsed_us(native_probe_start);
+                if let Some(info) = nvidia_info {
+                    let import_start = Instant::now();
+                    match linux_nvidia_native_video::NvidiaCudaVulkanImporter::prepare(
+                        &mut state.nvidia_importer,
+                        device,
+                        info,
+                    ) {
+                        Ok(Some(imported)) => {
+                            work.diagnostics.native_import_us = elapsed_us(import_start);
+                            let full_size = imported.full_size;
+                            let uv_size = imported.uv_size;
+                            let reset_bind_groups =
+                                state.dims != full_size || state.yuv_layout != 1;
+                            let bind_start = Instant::now();
+                            state.y_tex = imported.y_tex;
+                            state.u_tex = imported.uv_tex.clone();
+                            state.v_tex = imported.uv_tex;
+                            state.y_view = imported.y_view;
+                            state.u_view = imported.uv_view.clone();
+                            state.v_view = imported.uv_view;
+                            state.y_tex_w = full_size.0;
+                            state.uv_tex_w = uv_size.0;
+                            state.dims = full_size;
+                            state.yuv_layout = 1;
+                            if reset_bind_groups {
+                                state.nvidia_bind_groups.clear();
+                            }
+                            state.bind_nvidia_slot(device, imported.slot_index);
+                            work.diagnostics.native_bind_us = elapsed_us(bind_start);
+                            if !state.nvidia_import_logged {
+                                info!("Using NVIDIA CUDA/Vulkan GPU render path (no CPU frame upload)");
+                                state.nvidia_import_logged = true;
+                            }
+                            let params_start = Instant::now();
+                            state.update_params(
+                                queue,
+                                ParamsUniform {
+                                    src_w: full_size.0,
+                                    src_h: full_size.1,
+                                    y_tex_w: state.y_tex_w,
+                                    uv_tex_w: state.uv_tex_w,
+                                    yuv_layout: state.yuv_layout,
+                                    _pad0: 0,
+                                    _pad1: 0,
+                                    _pad2: 0,
+                                },
+                            );
+                            work.diagnostics.params_update_us = elapsed_us(params_start);
+                            work.diagnostics.path = RenderFramePath::NvidiaCudaVulkan;
+                            store_pending_paint_sample(&state.pending_paint_sample, work.finish());
                         }
-                        state.bind_nvidia_slot(device, imported.slot_index);
-                        if !state.nvidia_import_logged {
-                            info!("Using NVIDIA CUDA/Vulkan GPU render path (no CPU frame upload)");
-                            state.nvidia_import_logged = true;
+                        Ok(None) => {
+                            frame_for_cpu_upload = Some(work);
                         }
-                        state.update_params(
-                            queue,
-                            ParamsUniform {
-                                src_w: full_size.0,
-                                src_h: full_size.1,
-                                y_tex_w: state.y_tex_w,
-                                uv_tex_w: state.uv_tex_w,
-                                yuv_layout: state.yuv_layout,
-                                _pad0: 0,
-                                _pad1: 0,
-                                _pad2: 0,
-                            },
-                        );
-                        match sample {
-                            Some(sample) => state.pending_paint_sample.store(sample),
-                            None => state.pending_paint_sample.clear(),
-                        }
-                    }
-                    Ok(None) => {
-                        frame_for_cpu_upload = Some((frame, sample));
-                    }
-                    Err(err) => {
-                        if !state.nvidia_import_failed_logged {
-                            debug!(
+                        Err(err) => {
+                            work.diagnostics.native_import_us = elapsed_us(import_start);
+                            if !state.nvidia_import_failed_logged {
+                                debug!(
                                 "Unable to import NVIDIA CUDA video frame, falling back to CPU upload: {err:?}"
                             );
-                            state.nvidia_import_failed_logged = true;
+                                state.nvidia_import_failed_logged = true;
+                            }
+                            frame_for_cpu_upload = Some(work);
                         }
-                        frame_for_cpu_upload = Some((frame, sample));
                     }
+                } else {
+                    frame_for_cpu_upload = Some(work);
                 }
-            } else {
-                frame_for_cpu_upload = Some((frame, sample));
             }
         }
 
-        if let Some((frame, sample)) = frame_for_cpu_upload {
+        if let Some(mut work) = frame_for_cpu_upload {
             #[cfg(target_os = "macos")]
             {
                 state.native_resources = None;
@@ -2320,18 +2522,24 @@ impl CallbackTrait for YuvPaintCallback {
                 state.recreate_bind_group(device);
             }
 
+            work.diagnostics.path = RenderFramePath::CpuI420Upload;
+            let convert_start = Instant::now();
             let owned_i420;
-            let i420 = match frame.buffer.as_i420() {
+            let i420 = match work.frame.buffer.as_i420() {
                 Some(i420) => i420,
                 None => {
-                    owned_i420 = frame.buffer.to_i420();
+                    work.diagnostics.used_to_i420 = true;
+                    owned_i420 = work.frame.buffer.to_i420();
                     &owned_i420
                 }
             };
+            work.diagnostics.cpu_convert_us = elapsed_us(convert_start);
             let (stride_y, stride_u, stride_v) = i420.strides();
             let (data_y, data_u, data_v) = i420.data();
             let uv_w = (dims.0 + 1) / 2;
             let uv_h = (dims.1 + 1) / 2;
+            let upload_start = Instant::now();
+            let mut write_texture_count = 0_u32;
 
             if stride_y >= dims.0 {
                 queue.write_texture(
@@ -2349,6 +2557,7 @@ impl CallbackTrait for YuvPaintCallback {
                     },
                     wgpu::Extent3d { width: dims.0, height: dims.1, depth_or_array_layers: 1 },
                 );
+                write_texture_count += 1;
             }
 
             if stride_u >= uv_w {
@@ -2367,6 +2576,7 @@ impl CallbackTrait for YuvPaintCallback {
                     },
                     wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
                 );
+                write_texture_count += 1;
             }
 
             if stride_v >= uv_w {
@@ -2385,8 +2595,12 @@ impl CallbackTrait for YuvPaintCallback {
                     },
                     wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
                 );
+                write_texture_count += 1;
             }
+            work.diagnostics.cpu_upload_us = elapsed_us(upload_start);
+            work.diagnostics.cpu_write_texture_count = write_texture_count;
 
+            let params_start = Instant::now();
             state.update_params(
                 queue,
                 ParamsUniform {
@@ -2400,10 +2614,8 @@ impl CallbackTrait for YuvPaintCallback {
                     _pad2: 0,
                 },
             );
-            match sample {
-                Some(sample) => state.pending_paint_sample.store(sample),
-                None => state.pending_paint_sample.clear(),
-            }
+            work.diagnostics.params_update_us = elapsed_us(params_start);
+            store_pending_paint_sample(&state.pending_paint_sample, work.finish());
         }
 
         Vec::new()
@@ -2429,11 +2641,12 @@ impl CallbackTrait for YuvPaintCallback {
         render_pass.draw(0..3, 0..1);
 
         if let Some(sample) = painted_sample {
-            self.subscriber_timing.record_frame_painted(
+            self.subscriber_timing.record_frame_painted_with_diagnostics(
                 sample.capture_timestamp_us,
                 sample.frame_id,
                 sample.prepare_timestamp_us,
                 current_timestamp_us(),
+                sample.diagnostics,
             );
         }
     }

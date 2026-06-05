@@ -23,6 +23,65 @@ pub(crate) struct SubscriberTimingHandle {
     inner: Arc<Mutex<SubscriberTimingState>>,
 }
 
+/// Render path used for a painted subscriber frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RenderFramePath {
+    /// The frame did not reach a known render path.
+    #[default]
+    Unknown,
+    /// The frame was converted to/read as I420 on CPU and uploaded with `wgpu`.
+    CpuI420Upload,
+    /// The frame used the Apple native CVPixelBuffer/Metal import path.
+    MacosNative,
+    /// The frame used the Linux NVIDIA CUDA/Vulkan GPU path.
+    NvidiaCudaVulkan,
+}
+
+impl RenderFramePath {
+    pub(crate) fn as_u32(self) -> u32 {
+        match self {
+            Self::Unknown => 0,
+            Self::CpuI420Upload => 1,
+            Self::MacosNative => 2,
+            Self::NvidiaCudaVulkan => 3,
+        }
+    }
+
+    pub(crate) fn from_u32(value: u32) -> Self {
+        match value {
+            1 => Self::CpuI420Upload,
+            2 => Self::MacosNative,
+            3 => Self::NvidiaCudaVulkan,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Per-frame render-path diagnostics captured by the subscriber paint callback.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct RenderFrameDiagnostics {
+    /// Render path used by the frame.
+    pub(crate) path: RenderFramePath,
+    /// Total time spent in the `egui_wgpu` prepare callback for this frame.
+    pub(crate) prepare_total_us: u64,
+    /// Time spent inspecting native-frame metadata.
+    pub(crate) native_probe_us: u64,
+    /// Time spent importing/copying native GPU frame data.
+    pub(crate) native_import_us: u64,
+    /// Time spent rebinding render resources for a native frame.
+    pub(crate) native_bind_us: u64,
+    /// Time spent updating the YUV shader parameter buffer.
+    pub(crate) params_update_us: u64,
+    /// Time spent obtaining CPU I420 data.
+    pub(crate) cpu_convert_us: u64,
+    /// Time spent issuing CPU texture uploads.
+    pub(crate) cpu_upload_us: u64,
+    /// Number of `wgpu::Queue::write_texture` calls issued for this frame.
+    pub(crate) cpu_write_texture_count: u32,
+    /// Whether the CPU path called `VideoFrameBuffer::ToI420()`.
+    pub(crate) used_to_i420: bool,
+}
+
 impl SubscriberTimingHandle {
     pub(crate) fn new() -> Self {
         Self::default()
@@ -58,18 +117,20 @@ impl SubscriberTimingHandle {
         );
     }
 
-    pub(crate) fn record_frame_painted(
+    pub(crate) fn record_frame_painted_with_diagnostics(
         &self,
         sensor_exposure_timestamp_us: u64,
         frame_id: Option<u32>,
         frame_prepare_timestamp_us: u64,
         frame_painted_timestamp_us: u64,
+        diagnostics: RenderFrameDiagnostics,
     ) {
-        self.inner.lock().record_frame_painted(
+        self.inner.lock().record_frame_painted_with_diagnostics(
             sensor_exposure_timestamp_us,
             frame_id,
             frame_prepare_timestamp_us,
             frame_painted_timestamp_us,
+            diagnostics,
         );
     }
 
@@ -174,6 +235,7 @@ impl SubscriberTimingState {
         self.latest_display_sample = Some(*sample);
     }
 
+    #[cfg(test)]
     fn record_frame_painted(
         &mut self,
         sensor_exposure_timestamp_us: u64,
@@ -181,12 +243,29 @@ impl SubscriberTimingState {
         frame_prepare_timestamp_us: u64,
         frame_painted_timestamp_us: u64,
     ) {
+        self.record_frame_painted_with_diagnostics(
+            sensor_exposure_timestamp_us,
+            frame_id,
+            frame_prepare_timestamp_us,
+            frame_painted_timestamp_us,
+            RenderFrameDiagnostics::default(),
+        );
+    }
+
+    fn record_frame_painted_with_diagnostics(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        frame_id: Option<u32>,
+        frame_prepare_timestamp_us: u64,
+        frame_painted_timestamp_us: u64,
+        diagnostics: RenderFrameDiagnostics,
+    ) {
         let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
         sample.frame_prepare_timestamp_us.get_or_insert(frame_prepare_timestamp_us);
         sample.frame_painted_timestamp_us = Some(frame_painted_timestamp_us);
         let sample = *sample;
         self.latest_display_sample = Some(sample);
-        self.render_latency_window.record(sample, Instant::now());
+        self.render_latency_window.record(sample, diagnostics, Instant::now());
     }
 
     fn display_sample(&self) -> Option<SubscriberTimingSample> {
@@ -304,6 +383,10 @@ struct LatencyStats {
 impl LatencyStats {
     fn record_delta(&mut self, start_us: u64, end_us: u64) {
         let latency_us = end_us.saturating_sub(start_us);
+        self.record_duration(latency_us);
+    }
+
+    fn record_duration(&mut self, latency_us: u64) {
         self.count += 1;
         self.sum_us += u128::from(latency_us);
         self.min_us = Some(self.min_us.map_or(latency_us, |min| min.min(latency_us)));
@@ -316,6 +399,53 @@ impl LatencyStats {
 }
 
 #[derive(Default)]
+struct RenderPathWindow {
+    nvidia_frames: u64,
+    macos_native_frames: u64,
+    cpu_i420_frames: u64,
+    unknown_frames: u64,
+    cpu_write_texture_calls: u64,
+    cpu_to_i420_frames: u64,
+    prepare_total: LatencyStats,
+    native_probe: LatencyStats,
+    native_import: LatencyStats,
+    native_bind: LatencyStats,
+    params_update: LatencyStats,
+    cpu_convert: LatencyStats,
+    cpu_upload: LatencyStats,
+}
+
+impl RenderPathWindow {
+    fn record(&mut self, diagnostics: RenderFrameDiagnostics) {
+        match diagnostics.path {
+            RenderFramePath::NvidiaCudaVulkan => self.nvidia_frames += 1,
+            RenderFramePath::MacosNative => self.macos_native_frames += 1,
+            RenderFramePath::CpuI420Upload => self.cpu_i420_frames += 1,
+            RenderFramePath::Unknown => self.unknown_frames += 1,
+        }
+
+        self.cpu_write_texture_calls += u64::from(diagnostics.cpu_write_texture_count);
+        if diagnostics.used_to_i420 {
+            self.cpu_to_i420_frames += 1;
+        }
+
+        record_nonzero_duration(&mut self.prepare_total, diagnostics.prepare_total_us);
+        record_nonzero_duration(&mut self.native_probe, diagnostics.native_probe_us);
+        record_nonzero_duration(&mut self.native_import, diagnostics.native_import_us);
+        record_nonzero_duration(&mut self.native_bind, diagnostics.native_bind_us);
+        record_nonzero_duration(&mut self.params_update, diagnostics.params_update_us);
+        record_nonzero_duration(&mut self.cpu_convert, diagnostics.cpu_convert_us);
+        record_nonzero_duration(&mut self.cpu_upload, diagnostics.cpu_upload_us);
+    }
+}
+
+fn record_nonzero_duration(stats: &mut LatencyStats, duration_us: u64) {
+    if duration_us > 0 {
+        stats.record_duration(duration_us);
+    }
+}
+
+#[derive(Default)]
 struct RenderLatencyWindow {
     receive_to_decode: LatencyStats,
     decode_to_sink: LatencyStats,
@@ -324,14 +454,22 @@ struct RenderLatencyWindow {
     prepare_to_paint: LatencyStats,
     receive_to_paint: LatencyStats,
     e2e: LatencyStats,
+    render_path: RenderPathWindow,
     last_log: Option<Instant>,
 }
 
 impl RenderLatencyWindow {
-    fn record(&mut self, sample: SubscriberTimingSample, now: Instant) {
+    fn record(
+        &mut self,
+        sample: SubscriberTimingSample,
+        diagnostics: RenderFrameDiagnostics,
+        now: Instant,
+    ) {
         let Some(frame_painted_timestamp_us) = sample.frame_painted_timestamp_us else {
             return;
         };
+
+        self.render_path.record(diagnostics);
 
         if let (Some(webrtc_receive), Some(decoder_output)) =
             (sample.webrtc_receive_timestamp_us, sample.decoder_output_timestamp_us)
@@ -382,7 +520,7 @@ impl RenderLatencyWindow {
         }
 
         info!(
-            "Subscriber render latency: frames={}, receive_to_decode avg={} min={} max={}, decoder_to_sink avg={} min={} max={}, sink_to_prepare avg={} min={} max={}, decoder_to_prepare avg={} min={} max={}, prepare_to_paint avg={} min={} max={}, receive_to_paint avg={} min={} max={}, e2e avg={} min={} max={}",
+            "Subscriber render latency: frames={}, receive_to_decode avg={} min={} max={}, decoder_to_sink avg={} min={} max={}, sink_to_prepare avg={} min={} max={}, decoder_to_prepare avg={} min={} max={}, prepare_to_paint avg={} min={} max={}, receive_to_paint avg={} min={} max={}, e2e avg={} min={} max={}, render_path nvidia={} macos_native={} cpu_i420={} unknown={} cpu_write_texture_calls={} cpu_to_i420_frames={} prepare_callback avg={} min={} max={} native_probe avg={} min={} max={} native_import avg={} min={} max={} native_bind avg={} min={} max={} params_update avg={} min={} max={} cpu_convert avg={} min={} max={} cpu_upload avg={} min={} max={}",
             self.e2e.count,
             latency_log_value(self.receive_to_decode.avg_us()),
             latency_log_value(self.receive_to_decode.min_us),
@@ -405,6 +543,33 @@ impl RenderLatencyWindow {
             latency_log_value(self.e2e.avg_us()),
             latency_log_value(self.e2e.min_us),
             latency_log_value(self.e2e.max_us),
+            self.render_path.nvidia_frames,
+            self.render_path.macos_native_frames,
+            self.render_path.cpu_i420_frames,
+            self.render_path.unknown_frames,
+            self.render_path.cpu_write_texture_calls,
+            self.render_path.cpu_to_i420_frames,
+            latency_log_value(self.render_path.prepare_total.avg_us()),
+            latency_log_value(self.render_path.prepare_total.min_us),
+            latency_log_value(self.render_path.prepare_total.max_us),
+            latency_log_value(self.render_path.native_probe.avg_us()),
+            latency_log_value(self.render_path.native_probe.min_us),
+            latency_log_value(self.render_path.native_probe.max_us),
+            latency_log_value(self.render_path.native_import.avg_us()),
+            latency_log_value(self.render_path.native_import.min_us),
+            latency_log_value(self.render_path.native_import.max_us),
+            latency_log_value(self.render_path.native_bind.avg_us()),
+            latency_log_value(self.render_path.native_bind.min_us),
+            latency_log_value(self.render_path.native_bind.max_us),
+            latency_log_value(self.render_path.params_update.avg_us()),
+            latency_log_value(self.render_path.params_update.min_us),
+            latency_log_value(self.render_path.params_update.max_us),
+            latency_log_value(self.render_path.cpu_convert.avg_us()),
+            latency_log_value(self.render_path.cpu_convert.min_us),
+            latency_log_value(self.render_path.cpu_convert.max_us),
+            latency_log_value(self.render_path.cpu_upload.avg_us()),
+            latency_log_value(self.render_path.cpu_upload.min_us),
+            latency_log_value(self.render_path.cpu_upload.max_us),
         );
 
         *self = Self { last_log: Some(now), ..Self::default() };
