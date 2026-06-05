@@ -126,11 +126,7 @@ async fn test_oversized_data_message_rejected() -> Result<()> {
             ..Default::default()
         })
         .await;
-    ensure!(
-        result.is_err(),
-        "oversized publish_data should return an error, got {:?}",
-        result
-    );
+    ensure!(result.is_err(), "oversized publish_data should return an error, got {:?}", result);
 
     // The channel must still be usable: this follow-up small packet proves the
     // oversized send did not break publishing (no 15s publisher timeout).

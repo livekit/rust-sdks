@@ -623,7 +623,7 @@ impl RtcSession {
         });
 
         // Log when a publisher data channel closes without the engine or peer
-        // connection tearing it down 
+        // connection tearing it down
         for (dc, label) in
             [(&inner.reliable_dc, RELIABLE_DC_LABEL), (&inner.lossy_dc, LOSSY_DC_LABEL)]
         {
@@ -636,10 +636,7 @@ impl RtcSession {
                     return;
                 };
                 if !inner.closed.load(Ordering::Acquire) && inner.publisher_pc.is_connected() {
-                    log::info!(
-                        "publisher data channel '{}' closed unexpectedly",
-                        label
-                    );
+                    log::info!("publisher data channel '{}' closed unexpectedly", label);
                 }
             })));
         }
@@ -1242,10 +1239,7 @@ impl SessionInner {
                 let max_message_size =
                     parse_sdp_max_message_size(&answer.sdp).unwrap_or(DEFAULT_MAX_MESSAGE_SIZE);
                 self.max_message_size.store(max_message_size, Ordering::Release);
-                log::debug!(
-                    "negotiated data channel max message size: {} bytes",
-                    max_message_size
-                );
+                log::debug!("negotiated data channel max message size: {} bytes", max_message_size);
 
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
