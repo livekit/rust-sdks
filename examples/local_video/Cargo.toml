@@ -49,6 +49,8 @@ parking_lot = { workspace = true, features = ["deadlock_detection"] }
 anyhow = { workspace = true }
 chrono = "0.4"
 bytemuck = { version = "1.16", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["output-threaded"] }
 

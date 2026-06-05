@@ -20,6 +20,7 @@ use nokhwa::utils::{
 };
 use nokhwa::Camera;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::{
@@ -214,6 +215,24 @@ fn unix_time_us_now() -> u64 {
 }
 
 const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
+const SET_VIDEO_ENCODING_LIMITS_METHOD: &str = "set-video-encoding-limits";
+
+#[derive(Debug, Deserialize, Serialize)]
+struct SetEncodingLimitsRequest {
+    track_sid: String,
+    bitrate_bps: Option<u64>,
+    max_framerate: Option<f64>,
+    scale_resolution_down_by: Option<f64>,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct SetEncodingLimitsResponse {
+    applied_bitrate_bps: Option<u64>,
+    applied_max_framerate: Option<f64>,
+    applied_scale_resolution_down_by: Option<f64>,
+    track_sid: String,
+}
 
 #[derive(Default)]
 struct CaptureTimestampLogState {
@@ -329,21 +348,39 @@ struct PublisherTimingSummary {
     capture_to_webrtc_total_ms: RollingMs,
 }
 
-fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Option<&str> {
-    let mut fallback = None;
+#[derive(Default)]
+struct PublisherVideoOutboundStats {
+    encoder_implementation: Option<String>,
+    target_bitrate_bps: Option<f64>,
+}
+
+fn find_video_outbound_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+) -> PublisherVideoOutboundStats {
+    let mut fallback = PublisherVideoOutboundStats::default();
     for stat in stats {
         let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
             continue;
         };
-        if outbound.stream.kind != "video" || outbound.outbound.encoder_implementation.is_empty() {
+        if outbound.stream.kind != "video" {
             continue;
         }
 
-        let implementation = outbound.outbound.encoder_implementation.as_str();
+        let current = PublisherVideoOutboundStats {
+            encoder_implementation: (!outbound.outbound.encoder_implementation.is_empty())
+                .then(|| outbound.outbound.encoder_implementation.clone()),
+            target_bitrate_bps: (outbound.outbound.target_bitrate > 0.0)
+                .then_some(outbound.outbound.target_bitrate),
+        };
         if outbound.outbound.active {
-            return Some(implementation);
+            return current;
         }
-        fallback.get_or_insert(implementation);
+        if fallback.encoder_implementation.is_none() {
+            fallback.encoder_implementation = current.encoder_implementation;
+        }
+        if fallback.target_bitrate_bps.is_none() {
+            fallback.target_bitrate_bps = current.target_bitrate_bps;
+        }
     }
 
     fallback
@@ -366,14 +403,20 @@ async fn update_publisher_encoder_overlay(
 
         match track.get_stats().await {
             Ok(stats) => {
-                if let Some(implementation) = find_video_outbound_encoder(&stats) {
+                let outbound = find_video_outbound_stats(&stats);
+                if let Some(implementation) = outbound.encoder_implementation {
                     if implementation != last_implementation {
                         info!("Publisher video encoder implementation: {implementation}");
-                        last_implementation = implementation.to_string();
+                        last_implementation = implementation.clone();
                     }
 
                     let mut shared = shared.lock();
-                    shared.codec_implementation = implementation.to_string();
+                    shared.codec_implementation = implementation;
+                    if let Some(target_bitrate_bps) = outbound.target_bitrate_bps {
+                        shared.encode_bitrate_mbps = Some(target_bitrate_bps / 1_000_000.0);
+                    }
+                } else if let Some(target_bitrate_bps) = outbound.target_bitrate_bps {
+                    shared.lock().encode_bitrate_mbps = Some(target_bitrate_bps / 1_000_000.0);
                 }
                 logged_initial = true;
             }
@@ -539,6 +582,66 @@ fn update_shared_timing_sample(
             shared.timing_sample = Some(sample);
         }
     }
+}
+
+fn register_encoding_limits_rpc(room: &Arc<Room>, publication: LocalTrackPublication) {
+    room.local_participant().register_rpc_method(
+        SET_VIDEO_ENCODING_LIMITS_METHOD.to_string(),
+        move |data| {
+            let publication = publication.clone();
+            Box::pin(async move {
+                let request: SetEncodingLimitsRequest = serde_json::from_str(&data.payload)
+                    .map_err(|err| {
+                        RpcError::new(
+                            400,
+                            "invalid encoding limits request".to_string(),
+                            Some(err.to_string()),
+                        )
+                    })?;
+
+                let publication_sid = publication.sid().to_string();
+                if request.track_sid != publication_sid {
+                    return Err(RpcError::new(
+                        404,
+                        "track not found".to_string(),
+                        Some(request.track_sid),
+                    ));
+                }
+
+                let limits = VideoEncodingLimits {
+                    max_bitrate: request.bitrate_bps,
+                    max_framerate: request.max_framerate,
+                    scale_resolution_down_by: request.scale_resolution_down_by,
+                };
+                publication.set_video_encoding_limits(limits).map_err(|err| {
+                    RpcError::new(500, format!("set encoding limits failed: {err}"), None)
+                })?;
+
+                info!(
+                    "{} requested video encoding limits: {:?} bps, {:?} fps, {:?}x scale ({})",
+                    data.caller_identity,
+                    request.bitrate_bps,
+                    request.max_framerate,
+                    request.scale_resolution_down_by,
+                    request.reason
+                );
+
+                serde_json::to_string(&SetEncodingLimitsResponse {
+                    applied_bitrate_bps: request.bitrate_bps,
+                    applied_max_framerate: request.max_framerate,
+                    applied_scale_resolution_down_by: request.scale_resolution_down_by,
+                    track_sid: publication_sid,
+                })
+                .map_err(|err| {
+                    RpcError::new(
+                        500,
+                        "failed to serialize encoding limits response".to_string(),
+                        Some(err.to_string()),
+                    )
+                })
+            })
+        },
+    );
 }
 
 #[cfg(test)]
@@ -955,21 +1058,23 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
         .await;
 
-    let actual_codec = if let Err(e) = publish_result {
-        if matches!(requested_codec, VideoCodec::H265) {
+    let (publication, actual_codec) = match publish_result {
+        Ok(publication) => {
+            info!("Published camera track");
+            (publication, requested_codec)
+        }
+        Err(e) if matches!(requested_codec, VideoCodec::H265) => {
             log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
-            room.local_participant()
+            let publication = room
+                .local_participant()
                 .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
                 .await?;
             info!("Published camera track with H.264 fallback");
-            VideoCodec::H264
-        } else {
-            return Err(e.into());
+            (publication, VideoCodec::H264)
         }
-    } else {
-        info!("Published camera track");
-        requested_codec
+        Err(e) => return Err(e.into()),
     };
+    register_encoding_limits_rpc(&room, publication);
 
     let capture_config = CaptureConfig {
         fps: args.fps,

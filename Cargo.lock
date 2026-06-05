@@ -4189,6 +4189,8 @@ dependencies = [
  "nokhwa",
  "objc2 0.6.4",
  "parking_lot",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "webrtc-sys",

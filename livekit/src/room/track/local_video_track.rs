@@ -46,6 +46,17 @@ pub struct LocalVideoTrack {
     publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
 }
 
+/// Runtime encoding limits for a published local video track.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct VideoEncodingLimits {
+    /// Maximum encoded bitrate in bits per second.
+    pub max_bitrate: Option<u64>,
+    /// Maximum encoded frame rate in frames per second.
+    pub max_framerate: Option<f64>,
+    /// Encoded resolution downscale factor.
+    pub scale_resolution_down_by: Option<f64>,
+}
+
 impl Debug for LocalVideoTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LocalVideoTrack")
@@ -164,6 +175,40 @@ impl LocalVideoTrack {
 
     pub fn rtc_source(&self) -> RtcVideoSource {
         self.source.clone()
+    }
+
+    /// Sets runtime encoding limits for all RTP encodings on this published video track.
+    ///
+    /// Pass `None` for an individual field to clear that explicit cap and
+    /// return control of that field to libwebrtc. The track must be published
+    /// before this method can update sender parameters.
+    pub(crate) fn set_encoding_limits(&self, limits: VideoEncodingLimits) -> RoomResult<()> {
+        self.update_encoding_parameters(|encoding| {
+            encoding.max_bitrate = limits.max_bitrate;
+            encoding.max_framerate = limits.max_framerate;
+            encoding.scale_resolution_down_by = limits.scale_resolution_down_by;
+        })
+    }
+
+    fn update_encoding_parameters(
+        &self,
+        mut update: impl FnMut(&mut RtpEncodingParameters),
+    ) -> RoomResult<()> {
+        let Some(transceiver) = self.transceiver() else {
+            return Err(RoomError::Rtc(RtcError {
+                error_type: RtcErrorType::InvalidState,
+                message: "track is not published".into(),
+            }));
+        };
+
+        let sender = transceiver.sender();
+        let mut parameters = sender.parameters();
+        for encoding in &mut parameters.encodings {
+            update(encoding);
+        }
+        sender.set_parameters(parameters)?;
+
+        Ok(())
     }
 
     /// Returns a stream of native local video publish-pipeline timing events.
