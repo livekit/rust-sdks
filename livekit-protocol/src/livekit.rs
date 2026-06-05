@@ -632,6 +632,25 @@ pub struct DataTrackInfo {
     /// Method used for end-to-end encryption (E2EE) on packet payloads.
     #[prost(enumeration="encryption::Type", tag="4")]
     pub encryption: i32,
+    /// Encoding for frame payloads on this track. If unspecified, the track is untyped.
+    #[prost(enumeration="DataTrackFrameEncoding", optional, tag="5")]
+    pub frame_encoding: ::core::option::Option<i32>,
+    /// ID of the schema used by frames on this track if the track is typed.
+    #[prost(message, optional, tag="6")]
+    pub schema: ::core::option::Option<DataTrackSchemaId>,
+}
+/// Identifier for a data track schema.
+///
+/// Schemas with the same name but different encodings are distinct.
+///
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataTrackSchemaId {
+    /// This must be non-empty and no longer than 256 characters.
+    #[prost(string, tag="1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(enumeration="DataTrackSchemaEncoding", tag="2")]
+    pub encoding: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -648,6 +667,37 @@ pub struct DataTrackSubscriptionOptions {
     /// If omitted, the subscriber defaults to the publisher's fps
     #[prost(uint32, optional, tag="1")]
     pub target_fps: ::core::option::Option<u32>,
+}
+/// Key used to uniquely identify a data blob for storage and retrieval.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataBlobKey {
+    #[prost(oneof="data_blob_key::Key", tags="1, 2")]
+    pub key: ::core::option::Option<data_blob_key::Key>,
+}
+/// Nested message and enum types in `DataBlobKey`.
+pub mod data_blob_key {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Key {
+        /// Generic string key, blob contains arbitrary data.
+        #[prost(string, tag="1")]
+        Generic(::prost::alloc::string::String),
+        /// Data track schema identifier, blob contains schema definition.
+        #[prost(message, tag="2")]
+        SchemaId(super::DataTrackSchemaId),
+    }
+}
+/// A blob of data stored in a room identified by a unique key.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataBlob {
+    /// Unique key the data blob is identified by.
+    #[prost(message, optional, tag="1")]
+    pub key: ::core::option::Option<DataBlobKey>,
+    /// Contents of the data blob. This must not exceed 50 KB.
+    #[prost(bytes="vec", tag="2")]
+    pub contents: ::prost::alloc::vec::Vec<u8>,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1780,6 +1830,118 @@ impl TrackSource {
         }
     }
 }
+/// Encoding for frame payloads.
+///
+/// Mirrors the well-known message encodings from the MCAP spec:
+/// <https://mcap.dev/spec/registry#message-encodings>
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DataTrackFrameEncoding {
+    Unspecified = 0,
+    /// ROS 1: must be described by `ROS1_MSG` schema encoding.
+    Ros1 = 1,
+    /// CDR: must be described by `ROS2_MSG`, `ROS2_IDL`, or `OMG_IDL` schema encoding.
+    Cdr = 2,
+    /// Protocol Buffer: must be described by `PROTOBUF` schema encoding.
+    Protobuf = 3,
+    /// FlatBuffer: must be described by `FLATBUFFER` schema encoding.
+    Flatbuffer = 4,
+    /// CBOR: self-describing.
+    Cbor = 5,
+    /// MessagePack: self-describing.
+    Msgpack = 6,
+    /// JSON: self-describing or described by `JSON_SCHEMA` schema encoding.
+    Json = 7,
+}
+impl DataTrackFrameEncoding {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DataTrackFrameEncoding::Unspecified => "DATA_TRACK_FRAME_ENCODING_UNSPECIFIED",
+            DataTrackFrameEncoding::Ros1 => "DATA_TRACK_FRAME_ENCODING_ROS1",
+            DataTrackFrameEncoding::Cdr => "DATA_TRACK_FRAME_ENCODING_CDR",
+            DataTrackFrameEncoding::Protobuf => "DATA_TRACK_FRAME_ENCODING_PROTOBUF",
+            DataTrackFrameEncoding::Flatbuffer => "DATA_TRACK_FRAME_ENCODING_FLATBUFFER",
+            DataTrackFrameEncoding::Cbor => "DATA_TRACK_FRAME_ENCODING_CBOR",
+            DataTrackFrameEncoding::Msgpack => "DATA_TRACK_FRAME_ENCODING_MSGPACK",
+            DataTrackFrameEncoding::Json => "DATA_TRACK_FRAME_ENCODING_JSON",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DATA_TRACK_FRAME_ENCODING_UNSPECIFIED" => Some(Self::Unspecified),
+            "DATA_TRACK_FRAME_ENCODING_ROS1" => Some(Self::Ros1),
+            "DATA_TRACK_FRAME_ENCODING_CDR" => Some(Self::Cdr),
+            "DATA_TRACK_FRAME_ENCODING_PROTOBUF" => Some(Self::Protobuf),
+            "DATA_TRACK_FRAME_ENCODING_FLATBUFFER" => Some(Self::Flatbuffer),
+            "DATA_TRACK_FRAME_ENCODING_CBOR" => Some(Self::Cbor),
+            "DATA_TRACK_FRAME_ENCODING_MSGPACK" => Some(Self::Msgpack),
+            "DATA_TRACK_FRAME_ENCODING_JSON" => Some(Self::Json),
+            _ => None,
+        }
+    }
+}
+/// Encoding for schema definitions.
+///
+/// Mirrors the well-known schema encodings from the MCAP spec:
+/// <https://mcap.dev/spec/registry#schema-encodings>
+///
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum DataTrackSchemaEncoding {
+    Unspecified = 0,
+    /// Protocol Buffer IDL: describes `PROTOBUF` frame encoding.
+    Protobuf = 1,
+    /// FlatBuffer IDL: describes `FLATBUFFER` frame encoding.
+    Flatbuffer = 2,
+    /// ROS 1 Message: describes `ROS1` frame encoding.
+    Ros1Msg = 3,
+    /// ROS 2 Message: describes `CDR` frame encoding.
+    Ros2Msg = 4,
+    /// ROS 2 IDL: describes `CDR` frame encoding.
+    Ros2Idl = 5,
+    /// OMG IDL: describes `CDR` frame encoding.
+    OmgIdl = 6,
+    /// JSON Schema: describes `JSON` frame encoding.
+    JsonSchema = 7,
+}
+impl DataTrackSchemaEncoding {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DataTrackSchemaEncoding::Unspecified => "DATA_TRACK_SCHEMA_ENCODING_UNSPECIFIED",
+            DataTrackSchemaEncoding::Protobuf => "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF",
+            DataTrackSchemaEncoding::Flatbuffer => "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER",
+            DataTrackSchemaEncoding::Ros1Msg => "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG",
+            DataTrackSchemaEncoding::Ros2Msg => "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG",
+            DataTrackSchemaEncoding::Ros2Idl => "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL",
+            DataTrackSchemaEncoding::OmgIdl => "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL",
+            DataTrackSchemaEncoding::JsonSchema => "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DATA_TRACK_SCHEMA_ENCODING_UNSPECIFIED" => Some(Self::Unspecified),
+            "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF" => Some(Self::Protobuf),
+            "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER" => Some(Self::Flatbuffer),
+            "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG" => Some(Self::Ros1Msg),
+            "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG" => Some(Self::Ros2Msg),
+            "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL" => Some(Self::Ros2Idl),
+            "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL" => Some(Self::OmgIdl),
+            "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA" => Some(Self::JsonSchema),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum DataTrackExtensionId {
@@ -2652,7 +2814,7 @@ pub struct EgressInfo {
     pub backup_storage_used: bool,
     #[prost(int32, tag="27")]
     pub retry_count: i32,
-    #[prost(oneof="egress_info::Request", tags="30, 4, 14, 19, 5, 6")]
+    #[prost(oneof="egress_info::Request", tags="29, 30, 4, 14, 19, 5, 6")]
     pub request: ::core::option::Option<egress_info::Request>,
     // next ID: 31
 
@@ -2665,7 +2827,8 @@ pub mod egress_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Request {
-        /// StartEgressRequest egress = 29;
+        #[prost(message, tag="29")]
+        Egress(super::StartEgressRequest),
         #[prost(message, tag="30")]
         Replay(super::ExportReplayRequest),
         #[prost(message, tag="4")]
@@ -3497,7 +3660,7 @@ impl AudioMixing {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalRequest {
-    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
+    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
     pub message: ::core::option::Option<signal_request::Message>,
 }
 /// Nested message and enum types in `SignalRequest`.
@@ -3565,12 +3728,18 @@ pub mod signal_request {
         /// Update subscription state for one or more data tracks
         #[prost(message, tag="21")]
         UpdateDataSubscription(super::UpdateDataSubscription),
+        /// Store a data blob.
+        #[prost(message, tag="22")]
+        StoreDataBlobRequest(super::StoreDataBlobRequest),
+        /// Retrieve a stored data blob.
+        #[prost(message, tag="23")]
+        GetDataBlobRequest(super::GetDataBlobRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
+    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3665,6 +3834,9 @@ pub mod signal_response {
         /// Sent to data track subscribers to provide mapping from track SIDs to handles.
         #[prost(message, tag="29")]
         DataTrackSubscriberHandles(super::DataTrackSubscriberHandles),
+        /// Sent in response to `GetDataBlobRequest`.
+        #[prost(message, tag="30")]
+        GetDataBlobResponse(super::GetDataBlobResponse),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3745,6 +3917,13 @@ pub struct PublishDataTrackRequest {
     /// Method used for end-to-end encryption (E2EE) on frame payloads.
     #[prost(enumeration="encryption::Type", tag="3")]
     pub encryption: i32,
+    /// Encoding for frame payloads on this track. If unspecified, the track is untyped.
+    #[prost(enumeration="DataTrackFrameEncoding", optional, tag="4")]
+    pub frame_encoding: ::core::option::Option<i32>,
+    /// ID of the schema used by frames on this track if the track is typed.
+    /// If set, the associated schema must be stored with `StoreDataBlobRequest`.
+    #[prost(message, optional, tag="5")]
+    pub schema: ::core::option::Option<DataTrackSchemaId>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3922,6 +4101,28 @@ pub mod update_data_subscription {
         #[prost(message, optional, tag="3")]
         pub options: ::core::option::Option<super::DataTrackSubscriptionOptions>,
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StoreDataBlobRequest {
+    #[prost(message, optional, tag="1")]
+    pub blob: ::core::option::Option<DataBlob>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataBlobRequest {
+    /// Identity of the participant who owns the blob.
+    #[prost(string, tag="1")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Unique key of the data blob to retrieve.
+    #[prost(message, optional, tag="2")]
+    pub key: ::core::option::Option<DataBlobKey>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataBlobResponse {
+    #[prost(message, optional, tag="1")]
+    pub blob: ::core::option::Option<DataBlob>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4314,7 +4515,7 @@ pub struct RequestResponse {
     pub reason: i32,
     #[prost(string, tag="3")]
     pub message: ::prost::alloc::string::String,
-    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9, 10, 11, 12, 13")]
     pub request: ::core::option::Option<request_response::Request>,
 }
 /// Nested message and enum types in `RequestResponse`.
@@ -4333,6 +4534,7 @@ pub mod request_response {
         InvalidName = 8,
         DuplicateHandle = 9,
         DuplicateName = 10,
+        InvalidRequest = 11,
     }
     impl Reason {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -4352,6 +4554,7 @@ pub mod request_response {
                 Reason::InvalidName => "INVALID_NAME",
                 Reason::DuplicateHandle => "DUPLICATE_HANDLE",
                 Reason::DuplicateName => "DUPLICATE_NAME",
+                Reason::InvalidRequest => "INVALID_REQUEST",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -4368,6 +4571,7 @@ pub mod request_response {
                 "INVALID_NAME" => Some(Self::InvalidName),
                 "DUPLICATE_HANDLE" => Some(Self::DuplicateHandle),
                 "DUPLICATE_NAME" => Some(Self::DuplicateName),
+                "INVALID_REQUEST" => Some(Self::InvalidRequest),
                 _ => None,
             }
         }
@@ -4391,6 +4595,10 @@ pub mod request_response {
         PublishDataTrack(super::PublishDataTrackRequest),
         #[prost(message, tag="11")]
         UnpublishDataTrack(super::UnpublishDataTrackRequest),
+        #[prost(message, tag="12")]
+        StoreDataBlob(super::StoreDataBlobRequest),
+        #[prost(message, tag="13")]
+        GetDataBlob(super::GetDataBlobRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
