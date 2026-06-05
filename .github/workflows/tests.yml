@@ -155,9 +155,9 @@ jobs:
       - name: Test
         env:
           RUST_LOG: info
+        shell: bash
         run: |
-          cargo test \
-            --verbose \
+          cargo test --verbose \
             --target ${{ matrix.target }} \
             --features __lk-e2e-test \
             -- \
