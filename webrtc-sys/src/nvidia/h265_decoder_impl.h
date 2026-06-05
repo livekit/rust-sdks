@@ -9,6 +9,7 @@
 #include <cuda.h>
 #include <media/base/codec.h>
 
+#include "decoder_timing.h"
 #include "NvDecoder/NvDecoder.h"
 
 namespace webrtc {
@@ -39,9 +40,9 @@ class NvidiaH265DecoderImpl : public VideoDecoder {
   DecodedImageCallback* decoded_complete_callback_ = nullptr;
   webrtc::VideoFrameBufferPool buffer_pool_;
   bool native_cuda_buffer_failed_logged_ = false;
+  nvidia::DecoderTimingLogger timing_logger_{"H265"};
 };
 
 }  // end namespace webrtc
 
 #endif  // WEBRTC_NVIDIA_H265_DECODER_IMPL_H_
-

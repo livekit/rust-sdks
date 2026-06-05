@@ -93,6 +93,20 @@ struct Dim {
 class NvDecoder {
 
 public:
+    struct TimingStats {
+        uint64_t picture_decode_calls = 0;
+        uint64_t picture_display_calls = 0;
+        uint64_t frame_allocations = 0;
+        int64_t picture_decode_us = 0;
+        int64_t display_total_us = 0;
+        int64_t map_us = 0;
+        int64_t status_us = 0;
+        int64_t alloc_us = 0;
+        int64_t copy_submit_us = 0;
+        int64_t sync_us = 0;
+        int64_t unmap_us = 0;
+    };
+
     /**
     *  @brief This function is used to initialize the decoder session.
     *  Application must call this function to initialize the decoder, before
@@ -195,6 +209,8 @@ public:
     *   @param  nTimestamp - presentation timestamp
     */
     int Decode(const uint8_t *pData, int nSize, int nFlags = 0, int64_t nTimestamp = 0);
+
+    TimingStats ConsumeTimingStats();
 
     /**
     *   @brief  This function returns a decoded frame and timestamp. This function should be called in a loop for
@@ -359,4 +375,5 @@ private:
     // the display callback immediately after the decode callback.
     bool m_bForce_zero_latency = false;
     bool m_bExtractSEIMessage = false;
+    TimingStats m_timingStats = {};
 };

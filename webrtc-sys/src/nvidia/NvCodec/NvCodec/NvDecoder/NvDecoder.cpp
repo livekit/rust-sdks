@@ -28,6 +28,15 @@ simplelogger::Logger* logger = simplelogger::LoggerFactory::CreateConsoleLogger(
     elapsedTime \
     << " ms " << std::endl;
 
+namespace {
+
+int64_t DecoderTimingNowUs() {
+    const auto now = std::chrono::steady_clock::now().time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+}
+
+}  // namespace
+
 #define CUDA_DRVAPI_CALL( call )                                                                                                 \
     do                                                                                                                           \
     {                                                                                                                            \
@@ -514,6 +523,7 @@ int NvDecoder::setReconfigParams(const Rect *pCropRect, const Dim *pResizeDim)
 *  0: fail, >=1: succeeded
 */
 int NvDecoder::HandlePictureDecode(CUVIDPICPARAMS *pPicParams) {
+    const int64_t timingStartUs = DecoderTimingNowUs();
     if (!m_hDecoder)
     {
         NVDEC_THROW_ERROR("Decoder not initialized.", CUDA_ERROR_NOT_INITIALIZED);
@@ -532,6 +542,8 @@ int NvDecoder::HandlePictureDecode(CUVIDPICPARAMS *pPicParams) {
         HandlePictureDisplay(&dispInfo);
     }
     CUDA_DRVAPI_CALL(cuCtxPopCurrent(NULL));
+    m_timingStats.picture_decode_calls++;
+    m_timingStats.picture_decode_us += DecoderTimingNowUs() - timingStartUs;
     return 1;
 }
 
@@ -539,6 +551,7 @@ int NvDecoder::HandlePictureDecode(CUVIDPICPARAMS *pPicParams) {
 *  0: fail, >=1: succeeded
 */
 int NvDecoder::HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo) {
+    const int64_t timingDisplayStartUs = DecoderTimingNowUs();
     CUVIDPROCPARAMS videoProcessingParameters = {};
     videoProcessingParameters.progressive_frame = pDispInfo->progressive_frame;
     videoProcessingParameters.second_field = pDispInfo->repeat_first_field + 1;
@@ -590,9 +603,12 @@ int NvDecoder::HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo) {
     CUdeviceptr dpSrcFrame = 0;
     unsigned int nSrcPitch = 0;
     CUDA_DRVAPI_CALL(cuCtxPushCurrent(m_cuContext));
+    int64_t timingStepStartUs = DecoderTimingNowUs();
     NVDEC_API_CALL(cuvidMapVideoFrame(m_hDecoder, pDispInfo->picture_index, &dpSrcFrame,
         &nSrcPitch, &videoProcessingParameters));
+    m_timingStats.map_us += DecoderTimingNowUs() - timingStepStartUs;
 
+    timingStepStartUs = DecoderTimingNowUs();
     CUVIDGETDECODESTATUS DecodeStatus;
     memset(&DecodeStatus, 0, sizeof(DecodeStatus));
     CUresult result = cuvidGetDecodeStatus(m_hDecoder, pDispInfo->picture_index, &DecodeStatus);
@@ -600,14 +616,17 @@ int NvDecoder::HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo) {
     {
         printf("Decode Error occurred for picture %d\n", m_nPicNumInDecodeOrder[pDispInfo->picture_index]);
     }
+    m_timingStats.status_us += DecoderTimingNowUs() - timingStepStartUs;
 
     uint8_t *pDecodedFrame = nullptr;
+    timingStepStartUs = DecoderTimingNowUs();
     {
         std::lock_guard<std::mutex> lock(m_mtxVPFrame);
         if ((unsigned)++m_nDecodedFrame > m_vpFrame.size())
         {
             // Not enough frames in stock
             m_nFrameAlloc++;
+            m_timingStats.frame_allocations++;
             uint8_t *pFrame = NULL;
             if (m_bUseDeviceFrame)
             {
@@ -628,7 +647,9 @@ int NvDecoder::HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo) {
         }
         pDecodedFrame = m_vpFrame[m_nDecodedFrame - 1];
     }
+    m_timingStats.alloc_us += DecoderTimingNowUs() - timingStepStartUs;
 
+    timingStepStartUs = DecoderTimingNowUs();
     // Copy luma plane
     CUDA_MEMCPY2D m = { 0 };
     m.srcMemoryType = CU_MEMORYTYPE_DEVICE;
@@ -655,7 +676,10 @@ int NvDecoder::HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo) {
         m.Height = m_nChromaHeight;
         CUDA_DRVAPI_CALL(cuMemcpy2DAsync(&m, m_cuvidStream));
     }
+    m_timingStats.copy_submit_us += DecoderTimingNowUs() - timingStepStartUs;
+    timingStepStartUs = DecoderTimingNowUs();
     CUDA_DRVAPI_CALL(cuStreamSynchronize(m_cuvidStream));
+    m_timingStats.sync_us += DecoderTimingNowUs() - timingStepStartUs;
     CUDA_DRVAPI_CALL(cuCtxPopCurrent(NULL));
 
     if ((int)m_vTimestamp.size() < m_nDecodedFrame) {
@@ -663,7 +687,11 @@ int NvDecoder::HandlePictureDisplay(CUVIDPARSERDISPINFO *pDispInfo) {
     }
     m_vTimestamp[m_nDecodedFrame - 1] = pDispInfo->timestamp;
 
+    timingStepStartUs = DecoderTimingNowUs();
     NVDEC_API_CALL(cuvidUnmapVideoFrame(m_hDecoder, dpSrcFrame));
+    m_timingStats.unmap_us += DecoderTimingNowUs() - timingStepStartUs;
+    m_timingStats.picture_display_calls++;
+    m_timingStats.display_total_us += DecoderTimingNowUs() - timingDisplayStartUs;
     return 1;
 }
 
@@ -801,6 +829,13 @@ int NvDecoder::Decode(const uint8_t *pData, int nSize, int nFlags, int64_t nTime
     NVDEC_API_CALL(cuvidParseVideoData(m_hParser, &packet));
 
     return m_nDecodedFrame;
+}
+
+NvDecoder::TimingStats NvDecoder::ConsumeTimingStats()
+{
+    TimingStats stats = m_timingStats;
+    m_timingStats = {};
+    return stats;
 }
 
 uint8_t* NvDecoder::GetFrame(int64_t* pTimestamp)

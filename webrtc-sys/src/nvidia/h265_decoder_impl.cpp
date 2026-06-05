@@ -102,12 +102,25 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
+  const int64_t timing_total_start_us =
+      timing_logger_.enabled() ? nvidia::TimingNowUs() : 0;
+  timing_logger_.RecordInput(input_image.size());
+
   int nFrameReturned = 0;
+  int decode_iterations = 0;
   do {
-    nFrameReturned = decoder_->Decode(
-        input_image.data(), static_cast<int>(input_image.size()),
-        CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
+    {
+      nvidia::ScopedDuration timer(timing_logger_.nv_decode());
+      nFrameReturned = decoder_->Decode(
+          input_image.data(), static_cast<int>(input_image.size()),
+          CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
+    }
+    timing_logger_.RecordDecodeCall(nFrameReturned);
+    timing_logger_.RecordNvDecoderStats(decoder_->ConsumeTimingStats());
+    decode_iterations++;
   } while (nFrameReturned == 0);
+  timing_logger_.RecordDecodeRetries(decode_iterations - 1);
+  timing_logger_.RecordOutputFrames(nFrameReturned);
 
   is_configured_decoder_ = true;
 
@@ -124,14 +137,22 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
 
   for (int i = 0; i < nFrameReturned; i++) {
     int64_t timeStamp;
-    uint8_t* pFrame = decoder_->GetFrame(&timeStamp);
+    uint8_t* pFrame = nullptr;
+    {
+      nvidia::ScopedDuration timer(timing_logger_.get_frame());
+      pFrame = decoder_->GetFrame(&timeStamp);
+    }
 
-    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer =
-        NvidiaCudaNv12VideoFrameBuffer::Create(
-            cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
-            decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
-            decoder_->GetHeight());
+    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer;
+    {
+      nvidia::ScopedDuration timer(timing_logger_.native_wrap());
+      frame_buffer = NvidiaCudaNv12VideoFrameBuffer::Create(
+          cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
+          decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
+          decoder_->GetHeight());
+    }
     if (!frame_buffer) {
+      timing_logger_.RecordCpuFallbackFrame();
       if (!native_cuda_buffer_failed_logged_) {
         RTC_LOG(LS_WARNING)
             << "Failed to create NVIDIA CUDA native frame; falling back to "
@@ -141,13 +162,18 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
       webrtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
           buffer_pool_.CreateI420Buffer(decoder_->GetWidth(),
                                         decoder_->GetHeight());
-      if (!CopyDeviceNv12ToI420(
-              cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
-              decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
-              decoder_->GetHeight(), i420_buffer.get())) {
-        return WEBRTC_VIDEO_CODEC_ERROR;
+      {
+        nvidia::ScopedDuration timer(timing_logger_.cpu_fallback_copy());
+        if (!CopyDeviceNv12ToI420(
+                cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
+                decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
+                decoder_->GetHeight(), i420_buffer.get())) {
+          return WEBRTC_VIDEO_CODEC_ERROR;
+        }
       }
       frame_buffer = i420_buffer;
+    } else {
+      timing_logger_.RecordNativeFrame();
     }
 
     VideoFrame decoded_frame = VideoFrame::Builder()
@@ -159,11 +185,18 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
 
     std::optional<int32_t> decodetime;
     std::optional<int> qp;  // Not parsed for H265 currently
-    decoded_complete_callback_->Decoded(decoded_frame, decodetime, qp);
+    {
+      nvidia::ScopedDuration timer(timing_logger_.callback());
+      decoded_complete_callback_->Decoded(decoded_frame, decodetime, qp);
+    }
   }
+
+  if (timing_logger_.enabled()) {
+    timing_logger_.total()->Record(nvidia::TimingNowUs() - timing_total_start_us);
+  }
+  timing_logger_.MaybeLog();
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 }  // end namespace webrtc
-

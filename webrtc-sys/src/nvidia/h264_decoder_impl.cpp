@@ -107,7 +107,14 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
-  h264_bitstream_parser_.ParseBitstream(input_image);
+  const int64_t timing_total_start_us =
+      timing_logger_.enabled() ? nvidia::TimingNowUs() : 0;
+  timing_logger_.RecordInput(input_image.size());
+
+  {
+    nvidia::ScopedDuration timer(timing_logger_.bitstream_parse());
+    h264_bitstream_parser_.ParseBitstream(input_image);
+  }
   std::optional<int> qp = h264_bitstream_parser_.GetLastSliceQp();
   std::optional<SpsParser::SpsState> sps = h264_bitstream_parser_.sps();
 
@@ -120,11 +127,20 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
   }
 
   int nFrameReturnd = 0;
+  int decode_iterations = 0;
   do {
-    nFrameReturnd = decoder_->Decode(
-        input_image.data(), static_cast<int>(input_image.size()),
-        CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
+    {
+      nvidia::ScopedDuration timer(timing_logger_.nv_decode());
+      nFrameReturnd = decoder_->Decode(
+          input_image.data(), static_cast<int>(input_image.size()),
+          CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
+    }
+    timing_logger_.RecordDecodeCall(nFrameReturnd);
+    timing_logger_.RecordNvDecoderStats(decoder_->ConsumeTimingStats());
+    decode_iterations++;
   } while (nFrameReturnd == 0);
+  timing_logger_.RecordDecodeRetries(decode_iterations - 1);
+  timing_logger_.RecordOutputFrames(nFrameReturnd);
 
   is_configured_decoder_ = true;
 
@@ -145,14 +161,22 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
 
   for (int i = 0; i < nFrameReturnd; i++) {
     int64_t timeStamp;
-    uint8_t* pFrame = decoder_->GetFrame(&timeStamp);
+    uint8_t* pFrame = nullptr;
+    {
+      nvidia::ScopedDuration timer(timing_logger_.get_frame());
+      pFrame = decoder_->GetFrame(&timeStamp);
+    }
 
-    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer =
-        NvidiaCudaNv12VideoFrameBuffer::Create(
-            cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
-            decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
-            decoder_->GetHeight());
+    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer;
+    {
+      nvidia::ScopedDuration timer(timing_logger_.native_wrap());
+      frame_buffer = NvidiaCudaNv12VideoFrameBuffer::Create(
+          cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
+          decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
+          decoder_->GetHeight());
+    }
     if (!frame_buffer) {
+      timing_logger_.RecordCpuFallbackFrame();
       if (!native_cuda_buffer_failed_logged_) {
         RTC_LOG(LS_WARNING)
             << "Failed to create NVIDIA CUDA native frame; falling back to "
@@ -162,13 +186,18 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
       webrtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
           buffer_pool_.CreateI420Buffer(decoder_->GetWidth(),
                                         decoder_->GetHeight());
-      if (!CopyDeviceNv12ToI420(
-              cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
-              decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
-              decoder_->GetHeight(), i420_buffer.get())) {
-        return WEBRTC_VIDEO_CODEC_ERROR;
+      {
+        nvidia::ScopedDuration timer(timing_logger_.cpu_fallback_copy());
+        if (!CopyDeviceNv12ToI420(
+                cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
+                decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
+                decoder_->GetHeight(), i420_buffer.get())) {
+          return WEBRTC_VIDEO_CODEC_ERROR;
+        }
       }
       frame_buffer = i420_buffer;
+    } else {
+      timing_logger_.RecordNativeFrame();
     }
 
     VideoFrame decoded_frame =
@@ -180,8 +209,16 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
 
     // todo: measurement decoding time
     std::optional<int32_t> decodetime;
-    decoded_complete_callback_->Decoded(decoded_frame, decodetime, qp);
+    {
+      nvidia::ScopedDuration timer(timing_logger_.callback());
+      decoded_complete_callback_->Decoded(decoded_frame, decodetime, qp);
+    }
   }
+
+  if (timing_logger_.enabled()) {
+    timing_logger_.total()->Record(nvidia::TimingNowUs() - timing_total_start_us);
+  }
+  timing_logger_.MaybeLog();
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
