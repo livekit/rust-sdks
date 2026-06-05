@@ -4172,6 +4172,7 @@ name = "local_video"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "ash",
  "bytemuck",
  "chrono",
  "clap",

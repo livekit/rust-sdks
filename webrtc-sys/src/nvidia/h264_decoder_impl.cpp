@@ -3,8 +3,7 @@
 #include <api/video/i420_buffer.h>
 #include <api/video/video_codec_type.h>
 #include <modules/video_coding/include/video_error_codes.h>
-#include <third_party/libyuv/include/libyuv/convert.h>
-
+#include "cuda_nv12_video_frame_buffer.h"
 #include "NvDecoder/NvDecoder.h"
 #include "Utils/NvCodecUtils.h"
 #include "rtc_base/checks.h"
@@ -69,9 +68,8 @@ bool NvidiaH264DecoderImpl::Configure(const Settings& settings) {
   int maxWidth = 4096;
   int maxHeight = 4096;
 
-  // bUseDeviceFrame: allocate in memory or cuda device memory
   decoder_ = std::make_unique<NvDecoder>(
-      cu_context_, false, cudaVideoCodec_H264, true, false, nullptr, nullptr,
+      cu_context_, true, cudaVideoCodec_H264, true, true, nullptr, nullptr,
       false, maxWidth, maxHeight);
   return true;
 }
@@ -149,28 +147,33 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
     int64_t timeStamp;
     uint8_t* pFrame = decoder_->GetFrame(&timeStamp);
 
-    webrtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
-        buffer_pool_.CreateI420Buffer(decoder_->GetWidth(),
-                                      decoder_->GetHeight());
-
-    int result;
-    {
-      result = libyuv::NV12ToI420(
-          pFrame, decoder_->GetDeviceFramePitch(),
-          pFrame + decoder_->GetHeight() * decoder_->GetDeviceFramePitch(),
-          decoder_->GetDeviceFramePitch(), i420_buffer->MutableDataY(),
-          i420_buffer->StrideY(), i420_buffer->MutableDataU(),
-          i420_buffer->StrideU(), i420_buffer->MutableDataV(),
-          i420_buffer->StrideV(), decoder_->GetWidth(), decoder_->GetHeight());
-    }
-
-    if (result) {
-      RTC_LOG(LS_INFO) << "libyuv::NV12ToI420 failed. error:" << result;
+    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer =
+        NvidiaCudaNv12VideoFrameBuffer::Create(
+            cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
+            decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
+            decoder_->GetHeight());
+    if (!frame_buffer) {
+      if (!native_cuda_buffer_failed_logged_) {
+        RTC_LOG(LS_WARNING)
+            << "Failed to create NVIDIA CUDA native frame; falling back to "
+               "CPU I420 decode path";
+        native_cuda_buffer_failed_logged_ = true;
+      }
+      webrtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
+          buffer_pool_.CreateI420Buffer(decoder_->GetWidth(),
+                                        decoder_->GetHeight());
+      if (!CopyDeviceNv12ToI420(
+              cu_context_, reinterpret_cast<CUdeviceptr>(pFrame),
+              decoder_->GetDeviceFramePitch(), decoder_->GetWidth(),
+              decoder_->GetHeight(), i420_buffer.get())) {
+        return WEBRTC_VIDEO_CODEC_ERROR;
+      }
+      frame_buffer = i420_buffer;
     }
 
     VideoFrame decoded_frame =
         VideoFrame::Builder()
-            .set_video_frame_buffer(i420_buffer)
+            .set_video_frame_buffer(frame_buffer)
             .set_timestamp_rtp(static_cast<uint32_t>(timeStamp))
             .set_color_space(color_space)
             .build();

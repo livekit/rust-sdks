@@ -38,10 +38,10 @@ class NvidiaH265DecoderImpl : public VideoDecoder {
 
   DecodedImageCallback* decoded_complete_callback_ = nullptr;
   webrtc::VideoFrameBufferPool buffer_pool_;
+  bool native_cuda_buffer_failed_logged_ = false;
 };
 
 }  // end namespace webrtc
 
 #endif  // WEBRTC_NVIDIA_H265_DECODER_IMPL_H_
-
 

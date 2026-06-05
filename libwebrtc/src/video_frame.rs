@@ -493,6 +493,35 @@ pub mod native {
 
     new_buffer_type!(NativeBuffer, Native, as_native);
 
+    /// Native NVIDIA CUDA pixel format carried by a [`NativeBuffer`].
+    #[cfg(target_os = "linux")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum NvidiaCudaFormat {
+        /// NV12 with one luma plane and one interleaved UV plane.
+        Nv12,
+    }
+
+    /// Non-owning metadata for a Linux NVIDIA CUDA-backed NV12 frame.
+    ///
+    /// The CUDA handles are valid only while the source [`NativeBuffer`] or
+    /// owning frame remains alive.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct NvidiaCudaNv12Buffer {
+        /// CUDA context that owns `device_ptr`.
+        pub cuda_context: u64,
+        /// CUDA device pointer to the first byte of the NV12 luma plane.
+        pub device_ptr: u64,
+        /// Pitch in bytes for both the luma and interleaved UV planes.
+        pub pitch: u32,
+        /// Visible luma width in pixels.
+        pub width: u32,
+        /// Visible luma height in pixels.
+        pub height: u32,
+        /// Native CUDA pixel format.
+        pub format: NvidiaCudaFormat,
+    }
+
     impl NativeBuffer {
         /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
         ///
@@ -511,6 +540,27 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+
+        /// Returns Linux NVIDIA CUDA NV12 metadata for this native buffer.
+        ///
+        /// The returned CUDA context and device pointer are non-owning handles
+        /// that remain valid only while this [`NativeBuffer`] or the owning
+        /// frame is alive.
+        #[cfg(target_os = "linux")]
+        pub fn as_nvidia_cuda_nv12(&self) -> Option<NvidiaCudaNv12Buffer> {
+            let info = self.handle.as_nvidia_cuda_nv12()?;
+            Some(NvidiaCudaNv12Buffer {
+                cuda_context: info.cuda_context,
+                device_ptr: info.device_ptr,
+                pitch: info.pitch,
+                width: info.width,
+                height: info.height,
+                format: match info.format {
+                    0 => NvidiaCudaFormat::Nv12,
+                    _ => return None,
+                },
+            })
         }
     }
 
@@ -552,4 +602,16 @@ pub mod web {
     pub struct WebGlBuffer {}
 
     impl VideoFrameBuffer for WebGlBuffer {}
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::{I420Buffer, VideoBuffer};
+
+    #[test]
+    fn non_native_buffers_do_not_expose_nvidia_cuda_nv12_metadata() {
+        let buffer = I420Buffer::new(2, 2);
+
+        assert!(buffer.as_native().and_then(|native| native.as_nvidia_cuda_nv12()).is_none());
+    }
 }

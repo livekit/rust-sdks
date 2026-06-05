@@ -373,6 +373,311 @@ mod macos_native_video {
     }
 }
 
+#[cfg(target_os = "linux")]
+mod linux_nvidia_native_video {
+    use anyhow::{anyhow, Context, Result};
+    use ash::{khr, vk};
+    use eframe::wgpu;
+    use livekit::webrtc::video_frame::native::NvidiaCudaNv12Buffer;
+
+    pub(crate) struct ImportedNativeFrame {
+        pub(crate) y_tex: wgpu::Texture,
+        pub(crate) uv_tex: wgpu::Texture,
+        pub(crate) y_view: wgpu::TextureView,
+        pub(crate) uv_view: wgpu::TextureView,
+        pub(crate) full_size: (u32, u32),
+        pub(crate) uv_size: (u32, u32),
+    }
+
+    pub(crate) struct NvidiaCudaVulkanImporter {
+        _instance: ash::Instance,
+        _device: ash::Device,
+        _physical_device: vk::PhysicalDevice,
+        external_memory_fd: khr::external_memory_fd::Device,
+        y: ExternalPlane,
+        uv: ExternalPlane,
+        full_size: (u32, u32),
+        uv_size: (u32, u32),
+    }
+
+    struct ExternalPlane {
+        texture: wgpu::Texture,
+        view: wgpu::TextureView,
+        memory: vk::DeviceMemory,
+        allocation_size: u64,
+    }
+
+    impl NvidiaCudaVulkanImporter {
+        pub(crate) fn prepare(
+            importer: &mut Option<Self>,
+            device: &wgpu::Device,
+            encoder: &mut wgpu::CommandEncoder,
+            info: NvidiaCudaNv12Buffer,
+        ) -> Result<Option<ImportedNativeFrame>> {
+            let full_size = (info.width, info.height);
+            let uv_size = ((info.width + 1) / 2, (info.height + 1) / 2);
+            let needs_recreate =
+                importer.as_ref().map(|i| i.full_size != full_size).unwrap_or(true);
+            if needs_recreate {
+                let new_importer = Self::new(device, full_size, uv_size)?;
+                new_importer.clear(encoder);
+                *importer = Some(new_importer);
+                return Ok(None);
+            }
+
+            let importer = importer
+                .as_ref()
+                .ok_or_else(|| anyhow!("NVIDIA CUDA/Vulkan importer was not initialized"))?;
+            importer.copy_frame(info)?;
+            Ok(Some(importer.imported_frame()))
+        }
+
+        fn new(device: &wgpu::Device, full_size: (u32, u32), uv_size: (u32, u32)) -> Result<Self> {
+            // SAFETY: This borrows wgpu's Vulkan HAL device only long enough to
+            // clone the raw Vulkan handles and create compatible external images.
+            let (instance, raw_device, physical_device, external_memory_fd, y, uv) = unsafe {
+                let hal_device = device
+                    .as_hal::<wgpu::hal::api::Vulkan>()
+                    .ok_or_else(|| anyhow!("wgpu is not using the Vulkan backend"))?;
+                let instance = hal_device.shared_instance().raw_instance().clone();
+                let raw_device = hal_device.raw_device().clone();
+                let physical_device = hal_device.raw_physical_device();
+                let external_memory_fd =
+                    khr::external_memory_fd::Device::new(&instance, &raw_device);
+                let y = create_external_plane(
+                    device,
+                    &hal_device,
+                    &instance,
+                    &raw_device,
+                    physical_device,
+                    full_size.0,
+                    full_size.1,
+                    wgpu::TextureFormat::R8Unorm,
+                    vk::Format::R8_UNORM,
+                    "nvidia_cuda_y_plane",
+                )?;
+                let uv = create_external_plane(
+                    device,
+                    &hal_device,
+                    &instance,
+                    &raw_device,
+                    physical_device,
+                    uv_size.0,
+                    uv_size.1,
+                    wgpu::TextureFormat::Rg8Unorm,
+                    vk::Format::R8G8_UNORM,
+                    "nvidia_cuda_uv_plane",
+                )?;
+                (instance, raw_device, physical_device, external_memory_fd, y, uv)
+            };
+
+            Ok(Self {
+                _instance: instance,
+                _device: raw_device,
+                _physical_device: physical_device,
+                external_memory_fd,
+                y,
+                uv,
+                full_size,
+                uv_size,
+            })
+        }
+
+        fn clear(&self, encoder: &mut wgpu::CommandEncoder) {
+            let range = wgpu::ImageSubresourceRange {
+                aspect: wgpu::TextureAspect::All,
+                base_mip_level: 0,
+                mip_level_count: Some(1),
+                base_array_layer: 0,
+                array_layer_count: Some(1),
+            };
+            encoder.clear_texture(&self.y.texture, &range);
+            encoder.clear_texture(&self.uv.texture, &range);
+        }
+
+        fn copy_frame(&self, info: NvidiaCudaNv12Buffer) -> Result<()> {
+            if info.width != self.full_size.0 || info.height != self.full_size.1 {
+                return Err(anyhow!(
+                    "NVIDIA frame size changed from {}x{} to {}x{}",
+                    self.full_size.0,
+                    self.full_size.1,
+                    info.width,
+                    info.height
+                ));
+            }
+
+            let y_fd = self.export_fd(self.y.memory).context("exporting Y plane memory fd")?;
+            let uv_fd = self.export_fd(self.uv.memory).context("exporting UV plane memory fd")?;
+            let copied =
+                webrtc_sys::video_frame_buffer::ffi::copy_nvidia_cuda_nv12_to_external_images(
+                    info.cuda_context,
+                    info.device_ptr,
+                    info.pitch,
+                    info.width,
+                    info.height,
+                    y_fd,
+                    self.y.allocation_size,
+                    uv_fd,
+                    self.uv.allocation_size,
+                );
+            if !copied {
+                return Err(anyhow!("CUDA copy into Vulkan external images failed"));
+            }
+            Ok(())
+        }
+
+        fn export_fd(&self, memory: vk::DeviceMemory) -> Result<i32> {
+            let fd_info = vk::MemoryGetFdInfoKHR::default()
+                .memory(memory)
+                .handle_type(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
+            // SAFETY: `memory` is an exportable allocation owned by this importer.
+            let fd = unsafe { self.external_memory_fd.get_memory_fd(&fd_info) }
+                .context("vkGetMemoryFdKHR failed")?;
+            Ok(fd)
+        }
+
+        fn imported_frame(&self) -> ImportedNativeFrame {
+            ImportedNativeFrame {
+                y_tex: self.y.texture.clone(),
+                uv_tex: self.uv.texture.clone(),
+                y_view: self.y.view.clone(),
+                uv_view: self.uv.view.clone(),
+                full_size: self.full_size,
+                uv_size: self.uv_size,
+            }
+        }
+    }
+
+    unsafe fn create_external_plane(
+        wgpu_device: &wgpu::Device,
+        hal_device: &wgpu::hal::vulkan::Device,
+        instance: &ash::Instance,
+        raw_device: &ash::Device,
+        physical_device: vk::PhysicalDevice,
+        width: u32,
+        height: u32,
+        wgpu_format: wgpu::TextureFormat,
+        vk_format: vk::Format,
+        label: &'static str,
+    ) -> Result<ExternalPlane> {
+        let size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+        let mut external_info = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
+        let image_info = vk::ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(vk_format)
+            .extent(vk::Extent3D { width, height, depth: 1 })
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .push_next(&mut external_info);
+        // SAFETY: The image descriptor is fully initialized and tied to `raw_device`.
+        let image = unsafe { raw_device.create_image(&image_info, None) }
+            .context("vkCreateImage failed")?;
+        // SAFETY: `image` was just created on `raw_device` and is still owned here.
+        let memory_requirements = unsafe { raw_device.get_image_memory_requirements(image) };
+        let Some(memory_type_index) = find_memory_type_index(
+            instance,
+            physical_device,
+            memory_requirements.memory_type_bits,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        ) else {
+            // SAFETY: `image` has not been handed to wgpu yet and has no bound memory.
+            unsafe { raw_device.destroy_image(image, None) };
+            return Err(anyhow!("no device-local Vulkan memory type for external texture"));
+        };
+
+        let mut export_info = vk::ExportMemoryAllocateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
+        let mut dedicated_info = vk::MemoryDedicatedAllocateInfo::default().image(image);
+        let allocate_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(memory_requirements.size)
+            .memory_type_index(memory_type_index)
+            .push_next(&mut dedicated_info)
+            .push_next(&mut export_info);
+        // SAFETY: Allocation parameters come from Vulkan image requirements.
+        let memory = match unsafe { raw_device.allocate_memory(&allocate_info, None) } {
+            Ok(memory) => memory,
+            Err(err) => {
+                // SAFETY: `image` has not been handed to wgpu yet and has no bound memory.
+                unsafe { raw_device.destroy_image(image, None) };
+                return Err(anyhow!("vkAllocateMemory failed: {err:?}"));
+            }
+        };
+        // SAFETY: `memory` was allocated for `image` with the matching requirements.
+        if let Err(err) = unsafe { raw_device.bind_image_memory(image, memory, 0) } {
+            // SAFETY: Both resources are still exclusively owned by this function.
+            unsafe {
+                raw_device.free_memory(memory, None);
+                raw_device.destroy_image(image, None);
+            }
+            return Err(anyhow!("vkBindImageMemory failed: {err:?}"));
+        }
+
+        let hal_desc = wgpu::hal::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu_format,
+            usage: wgpu::TextureUses::RESOURCE | wgpu::TextureUses::COPY_DST,
+            memory_flags: wgpu::hal::MemoryFlags::empty(),
+            view_formats: Vec::new(),
+        };
+        let wgpu_desc = wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        };
+
+        let drop_device = raw_device.clone();
+        // SAFETY: wgpu owns the image after `texture_from_raw`; this callback releases the
+        // matching Vulkan resources when wgpu drops the texture.
+        let drop_callback = Box::new(move || unsafe {
+            drop_device.destroy_image(image, None);
+            drop_device.free_memory(memory, None);
+        });
+        // SAFETY: `image` and `hal_desc` describe the same Vulkan texture allocation.
+        let hal_texture =
+            unsafe { hal_device.texture_from_raw(image, &hal_desc, Some(drop_callback)) };
+        // SAFETY: The HAL texture was created from this `wgpu_device`'s Vulkan backend.
+        let texture = unsafe {
+            wgpu_device.create_texture_from_hal::<wgpu::hal::api::Vulkan>(hal_texture, &wgpu_desc)
+        };
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        Ok(ExternalPlane { texture, view, memory, allocation_size: memory_requirements.size })
+    }
+
+    fn find_memory_type_index(
+        instance: &ash::Instance,
+        physical_device: vk::PhysicalDevice,
+        type_bits: u32,
+        required: vk::MemoryPropertyFlags,
+    ) -> Option<u32> {
+        // SAFETY: `physical_device` was returned by the same Vulkan instance.
+        let memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(physical_device) };
+        memory_properties.memory_types_as_slice().iter().enumerate().find_map(
+            |(index, memory_type)| {
+                let supported = type_bits & (1 << index) != 0;
+                let has_flags = memory_type.property_flags & required == required;
+                (supported && has_flags).then_some(index as u32)
+            },
+        )
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -777,7 +1082,8 @@ fn video_status_line(
     simulcast: bool,
 ) -> String {
     let codec = codec_with_implementation(codec, codec_implementation);
-    let bitrate = bitrate_mbps.map(|mbps| format!(" {:.1}mbps", mbps.max(0.0))).unwrap_or_default();
+    let bitrate =
+        bitrate_mbps.map(|mbps| format!(" {:.1} mbps", mbps.max(0.0))).unwrap_or_default();
     if simulcast {
         format!("{}x{} {:.1}fps {codec}{bitrate} Simulcast", width, height, fps.max(0.0))
     } else {
@@ -1473,6 +1779,14 @@ struct YuvGpuState {
     native_import_logged: bool,
     #[cfg(target_os = "macos")]
     native_import_failed_logged: bool,
+    #[cfg(target_os = "linux")]
+    nvidia_importer: Option<linux_nvidia_native_video::NvidiaCudaVulkanImporter>,
+    #[cfg(target_os = "linux")]
+    nvidia_native_disabled: bool,
+    #[cfg(target_os = "linux")]
+    nvidia_import_logged: bool,
+    #[cfg(target_os = "linux")]
+    nvidia_import_failed_logged: bool,
 }
 
 impl YuvGpuState {
@@ -1566,7 +1880,8 @@ impl CallbackTrait for YuvPaintCallback {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         _screen_desc: &egui_wgpu_backend::ScreenDescriptor,
-        _encoder: &mut wgpu::CommandEncoder,
+        #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+        encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu_backend::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let Some(dims) = self.video_size.load() else {
@@ -1764,6 +2079,17 @@ impl CallbackTrait for YuvPaintCallback {
                 native_import_logged: false,
                 #[cfg(target_os = "macos")]
                 native_import_failed_logged: false,
+                #[cfg(target_os = "linux")]
+                nvidia_importer: None,
+                #[cfg(target_os = "linux")]
+                nvidia_native_disabled: env::var(
+                    "LIVEKIT_LOCAL_VIDEO_DISABLE_NVIDIA_NATIVE_RENDER",
+                )
+                .is_ok_and(|value| value == "1"),
+                #[cfg(target_os = "linux")]
+                nvidia_import_logged: false,
+                #[cfg(target_os = "linux")]
+                nvidia_import_failed_logged: false,
             };
             resources.insert(new_state);
         }
@@ -1868,6 +2194,75 @@ impl CallbackTrait for YuvPaintCallback {
                     }
                 } else {
                     frame_for_cpu_upload = Some((frame, sample));
+                }
+            } else {
+                frame_for_cpu_upload = Some((frame, sample));
+            }
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Some((frame, sample)) = frame_for_cpu_upload.take() {
+            if state.nvidia_native_disabled {
+                frame_for_cpu_upload = Some((frame, sample));
+            } else if let Some(info) =
+                frame.buffer.as_native().and_then(|native| native.as_nvidia_cuda_nv12())
+            {
+                match linux_nvidia_native_video::NvidiaCudaVulkanImporter::prepare(
+                    &mut state.nvidia_importer,
+                    device,
+                    encoder,
+                    info,
+                ) {
+                    Ok(Some(imported)) => {
+                        let full_size = imported.full_size;
+                        let uv_size = imported.uv_size;
+                        if state.dims != full_size || state.yuv_layout != 1 {
+                            state.y_tex = imported.y_tex;
+                            state.u_tex = imported.uv_tex.clone();
+                            state.v_tex = imported.uv_tex;
+                            state.y_view = imported.y_view;
+                            state.u_view = imported.uv_view.clone();
+                            state.v_view = imported.uv_view;
+                            state.y_tex_w = full_size.0;
+                            state.uv_tex_w = uv_size.0;
+                            state.dims = full_size;
+                            state.yuv_layout = 1;
+                            state.recreate_bind_group(device);
+                        }
+                        if !state.nvidia_import_logged {
+                            info!("Using NVIDIA CUDA/Vulkan GPU render path (no CPU frame upload)");
+                            state.nvidia_import_logged = true;
+                        }
+                        state.update_params(
+                            queue,
+                            ParamsUniform {
+                                src_w: full_size.0,
+                                src_h: full_size.1,
+                                y_tex_w: state.y_tex_w,
+                                uv_tex_w: state.uv_tex_w,
+                                yuv_layout: state.yuv_layout,
+                                _pad0: 0,
+                                _pad1: 0,
+                                _pad2: 0,
+                            },
+                        );
+                        match sample {
+                            Some(sample) => state.pending_paint_sample.store(sample),
+                            None => state.pending_paint_sample.clear(),
+                        }
+                    }
+                    Ok(None) => {
+                        frame_for_cpu_upload = Some((frame, sample));
+                    }
+                    Err(err) => {
+                        if !state.nvidia_import_failed_logged {
+                            debug!(
+                                "Unable to import NVIDIA CUDA video frame, falling back to CPU upload: {err:?}"
+                            );
+                            state.nvidia_import_failed_logged = true;
+                        }
+                        frame_for_cpu_upload = Some((frame, sample));
+                    }
                 }
             } else {
                 frame_for_cpu_upload = Some((frame, sample));

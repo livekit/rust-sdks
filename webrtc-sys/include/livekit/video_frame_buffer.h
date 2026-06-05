@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include "api/video/i420_buffer.h"
@@ -64,6 +65,7 @@ class VideoFrameBuffer {
 
   unsigned int width() const;
   unsigned int height() const;
+  NvidiaCudaNv12BufferInfo as_nvidia_cuda_nv12() const;
 
   std::unique_ptr<I420Buffer> to_i420() const;
 
@@ -221,6 +223,16 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y,
 
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
+bool copy_nvidia_cuda_nv12_to_external_images(
+    uint64_t cuda_context,
+    uint64_t device_ptr,
+    uint32_t pitch,
+    uint32_t width,
+    uint32_t height,
+    int32_t y_fd,
+    uint64_t y_allocation_size,
+    int32_t uv_fd,
+    uint64_t uv_allocation_size);
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

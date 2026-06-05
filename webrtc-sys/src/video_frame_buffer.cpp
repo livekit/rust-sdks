@@ -18,6 +18,10 @@
 
 #include "api/make_ref_counted.h"
 
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+#include "nvidia/cuda_nv12_video_frame_buffer.h"
+#endif
+
 namespace livekit_ffi {
 
 VideoFrameBuffer::VideoFrameBuffer(
@@ -34,6 +38,26 @@ unsigned int VideoFrameBuffer::width() const {
 
 unsigned int VideoFrameBuffer::height() const {
   return buffer_->height();
+}
+
+NvidiaCudaNv12BufferInfo VideoFrameBuffer::as_nvidia_cuda_nv12() const {
+  NvidiaCudaNv12BufferInfo info = {};
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  auto* nvidia_buffer =
+      dynamic_cast<webrtc::NvidiaCudaNv12VideoFrameBuffer*>(buffer_.get());
+  if (!nvidia_buffer) {
+    return info;
+  }
+  info.supported = true;
+  info.cuda_context =
+      reinterpret_cast<uintptr_t>(nvidia_buffer->cuda_context());
+  info.device_ptr = static_cast<uint64_t>(nvidia_buffer->device_ptr());
+  info.pitch = nvidia_buffer->pitch();
+  info.width = nvidia_buffer->width();
+  info.height = nvidia_buffer->height();
+  info.format = 0;
+#endif
+  return info;
 }
 
 std::unique_ptr<I420Buffer> VideoFrameBuffer::to_i420() const {
@@ -358,5 +382,25 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
 }
 
 #endif
+
+bool copy_nvidia_cuda_nv12_to_external_images(
+    uint64_t cuda_context,
+    uint64_t device_ptr,
+    uint32_t pitch,
+    uint32_t width,
+    uint32_t height,
+    int32_t y_fd,
+    uint64_t y_allocation_size,
+    int32_t uv_fd,
+    uint64_t uv_allocation_size) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  return webrtc::CopyNvidiaCudaNv12ToExternalImages(
+      reinterpret_cast<CUcontext>(static_cast<uintptr_t>(cuda_context)),
+      static_cast<CUdeviceptr>(device_ptr), pitch, width, height, y_fd,
+      y_allocation_size, uv_fd, uv_allocation_size);
+#else
+  return false;
+#endif
+}
 
 }  // namespace livekit_ffi

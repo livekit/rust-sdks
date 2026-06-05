@@ -166,6 +166,12 @@ impl NativeBuffer {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn as_nvidia_cuda_nv12(&self) -> Option<vfb_sys::ffi::NvidiaCudaNv12BufferInfo> {
+        let info = self.sys_handle.as_nvidia_cuda_nv12();
+        info.supported.then_some(info)
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }

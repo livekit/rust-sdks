@@ -28,6 +28,17 @@ pub mod ffi {
         NV12,
     }
 
+    #[derive(Debug, Copy, Clone)]
+    pub struct NvidiaCudaNv12BufferInfo {
+        pub supported: bool,
+        pub cuda_context: u64,
+        pub device_ptr: u64,
+        pub pitch: u32,
+        pub width: u32,
+        pub height: u32,
+        pub format: u32,
+    }
+
     unsafe extern "C++" {
         include!("livekit/video_frame_buffer.h");
 
@@ -48,6 +59,7 @@ pub mod ffi {
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
         fn width(self: &VideoFrameBuffer) -> u32;
         fn height(self: &VideoFrameBuffer) -> u32;
+        fn as_nvidia_cuda_nv12(self: &VideoFrameBuffer) -> NvidiaCudaNv12BufferInfo;
 
         /// # SAFETY
         /// If the buffer type is I420, the buffer must be cloned before
@@ -149,6 +161,17 @@ pub mod ffi {
         unsafe fn native_buffer_to_platform_image_buffer(
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
+        fn copy_nvidia_cuda_nv12_to_external_images(
+            cuda_context: u64,
+            device_ptr: u64,
+            pitch: u32,
+            width: u32,
+            height: u32,
+            y_fd: i32,
+            y_allocation_size: u64,
+            uv_fd: i32,
+            uv_allocation_size: u64,
+        ) -> bool;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
