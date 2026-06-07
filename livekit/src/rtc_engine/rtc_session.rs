@@ -74,7 +74,7 @@ pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
 /// Default data-channel max message size (bytes), used when the remote SDP
 /// answer does not advertise an `a=max-message-size` attribute (RFC 8841).
-pub const DEFAULT_MAX_MESSAGE_SIZE: u64 = 65535;
+pub const DEFAULT_MAX_MESSAGE_SIZE: u64 = 64000;
 
 /// Buffered-amount low threshold for the `_data_track` DC.
 ///
@@ -623,10 +623,12 @@ impl RtcSession {
         });
 
         // Log when a publisher data channel closes without the engine or peer
-        // connection tearing it down
-        for (dc, label) in
-            [(&inner.reliable_dc, RELIABLE_DC_LABEL), (&inner.lossy_dc, LOSSY_DC_LABEL)]
-        {
+        // connection tearing it down 
+        for (dc, label) in [
+            (&inner.reliable_dc, RELIABLE_DC_LABEL),
+            (&inner.lossy_dc, LOSSY_DC_LABEL),
+            (&inner.data_track_dc, DATA_TRACK_DC_LABEL),
+        ] {
             let weak_inner = Arc::downgrade(&inner);
             dc.on_state_change(Some(Box::new(move |state| {
                 if state != DataChannelState::Closed {
@@ -636,7 +638,7 @@ impl RtcSession {
                     return;
                 };
                 if !inner.closed.load(Ordering::Acquire) && inner.publisher_pc.is_connected() {
-                    log::info!("publisher data channel '{}' closed unexpectedly", label);
+                    log::error!("publisher data channel '{}' closed unexpectedly", label);
                 }
             })));
         }
@@ -1236,8 +1238,11 @@ impl SessionInner {
                     }
                 }
 
-                let max_message_size =
-                    parse_sdp_max_message_size(&answer.sdp).unwrap_or(DEFAULT_MAX_MESSAGE_SIZE);
+                let max_message_size = std::cmp::min(
+                    parse_sdp_max_message_size(&answer.sdp).unwrap_or(DEFAULT_MAX_MESSAGE_SIZE),
+                    DEFAULT_MAX_MESSAGE_SIZE,
+                );
+
                 self.max_message_size.store(max_message_size, Ordering::Release);
                 log::debug!("negotiated data channel max message size: {} bytes", max_message_size);
 
