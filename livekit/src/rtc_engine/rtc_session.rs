@@ -623,7 +623,7 @@ impl RtcSession {
         });
 
         // Log when a publisher data channel closes without the engine or peer
-        // connection tearing it down 
+        // connection tearing it down
         for (dc, label) in [
             (&inner.reliable_dc, RELIABLE_DC_LABEL),
             (&inner.lossy_dc, LOSSY_DC_LABEL),
