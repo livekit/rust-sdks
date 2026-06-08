@@ -41,12 +41,22 @@ const MIN_CONTROL_BITRATE_BPS: u64 = BITRATE_KEY_STEP_BPS;
 const MIN_FRAMERATE: f64 = 0.1;
 const MAX_FRAMERATE: f64 = 60.0;
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum EncodingQuality {
     Low,
     Medium,
     High,
+}
+
+impl From<livekit::track::VideoQuality> for EncodingQuality {
+    fn from(quality: livekit::track::VideoQuality) -> Self {
+        match quality {
+            livekit::track::VideoQuality::Low => Self::Low,
+            livekit::track::VideoQuality::Medium => Self::Medium,
+            livekit::track::VideoQuality::High => Self::High,
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -480,6 +490,7 @@ struct EncodingControl {
 
 struct EncodingControlInner {
     room: Arc<Room>,
+    simulcast: Arc<Mutex<SimulcastState>>,
     target: Mutex<Option<EncodingControlTarget>>,
     state: Mutex<EncodingControlState>,
     handle: tokio::runtime::Handle,
@@ -492,10 +503,11 @@ struct EncodingControlTarget {
 }
 
 impl EncodingControl {
-    fn new(room: Arc<Room>) -> Self {
+    fn new(room: Arc<Room>, simulcast: Arc<Mutex<SimulcastState>>) -> Self {
         Self {
             inner: Arc::new(EncodingControlInner {
                 room,
+                simulcast,
                 target: Mutex::new(None),
                 state: Mutex::new(EncodingControlState::default()),
                 handle: tokio::runtime::Handle::current(),
@@ -552,10 +564,14 @@ impl EncodingControl {
     }
 
     fn update_limits(&self, reason: &'static str, update: impl FnOnce(&mut EncodingControlState)) {
-        let (limits, target) = {
+        let (limits, target, quality) = {
             let mut state = self.inner.state.lock();
             update(&mut state);
-            (state.limits(), self.inner.target.lock().clone())
+            (
+                state.limits(),
+                self.inner.target.lock().clone(),
+                simulcast_encoding_quality(&self.inner.simulcast.lock()),
+            )
         };
         let Some(target) = target else {
             debug!("No active publisher video track for encoding control request");
@@ -564,7 +580,8 @@ impl EncodingControl {
 
         let room = self.inner.room.clone();
         self.inner.handle.spawn(async move {
-            if let Err(err) = request_encoding_limits(&room, target, None, limits, reason).await {
+            let result = request_encoding_limits(&room, target, quality, limits, reason).await;
+            if let Err(err) = result {
                 log::warn!("encoding limits RPC failed: {err}");
             }
         });
@@ -735,6 +752,16 @@ impl Default for SimulcastState {
     }
 }
 
+fn simulcast_encoding_quality(state: &SimulcastState) -> Option<EncodingQuality> {
+    state.available.then(|| {
+        state
+            .active_quality
+            .or(state.requested_quality)
+            .unwrap_or(livekit::track::VideoQuality::High)
+            .into()
+    })
+}
+
 fn infer_quality_from_dims(
     full_w: u32,
     _full_h: u32,
@@ -879,18 +906,28 @@ fn update_simulcast_quality_from_stats(
     let Some(inbound) = find_video_inbound_stats(stats) else {
         return;
     };
-    let Some((fw, fh)) = simulcast_state_full_dims(simulcast) else {
+
+    update_simulcast_quality_from_dimensions(
+        inbound.inbound.frame_width as u32,
+        inbound.inbound.frame_height as u32,
+        simulcast,
+    );
+}
+
+fn update_simulcast_quality_from_dimensions(
+    current_width: u32,
+    current_height: u32,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+) {
+    let mut sc = simulcast.lock();
+    if !sc.available {
+        return;
+    }
+    let Some((fw, fh)) = sc.full_dims else {
         return;
     };
 
-    let q = infer_quality_from_dims(
-        fw,
-        fh,
-        inbound.inbound.frame_width as u32,
-        inbound.inbound.frame_height as u32,
-    );
-    let mut sc = simulcast.lock();
-    sc.active_quality = Some(q);
+    sc.active_quality = Some(infer_quality_from_dims(fw, fh, current_width, current_height));
 }
 
 fn update_decoder_implementation_from_stats(
@@ -955,11 +992,6 @@ fn current_timestamp_us() -> u64 {
     static TIMESTAMP_ANCHOR: OnceLock<TimestampAnchor> = OnceLock::new();
     let anchor = TIMESTAMP_ANCHOR.get_or_init(TimestampAnchor::new);
     anchor.unix_timestamp_us.saturating_add(anchor.instant.elapsed().as_micros() as u64)
-}
-
-fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
-    let sc = state.lock();
-    sc.full_dims
 }
 
 fn video_status_line(
@@ -1094,6 +1126,43 @@ mod tests {
 
         assert_eq!(line, "Encoding limit 1.2mbps 0.5fps 4.0x scale");
     }
+
+    #[test]
+    fn encoding_control_skips_quality_for_non_simulcast_tracks() {
+        let state = SimulcastState::default();
+
+        assert_eq!(simulcast_encoding_quality(&state), None);
+    }
+
+    #[test]
+    fn encoding_control_targets_active_simulcast_layer() {
+        let state = SimulcastState {
+            available: true,
+            requested_quality: Some(livekit::track::VideoQuality::High),
+            active_quality: Some(livekit::track::VideoQuality::Medium),
+            ..Default::default()
+        };
+
+        assert_eq!(simulcast_encoding_quality(&state), Some(EncodingQuality::Medium));
+    }
+
+    #[test]
+    fn encoding_control_targets_requested_quality_until_active_layer_is_known() {
+        let state = SimulcastState {
+            available: true,
+            requested_quality: Some(livekit::track::VideoQuality::Low),
+            ..Default::default()
+        };
+
+        assert_eq!(simulcast_encoding_quality(&state), Some(EncodingQuality::Low));
+    }
+
+    #[test]
+    fn encoding_control_defaults_to_high_for_new_simulcast_tracks() {
+        let state = SimulcastState { available: true, ..Default::default() };
+
+        assert_eq!(simulcast_encoding_quality(&state), Some(EncodingQuality::High));
+    }
 }
 
 async fn handle_track_subscribed(
@@ -1172,6 +1241,7 @@ async fn handle_track_subscribed(
     // Start background sink task immediately so stats lookup cannot delay first-frame handling.
     let rtc_track = video_track.rtc_track();
     let shared2 = shared.clone();
+    let simulcast_sink = simulcast.clone();
     let frame_slot_sink = frame_slot.clone();
     let video_size_sink = video_size.clone();
     let active_sid2 = active_sid.clone();
@@ -1222,6 +1292,7 @@ async fn handle_track_subscribed(
             }
             let w = frame.buffer.width();
             let h = frame.buffer.height();
+            update_simulcast_quality_from_dimensions(w, h, &simulcast_sink);
 
             if !logged_first {
                 debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
@@ -1648,7 +1719,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
-    let encoding_control = EncodingControl::new(room.clone());
 
     // Enable E2EE after connection
     if args.e2ee_key.is_some() {
@@ -1678,6 +1748,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     // Shared simulcast UI/control state
     let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
+    let encoding_control = EncodingControl::new(room.clone(), simulcast.clone());
     let repaint_ctx = Arc::new(OnceLock::new());
     let simulcast_events = simulcast.clone();
     let repaint_ctx_events = repaint_ctx.clone();
