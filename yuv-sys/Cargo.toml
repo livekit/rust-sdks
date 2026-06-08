@@ -13,7 +13,7 @@ jpeg = ["dep:pkg-config"]
 
 [build-dependencies]
 bindgen = "0.72.1"
-cc = "1.0"
+cc = { workspace = true }
 regex = "1"
 rayon = "1.8"
 pkg-config = { version = "0.3", optional = true }

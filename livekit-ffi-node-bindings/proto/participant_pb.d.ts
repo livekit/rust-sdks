@@ -294,6 +294,11 @@ export declare class ParticipantInfo extends Message<ParticipantInfo> {
    */
   permission?: ParticipantPermission;
 
+  /**
+   * @generated from field: required int32 client_protocol = 12;
+   */
+  clientProtocol?: number;
+
   constructor(data?: PartialMessage<ParticipantInfo>);
 
   static readonly runtime: typeof proto2;

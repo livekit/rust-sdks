@@ -12,79 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{
+    fmt::Debug,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use libwebrtc::{
     native::packet_trailer::{
-        PacketTrailerHandler, PublishTimingEvent as RtcPublishTimingEvent,
-        PublishTimingObserver as RtcPublishTimingObserver,
-        PublishTimingStage as RtcPublishTimingStage,
+        self, PacketTrailerHandler, PublishTimingObserver as RtcPublishTimingObserver,
     },
     prelude::*,
     stats::RtcStats,
 };
 use livekit_protocol as proto;
 use parking_lot::Mutex;
+use tokio::sync::broadcast;
+use tokio_stream::{wrappers::BroadcastStream, Stream};
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
+
+pub use libwebrtc::native::packet_trailer::{PublishTimingEvent, PublishTimingStage};
+
+const PUBLISH_TIMING_BUFFER: usize = 256;
 
 #[derive(Clone)]
 pub struct LocalVideoTrack {
     inner: Arc<TrackInner>,
     source: RtcVideoSource,
     packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
-    publish_timing_observer: Arc<Mutex<Option<Arc<PublishTimingObserverFn>>>>,
-}
-
-type PublishTimingObserverFn = dyn Fn(PublishTimingEvent) + Send + Sync + 'static;
-
-/// Callback invoked for native local video publish timing events.
-pub type PublishTimingObserver = Box<dyn Fn(PublishTimingEvent) + Send + Sync + 'static>;
-
-/// Stage reached by a native local video frame in the publish pipeline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PublishTimingStage {
-    /// The adapted raw frame was handed to WebRTC's encoder path.
-    EncoderUpload,
-    /// WebRTC produced an encoded frame for packetization.
-    EncoderOutput,
-    /// The encoded frame was handed back to WebRTC's packetizer.
-    WebrtcPacketize,
-}
-
-/// Timestamped native local video publish pipeline event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PublishTimingEvent {
-    /// Publish pipeline stage reached by the frame.
-    pub stage: PublishTimingStage,
-    /// Wall-clock time when this stage was observed, in microseconds since the Unix epoch.
-    pub timestamp_us: u64,
-    /// User capture timestamp associated with this frame, in microseconds since the Unix epoch.
-    pub capture_timestamp_us: u64,
-    /// Optional application frame ID associated with this frame.
-    pub frame_id: Option<u32>,
-}
-
-impl From<RtcPublishTimingStage> for PublishTimingStage {
-    fn from(stage: RtcPublishTimingStage) -> Self {
-        match stage {
-            RtcPublishTimingStage::EncoderUpload => Self::EncoderUpload,
-            RtcPublishTimingStage::EncoderOutput => Self::EncoderOutput,
-            RtcPublishTimingStage::WebrtcPacketize => Self::WebrtcPacketize,
-        }
-    }
-}
-
-impl From<RtcPublishTimingEvent> for PublishTimingEvent {
-    fn from(event: RtcPublishTimingEvent) -> Self {
-        Self {
-            stage: event.stage.into(),
-            timestamp_us: event.timestamp_us,
-            capture_timestamp_us: event.capture_timestamp_us,
-            frame_id: event.frame_id,
-        }
-    }
+    publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -94,6 +53,27 @@ impl Debug for LocalVideoTrack {
             .field("name", &self.name())
             .field("source", &self.source())
             .finish()
+    }
+}
+
+/// A stream of native local video publish-pipeline timing events.
+pub struct PublishTimingEventStream {
+    inner: BroadcastStream<PublishTimingEvent>,
+}
+
+impl Stream for PublishTimingEventStream {
+    type Item = PublishTimingEvent;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            match Pin::new(&mut this.inner).poll_next(cx) {
+                Poll::Ready(Some(Ok(event))) => return Poll::Ready(Some(event)),
+                Poll::Ready(Some(Err(_))) => continue,
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }
 
@@ -108,7 +88,7 @@ impl LocalVideoTrack {
             )),
             source,
             packet_trailer_handler: Arc::new(Mutex::new(None)),
-            publish_timing_observer: Arc::new(Mutex::new(None)),
+            publish_timing_tx: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -186,17 +166,33 @@ impl LocalVideoTrack {
         self.source.clone()
     }
 
-    /// Set a callback for native local video publish pipeline timing events.
+    /// Returns a stream of native local video publish-pipeline timing events.
     ///
-    /// The observer is invoked from WebRTC worker threads and should avoid
-    /// blocking. Pass `None` to clear a previously registered observer.
-    pub fn set_publish_timing_observer(&self, observer: Option<PublishTimingObserver>) {
-        *self.publish_timing_observer.lock() = observer.map(Arc::from);
+    /// Multiple concurrent subscriptions are supported; each call returns an
+    /// independent stream that begins with the next event observed after this
+    /// call. Slow consumers will silently drop intermediate events when the
+    /// internal buffer fills.
+    ///
+    /// The underlying transformer is allocated lazily on first call. If invoked
+    /// before the track is published, instrumentation is enabled at publish time.
+    pub fn publish_timing_events(&self) -> PublishTimingEventStream {
+        let tx = {
+            let mut publish_timing_tx = self.publish_timing_tx.lock();
+            if let Some(tx) = publish_timing_tx.as_ref() {
+                tx.clone()
+            } else {
+                let (tx, _) = broadcast::channel(PUBLISH_TIMING_BUFFER);
+                *publish_timing_tx = Some(tx.clone());
+                tx
+            }
+        };
 
-        let handler = self.packet_trailer_handler.lock().clone();
+        let handler = self.ensure_publish_timing_handler();
         if let Some(handler) = handler {
             self.apply_publish_timing_observer(&handler);
         }
+
+        PublishTimingEventStream { inner: BroadcastStream::new(tx.subscribe()) }
     }
 
     /// Returns the packet trailer handler associated with this track, if any.
@@ -206,8 +202,8 @@ impl LocalVideoTrack {
         self.packet_trailer_handler.lock().clone()
     }
 
-    pub(crate) fn has_publish_timing_observer(&self) -> bool {
-        self.publish_timing_observer.lock().is_some()
+    pub(crate) fn has_publish_timing_subscribers(&self) -> bool {
+        self.publish_timing_tx.lock().is_some()
     }
 
     /// Internal: set the packet trailer handler used for this track.
@@ -216,11 +212,32 @@ impl LocalVideoTrack {
         *self.packet_trailer_handler.lock() = Some(handler);
     }
 
+    fn ensure_publish_timing_handler(&self) -> Option<PacketTrailerHandler> {
+        if let Some(handler) = self.packet_trailer_handler.lock().clone() {
+            return Some(handler);
+        }
+
+        let transceiver = self.transceiver()?;
+        let handler = packet_trailer::create_sender_handler(
+            LkRuntime::instance().pc_factory(),
+            &transceiver.sender(),
+        );
+        handler.set_enabled(false);
+        self.set_packet_trailer_handler(handler.clone());
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let RtcVideoSource::Native(ref native_source) = self.rtc_source() {
+            native_source.set_packet_trailer_handler(handler.clone());
+        }
+
+        Some(handler)
+    }
+
     fn apply_publish_timing_observer(&self, handler: &PacketTrailerHandler) {
-        let observer = self.publish_timing_observer.lock().clone();
-        let observer = observer.map(|observer| {
-            Arc::new(move |event: RtcPublishTimingEvent| {
-                observer(event.into());
+        let tx = self.publish_timing_tx.lock().clone();
+        let observer = tx.map(|tx| {
+            Arc::new(move |event: PublishTimingEvent| {
+                let _ = tx.send(event);
             }) as RtcPublishTimingObserver
         });
         handler.set_publish_timing_observer(observer);

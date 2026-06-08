@@ -90,6 +90,11 @@ export declare class PerformRpcRequest extends Message<PerformRpcRequest> {
    */
   requestAsyncId?: bigint;
 
+  /**
+   * @generated from field: optional uint32 max_round_trip_latency_ms = 7;
+   */
+  maxRoundTripLatencyMs?: number;
+
   constructor(data?: PartialMessage<PerformRpcRequest>);
 
   static readonly runtime: typeof proto2;

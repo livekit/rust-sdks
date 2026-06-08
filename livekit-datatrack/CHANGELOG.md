@@ -1,4 +1,10 @@
 # Changelog
+## 0.1.8 (2026-05-29)
+
+### Fixes
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+
 ## 0.1.7 (2026-05-21)
 
 ### Features

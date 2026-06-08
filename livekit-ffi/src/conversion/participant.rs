@@ -48,6 +48,7 @@ impl From<&Participant> for proto::ParticipantInfo {
                 .map(|k| proto::ParticipantKindDetail::from(k).into())
                 .collect(),
             permission,
+            client_protocol: participant.client_protocol(),
         }
     }
 }

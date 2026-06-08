@@ -110,6 +110,7 @@ const ParticipantInfo = /*@__PURE__*/ proto2.makeMessageType(
     { no: 9, name: "joined_at", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
     { no: 10, name: "kind_details", kind: "enum", T: proto2.getEnumType(ParticipantKindDetail), repeated: true },
     { no: 11, name: "permission", kind: "message", T: ParticipantPermission, opt: true },
+    { no: 12, name: "client_protocol", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
   ],
 );
 

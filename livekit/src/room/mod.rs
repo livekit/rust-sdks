@@ -356,6 +356,7 @@ pub struct RpcRequest {
 }
 
 #[deprecated(note = "RPC responses are now handled internally; see the `rpc` module.")]
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RpcResponse {
     destination_identity: String,
@@ -365,6 +366,7 @@ pub struct RpcResponse {
 }
 
 #[deprecated(note = "RPC acks are now handled internally; see the `rpc` module.")]
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RpcAck {
     destination_identity: String,
@@ -1203,7 +1205,8 @@ impl RoomSession {
         let stream_id = stream.id();
         let lk_stream_id = unpack_stream_id(&stream_id);
         if lk_stream_id.is_none() {
-            log::error!("received track with an invalid track_id: {:?}", &stream_id);
+            // server could require extra media sections to accelerate subscription.
+            log::debug!("received track with an invalid track_id: {:?}", &stream_id);
             return;
         }
 

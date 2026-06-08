@@ -1,6 +1,6 @@
 # local_video
 
-Three examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, and subscribing to render video in a window.
+Examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, subscribing to render video in a window, and showing a low-latency clock for measurement.
 
 **Note:** These examples are intended for **desktop platforms only** (macOS, Linux, Windows).
 You must enable the `desktop` feature when building or running them.
@@ -9,6 +9,7 @@ For smoother local rendering, especially above 720p, run the publisher/subscribe
 - list_devices: enumerate available cameras and their capabilities
 - publisher: capture from a selected camera and publish a video track
 - subscriber: connect to a room, subscribe to video tracks, and display in a window
+- clock: render a high-contrast wall-clock with three millisecond digits and a millisecond grid
 
 LiveKit connection can be provided via flags or environment variables:
 - `--url` or `LIVEKIT_URL`
@@ -82,6 +83,19 @@ List devices usage:
 ```
  cargo run -p local_video -F desktop --bin list_devices
 ```
+
+Clock usage:
+```
+ cargo run -p local_video -F desktop --bin clock
+ cargo run --release -p local_video -F desktop --bin clock -- --fullscreen
+```
+
+Clock flags:
+- `--fullscreen`: Start in borderless fullscreen.
+- `--always-on-top`: Keep the clock above normal windows.
+- `--no-vsync`: Disable vsync and render as fast as the display backend accepts frames. By default the clock uses WGPU with vsync and a maximum frame latency of 1 to avoid uncapped GPU usage.
+
+The clock draws a 3x9 grid below the time. The top row fills from `0` to `9` for the hundreds-of-milliseconds digit, the middle row for tens of milliseconds, and the bottom row for ones of milliseconds.
 
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
