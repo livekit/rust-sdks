@@ -3,4 +3,4 @@ libwebrtc: patch
 livekit: patch
 ---
 
-Add runtime video encoding limit controls for local video tracks and wire them into the `local_video` publisher/subscriber example via RPC.
+Add simulcast-aware runtime video encoding limit controls for local video tracks, including quality-specific updates, and wire them into the `local_video` publisher/subscriber example via RPC.

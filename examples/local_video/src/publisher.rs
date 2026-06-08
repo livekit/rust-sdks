@@ -216,10 +216,30 @@ fn unix_time_us_now() -> u64 {
 
 const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
 const SET_VIDEO_ENCODING_LIMITS_METHOD: &str = "set-video-encoding-limits";
+const HIGH_RID: &str = "f";
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum EncodingQuality {
+    Low,
+    Medium,
+    High,
+}
+
+impl From<EncodingQuality> for VideoQuality {
+    fn from(quality: EncodingQuality) -> Self {
+        match quality {
+            EncodingQuality::Low => VideoQuality::Low,
+            EncodingQuality::Medium => VideoQuality::Medium,
+            EncodingQuality::High => VideoQuality::High,
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 struct SetEncodingLimitsRequest {
     track_sid: String,
+    quality: Option<EncodingQuality>,
     bitrate_bps: Option<u64>,
     max_framerate: Option<f64>,
     scale_resolution_down_by: Option<f64>,
@@ -231,6 +251,7 @@ struct SetEncodingLimitsResponse {
     applied_bitrate_bps: Option<u64>,
     applied_max_framerate: Option<f64>,
     applied_scale_resolution_down_by: Option<f64>,
+    quality: Option<EncodingQuality>,
     track_sid: String,
 }
 
@@ -348,16 +369,21 @@ struct PublisherTimingSummary {
     capture_to_webrtc_total_ms: RollingMs,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct PublisherVideoOutboundStats {
+    rid: String,
+    active: bool,
     encoder_implementation: Option<String>,
     target_bitrate_bps: Option<f64>,
+    frame_width: u32,
+    frame_height: u32,
+    frames_per_second: f64,
 }
 
-fn find_video_outbound_stats(
+fn collect_video_outbound_stats(
     stats: &[livekit::webrtc::stats::RtcStats],
-) -> PublisherVideoOutboundStats {
-    let mut fallback = PublisherVideoOutboundStats::default();
+) -> Vec<PublisherVideoOutboundStats> {
+    let mut outbounds = Vec::new();
     for stat in stats {
         let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
             continue;
@@ -366,24 +392,60 @@ fn find_video_outbound_stats(
             continue;
         }
 
-        let current = PublisherVideoOutboundStats {
+        outbounds.push(PublisherVideoOutboundStats {
+            rid: outbound.outbound.rid.clone(),
+            active: outbound.outbound.active,
             encoder_implementation: (!outbound.outbound.encoder_implementation.is_empty())
                 .then(|| outbound.outbound.encoder_implementation.clone()),
             target_bitrate_bps: (outbound.outbound.target_bitrate > 0.0)
                 .then_some(outbound.outbound.target_bitrate),
-        };
-        if outbound.outbound.active {
-            return current;
-        }
-        if fallback.encoder_implementation.is_none() {
-            fallback.encoder_implementation = current.encoder_implementation;
-        }
-        if fallback.target_bitrate_bps.is_none() {
-            fallback.target_bitrate_bps = current.target_bitrate_bps;
-        }
+            frame_width: outbound.outbound.frame_width,
+            frame_height: outbound.outbound.frame_height,
+            frames_per_second: outbound.outbound.frames_per_second,
+        });
     }
 
-    fallback
+    outbounds
+}
+
+fn find_video_outbound_stats(
+    outbounds: &[PublisherVideoOutboundStats],
+) -> PublisherVideoOutboundStats {
+    outbounds
+        .iter()
+        .find(|outbound| outbound.active && outbound.rid == HIGH_RID)
+        .or_else(|| outbounds.iter().find(|outbound| outbound.active))
+        .or_else(|| outbounds.iter().find(|outbound| outbound.rid == HIGH_RID))
+        .or_else(|| outbounds.first())
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn format_video_outbound_layers(outbounds: &[PublisherVideoOutboundStats]) -> Option<String> {
+    if outbounds.len() <= 1 {
+        return None;
+    }
+
+    let layers = outbounds
+        .iter()
+        .map(|outbound| {
+            let rid = if outbound.rid.is_empty() { "-" } else { outbound.rid.as_str() };
+            let active = if outbound.active { "*" } else { "" };
+            let bitrate = outbound
+                .target_bitrate_bps
+                .map(|bps| format!("{:.2}mbps", bps / 1_000_000.0))
+                .unwrap_or_else(|| "?mbps".to_string());
+            format!(
+                "{rid}{active}: {}x{} {:.1}fps {bitrate}",
+                outbound.frame_width,
+                outbound.frame_height,
+                outbound.frames_per_second.max(0.0),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    Some(format!("Publisher RTP encodings: {layers}"))
 }
 
 async fn update_publisher_encoder_overlay(
@@ -393,6 +455,7 @@ async fn update_publisher_encoder_overlay(
 ) {
     let mut logged_initial = false;
     let mut last_implementation = String::new();
+    let mut last_layers_line = String::new();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -403,7 +466,15 @@ async fn update_publisher_encoder_overlay(
 
         match track.get_stats().await {
             Ok(stats) => {
-                let outbound = find_video_outbound_stats(&stats);
+                let outbounds = collect_video_outbound_stats(&stats);
+                if let Some(layers_line) = format_video_outbound_layers(&outbounds) {
+                    if layers_line != last_layers_line {
+                        info!("{layers_line}");
+                        last_layers_line = layers_line;
+                    }
+                }
+
+                let outbound = find_video_outbound_stats(&outbounds);
                 if let Some(implementation) = outbound.encoder_implementation {
                     if implementation != last_implementation {
                         info!("Publisher video encoder implementation: {implementation}");
@@ -613,13 +684,22 @@ fn register_encoding_limits_rpc(room: &Arc<Room>, publication: LocalTrackPublica
                     max_framerate: request.max_framerate,
                     scale_resolution_down_by: request.scale_resolution_down_by,
                 };
-                publication.set_video_encoding_limits(limits).map_err(|err| {
-                    RpcError::new(500, format!("set encoding limits failed: {err}"), None)
-                })?;
+                if let Some(quality) = request.quality {
+                    publication
+                        .set_video_encoding_limits_for_quality(quality.into(), limits)
+                        .map_err(|err| {
+                            RpcError::new(500, format!("set encoding limits failed: {err}"), None)
+                        })?;
+                } else {
+                    publication.set_video_encoding_limits(limits).map_err(|err| {
+                        RpcError::new(500, format!("set encoding limits failed: {err}"), None)
+                    })?;
+                }
 
                 info!(
-                    "{} requested video encoding limits: {:?} bps, {:?} fps, {:?}x scale ({})",
+                    "{} requested video encoding limits: quality {:?}, {:?} bps, {:?} fps, {:?}x scale ({})",
                     data.caller_identity,
+                    request.quality,
                     request.bitrate_bps,
                     request.max_framerate,
                     request.scale_resolution_down_by,
@@ -630,6 +710,7 @@ fn register_encoding_limits_rpc(room: &Arc<Room>, publication: LocalTrackPublica
                     applied_bitrate_bps: request.bitrate_bps,
                     applied_max_framerate: request.max_framerate,
                     applied_scale_resolution_down_by: request.scale_resolution_down_by,
+                    quality: request.quality,
                     track_sid: publication_sid,
                 })
                 .map_err(|err| {

@@ -77,6 +77,17 @@ impl RtpSender {
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         let mut native_parameters = self.sys_handle.get_parameters();
+        if native_parameters.encodings.len() != parameters.encodings.len() {
+            return Err(RtcError {
+                error_type: RtcErrorType::InvalidState,
+                message: format!(
+                    "encoding count changed from {} to {}",
+                    native_parameters.encodings.len(),
+                    parameters.encodings.len()
+                ),
+            });
+        }
+
         for (native_encoding, encoding) in
             native_parameters.encodings.iter_mut().zip(parameters.encodings)
         {

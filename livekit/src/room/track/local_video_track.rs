@@ -31,17 +31,21 @@ use parking_lot::Mutex;
 use tokio::sync::broadcast;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 
-use super::TrackInner;
+use super::{TrackInner, VideoQuality};
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 
 pub use libwebrtc::native::packet_trailer::{PublishTimingEvent, PublishTimingStage};
 
 const PUBLISH_TIMING_BUFFER: usize = 256;
+const HIGH_RID: &str = "f";
+const MEDIUM_RID: &str = "h";
+const LOW_RID: &str = "q";
 
 #[derive(Clone)]
 pub struct LocalVideoTrack {
     inner: Arc<TrackInner>,
     source: RtcVideoSource,
+    baseline_encodings: Arc<Mutex<Option<Vec<RtpEncodingParameters>>>>,
     packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
     publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
 }
@@ -98,6 +102,7 @@ impl LocalVideoTrack {
                 MediaStreamTrack::Video(rtc_track),
             )),
             source,
+            baseline_encodings: Arc::new(Mutex::new(None)),
             packet_trailer_handler: Arc::new(Mutex::new(None)),
             publish_timing_tx: Arc::new(Mutex::new(None)),
         }
@@ -177,22 +182,37 @@ impl LocalVideoTrack {
         self.source.clone()
     }
 
-    /// Sets runtime encoding limits for all RTP encodings on this published video track.
+    /// Sets runtime encoding limits for this published video track.
     ///
-    /// Pass `None` for an individual field to clear that explicit cap and
-    /// return control of that field to libwebrtc. The track must be published
-    /// before this method can update sender parameters.
+    /// Pass `None` for an individual field to restore the original publish-time
+    /// encoding value. The track must be published before this method can
+    /// update sender parameters. When the track is
+    /// simulcasted, `Some` values target the high layer and lower layers keep
+    /// the same ratios as the original publish-time encoding ladder.
     pub(crate) fn set_encoding_limits(&self, limits: VideoEncodingLimits) -> RoomResult<()> {
-        self.update_encoding_parameters(|encoding| {
-            encoding.max_bitrate = limits.max_bitrate;
-            encoding.max_framerate = limits.max_framerate;
-            encoding.scale_resolution_down_by = limits.scale_resolution_down_by;
+        self.update_encoding_parameters(|encodings, baseline| {
+            apply_track_encoding_limits(encodings, baseline, limits)
+        })
+    }
+
+    /// Sets runtime encoding limits for one RTP encoding on this published video track.
+    ///
+    /// On simulcasted tracks, the quality is mapped to the standard LiveKit
+    /// RIDs (`q`, `h`, `f`). On non-simulcast tracks, only [`VideoQuality::High`]
+    /// can be used.
+    pub(crate) fn set_encoding_limits_for_quality(
+        &self,
+        quality: VideoQuality,
+        limits: VideoEncodingLimits,
+    ) -> RoomResult<()> {
+        self.update_encoding_parameters(|encodings, baseline| {
+            apply_quality_encoding_limits(encodings, baseline, quality, limits)
         })
     }
 
     fn update_encoding_parameters(
         &self,
-        mut update: impl FnMut(&mut RtpEncodingParameters),
+        update: impl FnOnce(&mut [RtpEncodingParameters], &[RtpEncodingParameters]) -> RoomResult<()>,
     ) -> RoomResult<()> {
         let Some(transceiver) = self.transceiver() else {
             return Err(RoomError::Rtc(RtcError {
@@ -203,9 +223,12 @@ impl LocalVideoTrack {
 
         let sender = transceiver.sender();
         let mut parameters = sender.parameters();
-        for encoding in &mut parameters.encodings {
-            update(encoding);
-        }
+        let baseline = {
+            let mut baseline_encodings = self.baseline_encodings.lock();
+            baseline_encodings.get_or_insert_with(|| parameters.encodings.clone()).clone()
+        };
+
+        update(&mut parameters.encodings, &baseline)?;
         sender.set_parameters(parameters)?;
 
         Ok(())
@@ -305,10 +328,358 @@ impl LocalVideoTrack {
     }
 
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
+        let baseline = transceiver.as_ref().map(|transceiver| {
+            let sender = transceiver.sender();
+            sender.parameters().encodings
+        });
+        *self.baseline_encodings.lock() = baseline;
         self.inner.info.write().transceiver = transceiver;
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &Track::LocalVideo(self.clone()), info);
+    }
+}
+
+fn apply_track_encoding_limits(
+    encodings: &mut [RtpEncodingParameters],
+    baseline: &[RtpEncodingParameters],
+    limits: VideoEncodingLimits,
+) -> RoomResult<()> {
+    validate_encoding_baseline(encodings, baseline)?;
+
+    if encodings.len() == 1 {
+        encodings[0] = exact_encoding_limits(&encodings[0], &baseline[0], limits);
+        return Ok(());
+    }
+
+    let high_baseline = encoding_for_quality(baseline, VideoQuality::High)?;
+    let mut updated = Vec::with_capacity(encodings.len());
+
+    for encoding in encodings.iter() {
+        let quality = quality_for_rid(&encoding.rid).ok_or_else(|| {
+            invalid_state(format!("unsupported simulcast RID '{}'", encoding.rid))
+        })?;
+        let encoding_baseline = encoding_for_quality(baseline, quality)?;
+        updated.push(scaled_encoding_limits(encoding, encoding_baseline, high_baseline, limits)?);
+    }
+
+    encodings.clone_from_slice(&updated);
+    Ok(())
+}
+
+fn apply_quality_encoding_limits(
+    encodings: &mut [RtpEncodingParameters],
+    baseline: &[RtpEncodingParameters],
+    quality: VideoQuality,
+    limits: VideoEncodingLimits,
+) -> RoomResult<()> {
+    validate_encoding_baseline(encodings, baseline)?;
+
+    if encodings.len() == 1 {
+        if quality != VideoQuality::High {
+            return Err(invalid_state(format!(
+                "{quality:?} encoding limits require a simulcasted track"
+            )));
+        }
+
+        encodings[0] = exact_encoding_limits(&encodings[0], &baseline[0], limits);
+        return Ok(());
+    }
+
+    let rid = rid_for_quality(quality);
+    let index = encodings
+        .iter()
+        .position(|encoding| encoding.rid == rid)
+        .ok_or_else(|| invalid_state(format!("missing simulcast RID '{rid}'")))?;
+    let encoding_baseline = baseline
+        .iter()
+        .find(|encoding| encoding.rid == rid)
+        .ok_or_else(|| invalid_state(format!("missing baseline simulcast RID '{rid}'")))?;
+
+    encodings[index] = exact_encoding_limits(&encodings[index], encoding_baseline, limits);
+    Ok(())
+}
+
+fn validate_encoding_baseline(
+    encodings: &[RtpEncodingParameters],
+    baseline: &[RtpEncodingParameters],
+) -> RoomResult<()> {
+    if encodings.is_empty() {
+        return Err(invalid_state("track has no RTP encodings"));
+    }
+    if encodings.len() != baseline.len() {
+        return Err(invalid_state(format!(
+            "sender encoding count changed from {} to {}",
+            baseline.len(),
+            encodings.len()
+        )));
+    }
+    Ok(())
+}
+
+fn scaled_encoding_limits(
+    encoding: &RtpEncodingParameters,
+    baseline: &RtpEncodingParameters,
+    high_baseline: &RtpEncodingParameters,
+    limits: VideoEncodingLimits,
+) -> RoomResult<RtpEncodingParameters> {
+    let mut updated = encoding.clone();
+    updated.max_bitrate = match limits.max_bitrate {
+        Some(max_bitrate) => Some(scale_u64(
+            max_bitrate,
+            required_u64(baseline.max_bitrate, "baseline max_bitrate")?,
+            required_u64(high_baseline.max_bitrate, "high baseline max_bitrate")?,
+        )?),
+        None => baseline.max_bitrate,
+    };
+    updated.max_framerate = match limits.max_framerate {
+        Some(max_framerate) => Some(scale_f64(
+            max_framerate,
+            required_f64(baseline.max_framerate, "baseline max_framerate")?,
+            required_f64(high_baseline.max_framerate, "high baseline max_framerate")?,
+        )?),
+        None => baseline.max_framerate,
+    };
+    updated.scale_resolution_down_by = match limits.scale_resolution_down_by {
+        Some(scale_resolution_down_by) => Some(scale_f64(
+            scale_resolution_down_by,
+            required_f64(baseline.scale_resolution_down_by, "baseline scale_resolution_down_by")?,
+            required_f64(
+                high_baseline.scale_resolution_down_by,
+                "high baseline scale_resolution_down_by",
+            )?,
+        )?),
+        None => baseline.scale_resolution_down_by,
+    };
+
+    Ok(updated)
+}
+
+fn exact_encoding_limits(
+    encoding: &RtpEncodingParameters,
+    baseline: &RtpEncodingParameters,
+    limits: VideoEncodingLimits,
+) -> RtpEncodingParameters {
+    let mut updated = encoding.clone();
+    updated.max_bitrate = limits.max_bitrate.or(baseline.max_bitrate);
+    updated.max_framerate = limits.max_framerate.or(baseline.max_framerate);
+    updated.scale_resolution_down_by =
+        limits.scale_resolution_down_by.or(baseline.scale_resolution_down_by);
+    updated
+}
+
+fn required_u64(value: Option<u64>, field: &'static str) -> RoomResult<u64> {
+    value.ok_or_else(|| invalid_state(format!("missing {field}")))
+}
+
+fn required_f64(value: Option<f64>, field: &'static str) -> RoomResult<f64> {
+    value.ok_or_else(|| invalid_state(format!("missing {field}")))
+}
+
+fn scale_u64(target_high: u64, baseline: u64, high_baseline: u64) -> RoomResult<u64> {
+    if high_baseline == 0 {
+        return Err(invalid_state("high baseline max_bitrate is zero"));
+    }
+    Ok(((target_high as f64 * baseline as f64 / high_baseline as f64).round() as u64).max(1))
+}
+
+fn scale_f64(target_high: f64, baseline: f64, high_baseline: f64) -> RoomResult<f64> {
+    if high_baseline <= 0.0 {
+        return Err(invalid_state("high baseline value must be greater than zero"));
+    }
+    Ok(target_high * baseline / high_baseline)
+}
+
+fn encoding_for_quality(
+    encodings: &[RtpEncodingParameters],
+    quality: VideoQuality,
+) -> RoomResult<&RtpEncodingParameters> {
+    let rid = rid_for_quality(quality);
+    encodings
+        .iter()
+        .find(|encoding| encoding.rid == rid)
+        .ok_or_else(|| invalid_state(format!("missing baseline simulcast RID '{rid}'")))
+}
+
+fn rid_for_quality(quality: VideoQuality) -> &'static str {
+    match quality {
+        VideoQuality::Low => LOW_RID,
+        VideoQuality::Medium => MEDIUM_RID,
+        VideoQuality::High => HIGH_RID,
+    }
+}
+
+fn quality_for_rid(rid: &str) -> Option<VideoQuality> {
+    match rid {
+        LOW_RID => Some(VideoQuality::Low),
+        MEDIUM_RID => Some(VideoQuality::Medium),
+        HIGH_RID => Some(VideoQuality::High),
+        _ => None,
+    }
+}
+
+fn invalid_state(message: impl Into<String>) -> RoomError {
+    RoomError::Rtc(RtcError { error_type: RtcErrorType::InvalidState, message: message.into() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encoding(
+        rid: &str,
+        max_bitrate: u64,
+        max_framerate: f64,
+        scale_resolution_down_by: f64,
+    ) -> RtpEncodingParameters {
+        RtpEncodingParameters {
+            rid: rid.to_string(),
+            max_bitrate: Some(max_bitrate),
+            max_framerate: Some(max_framerate),
+            scale_resolution_down_by: Some(scale_resolution_down_by),
+            ..Default::default()
+        }
+    }
+
+    fn simulcast_baseline() -> Vec<RtpEncodingParameters> {
+        vec![
+            encoding(HIGH_RID, 1_700_000, 30.0, 1.0),
+            encoding(MEDIUM_RID, 450_000, 30.0, 2.0),
+            encoding(LOW_RID, 160_000, 30.0, 4.0),
+        ]
+    }
+
+    fn assert_encoding_matches(encoding: &RtpEncodingParameters, expected: &RtpEncodingParameters) {
+        assert_eq!(encoding.rid, expected.rid);
+        assert_eq!(encoding.max_bitrate, expected.max_bitrate);
+        assert_eq!(encoding.max_framerate, expected.max_framerate);
+        assert_eq!(encoding.scale_resolution_down_by, expected.scale_resolution_down_by);
+    }
+
+    fn assert_encodings_match(
+        encodings: &[RtpEncodingParameters],
+        expected: &[RtpEncodingParameters],
+    ) {
+        assert_eq!(encodings.len(), expected.len());
+        for (encoding, expected) in encodings.iter().zip(expected) {
+            assert_encoding_matches(encoding, expected);
+        }
+    }
+
+    #[test]
+    fn track_limits_preserve_simulcast_ratios() {
+        let baseline = simulcast_baseline();
+        let mut encodings = baseline.clone();
+
+        apply_track_encoding_limits(
+            &mut encodings,
+            &baseline,
+            VideoEncodingLimits {
+                max_bitrate: Some(850_000),
+                max_framerate: Some(15.0),
+                scale_resolution_down_by: Some(2.0),
+            },
+        )
+        .expect("track limits should apply");
+
+        assert_eq!(encodings[0].max_bitrate, Some(850_000));
+        assert_eq!(encodings[1].max_bitrate, Some(225_000));
+        assert_eq!(encodings[2].max_bitrate, Some(80_000));
+        assert_eq!(encodings[0].max_framerate, Some(15.0));
+        assert_eq!(encodings[1].max_framerate, Some(15.0));
+        assert_eq!(encodings[2].max_framerate, Some(15.0));
+        assert_eq!(encodings[0].scale_resolution_down_by, Some(2.0));
+        assert_eq!(encodings[1].scale_resolution_down_by, Some(4.0));
+        assert_eq!(encodings[2].scale_resolution_down_by, Some(8.0));
+    }
+
+    #[test]
+    fn track_limits_restore_baseline_fields_when_cleared() {
+        let baseline = simulcast_baseline();
+        let mut encodings = vec![
+            encoding(HIGH_RID, 900_000, 10.0, 2.0),
+            encoding(MEDIUM_RID, 240_000, 10.0, 4.0),
+            encoding(LOW_RID, 85_000, 10.0, 8.0),
+        ];
+
+        apply_track_encoding_limits(
+            &mut encodings,
+            &baseline,
+            VideoEncodingLimits {
+                max_bitrate: None,
+                max_framerate: None,
+                scale_resolution_down_by: None,
+            },
+        )
+        .expect("clearing limits should apply");
+
+        assert_encodings_match(&encodings, &baseline);
+    }
+
+    #[test]
+    fn quality_limits_only_update_requested_simulcast_layer() {
+        let baseline = simulcast_baseline();
+        let mut encodings = baseline.clone();
+
+        apply_quality_encoding_limits(
+            &mut encodings,
+            &baseline,
+            VideoQuality::Medium,
+            VideoEncodingLimits {
+                max_bitrate: Some(300_000),
+                max_framerate: Some(12.0),
+                scale_resolution_down_by: Some(3.0),
+            },
+        )
+        .expect("quality limits should apply");
+
+        assert_encoding_matches(&encodings[0], &baseline[0]);
+        assert_encoding_matches(&encodings[2], &baseline[2]);
+        assert_eq!(encodings[1].max_bitrate, Some(300_000));
+        assert_eq!(encodings[1].max_framerate, Some(12.0));
+        assert_eq!(encodings[1].scale_resolution_down_by, Some(3.0));
+    }
+
+    #[test]
+    fn quality_limits_fail_when_quality_is_missing() {
+        let baseline = vec![encoding(HIGH_RID, 1_700_000, 30.0, 1.0)];
+        let mut encodings = baseline.clone();
+
+        let err = apply_quality_encoding_limits(
+            &mut encodings,
+            &baseline,
+            VideoQuality::Low,
+            VideoEncodingLimits { max_bitrate: Some(80_000), ..Default::default() },
+        )
+        .expect_err("low quality requires a simulcast encoding");
+
+        assert!(matches!(
+            err,
+            RoomError::Rtc(RtcError { error_type: RtcErrorType::InvalidState, .. })
+        ));
+        assert_encodings_match(&encodings, &baseline);
+    }
+
+    #[test]
+    fn high_quality_limits_apply_to_single_encoding() {
+        let baseline = vec![encoding("", 1_700_000, 30.0, 1.0)];
+        let mut encodings = baseline.clone();
+
+        apply_quality_encoding_limits(
+            &mut encodings,
+            &baseline,
+            VideoQuality::High,
+            VideoEncodingLimits {
+                max_bitrate: Some(900_000),
+                max_framerate: None,
+                scale_resolution_down_by: Some(2.0),
+            },
+        )
+        .expect("high quality should apply to one encoding");
+
+        assert_eq!(encodings[0].max_bitrate, Some(900_000));
+        assert_eq!(encodings[0].max_framerate, Some(30.0));
+        assert_eq!(encodings[0].scale_resolution_down_by, Some(2.0));
     }
 }

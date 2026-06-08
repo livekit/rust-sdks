@@ -41,6 +41,14 @@ const MIN_CONTROL_BITRATE_BPS: u64 = BITRATE_KEY_STEP_BPS;
 const MIN_FRAMERATE: f64 = 0.1;
 const MAX_FRAMERATE: f64 = 60.0;
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum EncodingQuality {
+    Low,
+    Medium,
+    High,
+}
+
 #[cfg(target_os = "macos")]
 mod macos_native_video {
     use std::ffi::c_void;
@@ -422,6 +430,7 @@ struct Args {
 #[derive(Debug, Deserialize, Serialize)]
 struct SetEncodingLimitsRequest {
     track_sid: String,
+    quality: Option<EncodingQuality>,
     bitrate_bps: Option<u64>,
     max_framerate: Option<f64>,
     scale_resolution_down_by: Option<f64>,
@@ -433,6 +442,7 @@ struct SetEncodingLimitsResponse {
     applied_bitrate_bps: Option<u64>,
     applied_max_framerate: Option<f64>,
     applied_scale_resolution_down_by: Option<f64>,
+    quality: Option<EncodingQuality>,
     track_sid: String,
 }
 
@@ -554,7 +564,7 @@ impl EncodingControl {
 
         let room = self.inner.room.clone();
         self.inner.handle.spawn(async move {
-            if let Err(err) = request_encoding_limits(&room, target, limits, reason).await {
+            if let Err(err) = request_encoding_limits(&room, target, None, limits, reason).await {
                 log::warn!("encoding limits RPC failed: {err}");
             }
         });
@@ -983,12 +993,14 @@ fn encoding_control_status_line(state: EncodingControlState) -> String {
 async fn request_encoding_limits(
     room: &Arc<Room>,
     target: EncodingControlTarget,
+    quality: Option<EncodingQuality>,
     limits: VideoEncodingLimits,
     reason: &'static str,
 ) -> Result<()> {
     info!(
-        "Requesting video encoding limits from {}: {:?} bps, {:?} fps, {:?}x scale ({})",
+        "Requesting video encoding limits from {}: quality {:?}, {:?} bps, {:?} fps, {:?}x scale ({})",
         target.publisher_identity,
+        quality,
         limits.max_bitrate,
         limits.max_framerate,
         limits.scale_resolution_down_by,
@@ -997,6 +1009,7 @@ async fn request_encoding_limits(
 
     let payload = serde_json::to_string(&SetEncodingLimitsRequest {
         track_sid: target.track_sid.to_string(),
+        quality,
         bitrate_bps: limits.max_bitrate,
         max_framerate: limits.max_framerate,
         scale_resolution_down_by: limits.scale_resolution_down_by,
@@ -1015,8 +1028,9 @@ async fn request_encoding_limits(
 
     let response: SetEncodingLimitsResponse = serde_json::from_str(&response)?;
     info!(
-        "Publisher applied video encoding limits on {}: {:?} bps, {:?} fps, {:?}x scale",
+        "Publisher applied video encoding limits on {}: quality {:?}, {:?} bps, {:?} fps, {:?}x scale",
         response.track_sid,
+        response.quality,
         response.applied_bitrate_bps,
         response.applied_max_framerate,
         response.applied_scale_resolution_down_by,

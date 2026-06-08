@@ -31,7 +31,7 @@ pub use crate::{
         PublishTimingEventStream, PublishTimingStage, RemoteAudioTrack, RemoteTrack,
         RemoteVideoTrack, StreamState, SubscribeTimingEvent, SubscribeTimingEventStream,
         SubscribeTimingStage, Track, TrackDimension, TrackKind, TrackSource, VideoEncodingLimits,
-        VideoTrack,
+        VideoQuality, VideoTrack,
     },
     ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
     RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
