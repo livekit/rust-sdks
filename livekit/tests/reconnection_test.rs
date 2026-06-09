@@ -108,3 +108,15 @@ async fn test_full_reconnect_recovers() -> Result<()> {
     let (room, events) = test_rooms(1).await?.pop().unwrap();
     assert_recovers(room, events, SimulateScenario::FullReconnect).await
 }
+
+// The server drops the signalling link during the resume, so the resume cannot
+// complete and the engine must escalate to a full reconnect. Recovery here is
+// only possible via that escalation, so a successful Reconnecting → Reconnected
+// exercises the resume→full path (and the Restarting emitted on escalation,
+// which drives the Room's remote-participant cleanup before the full reconnect).
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_resume_failure_escalates_to_full_reconnect() -> Result<()> {
+    let (room, events) = test_rooms(1).await?.pop().unwrap();
+    assert_recovers(room, events, SimulateScenario::DisconnectSignalOnResume).await
+}

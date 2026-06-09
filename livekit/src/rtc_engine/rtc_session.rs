@@ -1790,6 +1790,21 @@ impl SessionInner {
             SimulateScenario::SignalReconnect => {
                 self.signal_client.close().await;
             }
+            SimulateScenario::DisconnectSignalOnResume => {
+                // Tell the server to drop the signalling link during the next
+                // resume, then trigger a resume by closing the link locally. The
+                // server kills the resumed signal, so the resume fails and the
+                // engine escalates to a full reconnect. Mirrors client-sdk-js's
+                // `disconnect-signal-on-resume`.
+                self.signal_client
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::DisconnectSignalOnResume(true),
+                        ),
+                    }))
+                    .await;
+                self.signal_client.close().await;
+            }
             SimulateScenario::Speaker => {
                 self.signal_client
                     .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {

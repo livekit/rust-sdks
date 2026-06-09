@@ -114,6 +114,11 @@ pub enum SimulateScenario {
     /// reconnect (new RtcSession, republish required) and triggers it locally,
     /// without relying on the server. Mirrors client-sdk-js's `full-reconnect`.
     FullReconnect,
+    /// Asks the server to drop the signalling connection during the next resume,
+    /// then triggers a resume locally. The resume cannot complete, so the engine
+    /// escalates to a full reconnect — exercising the resume→full escalation
+    /// path. Mirrors client-sdk-js's `disconnect-signal-on-resume`.
+    DisconnectSignalOnResume,
 }
 
 #[derive(Error, Debug)]
