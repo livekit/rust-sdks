@@ -16,13 +16,17 @@ use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
-use livekit_runtime::{interval, Interval, JoinHandle, MissedTickBehavior};
+use livekit_runtime::JoinHandle;
 use parking_lot::{RwLock, RwLockReadGuard};
-use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow,
+    fmt::Debug,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use thiserror::Error;
 use tokio::sync::{
-    mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
-    RwLockReadGuard as AsyncRwLockReadGuard,
+    mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
 };
 
 pub use self::rtc_session::{SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
@@ -52,6 +56,37 @@ pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
 pub const RECONNECT_ATTEMPTS: u32 = 10;
 pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Exponential-backoff-with-full-jitter parameters for spacing reconnect
+/// attempts. The per-attempt delay is sampled uniformly from
+/// `[0, min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))]`.
+/// This replaces the previous fixed [`RECONNECT_INTERVAL`] spacing: it recovers
+/// faster from transient blips and spreads retries to avoid synchronised
+/// reconnect storms across many clients after a server hiccup.
+pub const RECONNECT_BASE_DELAY: Duration = Duration::from_millis(300);
+pub const RECONNECT_BACKOFF_MULTIPLIER: u64 = 2;
+pub const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(7);
+
+/// Un-jittered backoff ceiling for the given 1-based reconnect attempt:
+/// `min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))`,
+/// floored at 1ms. Grows geometrically until it saturates at the cap.
+fn reconnect_backoff_nominal(attempt: u32) -> Duration {
+    let base = RECONNECT_BASE_DELAY.as_millis() as u64;
+    let cap = RECONNECT_MAX_DELAY.as_millis() as u64;
+    let exp = RECONNECT_BACKOFF_MULTIPLIER.saturating_pow(attempt.saturating_sub(1));
+    Duration::from_millis(base.saturating_mul(exp).min(cap).max(1))
+}
+
+/// Full-jitter backoff delay for the given 1-based reconnect attempt: sampled
+/// uniformly from `[0, reconnect_backoff_nominal(attempt)]`. A dependency-free
+/// pseudo-random source from the system clock is sufficient — backoff jitter
+/// does not need cryptographic quality, only de-correlation across clients.
+fn reconnect_backoff_delay(attempt: u32) -> Duration {
+    let nominal = reconnect_backoff_nominal(attempt).as_millis() as u64;
+    let seed =
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
+    Duration::from_millis(seed % (nominal + 1))
+}
 
 /// Settling delay before checking PeerConnection state on the resume path.
 ///
@@ -224,6 +259,11 @@ struct EngineHandle {
     // If full_reconnect is true, the next attempt will not try to resume
     // and will instead do a full reconnect
     full_reconnect: bool,
+
+    // The disconnect reason that started the current reconnection episode.
+    // Carried through so that, if reconnection ultimately fails, the engine
+    // closes with the original cause rather than a generic `UnknownReason`.
+    reconnect_reason: DisconnectReason,
     engine_task: Option<(JoinHandle<()>, oneshot::Sender<()>)>,
 }
 
@@ -242,7 +282,10 @@ struct EngineInner {
     // We can simply wait for reconnection by trying to acquire a read lock.
     // (This also prevents new reconnection to happens if a read guard is still held)
     reconnecting_lock: AsyncRwLock<()>,
-    reconnecting_interval: AsyncMutex<Interval>,
+
+    // Signalled when a server-requested reconnect wants the next attempt to fire
+    // immediately, collapsing the exponential backoff wait between attempts.
+    retry_now_notify: Arc<Notify>,
 }
 
 pub struct RtcEngine {
@@ -409,8 +452,6 @@ impl EngineInner {
                     session.wait_pc_connection().await?;
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
-                    let mut interval = interval(RECONNECT_INTERVAL);
-                    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
                     let inner = Arc::new(Self {
                         lk_runtime,
                         engine_tx,
@@ -421,11 +462,12 @@ impl EngineInner {
                             reconnecting: false,
                             can_reconnect: true,
                             full_reconnect: false,
+                            reconnect_reason: DisconnectReason::UnknownReason,
                             engine_task: None,
                         }),
                         options,
                         reconnecting_lock: AsyncRwLock::default(),
-                        reconnecting_interval: AsyncMutex::new(interval),
+                        retry_now_notify: Arc::new(Notify::new()),
                     });
 
                     // Start initial tasks
@@ -527,6 +569,7 @@ impl EngineInner {
                         self.reconnection_needed(
                             retry_now,
                             action == proto::leave_request::Action::Reconnect,
+                            reason,
                         );
                     }
                     proto::leave_request::Action::Disconnect => {
@@ -710,7 +753,13 @@ impl EngineInner {
     /// Start the reconnect task if not already started
     /// Ask to retry directly if `retry_now` is true
     /// Ask for a full reconnect if `full_reconnect` is true
-    fn reconnection_needed(self: &Arc<Self>, retry_now: bool, full_reconnect: bool) {
+    /// `reason` is the disconnect cause that triggered this reconnection
+    fn reconnection_needed(
+        self: &Arc<Self>,
+        retry_now: bool,
+        full_reconnect: bool,
+        reason: DisconnectReason,
+    ) {
         let mut running_handle = self.running_handle.write();
 
         if !running_handle.can_reconnect {
@@ -718,9 +767,6 @@ impl EngineInner {
         }
 
         if running_handle.reconnecting {
-            // If we're already reconnecting just update the interval to restart a new attempt
-            // ASAP
-
             // Only escalate to full reconnect, never downgrade. Stale signal-close
             // events (which request resume) must not override a full reconnect decision
             // made by the reconnect loop after a failed resume attempt.
@@ -728,11 +774,10 @@ impl EngineInner {
                 running_handle.full_reconnect = true;
             }
 
+            // Wake the in-flight reconnect loop so its next attempt fires
+            // immediately, collapsing the backoff wait.
             if retry_now {
-                let inner = self.clone();
-                livekit_runtime::spawn(async move {
-                    inner.reconnecting_interval.lock().await.reset();
-                });
+                self.retry_now_notify.notify_one();
             }
 
             return;
@@ -740,6 +785,9 @@ impl EngineInner {
 
         running_handle.reconnecting = true;
         running_handle.full_reconnect = full_reconnect;
+        // Remember the cause so a failed reconnection closes with it rather than
+        // a generic UnknownReason.
+        running_handle.reconnect_reason = reason;
 
         livekit_runtime::spawn({
             let inner = self.clone();
@@ -760,7 +808,20 @@ impl EngineInner {
                     res = inner.reconnect_task() => {
                         if res.is_err() {
                             log::error!("failed to reconnect to the livekit room");
-                            inner.close(DisconnectReason::UnknownReason).await;
+                            // The loop may already have closed the engine with an
+                            // accurate reason (e.g. a server Disconnect hit
+                            // mid-attempt). Only close here for the paths that
+                            // didn't — chiefly attempt exhaustion — and do so with
+                            // the cause that started this episode rather than a
+                            // generic UnknownReason, avoiding a duplicate
+                            // Disconnected event with a stale reason.
+                            let (already_closed, reason) = {
+                                let handle = inner.running_handle.read();
+                                (handle.closed, handle.reconnect_reason)
+                            };
+                            if !already_closed {
+                                inner.close(reason).await;
+                            }
                         } else {
                             log::info!("RtcEngine successfully recovered")
                         }
@@ -792,6 +853,15 @@ impl EngineInner {
             )
         };
 
+        // Lifecycle notifications are emitted once per mode: Resuming the first
+        // time the episode resumes, Restarting the first time it (re)enters full
+        // reconnect. Crucially this includes an escalation from a failed resume,
+        // which previously emitted no Restarting at all -- leaving the Room to
+        // observe Resuming followed by Restarted with no Restarting between
+        // (DELTA 2).
+        let mut resuming_emitted = false;
+        let mut restarting_emitted = false;
+
         for i in 1..=RECONNECT_ATTEMPTS {
             let (is_closed, full_reconnect) = {
                 let running_handle = self.running_handle.read();
@@ -803,7 +873,8 @@ impl EngineInner {
             }
 
             if full_reconnect {
-                if i == 1 {
+                if !restarting_emitted {
+                    restarting_emitted = true;
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Restarting(tx));
                     let _ = rx.await;
@@ -838,7 +909,8 @@ impl EngineInner {
                     }
                 }
             } else {
-                if i == 1 {
+                if !resuming_emitted {
+                    resuming_emitted = true;
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Resuming(tx));
                     let _ = rx.await;
@@ -868,7 +940,16 @@ impl EngineInner {
                 }
             }
 
-            self.reconnecting_interval.lock().await.tick().await;
+            // Exponential backoff with full jitter between attempts (DELTA 3).
+            // A server-requested reconnect signals retry_now_notify to collapse
+            // this wait so the next attempt fires immediately.
+            let backoff = reconnect_backoff_delay(i);
+            tokio::select! {
+                _ = livekit_runtime::sleep(backoff) => {}
+                _ = self.retry_now_notify.notified() => {
+                    log::debug!("retry_now signalled, skipping reconnect backoff");
+                }
+            }
         }
 
         Err(EngineError::Connection(
@@ -926,36 +1007,59 @@ impl EngineInner {
         Ok(())
     }
 
-    /// Try to restart the current session
+    /// Resume the current session in place (the lightweight reconnect path).
+    ///
+    /// The steps below run in a fixed order that any change must preserve, and
+    /// each non-trivial seam is its own method so the sequence — and the reason
+    /// for the ordering — is explicit rather than implied by statement order.
+    /// Mirrors the resume chain in `livekit/specs/signalling-reconnection.allium`:
+    ///   1. reopen the signalling link (queue gate stays on until step 4);
+    ///   2. SyncState before the publisher re-offer;
+    ///   3. re-offer the publisher, then await PC reconnection + settle;
+    ///   4. re-check link liveness, then drain the queue.
     async fn try_resume_connection(&self) -> EngineResult<()> {
         let session = self.running_handle.read().session.clone();
+
+        // 1. Reopen the signalling link. The SignalClient stays gated
+        //    (`reconnecting=true`) so queueable mutations buffer until step 4.
         let reconnect_response = session.restart().await?;
 
-        let (tx, rx) = oneshot::channel();
-        let _ = self.engine_tx.send(EngineEvent::SignalResumed { reconnect_response, tx });
+        // 2. Hand the ReconnectResponse to the room and wait until it has sent
+        //    SyncState, which must precede the publisher re-offer.
+        self.resume_sync_state(reconnect_response).await;
 
-        // With SignalResumed, the room will send a SyncState message to the server.
-        // SyncState is a pass-through signal so it goes out immediately even though
-        // the SignalClient is still in `reconnecting=true` state.
-        let _ = rx.await;
-
-        // The publisher offer must be sent AFTER the SyncState message
+        // 3. Re-offer the publisher (strictly AFTER SyncState) and wait for the
+        //    PeerConnections to reconnect, applying the settle delay.
         session.restart_publisher().await?;
         session.wait_pc_reconnected(PC_RECONNECT_SETTLE_DELAY).await?;
 
-        // Re-check the signal connection BEFORE flushing the queue. If the WS died
-        // while we were waiting for PCs to come back, draining queued mutations
-        // would just push them into the void; better to bail and let the engine
-        // try a fresh resume (or escalate).
+        // 4. Re-check link liveness and drain the queued mutations.
+        self.resume_finalize(&session).await
+    }
+
+    /// Resume step 2: announce the resume to the room and block until it has
+    /// sent SyncState. SyncState is a pass-through signal, so it reaches the
+    /// server immediately even though the SignalClient is still gated.
+    async fn resume_sync_state(&self, reconnect_response: proto::ReconnectResponse) {
+        let (tx, rx) = oneshot::channel();
+        let _ = self.engine_tx.send(EngineEvent::SignalResumed { reconnect_response, tx });
+        // The room replies on `tx` once SyncState has gone out.
+        let _ = rx.await;
+    }
+
+    /// Resume step 4: confirm the signalling link survived the PC-reconnect wait
+    /// before draining the queue. If the WS died while we were waiting for the
+    /// PeerConnections, draining queued mutations would just push them into the
+    /// void; bail instead and let the engine try a fresh resume (or escalate).
+    async fn resume_finalize(&self, session: &RtcSession) -> EngineResult<()> {
         if !session.signal_client().is_connected().await {
             return Err(EngineError::Connection("signal connection severed during resume".into()));
         }
 
-        // Flush queued mutations and clear the `reconnecting` flag — at this point
-        // the resume has fully recovered, so deferred subscription updates / mutes
-        // / etc. should now reach the server. Mirrors `client.setReconnected()`.
+        // Flush queued mutations and clear the `reconnecting` gate — the resume
+        // has fully recovered, so deferred subscription updates / mutes / etc.
+        // should now reach the server. Mirrors `client.setReconnected()`.
         session.signal_client().set_reconnected().await;
-
         Ok(())
     }
 }
@@ -1026,6 +1130,49 @@ mod tests {
                 "{:?} must not be treated as a disconnect Leave",
                 err
             );
+        }
+    }
+
+    #[test]
+    fn backoff_nominal_grows_geometrically_then_caps() {
+        // attempt 1 == base, then x2 each step, until it saturates at the cap.
+        assert_eq!(reconnect_backoff_nominal(1), RECONNECT_BASE_DELAY);
+        assert_eq!(
+            reconnect_backoff_nominal(2),
+            RECONNECT_BASE_DELAY * RECONNECT_BACKOFF_MULTIPLIER as u32
+        );
+        assert_eq!(
+            reconnect_backoff_nominal(3),
+            RECONNECT_BASE_DELAY * (RECONNECT_BACKOFF_MULTIPLIER * RECONNECT_BACKOFF_MULTIPLIER) as u32
+        );
+
+        // Monotonic non-decreasing and never above the cap.
+        let mut prev = Duration::ZERO;
+        for attempt in 1..=RECONNECT_ATTEMPTS {
+            let nominal = reconnect_backoff_nominal(attempt);
+            assert!(nominal >= prev, "backoff must not decrease (attempt {attempt})");
+            assert!(nominal <= RECONNECT_MAX_DELAY, "backoff must not exceed the cap");
+            prev = nominal;
+        }
+
+        // Late attempts are pinned to the cap, and large attempt indices don't
+        // overflow into a wrapped-around small value.
+        assert_eq!(reconnect_backoff_nominal(RECONNECT_ATTEMPTS), RECONNECT_MAX_DELAY);
+        assert_eq!(reconnect_backoff_nominal(u32::MAX), RECONNECT_MAX_DELAY);
+    }
+
+    #[test]
+    fn backoff_delay_stays_within_nominal_jitter_window() {
+        // Full jitter: every sample must land within [0, nominal(attempt)].
+        for attempt in 1..=RECONNECT_ATTEMPTS {
+            let nominal = reconnect_backoff_nominal(attempt);
+            for _ in 0..1000 {
+                let delay = reconnect_backoff_delay(attempt);
+                assert!(
+                    delay <= nominal,
+                    "jittered delay {delay:?} exceeded nominal {nominal:?} (attempt {attempt})"
+                );
+            }
         }
     }
 }

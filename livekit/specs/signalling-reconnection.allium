@@ -1,93 +1,114 @@
 -- allium: 3
 -- signalling-reconnection.allium
 --
--- AS-IS baseline of the LiveKit Rust SDK's signalling connection and
--- reconnection behaviour. Distilled from the implementation so that planned
--- improvements ("modularize and improve") can be expressed as explicit deltas
--- against a faithful description of what the code does today.
+-- TARGET behaviour for the LiveKit Rust SDK's signalling connection and
+-- reconnection. Evolved from a faithful AS-IS baseline (distilled from
+-- livekit-api/src/signal_client/ and livekit/src/rtc_engine/mod.rs) by applying
+-- five intentional deltas. Each is marked `-- DELTA n` where it changes
+-- behaviour from today's implementation.
 --
--- Two layers are in scope:
---   1. The signalling link  -- SignalClient in livekit-api/src/signal_client/.
---      Connection liveness, the resume ("restart") of the link, the send queue
---      and its reconnecting gate, token refresh.
---   2. The reconnect orchestration -- RtcEngine in
---      livekit/src/rtc_engine/mod.rs. The decision to resume vs fully reconnect,
---      escalation, bounded retries, and server LeaveRequest handling.
+--   1. Decoupled resume: an explicit ordered chain of rules (reopen link ->
+--      sync state -> republish offer -> await PCs -> re-check link -> drain
+--      queue), not one opaque cross-layer sequence.
+--   2. Accurate lifecycle: a resume that escalates to a full reconnect now also
+--      emits Restarting; exhaustion reports the original cause, not `unknown`.
+--   3. Backoff: exponential delay with full jitter, attempt-capped, replacing
+--      the fixed 5s interval.
+--   4. Monotonic reconnect latch: a terminal `revoked` permission state replaces
+--      the ad-hoc `can_reconnect` boolean.
+--   5. Region fallback in scope: region-URL fetch is cloud-only and never masks
+--      the original connection error.
 --
--- Excludes (treated as external boundaries):
---   - WebSocket framing / HTTP upgrade / TLS, region-URL discovery and the
---     v1->v0 endpoint fallback (connection-establishment mechanics).
---   - Peer-connection and media recovery (RtcSession.restart / restart_publisher
---     / wait_pc_reconnected). Surfaced here only as recovery-attempt outcomes.
---   - The Room ConnectionState machine. Surfaced here only as the lifecycle
---     events the engine emits for it to observe.
+-- Boundaries: peer-connection / media recovery (RtcSession) and the Room are
+-- external; modelled via the MediaLayer / Application surfaces below.
 --
--- Reason enum values carried by triggers (passed as bare enum-literal args):
---   ping_timeout | stream_closed | peer_connection_failed | server_leave
---   | reconnect_attempts_exhausted | client_initiated | unknown
---
--- NOTE: distilled without a running `allium` CLI; structural checks pending.
+-- Checker note (allium 3.2.4): `allium check` reports residual `status`
+-- warnings that are CHECKER ARTIFACTS, not spec defects -- every state flagged
+-- "never assigned" is plainly assigned by a visible `ensures`. Three confirmed
+-- CLI limitations cause them:
+--   a. unreachableValue: the status-assignment analysis does not propagate
+--      through deep chained-trigger sequences. A status assigned only by a rule
+--      several emit/consume hops from an external stimulus (e.g. `reconnecting`,
+--      set by StartReconnect two hops past the cause triggers) reads as
+--      "never assigned". Short chains are fine.
+--   b. noExit / multi-graph: a state whose only exit uses a set-membership
+--      guard (`status in {...}`) reports noExit; and only ONE transition graph
+--      per entity is honoured (the language ref permits one per field). Each
+--      entity therefore declares a single `status` graph, and the
+--      EngineConnection.reconnect_permission latch is enforced by construction +
+--      the RevokedImpliesClosed invariant instead of a second graph.
+--   c. externalEntity.missingSourceHint on Sfu/MediaLayer/Application is
+--      expected: these are true external boundaries with no governing spec.
+-- The graphs are retained for their documentation value (the transition
+-- topology is the heart of the reconnection behaviour).
 
-config {
-    -- Initial connect: number of extra attempts after the first (Room default).
-    join_retries: Integer = 3
-    -- Per signalling-link connect attempt timeout (SIGNAL_CONNECT_TIMEOUT).
-    connect_timeout: Duration = 5.seconds
-    -- Reconnect loop bound and spacing (RECONNECT_ATTEMPTS / RECONNECT_INTERVAL).
-    max_reconnect_attempts: Integer = 10
-    reconnect_interval: Duration = 5.seconds
-    -- Settle delay before re-checking PC state on the resume path
-    -- (PC_RECONNECT_SETTLE_DELAY). Resume-only; full reconnect builds new PCs.
-    pc_reconnect_settle_delay: Duration = 1.seconds
+------------------------------------------------------------
+-- External Entities
+------------------------------------------------------------
+
+-- The SFU server the client signals with.
+external entity Sfu { }
+
+-- The peer-connection / RtcSession layer that performs media recovery. Out of
+-- scope; surfaced only through the operations the engine demands of it and the
+-- outcomes it reports back.
+external entity MediaLayer { }
+
+-- The SDK consumer (Room) that drives connect/send/close and observes the
+-- connection lifecycle.
+external entity Application {
+    engine: EngineConnection
 }
 
--- ---------------------------------------------------------------------------
--- Shared vocabulary
--- ---------------------------------------------------------------------------
-
--- The action the SFU attaches to a LeaveRequest, telling the client how (or
--- whether) to recover. `reconnect` forces a full reconnect; `resume` a
--- lightweight resume; `disconnect` forbids reconnection.
-value LeaveAction {
-    kind: resume | reconnect | disconnect
-}
+------------------------------------------------------------
+-- Value Types
+------------------------------------------------------------
 
 -- A signalling message. `kind` determines queue behaviour during a resume.
 -- pass_through = Trickle | Offer | Answer | SyncState | Simulate | Leave
---   (mirrors client-sdk-js `passThroughQueueSignals`). Buffering any of these
---   would deadlock the resume, which depends on them flowing.
+--   (mirrors client-sdk-js `passThroughQueueSignals`); buffering any would
+--   deadlock the resume, which depends on them flowing.
 -- queueable = everything else (AddTrack, Mute, UpdateSubscription, ...).
 value SignalMessage {
     kind: pass_through | queueable
 }
 
--- The result of a recovery attempt, as observed by the engine.
-value RecoveryOutcome {
-    succeeded: Boolean
-    -- True when the failure was a server Leave{Disconnect}: stop, do not retry.
-    server_disconnect: Boolean
+------------------------------------------------------------
+-- Enumerations
+------------------------------------------------------------
+
+-- Why a recovery episode started or the connection ended. Shared across the
+-- cause triggers and the engine's stored reconnect_cause, so it is a named enum.
+enum DisconnectCause {
+    ping_timeout
+    | stream_closed
+    | peer_connection_failed
+    | server_leave
+    | signal_severed_during_resume
+    | reconnect_attempts_exhausted
+    | client_initiated
+    | unknown
 }
 
--- ===========================================================================
--- Layer 1: the signalling link (SignalClient)
--- ===========================================================================
+------------------------------------------------------------
+-- Entities and Variants
+------------------------------------------------------------
 
 entity SignalConnection {
     -- connected    : stream up, sends flow immediately.
     -- lost         : stream dropped unexpectedly (ping timeout / WS close);
-    --                awaiting an engine-driven resume. No gate yet.
-    -- reconnecting : a resume is in flight. The link may already be reopened,
-    --                but the gate is on: queueable sends buffer, pass_through
-    --                sends still flow. Cleared by MarkReconnected.
+    --                awaiting an engine-driven resume. Gate not yet set.
+    -- reconnecting : a resume is in flight; the gate is on -- queueable sends
+    --                buffer, pass_through sends still flow. Cleared by
+    --                MarkReconnected.
     -- closed       : terminal (clean/local close or server Disconnect).
     status: connected | lost | reconnecting | closed
 
     -- Auth token; refreshable mid-session so a resume can outlive an expired
-    -- join token (RefreshSignalToken updates this; the engine reads it at resume).
+    -- join token (the engine reads this at resume time).
     token: String
 
-    -- Liveness parameters advertised by the SFU in the JoinResponse.
-    ping_interval: Duration
+    -- Liveness parameter advertised by the SFU in the JoinResponse.
     ping_timeout: Duration
 
     -- Reset on every message received from the server (not just pongs).
@@ -97,10 +118,11 @@ entity SignalConnection {
     -- original order by MarkReconnected.
     queued_signals: List<SignalMessage>
 
-    -- The engine that drives this link's recovery (reverse of EngineConnection.signal).
+    -- The engine that drives this link's recovery.
     engine: EngineConnection with signal = this
 
-    -- The link is considered dead if nothing arrived within ping_timeout.
+    -- The link is dead if nothing arrived within ping_timeout. Used by the
+    -- resume's mid-flight liveness re-check (ResumeRechecksLink).
     is_alive: last_message_at != null and last_message_at + ping_timeout > now
 
     transitions status {
@@ -116,127 +138,33 @@ entity SignalConnection {
     }
 }
 
-rule EstablishSignalConnection {
-    when: ConnectSignal(url, token)
-    ensures: SignalConnection.created(
-        status: connected,
-        token: token,
-        queued_signals: {}
-    )
-    @guidance
-        -- connect() awaits the SFU's JoinResponse, which supplies ping_interval
-        -- and ping_timeout. Establishment tries the given URL, then SFU-provided
-        -- region URLs in order; with single-PC mode it tries the v1 endpoint and
-        -- falls back to v0 only on 404. A non-404 failure runs a validate() probe
-        -- to surface a clearer HTTP error. All of that is establishment
-        -- mechanics, deliberately out of scope.
-}
-
-rule SignalLinkTimesOut {
-    when: connection: SignalConnection.last_message_at + connection.ping_timeout <= now
-    requires: connection.status = connected
-    ensures: connection.status = lost
-    ensures: SignalLinkLost(connection, reason: ping_timeout)
-    @guidance
-        -- A periodic PingReq is sent every ping_interval to keep traffic flowing
-        -- and measure RTT. last_message_at is reset on ANY received message, so a
-        -- healthy stream never trips this. When it trips, the stream is torn down
-        -- and Close is emitted (-> SignalLinkLost).
-}
-
-rule SignalStreamDrops {
-    when: SignalStreamDropped(connection)
-    requires: connection.status = connected
-    ensures: connection.status = lost
-    ensures: SignalLinkLost(connection, reason: stream_closed)
-    @guidance
-        -- The underlying WebSocket closed (server close or transport error)
-        -- while we did not initiate it. Same observable outcome as a ping
-        -- timeout: the link is lost and the engine is notified.
-}
-
-rule ResumeSignalLink {
-    when: ResumeSignalLink(connection)
-    requires: connection.status in {lost, connected}
-    ensures: connection.status = reconnecting
-    ensures: SignalLinkResumed(connection)
-    @guidance
-        -- restart(): closes any existing stream and opens a fresh one with
-        -- reconnect=true and the (possibly refreshed) token, then awaits the
-        -- SFU's ReconnectResponse (carried by SignalLinkResumed). The
-        -- reconnecting gate is set BEFORE touching the stream so concurrent sends
-        -- route to the queue rather than racing a momentary stream=None window.
-        -- The gate stays on until MarkReconnected -- NOT cleared here. On failure
-        -- the gate is cleared and status returns to `lost` so the next attempt
-        -- can re-enter cleanly.
-}
-
-rule SendSignal {
-    when: SendSignal(connection, message)
-    requires: connection.status != closed
-    if connection.status = reconnecting and message.kind = queueable:
-        ensures: connection.queued_signals = connection.queued_signals + {message}
-    else:
-        ensures: SignalDelivered(connection, message)
-    @guidance
-        -- pass_through messages always attempt immediate delivery -- the resume
-        -- depends on them. On the normal (non-reconnecting) path any backlog is
-        -- flushed in original order before the new message goes out. A delivery
-        -- failure re-queues a queueable message; a failed pass_through is
-        -- dropped with a warning.
-}
-
-rule MarkReconnected {
-    when: MarkReconnected(connection)
-    requires: connection.status = reconnecting
-    ensures: connection.status = connected
-    ensures: connection.queued_signals = {}
-    @guidance
-        -- set_reconnected(): clears the gate FIRST, then flushes the queue, so a
-        -- send racing the flush takes the normal (already-draining) path and
-        -- queueable sends cannot sneak back into the queue mid-drain. The engine
-        -- calls this only after the resume has fully recovered.
-}
-
-rule RefreshSignalToken {
-    when: ServerRefreshesToken(connection, token)
-    ensures: connection.token = token
-    @guidance
-        -- The SFU pushes a RefreshToken so a later resume can authenticate even
-        -- if the original join token has since expired.
-}
-
-rule CloseSignalLink {
-    when: CloseSignalLink(connection)
-    ensures: connection.status = closed
-    @guidance
-        -- Local/clean shutdown: sends a Leave{Disconnect} and tears down the
-        -- stream. Also reached when the engine gives up or the server forbids
-        -- reconnection.
-}
-
--- ===========================================================================
--- Layer 2: reconnect orchestration (RtcEngine)
--- ===========================================================================
-
 entity EngineConnection {
     -- connected    : a live RtcSession; signalling and PCs up.
     -- reconnecting : the reconnect loop owns recovery.
     -- closed       : terminal (gave up, or server Disconnect).
     status: connected | reconnecting | closed
 
-    -- The recovery strategy for the current episode. Escalates resume -> full
-    -- and NEVER downgrades, so a stale resume request cannot override a
-    -- full-reconnect decision already taken.
+    -- Recovery strategy for the current episode. Escalates resume -> full and
+    -- NEVER downgrades.
     mode: resume | full
 
-    -- 1-based attempt index within the current reconnecting episode; 0 when
-    -- connected.
+    -- DELTA 4: a monotonic latch replacing the ad-hoc can_reconnect boolean and
+    -- its lock-guarded checks. Only entity creation assigns `permitted`; no rule
+    -- ever assigns it, and the rules that revoke also close the engine -- so once
+    -- the server (or a recovery attempt hitting a server Disconnect) forbids
+    -- reconnection, it stays forbidden. Monotonicity is by construction and is
+    -- asserted by the RevokedImpliesClosed invariant.
+    -- (A `permitted -> revoked` terminal transition graph would express this
+    -- structurally, but the entity's `status` graph below takes the single graph
+    -- slot the current checker honours; see the spec header note.)
+    reconnect_permission: permitted | revoked
+
+    -- 1-based attempt index within the current episode; 0 when connected.
     attempt: Integer
 
-    -- Gates all reconnection. Cleared when the server sends Leave{Disconnect}
-    -- (or a recovery attempt hits one), to avoid racing reconnection cycles.
-    can_reconnect: Boolean
+    -- DELTA 2: the cause that started the current episode, carried through so
+    -- that giving up reports the real reason instead of `unknown`.
+    reconnect_cause: DisconnectCause?
 
     -- The signalling link this engine drives.
     signal: SignalConnection
@@ -250,60 +178,233 @@ entity EngineConnection {
     }
 }
 
--- --- Reconnection causes -----------------------------------------------------
+------------------------------------------------------------
+-- Config
+------------------------------------------------------------
+
+config {
+    -- Initial connect: extra attempts after the first (Room default).
+    join_retries: Integer = 3
+    -- Per signalling-link connect attempt timeout (SIGNAL_CONNECT_TIMEOUT).
+    connect_timeout: Duration = 5.seconds
+    -- DELTA 3: exponential backoff with full jitter, attempt-capped.
+    -- Per-attempt nominal delay = min(reconnect_max_delay_ms,
+    --   reconnect_base_delay_ms * reconnect_backoff_multiplier^(attempt - 1));
+    -- the actual delay is sampled uniformly from [0, nominal] (full jitter).
+    -- Expressed in milliseconds because Duration has no sub-second unit.
+    max_reconnect_attempts: Integer = 10
+    reconnect_base_delay_ms: Integer = 300
+    reconnect_backoff_multiplier: Integer = 2
+    reconnect_max_delay_ms: Integer = 7000
+    -- Settle delay before re-checking PC state on the resume path
+    -- (PC_RECONNECT_SETTLE_DELAY). Resume-only; full reconnect builds new PCs.
+    pc_reconnect_settle_delay: Duration = 1.seconds
+}
+
+------------------------------------------------------------
+-- Rules
+------------------------------------------------------------
+
+-- === Establishment (DELTA 5: region fallback) ===============================
+
+rule SignalConnectionEstablished {
+    when: SignalConnectSucceeded(target, token)
+    ensures: SignalConnection.created(
+        status: connected,
+        token: token,
+        queued_signals: {}
+    )
+    @guidance
+        -- connect() awaits the SFU's JoinResponse (supplying ping_timeout).
+        -- Endpoint selection (v1->v0 on 404) is establishment mechanics, kept
+        -- out of scope; `target` records whether the host is `cloud` or `direct`.
+}
+
+rule PrimaryConnectFailsOnCloud {
+    when: SignalConnectFailed(target, error)
+    requires: target = cloud
+    ensures: RegionFetchRequested(error)
+    @guidance
+        -- DELTA 5: only LiveKit Cloud hosts attempt region fallback.
+}
+
+rule PrimaryConnectFailsOnDirect {
+    when: SignalConnectFailed(target, error)
+    requires: target = direct
+    ensures: SignalConnectRejected(error)
+    @guidance
+        -- DELTA 5: direct / self-hosted endpoints skip region fallback entirely
+        -- and surface the original connection error immediately.
+}
+
+rule RegionFetchFails {
+    when: RegionFetchFailed(original_error)
+    ensures: SignalConnectRejected(original_error)
+    @guidance
+        -- DELTA 5: a failed region-URL fetch must NEVER mask the original
+        -- connection error (today the fetch error is surfaced instead).
+}
+
+rule RegionFetchSucceeds {
+    when: RegionUrlsFetched(original_error)
+    ensures: RegionConnectAttemptRequested(original_error)
+    @guidance
+        -- Try each region URL in order; success yields SignalConnectSucceeded.
+}
+
+rule AllRegionsFail {
+    when: RegionConnectsExhausted(original_error)
+    ensures: SignalConnectRejected(original_error)
+    @guidance
+        -- DELTA 5: when every region URL has failed, surface the ORIGINAL
+        -- primary connection error rather than the last region's error.
+}
+
+-- === Signalling-link liveness & lifecycle ===================================
+
+rule SignalLinkTimesOut {
+    when: connection: SignalConnection.last_message_at + connection.ping_timeout <= now
+    requires: connection.status = connected
+    ensures: connection.status = lost
+    ensures: SignalLinkLost(connection, cause: ping_timeout)
+    @guidance
+        -- last_message_at resets on ANY received message, so a healthy stream
+        -- never trips this. A periodic PingReq keeps traffic flowing.
+}
+
+rule SignalStreamDrops {
+    when: SignalStreamDropped(connection)
+    requires: connection.status = connected
+    ensures: connection.status = lost
+    ensures: SignalLinkLost(connection, cause: stream_closed)
+}
+
+rule ResumeSignalLink {
+    when: ResumeSignalLink(connection)
+    requires: connection.status in {lost, connected}
+    ensures: connection.status = reconnecting
+    ensures: SignalLinkResumed(connection)
+    @guidance
+        -- restart(): closes any existing stream and opens a fresh one with
+        -- reconnect=true and the (possibly refreshed) token, awaiting the SFU's
+        -- ReconnectResponse. The gate is set BEFORE touching the stream so
+        -- concurrent sends route to the queue, and stays on until MarkReconnected.
+}
+
+rule SignalResumeFails {
+    when: SignalResumeFailed(connection)
+    requires: connection.status = reconnecting
+    ensures: connection.status = lost
+    @guidance
+        -- Reopening the stream failed; the gate is cleared and the link returns
+        -- to `lost` so the engine's next attempt can re-enter cleanly.
+}
+
+rule SendSignal {
+    when: SendSignal(connection, message)
+    requires: connection.status != closed
+    if connection.status = reconnecting and message.kind = queueable:
+        ensures: connection.queued_signals = connection.queued_signals + {message}
+    else:
+        ensures: SignalDelivered(connection, message)
+    @guidance
+        -- pass_through messages always attempt immediate delivery. On the normal
+        -- path any backlog is flushed in original order first. A failed queueable
+        -- send re-queues; a failed pass_through is dropped with a warning.
+}
+
+rule MarkReconnected {
+    when: MarkReconnected(connection)
+    requires: connection.status = reconnecting
+    ensures: connection.status = connected
+    ensures: connection.queued_signals = {}
+    @guidance
+        -- set_reconnected(): clears the gate FIRST, then flushes, so a racing
+        -- send takes the normal draining path and cannot re-queue mid-drain.
+}
+
+rule RefreshSignalToken {
+    when: ServerRefreshesToken(connection, token)
+    ensures: connection.token = token
+}
+
+rule CloseSignalLink {
+    when: CloseSignalLink(connection)
+    requires: connection.status in {connected, lost, reconnecting}
+    ensures: connection.status = closed
+}
+
+-- === Engine: initial connection =============================================
+
+rule EngineConnects {
+    when: EngineSessionConnected(signal)
+    ensures: EngineConnection.created(
+        status: connected,
+        mode: resume,
+        reconnect_permission: permitted,
+        attempt: 0,
+        signal: signal
+    )
+}
+
+-- === Engine: reconnection causes ============================================
 
 rule ReconnectOnSignalLoss {
-    when: SignalLinkLost(connection, reason)
+    when: SignalLinkLost(connection, cause)
     let engine = connection.engine
-    requires: engine.can_reconnect
-    ensures: ReconnectNeeded(engine, full_reconnect: false, retry_now: false)
+    requires: engine.reconnect_permission = permitted
+    ensures: ReconnectNeeded(engine, full_reconnect: false, retry_now: false, cause: cause)
     @guidance
-        -- An unexpected signal-link loss (ping timeout or WS close) drives a
-        -- resume, not urgent: the loop's normal interval applies.
+        -- Unexpected signal loss drives a (non-urgent) resume.
 }
 
 rule ReconnectOnPeerConnectionFailure {
     when: PeerConnectionFailed(engine)
-    requires: engine.can_reconnect
-    ensures: ReconnectNeeded(engine, full_reconnect: false, retry_now: false)
-    @guidance
-        -- A PeerConnection reaching the Failed state drives a resume. The
-        -- signalling link may still be up; the resume path closes and reopens it.
+    requires: engine.reconnect_permission = permitted
+    ensures: ReconnectNeeded(
+        engine,
+        full_reconnect: false,
+        retry_now: false,
+        cause: peer_connection_failed
+    )
 }
 
 rule ServerRequestsReconnect {
-    when: ServerLeaveRequested(engine, action, reason)
-    requires: action.kind in {resume, reconnect}
-    requires: engine.can_reconnect
+    when: ServerLeaveRequested(engine, action)
+    requires: action in {resume, reconnect}
+    requires: engine.reconnect_permission = permitted
     ensures: ReconnectNeeded(
         engine,
-        full_reconnect: action.kind = reconnect,
-        retry_now: true
+        full_reconnect: action = reconnect,
+        retry_now: true,
+        cause: server_leave
     )
     @guidance
-        -- A server Leave with Resume/Reconnect drives recovery immediately
-        -- (retry_now). Reconnect forces a full reconnect; Resume a resume.
+        -- A server Leave with Resume/Reconnect drives recovery immediately.
 }
 
 rule ServerRequestsDisconnect {
-    when: ServerLeaveRequested(engine, action, reason)
-    requires: action.kind = disconnect
-    ensures: engine.can_reconnect = false
+    when: ServerLeaveRequested(engine, action)
+    requires: action = disconnect
+    requires: engine.reconnect_permission = permitted
+    requires: engine.status in {connected, reconnecting}
+    ensures: engine.reconnect_permission = revoked
     ensures: engine.status = closed
-    ensures: EngineDisconnected(engine, reason)
+    ensures: EngineDisconnected(engine, cause: server_leave)
     @guidance
-        -- A server Leave with Disconnect forbids reconnection outright and tears
-        -- the engine down with the server-supplied reason.
+        -- A server Leave with Disconnect forbids reconnection outright (DELTA 4:
+        -- terminal `revoked`) and tears the engine down.
 }
 
--- --- Starting / escalating the reconnect loop --------------------------------
+-- === Engine: starting / escalating the loop =================================
 
 rule StartReconnect {
-    when: ReconnectNeeded(engine, full_reconnect, retry_now)
-    requires: engine.can_reconnect
-    requires: engine.status != reconnecting
+    when: ReconnectNeeded(engine, full_reconnect, retry_now, cause)
+    requires: engine.reconnect_permission = permitted
+    requires: engine.status = connected
     ensures: engine.status = reconnecting
     ensures: engine.attempt = 1
+    ensures: engine.reconnect_cause = cause
     if full_reconnect:
         ensures: engine.mode = full
         ensures: EngineRestarting(engine)
@@ -312,68 +413,131 @@ rule StartReconnect {
         ensures: EngineResuming(engine)
     ensures: ReconnectAttemptStarted(engine)
     @guidance
-        -- Mirrors reconnection_needed() when not already reconnecting. The
-        -- one-time lifecycle notification (Resuming or Restarting) is emitted
-        -- here and the Room acts on it (e.g. unpublish local tracks on a full
-        -- reconnect) before recovery proceeds. NOTE: Restarting is emitted ONLY
-        -- when the episode STARTS in full mode; an escalation from a failed
-        -- resume does not re-emit it (see EscalateReconnect / ResumeAttemptFails).
+        -- Mirrors reconnection_needed() on a fresh episode. The Room acts on the
+        -- one-time Resuming/Restarting notification (e.g. unpublish local tracks
+        -- on a full reconnect) before recovery proceeds.
 }
 
 rule EscalateReconnect {
-    when: ReconnectNeeded(engine, full_reconnect, retry_now)
-    requires: engine.can_reconnect
+    when: ReconnectNeeded(engine, full_reconnect, retry_now, cause)
+    requires: engine.reconnect_permission = permitted
     requires: engine.status = reconnecting
-    if full_reconnect:
+    if full_reconnect and engine.mode = resume:
         ensures: engine.mode = full
+        ensures: EngineRestarting(engine)
     @guidance
-        -- Already reconnecting: only escalate resume -> full, never downgrade. A
-        -- stale signal-loss event (which asks for resume) must not override a
-        -- full-reconnect decision already taken. retry_now resets the loop's
-        -- interval so the next attempt fires immediately rather than after the
-        -- backoff (the attempt itself is driven by the in-flight loop).
+        -- Already reconnecting: only escalate resume -> full, never downgrade.
+        -- DELTA 2: the escalation now emits Restarting so the Room sees a discrete
+        -- event matching the mode it is in (previously the Room saw Resuming then
+        -- Restarted with no Restarting between). retry_now restarts the backoff so
+        -- the in-flight loop's next attempt fires immediately.
 }
 
--- --- Attempt outcomes --------------------------------------------------------
--- A reconnect attempt is performed against the recovery boundary (signalling
--- link + RtcSession + PeerConnections). Its outcome returns as one of the
--- stimuli below. See contract ConnectionRecovery for the ordering obligations.
+-- === Engine: per-attempt dispatch ===========================================
+
+rule DispatchReconnectAttempt {
+    when: ReconnectAttemptStarted(engine)
+    requires: engine.status = reconnecting
+    if engine.mode = resume:
+        ensures: ResumeSignalLink(engine.signal)
+    else:
+        ensures: FullReconnectRequested(engine)
+    @guidance
+        -- Resume re-opens the existing link and recovers in place; full reconnect
+        -- asks the media layer to build a brand-new session.
+}
+
+-- === Engine: the decoupled resume chain (DELTA 1) ===========================
+-- Each step is a named rule chained to the next, so the ordering that today is
+-- implicit across signal+session+engine is an explicit, testable sequence.
+
+rule ResumeSendsSyncState {
+    when: SignalLinkResumed(connection)
+    let engine = connection.engine
+    requires: engine.status = reconnecting
+    requires: engine.mode = resume
+    ensures: SyncStateSent(engine)
+    @guidance
+        -- Step 2: with the link reopened, the Room sends SyncState (a
+        -- pass_through, so it flows despite the gate) so the SFU resyncs state.
+}
+
+rule ResumeRepublishesPublisher {
+    when: SyncStateSent(engine)
+    requires: engine.status = reconnecting
+    ensures: RepublishPublisherRequested(engine)
+    @guidance
+        -- Step 3: the publisher offer is re-sent AFTER SyncState -- ordering a
+        -- refactor must preserve, now guaranteed by this chain not a comment.
+}
+
+rule ResumeAwaitsPeerConnections {
+    when: PublisherRepublished(engine)
+    requires: engine.status = reconnecting
+    ensures: AwaitPeerConnectionsRequested(engine, settle: config.pc_reconnect_settle_delay)
+    @guidance
+        -- Step 4: wait for the PeerConnections to reconnect, then apply the
+        -- settle delay before trusting their state.
+}
+
+rule ResumeRechecksLink {
+    when: PeerConnectionsReconnected(engine)
+    requires: engine.status = reconnecting
+    if not engine.signal.is_alive:
+        ensures: ResumeAttemptFailed(
+            engine,
+            server_disconnect: false,
+            cause: signal_severed_during_resume
+        )
+    else:
+        ensures: ResumeQueueDrainRequested(engine)
+    @guidance
+        -- Step 5: if the link died while we waited for PCs, FAIL rather than
+        -- drain queued mutations into the void.
+}
+
+rule ResumeDrainsQueue {
+    when: ResumeQueueDrainRequested(engine)
+    requires: engine.status = reconnecting
+    ensures: MarkReconnected(engine.signal)
+    ensures: ResumeAttemptSucceeded(engine)
+    @guidance
+        -- Step 6: the resume has fully recovered; drain the signal queue.
+}
+
+-- === Engine: attempt outcomes ===============================================
 
 rule ResumeAttemptSucceeds {
     when: ResumeAttemptSucceeded(engine)
     requires: engine.status = reconnecting
     ensures: engine.status = connected
     ensures: engine.attempt = 0
-    ensures: MarkReconnected(engine.signal)
+    ensures: engine.reconnect_cause = null
     ensures: EngineResumed(engine)
-    @guidance
-        -- Ordered resume sequence behind this outcome:
-        --   1. ResumeSignalLink -> ReconnectResponse (gate on).
-        --   2. SignalResumed -> the Room sends SyncState (pass_through, flows
-        --      despite the gate).
-        --   3. publisher re-offer, sent AFTER SyncState.
-        --   4. wait for PCs to reconnect, then pc_reconnect_settle_delay before
-        --      re-checking PC state.
-        --   5. re-check the signal link is still alive; if severed, FAIL rather
-        --      than drain queued mutations into the void.
-        --   6. MarkReconnected drains the signal queue.
 }
 
-rule ResumeAttemptFails {
-    when: ResumeAttemptFailed(engine, server_disconnect, reason)
+rule ResumeAttemptDisconnects {
+    when: ResumeAttemptFailed(engine, server_disconnect, cause)
     requires: engine.status = reconnecting
-    if server_disconnect:
-        ensures: engine.can_reconnect = false
-        ensures: engine.status = closed
-        ensures: EngineDisconnected(engine, reason)
-    else:
-        ensures: engine.mode = full
-        ensures: RetryReconnect(engine)
+    requires: server_disconnect
+    ensures: engine.reconnect_permission = revoked
+    ensures: engine.status = closed
+    ensures: EngineDisconnected(engine, cause: cause)
     @guidance
-        -- A failed resume ESCALATES the episode to full reconnect (never
-        -- downgraded thereafter) and retries. But if the failure was a server
-        -- Leave{Disconnect}, the loop bails out instead of escalating: the server
-        -- is explicitly telling us to stop.
+        -- A resume that failed because the server sent Leave{Disconnect}: stop,
+        -- do not escalate or retry.
+}
+
+rule ResumeAttemptEscalates {
+    when: ResumeAttemptFailed(engine, server_disconnect, cause)
+    requires: engine.status = reconnecting
+    requires: not server_disconnect
+    ensures: engine.mode = full
+    ensures: EngineRestarting(engine)
+    ensures: RetryReconnect(engine)
+    @guidance
+        -- DELTA 2: a failed resume escalates to full reconnect AND emits
+        -- Restarting on the escalation (previously silent), then retries.
 }
 
 rule RestartAttemptSucceeds {
@@ -381,77 +545,123 @@ rule RestartAttemptSucceeds {
     requires: engine.status = reconnecting
     ensures: engine.status = connected
     ensures: engine.attempt = 0
+    ensures: engine.reconnect_cause = null
     ensures: EngineRestarted(engine)
     @guidance
-        -- Full reconnect built a brand-new RtcSession (new signalling link, PCs,
-        -- data channels) and its PCs reached Connected. EngineRestarted lets the
-        -- Room republish. The new session replaces the old only on success, so a
-        -- failed attempt leaves the old session usable (e.g. for stats).
+        -- The new RtcSession's PCs reached Connected. The new session replaces
+        -- the old only on success, so a failed attempt leaves the old usable.
 }
 
-rule RestartAttemptFails {
-    when: RestartAttemptFailed(engine, server_disconnect, reason)
+rule RestartAttemptDisconnects {
+    when: RestartAttemptFailed(engine, server_disconnect, cause)
     requires: engine.status = reconnecting
-    if server_disconnect:
-        ensures: engine.can_reconnect = false
-        ensures: engine.status = closed
-        ensures: EngineDisconnected(engine, reason)
-    else:
-        ensures: RetryReconnect(engine)
+    requires: server_disconnect
+    ensures: engine.reconnect_permission = revoked
+    ensures: engine.status = closed
+    ensures: EngineDisconnected(engine, cause: cause)
 }
 
-rule RetryReconnect {
+rule RestartAttemptRetries {
+    when: RestartAttemptFailed(engine, server_disconnect, cause)
+    requires: engine.status = reconnecting
+    requires: not server_disconnect
+    ensures: RetryReconnect(engine)
+}
+
+rule RetryReconnectAgain {
     when: RetryReconnect(engine)
     requires: engine.status = reconnecting
-    if engine.attempt < config.max_reconnect_attempts:
-        ensures: engine.attempt = engine.attempt + 1
-        ensures: ReconnectAttemptStarted(engine)
-    else:
-        ensures: engine.status = closed
-        ensures: EngineDisconnected(engine, reason: reconnect_attempts_exhausted)
+    requires: engine.attempt < config.max_reconnect_attempts
+    ensures: engine.attempt = engine.attempt + 1
+    ensures: ReconnectAttemptStarted(engine)
     @guidance
-        -- Attempts are spaced by reconnect_interval; retry_now (from a server
-        -- Leave) restarts the interval so the next attempt fires immediately.
-        -- After max_reconnect_attempts failures the engine gives up and closes,
-        -- always emitting EngineDisconnected so the Room leaves the Reconnecting
-        -- state rather than hanging there forever.
+        -- DELTA 3: attempts are spaced by exponential backoff with full jitter
+        -- (see config); a server-Leave retry_now collapses the delay to zero.
 }
 
--- --- Boundary with the recovery layer (RtcSession + PeerConnections) ---------
-
-contract ConnectionRecovery {
-    resume: (engine: EngineConnection) -> RecoveryOutcome
-    full_reconnect: (engine: EngineConnection) -> RecoveryOutcome
-
-    @invariant ResumeOrdering
-        -- A resume sends SyncState before the publisher re-offer, waits for the
-        -- PeerConnections to reconnect (with pc_reconnect_settle_delay), re-checks
-        -- the signalling link is still alive, and only then drains the queue.
-
-    @invariant SuccessReplacesSession
-        -- On full reconnect the new RtcSession replaces the current one only
-        -- after it fully succeeds; a failed attempt must leave the prior session
-        -- intact and usable.
-
-    @invariant DisconnectStopsLoop
-        -- If a recovery attempt fails with a server Leave{Disconnect}, recovery
-        -- stops and the engine closes; it does not escalate or retry.
+rule ReconnectExhausted {
+    when: RetryReconnect(engine)
+    requires: engine.status = reconnecting
+    requires: engine.attempt >= config.max_reconnect_attempts
+    ensures: engine.status = closed
+    ensures: EngineDisconnected(engine, cause: reconnect_attempts_exhausted)
+    @guidance
+        -- DELTA 2: on giving up, EngineDisconnected reports
+        -- reconnect_attempts_exhausted; the engine's reconnect_cause also remains
+        -- available to the Room for the underlying reason, instead of `unknown`.
+        -- Always emitted so the Room leaves the Reconnecting state.
 }
 
--- --- Boundary with the Room (observer of the connection lifecycle) -----------
+------------------------------------------------------------
+-- Invariants
+------------------------------------------------------------
+
+invariant RevokedImpliesClosed {
+    for engine in EngineConnection:
+        engine.reconnect_permission = revoked implies engine.status = closed
+}
+
+------------------------------------------------------------
+-- Surfaces
+------------------------------------------------------------
+
+-- The application drives signalling sends/close and observes the lifecycle.
+surface SignalCommands {
+    facing app: Application
+
+    provides:
+        SendSignal(app)
+        CloseSignalLink(app)
+}
 
 surface RoomConnectionLifecycle {
-    facing room: EngineConnection
+    facing app: Application
 
     exposes:
-        room.status
-        room.mode
+        app.engine.status
+        app.engine.mode
+        app.engine.reconnect_cause
 
     @guarantee LifecycleNotifications
         -- The engine emits, for the Room to observe: EngineResuming /
-        -- EngineRestarting (start of an episode, with a synchronous handshake the
-        -- Room completes before recovery proceeds), EngineResumed /
-        -- EngineRestarted (success), and EngineDisconnected (give-up or server
-        -- Disconnect). Restarting is emitted only for episodes that START in full
-        -- mode; resume->full escalations surface a Resumed-less Restarted.
+        -- EngineRestarting (start of an episode, or a resume->full escalation),
+        -- EngineResumed / EngineRestarted (success), EngineDisconnected (give-up
+        -- or server Disconnect). DELTA 2: an escalated full reconnect now also
+        -- emits Restarting.
+}
+
+-- The SFU pushes connection outcomes, liveness loss, leave requests and tokens.
+surface ServerSignalling {
+    facing sfu: Sfu
+
+    provides:
+        SignalConnectSucceeded(sfu)
+        SignalConnectFailed(sfu)
+        RegionUrlsFetched(sfu)
+        RegionFetchFailed(sfu)
+        RegionConnectsExhausted(sfu)
+        SignalStreamDropped(sfu)
+        SignalResumeFailed(sfu)
+        ServerLeaveRequested(sfu)
+        ServerRefreshesToken(sfu)
+}
+
+-- The media layer reports recovery progress and outcomes; the engine demands
+-- the recovery operations from it.
+surface MediaRecovery {
+    facing media: MediaLayer
+
+    provides:
+        EngineSessionConnected(media)
+        PeerConnectionFailed(media)
+        PublisherRepublished(media)
+        PeerConnectionsReconnected(media)
+        RestartAttemptSucceeded(media)
+        RestartAttemptFailed(media)
+
+    @guarantee RecoveryOperations
+        -- The engine drives the media layer via RepublishPublisherRequested,
+        -- AwaitPeerConnectionsRequested (which applies pc_reconnect_settle_delay)
+        -- and FullReconnectRequested. A full reconnect must leave the prior
+        -- session intact until the new one fully succeeds.
 }

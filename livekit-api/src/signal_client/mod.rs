@@ -192,8 +192,22 @@ impl SignalClient {
                 if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
                     log::error!("unexpected signal error: {}", err.to_string());
                 }
-                let urls = RegionUrlProvider::fetch_region_urls(url, token).await?;
-                let mut last_err = err;
+
+                // Region fallback is best-effort. `fetch_region_urls` already
+                // returns an empty list for non-cloud (direct / self-hosted)
+                // URLs, so those skip the fallback entirely. If the region fetch
+                // itself fails (e.g. the region endpoint is unreachable), we must
+                // NOT mask the original connection error with the fetch error —
+                // surface the real reason the connection failed instead.
+                let urls = match RegionUrlProvider::fetch_region_urls(url, token).await {
+                    Ok(urls) => urls,
+                    Err(region_err) => {
+                        log::debug!(
+                            "region url fetch failed ({region_err}); surfacing original connection error"
+                        );
+                        return Err(err);
+                    }
+                };
 
                 for url in urls.iter() {
                     log::info!("fallback connection to: {}", url);
@@ -203,11 +217,15 @@ impl SignalClient {
                         Ok((inner, join_response, stream_events)) => {
                             return Ok(handle_success(inner, join_response, stream_events))
                         }
-                        Err(err) => last_err = err,
+                        Err(region_conn_err) => {
+                            log::warn!("region fallback connection to {url} failed: {region_conn_err}")
+                        }
                     }
                 }
 
-                Err(last_err)
+                // Every region URL failed (or there were none): surface the
+                // ORIGINAL primary connection error, not the last region's error.
+                Err(err)
             }
         }
     }
