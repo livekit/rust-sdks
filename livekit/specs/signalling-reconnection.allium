@@ -86,6 +86,7 @@ enum DisconnectCause {
     | server_leave
     | signal_severed_during_resume
     | reconnect_attempts_exhausted
+    | unauthorized
     | client_initiated
     | unknown
 }
@@ -183,7 +184,10 @@ entity EngineConnection {
 ------------------------------------------------------------
 
 config {
-    -- Initial connect: extra attempts after the first (Room default).
+    -- Initial connect: extra attempts after the first (Room default). A
+    -- validated auth failure (HTTP 401/403, DisconnectCause unauthorized) is
+    -- surfaced immediately and does NOT consume these retries (R4.2), matching
+    -- the reconnect loop's terminal-failure handling.
     join_retries: Integer = 3
     -- Per signalling-link connect attempt timeout (SIGNAL_CONNECT_TIMEOUT).
     connect_timeout: Duration = 5.seconds
@@ -489,7 +493,7 @@ rule ResumeRechecksLink {
     if not engine.signal.is_alive:
         ensures: ResumeAttemptFailed(
             engine,
-            server_disconnect: false,
+            terminal: false,
             cause: signal_severed_during_resume
         )
     else:
@@ -519,28 +523,32 @@ rule ResumeAttemptSucceeds {
     ensures: EngineResumed(engine)
 }
 
-rule ResumeAttemptDisconnects {
-    when: ResumeAttemptFailed(engine, server_disconnect, cause)
+rule ResumeAttemptFailsTerminally {
+    when: ResumeAttemptFailed(engine, terminal, cause)
     requires: engine.status = reconnecting
-    requires: server_disconnect
+    requires: terminal
     ensures: engine.reconnect_permission = revoked
     ensures: engine.status = closed
     ensures: EngineDisconnected(engine, cause: cause)
     @guidance
-        -- A resume that failed because the server sent Leave{Disconnect}: stop,
-        -- do not escalate or retry.
+        -- A resume that failed in a NON-RETRYABLE way: stop, do not escalate or
+        -- retry. Terminal failures are (a) a server Leave{Disconnect}
+        -- (cause = server_leave) and (b) DELTA R4.2: an authentication failure
+        -- (cause = unauthorized, a server-validated HTTP 401/403) — the same
+        -- token will not succeed on retry, so retrying would just hammer the
+        -- server. `cause` carries which one for the Room.
 }
 
 rule ResumeAttemptEscalates {
-    when: ResumeAttemptFailed(engine, server_disconnect, cause)
+    when: ResumeAttemptFailed(engine, terminal, cause)
     requires: engine.status = reconnecting
-    requires: not server_disconnect
+    requires: not terminal
     ensures: engine.mode = full
     ensures: EngineRestarting(engine)
     ensures: RetryReconnect(engine)
     @guidance
-        -- DELTA 2: a failed resume escalates to full reconnect AND emits
-        -- Restarting on the escalation (previously silent), then retries.
+        -- DELTA 2: a (retryable) failed resume escalates to full reconnect AND
+        -- emits Restarting on the escalation (previously silent), then retries.
 }
 
 rule RestartAttemptSucceeds {
@@ -555,19 +563,22 @@ rule RestartAttemptSucceeds {
         -- the old only on success, so a failed attempt leaves the old usable.
 }
 
-rule RestartAttemptDisconnects {
-    when: RestartAttemptFailed(engine, server_disconnect, cause)
+rule RestartAttemptFailsTerminally {
+    when: RestartAttemptFailed(engine, terminal, cause)
     requires: engine.status = reconnecting
-    requires: server_disconnect
+    requires: terminal
     ensures: engine.reconnect_permission = revoked
     ensures: engine.status = closed
     ensures: EngineDisconnected(engine, cause: cause)
+    @guidance
+        -- Non-retryable full-reconnect failure: a server Leave{Disconnect} or
+        -- (DELTA R4.2) a validated auth failure (cause = unauthorized). Stop.
 }
 
 rule RestartAttemptRetries {
-    when: RestartAttemptFailed(engine, server_disconnect, cause)
+    when: RestartAttemptFailed(engine, terminal, cause)
     requires: engine.status = reconnecting
-    requires: not server_disconnect
+    requires: not terminal
     ensures: RetryReconnect(engine)
 }
 

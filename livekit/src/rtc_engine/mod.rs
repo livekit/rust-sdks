@@ -495,6 +495,14 @@ impl EngineInner {
             match try_connect().await {
                 Ok(res) => return Ok(res),
                 Err(e) => {
+                    // A validated auth failure (401/403) will not succeed on
+                    // retry with the same token — surface it immediately instead
+                    // of burning the remaining join attempts. Same classification
+                    // as the reconnect loop (see `auth_failure_reason`).
+                    if auth_failure_reason(&e).is_some() {
+                        log::warn!("authentication rejected during connect ({e}); not retrying");
+                        return Err(e);
+                    }
                     let attempt_i = i + 1;
                     if i < max_retries {
                         log::warn!(
@@ -911,6 +919,14 @@ impl EngineInner {
                                 "server requested disconnect during restart".into(),
                             ));
                         }
+                        if let Some(reason) = auth_failure_reason(&err) {
+                            log::warn!("authentication rejected during restart ({err}); not retrying");
+                            self.running_handle.write().can_reconnect = false;
+                            self.close(reason).await;
+                            return Err(EngineError::Connection(
+                                "authentication failed during reconnect".into(),
+                            ));
+                        }
                         log::error!("restarting connection failed: {}", err);
                     }
                 }
@@ -937,6 +953,14 @@ impl EngineInner {
                             self.close(reason).await;
                             return Err(EngineError::Connection(
                                 "server requested disconnect during resume".into(),
+                            ));
+                        }
+                        if let Some(reason) = auth_failure_reason(&err) {
+                            log::warn!("authentication rejected during resume ({err}); not retrying");
+                            self.running_handle.write().can_reconnect = false;
+                            self.close(reason).await;
+                            return Err(EngineError::Connection(
+                                "authentication failed during reconnect".into(),
                             ));
                         }
                         log::error!("resuming connection failed: {}", err);
@@ -1091,6 +1115,28 @@ fn leave_disconnect_reason(err: &EngineError) -> Option<DisconnectReason> {
     None
 }
 
+/// Inspect a reconnect-attempt error for a genuine authentication/authorization
+/// failure (HTTP 401/403). Such a failure will not succeed on retry with the
+/// same token, so the reconnect loop should bail out immediately rather than
+/// burning every attempt (and hammering the server) with credentials it already
+/// knows are rejected.
+///
+/// We key on `SignalError::Client(401|403)`, which is produced by the server's
+/// `rtc/validate` probe (see [`super`]'s `SignalInner::validate`) — an
+/// authoritative classification. We deliberately do NOT key on the raw
+/// `WsError::Http` upgrade status, because that can be a fabricated 401 masking a
+/// transient server error (e.g. a 503 from a saturated node), which IS
+/// retryable. A resume that hits a raw 401 simply escalates to a full reconnect,
+/// whose connect path runs `validate()` and surfaces the authoritative status.
+fn auth_failure_reason(err: &EngineError) -> Option<DisconnectReason> {
+    if let EngineError::Signal(SignalError::Client(status, _)) = err {
+        if matches!(status.as_u16(), 401 | 403) {
+            return Some(DisconnectReason::JoinFailure);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1135,6 +1181,50 @@ mod tests {
                 leave_disconnect_reason(err).is_none(),
                 "{:?} must not be treated as a disconnect Leave",
                 err
+            );
+        }
+    }
+
+    #[test]
+    fn auth_failure_reason_flags_validated_401_and_403() {
+        // The server's rtc/validate probe surfaces auth failures as Client(4xx).
+        for status in [401u16, 403] {
+            let err = EngineError::Signal(SignalError::Client(
+                http::StatusCode::from_u16(status).unwrap(),
+                "invalid token".into(),
+            ));
+            assert_eq!(
+                auth_failure_reason(&err),
+                Some(DisconnectReason::JoinFailure),
+                "Client({status}) must be treated as a non-retryable auth failure"
+            );
+        }
+    }
+
+    #[test]
+    fn auth_failure_reason_ignores_other_client_and_server_errors() {
+        let not_auth = [
+            // Other client errors are not auth failures.
+            EngineError::Signal(SignalError::Client(http::StatusCode::NOT_FOUND, "".into())),
+            EngineError::Signal(SignalError::Client(
+                http::StatusCode::TOO_MANY_REQUESTS,
+                "".into(),
+            )),
+            // Server errors (e.g. a saturated node) are retryable.
+            EngineError::Signal(SignalError::Server(
+                http::StatusCode::SERVICE_UNAVAILABLE,
+                "".into(),
+            )),
+            // Generic connectivity/internal errors are retryable.
+            EngineError::Connection("network".into()),
+            EngineError::Internal("bug".into()),
+            EngineError::Signal(SignalError::SendError),
+            EngineError::Signal(SignalError::Timeout("waiting".into())),
+        ];
+        for err in &not_auth {
+            assert!(
+                auth_failure_reason(err).is_none(),
+                "{err:?} must NOT be treated as an auth failure"
             );
         }
     }
