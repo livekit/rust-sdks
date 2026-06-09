@@ -12,7 +12,6 @@ use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
 use log::{debug, info};
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
@@ -25,14 +24,17 @@ use std::{
 };
 
 mod codec_display;
+mod encoding_control;
 mod subscriber_timing;
 mod viewport_aspect;
 
 use codec_display::{codec_from_mime, codec_with_implementation};
+use encoding_control::{
+    SetEncodingLimitsRequest, SetEncodingLimitsResponse, SET_VIDEO_ENCODING_LIMITS_METHOD,
+};
 use subscriber_timing::SubscriberTimingHandle;
 use viewport_aspect::AspectConstrainedViewport;
 
-const SET_VIDEO_ENCODING_LIMITS_METHOD: &str = "set-video-encoding-limits";
 const DEFAULT_CONTROL_BITRATE_BPS: u64 = 1_500_000;
 const DEFAULT_CONTROL_FRAMERATE: f64 = 30.0;
 const DEFAULT_CONTROL_RESOLUTION_SCALE: f64 = 1.0;
@@ -417,24 +419,6 @@ struct Args {
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct SetEncodingLimitsRequest {
-    track_sid: String,
-    bitrate_bps: Option<u64>,
-    max_framerate: Option<f64>,
-    scale_resolution_down_by: Option<f64>,
-    reason: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct SetEncodingLimitsResponse {
-    applied_bitrate_bps: Option<u64>,
-    applied_max_framerate: Option<f64>,
-    applied_scale_resolution_down_by: Option<f64>,
-    track_sid: String,
 }
 
 #[derive(Clone, Copy, Debug)]

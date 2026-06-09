@@ -20,7 +20,6 @@ use nokhwa::utils::{
 };
 use nokhwa::Camera;
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::{
@@ -31,11 +30,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
 mod codec_display;
+mod encoding_control;
 mod test_pattern;
 mod timestamp_burn;
 mod video_display;
 mod viewport_aspect;
 
+use encoding_control::{
+    SetEncodingLimitsRequest, SetEncodingLimitsResponse, SET_VIDEO_ENCODING_LIMITS_METHOD,
+};
 use test_pattern::TestPattern;
 use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
@@ -215,26 +218,7 @@ fn unix_time_us_now() -> u64 {
 }
 
 const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
-const SET_VIDEO_ENCODING_LIMITS_METHOD: &str = "set-video-encoding-limits";
 const HIGH_RID: &str = "f";
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct SetEncodingLimitsRequest {
-    track_sid: String,
-    bitrate_bps: Option<u64>,
-    max_framerate: Option<f64>,
-    scale_resolution_down_by: Option<f64>,
-    reason: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct SetEncodingLimitsResponse {
-    applied_bitrate_bps: Option<u64>,
-    applied_max_framerate: Option<f64>,
-    applied_scale_resolution_down_by: Option<f64>,
-    track_sid: String,
-}
 
 #[derive(Default)]
 struct CaptureTimestampLogState {
