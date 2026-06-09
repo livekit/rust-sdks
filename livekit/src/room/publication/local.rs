@@ -93,25 +93,6 @@ impl LocalTrackPublication {
         track.set_encoding_limits(limits)
     }
 
-    /// Sets runtime encoding limits for a specific video quality layer.
-    ///
-    /// For simulcasted video, [`VideoQuality::Low`], [`VideoQuality::Medium`],
-    /// and [`VideoQuality::High`] map to the standard LiveKit RIDs `q`, `h`,
-    /// and `f`. For non-simulcast video, only [`VideoQuality::High`] is valid.
-    pub fn set_video_encoding_limits_for_quality(
-        &self,
-        quality: VideoQuality,
-        limits: VideoEncodingLimits,
-    ) -> RoomResult<()> {
-        let Some(LocalTrack::Video(track)) = self.track() else {
-            return Err(RoomError::Internal(
-                "publication does not contain a local video track".into(),
-            ));
-        };
-
-        track.set_encoding_limits_for_quality(quality, limits)
-    }
-
     pub fn mute(&self) {
         if let Some(track) = self.track() {
             track.mute();

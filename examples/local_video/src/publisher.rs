@@ -218,28 +218,10 @@ const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
 const SET_VIDEO_ENCODING_LIMITS_METHOD: &str = "set-video-encoding-limits";
 const HIGH_RID: &str = "f";
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum EncodingQuality {
-    Low,
-    Medium,
-    High,
-}
-
-impl From<EncodingQuality> for VideoQuality {
-    fn from(quality: EncodingQuality) -> Self {
-        match quality {
-            EncodingQuality::Low => VideoQuality::Low,
-            EncodingQuality::Medium => VideoQuality::Medium,
-            EncodingQuality::High => VideoQuality::High,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct SetEncodingLimitsRequest {
     track_sid: String,
-    quality: Option<EncodingQuality>,
     bitrate_bps: Option<u64>,
     max_framerate: Option<f64>,
     scale_resolution_down_by: Option<f64>,
@@ -251,7 +233,6 @@ struct SetEncodingLimitsResponse {
     applied_bitrate_bps: Option<u64>,
     applied_max_framerate: Option<f64>,
     applied_scale_resolution_down_by: Option<f64>,
-    quality: Option<EncodingQuality>,
     track_sid: String,
 }
 
@@ -468,6 +449,7 @@ async fn update_publisher_encoder_overlay(
             Ok(stats) => {
                 let outbounds = collect_video_outbound_stats(&stats);
                 if let Some(layers_line) = format_video_outbound_layers(&outbounds) {
+                    debug!("{layers_line}");
                     if layers_line != last_layers_line {
                         info!("{layers_line}");
                         last_layers_line = layers_line;
@@ -661,6 +643,10 @@ fn register_encoding_limits_rpc(room: &Arc<Room>, publication: LocalTrackPublica
         move |data| {
             let publication = publication.clone();
             Box::pin(async move {
+                debug!(
+                    "Raw video encoding limits RPC from {}: {}",
+                    data.caller_identity, data.payload
+                );
                 let request: SetEncodingLimitsRequest = serde_json::from_str(&data.payload)
                     .map_err(|err| {
                         RpcError::new(
@@ -679,38 +665,38 @@ fn register_encoding_limits_rpc(room: &Arc<Room>, publication: LocalTrackPublica
                     ));
                 }
 
-                let limits = VideoEncodingLimits {
-                    max_bitrate: request.bitrate_bps,
-                    max_framerate: request.max_framerate,
-                    scale_resolution_down_by: request.scale_resolution_down_by,
-                };
-                if let Some(quality) = request.quality {
-                    publication
-                        .set_video_encoding_limits_for_quality(quality.into(), limits)
-                        .map_err(|err| {
-                            RpcError::new(500, format!("set encoding limits failed: {err}"), None)
-                        })?;
-                } else {
-                    publication.set_video_encoding_limits(limits).map_err(|err| {
-                        RpcError::new(500, format!("set encoding limits failed: {err}"), None)
-                    })?;
-                }
-
                 info!(
-                    "{} requested video encoding limits: quality {:?}, {:?} bps, {:?} fps, {:?}x scale ({})",
+                    "{} requested video encoding limits: track={}, {:?} bps, {:?} fps, {:?}x scale ({})",
                     data.caller_identity,
-                    request.quality,
+                    request.track_sid,
                     request.bitrate_bps,
                     request.max_framerate,
                     request.scale_resolution_down_by,
                     request.reason
                 );
 
+                let limits = VideoEncodingLimits {
+                    max_bitrate: request.bitrate_bps,
+                    max_framerate: request.max_framerate,
+                    scale_resolution_down_by: request.scale_resolution_down_by,
+                };
+                debug!("Applying track-level publisher encoding limits");
+                publication.set_video_encoding_limits(limits).map_err(|err| {
+                    RpcError::new(500, format!("set encoding limits failed: {err}"), None)
+                })?;
+
+                info!(
+                    "Applied video encoding limits: track={}, {:?} bps, {:?} fps, {:?}x scale",
+                    publication_sid,
+                    request.bitrate_bps,
+                    request.max_framerate,
+                    request.scale_resolution_down_by
+                );
+
                 serde_json::to_string(&SetEncodingLimitsResponse {
                     applied_bitrate_bps: request.bitrate_bps,
                     applied_max_framerate: request.max_framerate,
                     applied_scale_resolution_down_by: request.scale_resolution_down_by,
-                    quality: request.quality,
                     track_sid: publication_sid,
                 })
                 .map_err(|err| {

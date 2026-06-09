@@ -41,24 +41,6 @@ const MIN_CONTROL_BITRATE_BPS: u64 = BITRATE_KEY_STEP_BPS;
 const MIN_FRAMERATE: f64 = 0.1;
 const MAX_FRAMERATE: f64 = 60.0;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum EncodingQuality {
-    Low,
-    Medium,
-    High,
-}
-
-impl From<livekit::track::VideoQuality> for EncodingQuality {
-    fn from(quality: livekit::track::VideoQuality) -> Self {
-        match quality {
-            livekit::track::VideoQuality::Low => Self::Low,
-            livekit::track::VideoQuality::Medium => Self::Medium,
-            livekit::track::VideoQuality::High => Self::High,
-        }
-    }
-}
-
 #[cfg(target_os = "macos")]
 mod macos_native_video {
     use std::ffi::c_void;
@@ -438,9 +420,9 @@ struct Args {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct SetEncodingLimitsRequest {
     track_sid: String,
-    quality: Option<EncodingQuality>,
     bitrate_bps: Option<u64>,
     max_framerate: Option<f64>,
     scale_resolution_down_by: Option<f64>,
@@ -452,7 +434,6 @@ struct SetEncodingLimitsResponse {
     applied_bitrate_bps: Option<u64>,
     applied_max_framerate: Option<f64>,
     applied_scale_resolution_down_by: Option<f64>,
-    quality: Option<EncodingQuality>,
     track_sid: String,
 }
 
@@ -564,14 +545,17 @@ impl EncodingControl {
     }
 
     fn update_limits(&self, reason: &'static str, update: impl FnOnce(&mut EncodingControlState)) {
-        let (limits, target, quality) = {
+        let (limits, target) = {
             let mut state = self.inner.state.lock();
             update(&mut state);
-            (
-                state.limits(),
-                self.inner.target.lock().clone(),
-                simulcast_encoding_quality(&self.inner.simulcast.lock()),
-            )
+            let simulcast = self.inner.simulcast.lock();
+            debug!(
+                "Encoding control ladder update: requested={:?}, active={:?}, simulcast={}, reason={reason}",
+                simulcast.requested_quality,
+                simulcast.active_quality,
+                simulcast.available
+            );
+            (state.limits(), self.inner.target.lock().clone())
         };
         let Some(target) = target else {
             debug!("No active publisher video track for encoding control request");
@@ -580,7 +564,7 @@ impl EncodingControl {
 
         let room = self.inner.room.clone();
         self.inner.handle.spawn(async move {
-            let result = request_encoding_limits(&room, target, quality, limits, reason).await;
+            let result = request_encoding_limits(&room, target, limits, reason).await;
             if let Err(err) = result {
                 log::warn!("encoding limits RPC failed: {err}");
             }
@@ -750,16 +734,6 @@ impl Default for SimulcastState {
             full_dims: None,
         }
     }
-}
-
-fn simulcast_encoding_quality(state: &SimulcastState) -> Option<EncodingQuality> {
-    state.available.then(|| {
-        state
-            .active_quality
-            .or(state.requested_quality)
-            .unwrap_or(livekit::track::VideoQuality::High)
-            .into()
-    })
 }
 
 fn infer_quality_from_dims(
@@ -1025,14 +999,12 @@ fn encoding_control_status_line(state: EncodingControlState) -> String {
 async fn request_encoding_limits(
     room: &Arc<Room>,
     target: EncodingControlTarget,
-    quality: Option<EncodingQuality>,
     limits: VideoEncodingLimits,
     reason: &'static str,
 ) -> Result<()> {
     info!(
-        "Requesting video encoding limits from {}: quality {:?}, {:?} bps, {:?} fps, {:?}x scale ({})",
+        "Requesting video encoding limits from {}: {:?} bps, {:?} fps, {:?}x scale ({})",
         target.publisher_identity,
-        quality,
         limits.max_bitrate,
         limits.max_framerate,
         limits.scale_resolution_down_by,
@@ -1041,7 +1013,6 @@ async fn request_encoding_limits(
 
     let payload = serde_json::to_string(&SetEncodingLimitsRequest {
         track_sid: target.track_sid.to_string(),
-        quality,
         bitrate_bps: limits.max_bitrate,
         max_framerate: limits.max_framerate,
         scale_resolution_down_by: limits.scale_resolution_down_by,
@@ -1060,9 +1031,8 @@ async fn request_encoding_limits(
 
     let response: SetEncodingLimitsResponse = serde_json::from_str(&response)?;
     info!(
-        "Publisher applied video encoding limits on {}: quality {:?}, {:?} bps, {:?} fps, {:?}x scale",
+        "Publisher applied video encoding limits on {}: {:?} bps, {:?} fps, {:?}x scale",
         response.track_sid,
-        response.quality,
         response.applied_bitrate_bps,
         response.applied_max_framerate,
         response.applied_scale_resolution_down_by,
@@ -1125,43 +1095,6 @@ mod tests {
         });
 
         assert_eq!(line, "Encoding limit 1.2mbps 0.5fps 4.0x scale");
-    }
-
-    #[test]
-    fn encoding_control_skips_quality_for_non_simulcast_tracks() {
-        let state = SimulcastState::default();
-
-        assert_eq!(simulcast_encoding_quality(&state), None);
-    }
-
-    #[test]
-    fn encoding_control_targets_active_simulcast_layer() {
-        let state = SimulcastState {
-            available: true,
-            requested_quality: Some(livekit::track::VideoQuality::High),
-            active_quality: Some(livekit::track::VideoQuality::Medium),
-            ..Default::default()
-        };
-
-        assert_eq!(simulcast_encoding_quality(&state), Some(EncodingQuality::Medium));
-    }
-
-    #[test]
-    fn encoding_control_targets_requested_quality_until_active_layer_is_known() {
-        let state = SimulcastState {
-            available: true,
-            requested_quality: Some(livekit::track::VideoQuality::Low),
-            ..Default::default()
-        };
-
-        assert_eq!(simulcast_encoding_quality(&state), Some(EncodingQuality::Low));
-    }
-
-    #[test]
-    fn encoding_control_defaults_to_high_for_new_simulcast_tracks() {
-        let state = SimulcastState { available: true, ..Default::default() };
-
-        assert_eq!(simulcast_encoding_quality(&state), Some(EncodingQuality::High));
     }
 }
 
@@ -1644,6 +1577,7 @@ impl eframe::App for VideoApp {
                         let resp = ui.selectable_label(is_selected, label);
                         if resp.clicked() {
                             if let Some(ref pub_remote) = sc.publication {
+                                info!("Requesting subscriber simulcast quality {q:?}");
                                 pub_remote.set_video_quality(q);
                                 sc.requested_quality = Some(q);
                             }
