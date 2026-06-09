@@ -1855,13 +1855,18 @@ impl SessionInner {
                 .await?
             }
             SimulateScenario::FullReconnect => {
-                self.signal_client
-                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
-                        scenario: Some(
-                            proto::simulate_scenario::Scenario::LeaveRequestFullReconnect(true),
-                        ),
-                    }))
-                    .await;
+                // Client-driven full reconnect, mirroring client-sdk-js's
+                // `full-reconnect` scenario: force the next reconnect to be a
+                // full reconnect and trigger it locally, rather than asking the
+                // server to echo a Leave. The server-side
+                // `LeaveRequestFullReconnect` simulation is not honoured by every
+                // server build, so relying on it makes this scenario flaky.
+                self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Reconnect.into(),
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    ..Default::default()
+                }))
+                .await?
             }
         }
         Ok(())

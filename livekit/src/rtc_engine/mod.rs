@@ -110,8 +110,9 @@ pub enum SimulateScenario {
     Migration,
     ForceTcp,
     ForceTls,
-    /// Tells the server to issue a `LeaveRequest{Reconnect}`, forcing a
-    /// full reconnect (new RtcSession, republish required).
+    /// Client-driven full reconnect: forces the next reconnect to be a full
+    /// reconnect (new RtcSession, republish required) and triggers it locally,
+    /// without relying on the server. Mirrors client-sdk-js's `full-reconnect`.
     FullReconnect,
 }
 

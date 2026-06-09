@@ -100,13 +100,11 @@ async fn test_signal_reconnect_resumes() -> Result<()> {
     assert_recovers(room, events, SimulateScenario::SignalReconnect).await
 }
 
-// `ForceTcp` injects a client-side `Leave{Reconnect}`, deterministically
-// driving a *full* reconnect (new session, republish) without relying on the
-// server to echo a leave — unlike `FullReconnect`, whose server-side simulation
-// is not honoured by every server build.
+// `FullReconnect` forces a full reconnect (new session, republish) — driven
+// client-side, so it does not depend on the server echoing a leave.
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_force_reconnect_does_full_reconnect() -> Result<()> {
+async fn test_full_reconnect_recovers() -> Result<()> {
     let (room, events) = test_rooms(1).await?.pop().unwrap();
-    assert_recovers(room, events, SimulateScenario::ForceTcp).await
+    assert_recovers(room, events, SimulateScenario::FullReconnect).await
 }
