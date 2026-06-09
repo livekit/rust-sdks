@@ -22,6 +22,25 @@
 -- Boundaries: peer-connection / media recovery (RtcSession) and the Room are
 -- external; modelled via the MediaLayer / Application surfaces below.
 --
+-- Structure (two layers, kept in one spec — they share the SignalConnection
+-- entity, the connect/region/validate path, the auth classification and
+-- DisconnectCause, so splitting would force cross-spec entity sharing for little
+-- gain; the modular seams are expressed as boundary surfaces instead):
+--
+--   LAYER 1 — Signalling link (mirrors livekit-api/signal_client)
+--     entity SignalConnection; rules under "Layer 1" below:
+--       * Establishment — initial connect, region fallback, auth rejection.
+--         (The engine-side join-retries loop is config-level, see join_retries;
+--          its only modelled outcome is auth fast-fail, noted there.)
+--       * Liveness & lifecycle — ping/timeout, resume, send/queue, token, close.
+--     boundary surfaces: SignalCommands (app), ServerSignalling (SFU).
+--
+--   LAYER 2 — Engine reconnect orchestration (mirrors rtc_engine)
+--     entity EngineConnection; rules under "Layer 2" below: initial connection,
+--     reconnection causes, start/escalate, per-attempt dispatch, the decoupled
+--     resume chain, and attempt outcomes (incl. terminal/non-retryable failures).
+--     boundary surfaces: MediaRecovery (RtcSession), RoomConnectionLifecycle (Room).
+--
 -- Checker note (allium 3.2.4): `allium check` reports residual `status`
 -- warnings that are CHECKER ARTIFACTS, not spec defects -- every state flagged
 -- "never assigned" is plainly assigned by a visible `ensures`. Three confirmed
@@ -209,6 +228,10 @@ config {
 -- Rules
 ------------------------------------------------------------
 
+-- ###########################################################################
+-- ## LAYER 1 — Signalling link (mirrors livekit-api/signal_client)
+-- ###########################################################################
+
 -- === Establishment (DELTA 5: region fallback) ===============================
 
 rule SignalConnectionEstablished {
@@ -230,6 +253,9 @@ rule PrimaryConnectFailsOnCloud {
     ensures: RegionFetchRequested(error)
     @guidance
         -- DELTA 5: only LiveKit Cloud hosts attempt region fallback.
+        -- DELTA R3.2: the region list is cached per host with a TTL (default
+        -- 5s), so a RegionFetchRequested within the TTL is served from cache
+        -- instead of re-paying the network fetch on every reconnect attempt.
 }
 
 rule PrimaryConnectFailsOnDirect {
@@ -340,6 +366,10 @@ rule CloseSignalLink {
     requires: connection.status in {connected, lost, reconnecting}
     ensures: connection.status = closed
 }
+
+-- ###########################################################################
+-- ## LAYER 2 — Engine reconnect orchestration (mirrors rtc_engine)
+-- ###########################################################################
 
 -- === Engine: initial connection =============================================
 
