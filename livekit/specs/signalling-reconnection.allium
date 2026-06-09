@@ -22,6 +22,25 @@
 -- Boundaries: peer-connection / media recovery (RtcSession) and the Room are
 -- external; modelled via the MediaLayer / Application surfaces below.
 --
+-- Structure (two layers, kept in one spec — they share the SignalConnection
+-- entity, the connect/region/validate path, the auth classification and
+-- DisconnectCause, so splitting would force cross-spec entity sharing for little
+-- gain; the modular seams are expressed as boundary surfaces instead):
+--
+--   LAYER 1 — Signalling link (mirrors livekit-api/signal_client)
+--     entity SignalConnection; rules under "Layer 1" below:
+--       * Establishment — initial connect, region fallback, auth rejection.
+--         (The engine-side join-retries loop is config-level, see join_retries;
+--          its only modelled outcome is auth fast-fail, noted there.)
+--       * Liveness & lifecycle — ping/timeout, resume, send/queue, token, close.
+--     boundary surfaces: SignalCommands (app), ServerSignalling (SFU).
+--
+--   LAYER 2 — Engine reconnect orchestration (mirrors rtc_engine)
+--     entity EngineConnection; rules under "Layer 2" below: initial connection,
+--     reconnection causes, start/escalate, per-attempt dispatch, the decoupled
+--     resume chain, and attempt outcomes (incl. terminal/non-retryable failures).
+--     boundary surfaces: MediaRecovery (RtcSession), RoomConnectionLifecycle (Room).
+--
 -- Checker note (allium 3.2.4): `allium check` reports residual `status`
 -- warnings that are CHECKER ARTIFACTS, not spec defects -- every state flagged
 -- "never assigned" is plainly assigned by a visible `ensures`. Three confirmed
@@ -85,7 +104,6 @@ enum DisconnectCause {
     | peer_connection_failed
     | server_leave
     | signal_severed_during_resume
-    | reconnect_attempts_exhausted
     | unauthorized
     | client_initiated
     | unknown
@@ -122,9 +140,11 @@ entity SignalConnection {
     -- The engine that drives this link's recovery.
     engine: EngineConnection with signal = this
 
-    -- The link is dead if nothing arrived within ping_timeout. Used by the
-    -- resume's mid-flight liveness re-check (ResumeRechecksLink).
-    is_alive: last_message_at != null and last_message_at + ping_timeout > now
+    -- The link is present and usable while connected or mid-resume; `lost` or
+    -- `closed` mean the stream is gone. Used by the resume's mid-flight re-check
+    -- (ResumeRechecksLink) and mirrors the implementation's `is_connected()`
+    -- (stream-present) check rather than ping-timeout liveness.
+    is_connected: status in {connected, reconnecting}
 
     transitions status {
         connected -> lost            -- ping timeout / stream closed
@@ -158,6 +178,10 @@ entity EngineConnection {
     -- (A `permitted -> revoked` terminal transition graph would express this
     -- structurally, but the entity's `status` graph below takes the single graph
     -- slot the current checker honours; see the spec header note.)
+    -- NOTE (spec<->code): the implementation realises this as a `can_reconnect`
+    -- bool that is only ever set false (never back to true) within a session,
+    -- always alongside a close() — i.e. it already satisfies this latch and the
+    -- RevokedImpliesClosed invariant; the enum is the spec-level model.
     reconnect_permission: permitted | revoked
 
     -- 1-based attempt index within the current episode; 0 when connected.
@@ -209,6 +233,10 @@ config {
 -- Rules
 ------------------------------------------------------------
 
+-- ###########################################################################
+-- ## LAYER 1 — Signalling link (mirrors livekit-api/signal_client)
+-- ###########################################################################
+
 -- === Establishment (DELTA 5: region fallback) ===============================
 
 rule SignalConnectionEstablished {
@@ -230,6 +258,9 @@ rule PrimaryConnectFailsOnCloud {
     ensures: RegionFetchRequested(error)
     @guidance
         -- DELTA 5: only LiveKit Cloud hosts attempt region fallback.
+        -- DELTA R3.2: the region list is cached per host with a TTL (default
+        -- 5s), so a RegionFetchRequested within the TTL is served from cache
+        -- instead of re-paying the network fetch on every reconnect attempt.
 }
 
 rule PrimaryConnectFailsOnDirect {
@@ -341,6 +372,10 @@ rule CloseSignalLink {
     ensures: connection.status = closed
 }
 
+-- ###########################################################################
+-- ## LAYER 2 — Engine reconnect orchestration (mirrors rtc_engine)
+-- ###########################################################################
+
 -- === Engine: initial connection =============================================
 
 rule EngineConnects {
@@ -438,6 +473,10 @@ rule EscalateReconnect {
         -- event matching the mode it is in (previously the Room saw Resuming then
         -- Restarted with no Restarting between). retry_now restarts the backoff so
         -- the in-flight loop's next attempt fires immediately.
+        -- NOTE (spec<->code): the implementation emits Restarting lazily, on the
+        -- next attempt the loop runs in full mode (a `restarting_emitted` latch),
+        -- rather than eagerly at this escalation event. Net effect is identical
+        -- (Restarting always precedes the full reconnect).
 }
 
 -- === Engine: per-attempt dispatch ===========================================
@@ -490,7 +529,7 @@ rule ResumeAwaitsPeerConnections {
 rule ResumeRechecksLink {
     when: PeerConnectionsReconnected(engine)
     requires: engine.status = reconnecting
-    if not engine.signal.is_alive:
+    if not engine.signal.is_connected:
         ensures: ResumeAttemptFailed(
             engine,
             terminal: false,
@@ -598,12 +637,16 @@ rule ReconnectExhausted {
     requires: engine.status = reconnecting
     requires: engine.attempt >= config.max_reconnect_attempts
     ensures: engine.status = closed
-    ensures: EngineDisconnected(engine, cause: reconnect_attempts_exhausted)
+    ensures: EngineDisconnected(engine, cause: engine.reconnect_cause)
     @guidance
-        -- DELTA 2: on giving up, EngineDisconnected reports
-        -- reconnect_attempts_exhausted; the engine's reconnect_cause also remains
-        -- available to the Room for the underlying reason, instead of `unknown`.
-        -- Always emitted so the Room leaves the Reconnecting state.
+        -- DELTA 2: on giving up, EngineDisconnected reports the cause that STARTED
+        -- this episode (engine.reconnect_cause), threaded through instead of a
+        -- generic `unknown`. It is always emitted so the Room leaves Reconnecting
+        -- rather than hanging there.
+        -- NOTE (spec<->code): there is no dedicated "attempts exhausted" disconnect
+        -- reason in the wire protocol (proto DisconnectReason), so the original
+        -- cause is what surfaces. A distinct exhausted reason would require a
+        -- protocol addition.
 }
 
 ------------------------------------------------------------
