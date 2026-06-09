@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     convert::TryInto,
     fmt::Debug,
     sync::{
@@ -357,6 +357,20 @@ struct SessionInner {
     /// Mapping from SDP mid to track ID, used for track resolution in single PC mode
     mid_to_track_id: Mutex<HashMap<String, String>>,
 
+    /// `(mid, stream_id)` pairs we've already dispatched as
+    /// `SessionEvent::MediaTrack`.
+    ///
+    /// libwebrtc-native's `OnTrack` callback only fires when a transceiver is
+    /// first created — it does NOT refire when an existing transceiver's
+    /// receiver gains a new associated `MediaStream` via an msid update
+    /// (e.g. an SFU reusing an empty transceiver slot for a new subscription).
+    /// Browsers paper over this by running the W3C "process the addition of
+    /// remote tracks" algorithm in blink (RTCPeerConnection::DidModifyTransceivers
+    /// in third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc),
+    /// diffing receiver streams across each setRemoteDescription and dispatching
+    /// `track` events for newly-added streams.
+    dispatched_streams: Mutex<HashSet<(String, String)>>,
+
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
 
     // Publisher data channels
@@ -463,20 +477,7 @@ impl RtcSession {
 
             let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
 
-            // The JS SDK creates recv media sections in the initial offer to receive
-            // existing tracks as soon as possible. Rust cannot do this due to
-            // different `ontrack` behavior between browsers and libwebrtc:
-            // 1. The client sends an initial offer with recv sections.
-            // 2. The server responds with an answer, but with sendonly media
-            //    sections without msid because no new track has been published.
-            // 3. Later, after a track is published and subscribed to by the client,
-            //    the server may reuse the media section from step 2 with the actual
-            //    track ID.
-            // 4. Browsers fire `ontrack`:
-            //    https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc;l=2447
-            //    This is browser behavior, not libwebrtc core behavior.
-            // 5. libwebrtc does not fire `ontrack`, so the track subscription fails.
-            // Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
+            Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
 
             match publisher_pc.create_initial_offer().await {
                 Ok(Some(offer)) => {
@@ -583,6 +584,7 @@ impl RtcSession {
             subscriber_pc,
             single_pc_mode,
             mid_to_track_id: Mutex::new(HashMap::new()),
+            dispatched_streams: Mutex::new(HashSet::new()),
             pending_tracks: Default::default(),
             lossy_dc,
             lossy_dc_buffered_amount_low_threshold: AtomicU64::new(
@@ -912,6 +914,44 @@ impl RtcSession {
 }
 
 impl SessionInner {
+    /// Walks the given peer connection's transceivers and synthesizes a
+    /// `SessionEvent::MediaTrack` for any `(mid, stream_id)` pair we
+    /// haven't already dispatched. 
+    ///
+    /// Mirrors `RTCPeerConnection::DidModifyTransceivers` in Chromium's
+    /// blink renderer:
+    /// `third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc`.
+    fn process_remote_track_addition(&self, pc: &libwebrtc::peer_connection::PeerConnection) {
+        let mut current = HashMap::<(String, String), (MediaStream, MediaStreamTrack, RtpTransceiver)>::new();
+        for transceiver in pc.transceivers() {
+            let Some(mid) = transceiver.mid() else { continue };
+            let receiver = transceiver.receiver();
+            let Some(track) = receiver.track() else { continue };
+            for stream in receiver.streams() {
+                let stream_id = stream.id();
+                current
+                    .entry((mid.clone(), stream_id))
+                    .or_insert_with(|| (stream, track.clone(), transceiver.clone()));
+            }
+        }
+
+        let mut dispatched = self.dispatched_streams.lock();
+        dispatched.retain(|key| current.contains_key(key));
+
+        for (key, (stream, track, transceiver)) in current {
+            if dispatched.insert(key.clone()) {
+                log::debug!(
+                    "blink-diff: synthesizing MediaTrack for mid={}, stream_id={}",
+                    key.0,
+                    key.1
+                );
+                let _ = self
+                    .emitter
+                    .send(SessionEvent::MediaTrack { stream, track, transceiver });
+            }
+        }
+    }
+
     async fn rtc_session_task(
         self: Arc<Self>,
         mut rtc_events: RtcEvents,
@@ -1192,6 +1232,10 @@ impl SessionInner {
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
                 self.publisher_pc.set_remote_description(answer).await?;
 
+                if self.single_pc_mode {
+                    self.process_remote_track_addition(&self.publisher_pc.peer_connection());
+                }
+
                 if self.fast_publish.load(Ordering::Acquire) {
                     if self.negotiation_queue.waiting_for_answer.swap(false, Ordering::AcqRel) {
                         log::debug!("answer received, notifying negotiation loop");
@@ -1429,11 +1473,17 @@ impl SessionInner {
             }
             RtcEvent::Track { mut streams, track, transceiver, target: _ } => {
                 if !streams.is_empty() {
-                    let _ = self.emitter.send(SessionEvent::MediaTrack {
-                        stream: streams.remove(0),
-                        track,
-                        transceiver,
-                    });
+                    let stream = streams.remove(0);
+                    let mid = transceiver.mid().unwrap_or_default();
+                    let already_dispatched = !mid.is_empty()
+                        && !self.dispatched_streams.lock().insert((mid, stream.id()));
+                    if !already_dispatched {
+                        let _ = self.emitter.send(SessionEvent::MediaTrack {
+                            stream,
+                            track,
+                            transceiver,
+                        });
+                    }
                 }
             }
             RtcEvent::Data { data, binary, kind } => {
