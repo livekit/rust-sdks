@@ -241,8 +241,9 @@ rule RegionFetchFails {
     when: RegionFetchFailed(original_error)
     ensures: SignalConnectRejected(original_error)
     @guidance
-        -- DELTA 5: a failed region-URL fetch must NEVER mask the original
-        -- connection error (today the fetch error is surfaced instead).
+        -- DELTA 5: failing to FETCH region URLs is best-effort, never fatal. It
+        -- is logged as a warning and the ORIGINAL connection error is surfaced,
+        -- rather than masking it with the fetch error (today's `?` is fatal).
 }
 
 rule RegionFetchSucceeds {
@@ -253,11 +254,13 @@ rule RegionFetchSucceeds {
 }
 
 rule AllRegionsFail {
-    when: RegionConnectsExhausted(original_error)
-    ensures: SignalConnectRejected(original_error)
+    when: RegionConnectsExhausted(last_region_error)
+    ensures: SignalConnectRejected(last_region_error)
     @guidance
-        -- DELTA 5: when every region URL has failed, surface the ORIGINAL
-        -- primary connection error rather than the last region's error.
+        -- When region URLs WERE fetched and tried but every one failed, surface
+        -- the LAST region connection error -- that is the most relevant reason a
+        -- region attempt failed. (Distinct from RegionFetchFails, which is about
+        -- failing to fetch the list at all.)
 }
 
 -- === Signalling-link liveness & lifecycle ===================================

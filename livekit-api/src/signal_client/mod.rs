@@ -193,22 +193,28 @@ impl SignalClient {
                     log::error!("unexpected signal error: {}", err.to_string());
                 }
 
-                // Region fallback is best-effort. `fetch_region_urls` already
-                // returns an empty list for non-cloud (direct / self-hosted)
-                // URLs, so those skip the fallback entirely. If the region fetch
-                // itself fails (e.g. the region endpoint is unreachable), we must
-                // NOT mask the original connection error with the fetch error —
-                // surface the real reason the connection failed instead.
+                // Fetching region URLs is best-effort. `fetch_region_urls`
+                // already returns an empty list for non-cloud (direct /
+                // self-hosted) URLs, so those skip the fallback entirely. If the
+                // fetch itself fails (e.g. the region endpoint is unreachable),
+                // that must NOT be fatal: log a warning and fall back to the
+                // original connection error rather than masking it with the
+                // fetch error.
                 let urls = match RegionUrlProvider::fetch_region_urls(url, token).await {
                     Ok(urls) => urls,
                     Err(region_err) => {
-                        log::debug!(
-                            "region url fetch failed ({region_err}); surfacing original connection error"
+                        log::warn!(
+                            "failed to fetch region urls: {region_err}; surfacing original connection error"
                         );
                         return Err(err);
                     }
                 };
 
+                // With no region URLs to try, this surfaces the original error.
+                // Otherwise we keep the most recent region attempt error, so that
+                // if every region fails the caller sees why the last region
+                // connection failed.
+                let mut last_err = err;
                 for url in urls.iter() {
                     log::info!("fallback connection to: {}", url);
                     match SignalInner::connect(url, token, options.clone(), publisher_offer.clone())
@@ -217,15 +223,11 @@ impl SignalClient {
                         Ok((inner, join_response, stream_events)) => {
                             return Ok(handle_success(inner, join_response, stream_events))
                         }
-                        Err(region_conn_err) => {
-                            log::warn!("region fallback connection to {url} failed: {region_conn_err}")
-                        }
+                        Err(region_conn_err) => last_err = region_conn_err,
                     }
                 }
 
-                // Every region URL failed (or there were none): surface the
-                // ORIGINAL primary connection error, not the last region's error.
-                Err(err)
+                Err(last_err)
             }
         }
     }
