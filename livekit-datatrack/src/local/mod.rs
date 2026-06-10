@@ -14,6 +14,7 @@
 
 use crate::{
     api::{DataTrack, DataTrackFrame, DataTrackInfo, InternalError},
+    schema::{DataTrackFrameEncoding, DataTrackSchemaId},
     track::DataTrackInner,
 };
 use std::{fmt, marker::PhantomData, sync::Arc};
@@ -153,6 +154,8 @@ impl Drop for LocalTrackInner {
 #[derive(Clone, Debug)]
 pub struct DataTrackOptions {
     pub(crate) name: String,
+    pub(crate) schema: Option<DataTrackSchemaId>,
+    pub(crate) frame_encoding: Option<DataTrackFrameEncoding>,
 }
 
 impl DataTrackOptions {
@@ -165,7 +168,15 @@ impl DataTrackOptions {
     /// - Must be unique per publisher
     ///
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self { name: name.into(), schema: None, frame_encoding: None }
+    }
+
+    pub fn with_schema(self, schema: DataTrackSchemaId) -> Self {
+        Self { schema: Some(schema), ..self }
+    }
+
+    pub fn with_frame_encoding(self, encoding: DataTrackFrameEncoding) -> Self {
+        Self { frame_encoding: Some(encoding), ..self }
     }
 }
 

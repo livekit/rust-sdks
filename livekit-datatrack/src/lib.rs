@@ -17,6 +17,9 @@
 /// Common types for local and remote tracks.
 mod track;
 
+/// Schema and frame encoding metadata for typed tracks.
+mod schema;
+
 /// Local track publication.
 mod local;
 
