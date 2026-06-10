@@ -22,7 +22,6 @@ use super::events::*;
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError, PublishError},
     packet::Handle,
-    schema::DataTrackFrameEncoding,
 };
 use anyhow::{anyhow, Context};
 use livekit_protocol as proto;
@@ -37,7 +36,7 @@ impl From<SfuPublishRequest> for proto::PublishDataTrackRequest {
         let schema = event.schema.map(|schema| schema.into());
         let frame_encoding = event
             .frame_encoding
-            .map(|encoding| Into::<proto::DataTrackFrameEncoding>::into(encoding).into());
+            .map(|encoding| proto::DataTrackFrameEncoding::from(encoding) as i32);
         Self {
             pub_handle: event.handle.into(),
             name: event.name,
@@ -85,14 +84,8 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             proto::encryption::Type::Gcm => true,
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
-        let frame_encoding = msg
-            .frame_encoding
-            .is_some()
-            .then(|| Into::<DataTrackFrameEncoding>::into(msg.frame_encoding()).into())
-            .flatten();
-
+        let frame_encoding = msg.frame_encoding.map(|_| msg.frame_encoding().into());
         let sid: DataTrackSid = msg.sid.try_into().map_err(anyhow::Error::from)?;
-
         let schema = msg.schema.map(|schema| schema.into());
 
         Ok(Self {
@@ -138,7 +131,7 @@ impl From<DataTrackInfo> for proto::DataTrackInfo {
         let schema = info.schema.map(|schema| schema.into());
         let frame_encoding = info
             .frame_encoding
-            .map(|encoding| Into::<proto::DataTrackFrameEncoding>::into(encoding).into());
+            .map(|encoding| proto::DataTrackFrameEncoding::from(encoding) as i32);
         Self {
             pub_handle: info.pub_handle.into(),
             sid,
