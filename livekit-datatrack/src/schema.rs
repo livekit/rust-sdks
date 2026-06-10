@@ -108,7 +108,7 @@ impl From<DataTrackSchemaId> for proto::DataTrackSchemaId {
     fn from(value: DataTrackSchemaId) -> Self {
         Self {
             name: value.name.to_string(),
-            encoding: Into::<proto::DataTrackSchemaEncoding>::into(value.encoding).into(),
+            encoding: proto::DataTrackSchemaEncoding::from(value.encoding) as i32,
         }
     }
 }
