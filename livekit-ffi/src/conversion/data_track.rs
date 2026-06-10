@@ -15,8 +15,9 @@
 use crate::proto;
 use livekit::{
     data_track::{
-        DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSubscribeError, PublishError,
-        PushFrameError, PushFrameErrorReason, RemoteDataTrackPipelineOptions,
+        DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSchemaEncoding,
+        DataTrackSchemaId, DataTrackSubscribeError, PublishError, PushFrameError,
+        PushFrameErrorReason, RemoteDataTrackPipelineOptions,
     },
     prelude::DataTrackSubscribeOptions,
 };
@@ -70,6 +71,55 @@ impl From<proto::DataTrackSubscribeOptions> for DataTrackSubscribeOptions {
             options = options.with_buffer_size(buffer_size as usize);
         }
         options
+    }
+}
+
+impl From<proto::DataTrackSchemaEncoding> for DataTrackSchemaEncoding {
+    fn from(encoding: proto::DataTrackSchemaEncoding) -> Self {
+        match encoding {
+            proto::DataTrackSchemaEncoding::Protobuf => Self::Protobuf,
+            proto::DataTrackSchemaEncoding::Flatbuffer => Self::Flatbuffer,
+            proto::DataTrackSchemaEncoding::Ros1Msg => Self::Ros1Msg,
+            proto::DataTrackSchemaEncoding::Ros2Msg => Self::Ros2Msg,
+            proto::DataTrackSchemaEncoding::Ros2Idl => Self::Ros2Idl,
+            proto::DataTrackSchemaEncoding::OmgIdl => Self::OmgIdl,
+            proto::DataTrackSchemaEncoding::JsonSchema => Self::JsonSchema,
+            proto::DataTrackSchemaEncoding::Other => Self::Other,
+        }
+    }
+}
+
+impl From<DataTrackSchemaEncoding> for proto::DataTrackSchemaEncoding {
+    fn from(encoding: DataTrackSchemaEncoding) -> Self {
+        match encoding {
+            DataTrackSchemaEncoding::Protobuf => Self::Protobuf,
+            DataTrackSchemaEncoding::Flatbuffer => Self::Flatbuffer,
+            DataTrackSchemaEncoding::Ros1Msg => Self::Ros1Msg,
+            DataTrackSchemaEncoding::Ros2Msg => Self::Ros2Msg,
+            DataTrackSchemaEncoding::Ros2Idl => Self::Ros2Idl,
+            DataTrackSchemaEncoding::OmgIdl => Self::OmgIdl,
+            DataTrackSchemaEncoding::JsonSchema => Self::JsonSchema,
+            DataTrackSchemaEncoding::Other => Self::Other,
+            // `DataTrackSchemaEncoding` is `#[non_exhaustive]`; map any future
+            // variant to the catch-all encoding.
+            _ => Self::Other,
+        }
+    }
+}
+
+impl From<proto::DataTrackSchemaId> for DataTrackSchemaId {
+    fn from(msg: proto::DataTrackSchemaId) -> Self {
+        let encoding = msg.encoding().into();
+        DataTrackSchemaId::new(msg.name, encoding)
+    }
+}
+
+impl From<DataTrackSchemaId> for proto::DataTrackSchemaId {
+    fn from(id: DataTrackSchemaId) -> Self {
+        Self {
+            name: id.name().to_string(),
+            encoding: proto::DataTrackSchemaEncoding::from(id.encoding()) as i32,
+        }
     }
 }
 

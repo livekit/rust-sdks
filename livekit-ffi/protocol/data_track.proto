@@ -246,3 +246,60 @@ message DataTrackStreamEOS {
   // Absent if the stream ended normally (i.e., due to the track being unpublished).
   optional SubscribeDataTrackError error = 1;
 }
+
+// MARK: - Schemas
+
+// Encoding used to interpret a data track schema definition.
+enum DataTrackSchemaEncoding {
+  DATA_TRACK_SCHEMA_ENCODING_PROTOBUF = 0;
+  DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER = 1;
+  DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG = 2;
+  DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG = 3;
+  DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL = 4;
+  DATA_TRACK_SCHEMA_ENCODING_OMG_IDL = 5;
+  DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA = 6;
+  DATA_TRACK_SCHEMA_ENCODING_OTHER = 7;
+}
+
+// Uniquely identifies a data track schema.
+message DataTrackSchemaId {
+  // Name component of the schema identifier.
+  required string name = 1;
+  // Encoding of the schema definition.
+  required DataTrackSchemaEncoding encoding = 2;
+}
+
+// Define (store) a schema definition for the local participant.
+message DefineSchemaRequest {
+  required uint64 local_participant_handle = 1;
+  required DataTrackSchemaId schema_id = 2;
+  required string definition = 3;
+  optional uint64 request_async_id = 4;
+}
+message DefineSchemaResponse {
+  required uint64 async_id = 1;
+}
+message DefineSchemaCallback {
+  required uint64 async_id = 1;
+  // Present if the schema could not be defined.
+  optional string error = 2;
+}
+
+// Retrieve a schema definition previously stored by a participant.
+message GetSchemaRequest {
+  required uint64 local_participant_handle = 1;
+  required DataTrackSchemaId schema_id = 2;
+  // Identity of the participant who owns the schema.
+  required string participant_identity = 3;
+  optional uint64 request_async_id = 4;
+}
+message GetSchemaResponse {
+  required uint64 async_id = 1;
+}
+message GetSchemaCallback {
+  required uint64 async_id = 1;
+  // The schema definition, present on success.
+  optional string definition = 2;
+  // Present if the schema could not be retrieved.
+  optional string error = 3;
+}
