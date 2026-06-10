@@ -43,7 +43,7 @@ mod error;
 
 /// Public APIs re-exported by client SDKs.
 pub mod api {
-    pub use crate::{error::*, frame::*, local::*, remote::*, track::*};
+    pub use crate::{error::*, frame::*, local::*, remote::*, schema::*, track::*};
 }
 
 /// Internal APIs used within client SDKs to power data tracks functionality.
