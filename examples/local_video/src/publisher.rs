@@ -6,6 +6,7 @@ use livekit::options::{
     VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
+use livekit::webrtc::native::fec;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -93,6 +94,21 @@ impl From<PublisherEncoder> for VideoEncoderBackend {
             PublisherEncoder::Nvenc => VideoEncoderBackend::Nvenc,
             PublisherEncoder::Vaapi => VideoEncoderBackend::Vaapi,
             PublisherEncoder::VideoToolbox => VideoEncoderBackend::VideoToolbox,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum FecMask {
+    Random,
+    Bursty,
+}
+
+impl From<FecMask> for fec::FecMaskType {
+    fn from(mask: FecMask) -> Self {
+        match mask {
+            FecMask::Random => Self::Random,
+            FecMask::Bursty => Self::Bursty,
         }
     }
 }
@@ -207,6 +223,24 @@ struct Args {
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
     e2ee_key: Option<String>,
+
+    /// Enable FlexFEC (video/flexfec-03) forward error correction for the published video track
+    #[arg(long, default_value_t = false)]
+    flex_fec: bool,
+
+    /// Fixed FEC protection rate in percent (0-100); replaces libwebrtc's adaptive,
+    /// loss-based rate. Requires --flex-fec
+    #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100), requires = "flex_fec")]
+    fec_protection_rate: Option<u8>,
+
+    /// FEC packet mask type (protection pattern). Requires --flex-fec
+    #[arg(long, value_enum, requires = "flex_fec")]
+    fec_mask_type: Option<FecMask>,
+
+    /// Maximum number of video frames protected by a single FEC block; defaults to 1
+    /// (protect each frame independently, lowest latency) when --flex-fec is set. Requires --flex-fec
+    #[arg(long, requires = "flex_fec")]
+    fec_max_frames: Option<u32>,
 }
 
 fn unix_time_us_now() -> u64 {
@@ -720,6 +754,42 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         return Ok(());
     }
 
+    // FlexFEC setup must run before anything instantiates the webrtc runtime
+    // (encoder listing below and Room::connect both do): the field trials and
+    // FEC overrides are read when the PeerConnectionFactory is created.
+    if args.flex_fec {
+        if !fec::init_field_trials(fec::FLEXFEC_FIELD_TRIALS) {
+            log::warn!("field trials were already initialized; FlexFEC may not be advertised");
+        }
+        info!("FlexFEC enabled (field trials: {})", fec::FLEXFEC_FIELD_TRIALS);
+
+        // Default to protecting a single frame per FEC block (lowest latency) unless
+        // the user asks for more; rate and mask stay adaptive unless overridden.
+        let max_frames = args.fec_max_frames.unwrap_or(1);
+        let fec_config = fec::FecOverrideConfig {
+            // Map 0-100% to webrtc's 0-255 fec_rate with rounding.
+            fixed_fec_rate: args.fec_protection_rate.map(|pct| ((pct as u32 * 255 + 50) / 100) as u8),
+            mask_type: args.fec_mask_type.map(Into::into),
+            max_frames: Some(max_frames),
+        };
+        fec::set_fec_override(fec_config);
+        info!(
+            "FEC overrides: protection_rate={:?}% (fec_rate={:?}/255) mask_type={:?} max_frames={}",
+            args.fec_protection_rate, fec_config.fixed_fec_rate, args.fec_mask_type, max_frames
+        );
+        if args.fec_protection_rate.is_none() {
+            info!(
+                "FlexFEC using adaptive (loss-based) protection rate; on loss-free links libwebrtc \
+                 may send ~0 FEC packets — use --fec-protection-rate to force a fixed rate"
+            );
+        }
+        if args.simulcast {
+            log::warn!(
+                "FlexFEC with simulcast: libwebrtc only protects the primary (first) simulcast stream"
+            );
+        }
+    }
+
     // LiveKit connection details
     let url = args
         .url
@@ -947,6 +1017,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
         simulcast_layers: args.simulcast.then(|| simulcast_presets.clone()),
+        flex_fec: args.flex_fec,
         ..Default::default()
     };
 

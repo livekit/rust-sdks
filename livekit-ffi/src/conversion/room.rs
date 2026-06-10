@@ -335,6 +335,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             video_encoder: video_encoder_from_proto(opts.video_encoder)
                 .unwrap_or(default_publish_options.video_encoder),
             scalability_mode: opts.scalability_mode,
+            flex_fec: default_publish_options.flex_fec,
         }
     }
 }

@@ -15,6 +15,9 @@ use parking_lot::Mutex;
 use std::{
     collections::HashMap,
     env,
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
     sync::OnceLock,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -407,6 +410,60 @@ struct Args {
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
+
+    /// Write a CSV log of every received frame to this path
+    /// (columns: recv_wall_us,frame_id,user_timestamp_us,width,height)
+    #[arg(long)]
+    log_frames: Option<PathBuf>,
+
+    /// Run without a window, e.g. for automated tests; exits on Ctrl-C
+    #[arg(long)]
+    headless: bool,
+}
+
+/// CSV logger recording every decoded frame for offline analysis. The
+/// frame_id and user_timestamp columns are populated from the packet trailer
+/// metadata when the publisher attaches them.
+struct FrameLogger {
+    inner: Mutex<FrameLoggerInner>,
+}
+
+struct FrameLoggerInner {
+    writer: BufWriter<File>,
+    last_flush: Instant,
+}
+
+impl FrameLogger {
+    fn create(path: &Path) -> Result<Self> {
+        let mut writer = BufWriter::new(File::create(path)?);
+        writeln!(writer, "recv_wall_us,frame_id,user_timestamp_us,width,height")?;
+        Ok(Self { inner: Mutex::new(FrameLoggerInner { writer, last_flush: Instant::now() }) })
+    }
+
+    fn log(&self, frame: &BoxVideoFrame) {
+        let (frame_id, user_timestamp) = frame
+            .frame_metadata
+            .map(|m| (m.frame_id, m.user_timestamp))
+            .unwrap_or((None, None));
+        let mut inner = self.inner.lock();
+        let _ = writeln!(
+            inner.writer,
+            "{},{},{},{},{}",
+            current_timestamp_us(),
+            frame_id.map(|v| v.to_string()).unwrap_or_default(),
+            user_timestamp.map(|v| v.to_string()).unwrap_or_default(),
+            frame.buffer.width(),
+            frame.buffer.height(),
+        );
+        if inner.last_flush.elapsed() >= Duration::from_secs(1) {
+            let _ = inner.writer.flush();
+            inner.last_flush = Instant::now();
+        }
+    }
+
+    fn flush(&self) {
+        let _ = self.inner.lock().writer.flush();
+    }
 }
 
 struct SharedYuv {
@@ -823,6 +880,7 @@ async fn handle_track_subscribed(
     simulcast: &Arc<Mutex<SimulcastState>>,
     repaint_ctx: &Arc<OnceLock<egui::Context>>,
     subscriber_timing: SubscriberTimingHandle,
+    frame_logger: Option<Arc<FrameLogger>>,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -914,9 +972,17 @@ async fn handle_track_subscribed(
                 break;
             }
             let Some(mut frame) = sink.next().await else { break };
+            if let Some(logger) = &frame_logger {
+                logger.log(&frame);
+            }
             let mut drained_frames = 0_u64;
             while let Some(Some(newer_frame)) = sink.next().now_or_never() {
                 frame = newer_frame;
+                // drained frames are not rendered but they were received,
+                // log them so frame gaps in the CSV mean network loss
+                if let Some(logger) = &frame_logger {
+                    logger.log(&frame);
+                }
                 drained_frames += 1;
             }
             if drained_frames > 0 {
@@ -979,6 +1045,9 @@ async fn handle_track_subscribed(
             }
         }
         info!("Video stream ended for {}", my_sid);
+        if let Some(logger) = &frame_logger {
+            logger.flush();
+        }
         // Clear active sid if still ours
         let mut active = active_sid2.lock();
         if active.as_ref() == Some(&my_sid) {
@@ -1346,6 +1415,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let video_size = Arc::new(AtomicVideoSize::default());
     let subscriber_timing = SubscriberTimingHandle::new();
 
+    let frame_logger = match &args.log_frames {
+        Some(path) => {
+            let logger = FrameLogger::create(path)?;
+            info!("Logging received frames to {}", path.display());
+            Some(Arc::new(logger))
+        }
+        None => None,
+    };
+
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
     let shared_clone = shared.clone();
@@ -1360,6 +1438,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
     let subscriber_timing_events = subscriber_timing.clone();
+    let frame_logger_events = frame_logger.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
         let simulcast = simulcast_events;
@@ -1382,6 +1461,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &simulcast,
                         &repaint_ctx_events,
                         subscriber_timing_events.clone(),
+                        frame_logger_events.clone(),
                     )
                     .await;
                 }
@@ -1412,6 +1492,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         }
     });
 
+    if args.headless {
+        info!("Running headless, press Ctrl-C to exit");
+        while !ctrl_c_received.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        if let Some(logger) = &frame_logger {
+            logger.flush();
+        }
+        return Ok(());
+    }
+
     let viewport = AspectConstrainedViewport::new(None);
     // Start UI
     let app = VideoApp {
@@ -1434,6 +1525,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     // If the window was closed manually, still signal shutdown to background threads.
     ctrl_c_received.store(true, Ordering::Release);
+
+    if let Some(logger) = &frame_logger {
+        logger.flush();
+    }
 
     Ok(())
 }

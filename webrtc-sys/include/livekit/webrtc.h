@@ -117,4 +117,13 @@ rust::String create_random_uuid();
 
 rust::Vec<VideoEncoderBackend> video_encoder_backend_list();
 
+// Initializes libwebrtc field trials. Must be called at most once, before
+// the first PeerConnectionFactory is created. Returns false (and leaves the
+// previous trials in place) if field trials were already initialized.
+bool init_field_trials(rust::String trials);
+
+// Registers process-global FEC parameter overrides. Must be called before
+// the first PeerConnectionFactory is created to take effect.
+void set_fec_override_config(FecOverrideConfig config);
+
 }  // namespace livekit_ffi

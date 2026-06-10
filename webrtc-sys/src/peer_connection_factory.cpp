@@ -35,6 +35,7 @@
 #include "api/audio_options.h"
 #include "livekit/adm_proxy.h"
 #include "livekit/audio_track.h"
+#include "livekit/fec_controller.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
@@ -76,6 +77,11 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
+
+  if (auto fec_factory = MaybeCreateFecControllerFactory()) {
+    RTC_LOG(LS_INFO) << "Injecting FEC controller override factory";
+    dependencies.fec_controller_factory = std::move(fec_factory);
+  }
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =

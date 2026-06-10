@@ -1475,7 +1475,7 @@ impl SessionInner {
             }
             RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
-                log::debug!("sending publisher offer: {:?}", offer);
+                log::debug!("sending publisher offer: {}", offer.to_string());
                 self.signal_client
                     .send(proto::signal_request::Message::Offer(proto::SessionDescription {
                         r#type: "offer".to_string(),
@@ -1800,6 +1800,29 @@ impl SessionInner {
             }
 
             matched.append(&mut partial_matched);
+
+            // Note: the remaining `unmatched` codecs (rtx/red/ulpfec/other video
+            // codecs) are intentionally left out of the preferences; flexfec-03 is
+            // rescued only on explicit request. It is only present in the sender
+            // capabilities when the WebRTC-FlexFEC-03 field trials were set before
+            // the peer connection factory was created.
+            if options.flex_fec {
+                let mut flexfec: Vec<_> = unmatched
+                    .iter()
+                    .filter(|codec| codec.mime_type.eq_ignore_ascii_case("video/flexfec-03"))
+                    .cloned()
+                    .collect();
+                if flexfec.is_empty() {
+                    log::warn!(
+                        "flex_fec requested but video/flexfec-03 is not in sender capabilities; \
+                         FlexFEC will not be negotiated. Set the FlexFEC field trials \
+                         (libwebrtc::native::fec::init_field_trials) before connecting."
+                    );
+                } else {
+                    log::info!("flex_fec: appending video/flexfec-03 to codec preferences");
+                    matched.append(&mut flexfec);
+                }
+            }
 
             transceiver.set_codec_preferences(matched)?;
         }

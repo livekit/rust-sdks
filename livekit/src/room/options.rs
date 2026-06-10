@@ -131,6 +131,14 @@ pub struct TrackPublishOptions {
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
     pub scalability_mode: Option<String>,
+    /// Publish FlexFEC (video/flexfec-03) for this video track.
+    ///
+    /// Requires the WebRTC-FlexFEC-03 field trials to have been set before
+    /// connecting (see `libwebrtc::native::fec::init_field_trials` and
+    /// `libwebrtc::native::fec::FLEXFEC_FIELD_TRIALS`); otherwise the codec
+    /// is absent from sender capabilities and this flag is ignored with a
+    /// warning.
+    pub flex_fec: bool,
 }
 
 impl Default for TrackPublishOptions {
@@ -149,6 +157,7 @@ impl Default for TrackPublishOptions {
             packet_trailer_features: PacketTrailerFeatures::default(),
             video_encoder: VideoEncoderBackend::Auto,
             scalability_mode: None,
+            flex_fec: false,
         }
     }
 }

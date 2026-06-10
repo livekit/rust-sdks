@@ -77,6 +77,24 @@ Publisher usage:
    --room-name demo \
    --identity cam-1 \
    --display-video
+
+ # publish with FlexFEC (video/flexfec-03) forward error correction
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --flex-fec
+
+ # FlexFEC with a fixed 20% protection rate, bursty-loss mask, and at most
+ # 4 frames per FEC block (all FEC knobs require --flex-fec)
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --flex-fec \
+   --fec-protection-rate 20 \
+   --fec-mask-type bursty \
+   --fec-max-frames 4
 ```
 
 List devices usage:
@@ -112,6 +130,16 @@ Publisher flags (in addition to the common connection flags above):
 - `--display-video`: Open a window that displays the video frames being published.
 - `--display-timing`: Burn publisher timing metrics into the local preview window. Requires `--display-video`.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
+- `--flex-fec`: Enable FlexFEC (`video/flexfec-03`) forward error correction for the published video track.
+- `--fec-protection-rate <0-100>`: Fixed FEC protection rate in percent, replacing libwebrtc's adaptive, loss-based rate. Requires `--flex-fec`.
+- `--fec-mask-type <random|bursty>`: FEC packet mask type (protection pattern): `random` targets uniform loss, `bursty` targets consecutive loss. Requires `--flex-fec`.
+- `--fec-max-frames <n>`: Maximum number of video frames protected by a single FEC block. Defaults to `1` (each frame protected independently, lowest latency) when `--flex-fec` is set. Requires `--flex-fec`.
+
+FlexFEC notes:
+- `--flex-fec` sets process-wide WebRTC field trials (`WebRTC-FlexFEC-03` / `WebRTC-FlexFEC-03-Advertised`) before connecting, so it applies to every track published by the process.
+- Without `--fec-protection-rate`, libwebrtc adapts the FEC rate to observed packet loss and may send almost no FEC packets on loss-free links. The fixed rate is applied on top of the encoder target, so keep it moderate on bandwidth-constrained links.
+- With `--simulcast`, libwebrtc protects only the primary (first) simulcast stream.
+- FEC only flows if the SFU accepts `flexfec-03` in its answer; otherwise the track publishes normally without FEC. Verify negotiation by running with `RUST_LOG=livekit=debug` and looking for `flexfec-03` and `a=ssrc-group:FEC-FR` in the `sending publisher offer` log line.
 
 Subscriber usage:
 ```

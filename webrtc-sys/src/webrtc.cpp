@@ -21,7 +21,9 @@
 #include <iostream>
 #include <memory>
 
+#include "api/environment/deprecated_global_field_trials.h"
 #include "livekit/audio_track.h"
+#include "livekit/fec_controller.h"
 #include "livekit/media_stream_track.h"
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
@@ -29,6 +31,7 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/crypto_random.h"
 #include "rtc_base/synchronization/mutex.h"
+#include "system_wrappers/include/field_trial.h"
 
 #ifdef WEBRTC_WIN
 #include "rtc_base/win32.h"
@@ -171,6 +174,48 @@ std::unique_ptr<LogSink> new_log_sink(
 
 rust::String create_random_uuid() {
   return webrtc::CreateRandomUuid();
+}
+
+bool init_field_trials(rust::String trials) {
+  static webrtc::Mutex mutex;
+  static bool initialized = false;
+  webrtc::MutexLock lock(&mutex);
+  if (initialized) {
+    RTC_LOG(LS_WARNING) << "init_field_trials called more than once; ignored";
+    return false;
+  }
+  initialized = true;
+  // Both sinks keep a pointer to the string, which must outlive the process;
+  // leak it intentionally.
+  static std::string* leaked = new std::string(std::string(trials));
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+  // The default Environment (EnvironmentFactory::CreateWithDefaults) reads
+  // trials through DeprecatedGlobalFieldTrials, which has its own global
+  // separate from the system_wrappers one; set both so every consumer
+  // (media engine/codec vendor and legacy FindFullName callers) sees them.
+  webrtc::DeprecatedGlobalFieldTrials::Set(leaked->c_str());
+  webrtc::field_trial::InitFieldTrialsFromString(leaked->c_str());
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+  RTC_LOG(LS_INFO) << "field trials initialized: " << *leaked;
+  return true;
+}
+
+void set_fec_override_config(FecOverrideConfig config) {
+  FecOverrideOptions options;
+  options.has_fec_rate = config.has_fec_rate;
+  options.fec_rate = static_cast<int>(config.fec_rate);
+  options.has_mask_type = config.has_mask_type;
+  options.mask_type = config.mask_type == FecMaskType::Bursty
+                          ? webrtc::kFecMaskBursty
+                          : webrtc::kFecMaskRandom;
+  options.has_max_frames = config.has_max_frames;
+  options.max_frames = static_cast<int>(config.max_frames);
+  SetGlobalFecOverride(options);
 }
 
 }  // namespace livekit_ffi

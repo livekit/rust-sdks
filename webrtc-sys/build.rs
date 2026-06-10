@@ -81,6 +81,7 @@ fn main() {
         "src/rtp_parameters.cpp",
         "src/rtc_error.cpp",
         "src/webrtc.cpp",
+        "src/fec_controller.cpp",
         "src/video_frame.cpp",
         "src/video_frame_buffer.cpp",
         "src/video_encoder_factory.cpp",
