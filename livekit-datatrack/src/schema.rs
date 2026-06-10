@@ -56,19 +56,33 @@ impl DataTrackSchemaId {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum DataTrackSchemaEncoding {
-    /// Protocol Buffer IDL: describes `PROTOBUF` frame encoding.
+    /// Protocol Buffer IDL, describes [`Protobuf`] encoded frames.
+    ///
+    /// [`Protobuf`]: DataTrackFrameEncoding::Protobuf
     Protobuf,
-    /// FlatBuffer IDL: describes `FLATBUFFER` frame encoding.
+    /// FlatBuffer IDL, describes [`Flatbuffer`] encoded frames.
+    ///
+    /// [`Flatbuffer`]: DataTrackFrameEncoding::Flatbuffer
     Flatbuffer,
-    /// ROS 1 Message: describes `ROS1` frame encoding.
+    /// ROS 1 Message, describes [`Ros1`] encoded frames.
+    ///
+    /// [`Ros1`]: DataTrackFrameEncoding::Ros1
     Ros1Msg,
-    /// ROS 2 Message: describes `CDR` frame encoding.
+    /// ROS 2 Message, describes [`Cdr`] encoded frames.
+    ///
+    /// [`Cdr`]: DataTrackFrameEncoding::Cdr
     Ros2Msg,
-    /// ROS 2 IDL: describes `CDR` frame encoding.
+    /// ROS 2 IDL, describes [`Cdr`] encoded frames.
+    ///
+    /// [`Cdr`]: DataTrackFrameEncoding::Cdr
     Ros2Idl,
-    /// OMG IDL: describes `CDR` frame encoding.
+    /// OMG IDL, describes [`Cdr`] encoded frames.
+    ///
+    /// [`Cdr`]: DataTrackFrameEncoding::Cdr
     OmgIdl,
-    /// JSON Schema: describes `JSON` frame encoding.
+    /// JSON Schema, describes [`Json`] encoded frames.
+    ///
+    /// [`Json`]: DataTrackFrameEncoding::Json
     JsonSchema,
     /// Another encoding not known to this client version.
     Other,
@@ -79,19 +93,31 @@ pub enum DataTrackSchemaEncoding {
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum DataTrackFrameEncoding {
-    /// ROS 1: must be described by `ROS1_MSG` schema encoding.
+    /// ROS 1, must be described by a [`Ros1Msg`] schema.
+    ///
+    /// [`Ros1Msg`]: DataTrackSchemaEncoding::Ros1Msg
     Ros1,
-    /// CDR: must be described by `ROS2_MSG`, `ROS2_IDL`, or `OMG_IDL` schema encoding.
+    /// CDR, must be described by a [`Ros2Msg`], [`Ros2Idl`], or [`OmgIdl`] schema.
+    ///
+    /// [`Ros2Msg`]: DataTrackSchemaEncoding::Ros2Msg
+    /// [`Ros2Idl`]: DataTrackSchemaEncoding::Ros2Idl
+    /// [`OmgIdl`]: DataTrackSchemaEncoding::OmgIdl
     Cdr,
-    /// Protocol Buffer: must be described by `PROTOBUF` schema encoding.
+    /// Protocol Buffer, must be described by a [`Protobuf`] schema.
+    ///
+    /// [`Protobuf`]: DataTrackSchemaEncoding::Protobuf
     Protobuf,
-    /// FlatBuffer: must be described by `FLATBUFFER` schema encoding.
+    /// FlatBuffer, must be described by a [`Flatbuffer`] schema.
+    ///
+    /// [`Flatbuffer`]: DataTrackSchemaEncoding::Flatbuffer
     Flatbuffer,
-    /// CBOR: self-describing.
+    /// CBOR, self-describing.
     Cbor,
-    /// MessagePack: self-describing.
+    /// MessagePack, self-describing.
     Msgpack,
-    /// JSON: self-describing or described by `JSON_SCHEMA` schema encoding.
+    /// JSON, self-describing or described by a [`JsonSchema`] schema.
+    ///
+    /// [`JsonSchema`]: DataTrackSchemaEncoding::JsonSchema
     Json,
     /// Another encoding not known to this client version.
     Other,
