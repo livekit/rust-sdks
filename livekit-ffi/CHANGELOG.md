@@ -316,6 +316,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.63 (2026-06-09)
+
+### Fixes
+
+- Reject oversized data messages before they break the data channel.
+- Upgrade dashmap to v6
+- Add per-publication video encoder backend selection. Add a video encoder backend availability query. Remove `LIVEKIT_PREFERRED_HW_ENCODER` in favor of per-publication backend selection.
+
 ## 0.12.62 (2026-06-03)
 
 ### Fixes

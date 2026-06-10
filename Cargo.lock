@@ -1772,11 +1772,12 @@ dependencies = [
 
 [[package]]
 name = "dashmap"
-version = "5.5.3"
+version = "6.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
 dependencies = [
  "cfg-if 1.0.4",
+ "crossbeam-utils",
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
@@ -3868,7 +3869,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "cxx",
  "env_logger 0.11.10",
@@ -3991,7 +3992,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.44"
+version = "0.7.45"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4077,7 +4078,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.62"
+version = "0.12.63"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -4160,7 +4161,6 @@ dependencies = [
  "cpal",
  "env_logger 0.11.10",
  "futures-util",
- "libwebrtc",
  "livekit",
  "livekit-api",
  "log",
@@ -4181,7 +4181,6 @@ dependencies = [
  "env_logger 0.11.10",
  "futures",
  "image",
- "libwebrtc",
  "livekit",
  "livekit-api",
  "log",
@@ -4191,7 +4190,6 @@ dependencies = [
  "parking_lot",
  "tokio",
  "tokio-stream",
- "webrtc-sys",
  "wgpu 28.0.0",
  "winit",
  "yuv-sys",
@@ -8662,7 +8660,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.33"
+version = "0.3.34"
 dependencies = [
  "cc",
  "cxx",
@@ -9019,7 +9017,6 @@ dependencies = [
  "parking_lot",
  "serde",
  "tokio",
- "webrtc-sys",
  "wgpu 28.0.0",
  "winit",
 ]
