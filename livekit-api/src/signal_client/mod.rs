@@ -192,9 +192,29 @@ impl SignalClient {
                 if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
                     log::error!("unexpected signal error: {}", err.to_string());
                 }
-                let urls = RegionUrlProvider::fetch_region_urls(url, token).await?;
-                let mut last_err = err;
 
+                // Fetching region URLs is best-effort. `fetch_region_urls`
+                // already returns an empty list for non-cloud (direct /
+                // self-hosted) URLs, so those skip the fallback entirely. If the
+                // fetch itself fails (e.g. the region endpoint is unreachable),
+                // that must NOT be fatal: log a warning and fall back to the
+                // original connection error rather than masking it with the
+                // fetch error.
+                let urls = match RegionUrlProvider::fetch_region_urls(url, token).await {
+                    Ok(urls) => urls,
+                    Err(region_err) => {
+                        log::warn!(
+                            "failed to fetch region urls: {region_err}; surfacing original connection error"
+                        );
+                        return Err(err);
+                    }
+                };
+
+                // With no region URLs to try, this surfaces the original error.
+                // Otherwise we keep the most recent region attempt error, so that
+                // if every region fails the caller sees why the last region
+                // connection failed.
+                let mut last_err = err;
                 for url in urls.iter() {
                     log::info!("fallback connection to: {}", url);
                     match SignalInner::connect(url, token, options.clone(), publisher_offer.clone())
@@ -203,7 +223,7 @@ impl SignalClient {
                         Ok((inner, join_response, stream_events)) => {
                             return Ok(handle_success(inner, join_response, stream_events))
                         }
-                        Err(err) => last_err = err,
+                        Err(region_conn_err) => last_err = region_conn_err,
                     }
                 }
 
