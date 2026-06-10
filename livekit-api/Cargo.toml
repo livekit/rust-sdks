@@ -5,6 +5,7 @@ license.workspace = true
 description = "Rust Server SDK for LiveKit"
 edition.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [features]
 # By default ws TLS is not enabled
