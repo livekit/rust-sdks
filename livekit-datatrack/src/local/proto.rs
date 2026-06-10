@@ -215,6 +215,28 @@ mod tests {
     }
 
     #[test]
+    fn test_frame_encoding_mapping() {
+        let base = proto::DataTrackInfo {
+            pub_handle: 1,
+            sid: "DTR_1234".into(),
+            name: "track".into(),
+            encryption: proto::encryption::Type::None.into(),
+            schema: None,
+            frame_encoding: None,
+        };
+
+        let info: DataTrackInfo = base.clone().try_into().unwrap();
+        assert_eq!(info.frame_encoding, None);
+
+        let unspecified = proto::DataTrackInfo {
+            frame_encoding: Some(proto::DataTrackFrameEncoding::Unspecified.into()),
+            ..base
+        };
+        let info: DataTrackInfo = unspecified.try_into().unwrap();
+        assert_eq!(info.frame_encoding, Some(DataTrackFrameEncoding::Other));
+    }
+
+    #[test]
     fn test_from_request_response() {
         use proto::request_response::{Reason, Request};
         let response = proto::RequestResponse {
