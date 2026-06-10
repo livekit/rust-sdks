@@ -17,13 +17,21 @@ use std::sync::Arc;
 
 /// Identifier for a data track schema.
 ///
-/// A schema ID is a compound identifier consisting of two components:
-/// - Name (e.g. "joint_positions")
-/// - Encoding
+/// A compound identifier with two components: name and encoding.
 ///
-/// Two schema IDs with the same name but different encodings are not equivalent.
+/// Two IDs are equal only if both components match; the same name with a
+/// different encoding refers to a distinct schema. Cloning is cheap, as the name
+/// component is reference counted.
 ///
-/// Clones of this type are cheap since the name component is reference counted.
+/// # Examples
+///
+/// ```
+/// # use livekit_datatrack::api::{DataTrackSchemaId, DataTrackSchemaEncoding};
+/// let schema = DataTrackSchemaId::new("my_schema", DataTrackSchemaEncoding::Protobuf);
+///
+/// assert_eq!(schema.name(), "my_schema");
+/// assert_eq!(schema.encoding(), DataTrackSchemaEncoding::Protobuf);
+/// ```
 ///
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct DataTrackSchemaId {
@@ -50,7 +58,11 @@ impl DataTrackSchemaId {
 
 /// Encoding used for a schema definition.
 ///
-/// See also: [`DataTrackSchemaId`]
+/// Identifies the interface definition language the schema is written in (e.g. a
+/// `.proto` file for [`Protobuf`]). This in turn dictates the wire format of the
+/// frames the schema describes, captured by [`DataTrackFrameEncoding`].
+///
+/// [`Protobuf`]: DataTrackSchemaEncoding::Protobuf
 ///
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -89,6 +101,12 @@ pub enum DataTrackSchemaEncoding {
 }
 
 /// Encoding used for frames pushed on a data track.
+///
+/// The serialization format of the frame bytes (e.g. [`Protobuf`]); the structure
+/// of those bytes is described by a schema, see [`DataTrackSchemaEncoding`].
+///
+/// [`Protobuf`]: DataTrackFrameEncoding::Protobuf
+///
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
