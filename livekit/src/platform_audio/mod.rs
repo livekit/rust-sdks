@@ -639,6 +639,25 @@ impl PlatformAudio {
     // Device Selection
     // =========================================================================
 
+    /// Returns whether per-device selection is honored on this platform.
+    ///
+    /// - **Desktop (Windows, macOS, Linux):** `true`. Devices enumerated via
+    ///   [`recording_devices()`]/[`playout_devices()`] can be selected by ID.
+    /// - **Mobile (iOS/Android):** `false`. Audio routing is controlled by the OS
+    ///   (AVAudioSession on iOS, AudioManager on Android), not by WebRTC device
+    ///   selection. [`set_recording_device()`]/[`set_playout_device()`] are accepted
+    ///   but have no effect.
+    ///
+    /// Clients can use this to decide whether to present a device-picker UI.
+    ///
+    /// [`recording_devices()`]: Self::recording_devices
+    /// [`playout_devices()`]: Self::playout_devices
+    /// [`set_recording_device()`]: Self::set_recording_device
+    /// [`set_playout_device()`]: Self::set_playout_device
+    pub fn supports_device_selection(&self) -> bool {
+        cfg!(not(any(target_os = "ios", target_os = "android")))
+    }
+
     /// Selects a recording (microphone) device by ID.
     ///
     /// This is the preferred method for device selection as IDs are stable
@@ -668,6 +687,14 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
+        // On mobile the OS owns input routing; selection is an explicit no-op. We
+        // short-circuit here rather than relying on the native layer's device-reporting
+        // quirks (iOS RecordingDeviceName returns -1; Android reports a single GUID-less
+        // device), which would otherwise make the result platform-dependent.
+        if !self.supports_device_selection() {
+            return Ok(());
+        }
+
         if self.handle.runtime.set_recording_device_by_guid(id.as_str()) {
             Ok(())
         } else {
@@ -704,6 +731,11 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
+        // On mobile the OS owns output routing; selection is an explicit no-op.
+        if !self.supports_device_selection() {
+            return Ok(());
+        }
+
         let runtime = &self.handle.runtime;
         if !runtime.set_playout_device_by_guid(id.as_str()) {
             return Err(AudioError::DeviceNotFound);
@@ -743,6 +775,11 @@ impl PlatformAudio {
     ///
     /// [`set_recording_device`]: Self::set_recording_device
     pub fn switch_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
+        // On mobile the OS owns input routing; hot-swapping is an explicit no-op.
+        if !self.supports_device_selection() {
+            return Ok(());
+        }
+
         let runtime = &self.handle.runtime;
         let was_initialized = runtime.recording_is_initialized();
 
@@ -793,6 +830,11 @@ impl PlatformAudio {
     ///
     /// [`set_playout_device`]: Self::set_playout_device
     pub fn switch_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
+        // On mobile the OS owns output routing; hot-swapping is an explicit no-op.
+        if !self.supports_device_selection() {
+            return Ok(());
+        }
+
         let runtime = &self.handle.runtime;
         let was_initialized = runtime.playout_is_initialized();
 

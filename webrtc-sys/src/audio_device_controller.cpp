@@ -83,13 +83,11 @@ bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const 
     }
   }
 
-  // No match found - fall back to default device (index 0).
-  // This handles mobile platforms (iOS/Android) where:
-  // - GUIDs may be empty or not meaningful
-  // - Device selection is a no-op (system handles routing)
-  if (count > 0) {
-    return adm_proxy_->SetPlayoutDevice(0) == 0;
-  }
+  // No match found. We intentionally do NOT fall back to the default device:
+  // an unknown GUID is a genuine error on desktop (the saved device is gone),
+  // and the caller can surface that. Mobile platforms never reach this code -
+  // the Rust layer short-circuits selection there (device selection is a no-op
+  // on iOS/Android, where the OS controls routing).
   return false;
 }
 
@@ -107,13 +105,11 @@ bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) cons
     }
   }
 
-  // No match found - fall back to default device (index 0).
-  // This handles mobile platforms (iOS/Android) where:
-  // - GUIDs may be empty or not meaningful
-  // - Device selection is a no-op (system handles routing)
-  if (count > 0) {
-    return adm_proxy_->SetRecordingDevice(0) == 0;
-  }
+  // No match found. We intentionally do NOT fall back to the default device:
+  // an unknown GUID is a genuine error on desktop (the saved device is gone),
+  // and the caller can surface that. Mobile platforms never reach this code -
+  // the Rust layer short-circuits selection there (device selection is a no-op
+  // on iOS/Android, where the OS controls routing).
   return false;
 }
 

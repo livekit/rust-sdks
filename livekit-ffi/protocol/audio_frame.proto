@@ -397,6 +397,10 @@ message PlatformAudioInfo {
   required int32 recording_device_count = 1;
   // Number of available playout (speaker) devices.
   required int32 playout_device_count = 2;
+  // Whether per-device selection is honored on this platform. False on iOS/Android,
+  // where audio routing is controlled by the OS (AVAudioSession / AudioManager) rather
+  // than through WebRTC device selection.
+  required bool device_selection_supported = 3;
 }
 
 // Owned PlatformAudio handle with info.
