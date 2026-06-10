@@ -31,7 +31,7 @@ use crate::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
-    data_track::{self, DataTrack, DataTrackOptions, Local},
+    data_track::{self, DataTrack, DataTrackOptions, DataTrackSchemaId, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
@@ -916,6 +916,29 @@ impl LocalParticipant {
     #[doc(hidden)]
     pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
         // Local participants don't receive data messages, so this is a no-op
+    }
+
+    pub async fn define_schema(&self, id: DataTrackSchemaId, definition: String) -> RoomResult<()> {
+        self.inner.rtc_engine.store_data_blob(id.into(), definition.into()).await?;
+        Ok(())
+    }
+
+    pub async fn get_schema(
+        &self,
+        id: DataTrackSchemaId,
+        participant: ParticipantIdentity,
+    ) -> RoomResult<String> {
+        let contents = self
+            .inner
+            .rtc_engine
+            .get_data_blob(id.into(), participant)
+            .await
+            .inspect_err(|err| log::error!("Failed to get schema: {err}"))?;
+
+        let definition = String::from_utf8(contents.to_vec()).map_err(|err| {
+            RoomError::Internal(format!("schema definition is not valid UTF-8: {err}"))
+        })?;
+        Ok(definition)
     }
 }
 

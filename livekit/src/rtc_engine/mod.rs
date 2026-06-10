@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bytes::Bytes;
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
-use livekit_runtime::{interval, Interval, JoinHandle, MissedTickBehavior};
+use livekit_runtime::{interval, timeout, Interval, JoinHandle, MissedTickBehavior};
 use parking_lot::{RwLock, RwLockReadGuard};
 use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
@@ -284,6 +285,71 @@ impl RtcEngine {
         session.publish_data(data, kind, is_raw_packet).await
     }
 
+    // TODO: unify request/response logic, timeout behavior across SDK.
+    const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+    pub async fn store_data_blob(
+        &self,
+        key: proto::DataBlobKey,
+        contents: Bytes,
+    ) -> EngineResult<()> {
+        let blob = proto::DataBlob { key: Some(key), contents: contents.into() };
+
+        let request_id = self.session().signal_client().next_request_id();
+        // TODO: `StoreDataBlobRequest` is missing a `request_id` field. Until it is added
+        // (and echoed back by the server on the `RequestResponse`), the response awaited
+        // below cannot be correlated to this request and the call will time out.
+        // Set `request_id` on the request once the proto field exists.
+        let request = proto::StoreDataBlobRequest { blob: Some(blob) };
+        self.send_request(proto::signal_request::Message::StoreDataBlobRequest(request)).await;
+
+        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, self.get_response(request_id))
+            .await
+            .map_err(|_| {
+                EngineError::Signal(SignalError::Timeout(
+                    "store data blob request timed out".into(),
+                ))
+            })?;
+
+        match response.reason() {
+            proto::request_response::Reason::Ok => Ok(()),
+            reason => Err(EngineError::Internal(
+                format!("store data blob request failed ({reason:?}): {}", response.message).into(),
+            )),
+        }
+    }
+
+    pub async fn get_data_blob(
+        &self,
+        key: proto::DataBlobKey,
+        participant: ParticipantIdentity,
+    ) -> EngineResult<Bytes> {
+        let request_id = self.session().signal_client().next_request_id();
+        // TODO: `GetDataBlobRequest` and `GetDataBlobResponse` are both missing a
+        // `request_id` field. Until they are added (and echoed back by the server on the
+        // response), the response awaited below cannot be correlated to this request and
+        // the call will time out. Set `request_id` on the request once the proto field
+        // exists, and resolve the pending request in the `GetDataBlobResponse` handler in
+        // `rtc_session.rs`.
+        let request =
+            proto::GetDataBlobRequest { key: Some(key), participant_identity: participant.0 };
+        self.send_request(proto::signal_request::Message::GetDataBlobRequest(request)).await;
+
+        let response =
+            timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, self.get_data_blob_response(request_id))
+                .await
+                .map_err(|_| {
+                    EngineError::Signal(SignalError::Timeout(
+                        "get data blob request timed out".into(),
+                    ))
+                })?;
+
+        let blob = response.blob.ok_or_else(|| {
+            EngineError::Internal("get data blob response is missing the blob".into())
+        })?;
+        Ok(blob.contents.into())
+    }
+
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;
@@ -376,6 +442,11 @@ impl RtcEngine {
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         let session = self.inner.running_handle.read().session.clone();
         session.get_response(request_id).await
+    }
+
+    pub async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+        let session = self.inner.running_handle.read().session.clone();
+        session.get_data_blob_response(request_id).await
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {

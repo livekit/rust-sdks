@@ -394,6 +394,7 @@ struct SessionInner {
     negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
+    pending_data_blob_requests: Mutex<HashMap<u32, oneshot::Sender<proto::GetDataBlobResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
     subscriber_primary: bool,
@@ -607,6 +608,7 @@ impl RtcSession {
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
+            pending_data_blob_requests: Default::default(),
             e2ee_manager,
             subscriber_primary,
             pc_state_notify: Notify::new(),
@@ -908,6 +910,10 @@ impl RtcSession {
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
+    }
+
+    pub async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+        self.inner.get_data_blob_response(request_id).await
     }
 }
 
@@ -1331,6 +1337,16 @@ impl SessionInner {
                 if self.single_pc_mode {
                     self.handle_media_sections_requirement(req)?;
                 }
+            }
+            proto::signal_response::Message::GetDataBlobResponse(_response) => {
+                // TODO: `GetDataBlobResponse` is missing a `request_id` field, so the
+                // response cannot be correlated with the originating `GetDataBlobRequest`.
+                // Once the field exists, resolve the matching pending request, e.g.:
+                //   if let Some(tx) =
+                //       self.pending_data_blob_requests.lock().remove(&_response.request_id)
+                //   {
+                //       let _ = tx.send(_response);
+                //   }
             }
             _ => {}
         }
@@ -2247,6 +2263,12 @@ impl SessionInner {
         let (tx, rx) = oneshot::channel();
         self.pending_requests.lock().insert(request_id, tx);
         rx.await.unwrap()
+    }
+
+    async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+        let (tx, rx) = oneshot::channel();
+        self.pending_data_blob_requests.lock().insert(request_id, tx);
+        rx.await.expect("data blob response sender dropped")
     }
 }
 
