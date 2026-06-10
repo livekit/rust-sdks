@@ -199,6 +199,12 @@ impl From<DataTrackFrameEncoding> for proto::DataTrackFrameEncoding {
     }
 }
 
+impl From<DataTrackSchemaId> for proto::DataBlobKey {
+    fn from(id: DataTrackSchemaId) -> Self {
+        Self { key: Some(proto::data_blob_key::Key::SchemaId(id.into())) }
+    }
+}
+
 #[cfg(test)]
 impl fake::Dummy<fake::Faker> for DataTrackSchemaId {
     fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
