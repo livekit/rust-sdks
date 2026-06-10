@@ -947,13 +947,14 @@ impl RtcSession {
 impl SessionInner {
     /// Walks the given peer connection's transceivers and synthesizes a
     /// `SessionEvent::MediaTrack` for any `(mid, stream_id)` pair we
-    /// haven't already dispatched. 
+    /// haven't already dispatched.
     ///
     /// Mirrors `RTCPeerConnection::DidModifyTransceivers` in Chromium's
     /// blink renderer:
     /// `third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc`.
     fn process_remote_track_addition(&self, pc: &libwebrtc::peer_connection::PeerConnection) {
-        let mut current = HashMap::<(String, String), (MediaStream, MediaStreamTrack, RtpTransceiver)>::new();
+        let mut current =
+            HashMap::<(String, String), (MediaStream, MediaStreamTrack, RtpTransceiver)>::new();
         for transceiver in pc.transceivers() {
             let Some(mid) = transceiver.mid() else { continue };
             let receiver = transceiver.receiver();
@@ -976,9 +977,7 @@ impl SessionInner {
                     key.0,
                     key.1
                 );
-                let _ = self
-                    .emitter
-                    .send(SessionEvent::MediaTrack { stream, track, transceiver });
+                let _ = self.emitter.send(SessionEvent::MediaTrack { stream, track, transceiver });
             }
         }
     }
