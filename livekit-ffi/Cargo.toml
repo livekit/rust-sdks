@@ -16,6 +16,9 @@ rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit/__rustls-tls"]
 
+# Enable the pre-encoded (passthrough) video ingestion FFI surface.
+encoded-video = []
+
 # Enable tokio-console to debug tasks
 tracing = ["tokio/tracing", "console-subscriber"]
 
