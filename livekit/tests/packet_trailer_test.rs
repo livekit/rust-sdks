@@ -105,11 +105,59 @@ async fn test_timestamp_and_frame_id_vp8_e2ee() -> Result<()> {
 }
 
 #[test_log::test(tokio::test)]
+async fn test_timestamp_only_av1() -> Result<()> {
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: false,
+        e2ee: false,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_frame_id_only_av1() -> Result<()> {
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: false,
+        attach_frame_id: true,
+        e2ee: false,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
 async fn test_timestamp_and_frame_id_av1() -> Result<()> {
     run_packet_trailer_test(PacketTrailerTestParams {
         attach_timestamp: true,
         attach_frame_id: true,
         e2ee: false,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_timestamp_and_frame_id_av1_e2ee() -> Result<()> {
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: true,
+        e2ee: true,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
+/// E2EE AV1 without any packet trailer features: video must still decode at
+/// the original dimensions. The subscriber also consumes subscribe-timing
+/// events, whose lazily created trailer handler must reuse the one chained
+/// with the frame cryptor instead of replacing the decryption transform.
+#[test_log::test(tokio::test)]
+async fn test_av1_e2ee_without_trailers() -> Result<()> {
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: false,
+        attach_frame_id: false,
+        e2ee: true,
         codec: VideoCodec::AV1,
     })
     .await
@@ -198,10 +246,16 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
     })
     .await??;
 
+    // Mirrors applications that consume subscribe-timing events: this lazily
+    // creates a packet trailer handler for the track, which must not replace
+    // the e2ee decryption chain on the receiver.
+    let _timing_events = remote_track.subscribe_timing_events();
+
     {
         let mut stream = NativeVideoStream::new(remote_track.rtc_track());
         let attach_ts = params.attach_timestamp;
         let attach_fid = params.attach_frame_id;
+        let expects_metadata = attach_ts || attach_fid;
 
         let validate = async {
             let mut validated = 0;
@@ -209,6 +263,28 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
             let mut seen_frame_ids: Vec<u32> = Vec::new();
 
             while let Some(frame) = stream.next().await {
+                if !expects_metadata {
+                    // The exact resolution may be scaled by the encoder, but
+                    // the aspect ratio always survives a correctly decrypted
+                    // bitstream. A mangled or undecrypted stream decodes (if
+                    // at all) with the synthetic 1:1 wrapper dimensions.
+                    let (width, height) = (frame.buffer.width(), frame.buffer.height());
+                    let expected_ar = TEST_WIDTH as f64 / TEST_HEIGHT as f64;
+                    let actual_ar = width as f64 / height as f64;
+                    assert!(
+                        (actual_ar - expected_ar).abs() < 0.05,
+                        "decoded frame {}x{} has unexpected aspect ratio (mangled or undecrypted bitstream?)",
+                        width,
+                        height,
+                    );
+                    validated += 1;
+                    log::info!("Received decoded frame ({}/{})", validated, FRAMES_TO_VALIDATE);
+                    if validated >= FRAMES_TO_VALIDATE {
+                        break;
+                    }
+                    continue;
+                }
+
                 let Some(meta) = frame.frame_metadata else {
                     log::debug!("Frame without metadata, skipping (waiting for trailer pipeline)");
                     continue;

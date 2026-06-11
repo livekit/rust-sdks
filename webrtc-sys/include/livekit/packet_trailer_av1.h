@@ -49,5 +49,41 @@ std::optional<PacketTrailerMetadata> ExtractTrailer(
     webrtc::ArrayView<const uint8_t> data,
     std::vector<uint8_t>& out_data);
 
+/// Returns the sequence header OBU contained in an AV1 temporal unit,
+/// normalized to carry an explicit size field, or `std::nullopt` if the
+/// data does not contain one (e.g. delta frames or non-AV1 payloads).
+std::optional<std::vector<uint8_t>> ExtractSequenceHeaderObu(
+    webrtc::ArrayView<const uint8_t> data);
+
+/// Wraps an encrypted AV1 payload into a synthetic-but-valid AV1 temporal
+/// unit so it survives RTP transport.
+///
+/// E2EE encrypts the entire AV1 payload, but `RtpPacketizerAv1` parses its
+/// input as a sequence of OBUs: ciphertext fails to parse (dropping frames)
+/// or is silently corrupted in transit (the depacketizer re-writes OBU size
+/// fields), and SFUs lose keyframe detection, which requires the payload to
+/// start with a sequence header OBU followed by a keyframe-flagged frame
+/// OBU. This function hides the ciphertext inside a frame OBU behind a
+/// synthetic frame header byte and magic bytes, prepending a sequence
+/// header OBU on keyframes. Every emitted OBU carries an explicit size
+/// field, which makes packetization round-trip byte-exact.
+///
+/// `sequence_header_obu` is the plaintext frame's own sequence header
+/// (captured before encryption, see [`ExtractSequenceHeaderObu`]) so that
+/// SFUs parsing it observe the stream's real parameters; when empty, a
+/// minimal synthetic header is emitted instead. It is removed again by
+/// [`UnwrapEncryptedPayload`], so decoders only ever see the encrypted
+/// original.
+std::vector<uint8_t> WrapEncryptedPayload(
+    webrtc::ArrayView<const uint8_t> data,
+    bool is_keyframe,
+    webrtc::ArrayView<const uint8_t> sequence_header_obu);
+
+/// Reverses [`WrapEncryptedPayload`], returning the encrypted payload carried
+/// by the wrapper frame OBU, or `std::nullopt` if `data` is not a wrapped
+/// payload (e.g. unencrypted passthrough or server-injected frames).
+std::optional<std::vector<uint8_t>> UnwrapEncryptedPayload(
+    webrtc::ArrayView<const uint8_t> data);
+
 }  // namespace av1
 }  // namespace livekit_ffi

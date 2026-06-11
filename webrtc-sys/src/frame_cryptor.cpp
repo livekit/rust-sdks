@@ -16,14 +16,19 @@
 
 #include "livekit/frame_cryptor.h"
 
+#include <deque>
 #include <memory>
+#include <optional>
+#include <unordered_map>
 
 #include "absl/types/optional.h"
 #include "api/make_ref_counted.h"
 #include "livekit/peer_connection.h"
 #include "livekit/peer_connection_factory.h"
 #include "livekit/packet_trailer.h"
+#include "livekit/packet_trailer_av1.h"
 #include "livekit/webrtc.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/thread.h"
 #include "webrtc-sys/src/frame_cryptor.rs.h"
 
@@ -75,6 +80,239 @@ class ChainedFrameTransformer : public webrtc::FrameTransformerInterface,
  private:
   webrtc::scoped_refptr<webrtc::FrameTransformerInterface> first_;
   webrtc::scoped_refptr<webrtc::FrameTransformerInterface> second_;
+};
+
+/// Sequence headers captured from plaintext AV1 keyframes before
+/// encryption, keyed by (ssrc, rtp timestamp) so the post-encryption wrap
+/// stage can attach the frame's own header. Bounded FIFO eviction guards
+/// against entries that are never consumed (e.g. frames the cryptor
+/// discards while keys are missing).
+class Av1SequenceHeaderCache {
+ public:
+  void Store(uint32_t ssrc, uint32_t rtp_timestamp, std::vector<uint8_t> obu) {
+    const uint64_t key = MakeKey(ssrc, rtp_timestamp);
+    webrtc::MutexLock lock(&mutex_);
+    while (entries_.size() >= kMaxEntries && !order_.empty()) {
+      entries_.erase(order_.front());
+      order_.pop_front();
+    }
+    if (entries_.find(key) == entries_.end()) {
+      order_.push_back(key);
+    }
+    entries_[key] = std::move(obu);
+  }
+
+  std::optional<std::vector<uint8_t>> Take(uint32_t ssrc,
+                                           uint32_t rtp_timestamp) {
+    const uint64_t key = MakeKey(ssrc, rtp_timestamp);
+    webrtc::MutexLock lock(&mutex_);
+    auto it = entries_.find(key);
+    if (it == entries_.end()) {
+      return std::nullopt;
+    }
+    std::vector<uint8_t> obu = std::move(it->second);
+    entries_.erase(it);
+    for (auto oit = order_.begin(); oit != order_.end(); ++oit) {
+      if (*oit == key) {
+        order_.erase(oit);
+        break;
+      }
+    }
+    return obu;
+  }
+
+ private:
+  static uint64_t MakeKey(uint32_t ssrc, uint32_t rtp_timestamp) {
+    return (static_cast<uint64_t>(ssrc) << 32) | rtp_timestamp;
+  }
+
+  static constexpr size_t kMaxEntries = 16;
+  mutable webrtc::Mutex mutex_;
+  std::unordered_map<uint64_t, std::vector<uint8_t>> entries_;
+  std::deque<uint64_t> order_;
+};
+
+/// Captures the sequence header OBU of plaintext AV1 keyframes on the send
+/// side, ahead of the e2ee transform, so the wrap stage downstream can
+/// prepend the frame's real header (SFUs parsing it then observe the
+/// stream's true parameters). Frames are forwarded untouched.
+class Av1SequenceHeaderSniffer : public webrtc::FrameTransformerInterface {
+ public:
+  Av1SequenceHeaderSniffer(
+      std::shared_ptr<Av1SequenceHeaderCache> cache,
+      webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer)
+      : cache_(std::move(cache)),
+        e2ee_transformer_(std::move(e2ee_transformer)) {}
+
+  void Transform(
+      std::unique_ptr<webrtc::TransformableFrameInterface> frame) override {
+    if (av1::IsAv1Frame(*frame) && !frame->GetData().empty() &&
+        e2ee_transformer_->enabled()) {
+      auto* video_frame =
+          static_cast<webrtc::TransformableVideoFrameInterface*>(frame.get());
+      if (video_frame->IsKeyFrame()) {
+        if (auto obu = av1::ExtractSequenceHeaderObu(frame->GetData())) {
+          cache_->Store(frame->GetSsrc(), frame->GetTimestamp(),
+                        std::move(*obu));
+        }
+      }
+    }
+
+    webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback;
+    {
+      webrtc::MutexLock lock(&mutex_);
+      auto it = sink_callbacks_.find(frame->GetSsrc());
+      callback = it != sink_callbacks_.end() ? it->second : callback_;
+    }
+    if (callback) {
+      callback->OnTransformedFrame(std::move(frame));
+    }
+  }
+
+  void RegisterTransformedFrameCallback(
+      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback)
+      override {
+    webrtc::MutexLock lock(&mutex_);
+    callback_ = std::move(callback);
+  }
+
+  void RegisterTransformedFrameSinkCallback(
+      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
+      uint32_t ssrc) override {
+    webrtc::MutexLock lock(&mutex_);
+    sink_callbacks_[ssrc] = std::move(callback);
+  }
+
+  void UnregisterTransformedFrameCallback() override {
+    webrtc::MutexLock lock(&mutex_);
+    callback_ = nullptr;
+  }
+
+  void UnregisterTransformedFrameSinkCallback(uint32_t ssrc) override {
+    webrtc::MutexLock lock(&mutex_);
+    sink_callbacks_.erase(ssrc);
+  }
+
+ private:
+  std::shared_ptr<Av1SequenceHeaderCache> cache_;
+  webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
+  mutable webrtc::Mutex mutex_;
+  webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
+  std::unordered_map<uint32_t,
+                     webrtc::scoped_refptr<webrtc::TransformedFrameCallback>>
+      sink_callbacks_;
+};
+
+/// Adapts fully-encrypted AV1 payloads for RTP transport.
+///
+/// The AV1 RTP packetizer parses its input as a sequence of OBUs, so the
+/// opaque payload produced by the e2ee transform cannot be packetized as-is:
+/// frames are dropped or corrupted in transit, and SFUs lose keyframe
+/// detection. On send this transformer runs after encryption and wraps the
+/// encrypted payload into a synthetic AV1 temporal unit (see
+/// av1::WrapEncryptedPayload) carrying the keyframe's real sequence header
+/// captured by [`Av1SequenceHeaderSniffer`]; on receive it runs before
+/// decryption and restores the encrypted payload. Frames of other codecs,
+/// and AV1 frames passed through while encryption is disabled, are
+/// forwarded untouched.
+class Av1EncryptedPayloadAdapter : public webrtc::FrameTransformerInterface {
+ public:
+  enum class Direction { kSend, kReceive };
+
+  Av1EncryptedPayloadAdapter(
+      Direction direction,
+      webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer,
+      std::shared_ptr<Av1SequenceHeaderCache> sequence_header_cache)
+      : direction_(direction),
+        e2ee_transformer_(std::move(e2ee_transformer)),
+        sequence_header_cache_(std::move(sequence_header_cache)) {}
+
+  void Transform(
+      std::unique_ptr<webrtc::TransformableFrameInterface> frame) override {
+    if (av1::IsAv1Frame(*frame) && !frame->GetData().empty()) {
+      if (direction_ == Direction::kSend) {
+        // Frames forwarded while encryption is disabled are already valid
+        // AV1; wrapping them would break subscribers without an unwrap
+        // stage.
+        if (e2ee_transformer_->enabled()) {
+          auto* video_frame =
+              static_cast<webrtc::TransformableVideoFrameInterface*>(
+                  frame.get());
+          const bool is_keyframe = video_frame->IsKeyFrame();
+          std::optional<std::vector<uint8_t>> sequence_header;
+          if (is_keyframe && sequence_header_cache_) {
+            sequence_header = sequence_header_cache_->Take(
+                frame->GetSsrc(), frame->GetTimestamp());
+            if (sequence_header) {
+              RTC_LOG(LS_INFO)
+                  << "Av1EncryptedPayloadAdapter: wrapping keyframe with real"
+                     " sequence header ("
+                  << sequence_header->size() << " bytes) ssrc="
+                  << frame->GetSsrc() << " rtp_ts=" << frame->GetTimestamp();
+            } else {
+              RTC_LOG(LS_WARNING)
+                  << "Av1EncryptedPayloadAdapter: no sniffed sequence header"
+                     " for keyframe, using synthetic fallback ssrc="
+                  << frame->GetSsrc() << " rtp_ts=" << frame->GetTimestamp();
+            }
+          }
+          auto wrapped = av1::WrapEncryptedPayload(
+              frame->GetData(), is_keyframe,
+              sequence_header
+                  ? webrtc::ArrayView<const uint8_t>(*sequence_header)
+                  : webrtc::ArrayView<const uint8_t>());
+          frame->SetData(webrtc::ArrayView<const uint8_t>(wrapped));
+        }
+      } else if (auto unwrapped =
+                     av1::UnwrapEncryptedPayload(frame->GetData())) {
+        frame->SetData(webrtc::ArrayView<const uint8_t>(*unwrapped));
+      }
+    }
+
+    webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback;
+    {
+      webrtc::MutexLock lock(&mutex_);
+      auto it = sink_callbacks_.find(frame->GetSsrc());
+      callback = it != sink_callbacks_.end() ? it->second : callback_;
+    }
+    if (callback) {
+      callback->OnTransformedFrame(std::move(frame));
+    }
+  }
+
+  void RegisterTransformedFrameCallback(
+      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback)
+      override {
+    webrtc::MutexLock lock(&mutex_);
+    callback_ = std::move(callback);
+  }
+
+  void RegisterTransformedFrameSinkCallback(
+      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
+      uint32_t ssrc) override {
+    webrtc::MutexLock lock(&mutex_);
+    sink_callbacks_[ssrc] = std::move(callback);
+  }
+
+  void UnregisterTransformedFrameCallback() override {
+    webrtc::MutexLock lock(&mutex_);
+    callback_ = nullptr;
+  }
+
+  void UnregisterTransformedFrameSinkCallback(uint32_t ssrc) override {
+    webrtc::MutexLock lock(&mutex_);
+    sink_callbacks_.erase(ssrc);
+  }
+
+ private:
+  const Direction direction_;
+  webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
+  std::shared_ptr<Av1SequenceHeaderCache> sequence_header_cache_;
+  mutable webrtc::Mutex mutex_;
+  webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
+  std::unordered_map<uint32_t,
+                     webrtc::scoped_refptr<webrtc::TransformedFrameCallback>>
+      sink_callbacks_;
 };
 
 webrtc::FrameCryptorTransformer::Algorithm AlgorithmToFrameCryptorAlgorithm(
@@ -139,7 +377,15 @@ FrameCryptor::FrameCryptor(
       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
                                           participant_id, mediaType, algorithm,
                                           key_provider_));
-  sender->SetEncoderToPacketizerFrameTransformer(e2ee_transformer_);
+  if (mediaType == webrtc::FrameCryptorTransformer::MediaType::kVideoFrame) {
+    auto sequence_header_cache = std::make_shared<Av1SequenceHeaderCache>();
+    av1_sniffer_ = webrtc::make_ref_counted<Av1SequenceHeaderSniffer>(
+        sequence_header_cache, e2ee_transformer_);
+    av1_adapter_ = webrtc::make_ref_counted<Av1EncryptedPayloadAdapter>(
+        Av1EncryptedPayloadAdapter::Direction::kSend, e2ee_transformer_,
+        std::move(sequence_header_cache));
+  }
+  sender->SetEncoderToPacketizerFrameTransformer(encryption_transformer());
   e2ee_transformer_->SetEnabled(false);
 }
 
@@ -161,7 +407,12 @@ FrameCryptor::FrameCryptor(
       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
                                           participant_id, mediaType, algorithm,
                                           key_provider_));
-  receiver->SetDepacketizerToDecoderFrameTransformer(e2ee_transformer_);
+  if (mediaType == webrtc::FrameCryptorTransformer::MediaType::kVideoFrame) {
+    av1_adapter_ = webrtc::make_ref_counted<Av1EncryptedPayloadAdapter>(
+        Av1EncryptedPayloadAdapter::Direction::kReceive, e2ee_transformer_,
+        nullptr);
+  }
+  receiver->SetDepacketizerToDecoderFrameTransformer(encryption_transformer());
   e2ee_transformer_->SetEnabled(false);
 }
 
@@ -185,6 +436,22 @@ void FrameCryptor::unregister_observer() const {
   e2ee_transformer_->UnRegisterFrameCryptorTransformerObserver();
 }
 
+webrtc::scoped_refptr<webrtc::FrameTransformerInterface>
+FrameCryptor::encryption_transformer() const {
+  if (!av1_adapter_) {
+    return e2ee_transformer_;
+  }
+  if (sender_) {
+    // Sniff the plaintext sequence header, encrypt, then wrap the encrypted
+    // payload (attaching the sniffed header on keyframes).
+    return webrtc::make_ref_counted<ChainedFrameTransformer>(
+        av1_sniffer_, webrtc::make_ref_counted<ChainedFrameTransformer>(
+                          e2ee_transformer_, av1_adapter_));
+  }
+  return webrtc::make_ref_counted<ChainedFrameTransformer>(av1_adapter_,
+                                                           e2ee_transformer_);
+}
+
 void FrameCryptor::set_packet_trailer_handler(
     std::shared_ptr<PacketTrailerHandler> handler) const {
   if (!handler) {
@@ -196,14 +463,17 @@ void FrameCryptor::set_packet_trailer_handler(
     return;
   }
 
+  // The trailer transform stays outside the encryption boundary for every
+  // codec: it runs against the encrypted (and, for AV1, wrapped) payload on
+  // send and strips the trailer before decryption on receive.
   webrtc::scoped_refptr<webrtc::FrameTransformerInterface> first;
   webrtc::scoped_refptr<webrtc::FrameTransformerInterface> second;
   if (sender_) {
-    first = e2ee_transformer_;
+    first = encryption_transformer();
     second = timestamp_transformer;
   } else if (receiver_) {
     first = timestamp_transformer;
-    second = e2ee_transformer_;
+    second = encryption_transformer();
   } else {
     return;
   }

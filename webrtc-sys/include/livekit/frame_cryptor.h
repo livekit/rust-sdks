@@ -164,10 +164,26 @@ class FrameCryptor {
       std::shared_ptr<PacketTrailerHandler> handler) const;
 
  private:
+  /// Composes the e2ee transform with the AV1 adapter so the encrypted
+  /// payload reaches the packetizer in transport-safe form (and is restored
+  /// before decryption on receive). Returns the bare e2ee transformer for
+  /// audio cryptors, which have no adapter.
+  webrtc::scoped_refptr<webrtc::FrameTransformerInterface>
+  encryption_transformer() const;
+
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   const rust::String participant_id_;
   mutable webrtc::Mutex mutex_;
   webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
+  /// Makes fully-encrypted AV1 payloads survive the OBU-parsing RTP
+  /// packetizer: wraps ciphertext into valid OBU structure after encryption
+  /// on send, and unwraps it before decryption on receive. Per-frame no-op
+  /// for other codecs. Only created for video cryptors.
+  webrtc::scoped_refptr<webrtc::FrameTransformerInterface> av1_adapter_;
+  /// Captures the real sequence header from plaintext AV1 keyframes ahead
+  /// of encryption so `av1_adapter_` can emit it on the wire. Only created
+  /// for video sender cryptors.
+  webrtc::scoped_refptr<webrtc::FrameTransformerInterface> av1_sniffer_;
   webrtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;

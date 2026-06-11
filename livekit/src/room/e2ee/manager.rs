@@ -15,11 +15,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use libwebrtc::{
-    native::{
-        frame_cryptor::{
-            DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
-        },
-        packet_trailer,
+    native::frame_cryptor::{
+        DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
@@ -123,12 +120,7 @@ impl E2eeManager {
 
         if let RemoteTrack::Video(video_track) = &track {
             if needs_packet_trailer_handler {
-                let handler = packet_trailer::create_receiver_handler(
-                    LkRuntime::instance().pc_factory(),
-                    &receiver,
-                );
-                video_track.set_packet_trailer_handler(handler.clone());
-                packet_trailer_handler = Some(handler);
+                packet_trailer_handler = video_track.ensure_packet_trailer_handler();
                 log::info!(
                     "attached packet_trailer handler for subscribed track {} from {}",
                     publication.sid(),
@@ -145,6 +137,16 @@ impl E2eeManager {
 
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
             return;
+        }
+
+        // A packet trailer handler created later (e.g. lazily for subscribe
+        // timing events) would replace the receiver's transformer and bypass
+        // decryption, so for encrypted video tracks the handler is always
+        // created up front and chained with the cryptor below.
+        if packet_trailer_handler.is_none() {
+            if let RemoteTrack::Video(video_track) = &track {
+                packet_trailer_handler = video_track.ensure_packet_trailer_handler();
+            }
         }
 
         let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
@@ -189,6 +191,18 @@ impl E2eeManager {
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
             return;
         }
+
+        // A packet trailer handler created later (e.g. lazily for publish
+        // timing events) would replace the sender's transformer and bypass
+        // encryption, so for encrypted video tracks the handler is always
+        // created up front and chained with the cryptor below.
+        let packet_trailer_handler = packet_trailer_handler.or_else(|| {
+            if let LocalTrack::Video(video_track) = &track {
+                video_track.ensure_packet_trailer_handler()
+            } else {
+                None
+            }
+        });
 
         let frame_cryptor = self.setup_rtp_sender(&identity, sender);
         if let Some(handler) = packet_trailer_handler.as_ref() {

@@ -44,6 +44,7 @@ async fn test_video() -> Result<()> {
         VideoTestParams { codec: VideoCodec::VP8, width: 1280, height: 720, simulcast: true },
         VideoTestParams { codec: VideoCodec::VP9, width: 1280, height: 720, simulcast: false },
         VideoTestParams { codec: VideoCodec::VP9, width: 1280, height: 720, simulcast: true },
+        VideoTestParams { codec: VideoCodec::AV1, width: 1280, height: 720, simulcast: false },
     ];
     for params in test_params {
         log::info!("Testing with {}", params);

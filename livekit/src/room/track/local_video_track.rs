@@ -187,7 +187,7 @@ impl LocalVideoTrack {
             }
         };
 
-        let handler = self.ensure_publish_timing_handler();
+        let handler = self.ensure_packet_trailer_handler();
         if let Some(handler) = handler {
             self.apply_publish_timing_observer(&handler);
         }
@@ -212,7 +212,16 @@ impl LocalVideoTrack {
         *self.packet_trailer_handler.lock() = Some(handler);
     }
 
-    fn ensure_publish_timing_handler(&self) -> Option<PacketTrailerHandler> {
+    /// Returns the track's packet trailer handler, creating and attaching one
+    /// if it does not exist yet. The handler is created disabled, so no
+    /// trailers are appended unless trailer features were negotiated.
+    ///
+    /// Creating a handler installs its transformer on the RTP sender,
+    /// replacing any transformer installed earlier (such as the e2ee
+    /// encryption chain). In e2ee rooms the [`E2eeManager`] therefore ensures
+    /// the handler eagerly and re-chains it with the frame cryptor, so later
+    /// callers always reuse the existing handler here.
+    pub(crate) fn ensure_packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
         if let Some(handler) = self.packet_trailer_handler.lock().clone() {
             return Some(handler);
         }
