@@ -62,4 +62,4 @@ nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9d
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-msmf"] }
 
 [build-dependencies]
-cc = "1"
+cc = { workspace = true }
