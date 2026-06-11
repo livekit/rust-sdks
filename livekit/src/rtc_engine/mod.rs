@@ -329,28 +329,27 @@ impl RtcEngine {
     ) -> EngineResult<()> {
         let blob = proto::DataBlob { key: Some(key), contents: contents.into() };
 
-        let request_id = self.session().signal_client().next_request_id();
-        // TODO: `StoreDataBlobRequest` is missing a `request_id` field. Until it is added
-        // (and echoed back by the server on the `RequestResponse`), the response awaited
-        // below cannot be correlated to this request and the call will time out.
-        // Set `request_id` on the request once the proto field exists.
-        let request = proto::StoreDataBlobRequest { blob: Some(blob) };
+        let session = self.session();
+        let request_id = session.signal_client().next_request_id();
+        let request = proto::StoreDataBlobRequest { blob: Some(blob), request_id };
         self.send_request(proto::signal_request::Message::StoreDataBlobRequest(request)).await;
 
-        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, self.get_response(request_id))
-            .await
-            .map_err(|_| {
-                EngineError::Signal(SignalError::Timeout(
-                    "store data blob request timed out".into(),
-                ))
-            })?;
+        livekit_runtime::spawn(async move {
+            let Ok(response) =
+                timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, session.get_response(request_id)).await
+            else {
+                return; // No error arrived within the window: treat the store as successful.
+            };
+            if response.reason() != proto::request_response::Reason::Ok {
+                log::error!(
+                    "store data blob failed ({:?}): {}",
+                    response.reason(),
+                    response.message
+                );
+            }
+        });
 
-        match response.reason() {
-            proto::request_response::Reason::Ok => Ok(()),
-            reason => Err(EngineError::Internal(
-                format!("store data blob request failed ({reason:?}): {}", response.message).into(),
-            )),
-        }
+        Ok(())
     }
 
     pub async fn get_data_blob(
@@ -358,30 +357,36 @@ impl RtcEngine {
         key: proto::DataBlobKey,
         participant: ParticipantIdentity,
     ) -> EngineResult<Bytes> {
-        let request_id = self.session().signal_client().next_request_id();
-        // TODO: `GetDataBlobRequest` and `GetDataBlobResponse` are both missing a
-        // `request_id` field. Until they are added (and echoed back by the server on the
-        // response), the response awaited below cannot be correlated to this request and
-        // the call will time out. Set `request_id` on the request once the proto field
-        // exists, and resolve the pending request in the `GetDataBlobResponse` handler in
-        // `rtc_session.rs`.
-        let request =
-            proto::GetDataBlobRequest { key: Some(key), participant_identity: participant.0 };
+        let session = self.session();
+        let request_id = session.signal_client().next_request_id();
+        let request = proto::GetDataBlobRequest {
+            key: Some(key),
+            participant_identity: participant.0,
+            request_id,
+        };
         self.send_request(proto::signal_request::Message::GetDataBlobRequest(request)).await;
 
-        let response =
-            timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, self.get_data_blob_response(request_id))
-                .await
-                .map_err(|_| {
-                    EngineError::Signal(SignalError::Timeout(
-                        "get data blob request timed out".into(),
-                    ))
-                })?;
+        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
+            tokio::select! {
+                response = session.get_data_blob_response(request_id) => Ok(response),
+                error = session.get_response(request_id) => Err(error),
+            }
+        })
+        .await
+        .map_err(|_| EngineError::Signal(SignalError::Timeout("get data blob timed out".into())))?;
 
-        let blob = response.blob.ok_or_else(|| {
-            EngineError::Internal("get data blob response is missing the blob".into())
-        })?;
-        Ok(blob.contents.into())
+        match response {
+            Ok(response) => {
+                let blob = response.blob.ok_or_else(|| {
+                    EngineError::Internal("get data blob response is malformed".into())
+                })?;
+                Ok(blob.contents.into())
+            }
+            Err(error) => Err(EngineError::Internal(
+                format!("get data blob request failed ({:?}): {}", error.reason(), error.message)
+                    .into(),
+            )),
+        }
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
@@ -476,11 +481,6 @@ impl RtcEngine {
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         let session = self.inner.running_handle.read().session.clone();
         session.get_response(request_id).await
-    }
-
-    pub async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
-        let session = self.inner.running_handle.read().session.clone();
-        session.get_data_blob_response(request_id).await
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {

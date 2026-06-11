@@ -1458,15 +1458,12 @@ impl SessionInner {
                 );
                 let _ = self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
             }
-            proto::signal_response::Message::GetDataBlobResponse(_response) => {
-                // TODO: `GetDataBlobResponse` is missing a `request_id` field, so the
-                // response cannot be correlated with the originating `GetDataBlobRequest`.
-                // Once the field exists, resolve the matching pending request, e.g.:
-                //   if let Some(tx) =
-                //       self.pending_data_blob_requests.lock().remove(&_response.request_id)
-                //   {
-                //       let _ = tx.send(_response);
-                //   }
+            proto::signal_response::Message::GetDataBlobResponse(response) => {
+                if let Some(tx) =
+                    self.pending_data_blob_requests.lock().remove(&response.request_id)
+                {
+                    let _ = tx.send(response);
+                }
             }
             _ => {}
         }
@@ -2413,12 +2410,14 @@ impl SessionInner {
     async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         let (tx, rx) = oneshot::channel();
         self.pending_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_requests, request_id);
         rx.await.unwrap()
     }
 
     async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
         let (tx, rx) = oneshot::channel();
         self.pending_data_blob_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_data_blob_requests, request_id);
         rx.await.expect("data blob response sender dropped")
     }
 }
@@ -2429,6 +2428,28 @@ fn parse_sdp_max_message_size(sdp: &str) -> Option<u64> {
     sdp.lines()
         .find_map(|line| line.trim().strip_prefix("a=max-message-size:"))
         .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+/// Removes a pending response registration when dropped.
+///
+/// Installed alongside a registration so that abandoning the wait (e.g. a timeout or a
+/// losing [`tokio::select!`] branch) cannot leave a stale entry behind. Dropping after the
+/// response has already been delivered is a no-op since the entry is removed on delivery.
+struct PendingResponseGuard<'a, T> {
+    map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>,
+    request_id: u32,
+}
+
+impl<'a, T> PendingResponseGuard<'a, T> {
+    fn new(map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>, request_id: u32) -> Self {
+        Self { map, request_id }
+    }
+}
+
+impl<T> Drop for PendingResponseGuard<'_, T> {
+    fn drop(&mut self) {
+        self.map.lock().remove(&self.request_id);
+    }
 }
 
 /// Emit incoming data track packets as session events.
