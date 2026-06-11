@@ -819,44 +819,6 @@ enum VideoInput {
     Argus(argus::ArgusCaptureSession),
 }
 
-/// `CLOCK_MONOTONIC` value used to translate Argus sensor timestamps into wall time.
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-fn monotonic_time_ns_now() -> Option<u64> {
-    #[repr(C)]
-    struct Timespec {
-        tv_sec: i64,
-        tv_nsec: i64,
-    }
-
-    extern "C" {
-        fn clock_gettime(clk_id: i32, tp: *mut Timespec) -> i32;
-    }
-
-    const CLOCK_MONOTONIC: i32 = 1;
-    let mut ts = Timespec { tv_sec: 0, tv_nsec: 0 };
-    let ret = unsafe {
-        // SAFETY: `ts` is a valid, writable `Timespec` for the duration of the call.
-        clock_gettime(CLOCK_MONOTONIC, &mut ts)
-    };
-    if ret != 0 || ts.tv_sec < 0 || ts.tv_nsec < 0 {
-        return None;
-    }
-    Some(ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64)
-}
-
-/// Convert an Argus `CLOCK_MONOTONIC` sensor timestamp into a UNIX-epoch microsecond value
-/// by computing the offset between the current monotonic clock and the supplied wall time.
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-fn sensor_monotonic_ns_to_unix_us(sensor_timestamp_ns: u64, wall_time_us: u64) -> Option<u64> {
-    let monotonic_now_ns = monotonic_time_ns_now()?;
-    let monotonic_delta_us = monotonic_now_ns.abs_diff(sensor_timestamp_ns) / 1_000;
-    if sensor_timestamp_ns <= monotonic_now_ns {
-        Some(wall_time_us.saturating_sub(monotonic_delta_us))
-    } else {
-        Some(wall_time_us.saturating_add(monotonic_delta_us))
-    }
-}
-
 #[derive(Clone, Copy)]
 struct CaptureConfig {
     fps: u32,
@@ -1771,7 +1733,7 @@ async fn run_argus_capture_loop(
 
                 let (capture_wall_time_us, timestamp_from_sensor) = if config.attach_timestamp {
                     match argus_frame.sensor_timestamp_ns {
-                        Some(sensor_timestamp_ns) => match sensor_monotonic_ns_to_unix_us(
+                        Some(sensor_timestamp_ns) => match argus::sensor_monotonic_ns_to_unix_us(
                             sensor_timestamp_ns,
                             fallback_wall_time_us,
                         ) {
