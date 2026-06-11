@@ -16,6 +16,8 @@
 
 #include "jetson_mmapi_encoder.h"
 
+#include "jetson_plane_layout.h"
+
 #include <cerrno>
 #include <linux/v4l2-controls.h>
 #include <sys/stat.h>
@@ -664,91 +666,39 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
       (!output_is_nv12_ && buffer->n_planes > 2) &&
       GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[2].fd, 2, &v_pitch, &v_h, &v_np);
 
-  auto stride_from_plane = [&](int plane_index,
-                               const NvBuffer::NvBufferPlane& plane,
-                               int plane_height,
-                               int min_stride,
-                               int fallback) -> int {
-    // 1) NvBufferPlane::fmt.stride if present and sane.
-    const int fmt_stride = static_cast<int>(plane.fmt.stride);
-    if (fmt_stride >= min_stride) {
-      return fmt_stride;
-    }
-
-    // 2) NvBufSurfaceFromFd pitch (ground truth for this plane fd).
-    if (plane_index == 0 && have_y) {
-      const int pitch = static_cast<int>(y_pitch);
-      if (pitch >= min_stride) return pitch;
-    } else if (plane_index == 1 && have_u) {
-      const int pitch = static_cast<int>(u_pitch);
-      if (pitch >= min_stride) return pitch;
-    } else if (plane_index == 2 && have_v) {
-      const int pitch = static_cast<int>(v_pitch);
-      if (pitch >= min_stride) return pitch;
-    }
-
-    // 3) Derive from mapped plane length. Be careful: plane.fmt.height can be
-    // misleading (e.g. UV plane reporting full luma height), which would yield
-    // an under-stride (pitch/2) and a green image. Only accept a derived value
-    // if it meets min_stride.
-    int best = 0;
-    if (plane.length > 0) {
-      const int fmt_h = static_cast<int>(plane.fmt.height);
-      if (fmt_h > 0) {
-        const int derived =
-            static_cast<int>(plane.length / static_cast<uint32_t>(fmt_h));
-        if (derived >= min_stride) {
-          best = derived;
-        }
-      }
-      if (best == 0 && plane_height > 0) {
-        const int derived = static_cast<int>(plane.length /
-                                             static_cast<uint32_t>(plane_height));
-        if (derived >= min_stride) {
-          best = derived;
-        }
-      }
-    }
-
-    int stride = best > 0 ? best : fallback;
-    if (stride < min_stride) {
-      stride = min_stride;
-    }
-
-    // Cap stride to what the allocation can accommodate to avoid walking past
-    // the mapped plane. (This should not normally trigger.)
-    if (plane_height > 0 && plane.length > 0) {
-      const int max_stride = static_cast<int>(
-          plane.length / static_cast<uint32_t>(plane_height));
-      if (max_stride > 0 && stride > max_stride) {
-        stride = max_stride;
-      }
-    }
-    return stride;
+  // Map the (sometimes unreliable) hardware metadata into plain-data hints so
+  // the stride/height resolution stays pure and unit-testable. See
+  // jetson_plane_layout.h.
+  auto hints_for = [](const NvBuffer::NvBufferPlane& plane,
+                      bool have_probe, uint32_t probed_pitch) {
+    return PlaneLayoutHints{
+        /*fmt_stride=*/static_cast<int>(plane.fmt.stride),
+        /*probed_pitch=*/have_probe ? static_cast<int>(probed_pitch) : 0,
+        /*plane_length=*/static_cast<int>(plane.length),
+        /*fmt_height=*/static_cast<int>(plane.fmt.height)};
   };
 
   const int min_y_stride = width_;
   const int min_uv_stride = output_is_nv12_ ? width_ : chroma_width;
-  const int dst_y_stride =
-      stride_from_plane(0, buffer->planes[0], height_, min_y_stride, output_y_stride_);
-  const int dst_u_stride =
-      stride_from_plane(1, buffer->planes[1], chroma_height, min_uv_stride, output_u_stride_);
+  const int dst_y_stride = ResolvePlaneStride(
+      hints_for(buffer->planes[0], have_y, y_pitch), height_, min_y_stride,
+      output_y_stride_);
+  const int dst_u_stride = ResolvePlaneStride(
+      hints_for(buffer->planes[1], have_u, u_pitch), chroma_height,
+      min_uv_stride, output_u_stride_);
   const int dst_v_stride =
       (!output_is_nv12_ && buffer->n_planes > 2)
-          ? stride_from_plane(2, buffer->planes[2], chroma_height, chroma_width,
-                              output_v_stride_)
+          ? ResolvePlaneStride(hints_for(buffer->planes[2], have_v, v_pitch),
+                               chroma_height, chroma_width, output_v_stride_)
           : dst_u_stride;
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   const int plane_y_height =
-      (have_y && static_cast<int>(y_h) >= height_) ? static_cast<int>(y_h)
-                                                   : height_;
+      ResolvePlaneHeight(have_y, static_cast<int>(y_h), height_);
   const int plane_u_height =
-      (have_u && static_cast<int>(u_h) >= chroma_height) ? static_cast<int>(u_h)
-                                                         : chroma_height;
+      ResolvePlaneHeight(have_u, static_cast<int>(u_h), chroma_height);
   const int plane_v_height =
-      (have_v && static_cast<int>(v_h) >= chroma_height) ? static_cast<int>(v_h)
-                                                         : chroma_height;
+      ResolvePlaneHeight(have_v, static_cast<int>(v_h), chroma_height);
   auto ZeroPlaneRows = [](uint8_t* dst, int stride, int start_row,
                           int end_row) {
     for (int y = start_row; y < end_row; ++y) {
@@ -877,71 +827,31 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
       (buffer->n_planes > 1) &&
       GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, 1, &uv_pitch, &uv_h, &uv_np);
 
-  auto stride_from_plane = [&](int plane_index,
-                               const NvBuffer::NvBufferPlane& plane,
-                               int plane_height,
-                               int min_stride,
-                               int fallback) -> int {
-    const int fmt_stride = static_cast<int>(plane.fmt.stride);
-    if (fmt_stride >= min_stride) {
-      return fmt_stride;
-    }
-    if (plane_index == 0 && have_y) {
-      const int pitch = static_cast<int>(y_pitch);
-      if (pitch >= min_stride) return pitch;
-    } else if (plane_index == 1 && have_uv) {
-      const int pitch = static_cast<int>(uv_pitch);
-      if (pitch >= min_stride) return pitch;
-    }
-    int best = 0;
-    if (plane.length > 0) {
-      const int fmt_h = static_cast<int>(plane.fmt.height);
-      if (fmt_h > 0) {
-        const int derived =
-            static_cast<int>(plane.length / static_cast<uint32_t>(fmt_h));
-        if (derived >= min_stride) {
-          best = derived;
-        }
-      }
-      if (best == 0 && plane_height > 0) {
-        const int derived = static_cast<int>(plane.length /
-                                             static_cast<uint32_t>(plane_height));
-        if (derived >= min_stride) {
-          best = derived;
-        }
-      }
-    }
-
-    int stride = best > 0 ? best : fallback;
-    if (stride < min_stride) {
-      stride = min_stride;
-    }
-    if (plane_height > 0 && plane.length > 0) {
-      const int max_stride = static_cast<int>(
-          plane.length / static_cast<uint32_t>(plane_height));
-      if (max_stride > 0 && stride > max_stride) {
-        stride = max_stride;
-      }
-    }
-    return stride;
+  // See QueueOutputBuffer: keep the layout decisions in pure, testable helpers.
+  auto hints_for = [](const NvBuffer::NvBufferPlane& plane,
+                      bool have_probe, uint32_t probed_pitch) {
+    return PlaneLayoutHints{
+        /*fmt_stride=*/static_cast<int>(plane.fmt.stride),
+        /*probed_pitch=*/have_probe ? static_cast<int>(probed_pitch) : 0,
+        /*plane_length=*/static_cast<int>(plane.length),
+        /*fmt_height=*/static_cast<int>(plane.fmt.height)};
   };
 
   const int min_y_stride = width_;
   const int min_uv_stride = width_;
-  const int dst_y_stride =
-      stride_from_plane(0, buffer->planes[0], height_, min_y_stride, output_y_stride_);
-  const int dst_uv_stride =
-      stride_from_plane(1, buffer->planes[1], chroma_height, min_uv_stride, output_u_stride_);
+  const int dst_y_stride = ResolvePlaneStride(
+      hints_for(buffer->planes[0], have_y, y_pitch), height_, min_y_stride,
+      output_y_stride_);
+  const int dst_uv_stride = ResolvePlaneStride(
+      hints_for(buffer->planes[1], have_uv, uv_pitch), chroma_height,
+      min_uv_stride, output_u_stride_);
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
   const int plane_y_height =
-      (have_y && static_cast<int>(y_h) >= height_) ? static_cast<int>(y_h)
-                                                   : height_;
+      ResolvePlaneHeight(have_y, static_cast<int>(y_h), height_);
   const int plane_uv_height =
-      (have_uv && static_cast<int>(uv_h) >= chroma_height)
-          ? static_cast<int>(uv_h)
-          : chroma_height;
+      ResolvePlaneHeight(have_uv, static_cast<int>(uv_h), chroma_height);
   auto ZeroPlaneRows = [](uint8_t* dst, int stride, int start_row,
                           int end_row) {
     for (int y = start_row; y < end_row; ++y) {
