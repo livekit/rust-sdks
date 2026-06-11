@@ -133,6 +133,7 @@ impl NativeVideoSource {
     /// Captures a Jetson DMA-buffer backed video frame.
     ///
     /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+    #[cfg(target_os = "linux")]
     pub fn capture_dmabuf_frame(
         &self,
         dmabuf_fd: i32,
@@ -154,6 +155,7 @@ impl NativeVideoSource {
     /// Captures a Jetson DMA-buffer backed video frame with packet trailer metadata.
     ///
     /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+    #[cfg(target_os = "linux")]
     pub fn capture_dmabuf_frame_with_metadata(
         &self,
         dmabuf_fd: i32,
