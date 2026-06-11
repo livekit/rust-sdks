@@ -40,7 +40,6 @@
 #include "modules/video_coding/utility/simulcast_utility.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/metrics.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 
@@ -192,10 +191,6 @@ int32_t JetsonH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
   static std::atomic<bool> logged_empty(false);
-  static std::atomic<uint64_t> encode_call_count(0);
-  const bool send_timing = std::getenv("LK_SEND_TIMING") != nullptr;
-  const uint64_t frame_num = encode_call_count.fetch_add(1);
-  const int64_t encode_start_us = TimeMicros();
 
   if (!encoder_.IsInitialized()) {
     ReportError();
@@ -271,23 +266,7 @@ int32_t JetsonH264EncoderImpl::Encode(
     configuration_.key_frame_request = false;
   }
 
-  const int64_t encode_done_us = TimeMicros();
-  const int32_t process_result = ProcessEncodedFrame(packet, input_frame, is_keyframe);
-  const int64_t callback_done_us = TimeMicros();
-  if (send_timing) {
-    std::fprintf(stderr,
-                 "[SEND_TIMING][H264] frame=%lu rtp_ts=%u capture_us=%lld "
-                 "capture_to_encode_start_ms=%.2f encode_ms=%.2f "
-                 "callback_ms=%.2f encoded_bytes=%zu keyframe=%d result=%d\n",
-                 frame_num, input_frame.rtp_timestamp(),
-                 static_cast<long long>(input_frame.timestamp_us()),
-                 (encode_start_us - input_frame.timestamp_us()) / 1000.0,
-                 (encode_done_us - encode_start_us) / 1000.0,
-                 (callback_done_us - encode_done_us) / 1000.0, packet.size(),
-                 is_keyframe ? 1 : 0, process_result);
-    std::fflush(stderr);
-  }
-  return process_result;
+  return ProcessEncodedFrame(packet, input_frame, is_keyframe);
 }
 
 int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(

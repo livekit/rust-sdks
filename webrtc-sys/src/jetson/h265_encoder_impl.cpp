@@ -17,8 +17,6 @@
 #include "h265_encoder_impl.h"
 
 #include <algorithm>
-#include <cstdio>
-#include <cstdlib>
 #include <limits>
 #include <string>
 
@@ -35,7 +33,6 @@
 #include "modules/video_coding/utility/simulcast_utility.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/metrics.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 
@@ -170,8 +167,6 @@ int32_t JetsonH265EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  const bool send_timing = std::getenv("LK_SEND_TIMING") != nullptr;
-  const int64_t encode_start_us = TimeMicros();
   bool is_keyframe_needed = false;
   if (configuration_.key_frame_request && configuration_.sending) {
     is_keyframe_needed = true;
@@ -232,23 +227,7 @@ int32_t JetsonH265EncoderImpl::Encode(
     configuration_.key_frame_request = false;
   }
 
-  const int64_t encode_done_us = TimeMicros();
-  const int32_t process_result = ProcessEncodedFrame(packet, input_frame, is_keyframe);
-  const int64_t callback_done_us = TimeMicros();
-  if (send_timing) {
-    std::fprintf(stderr,
-                 "[SEND_TIMING][H265] rtp_ts=%u capture_us=%lld "
-                 "capture_to_encode_start_ms=%.2f encode_ms=%.2f "
-                 "callback_ms=%.2f encoded_bytes=%zu keyframe=%d result=%d\n",
-                 input_frame.rtp_timestamp(),
-                 static_cast<long long>(input_frame.timestamp_us()),
-                 (encode_start_us - input_frame.timestamp_us()) / 1000.0,
-                 (encode_done_us - encode_start_us) / 1000.0,
-                 (callback_done_us - encode_done_us) / 1000.0, packet.size(),
-                 is_keyframe ? 1 : 0, process_result);
-    std::fflush(stderr);
-  }
-  return process_result;
+  return ProcessEncodedFrame(packet, input_frame, is_keyframe);
 }
 
 int32_t JetsonH265EncoderImpl::ProcessEncodedFrame(
