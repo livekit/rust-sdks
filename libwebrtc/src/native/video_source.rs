@@ -22,9 +22,11 @@ use livekit_runtime::interval;
 use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
+#[cfg(target_os = "linux")]
+use crate::video_frame::FrameMetadata;
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
-    video_frame::{FrameMetadata, I420Buffer, VideoBuffer, VideoFrame},
+    video_frame::{I420Buffer, VideoBuffer, VideoFrame},
     video_source::VideoResolution,
 };
 
