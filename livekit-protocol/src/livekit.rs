@@ -4160,6 +4160,8 @@ pub mod update_data_subscription {
 pub struct StoreDataBlobRequest {
     #[prost(message, optional, tag="1")]
     pub blob: ::core::option::Option<DataBlob>,
+    #[prost(uint32, tag="2")]
+    pub request_id: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4170,12 +4172,16 @@ pub struct GetDataBlobRequest {
     /// Unique key of the data blob to retrieve.
     #[prost(message, optional, tag="2")]
     pub key: ::core::option::Option<DataBlobKey>,
+    #[prost(uint32, tag="3")]
+    pub request_id: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetDataBlobResponse {
     #[prost(message, optional, tag="1")]
     pub blob: ::core::option::Option<DataBlob>,
+    #[prost(uint32, tag="2")]
+    pub request_id: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4568,7 +4574,7 @@ pub struct RequestResponse {
     pub reason: i32,
     #[prost(string, tag="3")]
     pub message: ::prost::alloc::string::String,
-    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9, 10, 11, 12, 13")]
+    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9, 10, 11")]
     pub request: ::core::option::Option<request_response::Request>,
 }
 /// Nested message and enum types in `RequestResponse`.
@@ -4648,10 +4654,6 @@ pub mod request_response {
         PublishDataTrack(super::PublishDataTrackRequest),
         #[prost(message, tag="11")]
         UnpublishDataTrack(super::UnpublishDataTrackRequest),
-        #[prost(message, tag="12")]
-        StoreDataBlob(super::StoreDataBlobRequest),
-        #[prost(message, tag="13")]
-        GetDataBlob(super::GetDataBlobRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
