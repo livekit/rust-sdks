@@ -73,6 +73,14 @@ Publisher usage:
    --room-name demo \
    --identity jetson-cam-1
 
+ # publish AV1 through the Jetson hardware encoder (Orin only)
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --source argus \
+   --camera-index 0 \
+   --codec av1 \
+   --room-name demo \
+   --identity jetson-cam-1
+
  # publish a static SMPTE color-bar test pattern (no camera required)
  cargo run -p local_video -F desktop --bin publisher -- \
    --test-pattern \
@@ -120,7 +128,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
 - `--fps <n>`: Desired capture framerate (default: `30`).
-- `--codec <codec>`: Video codec to use for publishing: `h264`, `h265`, `vp8`, `vp9`, or `av1` (default: `h264`). H.265 falls back to H.264 on failure.
+- `--codec <codec>`: Video codec to use for publishing: `h264`, `h265`, `vp8`, `vp9`, or `av1` (default: `h264`). H.265 falls back to H.264 on failure. On Jetson Orin, `h264`, `h265`, and `av1` use the hardware encoder; elsewhere `av1` is encoded in software via libaom.
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
@@ -172,4 +180,5 @@ Notes:
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
 - The timestamp overlay updates at ~2 Hz so the latency value is readable rather than flickering every frame.
 - On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. It publishes NV12 DMA buffers through the Jetson hardware encoder; local publisher preview and burned timestamps are not supported on that path.
+- Jetson AV1 hardware encoding requires an Orin-class device (e.g. Orin NX or AGX Orin on JetPack 5+); the encoder is probed at startup and on devices without AV1 support (e.g. Xavier) `--codec av1` automatically falls back to the software libaom encoder. The Jetson AV1 encoder produces a single L1T1 stream (no SVC).
 - On Linux, preview windows use the Vulkan `wgpu` backend by default to avoid GLES/EGL conflicts on Jetson desktops. Set `WGPU_BACKEND=gl` or another supported `wgpu` backend to override this.

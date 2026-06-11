@@ -677,6 +677,30 @@ fn log_video_inbound_stats(stats: &[livekit::webrtc::stats::RtcStats]) {
     }
 }
 
+fn log_video_decode_health(stats: &[livekit::webrtc::stats::RtcStats]) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+
+    info!(
+        "Decode health: received={}, decoded={}, keyframes_decoded={}, rendered={}, dropped={}, assembled_multi_packet={}, decode_time={:.3}s, decoder={}",
+        inbound.inbound.frames_received,
+        inbound.inbound.frames_decoded,
+        inbound.inbound.key_frames_decoded,
+        inbound.inbound.frames_rendered,
+        inbound.inbound.frames_dropped,
+        inbound.inbound.frames_assembled_from_multiple_packets,
+        inbound.inbound.total_decode_time,
+        inbound.inbound.decoder_implementation,
+    );
+
+    if inbound.inbound.frames_received > 0 && inbound.inbound.frames_decoded == 0 {
+        log::warn!(
+            "RTP video is arriving but the decoder has produced no frames; this usually points to a malformed or incomplete keyframe"
+        );
+    }
+}
+
 fn update_simulcast_quality_from_stats(
     stats: &[livekit::webrtc::stats::RtcStats],
     simulcast: &Arc<Mutex<SimulcastState>>,
@@ -1014,6 +1038,7 @@ async fn handle_track_subscribed(
                         log_video_inbound_stats(&stats);
                         logged_initial = true;
                     }
+                    log_video_decode_health(&stats);
                     if last_jitter_buffer_log.elapsed() >= Duration::from_secs(5) {
                         log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
                         last_jitter_buffer_log = Instant::now();
