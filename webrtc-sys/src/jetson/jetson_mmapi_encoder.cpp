@@ -474,7 +474,10 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   // either plane requests buffers. Keep them best-effort so older JetPack/MMAPI
   // versions can still encode if one low-latency knob is unavailable.
   encoder_->setMaxPerfMode(1);
-  encoder_->setHWPresetType(V4L2_ENC_HW_PRESET_ULTRAFAST);
+  // ULTRAFAST minimizes motion search / mode decision and visibly smears fine,
+  // low-contrast detail (e.g. faces). MEDIUM keeps real-time throughput on
+  // Jetson NVENC for typical WebRTC resolutions while preserving that detail.
+  encoder_->setHWPresetType(V4L2_ENC_HW_PRESET_MEDIUM);
   encoder_->setNumBFrames(0);
 
   if (codec_ == JetsonCodec::kH264) {
