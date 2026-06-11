@@ -24,6 +24,7 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "livekit/objc_video_factory.h"
+#include "livekit/passthrough_video_encoder.h"
 #include "livekit/webrtc.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
@@ -106,9 +107,8 @@ webrtc::SdpVideoFormat StripBackendParameter(
   return stripped;
 }
 
-webrtc::SdpVideoFormat WithBackend(
-    const webrtc::SdpVideoFormat& format,
-    VideoEncoderBackend backend) {
+webrtc::SdpVideoFormat WithBackend(const webrtc::SdpVideoFormat& format,
+                                   VideoEncoderBackend backend) {
   webrtc::SdpVideoFormat tagged = format;
   tagged.parameters[kBackendParameter] = BackendName(backend);
   return tagged;
@@ -121,27 +121,22 @@ bool IsSpecificHardwareBackend(VideoEncoderBackend backend) {
 }
 
 bool BackendMatches(VideoEncoderBackend requested, VideoEncoderBackend actual) {
-  return requested == actual ||
-         (requested == VideoEncoderBackend::Hardware &&
-          actual != VideoEncoderBackend::Software &&
-          actual != VideoEncoderBackend::Auto);
+  return requested == actual || (requested == VideoEncoderBackend::Hardware &&
+                                 actual != VideoEncoderBackend::Software &&
+                                 actual != VideoEncoderBackend::Auto);
 }
 
-void AddBackendFactory(
-    std::vector<VideoEncoderBackendFactory>& factories,
-    VideoEncoderBackend backend,
-    std::unique_ptr<webrtc::VideoEncoderFactory> factory) {
+void AddBackendFactory(std::vector<VideoEncoderBackendFactory>& factories,
+                       VideoEncoderBackend backend,
+                       std::unique_ptr<webrtc::VideoEncoderFactory> factory) {
   factories.push_back(VideoEncoderBackendFactory{backend, std::move(factory)});
 }
 
-void AddNvencFactory(
-    std::vector<VideoEncoderBackendFactory>& factories) {
+void AddNvencFactory(std::vector<VideoEncoderBackendFactory>& factories) {
 #if defined(USE_NVIDIA_VIDEO_CODEC)
   if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
-    AddBackendFactory(
-        factories,
-        VideoEncoderBackend::Nvenc,
-        std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+    AddBackendFactory(factories, VideoEncoderBackend::Nvenc,
+                      std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
     return;
   }
 #else
@@ -149,14 +144,11 @@ void AddNvencFactory(
 #endif
 }
 
-void AddVaapiFactory(
-    std::vector<VideoEncoderBackendFactory>& factories) {
+void AddVaapiFactory(std::vector<VideoEncoderBackendFactory>& factories) {
 #if defined(USE_VAAPI_VIDEO_CODEC)
   if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
-    AddBackendFactory(
-        factories,
-        VideoEncoderBackend::Vaapi,
-        std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+    AddBackendFactory(factories, VideoEncoderBackend::Vaapi,
+                      std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
     return;
   }
 #else
@@ -218,17 +210,13 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef __APPLE__
-  AddBackendFactory(
-      factories_,
-      VideoEncoderBackend::VideoToolbox,
-      livekit_ffi::CreateObjCVideoEncoderFactory());
+  AddBackendFactory(factories_, VideoEncoderBackend::VideoToolbox,
+                    livekit_ffi::CreateObjCVideoEncoderFactory());
 #endif
 
 #ifdef WEBRTC_ANDROID
-  AddBackendFactory(
-      factories_,
-      VideoEncoderBackend::Hardware,
-      CreateAndroidVideoEncoderFactory());
+  AddBackendFactory(factories_, VideoEncoderBackend::Hardware,
+                    CreateAndroidVideoEncoderFactory());
 #endif
 
   AddNvencFactory(factories_);
@@ -273,9 +261,8 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
   auto requested_backend = BackendFromFormat(format);
   auto stripped_format = StripBackendParameter(format);
   if (requested_backend == VideoEncoderBackend::Software) {
-    auto original_format =
-        webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(),
-                                         stripped_format);
+    auto original_format = webrtc::FuzzyMatchSdpVideoFormat(
+        Factory().GetSupportedFormats(), stripped_format);
     auto support =
         original_format
             ? Factory().QueryCodecSupport(*original_format, scalability_mode)
@@ -303,9 +290,8 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
     }
   }
 
-  auto original_format =
-      webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(),
-                                       stripped_format);
+  auto original_format = webrtc::FuzzyMatchSdpVideoFormat(
+      Factory().GetSupportedFormats(), stripped_format);
   auto support =
       original_format
           ? Factory().QueryCodecSupport(*original_format, scalability_mode)
@@ -338,9 +324,8 @@ VideoEncoderFactory::InternalFactory::Create(
   bool requested_backend_unavailable = false;
 
   if (requested_backend == VideoEncoderBackend::Software) {
-    auto original_format =
-        webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(),
-                                         stripped_format);
+    auto original_format = webrtc::FuzzyMatchSdpVideoFormat(
+        Factory().GetSupportedFormats(), stripped_format);
     if (original_format) {
       auto encoder = Factory().Create(env, *original_format);
       if (encoder) {
@@ -384,9 +369,8 @@ VideoEncoderFactory::InternalFactory::Create(
     }
   }
 
-  auto original_format =
-      webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(),
-                                       stripped_format);
+  auto original_format = webrtc::FuzzyMatchSdpVideoFormat(
+      Factory().GetSupportedFormats(), stripped_format);
 
   if (original_format) {
     return Factory().Create(env, *original_format);
@@ -419,13 +403,29 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
-  std::unique_ptr<webrtc::VideoEncoder> encoder;
-  if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
-    encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
-        env, internal_factory_.get(), nullptr, format);
+  if (!format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
+    return nullptr;
   }
 
-  return encoder;
+#ifdef LK_PRE_ENCODED_VIDEO
+  // Wrap the real encoder construction in a lazy shim so we can branch
+  // between passthrough and a real encoder based on the first VideoFrame's
+  // id. The builder is called at most once and only for non-passthrough
+  // tracks; passthrough tracks never instantiate the SimulcastEncoderAdapter.
+  auto real_encoder_builder =
+      [env, format,
+       internal_factory =
+           internal_factory_.get()]() -> std::unique_ptr<webrtc::VideoEncoder> {
+    return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+        env, internal_factory, nullptr, format);
+  };
+
+  return std::make_unique<LazyVideoEncoder>(format,
+                                            std::move(real_encoder_builder));
+#else
+  return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+      env, internal_factory_.get(), nullptr, format);
+#endif
 }
 
 }  // namespace livekit_ffi
