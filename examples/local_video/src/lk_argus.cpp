@@ -472,11 +472,6 @@ int lk_argus_acquire_frame_with_metadata(
         uint64_t* acquire_wait_ns,
         uint64_t* blit_ns) {
     using Clock = std::chrono::steady_clock;
-    static const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
-    static uint64_t frame_num = 0;
-    static double sum_acquire_us = 0;
-    static double sum_blit_us = 0;
-    static double sum_total_us = 0;
 
     auto* s = static_cast<LkArgusSession*>(handle);
     if (!s) return -1;
@@ -565,28 +560,6 @@ int lk_argus_acquire_frame_with_metadata(
         fprintf(stderr, "[lk_argus] copyToNvBuffer failed: %d\n",
                 static_cast<int>(status));
         return -1;
-    }
-
-    if (debug) {
-        double acquire_us = std::chrono::duration<double, std::micro>(t1 - t0).count();
-        double blit_us = std::chrono::duration<double, std::micro>(t2 - t1).count();
-        double total_us = std::chrono::duration<double, std::micro>(t2 - t0).count();
-        sum_acquire_us += acquire_us;
-        sum_blit_us += blit_us;
-        sum_total_us += total_us;
-        frame_num++;
-
-        if (frame_num % 60 == 0) {
-            double dn = static_cast<double>(frame_num);
-            fprintf(stderr,
-                    "[lk_argus] acquire_frame stats (%lu frames): "
-                    "avg ms: wait=%.2f blit=%.2f total=%.2f metadata=%s\n",
-                    frame_num, sum_acquire_us / dn / 1000.0,
-                    sum_blit_us / dn / 1000.0,
-                    sum_total_us / dn / 1000.0,
-                    has_sensor_timestamp ? "yes" : "no");
-            fflush(stderr);
-        }
     }
 
     return fd;

@@ -96,51 +96,23 @@ void JetsonH264EncoderImpl::ReportError() {
 int32_t JetsonH264EncoderImpl::InitEncode(
     const VideoCodec* inst,
     const VideoEncoder::Settings& settings) {
-  const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
   (void)settings;
 
-  if (debug) {
-    std::fprintf(stderr,
-                 "[H264Impl] InitEncode() called: inst=%p, codecType=%d\n",
-                 static_cast<const void*>(inst),
-                 inst ? static_cast<int>(inst->codecType) : -1);
-    std::fflush(stderr);
-  }
-
   if (!inst || inst->codecType != kVideoCodecH264) {
-    std::fprintf(stderr, "[H264Impl] InitEncode() ERROR: invalid codec type\n");
-    std::fflush(stderr);
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
   if (inst->maxFramerate == 0) {
-    std::fprintf(stderr, "[H264Impl] InitEncode() ERROR: maxFramerate=0\n");
-    std::fflush(stderr);
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
   if (inst->width < 1 || inst->height < 1) {
-    std::fprintf(stderr,
-                 "[H264Impl] InitEncode() ERROR: invalid dimensions %dx%d\n",
-                 inst->width, inst->height);
-    std::fflush(stderr);
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
-  if (debug) {
-    std::fprintf(stderr,
-                 "[H264Impl] InitEncode(): %dx%d @ %d fps, startBitrate=%d "
-                 "kbps, maxBitrate=%d kbps\n",
-                 inst->width, inst->height, inst->maxFramerate,
-                 inst->startBitrate, inst->maxBitrate);
-    std::fflush(stderr);
-  }
-
   int32_t release_ret = Release();
   if (release_ret != WEBRTC_VIDEO_CODEC_OK) {
-    std::fprintf(stderr, "[H264Impl] InitEncode() ERROR: Release() failed\n");
-    std::fflush(stderr);
     ReportError();
     return release_ret;
   }
@@ -184,32 +156,12 @@ int32_t JetsonH264EncoderImpl::InitEncode(
     if (key_frame_interval <= 0 || key_frame_interval > max_interval) {
       key_frame_interval = default_interval;
     }
-    if (debug) {
-      std::fprintf(stderr,
-                   "[H264Impl] Calling encoder_.Initialize(%d, %d, %d, %d, "
-                   "%d)\n",
-                   codec_.width, codec_.height, codec_.maxFramerate,
-                   codec_.startBitrate * 1000, key_frame_interval);
-      std::fflush(stderr);
-    }
     if (!encoder_.Initialize(codec_.width, codec_.height, codec_.maxFramerate,
                              codec_.startBitrate * 1000, key_frame_interval)) {
       RTC_LOG(LS_ERROR) << "Failed to initialize Jetson MMAPI encoder.";
-      std::fprintf(stderr,
-                   "[H264Impl] InitEncode() ERROR: encoder_.Initialize() "
-                   "failed\n");
-      std::fflush(stderr);
       ReportError();
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
-    if (debug) {
-      std::fprintf(stderr,
-                   "[H264Impl] encoder_.Initialize() succeeded\n");
-      std::fflush(stderr);
-    }
-  } else if (debug) {
-    std::fprintf(stderr, "[H264Impl] Encoder already initialized\n");
-    std::fflush(stderr);
   }
 
   ReportInit();
@@ -219,13 +171,6 @@ int32_t JetsonH264EncoderImpl::InitEncode(
       init_allocator.Allocate(VideoBitrateAllocationParameters(
           DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
   SetRates(RateControlParameters(allocation, codec_.maxFramerate));
-
-  std::fprintf(stderr,
-               "[H264Impl] InitEncode() completed successfully: %dx%d @ %d "
-               "fps, bitrate=%d bps\n",
-               codec_.width, codec_.height, codec_.maxFramerate,
-               configuration_.target_bps);
-  std::fflush(stderr);
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -248,23 +193,11 @@ int32_t JetsonH264EncoderImpl::Encode(
     const std::vector<VideoFrameType>* frame_types) {
   static std::atomic<bool> logged_empty(false);
   static std::atomic<uint64_t> encode_call_count(0);
-  static std::atomic<uint64_t> encode_success_count(0);
-  static std::atomic<uint64_t> encode_fail_count(0);
-  static std::atomic<uint64_t> empty_packet_count(0);
-  static std::atomic<bool> logged_first_encode(false);
-  const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
   const bool send_timing = std::getenv("LK_SEND_TIMING") != nullptr;
   const uint64_t frame_num = encode_call_count.fetch_add(1);
   const int64_t encode_start_us = TimeMicros();
 
   if (!encoder_.IsInitialized()) {
-    if (debug || frame_num < 5) {
-      std::fprintf(stderr,
-                   "[H264Impl] Encode() called but encoder not initialized "
-                   "(frame %lu)\n",
-                   frame_num);
-      std::fflush(stderr);
-    }
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
@@ -272,12 +205,6 @@ int32_t JetsonH264EncoderImpl::Encode(
     RTC_LOG(LS_WARNING)
         << "InitEncode() has been called, but a callback function "
            "has not been set with RegisterEncodeCompleteCallback()";
-    if (debug) {
-      std::fprintf(stderr,
-                   "[H264Impl] No encoded_image_callback_ set (frame %lu)\n",
-                   frame_num);
-      std::fflush(stderr);
-    }
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
@@ -291,12 +218,6 @@ int32_t JetsonH264EncoderImpl::Encode(
       is_keyframe_needed = true;
     }
     if ((*frame_types)[0] == VideoFrameType::kEmptyFrame) {
-      if (debug) {
-        std::fprintf(stderr,
-                     "[H264Impl] Empty frame type requested (frame %lu)\n",
-                     frame_num);
-        std::fflush(stderr);
-      }
       return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
     }
   }
@@ -312,26 +233,9 @@ int32_t JetsonH264EncoderImpl::Encode(
   auto* dmabuf = livekit::DmaBufVideoFrameBuffer::FromNative(
       input_frame.video_frame_buffer().get());
   if (dmabuf) {
-    if (!logged_first_encode.exchange(true)) {
-      std::fprintf(stderr,
-                   "[H264Impl] First Encode() via DmaBuf: fd=%d, %dx%d, "
-                   "keyframe_needed=%d\n",
-                   dmabuf->dmabuf_fd(), dmabuf->width(), dmabuf->height(),
-                   is_keyframe_needed ? 1 : 0);
-      std::fflush(stderr);
-    }
-
     if (!encoder_.EncodeDmaBuf(dmabuf->dmabuf_fd(), is_keyframe_needed,
                                &packet, &is_keyframe)) {
-      encode_fail_count.fetch_add(1);
       RTC_LOG(LS_ERROR) << "Failed to encode DmaBuf frame with Jetson MMAPI.";
-      if (debug || frame_num < 10) {
-        std::fprintf(stderr,
-                     "[H264Impl] encoder_.EncodeDmaBuf() failed (frame %lu, "
-                     "total_fail=%lu)\n",
-                     frame_num, encode_fail_count.load());
-        std::fflush(stderr);
-      }
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
   } else {
@@ -340,24 +244,7 @@ int32_t JetsonH264EncoderImpl::Encode(
         input_frame.video_frame_buffer()->ToI420();
     if (!frame_buffer) {
       RTC_LOG(LS_ERROR) << "Failed to convert frame to I420.";
-      if (debug || frame_num < 10) {
-        std::fprintf(stderr,
-                     "[H264Impl] ToI420() failed (frame %lu, type=%d)\n",
-                     frame_num,
-                     static_cast<int>(input_frame.video_frame_buffer()->type()));
-        std::fflush(stderr);
-      }
       return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-    }
-
-    if (!logged_first_encode.exchange(true)) {
-      std::fprintf(stderr,
-                   "[H264Impl] First Encode(): %dx%d, Y stride=%d, U stride=%d, "
-                   "V stride=%d, keyframe_needed=%d\n",
-                   frame_buffer->width(), frame_buffer->height(),
-                   frame_buffer->StrideY(), frame_buffer->StrideU(),
-                   frame_buffer->StrideV(), is_keyframe_needed ? 1 : 0);
-      std::fflush(stderr);
     }
 
     RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
@@ -367,46 +254,21 @@ int32_t JetsonH264EncoderImpl::Encode(
                          frame_buffer->DataU(), frame_buffer->StrideU(),
                          frame_buffer->DataV(), frame_buffer->StrideV(),
                          is_keyframe_needed, &packet, &is_keyframe)) {
-      encode_fail_count.fetch_add(1);
       RTC_LOG(LS_ERROR) << "Failed to encode frame with Jetson MMAPI encoder.";
-      if (debug || frame_num < 10) {
-        std::fprintf(stderr,
-                     "[H264Impl] encoder_.Encode() failed (frame %lu, "
-                     "total_fail=%lu)\n",
-                     frame_num, encode_fail_count.load());
-        std::fflush(stderr);
-      }
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
   }
   if (packet.empty()) {
-    empty_packet_count.fetch_add(1);
     if (!logged_empty.exchange(true)) {
       RTC_LOG(LS_WARNING)
           << "Jetson MMAPI encoder returned empty packet; "
              "skipping output.";
-      std::fprintf(stderr,
-                   "[H264Impl] Empty packet returned (frame %lu, "
-                   "total_empty=%lu)\n",
-                   frame_num, empty_packet_count.load());
-      std::fflush(stderr);
     }
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
   if (is_keyframe_needed) {
     configuration_.key_frame_request = false;
-  }
-
-  encode_success_count.fetch_add(1);
-  if (debug && (frame_num < 5 || frame_num % 100 == 0)) {
-    std::fprintf(stderr,
-                 "[H264Impl] Encode() success (frame %lu, size=%zu, "
-                 "keyframe=%d, success=%lu, fail=%lu, empty=%lu)\n",
-                 frame_num, packet.size(), is_keyframe ? 1 : 0,
-                 encode_success_count.load(), encode_fail_count.load(),
-                 empty_packet_count.load());
-    std::fflush(stderr);
   }
 
   const int64_t encode_done_us = TimeMicros();

@@ -31,28 +31,6 @@ enum AV1EncoderImplEvent {
 
 namespace {
 
-void LogAv1PacketSummary(const char* label, const std::vector<uint8_t>& packet) {
-  if (std::getenv("LK_ENCODER_DEBUG") == nullptr) {
-    return;
-  }
-
-  const std::vector<livekit::av1::ObuSpan> obus =
-      livekit::av1::ParseObus(packet.data(), packet.size());
-  std::fprintf(stderr, "[AV1] %s: bytes=%zu obus=%zu", label, packet.size(),
-               obus.size());
-  const size_t preview_count = std::min<size_t>(packet.size(), 16);
-  std::fprintf(stderr, " first_bytes=");
-  for (size_t i = 0; i < preview_count; ++i) {
-    std::fprintf(stderr, "%02x%s", packet[i], i + 1 == preview_count ? "" : " ");
-  }
-  for (const livekit::av1::ObuSpan& obu : obus) {
-    std::fprintf(stderr, " [type=%d offset=%zu size=%zu has_size=%d]", obu.type,
-                 obu.offset, obu.total_size, obu.has_size_field ? 1 : 0);
-  }
-  std::fprintf(stderr, "\n");
-  std::fflush(stderr);
-}
-
 void DumpAv1PacketIfRequested(const std::vector<uint8_t>& packet,
                               bool keyframe) {
   static std::atomic<bool> dumped(false);
@@ -292,7 +270,6 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
-  LogAv1PacketSummary("raw", packet);
   livekit::av1::StripIvfFrameHeaderIfPresent(&packet);
   if (packet.empty()) {
     RTC_LOG(LS_ERROR)
@@ -300,7 +277,6 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
   livekit::av1::ConvertAnnexBToLowOverheadIfPresent(&packet);
-  LogAv1PacketSummary("normalized", packet);
 
   std::vector<uint8_t> sequence_header;
   if (livekit::av1::ExtractSequenceHeaderObu(packet.data(), packet.size(),
