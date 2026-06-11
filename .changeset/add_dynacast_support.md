@@ -4,4 +4,4 @@ livekit: patch
 livekit-ffi: patch
 ---
 
-Add dynacast support - #1003 (@chenosaurus)
+Add dynacast support - #1003 (@chenosaurus, @stephen-derosa)
