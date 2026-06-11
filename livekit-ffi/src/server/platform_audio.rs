@@ -46,6 +46,7 @@ pub fn on_new_platform_audio(
             let info = proto::PlatformAudioInfo {
                 recording_device_count: recording_count,
                 playout_device_count: playout_count,
+                device_selection_supported: audio.supports_device_selection(),
             };
 
             server.store_handle(handle_id, FfiPlatformAudio { audio });

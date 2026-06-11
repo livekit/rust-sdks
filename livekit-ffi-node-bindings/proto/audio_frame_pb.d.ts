@@ -1719,6 +1719,15 @@ export declare class PlatformAudioInfo extends Message<PlatformAudioInfo> {
    */
   playoutDeviceCount?: number;
 
+  /**
+   * Whether per-device selection is honored on this platform. False on iOS/Android,
+   * where audio routing is controlled by the OS (AVAudioSession / AudioManager) rather
+   * than through WebRTC device selection.
+   *
+   * @generated from field: required bool device_selection_supported = 3;
+   */
+  deviceSelectionSupported?: boolean;
+
   constructor(data?: PartialMessage<PlatformAudioInfo>);
 
   static readonly runtime: typeof proto2;

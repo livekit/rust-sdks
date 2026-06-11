@@ -640,6 +640,7 @@ const PlatformAudioInfo = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "recording_device_count", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
     { no: 2, name: "playout_device_count", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
+    { no: 3, name: "device_selection_supported", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
   ],
 );
 
