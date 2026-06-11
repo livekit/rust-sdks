@@ -18,7 +18,10 @@ use livekit::{
         key_provider::{KeyProvider, KeyProviderOptions},
         E2eeOptions, EncryptionType,
     },
-    options::{AudioEncoding, PacketTrailerFeatures, TrackPublishOptions, VideoEncoding},
+    options::{
+        AudioEncoding, PacketTrailerFeatures, TrackPublishOptions, VideoEncoderBackend,
+        VideoEncoding,
+    },
     prelude::*,
     webrtc::{
         native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
@@ -45,6 +48,19 @@ fn packet_trailer_features_from_proto(features: Vec<i32>) -> PacketTrailerFeatur
     }
 
     packet_trailer_features
+}
+
+fn video_encoder_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend> {
+    match backend.and_then(|value| proto::VideoEncoderBackend::try_from(value).ok())? {
+        proto::VideoEncoderBackend::EncoderBackendAuto => Some(VideoEncoderBackend::Auto),
+        proto::VideoEncoderBackend::EncoderBackendSoftware => Some(VideoEncoderBackend::Software),
+        proto::VideoEncoderBackend::EncoderBackendHardware => Some(VideoEncoderBackend::Hardware),
+        proto::VideoEncoderBackend::EncoderBackendNvenc => Some(VideoEncoderBackend::Nvenc),
+        proto::VideoEncoderBackend::EncoderBackendVaapi => Some(VideoEncoderBackend::Vaapi),
+        proto::VideoEncoderBackend::EncoderBackendVideotoolbox => {
+            Some(VideoEncoderBackend::VideoToolbox)
+        }
+    }
 }
 
 impl From<EncryptionState> for proto::EncryptionState {
@@ -316,6 +332,8 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             packet_trailer_features: packet_trailer_features_from_proto(
                 opts.packet_trailer_features,
             ),
+            video_encoder: video_encoder_from_proto(opts.video_encoder)
+                .unwrap_or(default_publish_options.video_encoder),
             scalability_mode: opts.scalability_mode,
         }
     }
@@ -335,7 +353,9 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 
 #[cfg(test)]
 mod tests {
-    use super::packet_trailer_features_from_proto;
+    use livekit::options::{TrackPublishOptions, VideoEncoderBackend};
+
+    use super::{packet_trailer_features_from_proto, video_encoder_from_proto};
     use crate::proto;
 
     #[test]
@@ -355,6 +375,32 @@ mod tests {
 
         assert!(features.user_timestamp);
         assert!(features.frame_id);
+    }
+
+    #[test]
+    fn video_encoder_defaults_to_auto() {
+        let options = TrackPublishOptions::from(proto::TrackPublishOptions::default());
+
+        assert_eq!(options.video_encoder, VideoEncoderBackend::Auto);
+    }
+
+    #[test]
+    fn video_encoder_maps_known_values() {
+        let cases = [
+            (proto::VideoEncoderBackend::EncoderBackendAuto, VideoEncoderBackend::Auto),
+            (proto::VideoEncoderBackend::EncoderBackendSoftware, VideoEncoderBackend::Software),
+            (proto::VideoEncoderBackend::EncoderBackendHardware, VideoEncoderBackend::Hardware),
+            (proto::VideoEncoderBackend::EncoderBackendNvenc, VideoEncoderBackend::Nvenc),
+            (proto::VideoEncoderBackend::EncoderBackendVaapi, VideoEncoderBackend::Vaapi),
+            (
+                proto::VideoEncoderBackend::EncoderBackendVideotoolbox,
+                VideoEncoderBackend::VideoToolbox,
+            ),
+        ];
+
+        for (proto_backend, expected) in cases {
+            assert_eq!(video_encoder_from_proto(Some(proto_backend as i32)), Some(expected));
+        }
     }
 }
 

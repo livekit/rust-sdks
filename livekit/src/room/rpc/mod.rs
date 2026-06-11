@@ -111,6 +111,50 @@ pub struct PerformRpcData {
     pub method: String,
     pub payload: String,
     pub response_timeout: Duration,
+    pub max_round_trip_latency: Duration,
+}
+
+impl PerformRpcData {
+    pub fn new(
+        destination_identity: impl Into<ParticipantIdentity>,
+        method: impl Into<String>,
+    ) -> Self {
+        Self::default().with_destination_identity(destination_identity).with_method(method)
+    }
+
+    pub fn with_destination_identity(
+        mut self,
+        destination_identity: impl Into<ParticipantIdentity>,
+    ) -> Self {
+        let identity: ParticipantIdentity = destination_identity.into();
+        self.destination_identity = identity.into();
+        self
+    }
+    pub fn with_method(mut self, method: impl Into<String>) -> Self {
+        self.method = method.into();
+        self
+    }
+    pub fn with_payload(mut self, payload: impl Into<String>) -> Self {
+        self.payload = payload.into();
+        self
+    }
+
+    /// The maximum time the caller will wait for a response after the request has been
+    /// acknowledged by the remote. Defaults to 15 seconds.
+    pub fn with_response_timeout(mut self, response_timeout: Duration) -> Self {
+        self.response_timeout = response_timeout;
+        self
+    }
+
+    /// Maximum amount of time it should ever take for an RPC request to reach the
+    /// destination and for the ACK to come back. Most callers should not need
+    /// to change this, but it can be increased to tolerate high-latency networks where
+    /// RPC requests are backed up behind other messages on the data channel.
+    /// Defaults to 7 seconds.
+    pub fn with_max_round_trip_latency(mut self, max_round_trip_latency: Duration) -> Self {
+        self.max_round_trip_latency = max_round_trip_latency;
+        self
+    }
 }
 
 impl Default for PerformRpcData {
@@ -120,6 +164,7 @@ impl Default for PerformRpcData {
             method: Default::default(),
             payload: Default::default(),
             response_timeout: Duration::from_secs(15),
+            max_round_trip_latency: Duration::from_secs(7),
         }
     }
 }

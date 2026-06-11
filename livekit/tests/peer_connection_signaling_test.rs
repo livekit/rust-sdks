@@ -344,6 +344,23 @@ async fn test_v1_mute_during_reconnect_lands_on_server() -> Result<()> {
     test_mute_during_reconnect_impl(SignalingMode::SinglePC).await
 }
 
+/// Regression test for the publisher-offer pre-allocation path.
+///
+/// A connects first with single-PC + publisher_offer. Its initial offer
+/// includes 3 audio + 3 video recvonly transceivers pre-allocated, so the
+/// SFU's answer to A has empty `sendonly` slots with no `a=msid`. Later B
+/// joins and publishes a track; the SFU binds that track to one of A's
+/// pre-allocated recvonly slots, populating msid on an existing client-side
+/// transceiver — exactly the path libwebrtc-native's `OnTrack` does NOT
+/// refire for.
+///
+/// Without the blink-style diff this test fails (A never receives
+/// `TrackSubscribed`). With the diff, A subscribes successfully.
+#[test_log::test(tokio::test)]
+async fn test_v1_publisher_offer_subscribes_late_publish() -> Result<()> {
+    test_publisher_offer_late_publish_impl(SignalingMode::SinglePC).await
+}
+
 // ==================== Test Implementations ====================
 
 /// Test basic connection
@@ -1028,5 +1045,72 @@ async fn test_double_reconnect_impl(mode: SignalingMode) -> Result<()> {
         assert_eq!(room.connection_state(), ConnectionState::Connected);
     }
 
+    Ok(())
+}
+
+async fn test_publisher_offer_late_publish_impl(mode: SignalingMode) -> Result<()> {
+    let (url, api_key, api_secret) = get_env_for_mode(mode);
+    let room_name = format!("test_{:?}_pubofflate_{}", mode, create_random_uuid());
+
+    // 1. A joins first with auto_subscribe=true + single_pc.
+    //    Its initial offer pre-allocates 3+3 recvonly transceivers. The SFU
+    //    answers them all as empty `sendonly` slots (no msid, no ssrc) — the
+    //    exact shape that, without the blink-diff fix, would silently drop
+    //    incoming subscriptions later landed on those slots.
+    let a_opts = {
+        let mut o = room_options(mode);
+        o.room.auto_subscribe = true;
+        o
+    };
+    let a_token = create_token(&api_key, &api_secret, &room_name, "p_a")?;
+    let (a_room, mut a_events) = Room::connect(&url, &a_token, a_opts.room.clone()).await?;
+    log::info!("[pubofflate] A connected");
+    assert_signaling_mode_state(&a_room, mode, &url);
+
+    // Wait A is fully settled (initial SDP applied, pre-allocated
+    // empty slots negotiated) before B joins.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // 2. B joins and publishes a track. The SFU forwards to A on one of A's
+    //    pre-allocated recvonly slots — populating msid on an EXISTING
+    //    client-side transceiver. Without the blink-diff fix libwebrtc would
+    //    not refire OnTrack for this and A would silently miss the
+    //    subscription.
+    let b_token = create_token(&api_key, &api_secret, &room_name, "p_b")?;
+    let (b_room, _b_events) = connect_room(&url, &b_token, mode).await?;
+    let b_room_arc = Arc::new(b_room);
+    let mut b_track = SineTrack::new(
+        b_room_arc.clone(),
+        SineParameters { freq: 440.0, amplitude: 1.0, sample_rate: 48000, num_channels: 1 },
+    );
+    b_track.publish().await?;
+    let b_sid = b_room_arc
+        .local_participant()
+        .track_publications()
+        .keys()
+        .next()
+        .cloned()
+        .ok_or_else(|| anyhow!("B has no publication after publish"))?;
+    log::info!("[pubofflate] B published track {}", b_sid);
+
+    // 3. A must observe `TrackSubscribed` for B's track within 10s.
+    let wait = async {
+        loop {
+            let Some(event) = a_events.recv().await else {
+                return Err(anyhow!("event channel closed"));
+            };
+            if let RoomEvent::TrackSubscribed { publication, .. } = event {
+                if publication.sid() == b_sid {
+                    return Ok(());
+                }
+            }
+        }
+    };
+    timeout(Duration::from_secs(10), wait).await.context(format!(
+        "A never received TrackSubscribed for B's track {} — the blink-diff fix did not deliver",
+        b_sid
+    ))??;
+
+    log::info!("[pubofflate] A subscribed to {} via pre-allocated slot — fix works", b_sid);
     Ok(())
 }

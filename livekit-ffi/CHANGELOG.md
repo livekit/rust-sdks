@@ -316,6 +316,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.63 (2026-06-09)
+
+### Fixes
+
+- Reject oversized data messages before they break the data channel.
+- Upgrade dashmap to v6
+- Add per-publication video encoder backend selection. Add a video encoder backend availability query. Remove `LIVEKIT_PREFERRED_HW_ENCODER` in favor of per-publication backend selection.
+
+## 0.12.62 (2026-06-03)
+
+### Fixes
+
+- Add rpc max_round_trip_latency and move to builder pattern - #1127 (@1egoman)
+- [allow(dead_code)] for dead function in room module - #1128 (@stephen-derosa)
+- Send publisher offer with join request to accelerate connection - #996 (@cnderrauber)
+
+## 0.12.61 (2026-05-29)
+
+### Fixes
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+
 ## 0.12.60 (2026-05-21)
 
 ### Features

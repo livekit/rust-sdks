@@ -22,12 +22,15 @@ name = "list_devices"
 path = "src/list_devices.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "clock"
+path = "src/clock.rs"
+required-features = ["desktop"]
+
 [dependencies]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 tokio-stream = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-webrtc-sys = { workspace = true }
-libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
 yuv-sys = { workspace = true, features = ["jpeg"] }
 futures = { workspace = true }

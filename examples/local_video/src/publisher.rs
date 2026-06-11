@@ -3,7 +3,7 @@ use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
     self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
-    VideoEncoding, VideoPreset,
+    VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
@@ -102,12 +102,65 @@ impl std::fmt::Display for CaptureFormat {
     }
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherEncoder {
+    Auto,
+    Software,
+    Hardware,
+    Nvenc,
+    Vaapi,
+    #[value(name = "videotoolbox")]
+    VideoToolbox,
+}
+
+impl PublisherEncoder {
+    fn as_str(&self) -> &'static str {
+        match self {
+            PublisherEncoder::Auto => "auto",
+            PublisherEncoder::Software => "software",
+            PublisherEncoder::Hardware => "hardware",
+            PublisherEncoder::Nvenc => "nvenc",
+            PublisherEncoder::Vaapi => "vaapi",
+            PublisherEncoder::VideoToolbox => "videotoolbox",
+        }
+    }
+}
+
+impl From<PublisherEncoder> for VideoEncoderBackend {
+    fn from(encoder: PublisherEncoder) -> Self {
+        match encoder {
+            PublisherEncoder::Auto => VideoEncoderBackend::Auto,
+            PublisherEncoder::Software => VideoEncoderBackend::Software,
+            PublisherEncoder::Hardware => VideoEncoderBackend::Hardware,
+            PublisherEncoder::Nvenc => VideoEncoderBackend::Nvenc,
+            PublisherEncoder::Vaapi => VideoEncoderBackend::Vaapi,
+            PublisherEncoder::VideoToolbox => VideoEncoderBackend::VideoToolbox,
+        }
+    }
+}
+
+fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
+    match backend {
+        VideoEncoderBackend::Auto => "auto",
+        VideoEncoderBackend::Software => "software",
+        VideoEncoderBackend::Hardware => "hardware",
+        VideoEncoderBackend::Nvenc => "nvenc",
+        VideoEncoderBackend::Vaapi => "vaapi",
+        VideoEncoderBackend::VideoToolbox => "videotoolbox",
+        _ => "unknown",
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// List available cameras and exit
     #[arg(long)]
     list_cameras: bool,
+
+    /// List available video encoder backends and exit
+    #[arg(long)]
+    list_encoders: bool,
 
     /// Camera index to use (numeric)
     #[arg(long, default_value_t = 0)]
@@ -122,7 +175,7 @@ struct Args {
     format: CaptureFormat,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
+    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
     test_pattern: bool,
 
     /// Desired width
@@ -177,6 +230,10 @@ struct Args {
     #[arg(long, value_enum, default_value_t = PublisherCodec::H264)]
     codec: PublisherCodec,
 
+    /// Preferred video encoder backend to use for publishing
+    #[arg(long, value_enum, default_value_t = PublisherEncoder::Auto)]
+    encoder: PublisherEncoder,
+
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
     attach_timestamp: bool,
@@ -206,6 +263,72 @@ fn unix_time_us_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
 }
 
+const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
+
+#[derive(Default)]
+struct CaptureTimestampLogState {
+    logged_source: bool,
+    logged_missing: bool,
+    logged_invalid: bool,
+}
+
+fn validate_backend_capture_timestamp_us(
+    capture_timestamp: Duration,
+    read_wall_time_us: u64,
+) -> Result<u64, &'static str> {
+    let capture_timestamp_us =
+        u64::try_from(capture_timestamp.as_micros()).map_err(|_| "overflows u64")?;
+    if capture_timestamp_us == 0 {
+        return Err("is zero");
+    }
+    if capture_timestamp_us > read_wall_time_us {
+        return Err("is in the future");
+    }
+    if read_wall_time_us - capture_timestamp_us > MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US {
+        return Err("is too old");
+    }
+    Ok(capture_timestamp_us)
+}
+
+fn select_capture_wall_time_us(
+    backend_capture_timestamp: Option<Duration>,
+    fallback_wall_time_us: u64,
+    read_wall_time_us: u64,
+    log_state: &mut CaptureTimestampLogState,
+) -> u64 {
+    match backend_capture_timestamp {
+        Some(capture_timestamp) => {
+            match validate_backend_capture_timestamp_us(capture_timestamp, read_wall_time_us) {
+                Ok(capture_timestamp_us) => {
+                    if !log_state.logged_source {
+                        info!("Using camera capture_timestamp for user_timestamp");
+                        log_state.logged_source = true;
+                    }
+                    capture_timestamp_us
+                }
+                Err(reason) => {
+                    if !log_state.logged_invalid {
+                        log::warn!(
+                            "Ignoring camera capture_timestamp because it {reason}; falling back to system wall clock"
+                        );
+                        log_state.logged_invalid = true;
+                    }
+                    fallback_wall_time_us
+                }
+            }
+        }
+        None => {
+            if !log_state.logged_missing {
+                log::warn!(
+                    "Buffer::capture_timestamp() not available; falling back to system wall clock"
+                );
+                log_state.logged_missing = true;
+            }
+            fallback_wall_time_us
+        }
+    }
+}
+
 fn is_twirp_not_found(err: &ServiceError) -> bool {
     matches!(
         err,
@@ -223,23 +346,6 @@ fn requested_playout_delay(
         (min_playout_delay, max_playout_delay) => {
             Some((min_playout_delay.unwrap_or_default(), max_playout_delay.unwrap_or_default()))
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::requested_playout_delay;
-
-    #[test]
-    fn requested_playout_delay_is_absent_when_no_delay_flags_are_set() {
-        assert_eq!(requested_playout_delay(None, None), None);
-    }
-
-    #[test]
-    fn requested_playout_delay_defaults_unset_partial_delay() {
-        assert_eq!(requested_playout_delay(Some(120), None), Some((120, 0)));
-        assert_eq!(requested_playout_delay(None, Some(240)), Some((0, 240)));
-        assert_eq!(requested_playout_delay(Some(120), Some(240)), Some((120, 240)));
     }
 }
 
@@ -311,6 +417,7 @@ async fn update_publisher_encoder_overlay(
     ctrl_c_received: Arc<AtomicBool>,
 ) {
     let mut logged_initial = false;
+    let mut last_implementation = String::new();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -322,6 +429,11 @@ async fn update_publisher_encoder_overlay(
         match track.get_stats().await {
             Ok(stats) => {
                 if let Some(implementation) = find_video_outbound_encoder(&stats) {
+                    if implementation != last_implementation {
+                        info!("Publisher video encoder implementation: {implementation}");
+                        last_implementation = implementation.to_string();
+                    }
+
                     let mut shared = shared.lock();
                     shared.codec_implementation = implementation.to_string();
                 }
@@ -495,6 +607,18 @@ fn update_shared_timing_sample(
 mod tests {
     use super::*;
 
+    #[test]
+    fn requested_playout_delay_is_absent_when_no_delay_flags_are_set() {
+        assert_eq!(requested_playout_delay(None, None), None);
+    }
+
+    #[test]
+    fn requested_playout_delay_defaults_unset_partial_delay() {
+        assert_eq!(requested_playout_delay(Some(120), None), Some((120, 0)));
+        assert_eq!(requested_playout_delay(None, Some(240)), Some((0, 240)));
+        assert_eq!(requested_playout_delay(Some(120), Some(240)), Some((120, 240)));
+    }
+
     fn timing_event(
         stage: PublishTimingStage,
         capture_timestamp_us: u64,
@@ -560,6 +684,42 @@ mod tests {
             current.sensor_exposure_timestamp_us
         );
     }
+
+    #[test]
+    fn capture_timestamp_validation_rejects_future_timestamp() {
+        assert_eq!(
+            validate_backend_capture_timestamp_us(Duration::from_micros(1_001), 1_000),
+            Err("is in the future")
+        );
+    }
+
+    #[test]
+    fn capture_timestamp_selection_falls_back_for_invalid_backend_timestamp() {
+        let mut log_state = CaptureTimestampLogState::default();
+
+        let selected = select_capture_wall_time_us(
+            Some(Duration::from_micros(1_001)),
+            900,
+            1_000,
+            &mut log_state,
+        );
+
+        assert_eq!(selected, 900);
+    }
+
+    #[test]
+    fn capture_timestamp_selection_uses_valid_backend_timestamp() {
+        let mut log_state = CaptureTimestampLogState::default();
+
+        let selected = select_capture_wall_time_us(
+            Some(Duration::from_micros(950)),
+            900,
+            1_000,
+            &mut log_state,
+        );
+
+        assert_eq!(selected, 950);
+    }
 }
 
 fn list_cameras() -> Result<()> {
@@ -569,6 +729,13 @@ fn list_cameras() -> Result<()> {
         println!("{}. {}", i, cam.human_name());
     }
     Ok(())
+}
+
+fn list_encoders() {
+    println!("Available video encoder backends:");
+    for backend in VideoEncoderBackend::list_available() {
+        println!("- {}", video_encoder_backend_name(backend));
+    }
 }
 
 enum VideoInput {
@@ -664,6 +831,10 @@ async fn main() -> Result<()> {
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
+    }
+    if args.list_encoders {
+        list_encoders();
+        return Ok(());
     }
 
     // LiveKit connection details
@@ -914,10 +1085,30 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = VideoCodec::from(args.codec);
-    info!("Attempting publish with codec: {}", requested_codec.as_str());
+    let requested_encoder = VideoEncoderBackend::from(args.encoder);
+    let available_encoders: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
+    info!(
+        "Available video encoder backends: {}",
+        available_encoders
+            .iter()
+            .map(|backend| video_encoder_backend_name(*backend))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !available_encoders.contains(&requested_encoder) {
+        log::warn!(
+            "Requested video encoder backend '{}' is not reported as available; libwebrtc may fall back to another compatible encoder",
+            args.encoder.as_str()
+        );
+    }
+    info!(
+        "Attempting publish with codec: {}, encoder: {}",
+        requested_codec.as_str(),
+        args.encoder.as_str()
+    );
 
-    // Compute an explicit video encoding so all simulcast layers use 30 fps.
-    // The SDK defaults reduce lower layers to 15/20 fps; we override that here.
+    // Compute an explicit video encoding so the published layer uses the requested FPS.
+    // When simulcast is enabled, lower layers also use this FPS instead of SDK defaults.
     let target_fps = args.fps as f64;
     let main_encoding = {
         let base = options::compute_appropriate_encoding(false, width, height, requested_codec);
@@ -927,21 +1118,28 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         }
     };
     let simulcast_presets = compute_simulcast_presets_30fps(width, height, target_fps);
-    info!(
-        "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
-        width,
-        height,
-        target_fps,
-        main_encoding.max_bitrate,
-        simulcast_presets
-            .iter()
-            .map(|p| format!(
-                "{}x{}@{:.0}fps/{}bps",
-                p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
-            ))
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
+    if args.simulcast {
+        info!(
+            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
+            width,
+            height,
+            target_fps,
+            main_encoding.max_bitrate,
+            simulcast_presets
+                .iter()
+                .map(|p| format!(
+                    "{}x{}@{:.0}fps/{}bps",
+                    p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
+                ))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    } else {
+        info!(
+            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast disabled)",
+            width, height, target_fps, main_encoding.max_bitrate,
+        );
+    }
 
     let mut packet_trailer_features = PacketTrailerFeatures::default();
     packet_trailer_features.user_timestamp = args.attach_timestamp;
@@ -951,9 +1149,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         source: TrackSource::Camera,
         simulcast: args.simulcast,
         video_codec: codec,
+        video_encoder: requested_encoder,
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
-        simulcast_layers: Some(simulcast_presets.clone()),
+        simulcast_layers: args.simulcast.then(|| simulcast_presets.clone()),
         ..Default::default()
     };
 
@@ -1085,22 +1284,11 @@ async fn run_capture_loop(
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
     let mut logged_mjpeg_fallback = false;
-    let mut logged_sensor_ts_source = false;
-    let mut logged_sensor_ts_missing = false;
+    let mut capture_timestamp_log_state = CaptureTimestampLogState::default();
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
     let align_buffers_for_display = display_shared.is_some();
-
-    // Reuse a single I420 buffer
-    let mut frame = VideoFrame {
-        rotation: VideoRotation::VideoRotation0,
-        timestamp_us: 0,
-        frame_metadata: None,
-        buffer: create_i420_buffer(width, height, align_buffers_for_display),
-    };
-    let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-    let stride_y_usize = stride_y as usize;
 
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
@@ -1110,6 +1298,18 @@ async fn run_capture_loop(
         let paced_wait_started_at = Instant::now();
         ticker.tick().await;
         let paced_wait_finished_at = Instant::now();
+
+        // WebRTC may queue the frame and hardware encoders may upload it asynchronously.
+        // Give each submitted frame unique backing storage so later captures cannot
+        // overwrite buffers that are still in-flight.
+        let mut frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: 0,
+            frame_metadata: None,
+            buffer: create_i420_buffer(width, height, align_buffers_for_display),
+        };
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let stride_y_usize = stride_y as usize;
 
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
@@ -1150,26 +1350,15 @@ async fn run_capture_loop(
                 let read_wall_time_us = unix_time_us_now();
                 let camera_frame_acquired_at = Instant::now();
 
-                // Prefer the backend-provided sensor/PTS wallclock when available for
-                // a more accurate capture-to-subscriber latency measurement.
-                let capture_wall_time_us = match frame_buf.capture_timestamp() {
-                    Some(d) => {
-                        if !logged_sensor_ts_source {
-                            info!("Using sensor capture_timestamp for user_timestamp");
-                            logged_sensor_ts_source = true;
-                        }
-                        d.as_micros() as u64
-                    }
-                    None => {
-                        if !logged_sensor_ts_missing {
-                            log::warn!(
-                                "Buffer::capture_timestamp() not available; falling back to system wall clock"
-                            );
-                            logged_sensor_ts_missing = true;
-                        }
-                        frame_wall_time_us
-                    }
-                };
+                // Prefer backend capture timestamps only when they are plausible Unix
+                // wall-clock times. Some camera APIs expose stream-relative or future
+                // presentation timestamps; attaching those makes latency appear negative.
+                let capture_wall_time_us = select_capture_wall_time_us(
+                    frame_buf.capture_timestamp(),
+                    frame_wall_time_us,
+                    read_wall_time_us,
+                    &mut capture_timestamp_log_state,
+                );
 
                 let (decode_finished_at, convert_finished_at, used_decode_path) = if *is_yuyv {
                     // Fast path for YUYV: convert directly to I420 via libyuv

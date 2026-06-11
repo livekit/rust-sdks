@@ -257,6 +257,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.45 (2026-06-09)
+
+### Fixes
+
+- Fix NVIDIA encoder I420 uploads to copy each plane using its actual source stride, avoiding chroma corruption when source frames use padded YUV planes. Also fix the `local_video` publisher reusing mutable I420 frame storage after handing frames to WebRTC.
+- Reject oversized data messages before they break the data channel.
+- Add per-publication video encoder backend selection. Add a video encoder backend availability query. Remove `LIVEKIT_PREFERRED_HW_ENCODER` in favor of per-publication backend selection.
+
+## 0.7.44 (2026-06-03)
+
+### Features
+
+- Add rpc max_round_trip_latency and move to builder pattern - #1127 (@1egoman)
+
+### Fixes
+
+- [allow(dead_code)] for dead function in room module - #1128 (@stephen-derosa)
+- Send publisher offer with join request to accelerate connection - #996 (@cnderrauber)
+
+## 0.7.43 (2026-05-29)
+
+### Fixes
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+- Add native video pipeline timing instrumentation for local video measurements, exposing local publish and subscribe timing through async streams and subscriber overlay GPU upload and receive-to-GPU latency metrics through explicit timing observers.
+
 ## 0.7.42 (2026-05-21)
 
 ### Features

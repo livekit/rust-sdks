@@ -2,8 +2,10 @@
 
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
+#include <cstdlib>
 #include <dlfcn.h>
 #include <memory>
+#include <mutex>
 
 #include "cuda_context.h"
 #include "h264_decoder_impl.h"
@@ -11,6 +13,24 @@
 #include "rtc_base/logging.h"
 
 namespace webrtc {
+
+namespace {
+
+constexpr char kDisableNvdecEnvVar[] = "LK_DISABLE_NVDEC";
+
+bool IsNvdecDisabledByEnv() {
+  return std::getenv(kDisableNvdecEnvVar) != nullptr;
+}
+
+void LogNvdecDisabledByEnv() {
+  static std::once_flag log_once;
+  std::call_once(log_once, [] {
+    RTC_LOG(LS_INFO) << "NVIDIA NVDEC disabled because " << kDisableNvdecEnvVar
+                     << " is set.";
+  });
+}
+
+}  // namespace
 
 constexpr char kSdpKeyNameCodecImpl[] = "implementation_name";
 constexpr char kCodecName[] = "NvCodec";
@@ -86,6 +106,11 @@ std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
 
 NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
     : cu_context_(nullptr) {
+  if (IsNvdecDisabledByEnv()) {
+    LogNvdecDisabledByEnv();
+    return;
+  }
+
   if (!IsNvdecRuntimeAvailable()) {
     RTC_LOG(LS_INFO) << "NvidiaVideoDecoderFactory created without NVDEC "
                         "support because the runtime library is unavailable.";
@@ -105,6 +130,11 @@ NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
 NvidiaVideoDecoderFactory::~NvidiaVideoDecoderFactory() {}
 
 bool NvidiaVideoDecoderFactory::IsSupported() {
+  if (IsNvdecDisabledByEnv()) {
+    LogNvdecDisabledByEnv();
+    return false;
+  }
+
   if (!livekit_ffi::CudaContext::IsAvailable()) {
     RTC_LOG(LS_WARNING) << "Cuda Context is not available.";
     return false;

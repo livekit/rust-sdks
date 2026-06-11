@@ -14,4 +14,5 @@ log = { workspace = true }
 env_logger = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 rand = { workspace = true }
-polars = { version = "0.53", features = ["lazy", "fmt", "csv"] }
+serde = { workspace = true, features = ["derive"] }
+csv = "1.4"

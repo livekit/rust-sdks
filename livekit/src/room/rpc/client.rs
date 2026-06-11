@@ -54,7 +54,7 @@ impl RpcClientManager {
         data: PerformRpcData,
         transport: &(impl RpcTransport + 'static),
     ) -> Result<String, RpcError> {
-        let max_round_trip_latency = Duration::from_millis(7000);
+        let max_round_trip_latency = data.max_round_trip_latency;
         let min_effective_timeout = Duration::from_millis(1000);
 
         if let Some(version_str) = transport.server_version() {
@@ -95,7 +95,7 @@ impl RpcClientManager {
         let send_result = if use_v2 {
             self.send_v2_request(
                 transport,
-                &data.destination_identity,
+                data.destination_identity.as_str(),
                 &id,
                 &data.method,
                 &data.payload,
@@ -105,7 +105,7 @@ impl RpcClientManager {
         } else {
             self.send_v1_request(
                 transport,
-                &data.destination_identity,
+                data.destination_identity.as_str(),
                 &id,
                 &data.method,
                 &data.payload,

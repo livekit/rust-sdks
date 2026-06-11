@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.5.1 (2026-06-03)
+
+### Fixes
+
+- Send publisher offer with join request to accelerate connection - #996 (@cnderrauber)
+
+## 0.5.0 (2026-05-29)
+
+### Features
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+- add pagination to ListEgressRequest
+
 ## [0.4.14](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.13...rust-sdks/livekit-api@0.4.14) - 2026-02-16
 
 ### Fixed
@@ -96,6 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+
+
 ## 0.4.24 (2026-05-20)
 
 ### Fixes
