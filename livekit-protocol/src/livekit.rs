@@ -2578,12 +2578,18 @@ pub struct ListEgressRequest {
     /// (optional, list active egress only)
     #[prost(bool, tag="3")]
     pub active: bool,
+    /// next field id: 5
+    #[prost(message, optional, tag="4")]
+    pub page_token: ::core::option::Option<TokenPagination>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListEgressResponse {
     #[prost(message, repeated, tag="1")]
     pub items: ::prost::alloc::vec::Vec<EgressInfo>,
+    /// next field id: 3
+    #[prost(message, optional, tag="2")]
+    pub next_page_token: ::core::option::Option<TokenPagination>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5102,6 +5108,10 @@ pub struct RoomParticipantIdentity {
     /// identity of the participant
     #[prost(string, tag="2")]
     pub identity: ::prost::alloc::string::String,
+    /// Unix timestamp used to invalidate token whose nbf is before this value.
+    /// Used only by RemoveParticipant; defaults to now(server)+leeway(1min) if left empty.
+    #[prost(int64, tag="3")]
+    pub revoke_token_ts: i64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5809,6 +5819,9 @@ pub struct SipMediaConfig {
     pub codecs: ::prost::alloc::vec::Vec<SipCodec>,
     #[prost(enumeration="SipMediaEncryption", optional, tag="3")]
     pub encryption: ::core::option::Option<i32>,
+    /// Use specific media timeout. If zero or not specified, will use default timeout.
+    #[prost(message, optional, tag="4")]
+    pub media_timeout: ::core::option::Option<::pbjson_types::Duration>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5954,6 +5967,8 @@ pub struct SipInboundTrunkInfo {
     pub auth_username: ::prost::alloc::string::String,
     #[prost(string, tag="8")]
     pub auth_password: ::prost::alloc::string::String,
+    #[prost(string, tag="19")]
+    pub auth_realm: ::prost::alloc::string::String,
     /// Include these SIP X-* headers in 200 OK responses.
     #[prost(map="string, string", tag="9")]
     pub headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
@@ -6000,6 +6015,8 @@ pub struct SipInboundTrunkUpdate {
     pub auth_username: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="5")]
     pub auth_password: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="9")]
+    pub auth_realm: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="6")]
     pub name: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="7")]
@@ -6456,6 +6473,15 @@ pub struct CreateSipParticipantRequest {
     pub sip_trunk_id: ::prost::alloc::string::String,
     #[prost(message, optional, tag="20")]
     pub trunk: ::core::option::Option<SipOutboundConfig>,
+    /// INVITE <uri>
+    #[prost(message, optional, tag="24")]
+    pub sip_request_uri: ::core::option::Option<SipRequestDest>,
+    /// To:   "Name" <uri>
+    #[prost(message, optional, tag="25")]
+    pub sip_to_header: ::core::option::Option<SipNamedDest>,
+    /// From: "Name" <uri>
+    #[prost(message, optional, tag="26")]
+    pub sip_from_header: ::core::option::Option<SipNamedDest>,
     /// What number should be dialed via SIP
     #[prost(string, tag="2")]
     pub sip_call_to: ::prost::alloc::string::String,
@@ -6527,7 +6553,7 @@ pub struct CreateSipParticipantRequest {
     /// 3) Non-empty: Use the specified value as the display name.
     #[prost(string, optional, tag="21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
-    /// NEXT ID: 24
+    /// NEXT ID: 27
     #[prost(message, optional, tag="22")]
     pub destination: ::core::option::Option<Destination>,
 }
@@ -6659,6 +6685,44 @@ pub struct SipUri {
     pub port: u32,
     #[prost(enumeration="SipTransport", tag="5")]
     pub transport: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipRequestDest {
+    #[prost(oneof="sip_request_dest::Uri", tags="1, 2")]
+    pub uri: ::core::option::Option<sip_request_dest::Uri>,
+}
+/// Nested message and enum types in `SIPRequestDest`.
+pub mod sip_request_dest {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Uri {
+        /// <sip:user@sip.example.com:5060;transport=tcp>
+        #[prost(string, tag="1")]
+        Raw(::prost::alloc::string::String),
+        #[prost(message, tag="2")]
+        Values(super::SipUri),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipNamedDest {
+    #[prost(string, tag="3")]
+    pub display_name: ::prost::alloc::string::String,
+    #[prost(oneof="sip_named_dest::Uri", tags="1, 2")]
+    pub uri: ::core::option::Option<sip_named_dest::Uri>,
+}
+/// Nested message and enum types in `SIPNamedDest`.
+pub mod sip_named_dest {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Uri {
+        /// <sip:user@sip.example.com:5060;transport=tcp>
+        #[prost(string, tag="1")]
+        Raw(::prost::alloc::string::String),
+        #[prost(message, tag="2")]
+        Values(super::SipUri),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -7773,6 +7837,7 @@ pub mod feature_usage_info {
         KrispNoiseCancellation = 0,
         KrispBackgroundVoiceCancellation = 1,
         AicAudioEnhancement = 2,
+        KrispViva = 3,
     }
     impl Feature {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -7784,6 +7849,7 @@ pub mod feature_usage_info {
                 Feature::KrispNoiseCancellation => "KRISP_NOISE_CANCELLATION",
                 Feature::KrispBackgroundVoiceCancellation => "KRISP_BACKGROUND_VOICE_CANCELLATION",
                 Feature::AicAudioEnhancement => "AIC_AUDIO_ENHANCEMENT",
+                Feature::KrispViva => "KRISP_VIVA",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -7792,6 +7858,7 @@ pub mod feature_usage_info {
                 "KRISP_NOISE_CANCELLATION" => Some(Self::KrispNoiseCancellation),
                 "KRISP_BACKGROUND_VOICE_CANCELLATION" => Some(Self::KrispBackgroundVoiceCancellation),
                 "AIC_AUDIO_ENHANCEMENT" => Some(Self::AicAudioEnhancement),
+                "KRISP_VIVA" => Some(Self::KrispViva),
                 _ => None,
             }
         }
