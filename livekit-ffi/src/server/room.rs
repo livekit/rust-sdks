@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::{prelude::*, registered_audio_filter_plugins};
+use livekit::prelude::*;
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
@@ -148,28 +148,10 @@ impl FfiRoom {
         let connect = async move {
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
-                    // initialize audio filters
-                    let result = server
-                        .async_runtime
-                        .spawn_blocking(move || {
-                            for filter in registered_audio_filter_plugins().into_iter() {
-                                filter.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
-                            }
-                            Ok::<(), String>(())
-                        })
-                        .await
-                        .map_err(|e| e.to_string());
-                    match result {
-                        Err(e) | Ok(Err(e)) => {
-                            log::warn!("error while initializing audio filter: {}", e);
-                            log::error!(
-                                "audio filter cannot be enabled: ensure you are connecting to LiveKit Cloud and that the filter is properly configured"
-                            );
-                            // Skip returning an error here to keep the rtc session alive
-                            // But in this case, the filter isn't enabled in the session.
-                        }
-                        Ok(Ok(_)) => (),
-                    };
+                    crate::server::audio_plugin::initialize_audio_filters(
+                        server, req.url, req.token,
+                    )
+                    .await;
 
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
