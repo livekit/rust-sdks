@@ -35,7 +35,9 @@
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/audio/audio_device.h"
 #include "api/audio_options.h"
+#include "api/field_trials.h"
 #include "livekit/adm_proxy.h"
+#include "livekit/fec_controller.h"
 #include "livekit/audio_track.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
@@ -119,8 +121,9 @@ class CompositeFieldTrials final : public webrtc::FieldTrialsView {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views_;
 };
 
-// zero_playout_delay and enable_warp are independent and may both be enabled;
-// their field-trial views are composed into one.
+// zero_playout_delay, enable_warp, and configured FlexFEC trials are
+// independent and may all be enabled; their field-trial views are composed
+// into one.
 webrtc::Environment CreateEnvironment(bool zero_playout_delay,
                                       bool enable_warp) {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views;
@@ -129,6 +132,16 @@ webrtc::Environment CreateEnvironment(bool zero_playout_delay,
   }
   if (enable_warp) {
     views.push_back(std::make_unique<EnableWarpFieldTrials>());
+  }
+  std::string trials = FecGlobalState::Instance().BuildFieldTrialsString();
+  if (!trials.empty()) {
+    auto field_trials = webrtc::FieldTrials::Create(trials);
+    if (field_trials) {
+      RTC_LOG(LS_INFO) << "using field trials: " << trials;
+      views.push_back(std::move(field_trials));
+    } else {
+      RTC_LOG(LS_ERROR) << "invalid field trials string, ignoring: " << trials;
+    }
   }
 
   if (views.empty()) {
@@ -192,6 +205,11 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
+
+  // replaces FecControllerDefault for video send streams, behaves the same
+  // as no FEC until enabled via set_fec_controller_config
+  dependencies.fec_controller_factory = std::make_unique<LkFecControllerFactory>();
+  FecGlobalState::Instance().MarkFactoryCreated();
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =

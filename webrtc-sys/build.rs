@@ -56,6 +56,7 @@ fn main() {
         "src/apm.rs",
         "src/audio_mixer.rs",
         "src/packet_trailer.rs",
+        "src/fec_controller.rs",
     ];
 
     if is_desktop {
@@ -99,6 +100,7 @@ fn main() {
         "src/av1_bitstream.cpp",
         "src/packet_trailer.cpp",
         "src/packet_trailer_av1.cpp",
+        "src/fec_controller.cpp",
     ]);
 
     if is_desktop {
