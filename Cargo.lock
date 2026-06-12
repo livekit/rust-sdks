@@ -2386,6 +2386,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fec_test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger 0.11.10",
+ "futures",
+ "livekit",
+ "livekit-api",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "ff"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
