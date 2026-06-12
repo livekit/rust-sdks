@@ -657,6 +657,11 @@ impl PlatformAudio {
     ///
     /// * `id` - Device identifier from [`RecordingDeviceInfo::id`]
     ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if the device ID does not exist
+    /// in the current list of available recording devices.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -668,6 +673,13 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
+        // Validate that the device ID exists in the current device list
+        // Skip validation on mobile where device selection is a no-op
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        if !self.recording_devices().any(|d| &d.id == id) {
+            return Err(AudioError::DeviceNotFound);
+        }
+
         if self.handle.runtime.set_recording_device_by_guid(id.as_str()) {
             Ok(())
         } else {
@@ -693,6 +705,11 @@ impl PlatformAudio {
     ///
     /// * `id` - Device identifier from [`PlayoutDeviceInfo::id`]
     ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if the device ID does not exist
+    /// in the current list of available playout devices.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -704,6 +721,13 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
+        // Validate that the device ID exists in the current device list
+        // Skip validation on mobile where device selection is a no-op
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        if !self.playout_devices().any(|d| &d.id == id) {
+            return Err(AudioError::DeviceNotFound);
+        }
+
         let runtime = &self.handle.runtime;
         if !runtime.set_playout_device_by_guid(id.as_str()) {
             return Err(AudioError::DeviceNotFound);
