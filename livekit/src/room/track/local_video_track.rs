@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -38,11 +38,56 @@ pub use libwebrtc::native::packet_trailer::{PublishTimingEvent, PublishTimingSta
 
 const PUBLISH_TIMING_BUFFER: usize = 256;
 
+/// A simulcast layer currently configured on a local video publisher.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PublishingLayer {
+    /// RTP stream identifier for this simulcast layer.
     pub rid: String,
-    pub quality: String,
+    /// Video quality represented by this simulcast layer.
+    pub quality: PublishingLayerQuality,
+    /// Whether this simulcast layer is currently being published.
     pub active: bool,
+}
+
+/// Video quality for a publishing layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishingLayerQuality {
+    /// Low video quality.
+    Low,
+    /// Medium video quality.
+    Medium,
+    /// High video quality.
+    High,
+    /// Disabled video quality.
+    Off,
+}
+
+impl From<proto::VideoQuality> for PublishingLayerQuality {
+    fn from(quality: proto::VideoQuality) -> Self {
+        match quality {
+            proto::VideoQuality::Low => Self::Low,
+            proto::VideoQuality::Medium => Self::Medium,
+            proto::VideoQuality::High => Self::High,
+            proto::VideoQuality::Off => Self::Off,
+        }
+    }
+}
+
+impl From<PublishingLayerQuality> for proto::VideoQuality {
+    fn from(quality: PublishingLayerQuality) -> Self {
+        match quality {
+            PublishingLayerQuality::Low => Self::Low,
+            PublishingLayerQuality::Medium => Self::Medium,
+            PublishingLayerQuality::High => Self::High,
+            PublishingLayerQuality::Off => Self::Off,
+        }
+    }
+}
+
+impl Display for PublishingLayerQuality {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 #[derive(Clone)]
@@ -274,7 +319,7 @@ impl LocalVideoTrack {
         super::update_info(&self.inner, &Track::LocalVideo(self.clone()), info);
     }
 
-    /// Returns a snapshot of each simulcast layer's RID, quality label, and active state.
+    /// Returns a snapshot of each simulcast layer's RID, quality, and active state.
     /// Useful for diagnostics / HUD display.
     /// Returns an empty vec if no transceiver is set, or if the sender has no encodings yet.
     pub fn publishing_layers(&self) -> Vec<PublishingLayer> {
@@ -288,11 +333,7 @@ impl LocalVideoTrack {
             .iter()
             .map(|e| {
                 let quality = crate::options::video_quality_for_rid_or_default(&e.rid);
-                PublishingLayer {
-                    rid: e.rid.clone(),
-                    quality: format!("{:?}", quality),
-                    active: e.active,
-                }
+                PublishingLayer { rid: e.rid.clone(), quality: quality.into(), active: e.active }
             })
             .collect()
     }
