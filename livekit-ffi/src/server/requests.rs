@@ -1247,6 +1247,24 @@ fn on_publish_data_track(
     ffi_participant.publish_data_track(server, request)
 }
 
+fn on_define_schema(
+    server: &'static FfiServer,
+    request: proto::DefineSchemaRequest,
+) -> FfiResult<proto::DefineSchemaResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.define_schema(server, request)
+}
+
+fn on_get_schema(
+    server: &'static FfiServer,
+    request: proto::GetSchemaRequest,
+) -> FfiResult<proto::GetSchemaResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.get_schema(server, request)
+}
+
 fn on_local_data_track_is_published(
     server: &'static FfiServer,
     request: proto::LocalDataTrackIsPublishedRequest,
@@ -1424,6 +1442,8 @@ pub fn handle_request(
             on_remote_data_track_set_pipeline_options(server, req)?.into()
         }
         Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
+        Request::DefineSchema(req) => on_define_schema(server, req)?.into(),
+        Request::GetSchema(req) => on_get_schema(server, req)?.into(),
         // Platform Audio
         Request::NewPlatformAudio(req) => {
             platform_audio::on_new_platform_audio(server, req)?.into()

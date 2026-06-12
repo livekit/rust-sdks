@@ -596,6 +596,8 @@ mod tests {
                     pub_handle: Faker.fake(), // Pub handle
                     name: track_name.clone(),
                     uses_e2ee: false,
+                    schema: None,
+                    frame_encoding: None,
                 }],
             )]),
         };
@@ -658,6 +660,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -694,6 +698,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate three identical publication updates
@@ -726,6 +732,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -785,6 +793,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: true,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published (with e2ee)
@@ -846,6 +856,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -944,6 +956,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -987,6 +1001,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published
@@ -1038,6 +1054,8 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
 
         // Simulate track published

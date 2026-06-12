@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::packet::Handle;
+use crate::{
+    packet::Handle,
+    schema::{DataTrackFrameEncoding, DataTrackSchemaId},
+};
 use from_variants::FromVariants;
 use std::{
     fmt::Display,
@@ -71,6 +74,8 @@ pub struct DataTrackInfo {
     pub(crate) pub_handle: Handle,
     pub(crate) name: String,
     pub(crate) uses_e2ee: bool,
+    pub(crate) schema: Option<DataTrackSchemaId>,
+    pub(crate) frame_encoding: Option<DataTrackFrameEncoding>,
 }
 
 impl DataTrackInfo {

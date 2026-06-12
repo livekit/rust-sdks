@@ -31,7 +31,7 @@ use crate::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
-    data_track::{self, DataTrack, DataTrackOptions, Local},
+    data_track::{self, DataTrack, DataTrackOptions, DataTrackSchemaId, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
@@ -987,6 +987,58 @@ impl LocalParticipant {
     #[doc(hidden)]
     pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
         // Local participants don't receive data messages, so this is a no-op
+    }
+
+    /// Stores the definition of a data track schema.
+    ///
+    /// Called by a publisher to make a schema available to subscribers, who can
+    /// later look up its definition via [`get_schema`](Self::get_schema). Define a
+    /// schema before publishing any data track that references it, so that
+    /// subscribers can resolve the schema by its ID.
+    ///
+    /// A schema can only be defined once. Attempting to redefine an existing
+    /// schema returns an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Identifies the schema; the same ID is provided when publishing a
+    ///   data track that uses it.
+    /// * `definition` - The schema definition, stored as-is. It is neither parsed
+    ///   nor validated against its [encoding](DataTrackSchemaId::encoding), so
+    ///   the caller is responsible for ensuring it is well-formed.
+    ///
+    pub async fn define_schema(&self, id: DataTrackSchemaId, definition: String) -> RoomResult<()> {
+        self.inner.rtc_engine.store_data_blob(id.into(), definition.into()).await?;
+        Ok(())
+    }
+
+    /// Retrieves the definition for a data track schema.
+    ///
+    /// Called by a subscriber that wants to inspect the schema a participant
+    /// [defined](Self::define_schema) for a data track it is publishing. Returns
+    /// an error if the participant has not defined a schema with this ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Identifies the schema to retrieve.
+    /// * `participant` - Identity of the participant that defined the schema.
+    ///
+    pub async fn get_schema(
+        &self,
+        id: DataTrackSchemaId,
+        participant: ParticipantIdentity,
+    ) -> RoomResult<String> {
+        let contents = self
+            .inner
+            .rtc_engine
+            .get_data_blob(id.into(), participant)
+            .await
+            .inspect_err(|err| log::error!("Failed to get schema: {err}"))?;
+
+        let definition = String::from_utf8(contents.to_vec()).map_err(|err| {
+            RoomError::Internal(format!("schema definition is not valid UTF-8: {err}"))
+        })?;
+        Ok(definition)
     }
 }
 

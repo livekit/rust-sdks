@@ -150,6 +150,8 @@ mod tests {
             sid: "DTR_1234".into(),
             name: "track1".into(),
             encryption: proto::encryption::Type::Gcm.into(),
+            schema: None,
+            frame_encoding: None,
         }];
         let mut participant_info = proto::ParticipantInfo { data_tracks, ..Default::default() };
 

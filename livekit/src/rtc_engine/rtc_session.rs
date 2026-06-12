@@ -417,6 +417,7 @@ struct SessionInner {
     negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
+    pending_data_blob_requests: Mutex<HashMap<u32, oneshot::Sender<proto::GetDataBlobResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
     subscriber_primary: bool,
@@ -619,6 +620,7 @@ impl RtcSession {
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
+            pending_data_blob_requests: Default::default(),
             e2ee_manager,
             subscriber_primary,
             pc_state_notify: Notify::new(),
@@ -941,6 +943,10 @@ impl RtcSession {
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
+    }
+
+    pub async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+        self.inner.get_data_blob_response(request_id).await
     }
 }
 
@@ -1431,6 +1437,13 @@ impl SessionInner {
             proto::signal_response::Message::MediaSectionsRequirement(req) => {
                 if self.single_pc_mode {
                     self.handle_media_sections_requirement(req)?;
+                }
+            }
+            proto::signal_response::Message::GetDataBlobResponse(response) => {
+                if let Some(tx) =
+                    self.pending_data_blob_requests.lock().remove(&response.request_id)
+                {
+                    let _ = tx.send(response);
                 }
             }
             _ => {}
@@ -2353,7 +2366,37 @@ impl SessionInner {
     async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         let (tx, rx) = oneshot::channel();
         self.pending_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_requests, request_id);
         rx.await.unwrap()
+    }
+
+    async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+        let (tx, rx) = oneshot::channel();
+        self.pending_data_blob_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_data_blob_requests, request_id);
+        rx.await.expect("data blob response sender dropped")
+    }
+}
+
+/// Removes a pending response registration when dropped.
+///
+/// Installed alongside a registration so that abandoning the wait (e.g. a timeout or a
+/// losing [`tokio::select!`] branch) cannot leave a stale entry behind. Dropping after the
+/// response has already been delivered is a no-op since the entry is removed on delivery.
+struct PendingResponseGuard<'a, T> {
+    map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>,
+    request_id: u32,
+}
+
+impl<'a, T> PendingResponseGuard<'a, T> {
+    fn new(map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>, request_id: u32) -> Self {
+        Self { map, request_id }
+    }
+}
+
+impl<T> Drop for PendingResponseGuard<'_, T> {
+    fn drop(&mut self) {
+        self.map.lock().remove(&self.request_id);
     }
 }
 

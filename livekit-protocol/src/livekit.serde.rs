@@ -10468,6 +10468,235 @@ impl<'de> serde::Deserialize<'de> for CreateSipTrunkRequest {
         deserializer.deserialize_struct("livekit.CreateSIPTrunkRequest", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DataBlob {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.key.is_some() {
+            len += 1;
+        }
+        if !self.contents.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DataBlob", len)?;
+        if let Some(v) = self.key.as_ref() {
+            struct_ser.serialize_field("key", v)?;
+        }
+        if !self.contents.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("contents", pbjson::private::base64::encode(&self.contents).as_str())?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DataBlob {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "key",
+            "contents",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Key,
+            Contents,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "key" => Ok(GeneratedField::Key),
+                            "contents" => Ok(GeneratedField::Contents),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DataBlob;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DataBlob")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DataBlob, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key__ = None;
+                let mut contents__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Key => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("key"));
+                            }
+                            key__ = map_.next_value()?;
+                        }
+                        GeneratedField::Contents => {
+                            if contents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("contents"));
+                            }
+                            contents__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DataBlob {
+                    key: key__,
+                    contents: contents__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DataBlob", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DataBlobKey {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.key.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DataBlobKey", len)?;
+        if let Some(v) = self.key.as_ref() {
+            match v {
+                data_blob_key::Key::Generic(v) => {
+                    struct_ser.serialize_field("generic", v)?;
+                }
+                data_blob_key::Key::SchemaId(v) => {
+                    struct_ser.serialize_field("schemaId", v)?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DataBlobKey {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "generic",
+            "schema_id",
+            "schemaId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Generic,
+            SchemaId,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "generic" => Ok(GeneratedField::Generic),
+                            "schemaId" | "schema_id" => Ok(GeneratedField::SchemaId),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DataBlobKey;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DataBlobKey")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DataBlobKey, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Generic => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("generic"));
+                            }
+                            key__ = map_.next_value::<::std::option::Option<_>>()?.map(data_blob_key::Key::Generic);
+                        }
+                        GeneratedField::SchemaId => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("schemaId"));
+                            }
+                            key__ = map_.next_value::<::std::option::Option<_>>()?.map(data_blob_key::Key::SchemaId)
+;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DataBlobKey {
+                    key: key__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DataBlobKey", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DataChannelInfo {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -12526,6 +12755,95 @@ impl<'de> serde::Deserialize<'de> for DataTrackExtensionParticipantSid {
         deserializer.deserialize_struct("livekit.DataTrackExtensionParticipantSid", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for DataTrackFrameEncoding {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "DATA_TRACK_FRAME_ENCODING_UNSPECIFIED",
+            Self::Ros1 => "DATA_TRACK_FRAME_ENCODING_ROS1",
+            Self::Cdr => "DATA_TRACK_FRAME_ENCODING_CDR",
+            Self::Protobuf => "DATA_TRACK_FRAME_ENCODING_PROTOBUF",
+            Self::Flatbuffer => "DATA_TRACK_FRAME_ENCODING_FLATBUFFER",
+            Self::Cbor => "DATA_TRACK_FRAME_ENCODING_CBOR",
+            Self::Msgpack => "DATA_TRACK_FRAME_ENCODING_MSGPACK",
+            Self::Json => "DATA_TRACK_FRAME_ENCODING_JSON",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for DataTrackFrameEncoding {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "DATA_TRACK_FRAME_ENCODING_UNSPECIFIED",
+            "DATA_TRACK_FRAME_ENCODING_ROS1",
+            "DATA_TRACK_FRAME_ENCODING_CDR",
+            "DATA_TRACK_FRAME_ENCODING_PROTOBUF",
+            "DATA_TRACK_FRAME_ENCODING_FLATBUFFER",
+            "DATA_TRACK_FRAME_ENCODING_CBOR",
+            "DATA_TRACK_FRAME_ENCODING_MSGPACK",
+            "DATA_TRACK_FRAME_ENCODING_JSON",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DataTrackFrameEncoding;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "DATA_TRACK_FRAME_ENCODING_UNSPECIFIED" => Ok(DataTrackFrameEncoding::Unspecified),
+                    "DATA_TRACK_FRAME_ENCODING_ROS1" => Ok(DataTrackFrameEncoding::Ros1),
+                    "DATA_TRACK_FRAME_ENCODING_CDR" => Ok(DataTrackFrameEncoding::Cdr),
+                    "DATA_TRACK_FRAME_ENCODING_PROTOBUF" => Ok(DataTrackFrameEncoding::Protobuf),
+                    "DATA_TRACK_FRAME_ENCODING_FLATBUFFER" => Ok(DataTrackFrameEncoding::Flatbuffer),
+                    "DATA_TRACK_FRAME_ENCODING_CBOR" => Ok(DataTrackFrameEncoding::Cbor),
+                    "DATA_TRACK_FRAME_ENCODING_MSGPACK" => Ok(DataTrackFrameEncoding::Msgpack),
+                    "DATA_TRACK_FRAME_ENCODING_JSON" => Ok(DataTrackFrameEncoding::Json),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DataTrackInfo {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -12546,6 +12864,12 @@ impl serde::Serialize for DataTrackInfo {
         if self.encryption != 0 {
             len += 1;
         }
+        if self.frame_encoding.is_some() {
+            len += 1;
+        }
+        if self.schema.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackInfo", len)?;
         if self.pub_handle != 0 {
             struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
@@ -12560,6 +12884,14 @@ impl serde::Serialize for DataTrackInfo {
             let v = encryption::Type::try_from(self.encryption)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.encryption)))?;
             struct_ser.serialize_field("encryption", &v)?;
+        }
+        if let Some(v) = self.frame_encoding.as_ref() {
+            let v = DataTrackFrameEncoding::try_from(*v)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
+            struct_ser.serialize_field("frameEncoding", &v)?;
+        }
+        if let Some(v) = self.schema.as_ref() {
+            struct_ser.serialize_field("schema", v)?;
         }
         struct_ser.end()
     }
@@ -12576,6 +12908,9 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
             "sid",
             "name",
             "encryption",
+            "frame_encoding",
+            "frameEncoding",
+            "schema",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -12584,6 +12919,8 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
             Sid,
             Name,
             Encryption,
+            FrameEncoding,
+            Schema,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -12610,6 +12947,8 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                             "sid" => Ok(GeneratedField::Sid),
                             "name" => Ok(GeneratedField::Name),
                             "encryption" => Ok(GeneratedField::Encryption),
+                            "frameEncoding" | "frame_encoding" => Ok(GeneratedField::FrameEncoding),
+                            "schema" => Ok(GeneratedField::Schema),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -12633,6 +12972,8 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                 let mut sid__ = None;
                 let mut name__ = None;
                 let mut encryption__ = None;
+                let mut frame_encoding__ = None;
+                let mut schema__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PubHandle => {
@@ -12661,6 +13002,18 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                             }
                             encryption__ = Some(map_.next_value::<encryption::Type>()? as i32);
                         }
+                        GeneratedField::FrameEncoding => {
+                            if frame_encoding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("frameEncoding"));
+                            }
+                            frame_encoding__ = map_.next_value::<::std::option::Option<DataTrackFrameEncoding>>()?.map(|x| x as i32);
+                        }
+                        GeneratedField::Schema => {
+                            if schema__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("schema"));
+                            }
+                            schema__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -12671,10 +13024,215 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                     sid: sid__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     encryption: encryption__.unwrap_or_default(),
+                    frame_encoding: frame_encoding__,
+                    schema: schema__,
                 })
             }
         }
         deserializer.deserialize_struct("livekit.DataTrackInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DataTrackSchemaEncoding {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "DATA_TRACK_SCHEMA_ENCODING_UNSPECIFIED",
+            Self::Protobuf => "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF",
+            Self::Flatbuffer => "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER",
+            Self::Ros1Msg => "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG",
+            Self::Ros2Msg => "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG",
+            Self::Ros2Idl => "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL",
+            Self::OmgIdl => "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL",
+            Self::JsonSchema => "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for DataTrackSchemaEncoding {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "DATA_TRACK_SCHEMA_ENCODING_UNSPECIFIED",
+            "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF",
+            "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER",
+            "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG",
+            "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG",
+            "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL",
+            "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL",
+            "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DataTrackSchemaEncoding;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "DATA_TRACK_SCHEMA_ENCODING_UNSPECIFIED" => Ok(DataTrackSchemaEncoding::Unspecified),
+                    "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF" => Ok(DataTrackSchemaEncoding::Protobuf),
+                    "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER" => Ok(DataTrackSchemaEncoding::Flatbuffer),
+                    "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG" => Ok(DataTrackSchemaEncoding::Ros1Msg),
+                    "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG" => Ok(DataTrackSchemaEncoding::Ros2Msg),
+                    "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL" => Ok(DataTrackSchemaEncoding::Ros2Idl),
+                    "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL" => Ok(DataTrackSchemaEncoding::OmgIdl),
+                    "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA" => Ok(DataTrackSchemaEncoding::JsonSchema),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DataTrackSchemaId {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.name.is_empty() {
+            len += 1;
+        }
+        if self.encoding != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DataTrackSchemaId", len)?;
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
+        }
+        if self.encoding != 0 {
+            let v = DataTrackSchemaEncoding::try_from(self.encoding)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.encoding)))?;
+            struct_ser.serialize_field("encoding", &v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DataTrackSchemaId {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "name",
+            "encoding",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Name,
+            Encoding,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "name" => Ok(GeneratedField::Name),
+                            "encoding" => Ok(GeneratedField::Encoding),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DataTrackSchemaId;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DataTrackSchemaId")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DataTrackSchemaId, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut name__ = None;
+                let mut encoding__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Name => {
+                            if name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Encoding => {
+                            if encoding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("encoding"));
+                            }
+                            encoding__ = Some(map_.next_value::<DataTrackSchemaEncoding>()? as i32);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DataTrackSchemaId {
+                    name: name__.unwrap_or_default(),
+                    encoding: encoding__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DataTrackSchemaId", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for DataTrackSubscriberHandles {
@@ -14944,6 +15502,9 @@ impl serde::Serialize for EgressInfo {
         }
         if let Some(v) = self.request.as_ref() {
             match v {
+                egress_info::Request::Egress(v) => {
+                    struct_ser.serialize_field("egress", v)?;
+                }
                 egress_info::Request::Replay(v) => {
                     struct_ser.serialize_field("replay", v)?;
                 }
@@ -15020,6 +15581,7 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
             "backupStorageUsed",
             "retry_count",
             "retryCount",
+            "egress",
             "replay",
             "room_composite",
             "roomComposite",
@@ -15053,6 +15615,7 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
             ManifestLocation,
             BackupStorageUsed,
             RetryCount,
+            Egress,
             Replay,
             RoomComposite,
             Web,
@@ -15102,6 +15665,7 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
                             "manifestLocation" | "manifest_location" => Ok(GeneratedField::ManifestLocation),
                             "backupStorageUsed" | "backup_storage_used" => Ok(GeneratedField::BackupStorageUsed),
                             "retryCount" | "retry_count" => Ok(GeneratedField::RetryCount),
+                            "egress" => Ok(GeneratedField::Egress),
                             "replay" => Ok(GeneratedField::Replay),
                             "roomComposite" | "room_composite" => Ok(GeneratedField::RoomComposite),
                             "web" => Ok(GeneratedField::Web),
@@ -15269,6 +15833,13 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
                             retry_count__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::Egress => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("egress"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(egress_info::Request::Egress)
+;
                         }
                         GeneratedField::Replay => {
                             if request__.is_some() {
@@ -18323,6 +18894,254 @@ impl<'de> serde::Deserialize<'de> for GcpUpload {
             }
         }
         deserializer.deserialize_struct("livekit.GCPUpload", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for GetDataBlobRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
+        if self.key.is_some() {
+            len += 1;
+        }
+        if self.request_id != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.GetDataBlobRequest", len)?;
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
+        }
+        if let Some(v) = self.key.as_ref() {
+            struct_ser.serialize_field("key", v)?;
+        }
+        if self.request_id != 0 {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetDataBlobRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "participant_identity",
+            "participantIdentity",
+            "key",
+            "request_id",
+            "requestId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ParticipantIdentity,
+            Key,
+            RequestId,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
+                            "key" => Ok(GeneratedField::Key),
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetDataBlobRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.GetDataBlobRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetDataBlobRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut participant_identity__ = None;
+                let mut key__ = None;
+                let mut request_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Key => {
+                            if key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("key"));
+                            }
+                            key__ = map_.next_value()?;
+                        }
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(GetDataBlobRequest {
+                    participant_identity: participant_identity__.unwrap_or_default(),
+                    key: key__,
+                    request_id: request_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.GetDataBlobRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for GetDataBlobResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.blob.is_some() {
+            len += 1;
+        }
+        if self.request_id != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.GetDataBlobResponse", len)?;
+        if let Some(v) = self.blob.as_ref() {
+            struct_ser.serialize_field("blob", v)?;
+        }
+        if self.request_id != 0 {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for GetDataBlobResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "blob",
+            "request_id",
+            "requestId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Blob,
+            RequestId,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "blob" => Ok(GeneratedField::Blob),
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = GetDataBlobResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.GetDataBlobResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<GetDataBlobResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut blob__ = None;
+                let mut request_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Blob => {
+                            if blob__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blob"));
+                            }
+                            blob__ = map_.next_value()?;
+                        }
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(GetDataBlobResponse {
+                    blob: blob__,
+                    request_id: request_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.GetDataBlobResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for GetSipInboundTrunkRequest {
@@ -29566,6 +30385,12 @@ impl serde::Serialize for PublishDataTrackRequest {
         if self.encryption != 0 {
             len += 1;
         }
+        if self.frame_encoding.is_some() {
+            len += 1;
+        }
+        if self.schema.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.PublishDataTrackRequest", len)?;
         if self.pub_handle != 0 {
             struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
@@ -29577,6 +30402,14 @@ impl serde::Serialize for PublishDataTrackRequest {
             let v = encryption::Type::try_from(self.encryption)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.encryption)))?;
             struct_ser.serialize_field("encryption", &v)?;
+        }
+        if let Some(v) = self.frame_encoding.as_ref() {
+            let v = DataTrackFrameEncoding::try_from(*v)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
+            struct_ser.serialize_field("frameEncoding", &v)?;
+        }
+        if let Some(v) = self.schema.as_ref() {
+            struct_ser.serialize_field("schema", v)?;
         }
         struct_ser.end()
     }
@@ -29592,6 +30425,9 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
             "pubHandle",
             "name",
             "encryption",
+            "frame_encoding",
+            "frameEncoding",
+            "schema",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -29599,6 +30435,8 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
             PubHandle,
             Name,
             Encryption,
+            FrameEncoding,
+            Schema,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -29624,6 +30462,8 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                             "pubHandle" | "pub_handle" => Ok(GeneratedField::PubHandle),
                             "name" => Ok(GeneratedField::Name),
                             "encryption" => Ok(GeneratedField::Encryption),
+                            "frameEncoding" | "frame_encoding" => Ok(GeneratedField::FrameEncoding),
+                            "schema" => Ok(GeneratedField::Schema),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -29646,6 +30486,8 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                 let mut pub_handle__ = None;
                 let mut name__ = None;
                 let mut encryption__ = None;
+                let mut frame_encoding__ = None;
+                let mut schema__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PubHandle => {
@@ -29668,6 +30510,18 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                             }
                             encryption__ = Some(map_.next_value::<encryption::Type>()? as i32);
                         }
+                        GeneratedField::FrameEncoding => {
+                            if frame_encoding__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("frameEncoding"));
+                            }
+                            frame_encoding__ = map_.next_value::<::std::option::Option<DataTrackFrameEncoding>>()?.map(|x| x as i32);
+                        }
+                        GeneratedField::Schema => {
+                            if schema__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("schema"));
+                            }
+                            schema__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -29677,6 +30531,8 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                     pub_handle: pub_handle__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     encryption: encryption__.unwrap_or_default(),
+                    frame_encoding: frame_encoding__,
+                    schema: schema__,
                 })
             }
         }
@@ -32891,6 +33747,7 @@ impl serde::Serialize for request_response::Reason {
             Self::InvalidName => "INVALID_NAME",
             Self::DuplicateHandle => "DUPLICATE_HANDLE",
             Self::DuplicateName => "DUPLICATE_NAME",
+            Self::InvalidRequest => "INVALID_REQUEST",
         };
         serializer.serialize_str(variant)
     }
@@ -32913,6 +33770,7 @@ impl<'de> serde::Deserialize<'de> for request_response::Reason {
             "INVALID_NAME",
             "DUPLICATE_HANDLE",
             "DUPLICATE_NAME",
+            "INVALID_REQUEST",
         ];
 
         struct GeneratedVisitor;
@@ -32964,6 +33822,7 @@ impl<'de> serde::Deserialize<'de> for request_response::Reason {
                     "INVALID_NAME" => Ok(request_response::Reason::InvalidName),
                     "DUPLICATE_HANDLE" => Ok(request_response::Reason::DuplicateHandle),
                     "DUPLICATE_NAME" => Ok(request_response::Reason::DuplicateName),
+                    "INVALID_REQUEST" => Ok(request_response::Reason::InvalidRequest),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -42797,6 +43656,12 @@ impl serde::Serialize for SignalRequest {
                 signal_request::Message::UpdateDataSubscription(v) => {
                     struct_ser.serialize_field("updateDataSubscription", v)?;
                 }
+                signal_request::Message::StoreDataBlobRequest(v) => {
+                    struct_ser.serialize_field("storeDataBlobRequest", v)?;
+                }
+                signal_request::Message::GetDataBlobRequest(v) => {
+                    struct_ser.serialize_field("getDataBlobRequest", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -42841,6 +43706,10 @@ impl<'de> serde::Deserialize<'de> for SignalRequest {
             "unpublishDataTrackRequest",
             "update_data_subscription",
             "updateDataSubscription",
+            "store_data_blob_request",
+            "storeDataBlobRequest",
+            "get_data_blob_request",
+            "getDataBlobRequest",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -42865,6 +43734,8 @@ impl<'de> serde::Deserialize<'de> for SignalRequest {
             PublishDataTrackRequest,
             UnpublishDataTrackRequest,
             UpdateDataSubscription,
+            StoreDataBlobRequest,
+            GetDataBlobRequest,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -42907,6 +43778,8 @@ impl<'de> serde::Deserialize<'de> for SignalRequest {
                             "publishDataTrackRequest" | "publish_data_track_request" => Ok(GeneratedField::PublishDataTrackRequest),
                             "unpublishDataTrackRequest" | "unpublish_data_track_request" => Ok(GeneratedField::UnpublishDataTrackRequest),
                             "updateDataSubscription" | "update_data_subscription" => Ok(GeneratedField::UpdateDataSubscription),
+                            "storeDataBlobRequest" | "store_data_blob_request" => Ok(GeneratedField::StoreDataBlobRequest),
+                            "getDataBlobRequest" | "get_data_blob_request" => Ok(GeneratedField::GetDataBlobRequest),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -43068,6 +43941,20 @@ impl<'de> serde::Deserialize<'de> for SignalRequest {
                             message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_request::Message::UpdateDataSubscription)
 ;
                         }
+                        GeneratedField::StoreDataBlobRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("storeDataBlobRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_request::Message::StoreDataBlobRequest)
+;
+                        }
+                        GeneratedField::GetDataBlobRequest => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("getDataBlobRequest"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_request::Message::GetDataBlobRequest)
+;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -43181,6 +44068,9 @@ impl serde::Serialize for SignalResponse {
                 signal_response::Message::DataTrackSubscriberHandles(v) => {
                     struct_ser.serialize_field("dataTrackSubscriberHandles", v)?;
                 }
+                signal_response::Message::GetDataBlobResponse(v) => {
+                    struct_ser.serialize_field("getDataBlobResponse", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -43240,6 +44130,8 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
             "unpublishDataTrackResponse",
             "data_track_subscriber_handles",
             "dataTrackSubscriberHandles",
+            "get_data_blob_response",
+            "getDataBlobResponse",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -43272,6 +44164,7 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
             PublishDataTrackResponse,
             UnpublishDataTrackResponse,
             DataTrackSubscriberHandles,
+            GetDataBlobResponse,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -43322,6 +44215,7 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
                             "publishDataTrackResponse" | "publish_data_track_response" => Ok(GeneratedField::PublishDataTrackResponse),
                             "unpublishDataTrackResponse" | "unpublish_data_track_response" => Ok(GeneratedField::UnpublishDataTrackResponse),
                             "dataTrackSubscriberHandles" | "data_track_subscriber_handles" => Ok(GeneratedField::DataTrackSubscriberHandles),
+                            "getDataBlobResponse" | "get_data_blob_response" => Ok(GeneratedField::GetDataBlobResponse),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -43536,6 +44430,13 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
                                 return Err(serde::de::Error::duplicate_field("dataTrackSubscriberHandles"));
                             }
                             message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_response::Message::DataTrackSubscriberHandles)
+;
+                        }
+                        GeneratedField::GetDataBlobResponse => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("getDataBlobResponse"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_response::Message::GetDataBlobResponse)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -45098,6 +45999,121 @@ impl<'de> serde::Deserialize<'de> for StorageConfig {
             }
         }
         deserializer.deserialize_struct("livekit.StorageConfig", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for StoreDataBlobRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.blob.is_some() {
+            len += 1;
+        }
+        if self.request_id != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.StoreDataBlobRequest", len)?;
+        if let Some(v) = self.blob.as_ref() {
+            struct_ser.serialize_field("blob", v)?;
+        }
+        if self.request_id != 0 {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for StoreDataBlobRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "blob",
+            "request_id",
+            "requestId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Blob,
+            RequestId,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "blob" => Ok(GeneratedField::Blob),
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = StoreDataBlobRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.StoreDataBlobRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<StoreDataBlobRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut blob__ = None;
+                let mut request_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Blob => {
+                            if blob__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blob"));
+                            }
+                            blob__ = map_.next_value()?;
+                        }
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(StoreDataBlobRequest {
+                    blob: blob__,
+                    request_id: request_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.StoreDataBlobRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for StreamInfo {

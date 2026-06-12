@@ -91,6 +91,25 @@ const SubscribeDataTrackErrorCode = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * Encoding used to interpret a data track schema definition.
+ *
+ * @generated from enum livekit.proto.DataTrackSchemaEncoding
+ */
+const DataTrackSchemaEncoding = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.DataTrackSchemaEncoding",
+  [
+    {no: 0, name: "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF", localName: "PROTOBUF"},
+    {no: 1, name: "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER", localName: "FLATBUFFER"},
+    {no: 2, name: "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG", localName: "ROS1_MSG"},
+    {no: 3, name: "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG", localName: "ROS2_MSG"},
+    {no: 4, name: "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL", localName: "ROS2_IDL"},
+    {no: 5, name: "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL", localName: "OMG_IDL"},
+    {no: 6, name: "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA", localName: "JSON_SCHEMA"},
+    {no: 7, name: "DATA_TRACK_SCHEMA_ENCODING_OTHER", localName: "OTHER"},
+  ],
+);
+
+/**
  * Information about a published data track.
  *
  * @generated from message livekit.proto.DataTrackInfo
@@ -465,11 +484,98 @@ const DataTrackStreamEOS = /*@__PURE__*/ proto2.makeMessageType(
   ],
 );
 
+/**
+ * Uniquely identifies a data track schema.
+ *
+ * @generated from message livekit.proto.DataTrackSchemaId
+ */
+const DataTrackSchemaId = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DataTrackSchemaId",
+  () => [
+    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "encoding", kind: "enum", T: proto2.getEnumType(DataTrackSchemaEncoding), req: true },
+  ],
+);
+
+/**
+ * Define (store) a schema definition for the local participant.
+ *
+ * @generated from message livekit.proto.DefineSchemaRequest
+ */
+const DefineSchemaRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DefineSchemaRequest",
+  () => [
+    { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "schema_id", kind: "message", T: DataTrackSchemaId, req: true },
+    { no: 3, name: "definition", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.DefineSchemaResponse
+ */
+const DefineSchemaResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DefineSchemaResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.DefineSchemaCallback
+ */
+const DefineSchemaCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DefineSchemaCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
+/**
+ * Retrieve a schema definition previously stored by a participant.
+ *
+ * @generated from message livekit.proto.GetSchemaRequest
+ */
+const GetSchemaRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GetSchemaRequest",
+  () => [
+    { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "schema_id", kind: "message", T: DataTrackSchemaId, req: true },
+    { no: 3, name: "participant_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.GetSchemaResponse
+ */
+const GetSchemaResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GetSchemaResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.GetSchemaCallback
+ */
+const GetSchemaCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GetSchemaCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "definition", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 3, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
 
 exports.DataTrackErrorCode = DataTrackErrorCode;
 exports.PublishDataTrackErrorCode = PublishDataTrackErrorCode;
 exports.LocalDataTrackTryPushErrorCode = LocalDataTrackTryPushErrorCode;
 exports.SubscribeDataTrackErrorCode = SubscribeDataTrackErrorCode;
+exports.DataTrackSchemaEncoding = DataTrackSchemaEncoding;
 exports.DataTrackInfo = DataTrackInfo;
 exports.DataTrackFrame = DataTrackFrame;
 exports.DataTrackError = DataTrackError;
@@ -502,3 +608,10 @@ exports.DataTrackStreamReadResponse = DataTrackStreamReadResponse;
 exports.DataTrackStreamEvent = DataTrackStreamEvent;
 exports.DataTrackStreamFrameReceived = DataTrackStreamFrameReceived;
 exports.DataTrackStreamEOS = DataTrackStreamEOS;
+exports.DataTrackSchemaId = DataTrackSchemaId;
+exports.DefineSchemaRequest = DefineSchemaRequest;
+exports.DefineSchemaResponse = DefineSchemaResponse;
+exports.DefineSchemaCallback = DefineSchemaCallback;
+exports.GetSchemaRequest = GetSchemaRequest;
+exports.GetSchemaResponse = GetSchemaResponse;
+exports.GetSchemaCallback = GetSchemaCallback;
