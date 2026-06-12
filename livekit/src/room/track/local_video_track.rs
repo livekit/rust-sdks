@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    fmt::Debug,
+    fmt::{Debug, Display},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -37,6 +37,58 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub use libwebrtc::native::packet_trailer::{PublishTimingEvent, PublishTimingStage};
 
 const PUBLISH_TIMING_BUFFER: usize = 256;
+
+/// A simulcast layer currently configured on a local video publisher.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PublishingLayer {
+    /// RTP stream identifier for this simulcast layer.
+    pub rid: String,
+    /// Video quality represented by this simulcast layer.
+    pub quality: PublishingLayerQuality,
+    /// Whether this simulcast layer is currently being published.
+    pub active: bool,
+}
+
+/// Video quality for a publishing layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishingLayerQuality {
+    /// Low video quality.
+    Low,
+    /// Medium video quality.
+    Medium,
+    /// High video quality.
+    High,
+    /// Disabled video quality.
+    Off,
+}
+
+impl From<proto::VideoQuality> for PublishingLayerQuality {
+    fn from(quality: proto::VideoQuality) -> Self {
+        match quality {
+            proto::VideoQuality::Low => Self::Low,
+            proto::VideoQuality::Medium => Self::Medium,
+            proto::VideoQuality::High => Self::High,
+            proto::VideoQuality::Off => Self::Off,
+        }
+    }
+}
+
+impl From<PublishingLayerQuality> for proto::VideoQuality {
+    fn from(quality: PublishingLayerQuality) -> Self {
+        match quality {
+            PublishingLayerQuality::Low => Self::Low,
+            PublishingLayerQuality::Medium => Self::Medium,
+            PublishingLayerQuality::High => Self::High,
+            PublishingLayerQuality::Off => Self::Off,
+        }
+    }
+}
+
+impl Display for PublishingLayerQuality {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
 
 #[derive(Clone)]
 pub struct LocalVideoTrack {
@@ -265,5 +317,82 @@ impl LocalVideoTrack {
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &Track::LocalVideo(self.clone()), info);
+    }
+
+    /// Returns a snapshot of each simulcast layer's RID, quality, and active state.
+    /// Useful for diagnostics / HUD display.
+    /// Returns an empty vec if no transceiver is set, or if the sender has no encodings yet.
+    pub fn publishing_layers(&self) -> Vec<PublishingLayer> {
+        let Some(transceiver) = self.transceiver() else {
+            log::debug!("dynacast: no transceiver, returning empty layers");
+            return Vec::new();
+        };
+        let params = transceiver.sender().parameters();
+        params
+            .encodings
+            .iter()
+            .map(|e| {
+                let quality = crate::options::video_quality_for_rid_or_default(&e.rid);
+                PublishingLayer { rid: e.rid.clone(), quality: quality.into(), active: e.active }
+            })
+            .collect()
+    }
+
+    /// Toggle simulcast encoding layers on/off based on subscriber demand.
+    /// Used by dynacast: the SFU tells us which quality levels are needed,
+    /// and we set `encoding.active` accordingly on the RTP sender.
+    pub(crate) fn set_publishing_layers(
+        &self,
+        qualities: &[proto::SubscribedQuality],
+    ) -> RoomResult<()> {
+        let transceiver = self.transceiver().ok_or_else(|| {
+            RoomError::Internal("cannot set publishing layers: no transceiver".into())
+        })?;
+
+        let sender = transceiver.sender();
+        let mut params = sender.parameters();
+
+        if params.encodings.is_empty() {
+            log::debug!("dynacast: no sender encodings available, ignoring quality update");
+            return Ok(());
+        }
+
+        let mut changed = false;
+        for encoding in &mut params.encodings {
+            let quality = crate::options::video_quality_for_rid_or_default(&encoding.rid);
+
+            let should_active = qualities
+                .iter()
+                .find(|q| q.quality == quality as i32)
+                .map(|q| q.enabled)
+                .unwrap_or(false);
+
+            if encoding.active != should_active {
+                changed = true;
+                encoding.active = should_active;
+            }
+        }
+
+        let layers: Vec<String> = params
+            .encodings
+            .iter()
+            .map(|e| {
+                let quality = crate::options::video_quality_for_rid_or_default(&e.rid);
+                let state = if e.active { "ON" } else { "off" };
+                format!("{}({:?})={}", e.rid, quality, state)
+            })
+            .collect();
+
+        sender
+            .set_parameters(params)
+            .map_err(|e| RoomError::Internal(format!("failed to set sender parameters: {}", e)))?;
+
+        if changed {
+            log::info!("dynacast: layers changed -> [{}]", layers.join(", "));
+        } else {
+            log::debug!("dynacast: layers unchanged [{}]", layers.join(", "));
+        }
+
+        Ok(())
     }
 }
