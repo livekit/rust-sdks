@@ -76,8 +76,37 @@ impl RtpSender {
     }
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
+        let mut native_parameters = self.sys_handle.get_parameters();
+        if native_parameters.encodings.len() != parameters.encodings.len() {
+            return Err(RtcError {
+                error_type: RtcErrorType::InvalidState,
+                message: format!(
+                    "encoding count changed from {} to {}",
+                    native_parameters.encodings.len(),
+                    parameters.encodings.len()
+                ),
+            });
+        }
+
+        for (native_encoding, encoding) in
+            native_parameters.encodings.iter_mut().zip(parameters.encodings)
+        {
+            native_encoding.active = encoding.active;
+            native_encoding.has_max_bitrate_bps = encoding.max_bitrate.is_some();
+            native_encoding.max_bitrate_bps = encoding.max_bitrate.unwrap_or_default() as i32;
+            native_encoding.has_max_framerate = encoding.max_framerate.is_some();
+            native_encoding.max_framerate = encoding.max_framerate.unwrap_or_default();
+            native_encoding.network_priority = encoding.priority.into();
+            native_encoding.has_scale_resolution_down_by =
+                encoding.scale_resolution_down_by.is_some();
+            native_encoding.scale_resolution_down_by =
+                encoding.scale_resolution_down_by.unwrap_or_default();
+            native_encoding.has_scalability_mode = encoding.scalability_mode.is_some();
+            native_encoding.scalability_mode = encoding.scalability_mode.unwrap_or_default();
+        }
+
         self.sys_handle
-            .set_parameters(parameters.into())
+            .set_parameters(native_parameters)
             .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
     }
 
