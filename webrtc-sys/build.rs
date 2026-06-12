@@ -175,8 +175,12 @@ fn main() {
             // In order to avoid any ABI mismatches we use the sysroot's headers.
             add_gio_headers(&mut builder);
 
+            // Do not use pkg_config::probe_library, because we only require headers.
             for lib_name in ["glib-2.0", "gobject-2.0", "gio-2.0"] {
-                pkg_config::probe_library(lib_name).unwrap();
+                let lib = pkg_config::Config::new().cargo_metadata(false).probe(lib_name).unwrap();
+                for path in lib.include_paths {
+                    builder.include(path);
+                }
             }
 
             add_lazy_load_so(
