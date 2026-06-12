@@ -279,6 +279,7 @@ impl LocalVideoTrack {
     /// Returns an empty vec if no transceiver is set, or if the sender has no encodings yet.
     pub fn publishing_layers(&self) -> Vec<PublishingLayer> {
         let Some(transceiver) = self.transceiver() else {
+            log::debug!("dynacast: no transceiver, returning empty layers");
             return Vec::new();
         };
         let params = transceiver.sender().parameters();
