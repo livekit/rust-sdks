@@ -13,7 +13,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 bytes = "1.10"
-fake = { version = "4.4", features = ["derive"] }
+fake = { version = "5.0", features = ["derive"] }
 
 [dependencies.livekit-datatrack]
 path = ".."
