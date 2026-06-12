@@ -56,9 +56,10 @@ use crate::{
     participant::ConnectionQuality,
     prelude::*,
     registered_audio_filter_plugins,
+    room::options::FlexFecOptions,
     rtc_engine::{
-        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
-        SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+        lk_runtime::LkRuntime, EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult,
+        RtcEngine, SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
     utils::{observer::Dispatcher, promise::Promise},
 };
@@ -414,6 +415,10 @@ pub struct RoomOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Proactive FlexFEC protection for published video, see
+    /// [`FlexFecOptions`]. Process wide, must be set on the first room the
+    /// process connects.
+    pub flexfec: Option<FlexFecOptions>,
 }
 
 impl Default for RoomOptions {
@@ -436,6 +441,7 @@ impl Default for RoomOptions {
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            flexfec: None,
         }
     }
 }
@@ -530,6 +536,10 @@ impl Room {
         mut options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
+
+        if let Some(flexfec) = options.flexfec {
+            LkRuntime::configure_flexfec(&flexfec);
+        }
 
         let with_dc_encryption = options.encryption.is_some();
         let encryption_options = options.encryption.take().or(options.e2ee.take());
@@ -832,6 +842,22 @@ impl Room {
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
         self.inner.rtc_engine.get_stats().await
+    }
+
+    /// Updates the FlexFEC protection parameters at runtime. Applies process
+    /// wide to all current and future video send streams, see
+    /// [`FlexFecOptions`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_flexfec_options(&self, options: FlexFecOptions) {
+        LkRuntime::set_flexfec_options(&options);
+    }
+
+    /// Aggregated send side FlexFEC rates as reported by the RTP layer
+    /// across the video send streams of the process. `sent_fec_rate_bps > 0`
+    /// confirms FEC packets are being generated and sent.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn fec_sender_stats(&self) -> libwebrtc::native::fec_controller::FecSenderMetrics {
+        libwebrtc::native::fec_controller::fec_sender_metrics()
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {

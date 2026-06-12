@@ -105,6 +105,49 @@ impl AudioPreset {
     }
 }
 
+/// FlexFEC-03 forward error correction for published video.
+///
+/// When set on [`RoomOptions::flexfec`](crate::RoomOptions), the SDK enables
+/// the `WebRTC-FlexFEC-03` field trials, negotiates the flexfec-03 codec and
+/// replaces libwebrtc's loss-reactive FEC controller with one that protects
+/// video at the configured rate proactively, so short loss bursts are
+/// repairable before any loss has ever been reported.
+///
+/// Notes:
+/// - The configuration is process wide (the underlying peer connection
+///   factory is a process singleton). It must be supplied on the first room
+///   connected by the process; later rooms inherit it. The protection
+///   parameters can be adjusted at runtime via
+///   [`Room::set_flexfec_options`](crate::Room::set_flexfec_options).
+/// - libwebrtc protects only the first simulcast layer with FlexFEC,
+///   disabling simulcast for FEC protected tracks is recommended.
+/// - The `LK_WEBRTC_FIELD_TRIALS` environment variable can be used to set
+///   additional field trials.
+#[derive(Debug, Clone, Copy)]
+pub struct FlexFecOptions {
+    /// Percentage of the video bitrate to spend on FEC, 0..=100.
+    pub protection_percent: u8,
+    /// Number of frames protected per FEC block, 1..=48. Smaller values
+    /// lower the repair latency, larger values resist longer bursts.
+    pub max_fec_frames: u8,
+    /// Optimize the protection masks for bursty rather than random loss.
+    pub bursty_mask: bool,
+}
+
+impl Default for FlexFecOptions {
+    fn default() -> Self {
+        Self { protection_percent: 15, max_fec_frames: 6, bursty_mask: false }
+    }
+}
+
+impl FlexFecOptions {
+    /// libwebrtc protection factor (0..=255) for the configured percentage.
+    pub(crate) fn fec_rate(&self) -> u8 {
+        let percent = self.protection_percent.min(100) as u32;
+        (percent * 255 / 100) as u8
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TrackPublishOptions {
     // If the encodings aren't set, LiveKit will compute the most appropriate ones
