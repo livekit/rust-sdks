@@ -28,8 +28,8 @@ pub use crate::{
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
     track::{
         AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, PublishTimingEvent,
-        PublishTimingEventStream, PublishTimingStage, PublishingLayer, RemoteAudioTrack,
-        RemoteTrack, RemoteVideoTrack, StreamState, SubscribeTimingEvent,
+        PublishTimingEventStream, PublishTimingStage, PublishingLayer, PublishingLayerQuality,
+        RemoteAudioTrack, RemoteTrack, RemoteVideoTrack, StreamState, SubscribeTimingEvent,
         SubscribeTimingEventStream, SubscribeTimingStage, Track, TrackDimension, TrackKind,
         TrackSource, VideoTrack,
     },
