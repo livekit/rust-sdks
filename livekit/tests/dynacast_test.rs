@@ -20,7 +20,11 @@ use {
         video::{SolidColorParams, SolidColorTrack},
         TestRoomOptions,
     },
-    livekit::{options::VideoCodec, prelude::*, track::VideoQuality},
+    livekit::{
+        options::VideoCodec,
+        prelude::*,
+        track::{PublishingLayerQuality, VideoQuality},
+    },
     std::{collections::HashMap, sync::Arc, time::Duration},
     tokio::{
         sync::mpsc::UnboundedReceiver,
@@ -292,20 +296,27 @@ async fn test_dynacast() -> Result<()> {
 
     let layers =
         wait_for_layers(&pub_video_track, "after LOW request", Duration::from_secs(30), |layers| {
-            let low_active = layers.iter().any(|layer| layer.quality == "Low" && layer.active);
-            let high_inactive =
-                layers.iter().filter(|layer| layer.quality != "Low").all(|layer| !layer.active);
+            let low_active = layers
+                .iter()
+                .any(|layer| layer.quality == PublishingLayerQuality::Low && layer.active);
+            let high_inactive = layers
+                .iter()
+                .filter(|layer| layer.quality != PublishingLayerQuality::Low)
+                .all(|layer| !layer.active);
             low_active && high_inactive
         })
         .await?;
     log::info!("dynacast layers after LOW request: {:?}", layers);
     assert!(
-        layers.iter().any(|layer| layer.quality == "Low" && layer.active),
+        layers.iter().any(|layer| layer.quality == PublishingLayerQuality::Low && layer.active),
         "expected Low layer to be active, got {:?}",
         layers
     );
     assert!(
-        layers.iter().filter(|layer| layer.quality != "Low").all(|layer| !layer.active),
+        layers
+            .iter()
+            .filter(|layer| layer.quality != PublishingLayerQuality::Low)
+            .all(|layer| !layer.active),
         "expected Medium and High layers to be inactive, got {:?}",
         layers
     );
