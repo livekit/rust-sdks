@@ -36,3 +36,10 @@ pub fn mint_token(api_key: &str, api_secret: &str, room: &str, identity: &str) -
 pub fn unix_time_secs() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64()
 }
+
+/// Wall-clock microseconds since the epoch. Used as the publisher's per-frame
+/// user_timestamp so the subscriber (same host, same clock) can compute true
+/// capture-to-decode latency.
+pub fn unix_time_micros() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
+}

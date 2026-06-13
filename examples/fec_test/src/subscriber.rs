@@ -80,7 +80,9 @@ async fn main() -> Result<()> {
         "time,publisher,ssrc,packets_received,packets_lost,jitter,bytes_received,\
          fec_packets_received,fec_bytes_received,fec_packets_discarded,\
          frames_decoded,frames_dropped,frames_per_second,frames_received_app,\
-         freeze_count,total_freeze_duration,pause_count,nack_count,pli_count,fir_count"
+         freeze_count,total_freeze_duration,pause_count,nack_count,pli_count,fir_count,\
+         jitter_buffer_delay,jitter_buffer_emitted_count,total_processing_delay,\
+         e2e_latency_ms,e2e_samples"
     )?;
     let csv = Arc::new(Mutex::new(csv));
 
@@ -108,11 +110,30 @@ async fn main() -> Result<()> {
                         // frame/freeze statistics and counts as the
                         // application level "frames received"
                         let frame_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                        // capture-to-decode latency aggregator (reset each
+                        // CSV row): sum of per-frame latencies + sample count
+                        let lat_sum_us = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                        let lat_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+                        // wire the receiver-side packet trailer handler so
+                        // decoded frames carry the publisher's capture
+                        // timestamp; must happen before the stream is created
+                        // (NativeVideoStream auto-picks-up the track handler)
+                        let _timing = video_track.subscribe_timing_events();
                         let mut stream = NativeVideoStream::new(video_track.rtc_track());
                         let counter = frame_counter.clone();
+                        let lsum = lat_sum_us.clone();
+                        let lcount = lat_count.clone();
                         tokio::spawn(async move {
-                            while stream.next().await.is_some() {
+                            while let Some(frame) = stream.next().await {
                                 counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                if let Some(ut) =
+                                    frame.frame_metadata.as_ref().and_then(|m| m.user_timestamp)
+                                {
+                                    let lat = common::unix_time_micros().saturating_sub(ut);
+                                    lsum.fetch_add(lat, std::sync::atomic::Ordering::Relaxed);
+                                    lcount.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
                             }
                         });
 
@@ -129,10 +150,20 @@ async fn main() -> Result<()> {
                                     }
                                     let frames_app =
                                         frame_counter.load(std::sync::atomic::Ordering::Relaxed);
+                                    // windowed capture-to-decode latency
+                                    let lat_sum =
+                                        lat_sum_us.swap(0, std::sync::atomic::Ordering::Relaxed);
+                                    let lat_n =
+                                        lat_count.swap(0, std::sync::atomic::Ordering::Relaxed);
+                                    let e2e_ms = if lat_n > 0 {
+                                        (lat_sum as f64 / lat_n as f64) / 1000.0
+                                    } else {
+                                        0.0
+                                    };
                                     let mut csv = csv.lock().await;
                                     let _ = writeln!(
                                         csv,
-                                        "{:.3},{},{},{},{},{:.6},{},{},{},{},{},{},{:.2},{},{},{:.3},{},{},{},{}",
+                                        "{:.3},{},{},{},{},{:.6},{},{},{},{},{},{},{:.2},{},{},{:.3},{},{},{},{},{:.3},{},{:.3},{:.2},{}",
                                         common::unix_time_secs(),
                                         publisher,
                                         inbound.stream.ssrc,
@@ -153,6 +184,11 @@ async fn main() -> Result<()> {
                                         inbound.inbound.nack_count,
                                         inbound.inbound.pli_count,
                                         inbound.inbound.fir_count,
+                                        inbound.inbound.jitter_buffer_delay,
+                                        inbound.inbound.jitter_buffer_emitted_count,
+                                        inbound.inbound.total_processing_delay,
+                                        e2e_ms,
+                                        lat_n,
                                     );
                                     let _ = csv.flush();
                                 }
