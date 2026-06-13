@@ -23,11 +23,11 @@ use std::{fs::File, io::Write as _, time::Duration};
 use anyhow::Result;
 use clap::Parser;
 use livekit::{
-    options::{FlexFecOptions, TrackPublishOptions, VideoCodec, VideoEncoding},
+    options::{FlexFecOptions, PacketTrailerFeatures, TrackPublishOptions, VideoCodec, VideoEncoding},
     track::{LocalTrack, LocalVideoTrack, TrackSource},
     webrtc::{
         stats::RtcStats,
-        video_frame::{I420Buffer, VideoFrame, VideoRotation},
+        video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation},
         video_source::{native::NativeVideoSource, RtcVideoSource, VideoResolution},
     },
     Room, RoomOptions,
@@ -133,6 +133,13 @@ async fn main() -> Result<()> {
     let track =
         LocalVideoTrack::create_video_track(&args.identity, RtcVideoSource::Native(source.clone()));
 
+    // embed a wall-clock capture timestamp + frame id in each frame so the
+    // subscriber can measure capture-to-decode latency (PacketTrailerFeatures
+    // is #[non_exhaustive], build it via Default)
+    let mut packet_trailer_features = PacketTrailerFeatures::default();
+    packet_trailer_features.user_timestamp = true;
+    packet_trailer_features.frame_id = true;
+
     room.local_participant()
         .publish_track(
             LocalTrack::Video(track.clone()),
@@ -144,6 +151,7 @@ async fn main() -> Result<()> {
                     max_bitrate: args.bitrate * 1000,
                     max_framerate: args.fps as f64,
                 }),
+                packet_trailer_features,
                 ..Default::default()
             },
         )
@@ -168,6 +176,11 @@ async fn main() -> Result<()> {
             render_frame(&mut frame.buffer, width as usize, height as usize, frame_index);
             frame_index = frame_index.wrapping_add(1);
             frame.timestamp_us = started.elapsed().as_micros() as i64;
+            // wall-clock capture time + frame id for end-to-end latency tracking
+            frame.frame_metadata = Some(FrameMetadata {
+                user_timestamp: Some(common::unix_time_micros()),
+                frame_id: Some(frame_index),
+            });
             source.capture_frame(&frame);
         }
     });
