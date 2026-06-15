@@ -335,6 +335,33 @@ async fn test_platform_audio_standalone_device_selection() -> Result<()> {
     Ok(())
 }
 
+/// Test invalid device IDs return DeviceNotFound.
+#[test_log::test(tokio::test)]
+#[serial]
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+async fn test_platform_audio_invalid_device_id_returns_device_not_found() -> Result<()> {
+    use livekit::{reset_platform_audio, PlayoutDeviceId, RecordingDeviceId};
+
+    reset_platform_audio();
+
+    let Some(audio) =
+        try_create_platform_audio("test_platform_audio_invalid_device_id_returns_device_not_found")
+    else {
+        return Ok(());
+    };
+
+    let invalid_recording_id =
+        RecordingDeviceId::from_unchecked_guid("__livekit_missing_recording_device__");
+    assert_eq!(audio.set_recording_device(&invalid_recording_id), Err(AudioError::DeviceNotFound));
+
+    let invalid_playout_id =
+        PlayoutDeviceId::from_unchecked_guid("__livekit_missing_playout_device__");
+    assert_eq!(audio.set_playout_device(&invalid_playout_id), Err(AudioError::DeviceNotFound));
+
+    drop(audio);
+    Ok(())
+}
+
 /// Test audio processing configuration without room connection.
 #[test_log::test(tokio::test)]
 #[serial]
