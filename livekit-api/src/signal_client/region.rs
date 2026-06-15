@@ -26,8 +26,8 @@ use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 /// (e.g., "invalid peer certificate: UnknownIssuer") is often buried
 /// in the source chain.
 fn error_with_chain(err: &dyn StdError) -> String {
-    std::iter::successors(Some(err), |err| err.source())
-        .map(ToString::to_string)
+    std::iter::once(err.to_string())
+        .chain(std::iter::successors(err.source(), |err| err.source()).map(ToString::to_string))
         .collect::<Vec<_>>()
         .join(": ")
 }
