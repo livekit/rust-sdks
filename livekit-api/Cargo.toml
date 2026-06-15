@@ -50,17 +50,40 @@ services-async = ["dep:isahc"]
 access-token = ["dep:jsonwebtoken"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
-# Note that the following features only change the behavior of tokio-tungstenite.
-# It doesn't change the behavior of libwebrtc/webrtc-sys
+# TLS Configuration
+# -----------------
+# These features control TLS behavior for WebSocket and HTTP connections.
+# Note: These features only change the behavior of tokio-tungstenite and reqwest.
+# They don't change the behavior of libwebrtc/webrtc-sys.
+#
+# IMPORTANT FOR CONTAINER DEPLOYMENTS:
+# When using `rustls-tls-native-roots`, the SDK relies on the operating system's
+# CA certificate store. In container environments using slim/minimal base images,
+# this store may be empty, causing TLS errors like "invalid peer certificate: UnknownIssuer".
+#
+# Solutions:
+#   1. Install CA certificates in your Dockerfile:
+#      - Debian/Ubuntu: RUN apt-get update && apt-get install -y ca-certificates
+#      - Alpine: RUN apk add --no-cache ca-certificates
+#
+#   2. Use `rustls-tls-webpki-roots` instead, which bundles Mozilla's root
+#      certificates and doesn't require system CA certificates. This is the
+#      recommended option for containerized deployments. The drawback is that
+#      the embedded certificates can expire, requiring a fresh build to update them.
+
+# Uses the platform's native TLS implementation (OpenSSL on Linux, Secure Transport on macOS, SChannel on Windows)
 native-tls = [
     "tokio-tungstenite?/native-tls",
     "async-tungstenite?/async-native-tls",
     "reqwest?/native-tls"
 ]
+# Same as native-tls but compiles OpenSSL from source (useful for cross-compilation)
 native-tls-vendored = [
     "tokio-tungstenite?/native-tls-vendored",
     "reqwest?/native-tls-vendored",
 ]
+# Uses rustls with the operating system's CA certificate store.
+# Requires ca-certificates to be installed in container environments.
 rustls-tls-native-roots = [
     "tokio-tungstenite?/rustls-tls-native-roots",
     "reqwest?/rustls-tls-native-roots",
@@ -68,6 +91,8 @@ rustls-tls-native-roots = [
     "dep:tokio-rustls",
     "dep:rustls-native-certs"
 ]
+# Uses rustls with Mozilla's bundled root certificates.
+# RECOMMENDED for container deployments - no system CA certificates required.
 rustls-tls-webpki-roots = [
     "tokio-tungstenite?/rustls-tls-webpki-roots",
     "reqwest?/rustls-tls-webpki-roots",

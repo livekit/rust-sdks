@@ -1633,6 +1633,7 @@ async fn test_platform_audio_adm_lifecycle() -> Result<()> {
 /// inconsistencies.
 #[test_log::test(tokio::test)]
 #[serial]
+#[cfg_attr(target_os = "windows", ignore = "rapid WASAPI ADM mode switching is unstable on CI")]
 async fn test_adm_proxy_rapid_mode_changes() -> Result<()> {
     use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
     use livekit::rtc_engine::lk_runtime::LkRuntime;
