@@ -4158,30 +4158,30 @@ pub mod update_data_subscription {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StoreDataBlobRequest {
-    #[prost(message, optional, tag="1")]
-    pub blob: ::core::option::Option<DataBlob>,
-    #[prost(uint32, tag="2")]
+    #[prost(uint32, tag="1")]
     pub request_id: u32,
+    #[prost(message, optional, tag="2")]
+    pub blob: ::core::option::Option<DataBlob>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetDataBlobRequest {
+    #[prost(uint32, tag="1")]
+    pub request_id: u32,
     /// Identity of the participant who owns the blob.
-    #[prost(string, tag="1")]
+    #[prost(string, tag="2")]
     pub participant_identity: ::prost::alloc::string::String,
     /// Unique key of the data blob to retrieve.
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag="3")]
     pub key: ::core::option::Option<DataBlobKey>,
-    #[prost(uint32, tag="3")]
-    pub request_id: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetDataBlobResponse {
-    #[prost(message, optional, tag="1")]
-    pub blob: ::core::option::Option<DataBlob>,
-    #[prost(uint32, tag="2")]
+    #[prost(uint32, tag="1")]
     pub request_id: u32,
+    #[prost(message, optional, tag="2")]
+    pub blob: ::core::option::Option<DataBlob>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

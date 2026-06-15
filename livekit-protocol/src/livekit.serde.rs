@@ -19081,24 +19081,24 @@ impl serde::Serialize for GetDataBlobRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.request_id != 0 {
+            len += 1;
+        }
         if !self.participant_identity.is_empty() {
             len += 1;
         }
         if self.key.is_some() {
             len += 1;
         }
-        if self.request_id != 0 {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.GetDataBlobRequest", len)?;
+        if self.request_id != 0 {
+            struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
         if !self.participant_identity.is_empty() {
             struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
         }
         if let Some(v) = self.key.as_ref() {
             struct_ser.serialize_field("key", v)?;
-        }
-        if self.request_id != 0 {
-            struct_ser.serialize_field("requestId", &self.request_id)?;
         }
         struct_ser.end()
     }
@@ -19110,18 +19110,18 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "request_id",
+            "requestId",
             "participant_identity",
             "participantIdentity",
             "key",
-            "request_id",
-            "requestId",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            RequestId,
             ParticipantIdentity,
             Key,
-            RequestId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -19144,9 +19144,9 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobRequest {
                         E: serde::de::Error,
                     {
                         match value {
+                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
                             "key" => Ok(GeneratedField::Key),
-                            "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -19166,11 +19166,19 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut request_id__ = None;
                 let mut participant_identity__ = None;
                 let mut key__ = None;
-                let mut request_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::RequestId => {
+                            if request_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("requestId"));
+                            }
+                            request_id__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::ParticipantIdentity => {
                             if participant_identity__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("participantIdentity"));
@@ -19183,23 +19191,15 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobRequest {
                             }
                             key__ = map_.next_value()?;
                         }
-                        GeneratedField::RequestId => {
-                            if request_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("requestId"));
-                            }
-                            request_id__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
                 Ok(GetDataBlobRequest {
+                    request_id: request_id__.unwrap_or_default(),
                     participant_identity: participant_identity__.unwrap_or_default(),
                     key: key__,
-                    request_id: request_id__.unwrap_or_default(),
                 })
             }
         }
@@ -19214,18 +19214,18 @@ impl serde::Serialize for GetDataBlobResponse {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.request_id != 0 {
+            len += 1;
+        }
         if self.blob.is_some() {
             len += 1;
         }
-        if self.request_id != 0 {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.GetDataBlobResponse", len)?;
-        if let Some(v) = self.blob.as_ref() {
-            struct_ser.serialize_field("blob", v)?;
-        }
         if self.request_id != 0 {
             struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        if let Some(v) = self.blob.as_ref() {
+            struct_ser.serialize_field("blob", v)?;
         }
         struct_ser.end()
     }
@@ -19237,15 +19237,15 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobResponse {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "blob",
             "request_id",
             "requestId",
+            "blob",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Blob,
             RequestId,
+            Blob,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -19268,8 +19268,8 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobResponse {
                         E: serde::de::Error,
                     {
                         match value {
-                            "blob" => Ok(GeneratedField::Blob),
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "blob" => Ok(GeneratedField::Blob),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -19289,16 +19289,10 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobResponse {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut blob__ = None;
                 let mut request_id__ = None;
+                let mut blob__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Blob => {
-                            if blob__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("blob"));
-                            }
-                            blob__ = map_.next_value()?;
-                        }
                         GeneratedField::RequestId => {
                             if request_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("requestId"));
@@ -19307,14 +19301,20 @@ impl<'de> serde::Deserialize<'de> for GetDataBlobResponse {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Blob => {
+                            if blob__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blob"));
+                            }
+                            blob__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
                 Ok(GetDataBlobResponse {
-                    blob: blob__,
                     request_id: request_id__.unwrap_or_default(),
+                    blob: blob__,
                 })
             }
         }
@@ -46299,18 +46299,18 @@ impl serde::Serialize for StoreDataBlobRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.request_id != 0 {
+            len += 1;
+        }
         if self.blob.is_some() {
             len += 1;
         }
-        if self.request_id != 0 {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.StoreDataBlobRequest", len)?;
-        if let Some(v) = self.blob.as_ref() {
-            struct_ser.serialize_field("blob", v)?;
-        }
         if self.request_id != 0 {
             struct_ser.serialize_field("requestId", &self.request_id)?;
+        }
+        if let Some(v) = self.blob.as_ref() {
+            struct_ser.serialize_field("blob", v)?;
         }
         struct_ser.end()
     }
@@ -46322,15 +46322,15 @@ impl<'de> serde::Deserialize<'de> for StoreDataBlobRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "blob",
             "request_id",
             "requestId",
+            "blob",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Blob,
             RequestId,
+            Blob,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -46353,8 +46353,8 @@ impl<'de> serde::Deserialize<'de> for StoreDataBlobRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "blob" => Ok(GeneratedField::Blob),
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
+                            "blob" => Ok(GeneratedField::Blob),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -46374,16 +46374,10 @@ impl<'de> serde::Deserialize<'de> for StoreDataBlobRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut blob__ = None;
                 let mut request_id__ = None;
+                let mut blob__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Blob => {
-                            if blob__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("blob"));
-                            }
-                            blob__ = map_.next_value()?;
-                        }
                         GeneratedField::RequestId => {
                             if request_id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("requestId"));
@@ -46392,14 +46386,20 @@ impl<'de> serde::Deserialize<'de> for StoreDataBlobRequest {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Blob => {
+                            if blob__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("blob"));
+                            }
+                            blob__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
                 Ok(StoreDataBlobRequest {
-                    blob: blob__,
                     request_id: request_id__.unwrap_or_default(),
+                    blob: blob__,
                 })
             }
         }
