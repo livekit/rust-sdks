@@ -26,8 +26,14 @@ use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 /// (e.g., "invalid peer certificate: UnknownIssuer") is often buried
 /// in the source chain.
 fn error_with_chain(err: &dyn StdError) -> String {
+    let mut source = err.source();
+
     std::iter::once(err.to_string())
-        .chain(std::iter::successors(err.source(), |err| err.source()).map(ToString::to_string))
+        .chain(std::iter::from_fn(move || {
+            let err = source?;
+            source = err.source();
+            Some(err.to_string())
+        }))
         .collect::<Vec<_>>()
         .join(": ")
 }
@@ -170,7 +176,7 @@ mod tests {
     #[test]
     fn test_error_with_chain_single_error() {
         let err = RootCauseError { message: "root cause".to_string() };
-        let result = error_with_chain(err);
+        let result = error_with_chain(&err);
         assert_eq!(result, "root cause");
     }
 
@@ -179,7 +185,7 @@ mod tests {
         let root =
             RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
         let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
-        let result = error_with_chain(middle);
+        let result = error_with_chain(&middle);
         assert_eq!(result, "error trying to connect: invalid peer certificate: UnknownIssuer");
     }
 
@@ -195,7 +201,7 @@ mod tests {
                     .to_string(),
             source: middle,
         };
-        let result = error_with_chain(outer);
+        let result = error_with_chain(&outer);
         assert_eq!(
             result,
             "error sending request for url (https://example.livekit.cloud/settings/regions): error trying to connect: invalid peer certificate: UnknownIssuer"
@@ -208,7 +214,7 @@ mod tests {
         let root =
             RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
         let outer = MiddleError { message: "TLS connection error".to_string(), source: root };
-        let result = error_with_chain(outer);
+        let result = error_with_chain(&outer);
 
         // The error message should contain both the outer message and the root cause
         assert!(result.contains("TLS connection error"));
@@ -224,7 +230,7 @@ mod tests {
         let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
         let outer = OuterError { message: "error sending request".to_string(), source: middle };
 
-        let signal_error = SignalError::RegionError(error_with_chain(outer));
+        let signal_error = SignalError::RegionError(error_with_chain(&outer));
         let error_string = signal_error.to_string();
 
         // Verify the full chain is in the error message
@@ -251,7 +257,7 @@ mod tests {
         let inner = io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused");
         let outer = io::Error::new(io::ErrorKind::Other, inner);
 
-        let result = error_with_chain(outer);
+        let result = error_with_chain(&outer);
         assert!(
             result.contains("connection refused"),
             "Should contain the inner error message, got: {}",
