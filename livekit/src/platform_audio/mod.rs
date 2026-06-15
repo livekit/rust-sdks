@@ -635,6 +635,18 @@ impl PlatformAudio {
         })
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    fn ensure_device_exists<Device>(
+        devices: impl IntoIterator<Item = Device>,
+        mut is_match: impl FnMut(&Device) -> bool,
+    ) -> AudioResult<()> {
+        if devices.into_iter().any(|device| is_match(&device)) {
+            Ok(())
+        } else {
+            Err(AudioError::DeviceNotFound)
+        }
+    }
+
     // =========================================================================
     // Device Selection
     // =========================================================================
@@ -673,12 +685,8 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
-        // Validate that the device ID exists in the current device list
-        // Skip validation on mobile where device selection is a no-op
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
-        if !self.recording_devices().any(|d| &d.id == id) {
-            return Err(AudioError::DeviceNotFound);
-        }
+        Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
 
         if self.handle.runtime.set_recording_device_by_guid(id.as_str()) {
             Ok(())
@@ -721,12 +729,8 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
-        // Validate that the device ID exists in the current device list
-        // Skip validation on mobile where device selection is a no-op
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
-        if !self.playout_devices().any(|d| &d.id == id) {
-            return Err(AudioError::DeviceNotFound);
-        }
+        Self::ensure_device_exists(self.playout_devices(), |device| &device.id == id)?;
 
         let runtime = &self.handle.runtime;
         if !runtime.set_playout_device_by_guid(id.as_str()) {
