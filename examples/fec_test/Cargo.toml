@@ -17,6 +17,7 @@ tokio = { workspace = true, features = ["full", "parking_lot"] }
 futures = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-protocol = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 env_logger = { workspace = true }

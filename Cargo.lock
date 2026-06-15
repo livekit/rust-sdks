@@ -2395,6 +2395,7 @@ dependencies = [
  "futures",
  "livekit",
  "livekit-api",
+ "livekit-protocol",
  "log",
  "tokio",
 ]
