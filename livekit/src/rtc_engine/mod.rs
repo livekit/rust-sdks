@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bytes::Bytes;
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
-use livekit_runtime::{timeout, JoinHandle};
+use livekit_runtime::JoinHandle;
 use parking_lot::{RwLock, RwLockReadGuard};
 use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
@@ -317,76 +316,6 @@ impl RtcEngine {
             (handle.session.clone(), _r_lock)
         };
         session.publish_data(data, kind, is_raw_packet).await
-    }
-
-    // TODO: unify request/response logic, timeout behavior across SDK.
-    const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-
-    pub async fn store_data_blob(
-        &self,
-        key: proto::DataBlobKey,
-        contents: Bytes,
-    ) -> EngineResult<()> {
-        let blob = proto::DataBlob { key: Some(key), contents: contents.into() };
-
-        let session = self.session();
-        let request_id = session.signal_client().next_request_id();
-        let request = proto::StoreDataBlobRequest { blob: Some(blob), request_id };
-        self.send_request(proto::signal_request::Message::StoreDataBlobRequest(request)).await;
-
-        livekit_runtime::spawn(async move {
-            let Ok(response) =
-                timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, session.get_response(request_id)).await
-            else {
-                return; // No error arrived within the window: treat the store as successful.
-            };
-            if response.reason() != proto::request_response::Reason::Ok {
-                log::error!(
-                    "store data blob failed ({:?}): {}",
-                    response.reason(),
-                    response.message
-                );
-            }
-        });
-
-        Ok(())
-    }
-
-    pub async fn get_data_blob(
-        &self,
-        key: proto::DataBlobKey,
-        participant: ParticipantIdentity,
-    ) -> EngineResult<Bytes> {
-        let session = self.session();
-        let request_id = session.signal_client().next_request_id();
-        let request = proto::GetDataBlobRequest {
-            key: Some(key),
-            participant_identity: participant.0,
-            request_id,
-        };
-        self.send_request(proto::signal_request::Message::GetDataBlobRequest(request)).await;
-
-        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
-            tokio::select! {
-                response = session.get_data_blob_response(request_id) => Ok(response),
-                error = session.get_response(request_id) => Err(error),
-            }
-        })
-        .await
-        .map_err(|_| EngineError::Signal(SignalError::Timeout("get data blob timed out".into())))?;
-
-        match response {
-            Ok(response) => {
-                let blob = response.blob.ok_or_else(|| {
-                    EngineError::Internal("get data blob response is malformed".into())
-                })?;
-                Ok(blob.contents.into())
-            }
-            Err(error) => Err(EngineError::Internal(
-                format!("get data blob request failed ({:?}): {}", error.reason(), error.message)
-                    .into(),
-            )),
-        }
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
