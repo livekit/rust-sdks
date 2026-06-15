@@ -25,15 +25,11 @@ use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 /// This is important for debugging TLS errors, where the root cause
 /// (e.g., "invalid peer certificate: UnknownIssuer") is often buried
 /// in the source chain.
-fn error_with_chain<E: StdError>(err: E) -> String {
-    let mut msg = err.to_string();
-    let mut source = err.source();
-    while let Some(err) = source {
-        msg.push_str(": ");
-        msg.push_str(&err.to_string());
-        source = err.source();
-    }
-    msg
+fn error_with_chain(err: &dyn StdError) -> String {
+    std::iter::successors(Some(err), |err| err.source())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ")
 }
 
 pub struct RegionUrlProvider;
@@ -74,7 +70,7 @@ pub(crate) async fn fetch_from_endpoint(
             .headers(headers)
             .send()
             .await
-            .map_err(|e| SignalError::RegionError(error_with_chain(e)))?;
+            .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
 
         if !res.status().is_success() {
             return Err(SignalError::Client(res.status(), res.text().await.unwrap_or_default()));
@@ -82,7 +78,7 @@ pub(crate) async fn fetch_from_endpoint(
         let res = res
             .json::<RegionUrlResponse>()
             .await
-            .map_err(|e| SignalError::RegionError(error_with_chain(e)))?;
+            .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
         Ok(res.regions.into_iter().map(|i| i.url).collect())
     };
 

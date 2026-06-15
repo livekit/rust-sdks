@@ -68,7 +68,8 @@ webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 #
 #   2. Use `rustls-tls-webpki-roots` instead, which bundles Mozilla's root
 #      certificates and doesn't require system CA certificates. This is the
-#      recommended option for containerized deployments.
+#      recommended option for containerized deployments. The drawback is that
+#      the embedded certificates can expire, requiring a fresh build to update them.
 
 # Uses the platform's native TLS implementation (OpenSSL on Linux, Secure Transport on macOS, SChannel on Windows)
 native-tls = [
