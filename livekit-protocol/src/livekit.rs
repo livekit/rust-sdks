@@ -2358,10 +2358,9 @@ pub struct WebSource {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MediaSource {
+    /// TODO: DataConfig data = 4;
     #[prost(message, optional, tag="3")]
     pub audio: ::core::option::Option<AudioConfig>,
-    #[prost(message, optional, tag="4")]
-    pub data: ::core::option::Option<DataConfig>,
     #[prost(oneof="media_source::Video", tags="1, 2")]
     pub video: ::core::option::Option<media_source::Video>,
 }
@@ -2376,6 +2375,8 @@ pub mod media_source {
         ParticipantVideo(super::ParticipantVideo),
     }
 }
+// --- Video Configuration ---
+
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantVideo {
@@ -2391,9 +2392,10 @@ pub struct ParticipantVideo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioConfig {
-    /// If empty, all audio captured in both channels.
-    /// If non-empty, only matching audio is captured and routed. Unmatched is excluded.
-    #[prost(message, repeated, tag="1")]
+    /// If true, all unmatched audio is recorded to both channels
+    #[prost(bool, tag="1")]
+    pub capture_all: bool,
+    #[prost(message, repeated, tag="2")]
     pub routes: ::prost::alloc::vec::Vec<AudioRoute>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2422,15 +2424,15 @@ pub mod audio_route {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataConfig {
-    /// If empty, all data tracks captured.
-    /// If non-empty, only matching data tracks are captured.
-    #[prost(message, repeated, tag="1")]
+    #[prost(bool, tag="1")]
+    pub capture_all: bool,
+    #[prost(message, repeated, tag="2")]
     pub selectors: ::prost::alloc::vec::Vec<DataSelector>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataSelector {
-    #[prost(oneof="data_selector::Match", tags="1, 2, 3")]
+    #[prost(oneof="data_selector::Match", tags="1, 2")]
     pub r#match: ::core::option::Option<data_selector::Match>,
 }
 /// Nested message and enum types in `DataSelector`.
@@ -2442,8 +2444,6 @@ pub mod data_selector {
         TrackId(::prost::alloc::string::String),
         #[prost(string, tag="2")]
         ParticipantIdentity(::prost::alloc::string::String),
-        #[prost(string, tag="3")]
-        Topic(::prost::alloc::string::String),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2512,7 +2512,7 @@ pub mod output {
         Stream(super::StreamOutput),
         #[prost(message, tag="3")]
         Segments(super::SegmentedFileOutput),
-        /// 5 reserved for mcap;
+        /// TODO: DataOutput data = 5;
         #[prost(message, tag="4")]
         Images(super::ImageOutput),
     }
@@ -2564,11 +2564,13 @@ pub struct SegmentedFileOutput {
     /// disable upload of manifest file (default false)
     #[prost(bool, tag="8")]
     pub disable_manifest: bool,
+    /// TODO: deprecate
     #[prost(oneof="segmented_file_output::Output", tags="5, 6, 7, 9")]
     pub output: ::core::option::Option<segmented_file_output::Output>,
 }
 /// Nested message and enum types in `SegmentedFileOutput`.
 pub mod segmented_file_output {
+    /// TODO: deprecate
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Output {
@@ -2607,11 +2609,13 @@ pub struct ImageOutput {
     /// disable upload of manifest file (default false)
     #[prost(bool, tag="7")]
     pub disable_manifest: bool,
+    /// TODO: deprecate
     #[prost(oneof="image_output::Output", tags="8, 9, 10, 11")]
     pub output: ::core::option::Option<image_output::Output>,
 }
 /// Nested message and enum types in `ImageOutput`.
 pub mod image_output {
+    /// TODO: deprecate
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Output {
@@ -2831,6 +2835,7 @@ pub mod egress_info {
         Egress(super::StartEgressRequest),
         #[prost(message, tag="30")]
         Replay(super::ExportReplayRequest),
+        /// TODO: deprecate
         #[prost(message, tag="4")]
         RoomComposite(super::RoomCompositeEgressRequest),
         #[prost(message, tag="14")]
@@ -3053,7 +3058,7 @@ pub mod export_replay_request {
         Advanced(super::EncodingOptions),
     }
 }
-// --- V1 ---
+// TODO: deprecate --- V1 ---
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4105,30 +4110,30 @@ pub mod update_data_subscription {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StoreDataBlobRequest {
-    #[prost(message, optional, tag="1")]
-    pub blob: ::core::option::Option<DataBlob>,
-    #[prost(uint32, tag="2")]
+    #[prost(uint32, tag="1")]
     pub request_id: u32,
+    #[prost(message, optional, tag="2")]
+    pub blob: ::core::option::Option<DataBlob>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetDataBlobRequest {
+    #[prost(uint32, tag="1")]
+    pub request_id: u32,
     /// Identity of the participant who owns the blob.
-    #[prost(string, tag="1")]
+    #[prost(string, tag="2")]
     pub participant_identity: ::prost::alloc::string::String,
     /// Unique key of the data blob to retrieve.
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag="3")]
     pub key: ::core::option::Option<DataBlobKey>,
-    #[prost(uint32, tag="3")]
-    pub request_id: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetDataBlobResponse {
-    #[prost(message, optional, tag="1")]
-    pub blob: ::core::option::Option<DataBlob>,
-    #[prost(uint32, tag="2")]
+    #[prost(uint32, tag="1")]
     pub request_id: u32,
+    #[prost(message, optional, tag="2")]
+    pub blob: ::core::option::Option<DataBlob>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
