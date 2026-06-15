@@ -20,7 +20,9 @@ Generate Swift bindings and build a multi-platform XCFramework:
 cargo make swift-package
 ```
 
-See [support/swift/README.md](./support/swift/README.md) for local vs. release modes, consumer integration, and prerequisites (Xcode, Rust Apple targets).
+For a fast, debuggable variant (macOS-only, unstripped), run `cargo make swift-package-debug` — see [support/swift/DEBUGGING.md](./support/swift/DEBUGGING.md).
+
+See [support/swift/README.md](./support/swift/README.md) for debugging vs. release modes, consumer integration, and prerequisites (Xcode, Rust Apple targets).
 
 ### Node
 
