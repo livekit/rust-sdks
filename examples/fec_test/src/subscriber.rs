@@ -61,7 +61,10 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let token = common::mint_token(&args.api_key, &args.api_secret, &args.room, &args.identity)?;
+    // subscriber never enables low-latency (only the publisher's token forces
+    // room re-creation); pass false
+    let token =
+        common::mint_token(&args.api_key, &args.api_secret, &args.room, &args.identity, false)?;
 
     let mut options = RoomOptions::default();
     options.auto_subscribe = true;

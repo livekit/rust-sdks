@@ -16,9 +16,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use livekit_api::access_token::{AccessToken, VideoGrants};
+use livekit_protocol::RoomConfiguration;
 
-pub fn mint_token(api_key: &str, api_secret: &str, room: &str, identity: &str) -> Result<String> {
-    let token = AccessToken::with_api_key(api_key, api_secret)
+pub fn mint_token(
+    api_key: &str,
+    api_secret: &str,
+    room: &str,
+    identity: &str,
+    low_latency: bool,
+) -> Result<String> {
+    let mut token = AccessToken::with_api_key(api_key, api_secret)
         .with_identity(identity)
         .with_name(identity)
         .with_ttl(Duration::from_secs(3600))
@@ -28,9 +35,21 @@ pub fn mint_token(api_key: &str, api_secret: &str, room: &str, identity: &str) -
             can_publish: true,
             can_subscribe: true,
             ..Default::default()
-        })
-        .to_jwt()?;
-    Ok(token)
+        });
+    // Low-latency mode attaches a room configuration that enables the
+    // playout-delay RTP extension with ~0 delay (min 0 / max 1 ms). The SFU
+    // (re)creates the room with it on connect, so the publisher must connect
+    // before any subscriber joins — a subscriber already in the room would be
+    // dropped by the re-creation.
+    if low_latency {
+        token = token.with_room_config(RoomConfiguration {
+            name: room.to_owned(),
+            min_playout_delay: 0,
+            max_playout_delay: 1,
+            ..Default::default()
+        });
+    }
+    Ok(token.to_jwt()?)
 }
 
 pub fn unix_time_secs() -> f64 {

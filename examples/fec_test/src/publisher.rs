@@ -64,6 +64,11 @@ struct Args {
     /// target encoder bitrate in kbps
     #[arg(long, default_value_t = 1000)]
     bitrate: u64,
+    /// low-latency mode: attach a room config enabling the playout-delay RTP
+    /// extension (~0 delay), which forces room (re)creation — so the publisher
+    /// must connect before subscribers join (the harness handles ordering).
+    #[arg(long)]
+    low_latency: bool,
     /// run duration in seconds, 0 = forever
     #[arg(long, default_value_t = 0)]
     duration: u64,
@@ -114,7 +119,13 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let token = common::mint_token(&args.api_key, &args.api_secret, &args.room, &args.identity)?;
+    let token = common::mint_token(
+        &args.api_key,
+        &args.api_secret,
+        &args.room,
+        &args.identity,
+        args.low_latency,
+    )?;
 
     let mut options = RoomOptions::default();
     if args.fec {
@@ -157,6 +168,10 @@ async fn main() -> Result<()> {
         )
         .await?;
     log::info!("published video track");
+    // Readiness sentinel on stdout (always captured, independent of RUST_LOG):
+    // the harness waits for this before starting subscribers, so they join only
+    // after the room exists with the playout-delay config and a track to receive.
+    println!("PUBLISHER_READY {}", args.identity);
 
     // frame pump
     let fps = args.fps.max(1);
