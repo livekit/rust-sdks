@@ -71,6 +71,7 @@ pub struct DataTrackInfo {
     pub(crate) pub_handle: Handle,
     pub(crate) name: String,
     pub(crate) uses_e2ee: bool,
+    pub(crate) reliability: DataTrackReliability,
 }
 
 impl DataTrackInfo {
@@ -92,6 +93,24 @@ impl DataTrackInfo {
     pub fn uses_e2ee(&self) -> bool {
         self.uses_e2ee
     }
+
+    /// Reliability mode used by the publisher for frames sent on this track.
+    pub fn reliability(&self) -> DataTrackReliability {
+        self.reliability
+    }
+}
+
+/// Delivery reliability used for a data track.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
+pub enum DataTrackReliability {
+    /// Unordered SCTP with no retransmits. The SDK keeps the freshest pending
+    /// frame under backpressure.
+    #[default]
+    Lossy,
+    /// Ordered reliable SCTP. The SDK applies backpressure instead of dropping
+    /// queued frames.
+    Reliable,
 }
 
 /// SFU-assigned identifier uniquely identifying a data track.

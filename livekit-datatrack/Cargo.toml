@@ -12,7 +12,7 @@ livekit-protocol = { workspace = true }
 livekit-runtime = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["sync"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "sync"] }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 futures-core = { workspace = true }
 bytes = { workspace = true }

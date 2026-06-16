@@ -30,6 +30,13 @@ message DataTrackInfo {
   required string sid = 2;
   // Whether or not frames sent on the track use end-to-end encryption.
   required bool uses_e2ee = 3;
+  // Reliability mode used by the publisher for this track.
+  optional DataTrackReliability reliability = 4 [default = DTR_LOSSY];
+}
+
+enum DataTrackReliability {
+  DTR_LOSSY = 0;
+  DTR_RELIABLE = 1;
 }
 
 // A frame published on a data track.
@@ -110,6 +117,8 @@ message DataTrackOptions {
   // Must not be empty and must be unique per publisher.
   //
   required string name = 1;
+  // Reliability mode for frames sent on this track.
+  optional DataTrackReliability reliability = 2 [default = DTR_LOSSY];
 }
 
 // Publish a data track
@@ -178,6 +187,8 @@ message OwnedDataTrackStream {
 message DataTrackSubscribeOptions {
   // Maximum number of frames to buffer internally.
   optional uint32 buffer_size = 1;
+  // Desired reliability mode for this subscription.
+  optional DataTrackReliability reliability = 2;
 }
 
 // Checks if the track is still published.

@@ -4906,10 +4906,16 @@ impl serde::Serialize for AudioConfig {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.capture_all {
+            len += 1;
+        }
         if !self.routes.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.AudioConfig", len)?;
+        if self.capture_all {
+            struct_ser.serialize_field("captureAll", &self.capture_all)?;
+        }
         if !self.routes.is_empty() {
             struct_ser.serialize_field("routes", &self.routes)?;
         }
@@ -4923,11 +4929,14 @@ impl<'de> serde::Deserialize<'de> for AudioConfig {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "capture_all",
+            "captureAll",
             "routes",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            CaptureAll,
             Routes,
             __SkipField__,
         }
@@ -4951,6 +4960,7 @@ impl<'de> serde::Deserialize<'de> for AudioConfig {
                         E: serde::de::Error,
                     {
                         match value {
+                            "captureAll" | "capture_all" => Ok(GeneratedField::CaptureAll),
                             "routes" => Ok(GeneratedField::Routes),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -4971,9 +4981,16 @@ impl<'de> serde::Deserialize<'de> for AudioConfig {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut capture_all__ = None;
                 let mut routes__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::CaptureAll => {
+                            if capture_all__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("captureAll"));
+                            }
+                            capture_all__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::Routes => {
                             if routes__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("routes"));
@@ -4986,6 +5003,7 @@ impl<'de> serde::Deserialize<'de> for AudioConfig {
                     }
                 }
                 Ok(AudioConfig {
+                    capture_all: capture_all__.unwrap_or_default(),
                     routes: routes__.unwrap_or_default(),
                 })
             }
@@ -6994,6 +7012,7 @@ impl serde::Serialize for client_info::Capability {
         let variant = match self {
             Self::CapUnused => "CAP_UNUSED",
             Self::CapPacketTrailer => "CAP_PACKET_TRAILER",
+            Self::CapReliableDataTrack => "CAP_RELIABLE_DATA_TRACK",
         };
         serializer.serialize_str(variant)
     }
@@ -7007,6 +7026,7 @@ impl<'de> serde::Deserialize<'de> for client_info::Capability {
         const FIELDS: &[&str] = &[
             "CAP_UNUSED",
             "CAP_PACKET_TRAILER",
+            "CAP_RELIABLE_DATA_TRACK",
         ];
 
         struct GeneratedVisitor;
@@ -7049,6 +7069,7 @@ impl<'de> serde::Deserialize<'de> for client_info::Capability {
                 match value {
                     "CAP_UNUSED" => Ok(client_info::Capability::CapUnused),
                     "CAP_PACKET_TRAILER" => Ok(client_info::Capability::CapPacketTrailer),
+                    "CAP_RELIABLE_DATA_TRACK" => Ok(client_info::Capability::CapReliableDataTrack),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -10725,10 +10746,16 @@ impl serde::Serialize for DataConfig {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.capture_all {
+            len += 1;
+        }
         if !self.selectors.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.DataConfig", len)?;
+        if self.capture_all {
+            struct_ser.serialize_field("captureAll", &self.capture_all)?;
+        }
         if !self.selectors.is_empty() {
             struct_ser.serialize_field("selectors", &self.selectors)?;
         }
@@ -10742,11 +10769,14 @@ impl<'de> serde::Deserialize<'de> for DataConfig {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "capture_all",
+            "captureAll",
             "selectors",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            CaptureAll,
             Selectors,
             __SkipField__,
         }
@@ -10770,6 +10800,7 @@ impl<'de> serde::Deserialize<'de> for DataConfig {
                         E: serde::de::Error,
                     {
                         match value {
+                            "captureAll" | "capture_all" => Ok(GeneratedField::CaptureAll),
                             "selectors" => Ok(GeneratedField::Selectors),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -10790,9 +10821,16 @@ impl<'de> serde::Deserialize<'de> for DataConfig {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut capture_all__ = None;
                 let mut selectors__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::CaptureAll => {
+                            if capture_all__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("captureAll"));
+                            }
+                            capture_all__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::Selectors => {
                             if selectors__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("selectors"));
@@ -10805,6 +10843,7 @@ impl<'de> serde::Deserialize<'de> for DataConfig {
                     }
                 }
                 Ok(DataConfig {
+                    capture_all: capture_all__.unwrap_or_default(),
                     selectors: selectors__.unwrap_or_default(),
                 })
             }
@@ -11260,9 +11299,6 @@ impl serde::Serialize for DataSelector {
                 data_selector::Match::ParticipantIdentity(v) => {
                     struct_ser.serialize_field("participantIdentity", v)?;
                 }
-                data_selector::Match::Topic(v) => {
-                    struct_ser.serialize_field("topic", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -11279,14 +11315,12 @@ impl<'de> serde::Deserialize<'de> for DataSelector {
             "trackId",
             "participant_identity",
             "participantIdentity",
-            "topic",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             TrackId,
             ParticipantIdentity,
-            Topic,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -11311,7 +11345,6 @@ impl<'de> serde::Deserialize<'de> for DataSelector {
                         match value {
                             "trackId" | "track_id" => Ok(GeneratedField::TrackId),
                             "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
-                            "topic" => Ok(GeneratedField::Topic),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -11345,12 +11378,6 @@ impl<'de> serde::Deserialize<'de> for DataSelector {
                                 return Err(serde::de::Error::duplicate_field("participantIdentity"));
                             }
                             r#match__ = map_.next_value::<::std::option::Option<_>>()?.map(data_selector::Match::ParticipantIdentity);
-                        }
-                        GeneratedField::Topic => {
-                            if r#match__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("topic"));
-                            }
-                            r#match__ = map_.next_value::<::std::option::Option<_>>()?.map(data_selector::Match::Topic);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -12546,6 +12573,9 @@ impl serde::Serialize for DataTrackInfo {
         if self.encryption != 0 {
             len += 1;
         }
+        if self.reliability != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackInfo", len)?;
         if self.pub_handle != 0 {
             struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
@@ -12560,6 +12590,11 @@ impl serde::Serialize for DataTrackInfo {
             let v = encryption::Type::try_from(self.encryption)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.encryption)))?;
             struct_ser.serialize_field("encryption", &v)?;
+        }
+        if self.reliability != 0 {
+            let v = DataTrackReliability::try_from(self.reliability)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.reliability)))?;
+            struct_ser.serialize_field("reliability", &v)?;
         }
         struct_ser.end()
     }
@@ -12576,6 +12611,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
             "sid",
             "name",
             "encryption",
+            "reliability",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -12584,6 +12620,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
             Sid,
             Name,
             Encryption,
+            Reliability,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -12610,6 +12647,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                             "sid" => Ok(GeneratedField::Sid),
                             "name" => Ok(GeneratedField::Name),
                             "encryption" => Ok(GeneratedField::Encryption),
+                            "reliability" => Ok(GeneratedField::Reliability),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -12633,6 +12671,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                 let mut sid__ = None;
                 let mut name__ = None;
                 let mut encryption__ = None;
+                let mut reliability__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PubHandle => {
@@ -12661,6 +12700,12 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                             }
                             encryption__ = Some(map_.next_value::<encryption::Type>()? as i32);
                         }
+                        GeneratedField::Reliability => {
+                            if reliability__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reliability"));
+                            }
+                            reliability__ = Some(map_.next_value::<DataTrackReliability>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -12671,10 +12716,82 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                     sid: sid__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     encryption: encryption__.unwrap_or_default(),
+                    reliability: reliability__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("livekit.DataTrackInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DataTrackReliability {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::DtrLossy => "DTR_LOSSY",
+            Self::DtrReliable => "DTR_RELIABLE",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for DataTrackReliability {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "DTR_LOSSY",
+            "DTR_RELIABLE",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DataTrackReliability;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "DTR_LOSSY" => Ok(DataTrackReliability::DtrLossy),
+                    "DTR_RELIABLE" => Ok(DataTrackReliability::DtrReliable),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for DataTrackSubscriberHandles {
@@ -12919,9 +13036,17 @@ impl serde::Serialize for DataTrackSubscriptionOptions {
         if self.target_fps.is_some() {
             len += 1;
         }
+        if self.reliability != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackSubscriptionOptions", len)?;
         if let Some(v) = self.target_fps.as_ref() {
             struct_ser.serialize_field("targetFps", v)?;
+        }
+        if self.reliability != 0 {
+            let v = DataTrackReliability::try_from(self.reliability)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.reliability)))?;
+            struct_ser.serialize_field("reliability", &v)?;
         }
         struct_ser.end()
     }
@@ -12935,11 +13060,13 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriptionOptions {
         const FIELDS: &[&str] = &[
             "target_fps",
             "targetFps",
+            "reliability",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             TargetFps,
+            Reliability,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -12963,6 +13090,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriptionOptions {
                     {
                         match value {
                             "targetFps" | "target_fps" => Ok(GeneratedField::TargetFps),
+                            "reliability" => Ok(GeneratedField::Reliability),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -12983,6 +13111,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriptionOptions {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut target_fps__ = None;
+                let mut reliability__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::TargetFps => {
@@ -12993,6 +13122,12 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriptionOptions {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
+                        GeneratedField::Reliability => {
+                            if reliability__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reliability"));
+                            }
+                            reliability__ = Some(map_.next_value::<DataTrackReliability>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -13000,6 +13135,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriptionOptions {
                 }
                 Ok(DataTrackSubscriptionOptions {
                     target_fps: target_fps__,
+                    reliability: reliability__.unwrap_or_default(),
                 })
             }
         }
@@ -14944,6 +15080,9 @@ impl serde::Serialize for EgressInfo {
         }
         if let Some(v) = self.request.as_ref() {
             match v {
+                egress_info::Request::Egress(v) => {
+                    struct_ser.serialize_field("egress", v)?;
+                }
                 egress_info::Request::Replay(v) => {
                     struct_ser.serialize_field("replay", v)?;
                 }
@@ -15020,6 +15159,7 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
             "backupStorageUsed",
             "retry_count",
             "retryCount",
+            "egress",
             "replay",
             "room_composite",
             "roomComposite",
@@ -15053,6 +15193,7 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
             ManifestLocation,
             BackupStorageUsed,
             RetryCount,
+            Egress,
             Replay,
             RoomComposite,
             Web,
@@ -15102,6 +15243,7 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
                             "manifestLocation" | "manifest_location" => Ok(GeneratedField::ManifestLocation),
                             "backupStorageUsed" | "backup_storage_used" => Ok(GeneratedField::BackupStorageUsed),
                             "retryCount" | "retry_count" => Ok(GeneratedField::RetryCount),
+                            "egress" => Ok(GeneratedField::Egress),
                             "replay" => Ok(GeneratedField::Replay),
                             "roomComposite" | "room_composite" => Ok(GeneratedField::RoomComposite),
                             "web" => Ok(GeneratedField::Web),
@@ -15269,6 +15411,13 @@ impl<'de> serde::Deserialize<'de> for EgressInfo {
                             retry_count__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
+                        }
+                        GeneratedField::Egress => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("egress"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(egress_info::Request::Egress)
+;
                         }
                         GeneratedField::Replay => {
                             if request__.is_some() {
@@ -25308,18 +25457,12 @@ impl serde::Serialize for MediaSource {
         if self.audio.is_some() {
             len += 1;
         }
-        if self.data.is_some() {
-            len += 1;
-        }
         if self.video.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.MediaSource", len)?;
         if let Some(v) = self.audio.as_ref() {
             struct_ser.serialize_field("audio", v)?;
-        }
-        if let Some(v) = self.data.as_ref() {
-            struct_ser.serialize_field("data", v)?;
         }
         if let Some(v) = self.video.as_ref() {
             match v {
@@ -25342,7 +25485,6 @@ impl<'de> serde::Deserialize<'de> for MediaSource {
     {
         const FIELDS: &[&str] = &[
             "audio",
-            "data",
             "video_track_id",
             "videoTrackId",
             "participant_video",
@@ -25352,7 +25494,6 @@ impl<'de> serde::Deserialize<'de> for MediaSource {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Audio,
-            Data,
             VideoTrackId,
             ParticipantVideo,
             __SkipField__,
@@ -25378,7 +25519,6 @@ impl<'de> serde::Deserialize<'de> for MediaSource {
                     {
                         match value {
                             "audio" => Ok(GeneratedField::Audio),
-                            "data" => Ok(GeneratedField::Data),
                             "videoTrackId" | "video_track_id" => Ok(GeneratedField::VideoTrackId),
                             "participantVideo" | "participant_video" => Ok(GeneratedField::ParticipantVideo),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -25401,7 +25541,6 @@ impl<'de> serde::Deserialize<'de> for MediaSource {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut audio__ = None;
-                let mut data__ = None;
                 let mut video__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -25410,12 +25549,6 @@ impl<'de> serde::Deserialize<'de> for MediaSource {
                                 return Err(serde::de::Error::duplicate_field("audio"));
                             }
                             audio__ = map_.next_value()?;
-                        }
-                        GeneratedField::Data => {
-                            if data__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("data"));
-                            }
-                            data__ = map_.next_value()?;
                         }
                         GeneratedField::VideoTrackId => {
                             if video__.is_some() {
@@ -25437,7 +25570,6 @@ impl<'de> serde::Deserialize<'de> for MediaSource {
                 }
                 Ok(MediaSource {
                     audio: audio__,
-                    data: data__,
                     video: video__,
                 })
             }
@@ -29566,6 +29698,9 @@ impl serde::Serialize for PublishDataTrackRequest {
         if self.encryption != 0 {
             len += 1;
         }
+        if self.reliability != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.PublishDataTrackRequest", len)?;
         if self.pub_handle != 0 {
             struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
@@ -29577,6 +29712,11 @@ impl serde::Serialize for PublishDataTrackRequest {
             let v = encryption::Type::try_from(self.encryption)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.encryption)))?;
             struct_ser.serialize_field("encryption", &v)?;
+        }
+        if self.reliability != 0 {
+            let v = DataTrackReliability::try_from(self.reliability)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.reliability)))?;
+            struct_ser.serialize_field("reliability", &v)?;
         }
         struct_ser.end()
     }
@@ -29592,6 +29732,7 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
             "pubHandle",
             "name",
             "encryption",
+            "reliability",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -29599,6 +29740,7 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
             PubHandle,
             Name,
             Encryption,
+            Reliability,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -29624,6 +29766,7 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                             "pubHandle" | "pub_handle" => Ok(GeneratedField::PubHandle),
                             "name" => Ok(GeneratedField::Name),
                             "encryption" => Ok(GeneratedField::Encryption),
+                            "reliability" => Ok(GeneratedField::Reliability),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -29646,6 +29789,7 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                 let mut pub_handle__ = None;
                 let mut name__ = None;
                 let mut encryption__ = None;
+                let mut reliability__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::PubHandle => {
@@ -29668,6 +29812,12 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                             }
                             encryption__ = Some(map_.next_value::<encryption::Type>()? as i32);
                         }
+                        GeneratedField::Reliability => {
+                            if reliability__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reliability"));
+                            }
+                            reliability__ = Some(map_.next_value::<DataTrackReliability>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -29677,6 +29827,7 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                     pub_handle: pub_handle__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     encryption: encryption__.unwrap_or_default(),
+                    reliability: reliability__.unwrap_or_default(),
                 })
             }
         }

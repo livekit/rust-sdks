@@ -19,8 +19,8 @@ use super::{
 };
 use crate::{
     api::{
-        DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError, InternalError,
-        RemoteDataTrackPipelineOptions,
+        DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError,
+        DataTrackSubscribeOptions, InternalError, RemoteDataTrackPipelineOptions,
     },
     e2ee::DecryptionProvider,
     packet::{Handle, Packet},
@@ -130,11 +130,16 @@ impl Manager {
         };
         match &mut descriptor.subscription {
             SubscriptionState::None => {
-                let update_event = SfuUpdateSubscription { sid: event.sid, subscribe: true };
+                Self::warn_on_unavailable_reliability(&descriptor.info, &event.options);
+                let update_event = SfuUpdateSubscription {
+                    sid: event.sid,
+                    subscribe: true,
+                    options: event.options.clone(),
+                };
                 _ = self.event_out_tx.send(update_event.into()).await;
                 descriptor.subscription = SubscriptionState::Pending {
                     result_txs: vec![event.result_tx],
-                    buffer_size: event.options.buffer_size,
+                    options: event.options,
                 };
                 // TODO: schedule timeout internally
             }
@@ -160,7 +165,11 @@ impl Manager {
         descriptor.subscription = SubscriptionState::None;
         self.sub_handles.remove(&sub_handle);
 
-        let event = SfuUpdateSubscription { sid: event.sid, subscribe: false };
+        let event = SfuUpdateSubscription {
+            sid: event.sid,
+            subscribe: false,
+            options: DataTrackSubscribeOptions::default(),
+        };
         _ = self.event_out_tx.send(event.into()).await;
     }
 
@@ -260,7 +269,7 @@ impl Manager {
             log::warn!("Unknown track: {}", sid);
             return;
         };
-        let (result_txs, buffer_size) = match &mut descriptor.subscription {
+        let (result_txs, options) = match &mut descriptor.subscription {
             SubscriptionState::None => {
                 // Handle assigned when there is no pending or active subscription is unexpected.
                 log::warn!("No subscription for {}", sid);
@@ -273,14 +282,14 @@ impl Manager {
                 self.sub_handles.insert(assigned_handle, sid);
                 return;
             }
-            SubscriptionState::Pending { result_txs, buffer_size } => {
+            SubscriptionState::Pending { result_txs, options } => {
                 // Handle assigned for pending subscription, transition to active.
-                (mem::take(result_txs), *buffer_size)
+                (mem::take(result_txs), options.clone())
             }
         };
 
         let (packet_tx, packet_rx) = mpsc::channel(Self::PACKET_BUFFER_COUNT);
-        let (frame_tx, frame_rx) = broadcast::channel(buffer_size);
+        let (frame_tx, frame_rx) = broadcast::channel(options.buffer_size());
 
         let decryption_provider = if descriptor.info.uses_e2ee() {
             self.decryption_provider.as_ref().map(Arc::clone)
@@ -311,6 +320,7 @@ impl Manager {
             packet_tx,
             frame_tx,
             task_handle,
+            options,
         };
         self.sub_handles.insert(assigned_handle, sid);
 
@@ -346,10 +356,16 @@ impl Manager {
 
     async fn on_resend_subscription_updates(&self) {
         let update_events =
-            self.descriptors.iter().filter_map(|(sid, descriptor)| match descriptor.subscription {
-                SubscriptionState::None => None,
-                SubscriptionState::Pending { .. } | SubscriptionState::Active { .. } => {
-                    Some(SfuUpdateSubscription { sid: sid.clone(), subscribe: true })
+            self.descriptors.iter().filter_map(|(sid, descriptor)| {
+                match &descriptor.subscription {
+                    SubscriptionState::None => None,
+                    SubscriptionState::Pending { .. } | SubscriptionState::Active { .. } => {
+                        Some(SfuUpdateSubscription {
+                            sid: sid.clone(),
+                            subscribe: true,
+                            options: descriptor.subscription.options().cloned().unwrap_or_default(),
+                        })
+                    }
                 }
             });
         for event in update_events {
@@ -379,6 +395,17 @@ impl Manager {
 
     /// Maximum number of input and output events to buffer.
     const EVENT_BUFFER_COUNT: usize = 16;
+
+    fn warn_on_unavailable_reliability(info: &DataTrackInfo, options: &DataTrackSubscribeOptions) {
+        if options.reliability() == Some(crate::api::DataTrackReliability::Reliable)
+            && info.reliability() == crate::api::DataTrackReliability::Lossy
+        {
+            log::warn!(
+                "reliable subscription requested for lossy data track '{}'; delivery follows published reliability",
+                info.name()
+            );
+        }
+    }
 }
 
 /// Information and state for a remote data track.
@@ -399,8 +426,8 @@ enum SubscriptionState {
     Pending {
         /// All currently pending requests to subscribe to the track.
         result_txs: Vec<oneshot::Sender<SubscribeResult>>,
-        /// Internal frame buffer size to use once active.
-        buffer_size: usize,
+        /// Subscription options to use once active.
+        options: DataTrackSubscribeOptions,
     },
     /// Track has an active subscription.
     Active {
@@ -408,7 +435,18 @@ enum SubscriptionState {
         packet_tx: mpsc::Sender<Packet>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
         task_handle: livekit_runtime::JoinHandle<()>,
+        options: DataTrackSubscribeOptions,
     },
+}
+
+impl SubscriptionState {
+    fn options(&self) -> Option<&DataTrackSubscribeOptions> {
+        match self {
+            SubscriptionState::None => None,
+            SubscriptionState::Pending { options, .. }
+            | SubscriptionState::Active { options, .. } => Some(options),
+        }
+    }
 }
 
 /// Task for an individual data track with an active subscription.
@@ -596,6 +634,7 @@ mod tests {
                     pub_handle: Faker.fake(), // Pub handle
                     name: track_name.clone(),
                     uses_e2ee: false,
+                    reliability: crate::api::DataTrackReliability::Lossy,
                 }],
             )]),
         };
@@ -658,6 +697,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate track published
@@ -694,6 +734,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate three identical publication updates
@@ -726,6 +767,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate track published
@@ -785,6 +827,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: true,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate track published (with e2ee)
@@ -846,6 +889,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate track published
@@ -944,6 +988,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate track published
@@ -987,6 +1032,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate track published
@@ -1038,6 +1084,7 @@ mod tests {
             pub_handle: Faker.fake(),
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
 
         // Simulate track published

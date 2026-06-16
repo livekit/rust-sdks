@@ -134,6 +134,8 @@ pub struct SfuUpdateSubscription {
     pub sid: DataTrackSid,
     /// Whether to subscribe or unsubscribe.
     pub subscribe: bool,
+    /// Options to apply when subscribing or updating the subscription.
+    pub options: DataTrackSubscribeOptions,
 }
 
 /// A track has been published by a remote participant and is available to be

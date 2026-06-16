@@ -632,6 +632,9 @@ pub struct DataTrackInfo {
     /// Method used for end-to-end encryption (E2EE) on packet payloads.
     #[prost(enumeration="encryption::Type", tag="4")]
     pub encryption: i32,
+    /// Reliability mode used by the publisher for this track.
+    #[prost(enumeration="DataTrackReliability", tag="5")]
+    pub reliability: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -648,6 +651,11 @@ pub struct DataTrackSubscriptionOptions {
     /// If omitted, the subscriber defaults to the publisher's fps
     #[prost(uint32, optional, tag="1")]
     pub target_fps: ::core::option::Option<u32>,
+    /// Reliability requested by the subscriber. This is currently used as
+    /// subscription intent/validation; delivery follows the track's published
+    /// reliability.
+    #[prost(enumeration="DataTrackReliability", tag="2")]
+    pub reliability: i32,
 }
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1165,6 +1173,7 @@ pub mod client_info {
     pub enum Capability {
         CapUnused = 0,
         CapPacketTrailer = 1,
+        CapReliableDataTrack = 2,
     }
     impl Capability {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -1175,6 +1184,7 @@ pub mod client_info {
             match self {
                 Capability::CapUnused => "CAP_UNUSED",
                 Capability::CapPacketTrailer => "CAP_PACKET_TRAILER",
+                Capability::CapReliableDataTrack => "CAP_RELIABLE_DATA_TRACK",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1182,6 +1192,7 @@ pub mod client_info {
             match value {
                 "CAP_UNUSED" => Some(Self::CapUnused),
                 "CAP_PACKET_TRAILER" => Some(Self::CapPacketTrailer),
+                "CAP_RELIABLE_DATA_TRACK" => Some(Self::CapReliableDataTrack),
                 _ => None,
             }
         }
@@ -1782,6 +1793,32 @@ impl TrackSource {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum DataTrackReliability {
+    DtrLossy = 0,
+    DtrReliable = 1,
+}
+impl DataTrackReliability {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            DataTrackReliability::DtrLossy => "DTR_LOSSY",
+            DataTrackReliability::DtrReliable => "DTR_RELIABLE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DTR_LOSSY" => Some(Self::DtrLossy),
+            "DTR_RELIABLE" => Some(Self::DtrReliable),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum DataTrackExtensionId {
     DteiInvalid = 0,
     DteiParticipantSid = 1,
@@ -2196,10 +2233,9 @@ pub struct WebSource {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MediaSource {
+    /// TODO: DataConfig data = 4;
     #[prost(message, optional, tag="3")]
     pub audio: ::core::option::Option<AudioConfig>,
-    #[prost(message, optional, tag="4")]
-    pub data: ::core::option::Option<DataConfig>,
     #[prost(oneof="media_source::Video", tags="1, 2")]
     pub video: ::core::option::Option<media_source::Video>,
 }
@@ -2214,6 +2250,8 @@ pub mod media_source {
         ParticipantVideo(super::ParticipantVideo),
     }
 }
+// --- Video Configuration ---
+
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ParticipantVideo {
@@ -2229,9 +2267,10 @@ pub struct ParticipantVideo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AudioConfig {
-    /// If empty, all audio captured in both channels.
-    /// If non-empty, only matching audio is captured and routed. Unmatched is excluded.
-    #[prost(message, repeated, tag="1")]
+    /// If true, all unmatched audio is recorded to both channels
+    #[prost(bool, tag="1")]
+    pub capture_all: bool,
+    #[prost(message, repeated, tag="2")]
     pub routes: ::prost::alloc::vec::Vec<AudioRoute>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2260,15 +2299,15 @@ pub mod audio_route {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataConfig {
-    /// If empty, all data tracks captured.
-    /// If non-empty, only matching data tracks are captured.
-    #[prost(message, repeated, tag="1")]
+    #[prost(bool, tag="1")]
+    pub capture_all: bool,
+    #[prost(message, repeated, tag="2")]
     pub selectors: ::prost::alloc::vec::Vec<DataSelector>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataSelector {
-    #[prost(oneof="data_selector::Match", tags="1, 2, 3")]
+    #[prost(oneof="data_selector::Match", tags="1, 2")]
     pub r#match: ::core::option::Option<data_selector::Match>,
 }
 /// Nested message and enum types in `DataSelector`.
@@ -2280,8 +2319,6 @@ pub mod data_selector {
         TrackId(::prost::alloc::string::String),
         #[prost(string, tag="2")]
         ParticipantIdentity(::prost::alloc::string::String),
-        #[prost(string, tag="3")]
-        Topic(::prost::alloc::string::String),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2350,7 +2387,7 @@ pub mod output {
         Stream(super::StreamOutput),
         #[prost(message, tag="3")]
         Segments(super::SegmentedFileOutput),
-        /// 5 reserved for mcap;
+        /// TODO: DataOutput data = 5;
         #[prost(message, tag="4")]
         Images(super::ImageOutput),
     }
@@ -2402,11 +2439,13 @@ pub struct SegmentedFileOutput {
     /// disable upload of manifest file (default false)
     #[prost(bool, tag="8")]
     pub disable_manifest: bool,
+    /// TODO: deprecate
     #[prost(oneof="segmented_file_output::Output", tags="5, 6, 7, 9")]
     pub output: ::core::option::Option<segmented_file_output::Output>,
 }
 /// Nested message and enum types in `SegmentedFileOutput`.
 pub mod segmented_file_output {
+    /// TODO: deprecate
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Output {
@@ -2445,11 +2484,13 @@ pub struct ImageOutput {
     /// disable upload of manifest file (default false)
     #[prost(bool, tag="7")]
     pub disable_manifest: bool,
+    /// TODO: deprecate
     #[prost(oneof="image_output::Output", tags="8, 9, 10, 11")]
     pub output: ::core::option::Option<image_output::Output>,
 }
 /// Nested message and enum types in `ImageOutput`.
 pub mod image_output {
+    /// TODO: deprecate
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Output {
@@ -2652,7 +2693,7 @@ pub struct EgressInfo {
     pub backup_storage_used: bool,
     #[prost(int32, tag="27")]
     pub retry_count: i32,
-    #[prost(oneof="egress_info::Request", tags="30, 4, 14, 19, 5, 6")]
+    #[prost(oneof="egress_info::Request", tags="29, 30, 4, 14, 19, 5, 6")]
     pub request: ::core::option::Option<egress_info::Request>,
     // next ID: 31
 
@@ -2665,9 +2706,11 @@ pub mod egress_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Request {
-        /// StartEgressRequest egress = 29;
+        #[prost(message, tag="29")]
+        Egress(super::StartEgressRequest),
         #[prost(message, tag="30")]
         Replay(super::ExportReplayRequest),
+        /// TODO: deprecate
         #[prost(message, tag="4")]
         RoomComposite(super::RoomCompositeEgressRequest),
         #[prost(message, tag="14")]
@@ -2890,7 +2933,7 @@ pub mod export_replay_request {
         Advanced(super::EncodingOptions),
     }
 }
-// --- V1 ---
+// TODO: deprecate --- V1 ---
 
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3745,6 +3788,9 @@ pub struct PublishDataTrackRequest {
     /// Method used for end-to-end encryption (E2EE) on frame payloads.
     #[prost(enumeration="encryption::Type", tag="3")]
     pub encryption: i32,
+    /// Reliability mode for frames sent on this track.
+    #[prost(enumeration="DataTrackReliability", tag="4")]
+    pub reliability: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

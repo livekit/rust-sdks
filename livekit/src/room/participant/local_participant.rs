@@ -248,8 +248,9 @@ impl LocalParticipant {
     ///
     /// # Returns
     ///
-    /// The published data track if successful. Use [`LocalDataTrack::try_push`]
-    /// to send data frames on the track.
+    /// The published data track if successful. Use [`LocalDataTrack::send`],
+    /// [`LocalDataTrack::send_frame`], or [`LocalDataTrack::try_send`] to send
+    /// data frames on the track.
     ///
     /// # Examples
     ///
@@ -260,8 +261,9 @@ impl LocalParticipant {
     /// # async fn with_room(room: Room) -> Result<(), PublishError> {
     /// let track = room
     ///     .local_participant()
-    ///     .publish_data_track("my_track")
+    ///     .publish_data_track(DataTrackOptions::new("my_track").reliable())
     ///     .await?;
+    /// track.send(b"hello".to_vec()).await?;
     /// # Ok(())
     /// # }
     /// ```

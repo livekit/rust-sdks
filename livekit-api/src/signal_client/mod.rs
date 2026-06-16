@@ -57,8 +57,10 @@ const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
 /// Capabilities the Rust SDK advertises to the SFU at connect time.
-const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
-    &[proto::client_info::Capability::CapPacketTrailer];
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] = &[
+    proto::client_info::Capability::CapPacketTrailer,
+    proto::client_info::Capability::CapReliableDataTrack,
+];
 
 /// Default value for `ClientInfo.client_protocol` when a participant has not
 /// advertised one (treat as v1-only / no data-stream RPC support).

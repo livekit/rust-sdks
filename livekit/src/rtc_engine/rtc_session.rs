@@ -26,7 +26,7 @@ use std::{
 use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_datatrack::backend as dt;
+use livekit_datatrack::{api::DataTrackReliability, backend as dt};
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
@@ -68,6 +68,7 @@ pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
+pub const RELIABLE_DATA_TRACK_DC_LABEL: &str = "_reliable_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
@@ -83,6 +84,8 @@ pub const DEFAULT_MAX_MESSAGE_SIZE: u64 = 64000;
 /// packets over queueing. Note that `bufferedAmount` only covers bytes
 /// before SCTP accepts them — queueing below that is bounded by OS/qdisc.
 pub const DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 8 * 1024;
+pub const LOSSY_DATA_TRACK_QUEUE_CAPACITY: usize = 1;
+pub const RELIABLE_DATA_TRACK_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Debug)]
 enum NegotiationState {
@@ -384,6 +387,7 @@ struct SessionInner {
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
     data_track_dc: DataChannel,
+    reliable_data_track_dc: DataChannel,
 
     /// Negotiated SCTP max message size (bytes), parsed from the publisher
     /// answer SDP (`a=max-message-size`). `0` means "no limit". Defaults to
@@ -405,9 +409,11 @@ struct SessionInner {
     sub_lossy_dc: Mutex<Option<DataChannel>>,
     sub_reliable_dc: Mutex<Option<DataChannel>>,
     sub_data_track_dc: Mutex<Option<DataChannel>>,
+    sub_reliable_data_track_dc: Mutex<Option<DataChannel>>,
 
     /// Drop-oldest queue for handing data-track packets to the sender task.
     dt_packet_tx: DataTrackSendQueue,
+    reliable_dt_packet_tx: DataTrackSendQueue,
 
     closed: AtomicBool,
     emitter: SessionEmitter,
@@ -462,6 +468,7 @@ struct SessionHandle {
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
     dt_sender_task: JoinHandle<()>,
+    reliable_dt_sender_task: JoinHandle<()>,
 }
 
 impl RtcSession {
@@ -535,27 +542,32 @@ impl RtcSession {
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
         let sent_publisher_offer;
-        let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
-            if let Some((pub_pc, dcs)) = early_publisher_pc {
-                if single_pc_mode {
-                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
-                    sent_publisher_offer = publisher_offer.is_some();
-                } else {
-                    pub_pc.clear_pending_initial_offer().await;
-                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
-                    sent_publisher_offer = false;
-                }
-                (pub_pc, dcs.0, dcs.1, dcs.2)
+        let (
+            mut publisher_pc,
+            mut reliable_dc,
+            mut lossy_dc,
+            data_track_dc,
+            reliable_data_track_dc,
+        ) = if let Some((pub_pc, dcs)) = early_publisher_pc {
+            if single_pc_mode {
+                pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
+                sent_publisher_offer = publisher_offer.is_some();
             } else {
+                pub_pc.clear_pending_initial_offer().await;
+                pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
                 sent_publisher_offer = false;
-                let publisher_pc = PeerTransport::new(
-                    lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
-                    proto::SignalTarget::Publisher,
-                    single_pc_mode,
-                );
-                let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
-                (publisher_pc, dcs.0, dcs.1, dcs.2)
-            };
+            }
+            (pub_pc, dcs.0, dcs.1, dcs.2, dcs.3)
+        } else {
+            sent_publisher_offer = false;
+            let publisher_pc = PeerTransport::new(
+                lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
+                proto::SignalTarget::Publisher,
+                single_pc_mode,
+            );
+            let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+            (publisher_pc, dcs.0, dcs.1, dcs.2, dcs.3)
+        };
 
         // In single PC mode, subscriber_pc is None
         let mut subscriber_pc = if single_pc_mode {
@@ -582,8 +594,19 @@ impl RtcSession {
             low_buffer_threshold: DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD,
             dc: data_track_dc.clone(),
             close_rx: close_rx.clone(),
+            queue_capacity: LOSSY_DATA_TRACK_QUEUE_CAPACITY,
+            drop_oldest: true,
         };
         let (dt_sender, dt_packet_tx) = DataChannelSender::new(dt_sender_options);
+        let reliable_dt_sender_options = DataChannelSenderOptions {
+            low_buffer_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            dc: reliable_data_track_dc.clone(),
+            close_rx: close_rx.clone(),
+            queue_capacity: RELIABLE_DATA_TRACK_QUEUE_CAPACITY,
+            drop_oldest: false,
+        };
+        let (reliable_dt_sender, reliable_dt_packet_tx) =
+            DataChannelSender::new(reliable_dt_sender_options);
 
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
@@ -604,6 +627,7 @@ impl RtcSession {
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
             data_track_dc,
+            reliable_data_track_dc,
             max_message_size: AtomicU64::new(DEFAULT_MAX_MESSAGE_SIZE),
             next_packet_sequence: 1.into(),
             packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
@@ -612,7 +636,9 @@ impl RtcSession {
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
             sub_data_track_dc: Mutex::new(None),
+            sub_reliable_data_track_dc: Mutex::new(None),
             dt_packet_tx,
+            reliable_dt_packet_tx,
             closed: Default::default(),
             emitter,
             options,
@@ -630,6 +656,7 @@ impl RtcSession {
             (&inner.reliable_dc, RELIABLE_DC_LABEL),
             (&inner.lossy_dc, LOSSY_DC_LABEL),
             (&inner.data_track_dc, DATA_TRACK_DC_LABEL),
+            (&inner.reliable_data_track_dc, RELIABLE_DATA_TRACK_DC_LABEL),
         ] {
             let weak_inner = Arc::downgrade(&inner);
             dc.on_state_change(Some(Box::new(move |state| {
@@ -653,6 +680,7 @@ impl RtcSession {
         let dc_task =
             livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
         let dt_sender_task = livekit_runtime::spawn(dt_sender.run());
+        let reliable_dt_sender_task = livekit_runtime::spawn(reliable_dt_sender.run());
 
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
@@ -660,6 +688,7 @@ impl RtcSession {
             rtc_task,
             dc_task,
             dt_sender_task,
+            reliable_dt_sender_task,
         }));
 
         // If we already sent the publisher offer with the JoinRequest, skip initial
@@ -677,7 +706,7 @@ impl RtcSession {
     fn create_data_channels(
         publisher_pc: &PeerTransport,
         emitter: &mpsc::UnboundedSender<SessionEvent>,
-    ) -> EngineResult<(DataChannel, DataChannel, DataChannel)> {
+    ) -> EngineResult<(DataChannel, DataChannel, DataChannel, DataChannel)> {
         let reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
             DataChannelInit { ordered: true, ..Default::default() },
@@ -695,7 +724,13 @@ impl RtcSession {
             .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
         handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
 
-        Ok((reliable_dc, lossy_dc, data_track_dc))
+        let reliable_data_track_dc = publisher_pc.peer_connection().create_data_channel(
+            RELIABLE_DATA_TRACK_DC_LABEL,
+            DataChannelInit { ordered: true, ..Default::default() },
+        )?;
+        handle_remote_dt_packets(&reliable_data_track_dc, emitter.downgrade());
+
+        Ok((reliable_dc, lossy_dc, data_track_dc, reliable_data_track_dc))
     }
 
     fn add_recv_media_sections(
@@ -767,6 +802,7 @@ impl RtcSession {
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
             let _ = handle.dt_sender_task.await;
+            let _ = handle.reliable_dt_sender_task.await;
         }
 
         // Close the PeerConnections after the task
@@ -849,7 +885,9 @@ impl RtcSession {
         use dt::local::OutputEvent;
         match event {
             OutputEvent::SfuPublishRequest(event) => {
-                if let Err(err) = self.inner.ensure_data_track_publisher_connected().await {
+                if let Err(err) =
+                    self.inner.ensure_data_track_publisher_connected(event.reliability).await
+                {
                     log::error!("Failed to open data track publish transport: {}", err);
                 }
                 self.signal_client()
@@ -861,7 +899,7 @@ impl RtcSession {
                     .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
                     .await
             }
-            OutputEvent::PacketsAvailable(packets) => self.try_send_data_track_packets(packets),
+            OutputEvent::PacketsAvailable(event) => self.send_data_track_packets(event).await,
         }
     }
 
@@ -883,19 +921,26 @@ impl RtcSession {
     /// All packets belong to one application frame and are enqueued atomically
     /// so a partial frame is never queued or evicted; drop-oldest applies at
     /// whole-frame granularity.
-    fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
-        if packets.is_empty() {
+    async fn send_data_track_packets(&self, event: dt::local::PacketsAvailable) {
+        if event.packets.is_empty() {
             return;
         }
-        let packet_count = packets.len();
-        if let Some(stale) = self.inner.dt_packet_tx.send(packets) {
-            let stale_bytes: usize = stale.iter().map(|p| p.len()).sum();
-            log::trace!(
-                "evicted oldest queued data-track frame ({} packets / {} total bytes) in favor of newer {}-packet frame",
-                stale.len(),
-                stale_bytes,
-                packet_count,
-            );
+        let packet_count = event.packets.len();
+        match event.reliability {
+            DataTrackReliability::Lossy => {
+                if let Some(stale) = self.inner.dt_packet_tx.send(event.packets).await {
+                    let stale_bytes: usize = stale.iter().map(|p| p.len()).sum();
+                    log::trace!(
+                        "evicted oldest queued data-track frame ({} packets / {} total bytes) in favor of newer {}-packet frame",
+                        stale.len(),
+                        stale_bytes,
+                        packet_count,
+                    );
+                }
+            }
+            DataTrackReliability::Reliable => {
+                _ = self.inner.reliable_dt_packet_tx.send(event.packets).await;
+            }
         }
     }
 
@@ -1511,6 +1556,10 @@ impl SessionInner {
                     DATA_TRACK_DC_LABEL => {
                         handle_remote_dt_packets(&data_channel, self.emitter.downgrade());
                         &self.sub_data_track_dc
+                    }
+                    RELIABLE_DATA_TRACK_DC_LABEL => {
+                        handle_remote_dt_packets(&data_channel, self.emitter.downgrade());
+                        &self.sub_reliable_data_track_dc
                     }
                     _ => return Ok(()),
                 };
@@ -2276,8 +2325,15 @@ impl SessionInner {
     }
 
     /// Ensure the required data channel for publishing data track frames is open.
-    async fn ensure_data_track_publisher_connected(self: &Arc<Self>) -> EngineResult<()> {
-        self.ensure_publisher_connected_with_dc(self.data_track_dc.clone()).await?;
+    async fn ensure_data_track_publisher_connected(
+        self: &Arc<Self>,
+        reliability: DataTrackReliability,
+    ) -> EngineResult<()> {
+        let dc = match reliability {
+            DataTrackReliability::Lossy => self.data_track_dc.clone(),
+            DataTrackReliability::Reliable => self.reliable_data_track_dc.clone(),
+        };
+        self.ensure_publisher_connected_with_dc(dc).await?;
         Ok(())
     }
 

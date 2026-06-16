@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    api::{DataTrack, DataTrackFrame, DataTrackInfo, InternalError},
+    api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackReliability, InternalError},
     track::DataTrackInner,
 };
 use std::{fmt, marker::PhantomData, sync::Arc};
@@ -51,6 +51,38 @@ impl DataTrack<Local> {
 }
 
 impl DataTrack<Local> {
+    /// Sends a frame to subscribers of the track, waiting for local SDK queue capacity.
+    ///
+    /// This does not wait for the SFU or any subscriber to receive the frame.
+    pub async fn send(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PushFrameError> {
+        self.send_frame(frame.into()).await
+    }
+
+    /// Sends a frame to subscribers of the track, waiting for local SDK queue capacity.
+    ///
+    /// This does not wait for the SFU or any subscriber to receive the frame.
+    pub async fn send_frame(&self, frame: DataTrackFrame) -> Result<(), PushFrameError> {
+        let frame = self.ensure_can_send(frame)?;
+        self.inner()
+            .frame_tx
+            .send(frame)
+            .await
+            .map_err(|err| PushFrameError::new(err.0, PushFrameErrorReason::TrackUnpublished))
+    }
+
+    /// Try sending a frame to subscribers of the track without waiting.
+    ///
+    /// Reliable tracks preserve queued frames and return [`PushFrameErrorReason::QueueFull`] when
+    /// the local queue is full. Lossy tracks may drop older frames later in the transport path to
+    /// keep delivery fresh.
+    pub fn try_send(&self, frame: DataTrackFrame) -> Result<(), PushFrameError> {
+        let frame = self.ensure_can_send(frame)?;
+        self.inner()
+            .frame_tx
+            .try_send(frame)
+            .map_err(|err| PushFrameError::new(err.into_inner(), PushFrameErrorReason::QueueFull))
+    }
+
     /// Try pushing a frame to subscribers of the track.
     ///
     /// # Example
@@ -81,6 +113,10 @@ impl DataTrack<Local> {
     /// - Frames are being pushed too fast
     ///
     pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameError> {
+        self.try_send(frame)
+    }
+
+    fn ensure_can_send(&self, frame: DataTrackFrame) -> Result<DataTrackFrame, PushFrameError> {
         match self.inner().publish_state() {
             manager::PublishState::Republishing => {
                 return Err(PushFrameError::new(frame, PushFrameErrorReason::QueueFull))?
@@ -90,10 +126,7 @@ impl DataTrack<Local> {
             }
             manager::PublishState::Published => {}
         }
-        self.inner()
-            .frame_tx
-            .try_send(frame)
-            .map_err(|err| PushFrameError::new(err.into_inner(), PushFrameErrorReason::QueueFull))
+        Ok(frame)
     }
 
     /// Unpublishes the track.
@@ -153,6 +186,7 @@ impl Drop for LocalTrackInner {
 #[derive(Clone, Debug)]
 pub struct DataTrackOptions {
     pub(crate) name: String,
+    pub(crate) reliability: DataTrackReliability,
 }
 
 impl DataTrackOptions {
@@ -165,7 +199,23 @@ impl DataTrackOptions {
     /// - Must be unique per publisher
     ///
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self { name: name.into(), reliability: DataTrackReliability::Lossy }
+    }
+
+    /// Sets the delivery reliability used for this track.
+    pub fn reliability(mut self, reliability: DataTrackReliability) -> Self {
+        self.reliability = reliability;
+        self
+    }
+
+    /// Publishes the track using reliable ordered SCTP delivery.
+    pub fn reliable(self) -> Self {
+        self.reliability(DataTrackReliability::Reliable)
+    }
+
+    /// Publishes the track using lossy unordered SCTP delivery.
+    pub fn lossy(self) -> Self {
+        self.reliability(DataTrackReliability::Lossy)
     }
 }
 

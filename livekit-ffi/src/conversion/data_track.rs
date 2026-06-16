@@ -15,15 +15,21 @@
 use crate::proto;
 use livekit::{
     data_track::{
-        DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSubscribeError, PublishError,
-        PushFrameError, PushFrameErrorReason, RemoteDataTrackPipelineOptions,
+        DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackReliability,
+        DataTrackSubscribeError, PublishError, PushFrameError, PushFrameErrorReason,
+        RemoteDataTrackPipelineOptions,
     },
     prelude::DataTrackSubscribeOptions,
 };
 
 impl From<proto::DataTrackOptions> for DataTrackOptions {
     fn from(options: proto::DataTrackOptions) -> Self {
-        Self::new(options.name)
+        let reliability = options
+            .reliability
+            .and_then(|value| proto::DataTrackReliability::try_from(value).ok())
+            .map(DataTrackReliability::from)
+            .unwrap_or(DataTrackReliability::Lossy);
+        Self::new(options.name).reliability(reliability)
     }
 }
 
@@ -33,6 +39,25 @@ impl From<DataTrackInfo> for proto::DataTrackInfo {
             name: info.name().to_string(),
             sid: info.sid().to_string(),
             uses_e2ee: info.uses_e2ee(),
+            reliability: Some(proto::DataTrackReliability::from(info.reliability()) as i32),
+        }
+    }
+}
+
+impl From<proto::DataTrackReliability> for DataTrackReliability {
+    fn from(reliability: proto::DataTrackReliability) -> Self {
+        match reliability {
+            proto::DataTrackReliability::DtrReliable => Self::Reliable,
+            proto::DataTrackReliability::DtrLossy => Self::Lossy,
+        }
+    }
+}
+
+impl From<DataTrackReliability> for proto::DataTrackReliability {
+    fn from(reliability: DataTrackReliability) -> Self {
+        match reliability {
+            DataTrackReliability::Lossy => Self::DtrLossy,
+            DataTrackReliability::Reliable => Self::DtrReliable,
         }
     }
 }
@@ -68,6 +93,11 @@ impl From<proto::DataTrackSubscribeOptions> for DataTrackSubscribeOptions {
         let mut options = Self::new();
         if let Some(buffer_size) = msg.buffer_size {
             options = options.with_buffer_size(buffer_size as usize);
+        }
+        if let Some(reliability) =
+            msg.reliability.and_then(|value| proto::DataTrackReliability::try_from(value).ok())
+        {
+            options = options.with_reliability(reliability.into());
         }
         options
     }

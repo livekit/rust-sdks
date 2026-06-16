@@ -34,9 +34,10 @@ async fn handle_publications(mut rx: UnboundedReceiver<RoomEvent>) -> Result<()>
 /// Subscribes to the given data track and logs received frames.
 async fn subscribe(track: RemoteDataTrack) -> Result<()> {
     log::info!(
-        "Subscribing to '{}' published by '{}'",
+        "Subscribing to '{}' published by '{}' ({:?})",
         track.info().name(),
-        track.publisher_identity()
+        track.publisher_identity(),
+        track.info().reliability()
     );
     let mut subscription = track.subscribe().await?;
     while let Some(frame) = subscription.next().await {

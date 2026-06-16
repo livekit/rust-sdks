@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
+use crate::api::{
+    DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, DataTrackReliability, InternalError,
+};
 use events::{InputEvent, SetPipelineOptions, SubscribeRequest};
 use livekit_runtime::timeout;
 use std::{
@@ -199,6 +201,7 @@ pub enum DataTrackSubscribeError {
 #[derive(Debug, Clone)]
 pub struct DataTrackSubscribeOptions {
     buffer_size: usize,
+    reliability: Option<DataTrackReliability>,
 }
 
 impl DataTrackSubscribeOptions {
@@ -207,12 +210,17 @@ impl DataTrackSubscribeOptions {
     /// Equivalent to [`Self::default`].
     ///
     pub fn new() -> Self {
-        Self { buffer_size: 16 }
+        Self { buffer_size: 16, reliability: None }
     }
 
     /// Returns the maximum number of received frames buffered internally.
     pub fn buffer_size(&self) -> usize {
         self.buffer_size
+    }
+
+    /// Returns the requested reliability mode, if specified.
+    pub fn reliability(&self) -> Option<DataTrackReliability> {
+        self.reliability
     }
 
     /// Sets the maximum number of received frames buffered internally.
@@ -229,6 +237,25 @@ impl DataTrackSubscribeOptions {
         }
         self.buffer_size = frames;
         self
+    }
+
+    /// Requests a reliability mode for this subscription.
+    ///
+    /// The current SFU path preserves the publisher's reliability. This option
+    /// is used for validation and forward-compatible subscriber intent.
+    pub fn with_reliability(mut self, reliability: DataTrackReliability) -> Self {
+        self.reliability = Some(reliability);
+        self
+    }
+
+    /// Requests reliable delivery for this subscription.
+    pub fn reliable(self) -> Self {
+        self.with_reliability(DataTrackReliability::Reliable)
+    }
+
+    /// Requests lossy delivery for this subscription.
+    pub fn lossy(self) -> Self {
+        self.with_reliability(DataTrackReliability::Lossy)
     }
 }
 

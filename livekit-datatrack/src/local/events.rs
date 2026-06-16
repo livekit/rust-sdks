@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    api::{DataTrackInfo, DataTrackOptions, LocalDataTrack, PublishError},
+    api::{DataTrackInfo, DataTrackOptions, DataTrackReliability, LocalDataTrack, PublishError},
     packet::Handle,
 };
 use bytes::Bytes;
@@ -46,7 +46,7 @@ pub enum OutputEvent {
     SfuPublishRequest(SfuPublishRequest),
     SfuUnpublishRequest(SfuUnpublishRequest),
     /// Serialized packets are ready to be sent over the transport.
-    PacketsAvailable(Vec<Bytes>),
+    PacketsAvailable(PacketsAvailable),
 }
 
 // MARK: - Input events
@@ -124,6 +124,7 @@ pub struct SfuPublishRequest {
     pub handle: Handle,
     pub name: String,
     pub uses_e2ee: bool,
+    pub reliability: DataTrackReliability,
 }
 
 /// Request sent to the SFU to unpublish a track.
@@ -134,4 +135,11 @@ pub struct SfuPublishRequest {
 pub struct SfuUnpublishRequest {
     /// Publisher handle of the track to unpublish.
     pub handle: Handle,
+}
+
+/// Serialized packets for one data-track frame are ready to be sent.
+#[derive(Debug)]
+pub struct PacketsAvailable {
+    pub reliability: DataTrackReliability,
+    pub packets: Vec<Bytes>,
 }

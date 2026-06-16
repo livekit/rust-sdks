@@ -128,6 +128,7 @@ impl Manager {
             handle,
             name: event.options.name,
             uses_e2ee: self.encryption_provider.is_some(),
+            reliability: event.options.reliability,
         };
         _ = self.event_out_tx.send(event.into()).await;
     }
@@ -280,6 +281,7 @@ impl Manager {
                         handle: info.pub_handle,
                         name: info.name.clone(),
                         uses_e2ee: info.uses_e2ee,
+                        reliability: info.reliability,
                     };
                     _ = state_tx.send(PublishState::Republishing);
                     _ = self.event_out_tx.send(event.into()).await;
@@ -337,7 +339,7 @@ impl TrackTask {
                         // Drop frames while republishing.
                         continue;
                     }
-                    self.process_and_send(frame);
+                    self.process_and_send(frame).await;
                 }
             }
         }
@@ -348,7 +350,7 @@ impl TrackTask {
         log::debug!("Track task ended: sid={}", sid);
     }
 
-    fn process_and_send(&mut self, frame: DataTrackFrame) {
+    async fn process_and_send(&mut self, frame: DataTrackFrame) {
         let Ok(packets) = self
             .pipeline
             .process_frame(frame)
@@ -357,10 +359,21 @@ impl TrackTask {
             return;
         };
         let packets: Vec<_> = packets.into_iter().map(|packet| packet.serialize()).collect();
-        _ = self
-            .event_out_tx
-            .try_send(packets.into())
-            .inspect_err(|err| log::debug!("Cannot send packets to transport: {}", err));
+        let event = PacketsAvailable { reliability: self.info.reliability(), packets };
+        match self.info.reliability() {
+            crate::api::DataTrackReliability::Lossy => {
+                _ = self
+                    .event_out_tx
+                    .try_send(event.into())
+                    .inspect_err(|err| log::debug!("Cannot send packets to transport: {}", err));
+            }
+            crate::api::DataTrackReliability::Reliable => {
+                _ =
+                    self.event_out_tx.send(event.into()).await.inspect_err(|err| {
+                        log::debug!("Cannot send packets to transport: {}", err)
+                    });
+            }
+        }
     }
 }
 
@@ -525,12 +538,13 @@ mod tests {
                             pub_handle,
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
+                            reliability: crate::api::DataTrackReliability::Lossy,
                         };
                         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
                         _ = input.send(event.into());
                     }
-                    OutputEvent::PacketsAvailable(packets) => {
-                        let packet = packets.into_iter().nth(0).unwrap();
+                    OutputEvent::PacketsAvailable(event) => {
+                        let packet = event.packets.into_iter().nth(0).unwrap();
                         let payload = Packet::deserialize(packet).unwrap().payload;
                         assert_eq!(payload.len(), payload_size);
                         packets_sent += 1;
@@ -604,6 +618,7 @@ mod tests {
             pub_handle: handle,
             name: "test".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -634,6 +649,7 @@ mod tests {
             pub_handle: event.handle,
             name: "secure".into(),
             uses_e2ee: true,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -644,8 +660,8 @@ mod tests {
         // Push a frame and verify encryption was applied
         track.try_push(vec![1, 2, 3, 4, 5].into()).unwrap();
 
-        let packets = expect_event!(output, OutputEvent::PacketsAvailable);
-        let packet = Packet::deserialize(packets.into_iter().next().unwrap()).unwrap();
+        let event = expect_event!(output, OutputEvent::PacketsAvailable);
+        let packet = Packet::deserialize(event.packets.into_iter().next().unwrap()).unwrap();
         assert_eq!(&packet.payload[..4], &[0xDE, 0xAD, 0xBE, 0xEF]);
         assert_eq!(&packet.payload[4..], &[1, 2, 3, 4, 5]);
         assert!(packet.header.extensions.e2ee.is_some());
@@ -674,6 +690,7 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -699,6 +716,7 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -728,6 +746,7 @@ mod tests {
                 pub_handle: event.handle,
                 name: name.into(),
                 uses_e2ee: false,
+                reliability: crate::api::DataTrackReliability::Lossy,
             };
             let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
             input.send(event.into()).unwrap();
@@ -767,6 +786,7 @@ mod tests {
             pub_handle: event.handle,
             name: "active".into(),
             uses_e2ee: false,
+            reliability: crate::api::DataTrackReliability::Lossy,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();

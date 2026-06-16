@@ -9,6 +9,7 @@ Simple example of publishing and subscribing to a data track.
 ```sh
 export LIVEKIT_URL="..."
 export LIVEKIT_TOKEN="<first participant token>"
+export DATA_TRACK_RELIABILITY="reliable" # optional: lossy or reliable, defaults to lossy
 cargo run --bin publisher
 ```
 

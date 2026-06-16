@@ -31,6 +31,8 @@ pub struct DataChannelSenderOptions {
     pub low_buffer_threshold: u64,
     pub dc: DataChannel,
     pub close_rx: watch::Receiver<bool>,
+    pub queue_capacity: usize,
+    pub drop_oldest: bool,
 }
 
 /// Bounded, drop-oldest send queue for the [`DataChannelSender`] task.
@@ -49,37 +51,83 @@ pub struct DataTrackSendQueue {
 struct DataTrackSendQueueInner {
     queue: Mutex<VecDeque<DataTrackFramePackets>>,
     notify: Notify,
+    space_available: Notify,
     capacity: usize,
+    drop_oldest: bool,
 }
 
 impl DataTrackSendQueue {
-    fn new(capacity: usize) -> Self {
+    fn new(capacity: usize, drop_oldest: bool) -> Self {
         debug_assert!(capacity >= 1);
         Self {
             inner: Arc::new(DataTrackSendQueueInner {
                 queue: Mutex::new(VecDeque::with_capacity(capacity)),
                 notify: Notify::new(),
+                space_available: Notify::new(),
                 capacity,
+                drop_oldest,
             }),
         }
     }
 
     /// Enqueue all packets for a single frame, returning the evicted oldest
     /// frame if the queue was at capacity.
-    pub fn send(&self, packets: DataTrackFramePackets) -> Option<DataTrackFramePackets> {
+    pub fn try_send(
+        &self,
+        packets: DataTrackFramePackets,
+    ) -> Result<Option<DataTrackFramePackets>, DataTrackFramePackets> {
         if packets.is_empty() {
-            return None;
+            return Ok(None);
         }
         let mut queue = self.inner.queue.lock().expect("send queue mutex poisoned");
-        let dropped = if queue.len() >= self.inner.capacity { queue.pop_front() } else { None };
+        let dropped = if queue.len() >= self.inner.capacity {
+            if self.inner.drop_oldest {
+                queue.pop_front()
+            } else {
+                return Err(packets);
+            }
+        } else {
+            None
+        };
         queue.push_back(packets);
         drop(queue);
         self.inner.notify.notify_one();
-        dropped
+        Ok(dropped)
+    }
+
+    /// Enqueue all packets for one frame, waiting for capacity when the queue
+    /// is configured for backpressure.
+    pub async fn send(&self, packets: DataTrackFramePackets) -> Option<DataTrackFramePackets> {
+        if self.inner.drop_oldest {
+            return self.try_send(packets).ok().flatten();
+        }
+        let mut packets = Some(packets);
+        loop {
+            let frame = packets.take().expect("frame should be present before enqueue attempt");
+            match self.try_send(frame) {
+                Ok(dropped) => return dropped,
+                Err(frame) => {
+                    packets = Some(frame);
+                    let notified = self.inner.space_available.notified();
+                    tokio::pin!(notified);
+                    notified.as_mut().enable();
+                    if self.inner.queue.lock().expect("send queue mutex poisoned").len()
+                        < self.inner.capacity
+                    {
+                        continue;
+                    }
+                    notified.await;
+                }
+            }
+        }
     }
 
     fn try_pop(&self) -> Option<DataTrackFramePackets> {
-        self.inner.queue.lock().expect("send queue mutex poisoned").pop_front()
+        let popped = self.inner.queue.lock().expect("send queue mutex poisoned").pop_front();
+        if popped.is_some() {
+            self.inner.space_available.notify_one();
+        }
+        popped
     }
 
     fn drain(&self) -> VecDeque<DataTrackFramePackets> {
@@ -116,7 +164,7 @@ impl DataTrackSendQueue {
 /// `SessionInner::data_channel_task` since they need unbounded queueing,
 /// retries, and per-kind sequencing.
 pub struct DataChannelSender {
-    /// Drop-oldest queue of whole frames waiting for the DC to drain.
+    /// Queue of whole frames waiting for the DC to drain.
     queue: DataTrackSendQueue,
 
     /// Packets from the frame currently being dispatched, in FIFO order.
@@ -141,17 +189,13 @@ pub struct DataChannelSender {
 }
 
 impl DataChannelSender {
-    /// Queue capacity in frames. Set to 1 so only the freshest pending frame
-    /// is held; older queued frames are evicted on the next send.
-    const QUEUE_CAPACITY: usize = 1;
-
     /// Creates a new sender.
     ///
     /// Returns a tuple containing the following:
     /// - The sender itself to be spawned by the caller (see [`DataChannelSender::run`]).
     /// - A cloneable queue handle for producers to push frames onto.
     pub fn new(options: DataChannelSenderOptions) -> (Self, DataTrackSendQueue) {
-        let queue = DataTrackSendQueue::new(Self::QUEUE_CAPACITY);
+        let queue = DataTrackSendQueue::new(options.queue_capacity, options.drop_oldest);
         let (dc_event_tx, dc_event_rx) = mpsc::unbounded_channel();
 
         let sender = Self {
@@ -269,16 +313,16 @@ mod tests {
 
     #[test]
     fn send_empty_frame_is_noop() {
-        let q = DataTrackSendQueue::new(1);
-        assert!(q.send(Vec::new()).is_none());
+        let q = DataTrackSendQueue::new(1, true);
+        assert!(q.try_send(Vec::new()).unwrap().is_none());
         assert!(q.try_pop().is_none());
     }
 
     #[test]
     fn send_keeps_multi_packet_frame_intact() {
-        let q = DataTrackSendQueue::new(1);
+        let q = DataTrackSendQueue::new(1, true);
         let f = frame(0xAA, 13, 16_000);
-        assert!(q.send(f.clone()).is_none());
+        assert!(q.try_send(f.clone()).unwrap().is_none());
         let got = q.try_pop().expect("frame should be queued");
         assert_eq!(got.len(), 13, "all packets for the frame must remain together");
         assert!(got.iter().all(|p| p.len() == 16_000 && p[0] == 0xAA));
@@ -286,15 +330,15 @@ mod tests {
 
     #[test]
     fn send_drops_oldest_whole_frame_when_full() {
-        let q = DataTrackSendQueue::new(1);
+        let q = DataTrackSendQueue::new(1, true);
         let older = frame(0x01, 4, 128);
         let newer = frame(0x02, 3, 128);
 
-        assert!(q.send(older.clone()).is_none());
+        assert!(q.try_send(older.clone()).unwrap().is_none());
 
         // Pushing a second frame while at capacity evicts the entire older
         // frame, not just a prefix of it.
-        let evicted = q.send(newer.clone()).expect("older frame should be evicted");
+        let evicted = q.try_send(newer.clone()).unwrap().expect("older frame should be evicted");
         assert_eq!(evicted.len(), older.len());
         assert!(evicted.iter().all(|p| p[0] == 0x01));
 
@@ -307,17 +351,32 @@ mod tests {
 
     #[tokio::test]
     async fn recv_returns_whole_frame() {
-        let q = DataTrackSendQueue::new(1);
+        let q = DataTrackSendQueue::new(1, true);
         let f = frame(0x33, 5, 64);
 
         let q_send = q.clone();
         let f_sent = f.clone();
         tokio::spawn(async move {
-            q_send.send(f_sent);
+            _ = q_send.try_send(f_sent);
         });
 
         let got = q.recv().await;
         assert_eq!(got.len(), f.len());
         assert!(got.iter().all(|p| p[0] == 0x33));
+    }
+
+    #[test]
+    fn reliable_try_send_preserves_existing_frame_when_full() {
+        let q = DataTrackSendQueue::new(1, false);
+        let older = frame(0x01, 4, 128);
+        let newer = frame(0x02, 3, 128);
+
+        assert!(q.try_send(older.clone()).unwrap().is_none());
+        let rejected = q.try_send(newer.clone()).expect_err("full queue should reject newer frame");
+        assert_eq!(rejected.len(), newer.len());
+
+        let got = q.try_pop().expect("older frame should remain queued");
+        assert_eq!(got.len(), older.len());
+        assert!(got.iter().all(|p| p[0] == 0x01));
     }
 }

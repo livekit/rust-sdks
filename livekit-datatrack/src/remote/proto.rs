@@ -21,6 +21,7 @@
 use super::events::*;
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError},
+    local::proto::proto_reliability,
     packet::Handle,
 };
 use livekit_protocol as proto;
@@ -98,10 +99,18 @@ fn extract_track_info(
 
 impl From<SfuUpdateSubscription> for proto::UpdateDataSubscription {
     fn from(event: SfuUpdateSubscription) -> Self {
+        let options = if event.subscribe {
+            event.options.reliability().map(|reliability| proto::DataTrackSubscriptionOptions {
+                target_fps: None,
+                reliability: proto_reliability(reliability) as i32,
+            })
+        } else {
+            None
+        };
         let update = proto::update_data_subscription::Update {
             track_sid: event.sid.into(),
             subscribe: event.subscribe,
-            options: Default::default(),
+            options,
         };
         Self { updates: vec![update] }
     }
@@ -150,6 +159,7 @@ mod tests {
             sid: "DTR_1234".into(),
             name: "track1".into(),
             encryption: proto::encryption::Type::Gcm.into(),
+            reliability: proto::DataTrackReliability::DtrReliable.into(),
         }];
         let mut participant_info = proto::ParticipantInfo { data_tracks, ..Default::default() };
 
@@ -161,5 +171,6 @@ mod tests {
         assert_eq!(first.pub_handle, 1u32.try_into().unwrap());
         assert_eq!(first.name, "track1");
         assert_eq!(*first.sid.read().unwrap(), "DTR_1234".to_string().try_into().unwrap());
+        assert_eq!(first.reliability(), crate::api::DataTrackReliability::Reliable);
     }
 }

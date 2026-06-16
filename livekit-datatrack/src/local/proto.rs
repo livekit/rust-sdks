@@ -20,7 +20,7 @@
 
 use super::events::*;
 use crate::{
-    api::{DataTrackInfo, DataTrackSid, InternalError, PublishError},
+    api::{DataTrackInfo, DataTrackReliability, DataTrackSid, InternalError, PublishError},
     packet::Handle,
 };
 use anyhow::{anyhow, Context};
@@ -33,7 +33,12 @@ impl From<SfuPublishRequest> for proto::PublishDataTrackRequest {
     fn from(event: SfuPublishRequest) -> Self {
         use proto::encryption::Type;
         let encryption = if event.uses_e2ee { Type::Gcm } else { Type::None }.into();
-        Self { pub_handle: event.handle.into(), name: event.name, encryption }
+        Self {
+            pub_handle: event.handle.into(),
+            name: event.name,
+            encryption,
+            reliability: proto_reliability(event.reliability) as i32,
+        }
     }
 }
 
@@ -75,7 +80,16 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
         let sid: DataTrackSid = msg.sid.try_into().map_err(anyhow::Error::from)?;
-        Ok(Self { pub_handle: handle, sid: RwLock::new(sid).into(), name: msg.name, uses_e2ee })
+        Ok(Self {
+            pub_handle: handle,
+            sid: RwLock::new(sid).into(),
+            name: msg.name,
+            uses_e2ee,
+            reliability: data_track_reliability(
+                proto::DataTrackReliability::try_from(msg.reliability)
+                    .unwrap_or(proto::DataTrackReliability::DtrLossy),
+            ),
+        })
     }
 }
 
@@ -112,7 +126,24 @@ impl From<DataTrackInfo> for proto::DataTrackInfo {
             sid: info.sid().to_string(),
             name: info.name,
             encryption: encryption as i32,
+            reliability: proto_reliability(info.reliability) as i32,
         }
+    }
+}
+
+pub(crate) fn proto_reliability(reliability: DataTrackReliability) -> proto::DataTrackReliability {
+    match reliability {
+        DataTrackReliability::Lossy => proto::DataTrackReliability::DtrLossy,
+        DataTrackReliability::Reliable => proto::DataTrackReliability::DtrReliable,
+    }
+}
+
+pub(crate) fn data_track_reliability(
+    reliability: proto::DataTrackReliability,
+) -> DataTrackReliability {
+    match reliability {
+        proto::DataTrackReliability::DtrReliable => DataTrackReliability::Reliable,
+        proto::DataTrackReliability::DtrLossy => DataTrackReliability::Lossy,
     }
 }
 
@@ -137,11 +168,16 @@ mod tests {
             handle: 1u32.try_into().unwrap(),
             name: "track".into(),
             uses_e2ee: true,
+            reliability: DataTrackReliability::Reliable,
         };
         let request: proto::PublishDataTrackRequest = event.into();
         assert_eq!(request.pub_handle, 1);
         assert_eq!(request.name, "track");
         assert_eq!(request.encryption(), proto::encryption::Type::Gcm);
+        assert_eq!(
+            proto::DataTrackReliability::try_from(request.reliability).unwrap(),
+            proto::DataTrackReliability::DtrReliable
+        );
     }
 
     #[test]
@@ -159,6 +195,7 @@ mod tests {
                 sid: "DTR_1234".into(),
                 name: "track".into(),
                 encryption: proto::encryption::Type::Gcm.into(),
+                reliability: proto::DataTrackReliability::DtrReliable.into(),
             }
             .into(),
         };
@@ -170,6 +207,7 @@ mod tests {
         assert_eq!(*info.sid.read().unwrap(), "DTR_1234".to_string().try_into().unwrap());
         assert_eq!(info.name, "track");
         assert!(info.uses_e2ee);
+        assert_eq!(info.reliability, DataTrackReliability::Reliable);
     }
 
     #[test]
