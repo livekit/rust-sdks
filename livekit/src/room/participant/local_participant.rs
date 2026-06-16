@@ -972,6 +972,7 @@ impl LocalParticipant {
     // TODO: unify request/response logic, timeout behavior across SDK.
     const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
+    // TODO: make internal
     /// Stores an arbitrary blob of data on the server, keyed by `key`.
     pub async fn store_data_blob(
         &self,
@@ -1014,6 +1015,7 @@ impl LocalParticipant {
         }
     }
 
+    // TODO: make internal
     /// Retrieves a blob of data previously stored by `participant` under `key`.
     pub async fn get_data_blob(
         &self,
