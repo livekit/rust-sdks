@@ -647,6 +647,7 @@ pub struct DataTrackInfo {
 ///
 /// Schemas with the same name but different encodings are distinct.
 ///
+#[derive(Eq)] #[derive(Hash)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataTrackSchemaId {
@@ -673,6 +674,7 @@ pub struct DataTrackSubscriptionOptions {
     pub target_fps: ::core::option::Option<u32>,
 }
 /// Key used to uniquely identify a data blob for storage and retrieval.
+#[derive(Eq)] #[derive(Hash)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataBlobKey {
@@ -681,6 +683,7 @@ pub struct DataBlobKey {
 }
 /// Nested message and enum types in `DataBlobKey`.
 pub mod data_blob_key {
+    #[derive(Eq)] #[derive(Hash)]
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Key {
@@ -3792,7 +3795,7 @@ pub mod signal_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30")]
+    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3887,8 +3890,11 @@ pub mod signal_response {
         /// Sent to data track subscribers to provide mapping from track SIDs to handles.
         #[prost(message, tag="29")]
         DataTrackSubscriberHandles(super::DataTrackSubscriberHandles),
-        /// Sent in response to `GetDataBlobRequest`.
+        /// Sent in response to `StoreDataBlobRequest`.
         #[prost(message, tag="30")]
+        StoreDataBlobResponse(super::StoreDataBlobResponse),
+        /// Sent in response to `GetDataBlobRequest`.
+        #[prost(message, tag="31")]
         GetDataBlobResponse(super::GetDataBlobResponse),
     }
 }
@@ -4162,6 +4168,15 @@ pub struct StoreDataBlobRequest {
     pub request_id: u32,
     #[prost(message, optional, tag="2")]
     pub blob: ::core::option::Option<DataBlob>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StoreDataBlobResponse {
+    #[prost(uint32, tag="1")]
+    pub request_id: u32,
+    /// Unique key the data blob was stored under.
+    #[prost(message, optional, tag="2")]
+    pub key: ::core::option::Option<DataBlobKey>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
