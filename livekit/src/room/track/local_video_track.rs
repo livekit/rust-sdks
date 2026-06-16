@@ -58,7 +58,13 @@ pub enum PublishingLayerQuality {
     Medium,
     /// High video quality.
     High,
-    /// Disabled video quality.
+    /// The layer is disabled and not being encoded/sent.
+    ///
+    /// Mirrors `VideoQuality::OFF` from the LiveKit protocol. In practice this
+    /// is not emitted by [`LocalVideoTrack::publishing_layers`] (a disabled
+    /// layer is instead reflected by [`PublishingLayer::active`] being
+    /// `false`); it exists to fully model the protocol enum and for conversions
+    /// to/from it.
     Off,
 }
 
