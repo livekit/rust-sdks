@@ -1664,7 +1664,7 @@ async fn run_capture_loop(
                             "{}({})={}",
                             layer.rid,
                             layer.quality,
-                            if layer.active { "ON" } else { "off" }
+                            if layer.active { "on" } else { "off" }
                         )
                     })
                     .collect::<Vec<_>>()

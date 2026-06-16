@@ -347,17 +347,15 @@ pub fn spatial_layers_from_scalability_mode(mode: &str) -> u32 {
     1
 }
 
-pub(crate) fn default_video_quality() -> proto::VideoQuality {
-    // A single encoding, or one without a recognized RID, represents the full-quality layer.
-    proto::VideoQuality::High
-}
+/// A single encoding, or one without a recognized RID, represents the full-quality layer.
+pub(crate) const DEFAULT_VIDEO_QUALITY: proto::VideoQuality = proto::VideoQuality::High;
 
 pub(crate) fn video_quality_for_rid_or_default(rid: &str) -> proto::VideoQuality {
-    video_quality_for_rid(rid).unwrap_or_else(default_video_quality)
+    video_quality_for_rid(rid).unwrap_or(DEFAULT_VIDEO_QUALITY)
 }
 
 pub(crate) fn video_quality_from_i32_or_default(quality: i32) -> proto::VideoQuality {
-    proto::VideoQuality::try_from(quality).unwrap_or_else(|_| default_video_quality())
+    proto::VideoQuality::try_from(quality).unwrap_or(DEFAULT_VIDEO_QUALITY)
 }
 
 pub fn video_layers_from_encodings(
@@ -367,7 +365,7 @@ pub fn video_layers_from_encodings(
 ) -> Vec<proto::VideoLayer> {
     if encodings.is_empty() {
         return vec![proto::VideoLayer {
-            quality: default_video_quality() as i32,
+            quality: DEFAULT_VIDEO_QUALITY as i32,
             width,
             height,
             bitrate: 0,

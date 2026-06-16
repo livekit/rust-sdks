@@ -45,22 +45,6 @@ fn publisher_video_track(room: &Room) -> Result<LocalVideoTrack> {
     Err(anyhow!("No local video track publication found"))
 }
 
-/// Returns the publisher's local video tracks keyed by track SID.
-#[cfg(feature = "__lk-e2e-test")]
-fn publisher_video_tracks(room: &Room) -> HashMap<TrackSid, LocalVideoTrack> {
-    room.local_participant()
-        .track_publications()
-        .into_values()
-        .filter_map(|publication| {
-            let sid = publication.sid();
-            let Some(LocalTrack::Video(track)) = publication.track() else {
-                return None;
-            };
-            Some((sid, track))
-        })
-        .collect()
-}
-
 /// Polls `publishing_layers()` until the `check` predicate returns true, or times out.
 #[cfg(feature = "__lk-e2e-test")]
 async fn wait_for_layers(
@@ -87,62 +71,68 @@ async fn wait_for_layers(
     }
 }
 
-/// Waits for the publisher to expose `expected_count` local video tracks.
+/// Waits for the publisher's next local video track publication.
 #[cfg(feature = "__lk-e2e-test")]
-async fn wait_for_publisher_video_tracks(
-    room: &Room,
-    expected_count: usize,
+async fn wait_for_next_publisher_video_track(
+    events: &mut UnboundedReceiver<RoomEvent>,
     label: &str,
     max_wait: Duration,
-) -> Result<HashMap<TrackSid, LocalVideoTrack>> {
-    let deadline = tokio::time::Instant::now() + max_wait;
-    loop {
-        let tracks = publisher_video_tracks(room);
-        if tracks.len() == expected_count {
-            return Ok(tracks);
+) -> Result<(TrackSid, LocalVideoTrack)> {
+    timeout(max_wait, async {
+        while let Some(event) = events.recv().await {
+            if let RoomEvent::LocalTrackPublished {
+                publication,
+                track: LocalTrack::Video(track),
+                ..
+            } = event
+            {
+                return Ok((publication.sid(), track));
+            }
         }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(anyhow!(
-                "dynacast test [{}]: timed out waiting for {} publisher video tracks, got {}",
-                label,
-                expected_count,
-                tracks.len()
-            ));
-        }
-        time::sleep(Duration::from_millis(250)).await;
-    }
+        Err(anyhow!("dynacast test [{}]: event channel closed before video track published", label))
+    })
+    .await
+    .map_err(|_| {
+        anyhow!("dynacast test [{}]: timed out waiting for publisher video track", label)
+    })?
 }
 
 /// Waits for a subscriber to observe all expected remote track publications.
 #[cfg(feature = "__lk-e2e-test")]
 async fn wait_for_remote_publications(
-    room: &Room,
+    events: &mut UnboundedReceiver<RoomEvent>,
     track_sids: &[TrackSid],
     label: &str,
     max_wait: Duration,
 ) -> Result<HashMap<TrackSid, RemoteTrackPublication>> {
-    let deadline = tokio::time::Instant::now() + max_wait;
-    loop {
-        let publications: HashMap<_, _> = room
-            .remote_participants()
-            .into_values()
-            .flat_map(|participant| participant.track_publications())
-            .filter(|(sid, _)| track_sids.contains(sid))
-            .collect();
-
-        if publications.len() == track_sids.len() {
-            return Ok(publications);
+    let mut publications: HashMap<TrackSid, RemoteTrackPublication> = HashMap::new();
+    timeout(max_wait, async {
+        while publications.len() < track_sids.len() {
+            let Some(event) = events.recv().await else {
+                return Err(anyhow!(
+                    "dynacast test [{}]: event channel closed before all remote publications observed",
+                    label
+                ));
+            };
+            if let RoomEvent::TrackPublished { publication, .. } = event {
+                let sid = publication.sid();
+                if track_sids.contains(&sid) {
+                    publications.insert(sid, publication);
+                }
+            }
         }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(anyhow!(
-                "dynacast test [{}]: timed out waiting for remote publications, got {}/{}",
-                label,
-                publications.len(),
-                track_sids.len()
-            ));
-        }
-        time::sleep(Duration::from_millis(250)).await;
-    }
+        Ok(())
+    })
+    .await
+    .map_err(|_| {
+        anyhow!(
+            "dynacast test [{}]: timed out waiting for remote publications, got {}/{}",
+            label,
+            publications.len(),
+            track_sids.len()
+        )
+    })??;
+    Ok(publications)
 }
 
 /// Subscribes to exactly one of the provided publications and waits for it to attach a track.
@@ -363,63 +353,41 @@ async fn test_dynacast_multiple_subscribers_only_publish_requested_tracks() -> R
 
     let mut rooms =
         test_rooms_with_options([pub_options, sub_options.clone(), sub_options]).await?;
-    let (pub_room, _pub_events) = rooms.remove(0);
-    let (sub1_room, mut sub1_events) = rooms.remove(0);
-    let (sub2_room, mut sub2_events) = rooms.remove(0);
+    let (pub_room, mut pub_events) = rooms.remove(0);
+    let (_sub1_room, mut sub1_events) = rooms.remove(0);
+    let (_sub2_room, mut sub2_events) = rooms.remove(0);
 
     let pub_room = Arc::new(pub_room);
     let mut solid_tracks = Vec::new();
     let mut track_sids: Vec<TrackSid> = Vec::new();
+    let mut publisher_tracks: Vec<(TrackSid, LocalVideoTrack)> = Vec::new();
 
     for (index, luma) in [64, 128, 192].into_iter().enumerate() {
         let solid_params = SolidColorParams { width: 1280, height: 720, luma };
         let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
         solid_track.publish(VideoCodec::VP8, true).await?;
 
-        let published_tracks = wait_for_publisher_video_tracks(
-            &pub_room,
-            index + 1,
+        let (new_sid, track) = wait_for_next_publisher_video_track(
+            &mut pub_events,
             &format!("publish track {}", index + 1),
             Duration::from_secs(15),
         )
         .await?;
-        let Some(new_sid) = published_tracks
-            .keys()
-            .find(|sid| !track_sids.iter().any(|published_sid| published_sid == *sid))
-        else {
-            return Err(anyhow!("No new track SID found after publishing track {}", index + 1));
-        };
         log::info!("dynacast multi: published track {} as {}", index + 1, new_sid);
         track_sids.push(new_sid.clone());
+        publisher_tracks.push((new_sid, track));
         solid_tracks.push(solid_track);
     }
 
-    let published_tracks = wait_for_publisher_video_tracks(
-        &pub_room,
-        3,
-        "all published tracks",
-        Duration::from_secs(5),
-    )
-    .await?;
-    let publisher_tracks: Vec<_> = track_sids
-        .iter()
-        .map(|sid| {
-            let track = published_tracks
-                .get(sid)
-                .ok_or_else(|| anyhow!("Missing local video track {}", sid))?;
-            Ok((sid.clone(), track.clone()))
-        })
-        .collect::<Result<_>>()?;
-
     let sub1_publications = wait_for_remote_publications(
-        &sub1_room,
+        &mut sub1_events,
         &track_sids,
         "subscriber 1",
         Duration::from_secs(15),
     )
     .await?;
     let sub2_publications = wait_for_remote_publications(
-        &sub2_room,
+        &mut sub2_events,
         &track_sids,
         "subscriber 2",
         Duration::from_secs(15),

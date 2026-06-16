@@ -86,7 +86,12 @@ impl From<PublishingLayerQuality> for proto::VideoQuality {
 
 impl Display for PublishingLayerQuality {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        match self {
+            Self::Low => write!(f, "low"),
+            Self::Medium => write!(f, "medium"),
+            Self::High => write!(f, "high"),
+            Self::Off => write!(f, "off"),
+        }
     }
 }
 
@@ -388,7 +393,7 @@ impl LocalVideoTrack {
             .map_err(|e| RoomError::Internal(format!("failed to set sender parameters: {}", e)))?;
 
         if changed {
-            log::info!("dynacast: layers changed -> [{}]", layers.join(", "));
+            log::debug!("dynacast: layers changed -> [{}]", layers.join(", "));
         } else {
             log::debug!("dynacast: layers unchanged [{}]", layers.join(", "));
         }
