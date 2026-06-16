@@ -455,6 +455,8 @@ async fn test_schema_storage() -> Result<()> {
 
     pub_room.local_participant().define_schema(schema_id.clone(), DEFINITION.to_string()).await?;
 
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+
     let definition = sub_room.local_participant().get_schema(schema_id, pub_identity).await?;
     assert_eq!(definition, DEFINITION);
 
