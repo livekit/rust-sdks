@@ -1085,9 +1085,6 @@ impl LocalParticipant {
     const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
     /// Stores an arbitrary blob of data on the server, keyed by `key`.
-    ///
-    /// This is a lower-level primitive; most callers should prefer the schema
-    /// helpers (e.g. [`define_schema`](Self::define_schema)).
     pub async fn store_data_blob(
         &self,
         key: proto::DataBlobKey,
@@ -1097,34 +1094,39 @@ impl LocalParticipant {
 
         let session = self.inner.rtc_engine.session();
         let request_id = session.signal_client().next_request_id();
+
+        // Success is reported via `StoreDataBlobResponse` and error via `RequestResponse`;
+        // both carry the request id, so both paths are correlated by it.
+        let store_ok_response = session.store_data_blob_response(request_id);
+        let store_error_response = session.get_response(request_id);
+
         let request = proto::StoreDataBlobRequest { blob: Some(blob), request_id };
         self.inner
             .rtc_engine
             .send_request(proto::signal_request::Message::StoreDataBlobRequest(request))
             .await;
 
-        livekit_runtime::spawn(async move {
-            let Ok(response) =
-                timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, session.get_response(request_id)).await
-            else {
-                return; // No error arrived within the window: treat the store as successful.
-            };
-            if response.reason() != Reason::Ok {
-                log::error!(
-                    "store data blob failed ({:?}): {}",
-                    response.reason(),
-                    response.message
-                );
+        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
+            tokio::select! {
+                _ = store_ok_response => Ok(()),
+                error = store_error_response => Err(error),
             }
-        });
+        })
+        .await
+        .map_err(|_| {
+            EngineError::Signal(SignalError::Timeout("store data blob timed out".into()))
+        })?;
 
-        Ok(())
+        match response {
+            Ok(()) => Ok(()),
+            Err(error) => Err(EngineError::Internal(
+                format!("store data blob request failed ({:?}): {}", error.reason(), error.message)
+                    .into(),
+            )),
+        }
     }
 
     /// Retrieves a blob of data previously stored by `participant` under `key`.
-    ///
-    /// This is a lower-level primitive; most callers should prefer the schema
-    /// helpers (e.g. [`get_schema`](Self::get_schema)).
     pub async fn get_data_blob(
         &self,
         key: proto::DataBlobKey,
@@ -1132,6 +1134,12 @@ impl LocalParticipant {
     ) -> EngineResult<Bytes> {
         let session = self.inner.rtc_engine.session();
         let request_id = session.signal_client().next_request_id();
+
+        // The SFU omits the request id on a successful response, so the success path is
+        // correlated by the blob key; the error path is correlated by the request id.
+        let get_ok_response = session.get_data_blob_response(key.clone());
+        let get_error_response = session.get_response(request_id);
+
         let request = proto::GetDataBlobRequest {
             key: Some(key),
             participant_identity: participant.0,
@@ -1144,8 +1152,8 @@ impl LocalParticipant {
 
         let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
             tokio::select! {
-                response = session.get_data_blob_response(request_id) => Ok(response),
-                error = session.get_response(request_id) => Err(error),
+                response = get_ok_response => Ok(response),
+                error = get_error_response => Err(error),
             }
         })
         .await

@@ -423,7 +423,11 @@ struct SessionInner {
     negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
-    pending_data_blob_requests: Mutex<HashMap<u32, oneshot::Sender<proto::GetDataBlobResponse>>>,
+
+    pending_store_data_blob_requests:
+        Mutex<HashMap<u32, oneshot::Sender<proto::StoreDataBlobResponse>>>,
+    pending_get_data_blob_requests:
+        Mutex<HashMap<proto::DataBlobKey, oneshot::Sender<proto::GetDataBlobResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
     subscriber_primary: bool,
@@ -628,7 +632,8 @@ impl RtcSession {
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
-            pending_data_blob_requests: Default::default(),
+            pending_get_data_blob_requests: Default::default(),
+            pending_store_data_blob_requests: Default::default(),
             e2ee_manager,
             subscriber_primary,
             pc_state_notify: Notify::new(),
@@ -956,8 +961,17 @@ impl RtcSession {
         self.inner.get_response(request_id).await
     }
 
-    pub async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
-        self.inner.get_data_blob_response(request_id).await
+    /// Awaits the successful [`GetDataBlobResponse`][proto::GetDataBlobResponse] for `key`.
+    pub async fn get_data_blob_response(
+        &self,
+        key: proto::DataBlobKey,
+    ) -> proto::GetDataBlobResponse {
+        self.inner.get_data_blob_response(key).await
+    }
+
+    /// Awaits the successful [`StoreDataBlobResponse`][proto::StoreDataBlobResponse] for `request_id`.
+    pub async fn store_data_blob_response(&self, request_id: u32) -> proto::StoreDataBlobResponse {
+        self.inner.store_data_blob_response(request_id).await
     }
 }
 
@@ -1459,8 +1473,15 @@ impl SessionInner {
                 let _ = self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
             }
             proto::signal_response::Message::GetDataBlobResponse(response) => {
+                if let Some(key) = response.blob.as_ref().and_then(|b| b.key.clone()) {
+                    if let Some(tx) = self.pending_get_data_blob_requests.lock().remove(&key) {
+                        let _ = tx.send(response);
+                    }
+                }
+            }
+            proto::signal_response::Message::StoreDataBlobResponse(response) => {
                 if let Some(tx) =
-                    self.pending_data_blob_requests.lock().remove(&response.request_id)
+                    self.pending_store_data_blob_requests.lock().remove(&response.request_id)
                 {
                     let _ = tx.send(response);
                 }
@@ -2414,11 +2435,18 @@ impl SessionInner {
         rx.await.unwrap()
     }
 
-    async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+    async fn get_data_blob_response(&self, key: proto::DataBlobKey) -> proto::GetDataBlobResponse {
         let (tx, rx) = oneshot::channel();
-        self.pending_data_blob_requests.lock().insert(request_id, tx);
-        let _guard = PendingResponseGuard::new(&self.pending_data_blob_requests, request_id);
+        self.pending_get_data_blob_requests.lock().insert(key.clone(), tx);
+        let _guard = PendingResponseGuard::new(&self.pending_get_data_blob_requests, key);
         rx.await.expect("data blob response sender dropped")
+    }
+
+    async fn store_data_blob_response(&self, request_id: u32) -> proto::StoreDataBlobResponse {
+        let (tx, rx) = oneshot::channel();
+        self.pending_store_data_blob_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_store_data_blob_requests, request_id);
+        rx.await.expect("store data blob response sender dropped")
     }
 }
 
@@ -2435,20 +2463,20 @@ fn parse_sdp_max_message_size(sdp: &str) -> Option<u64> {
 /// Installed alongside a registration so that abandoning the wait (e.g. a timeout or a
 /// losing [`tokio::select!`] branch) cannot leave a stale entry behind. Dropping after the
 /// response has already been delivered is a no-op since the entry is removed on delivery.
-struct PendingResponseGuard<'a, T> {
-    map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>,
-    request_id: u32,
+struct PendingResponseGuard<'a, K: Eq + std::hash::Hash, T> {
+    map: &'a Mutex<HashMap<K, oneshot::Sender<T>>>,
+    key: K,
 }
 
-impl<'a, T> PendingResponseGuard<'a, T> {
-    fn new(map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>, request_id: u32) -> Self {
-        Self { map, request_id }
+impl<'a, K: Eq + std::hash::Hash, T> PendingResponseGuard<'a, K, T> {
+    fn new(map: &'a Mutex<HashMap<K, oneshot::Sender<T>>>, key: K) -> Self {
+        Self { map, key }
     }
 }
 
-impl<T> Drop for PendingResponseGuard<'_, T> {
+impl<K: Eq + std::hash::Hash, T> Drop for PendingResponseGuard<'_, K, T> {
     fn drop(&mut self) {
-        self.map.lock().remove(&self.request_id);
+        self.map.lock().remove(&self.key);
     }
 }
 
