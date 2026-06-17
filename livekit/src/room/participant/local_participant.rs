@@ -1137,9 +1137,9 @@ impl LocalParticipant {
         let session = self.inner.rtc_engine.session();
         let request_id = session.signal_client().next_request_id();
 
-        // The SFU omits the request id on a successful response, so the success path is
-        // correlated by the blob key; the error path is correlated by the request id.
-        let get_ok_response = session.get_data_blob_response(key.clone());
+        // Success is reported via `GetDataBlobResponse` and error via `RequestResponse`;
+        // both carry the request id, so both paths are correlated by it.
+        let get_ok_response = session.get_data_blob_response(request_id);
         let get_error_response = session.get_response(request_id);
 
         let request = proto::GetDataBlobRequest {
