@@ -1073,11 +1073,7 @@ impl LocalParticipant {
         let contents = self
             .get_data_blob(id.into(), participant)
             .await
-            .map_err(|err| {
-                log::error!("failed to get schema: {err}");
-                err
-            })?;
-
+            .map_err(|err| RoomError::Internal(format!("failed to fetch schema: {err}")))?;
 
         let definition = String::from_utf8(contents.to_vec()).map_err(|err| {
             RoomError::Internal(format!("schema definition is not valid UTF-8: {err}"))
