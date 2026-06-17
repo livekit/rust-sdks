@@ -36,8 +36,11 @@ To test them out, run `cd node_test && npx tsx index.ts`
 ### Android
 
 Build native libraries, Kotlin bindings, and a release AAR:
+
 ```
-cargo make android-package
+cargo make android-package                              # debug .so in release AAR
+cargo make --profile release android-package            # release .so (CI / publishing)
+cargo make android-package-local                        # + publish to Maven Local
 ```
 
 See [support/android/README.md](./support/android/README.md) for prerequisites (Android SDK/NDK).
