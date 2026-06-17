@@ -257,6 +257,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.46 (2026-06-17)
+
+### Features
+
+#### Make GLib an opt-in dependency
+
+`webrtc-sys` no longer links against `glib-2.0`/`gobject-2.0`/`gio-2.0` by default.
+
+Breaking: Wayland screen sharing now requires the `glib-main-loop` feature on `livekit` (or `libwebrtc`).
+
+### Fixes
+
+- Add track publishing doc example
+- Fix silent subscription failures in single-pc mode when the SFU reuses an existing empty transceiver for a new remote track. Also make `RtpTransceiver::mid()` safe to call on transceivers that haven't been negotiated yet — libwebrtc is built with `-fno-exceptions`, so `std::optional::value()` aborted the process instead of throwing.
+- Add `LK_DISABLE_NVDEC` to bypass NVIDIA NVDEC decoder registration when the environment variable is set.
+- return DeviceNotFound when device is not there for set_recording_devi… - #1155 (@xianshijing-lk)
+
+#### Add dynacast support - #1003 (@chenosaurus, @stephen-derosa)
+
+This includes a minor breaking change for `libwebrtc`: `RtpParameters` now
+contains additional RTP sender state that must be preserved when round-tripping
+through `set_parameters()`.
+
 ## 0.7.45 (2026-06-09)
 
 ### Fixes
