@@ -353,7 +353,7 @@ echo
 # are ~2× larger by construction (two archs in one Mach-O) and shouldn't be
 # the metric. Override the limit per release with SPM_SIZE_LIMIT_BYTES.
 [tasks.swift-check-size.env]
-SPM_SIZE_LIMIT_BYTES = { value = "1048576", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
+SPM_SIZE_LIMIT_BYTES = { value = "723467", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
 
 [tasks.swift-check-size]
 private = true
@@ -486,7 +486,7 @@ run_task = "swift-package-flow"
 # during assemble; the raw target/ artifact is larger and not what ships).
 # Override the limit per release with ANDROID_SIZE_LIMIT_BYTES.
 [tasks.android-check-size.env]
-ANDROID_SIZE_LIMIT_BYTES = { value = "1572864", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
+ANDROID_SIZE_LIMIT_BYTES = { value = "877918", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
 
 [tasks.android-check-size]
 private = true

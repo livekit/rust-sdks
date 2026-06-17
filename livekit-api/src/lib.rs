@@ -17,6 +17,9 @@
 #[cfg(feature = "access-token")]
 pub mod access_token;
 
+#[cfg(feature = "access-token")]
+mod jwt_provider;
+
 #[cfg(any(feature = "services-tokio", feature = "services-async"))]
 pub mod services;
 

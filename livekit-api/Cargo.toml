@@ -47,7 +47,7 @@ __signal-client-async-compatible = [
 
 services-tokio = ["dep:reqwest"]
 services-async = ["dep:isahc"]
-access-token = ["dep:jsonwebtoken"]
+access-token = ["dep:jsonwebtoken", "dep:hmac", "dep:signature"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
 # TLS Configuration
@@ -114,8 +114,11 @@ pbjson-types = "0.6"
 serde_json = { workspace = true, optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
-# access_token & services
-jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"], optional = true }
+# access_token: HS256 only, via the in-crate HMAC CryptoProvider (jwt_provider.rs).
+# Dropping jsonwebtoken's rust_crypto bundle avoids linking RSA/EC/EdDSA.
+jsonwebtoken = { version = "10", default-features = false, optional = true }
+hmac = { version = "0.12", optional = true }
+signature = { version = "2", optional = true }
 
 # signal_client
 livekit-runtime = { workspace = true, optional = true}
