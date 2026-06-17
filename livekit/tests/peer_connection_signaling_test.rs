@@ -312,6 +312,33 @@ async fn test_v1_double_reconnect() -> Result<()> {
     test_double_reconnect_impl(SignalingMode::SinglePC).await
 }
 
+/// A resume that fails once must escalate to a full reconnect (not loop on
+/// resume). The first resume attempt is forced to fail via fault injection; the
+/// engine must then recover by doing a full reconnect.
+#[test_log::test(tokio::test)]
+async fn test_v0_resume_failure_escalates_to_full_reconnect() -> Result<()> {
+    test_resume_failure_escalates_impl(SignalingMode::DualPC).await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_v1_resume_failure_escalates_to_full_reconnect() -> Result<()> {
+    test_resume_failure_escalates_impl(SignalingMode::SinglePC).await
+}
+
+/// A failure surfacing during an in-flight resume must escalate the *next* resume
+/// cycle to a full reconnect (sticky escalation), instead of looping on resume.
+/// Reproduces the production migration loop. The mid-resume failure is injected via
+/// the same `reconnection_needed` path a server `Leave{Resume}` takes.
+#[test_log::test(tokio::test)]
+async fn test_v0_resume_escalation_sticks_across_cycles() -> Result<()> {
+    test_resume_escalation_sticks_across_cycles_impl(SignalingMode::DualPC).await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_v1_resume_escalation_sticks_across_cycles() -> Result<()> {
+    test_resume_escalation_sticks_across_cycles_impl(SignalingMode::SinglePC).await
+}
+
 /// Corner case: resume without ever having published a track. In single-PC mode
 /// this exercises the publisher ICE restart even though `has_published=false`
 /// (the fix for the single-PC publisher gating bug). In dual-PC subscriber-
@@ -1045,6 +1072,230 @@ async fn test_double_reconnect_impl(mode: SignalingMode) -> Result<()> {
         assert_eq!(room.connection_state(), ConnectionState::Connected);
     }
 
+    Ok(())
+}
+
+/// Verify that a single resume failure escalates to a full reconnect.
+///
+/// Forces the first resume attempt to fail via fault injection, then asserts the
+/// engine recovers by escalating to a full reconnect — observed via
+/// `LocalTrackRepublished`, which only the full-reconnect path emits (a resume
+/// preserves publications and never republishes). Without escalation the engine
+/// would keep retrying resume and the connection would never recover. Covers both
+/// dual-PC and single-PC signaling.
+async fn test_resume_failure_escalates_impl(mode: SignalingMode) -> Result<()> {
+    let (url, api_key, api_secret) = get_env_for_mode(mode);
+    let room_name = format!("test_{:?}_resume_fail_escalate_{}", mode, create_random_uuid());
+    let token = create_token(&api_key, &api_secret, &room_name, "resume_fail_tester")?;
+
+    let (room, mut events) = connect_room(&url, &token, mode).await?;
+    assert_signaling_mode_state(&room, mode, &url);
+
+    let room_arc = Arc::new(room);
+
+    // Publish a track so the full-reconnect path has something to republish (the
+    // `LocalTrackRepublished` event is our proof that escalation occurred).
+    let sine_params =
+        SineParameters { freq: 440.0, amplitude: 1.0, sample_rate: 48000, num_channels: 1 };
+    let mut sine_track = SineTrack::new(room_arc.clone(), sine_params);
+    sine_track.publish().await?;
+
+    let tracks_before = room_arc.local_participant().track_publications().len();
+    assert_eq!(tracks_before, 1, "precondition: one track published");
+
+    // Arm the fault: the next resume attempt fails. The engine must escalate to a
+    // full reconnect instead of looping on resume.
+    room_arc.fail_next_resume_attempts(1);
+
+    log::info!("[{}] Triggering reconnect with the first resume forced to fail", mode.name());
+    room_arc.simulate_scenario(SimulateScenario::SignalReconnect).await?;
+
+    // Recovery must come via the full-reconnect path. `LocalTrackRepublished` is
+    // dispatched before `Reconnected` within the same restart task, so by the time
+    // we observe `Reconnected` we will already have flipped `saw_republish`.
+    let mut saw_republish = false;
+    let wait_recovered = async {
+        loop {
+            let Some(event) = events.recv().await else {
+                return Err(anyhow!("Event channel closed"));
+            };
+            match event {
+                RoomEvent::Reconnecting => {
+                    log::info!("[{}] Reconnecting...", mode.name());
+                }
+                RoomEvent::LocalTrackRepublished { .. } => {
+                    log::info!(
+                        "[{}] Track republished — escalated to full reconnect",
+                        mode.name()
+                    );
+                    saw_republish = true;
+                }
+                RoomEvent::Reconnected => {
+                    log::info!("[{}] Reconnected", mode.name());
+                    return Ok(());
+                }
+                RoomEvent::Disconnected { reason } => {
+                    return Err(anyhow!("unexpected disconnect during recovery: {:?}", reason));
+                }
+                _ => {}
+            }
+        }
+    };
+
+    // Generous timeout: a forced resume failure ticks the reconnect interval
+    // (RECONNECT_INTERVAL = 5s) before the escalated full reconnect runs.
+    timeout(Duration::from_secs(40), wait_recovered)
+        .await
+        .context("Timeout waiting for full-reconnect recovery after forced resume failure")??;
+
+    assert!(
+        saw_republish,
+        "expected a full reconnect (LocalTrackRepublished) after the resume failure; \
+         recovery without escalation means the resume failure was not escalated"
+    );
+    assert_eq!(room_arc.connection_state(), ConnectionState::Connected);
+
+    let tracks_after = room_arc.local_participant().track_publications().len();
+    assert_eq!(
+        tracks_before, tracks_after,
+        "track should be restored after the escalated full reconnect"
+    );
+
+    log::info!("[{}] Test passed - resume failure escalated to full reconnect!", mode.name());
+    Ok(())
+}
+
+/// Verify the resume-failure escalation is *sticky across reconnect cycles*.
+///
+/// Reproduces the production migration loop: a transport failure (a server
+/// `Leave{Resume}` / PeerConnection `Failed`) arrives while a resume is in flight,
+/// the resume reports success anyway, and the follow-up resume cycle must escalate
+/// to a full reconnect rather than resuming again forever.
+///
+/// The concurrent failure is injected via fault injection during the FIRST resume —
+/// `escalate_during_next_resume` drives the exact same `reconnection_needed` path a
+/// real server `Leave{Resume}` takes — and the resume still succeeds as a plain
+/// resume (no republish). Post-fix, the SECOND resume cycle escalates to a full
+/// reconnect, observed via `LocalTrackRepublished` (only the full-reconnect path
+/// republishes). Pre-fix the pending escalation is dropped, the second cycle resumes
+/// again with no republish, and the final assertion fails.
+///
+/// The two cycles are driven by `SignalReconnect` rather than the `Migration`
+/// (server `Leave{Resume}`) scenario on purpose: a single-node `livekit-server
+/// --dev` has no node to migrate to, so a migration resume fails immediately and
+/// escalates on its own — which would mask the cross-cycle behavior under test.
+/// `SignalReconnect` resumes cleanly, keeping the pre-fix path on resume so the
+/// regression is observable.
+async fn test_resume_escalation_sticks_across_cycles_impl(mode: SignalingMode) -> Result<()> {
+    // Two participants: a lone publisher's resume can fail with a webrtc error on a
+    // `--dev` server, so we pair the publisher with a subscriber (as in the reconnect
+    // test) to keep the resume path healthy. The cross-cycle escalation needs cycle 1
+    // to succeed *as a resume*, so a reliable resume is essential.
+    let mut rooms = test_rooms_with_options([room_options(mode), room_options(mode)]).await?;
+    let (sub_room, mut sub_events) = rooms.pop().unwrap();
+    let (pub_room, mut events) = rooms.pop().unwrap();
+    let _sub_room = sub_room; // keep the subscriber alive for the duration of the test
+
+    let pub_room_arc = Arc::new(pub_room);
+
+    let sine_params =
+        SineParameters { freq: 440.0, amplitude: 1.0, sample_rate: 48000, num_channels: 1 };
+    let mut sine_track = SineTrack::new(pub_room_arc.clone(), sine_params);
+    sine_track.publish().await?;
+    assert_eq!(pub_room_arc.local_participant().track_publications().len(), 1);
+
+    // Wait for the subscriber to receive the track, ensuring the publisher PC is fully
+    // connected before we start tearing the signal connection down.
+    let wait_subscribed = async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Subscriber event channel closed"));
+            };
+            if let RoomEvent::TrackSubscribed { .. } = event {
+                return Ok(());
+            }
+        }
+    };
+    timeout(Duration::from_secs(15), wait_subscribed)
+        .await
+        .context("Timeout waiting for subscriber to receive the published track")??;
+
+    let room_arc = pub_room_arc;
+
+    // --- Cycle 1: a resume with a concurrent failure injected mid-resume. The resume
+    // must still succeed as a plain resume (no republish). ---
+    room_arc.escalate_during_next_resume();
+    log::info!("[{}] Cycle 1: resume + concurrent failure injected mid-resume", mode.name());
+    room_arc.simulate_scenario(SimulateScenario::SignalReconnect).await?;
+
+    let mut cycle1_republished = false;
+    let wait_cycle1 = async {
+        loop {
+            let Some(event) = events.recv().await else {
+                return Err(anyhow!("Event channel closed"));
+            };
+            match event {
+                RoomEvent::LocalTrackRepublished { .. } => cycle1_republished = true,
+                RoomEvent::Reconnected => return Ok(()),
+                RoomEvent::Disconnected { reason } => {
+                    return Err(anyhow!("unexpected disconnect in cycle 1: {:?}", reason));
+                }
+                _ => {}
+            }
+        }
+    };
+    timeout(Duration::from_secs(40), wait_cycle1)
+        .await
+        .context("Timeout waiting for cycle 1 (resume) to recover")??;
+
+    // Premise check: cycle 1 must have been a resume, not a full reconnect. If the
+    // server's resume failed it would escalate here, voiding the cross-cycle test.
+    assert!(
+        !cycle1_republished,
+        "cycle 1 republished (full reconnect) — the resume did not complete as a resume, \
+         so the cross-cycle escalation premise does not hold"
+    );
+    assert_eq!(room_arc.connection_state(), ConnectionState::Connected);
+
+    // Let the reconnect cycle fully unwind (the `reconnecting` flag clears just after
+    // the Reconnected event) before triggering the next one.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // --- Cycle 2: another server Leave{Resume}. The failure pending from cycle 1 must
+    // now escalate this cycle to a full reconnect. ---
+    log::info!("[{}] Cycle 2: resume — must escalate to full reconnect", mode.name());
+    room_arc.simulate_scenario(SimulateScenario::SignalReconnect).await?;
+
+    let mut cycle2_republished = false;
+    let wait_cycle2 = async {
+        loop {
+            let Some(event) = events.recv().await else {
+                return Err(anyhow!("Event channel closed"));
+            };
+            match event {
+                RoomEvent::LocalTrackRepublished { .. } => cycle2_republished = true,
+                RoomEvent::Reconnected => return Ok(()),
+                RoomEvent::Disconnected { reason } => {
+                    return Err(anyhow!("unexpected disconnect in cycle 2: {:?}", reason));
+                }
+                _ => {}
+            }
+        }
+    };
+    timeout(Duration::from_secs(40), wait_cycle2)
+        .await
+        .context("Timeout waiting for cycle 2 recovery")??;
+
+    assert!(
+        cycle2_republished,
+        "cycle 2 did not escalate to a full reconnect (no LocalTrackRepublished): the \
+         failure pending from cycle 1's resume was dropped instead of sticking — this is \
+         the pre-fix resume-loop bug"
+    );
+    assert_eq!(room_arc.connection_state(), ConnectionState::Connected);
+    assert_eq!(room_arc.local_participant().track_publications().len(), 1);
+
+    log::info!("[{}] Test passed - escalation persisted across resume cycles!", mode.name());
     Ok(())
 }
 

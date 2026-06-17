@@ -830,6 +830,21 @@ impl Room {
         self.inner.rtc_engine.simulate_scenario(scenario).await
     }
 
+    /// Test-only: force the next `count` resume attempts to fail, exercising the
+    /// resume-failure → full-reconnect escalation path end-to-end.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn fail_next_resume_attempts(&self, count: u32) {
+        self.inner.rtc_engine.fail_next_resume_attempts(count);
+    }
+
+    /// Test-only: arm a one-shot fault so the next resume simulates a concurrent
+    /// transport failure (then still succeeds), reproducing the resume-reports-
+    /// success-while-a-failure-was-pending race.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn escalate_during_next_resume(&self) {
+        self.inner.rtc_engine.escalate_during_next_resume();
+    }
+
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
         self.inner.rtc_engine.get_stats().await
     }
