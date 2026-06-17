@@ -27,7 +27,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Simulcast
 - [x] SVC codecs (AV1/VP9)
 - [ ] Adaptive Streaming
-- [ ] Dynacast
+- [x] Dynacast
 - [x] Hardware video enc/dec
   - [x] H.264, H.265 using VideoToolbox (MacOS/iOS)
   - [x] H.264, H.265 on NVidia discrete GPUs (Linux)
