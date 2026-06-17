@@ -97,6 +97,24 @@ impl DataTrackInfo {
     pub fn uses_e2ee(&self) -> bool {
         self.uses_e2ee
     }
+
+    /// Schema associated with frames sent on the track.
+    ///
+    /// Returns `None` if the publisher did not associate a
+    /// [`DataTrackSchemaId`] with the track.
+    ///
+    pub fn schema(&self) -> Option<&DataTrackSchemaId> {
+        self.schema.as_ref()
+    }
+
+    /// Encoding of frames sent on the track.
+    ///
+    /// Returns `None` if the publisher did not specify a
+    /// [`DataTrackFrameEncoding`] for the track.
+    ///
+    pub fn frame_encoding(&self) -> Option<DataTrackFrameEncoding> {
+        self.frame_encoding
+    }
 }
 
 /// SFU-assigned identifier uniquely identifying a data track.
