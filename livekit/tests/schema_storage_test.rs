@@ -15,43 +15,42 @@
 #[cfg(feature = "__lk-e2e-test")]
 use {
     anyhow::{Ok, Result},
-    bytes::Bytes,
     common::test_rooms,
-    livekit_protocol as proto,
+    livekit::data_track::{DataTrackSchemaEncoding, DataTrackSchemaId},
 };
 
 mod common;
 
-const MAX_DATA_BLOB_SIZE: usize = 60_000;
+const MAX_SCHEMA_DEFINITION_SIZE: usize = 60_000;
 
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_store_data_blob() -> Result<()> {
+async fn test_define_schema() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (pub_room, _) = rooms.pop().unwrap();
     let (sub_room, _) = rooms.pop().unwrap();
     let identity = pub_room.local_participant().identity();
 
-    let key = data_blob_key("some_key");
-    let contents = Bytes::from_static(&[0xFA; MAX_DATA_BLOB_SIZE]);
+    let id = DataTrackSchemaId::new("some_schema", DataTrackSchemaEncoding::JsonSchema);
+    let definition = "a".repeat(MAX_SCHEMA_DEFINITION_SIZE);
 
-    pub_room.local_participant().store_data_blob(key.clone(), contents.clone()).await?;
+    pub_room.local_participant().define_schema(id.clone(), definition.clone()).await?;
 
-    let definition = sub_room.local_participant().get_data_blob(key, identity).await?;
-    assert_eq!(definition, contents);
+    let retrieved = sub_room.local_participant().get_schema(id, identity).await?;
+    assert_eq!(retrieved, definition);
 
     Ok(())
 }
 
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_store_data_blob_over_limit() -> Result<()> {
+async fn test_define_schema_over_limit() -> Result<()> {
     let (room, _) = test_rooms(1).await?.pop().unwrap();
 
-    let key = data_blob_key("some_key");
-    let contents = Bytes::from_static(&[0xFA; 2 * MAX_DATA_BLOB_SIZE]); // Deliberately over size limit
+    let id = DataTrackSchemaId::new("some_schema", DataTrackSchemaEncoding::JsonSchema);
+    let definition = "a".repeat(2 * MAX_SCHEMA_DEFINITION_SIZE); // Deliberately over size limit
 
-    let result = room.local_participant().store_data_blob(key, contents).await;
+    let result = room.local_participant().define_schema(id, definition).await;
     assert!(result.is_err());
 
     Ok(())
@@ -59,16 +58,16 @@ async fn test_store_data_blob_over_limit() -> Result<()> {
 
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_store_data_blob_duplicate() -> Result<()> {
+async fn test_define_schema_duplicate() -> Result<()> {
     let (room, _) = test_rooms(1).await?.pop().unwrap();
 
-    let key = data_blob_key("some_key");
-    let contents = Bytes::from_static(&[0xFA; MAX_DATA_BLOB_SIZE]);
+    let id = DataTrackSchemaId::new("some_schema", DataTrackSchemaEncoding::JsonSchema);
+    let definition = "a".repeat(MAX_SCHEMA_DEFINITION_SIZE);
 
-    room.local_participant().store_data_blob(key.clone(), contents.clone()).await?;
+    room.local_participant().define_schema(id.clone(), definition.clone()).await?;
 
-    // Store under same key again
-    let result = room.local_participant().store_data_blob(key, contents).await;
+    // Define the same schema again
+    let result = room.local_participant().define_schema(id, definition).await;
     assert!(result.is_err());
 
     Ok(())
@@ -76,19 +75,13 @@ async fn test_store_data_blob_duplicate() -> Result<()> {
 
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_get_data_blob_unknown_key() -> Result<()> {
+async fn test_get_undefined_schema() -> Result<()> {
     let (room, _) = test_rooms(1).await?.pop().unwrap();
     let identity = room.local_participant().identity();
 
-    let key = data_blob_key("unknown_key");
-    let result = room.local_participant().get_data_blob(key, identity).await;
-
+    let id =  DataTrackSchemaId::new("undefined", DataTrackSchemaEncoding::JsonSchema);
+    let result = room.local_participant().get_schema(id, identity).await;
     assert!(result.is_err());
 
     Ok(())
-}
-
-#[cfg(feature = "__lk-e2e-test")]
-fn data_blob_key(string: &str) -> proto::DataBlobKey {
-    proto::DataBlobKey { key: Some(proto::data_blob_key::Key::Generic(string.to_string())) }
 }

@@ -439,45 +439,6 @@ async fn test_publisher_side_fault(scenario: SimulateScenario) -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "__lk-e2e-test")]
-#[test_log::test(tokio::test)]
-async fn test_schema_storage() -> Result<()> {
-    use livekit::data_track::{DataTrackSchemaEncoding, DataTrackSchemaId};
-
-    const DEFINITION: &str = "my schema definition";
-
-    let mut rooms = test_rooms(2).await?;
-    let (pub_room, _) = rooms.pop().unwrap();
-    let (sub_room, _) = rooms.pop().unwrap();
-    let pub_identity = pub_room.local_participant().identity();
-
-    let schema_id = DataTrackSchemaId::new("my_schema", DataTrackSchemaEncoding::JsonSchema);
-
-    pub_room.local_participant().define_schema(schema_id.clone(), DEFINITION.to_string()).await?;
-
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-
-    let definition = sub_room.local_participant().get_schema(schema_id, pub_identity).await?;
-    assert_eq!(definition, DEFINITION);
-
-    Ok(())
-}
-
-#[cfg(feature = "__lk-e2e-test")]
-#[test_log::test(tokio::test)]
-async fn test_get_undefined_schema() -> Result<()> {
-    use livekit::data_track::{DataTrackSchemaEncoding, DataTrackSchemaId};
-
-    let (room, _) = test_rooms(1).await?.pop().unwrap();
-    let identity = room.local_participant().identity();
-
-    let schema_id = DataTrackSchemaId::new("missing_schema", DataTrackSchemaEncoding::JsonSchema);
-    let result = room.local_participant().get_schema(schema_id, identity).await;
-    assert!(result.is_err());
-
-    Ok(())
-}
-
 /// Waits for the first remote data track to be published.
 #[cfg(feature = "__lk-e2e-test")]
 async fn wait_for_remote_track(

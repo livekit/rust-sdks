@@ -961,7 +961,11 @@ impl LocalParticipant {
         let contents = self
             .get_data_blob(id.into(), participant)
             .await
-            .inspect_err(|err| log::error!("Failed to get schema: {err}"))?;
+            .map_err(|err| {
+                log::error!("failed to get schema: {err}");
+                err
+            })?;
+
 
         let definition = String::from_utf8(contents.to_vec()).map_err(|err| {
             RoomError::Internal(format!("schema definition is not valid UTF-8: {err}"))
@@ -972,13 +976,8 @@ impl LocalParticipant {
     // TODO: unify request/response logic, timeout behavior across SDK.
     const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
-    // TODO: make internal
     /// Stores an arbitrary blob of data on the server, keyed by `key`.
-    pub async fn store_data_blob(
-        &self,
-        key: proto::DataBlobKey,
-        contents: Bytes,
-    ) -> EngineResult<()> {
+    async fn store_data_blob(&self, key: proto::DataBlobKey, contents: Bytes) -> EngineResult<()> {
         let blob = proto::DataBlob { key: Some(key), contents: contents.into() };
 
         let session = self.inner.rtc_engine.session();
@@ -1015,9 +1014,8 @@ impl LocalParticipant {
         }
     }
 
-    // TODO: make internal
     /// Retrieves a blob of data previously stored by `participant` under `key`.
-    pub async fn get_data_blob(
+    async fn get_data_blob(
         &self,
         key: proto::DataBlobKey,
         participant: ParticipantIdentity,
