@@ -1124,10 +1124,7 @@ async fn test_resume_failure_escalates_impl(mode: SignalingMode) -> Result<()> {
                     log::info!("[{}] Reconnecting...", mode.name());
                 }
                 RoomEvent::LocalTrackRepublished { .. } => {
-                    log::info!(
-                        "[{}] Track republished — escalated to full reconnect",
-                        mode.name()
-                    );
+                    log::info!("[{}] Track republished — escalated to full reconnect", mode.name());
                     saw_republish = true;
                 }
                 RoomEvent::Reconnected => {
