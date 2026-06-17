@@ -39,6 +39,7 @@ impl From<sys_rp::ffi::RtpParameters> for RtpParameters {
         Self {
             codecs: value.codecs.into_iter().map(Into::into).collect(),
             header_extensions: value.header_extensions.into_iter().map(Into::into).collect(),
+            encodings: value.encodings.into_iter().map(Into::into).collect(),
             rtcp: value.rtcp.into(),
         }
     }

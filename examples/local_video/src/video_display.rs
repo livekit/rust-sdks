@@ -24,6 +24,7 @@ pub(crate) struct SharedYuv {
     pub(crate) v: Vec<u8>,
     pub(crate) codec: String,
     pub(crate) codec_implementation: String,
+    pub(crate) encode_bitrate_mbps: Option<f64>,
     pub(crate) fps: f32,
     pub(crate) simulcast: bool,
     pub(crate) dirty: bool,
@@ -373,13 +374,16 @@ fn video_status_line(
     fps: f32,
     codec: &str,
     codec_implementation: &str,
+    encode_bitrate_mbps: Option<f64>,
     simulcast: bool,
 ) -> String {
     let codec = codec_with_implementation(codec, codec_implementation);
+    let bitrate =
+        encode_bitrate_mbps.map(|mbps| format!(" {:.1}mbps", mbps.max(0.0))).unwrap_or_default();
     if simulcast {
-        format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
+        format!("{}x{} {:.1}fps {codec}{bitrate} Simulcast", width, height, fps.max(0.0))
     } else {
-        format!("{}x{} {:.1}fps {codec}", width, height, fps.max(0.0))
+        format!("{}x{} {:.1}fps {codec}{bitrate}", width, height, fps.max(0.0))
     }
 }
 
@@ -401,6 +405,7 @@ fn publisher_overlay_lines(
                 s.fps,
                 &s.codec,
                 &s.codec_implementation,
+                s.encode_bitrate_mbps,
                 s.simulcast,
             ),
             s.timing_sample,
@@ -451,6 +456,25 @@ mod tests {
             .expect("status overlay should render");
 
         assert_eq!(lines, vec!["1280x720 29.6fps H264 NVENC Simulcast"]);
+    }
+
+    #[test]
+    fn publisher_overlay_shows_encode_bitrate() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        {
+            let mut s = shared.lock();
+            s.width = 1280;
+            s.height = 720;
+            s.codec = "H264".to_string();
+            s.encode_bitrate_mbps = Some(1.25);
+            s.fps = 29.6;
+        }
+
+        let mut overlay_state = PublisherTimingOverlayState::default();
+        let lines = publisher_overlay_lines(&shared, &mut overlay_state, Instant::now())
+            .expect("status overlay should render");
+
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 1.2mbps"]);
     }
 
     #[test]

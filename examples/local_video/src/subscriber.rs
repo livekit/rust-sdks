@@ -24,12 +24,24 @@ use std::{
 };
 
 mod codec_display;
+mod encoding_control;
 mod subscriber_timing;
 mod viewport_aspect;
 
 use codec_display::{codec_from_mime, codec_with_implementation};
+use encoding_control::{
+    SetEncodingLimitsRequest, SetEncodingLimitsResponse, SET_VIDEO_ENCODING_LIMITS_METHOD,
+};
 use subscriber_timing::SubscriberTimingHandle;
 use viewport_aspect::AspectConstrainedViewport;
+
+const DEFAULT_CONTROL_BITRATE_BPS: u64 = 1_500_000;
+const DEFAULT_CONTROL_FRAMERATE: f64 = 30.0;
+const DEFAULT_CONTROL_RESOLUTION_SCALE: f64 = 1.0;
+const BITRATE_KEY_STEP_BPS: u64 = 100_000;
+const MIN_CONTROL_BITRATE_BPS: u64 = BITRATE_KEY_STEP_BPS;
+const MIN_FRAMERATE: f64 = 0.1;
+const MAX_FRAMERATE: f64 = 60.0;
 
 #[cfg(target_os = "macos")]
 mod macos_native_video {
@@ -409,6 +421,174 @@ struct Args {
     e2ee_key: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct EncodingControlState {
+    bitrate_bps: u64,
+    max_framerate: f64,
+    scale_resolution_down_by: f64,
+}
+
+impl Default for EncodingControlState {
+    fn default() -> Self {
+        Self {
+            bitrate_bps: DEFAULT_CONTROL_BITRATE_BPS,
+            max_framerate: DEFAULT_CONTROL_FRAMERATE,
+            scale_resolution_down_by: DEFAULT_CONTROL_RESOLUTION_SCALE,
+        }
+    }
+}
+
+impl EncodingControlState {
+    fn limits(self) -> VideoEncodingLimits {
+        VideoEncodingLimits {
+            max_bitrate: Some(self.bitrate_bps),
+            max_framerate: Some(self.max_framerate),
+            scale_resolution_down_by: Some(self.scale_resolution_down_by),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct EncodingControl {
+    inner: Arc<EncodingControlInner>,
+}
+
+struct EncodingControlInner {
+    room: Arc<Room>,
+    simulcast: Arc<Mutex<SimulcastState>>,
+    target: Mutex<Option<EncodingControlTarget>>,
+    state: Mutex<EncodingControlState>,
+    handle: tokio::runtime::Handle,
+}
+
+#[derive(Clone)]
+struct EncodingControlTarget {
+    publisher_identity: String,
+    track_sid: TrackSid,
+}
+
+impl EncodingControl {
+    fn new(room: Arc<Room>, simulcast: Arc<Mutex<SimulcastState>>) -> Self {
+        Self {
+            inner: Arc::new(EncodingControlInner {
+                room,
+                simulcast,
+                target: Mutex::new(None),
+                state: Mutex::new(EncodingControlState::default()),
+                handle: tokio::runtime::Handle::current(),
+            }),
+        }
+    }
+
+    fn set_active_track(&self, publisher_identity: String, track_sid: TrackSid) {
+        *self.inner.target.lock() = Some(EncodingControlTarget { publisher_identity, track_sid });
+    }
+
+    fn clear_active_track(&self, track_sid: &TrackSid) {
+        let mut target = self.inner.target.lock();
+        if target.as_ref().is_some_and(|target| &target.track_sid == track_sid) {
+            *target = None;
+        }
+    }
+
+    fn active_state(&self) -> Option<EncodingControlState> {
+        if self.inner.target.lock().is_none() {
+            return None;
+        }
+        Some(*self.inner.state.lock())
+    }
+
+    fn adjust_bitrate(&self, increase: bool) {
+        let reason =
+            if increase { "keyboard bitrate increase" } else { "keyboard bitrate decrease" };
+        self.update_limits(reason, |state| {
+            state.bitrate_bps = if increase {
+                state.bitrate_bps.saturating_add(BITRATE_KEY_STEP_BPS)
+            } else {
+                state.bitrate_bps.saturating_sub(BITRATE_KEY_STEP_BPS).max(MIN_CONTROL_BITRATE_BPS)
+            };
+        });
+    }
+
+    fn adjust_framerate(&self, increase: bool) {
+        let reason =
+            if increase { "keyboard framerate increase" } else { "keyboard framerate decrease" };
+        self.update_limits(reason, |state| {
+            state.max_framerate = if increase {
+                next_higher_framerate(state.max_framerate)
+            } else {
+                next_lower_framerate(state.max_framerate)
+            };
+        });
+    }
+
+    fn set_resolution_scale(&self, scale_resolution_down_by: f64) {
+        self.update_limits("keyboard resolution scale", |state| {
+            state.scale_resolution_down_by = scale_resolution_down_by;
+        });
+    }
+
+    fn update_limits(&self, reason: &'static str, update: impl FnOnce(&mut EncodingControlState)) {
+        let (limits, target) = {
+            let mut state = self.inner.state.lock();
+            update(&mut state);
+            let simulcast = self.inner.simulcast.lock();
+            debug!(
+                "Encoding control ladder update: requested={:?}, active={:?}, simulcast={}, reason={reason}",
+                simulcast.requested_quality,
+                simulcast.active_quality,
+                simulcast.available
+            );
+            (state.limits(), self.inner.target.lock().clone())
+        };
+        let Some(target) = target else {
+            debug!("No active publisher video track for encoding control request");
+            return;
+        };
+
+        let room = self.inner.room.clone();
+        self.inner.handle.spawn(async move {
+            let result = request_encoding_limits(&room, target, limits, reason).await;
+            if let Err(err) = result {
+                log::warn!("encoding limits RPC failed: {err}");
+            }
+        });
+    }
+}
+
+fn next_lower_framerate(fps: f64) -> f64 {
+    if fps <= 0.2 {
+        MIN_FRAMERATE
+    } else if fps <= 0.5 {
+        0.2
+    } else if fps <= 1.0 {
+        0.5
+    } else if fps <= 5.0 {
+        1.0
+    } else {
+        let next = fps - 5.0;
+        if next >= 5.0 {
+            next
+        } else {
+            1.0
+        }
+    }
+}
+
+fn next_higher_framerate(fps: f64) -> f64 {
+    if fps < 0.2 {
+        0.2
+    } else if fps < 0.5 {
+        0.5
+    } else if fps < 1.0 {
+        1.0
+    } else if fps < 5.0 {
+        5.0
+    } else {
+        (fps + 5.0).min(MAX_FRAMERATE)
+    }
+}
+
 struct SharedYuv {
     width: u32,
     height: u32,
@@ -708,18 +888,28 @@ fn update_simulcast_quality_from_stats(
     let Some(inbound) = find_video_inbound_stats(stats) else {
         return;
     };
-    let Some((fw, fh)) = simulcast_state_full_dims(simulcast) else {
+
+    update_simulcast_quality_from_dimensions(
+        inbound.inbound.frame_width as u32,
+        inbound.inbound.frame_height as u32,
+        simulcast,
+    );
+}
+
+fn update_simulcast_quality_from_dimensions(
+    current_width: u32,
+    current_height: u32,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+) {
+    let mut sc = simulcast.lock();
+    if !sc.available {
+        return;
+    }
+    let Some((fw, fh)) = sc.full_dims else {
         return;
     };
 
-    let q = infer_quality_from_dims(
-        fw,
-        fh,
-        inbound.inbound.frame_width as u32,
-        inbound.inbound.frame_height as u32,
-    );
-    let mut sc = simulcast.lock();
-    sc.active_quality = Some(q);
+    sc.active_quality = Some(infer_quality_from_dims(fw, fh, current_width, current_height));
 }
 
 fn update_decoder_implementation_from_stats(
@@ -786,11 +976,6 @@ fn current_timestamp_us() -> u64 {
     anchor.unix_timestamp_us.saturating_add(anchor.instant.elapsed().as_micros() as u64)
 }
 
-fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
-    let sc = state.lock();
-    sc.full_dims
-}
-
 fn video_status_line(
     width: u32,
     height: u32,
@@ -801,12 +986,67 @@ fn video_status_line(
     simulcast: bool,
 ) -> String {
     let codec = codec_with_implementation(codec, codec_implementation);
-    let bitrate = bitrate_mbps.map(|mbps| format!(" {:.1}mbps", mbps.max(0.0))).unwrap_or_default();
+    let bitrate =
+        bitrate_mbps.map(|mbps| format!(" {:.1} mbps", mbps.max(0.0))).unwrap_or_default();
     if simulcast {
         format!("{}x{} {:.1}fps {codec}{bitrate} Simulcast", width, height, fps.max(0.0))
     } else {
         format!("{}x{} {:.1}fps {codec}{bitrate}", width, height, fps.max(0.0))
     }
+}
+
+fn encoding_control_status_line(state: EncodingControlState) -> String {
+    format!(
+        "Encoding limit {:.1}mbps {:.1}fps {:.1}x scale",
+        state.bitrate_bps as f64 / 1_000_000.0,
+        state.max_framerate,
+        state.scale_resolution_down_by,
+    )
+}
+
+async fn request_encoding_limits(
+    room: &Arc<Room>,
+    target: EncodingControlTarget,
+    limits: VideoEncodingLimits,
+    reason: &'static str,
+) -> Result<()> {
+    info!(
+        "Requesting video encoding limits from {}: {:?} bps, {:?} fps, {:?}x scale ({})",
+        target.publisher_identity,
+        limits.max_bitrate,
+        limits.max_framerate,
+        limits.scale_resolution_down_by,
+        reason,
+    );
+
+    let payload = serde_json::to_string(&SetEncodingLimitsRequest {
+        track_sid: target.track_sid.to_string(),
+        bitrate_bps: limits.max_bitrate,
+        max_framerate: limits.max_framerate,
+        scale_resolution_down_by: limits.scale_resolution_down_by,
+        reason: reason.to_string(),
+    })?;
+    let response = room
+        .local_participant()
+        .perform_rpc(
+            PerformRpcData::new(target.publisher_identity, SET_VIDEO_ENCODING_LIMITS_METHOD)
+                .with_payload(payload)
+                .with_response_timeout(Duration::from_millis(500))
+                .with_max_round_trip_latency(Duration::from_millis(500)),
+        )
+        .await
+        .map_err(|err| anyhow::anyhow!("encoding limits RPC failed: {err}"))?;
+
+    let response: SetEncodingLimitsResponse = serde_json::from_str(&response)?;
+    info!(
+        "Publisher applied video encoding limits on {}: {:?} bps, {:?} fps, {:?}x scale",
+        response.track_sid,
+        response.applied_bitrate_bps,
+        response.applied_max_framerate,
+        response.applied_scale_resolution_down_by,
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -827,10 +1067,42 @@ mod tests {
             Arc::new(Mutex::new(SimulcastState { available: true, ..Default::default() }));
         let subscriber_timing = SubscriberTimingHandle::new();
 
-        let lines = subscriber_overlay_lines(&shared, &simulcast, false, &subscriber_timing)
+        let lines = subscriber_overlay_lines(&shared, &simulcast, false, &subscriber_timing, None)
             .expect("overlay should render");
 
         assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC 1.2mbps Simulcast"]);
+    }
+
+    #[test]
+    fn framerate_steps_drop_below_five_to_named_low_rates() {
+        assert_eq!(next_lower_framerate(30.0), 25.0);
+        assert_eq!(next_lower_framerate(10.0), 5.0);
+        assert_eq!(next_lower_framerate(5.0), 1.0);
+        assert_eq!(next_lower_framerate(1.0), 0.5);
+        assert_eq!(next_lower_framerate(0.5), 0.2);
+        assert_eq!(next_lower_framerate(0.2), 0.1);
+        assert_eq!(next_lower_framerate(0.1), 0.1);
+    }
+
+    #[test]
+    fn framerate_steps_rise_through_named_low_rates() {
+        assert_eq!(next_higher_framerate(0.1), 0.2);
+        assert_eq!(next_higher_framerate(0.2), 0.5);
+        assert_eq!(next_higher_framerate(0.5), 1.0);
+        assert_eq!(next_higher_framerate(1.0), 5.0);
+        assert_eq!(next_higher_framerate(5.0), 10.0);
+        assert_eq!(next_higher_framerate(60.0), 60.0);
+    }
+
+    #[test]
+    fn encoding_control_line_uses_compact_mbps() {
+        let line = encoding_control_status_line(EncodingControlState {
+            bitrate_bps: 1_250_000,
+            max_framerate: 0.5,
+            scale_resolution_down_by: 4.0,
+        });
+
+        assert_eq!(line, "Encoding limit 1.2mbps 0.5fps 4.0x scale");
     }
 }
 
@@ -846,6 +1118,7 @@ async fn handle_track_subscribed(
     ctrl_c_received: &Arc<AtomicBool>,
     simulcast: &Arc<Mutex<SimulcastState>>,
     repaint_ctx: &Arc<OnceLock<egui::Context>>,
+    encoding_control: &EncodingControl,
     subscriber_timing: SubscriberTimingHandle,
 ) {
     // If a participant filter is set, skip others
@@ -896,6 +1169,7 @@ async fn handle_track_subscribed(
         let mut s = shared.lock();
         s.codec = codec;
     }
+    encoding_control.set_active_track(participant.identity().to_string(), sid.clone());
 
     let mut timing_events = video_track.subscribe_timing_events();
     let subscriber_timing_events = subscriber_timing.clone();
@@ -908,12 +1182,14 @@ async fn handle_track_subscribed(
     // Start background sink task immediately so stats lookup cannot delay first-frame handling.
     let rtc_track = video_track.rtc_track();
     let shared2 = shared.clone();
+    let simulcast_sink = simulcast.clone();
     let frame_slot_sink = frame_slot.clone();
     let video_size_sink = video_size.clone();
     let active_sid2 = active_sid.clone();
     let my_sid = sid.clone();
     let ctrl_c_sink = ctrl_c_received.clone();
     let repaint_ctx_sink = repaint_ctx.clone();
+    let encoding_control_sink = encoding_control.clone();
     let subscriber_timing_sink = subscriber_timing.clone();
     // Initialize simulcast state for this publication
     {
@@ -957,6 +1233,7 @@ async fn handle_track_subscribed(
             }
             let w = frame.buffer.width();
             let h = frame.buffer.height();
+            update_simulcast_quality_from_dimensions(w, h, &simulcast_sink);
 
             if !logged_first {
                 debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
@@ -1007,6 +1284,7 @@ async fn handle_track_subscribed(
         let mut active = active_sid2.lock();
         if active.as_ref() == Some(&my_sid) {
             *active = None;
+            encoding_control_sink.clear_active_track(&my_sid);
         }
     });
 
@@ -1091,6 +1369,7 @@ fn subscriber_overlay_lines(
     simulcast: &Arc<Mutex<SimulcastState>>,
     include_timing: bool,
     subscriber_timing: &SubscriberTimingHandle,
+    encoding_control_state: Option<EncodingControlState>,
 ) -> Option<Vec<String>> {
     let status_line = {
         let s = shared.lock();
@@ -1111,6 +1390,9 @@ fn subscriber_overlay_lines(
     };
 
     let mut lines = vec![status_line];
+    if let Some(state) = encoding_control_state {
+        lines.push(encoding_control_status_line(state));
+    }
     if include_timing {
         if let Some(mut timing_lines) = subscriber_timing.display_overlay_lines(Instant::now()) {
             lines.append(&mut timing_lines);
@@ -1153,6 +1435,7 @@ fn handle_track_unsubscribed(
     video_size: &Arc<AtomicVideoSize>,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    encoding_control: &EncodingControl,
     subscriber_timing: &SubscriberTimingHandle,
 ) {
     let sid = publication.sid().clone();
@@ -1161,6 +1444,7 @@ fn handle_track_unsubscribed(
         info!("Video track unsubscribed ({}), clearing active sink", sid);
         *active = None;
     }
+    encoding_control.clear_active_track(&sid);
     clear_hud_and_simulcast(shared, frame_slot, video_size, simulcast, subscriber_timing);
 }
 
@@ -1171,6 +1455,7 @@ fn handle_track_unpublished(
     video_size: &Arc<AtomicVideoSize>,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    encoding_control: &EncodingControl,
     subscriber_timing: &SubscriberTimingHandle,
 ) {
     let sid = publication.sid().clone();
@@ -1179,6 +1464,7 @@ fn handle_track_unpublished(
         info!("Video track unpublished ({}), clearing active sink", sid);
         *active = None;
     }
+    encoding_control.clear_active_track(&sid);
     clear_hud_and_simulcast(shared, frame_slot, video_size, simulcast, subscriber_timing);
 }
 
@@ -1188,6 +1474,7 @@ struct VideoApp {
     video_size: Arc<AtomicVideoSize>,
     simulcast: Arc<Mutex<SimulcastState>>,
     subscriber_timing: SubscriberTimingHandle,
+    encoding_control: EncodingControl,
     repaint_ctx: Arc<OnceLock<egui::Context>>,
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
@@ -1204,6 +1491,28 @@ impl eframe::App for VideoApp {
 
         if let Some((width, height)) = self.video_size.load() {
             self.viewport.set_video_size(ctx, width, height);
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowUp)) {
+            self.encoding_control.adjust_bitrate(true);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowDown)) {
+            self.encoding_control.adjust_bitrate(false);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+            self.encoding_control.adjust_framerate(false);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+            self.encoding_control.adjust_framerate(true);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num1)) {
+            self.encoding_control.set_resolution_scale(1.0);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num2)) {
+            self.encoding_control.set_resolution_scale(2.0);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num3)) {
+            self.encoding_control.set_resolution_scale(4.0);
         }
 
         let render_frame = self.frame_slot.take();
@@ -1224,6 +1533,7 @@ impl eframe::App for VideoApp {
             &self.simulcast,
             self.display_timestamp,
             &self.subscriber_timing,
+            self.encoding_control.active_state(),
         );
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
@@ -1276,6 +1586,7 @@ impl eframe::App for VideoApp {
                         let resp = ui.selectable_label(is_selected, label);
                         if resp.clicked() {
                             if let Some(ref pub_remote) = sc.publication {
+                                info!("Requesting subscriber simulcast quality {q:?}");
                                 pub_remote.set_video_quality(q);
                                 sc.requested_quality = Some(q);
                             }
@@ -1380,15 +1691,18 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     // Shared simulcast UI/control state
     let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
+    let encoding_control = EncodingControl::new(room.clone(), simulcast.clone());
     let repaint_ctx = Arc::new(OnceLock::new());
     let simulcast_events = simulcast.clone();
     let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
     let subscriber_timing_events = subscriber_timing.clone();
+    let encoding_control_events = encoding_control.clone();
+    let room_events = room.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
         let simulcast = simulcast_events;
-        let mut events = room.subscribe();
+        let mut events = room_events.subscribe();
         info!("Subscribed to room events");
         while let Some(evt) = events.recv().await {
             debug!("Room event: {:?}", evt);
@@ -1406,6 +1720,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &ctrl_c_events,
                         &simulcast,
                         &repaint_ctx_events,
+                        &encoding_control_events,
                         subscriber_timing_events.clone(),
                     )
                     .await;
@@ -1418,6 +1733,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &video_size_events,
                         &active_sid,
                         &simulcast,
+                        &encoding_control_events,
                         &subscriber_timing_events,
                     );
                 }
@@ -1429,6 +1745,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &video_size_events,
                         &active_sid,
                         &simulcast,
+                        &encoding_control_events,
                         &subscriber_timing_events,
                     );
                 }
@@ -1445,6 +1762,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         video_size,
         simulcast,
         subscriber_timing,
+        encoding_control,
         repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
         viewport,

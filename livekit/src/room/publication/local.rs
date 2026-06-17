@@ -78,6 +78,21 @@ impl LocalTrackPublication {
         self.local.publish_options.lock().clone()
     }
 
+    /// Sets runtime encoding limits for this publication's local video track.
+    ///
+    /// Pass `None` for an individual field to restore the original publish-time
+    /// encoding value. For simulcasted video, `Some` values target the high
+    /// layer and lower layers preserve their original ratios.
+    pub fn set_video_encoding_limits(&self, limits: VideoEncodingLimits) -> RoomResult<()> {
+        let Some(LocalTrack::Video(track)) = self.track() else {
+            return Err(RoomError::Internal(
+                "publication does not contain a local video track".into(),
+            ));
+        };
+
+        track.set_encoding_limits(limits)
+    }
+
     pub fn mute(&self) {
         if let Some(track) = self.track() {
             track.mute();

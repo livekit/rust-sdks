@@ -33,6 +33,7 @@ pub struct RtpHeaderExtensionParameters {
 pub struct RtpParameters {
     pub codecs: Vec<RtpCodecParameters>,
     pub header_extensions: Vec<RtpHeaderExtensionParameters>,
+    pub encodings: Vec<RtpEncodingParameters>,
     pub rtcp: RtcpParameters,
 }
 
