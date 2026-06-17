@@ -15,16 +15,24 @@
 use crate::proto;
 use livekit::{
     data_track::{
-        DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSchemaEncoding,
-        DataTrackSchemaId, DataTrackSubscribeError, PublishError, PushFrameError,
-        PushFrameErrorReason, RemoteDataTrackPipelineOptions,
+        DataTrackFrame, DataTrackFrameEncoding, DataTrackInfo, DataTrackOptions,
+        DataTrackSchemaEncoding, DataTrackSchemaId, DataTrackSubscribeError, PublishError,
+        PushFrameError, PushFrameErrorReason, RemoteDataTrackPipelineOptions,
     },
     prelude::DataTrackSubscribeOptions,
 };
 
 impl From<proto::DataTrackOptions> for DataTrackOptions {
     fn from(options: proto::DataTrackOptions) -> Self {
-        Self::new(options.name)
+        let frame_encoding = options.frame_encoding.map(|_| options.frame_encoding().into());
+        let mut result = Self::new(options.name);
+        if let Some(schema) = options.schema {
+            result = result.with_schema(schema.into());
+        }
+        if let Some(frame_encoding) = frame_encoding {
+            result = result.with_frame_encoding(frame_encoding);
+        }
+        result
     }
 }
 
@@ -34,6 +42,10 @@ impl From<DataTrackInfo> for proto::DataTrackInfo {
             name: info.name().to_string(),
             sid: info.sid().to_string(),
             uses_e2ee: info.uses_e2ee(),
+            schema: info.schema().cloned().map(Into::into),
+            frame_encoding: info
+                .frame_encoding()
+                .map(|encoding| proto::DataTrackFrameEncoding::from(encoding) as i32),
         }
     }
 }
@@ -101,6 +113,39 @@ impl From<DataTrackSchemaEncoding> for proto::DataTrackSchemaEncoding {
             DataTrackSchemaEncoding::JsonSchema => Self::JsonSchema,
             DataTrackSchemaEncoding::Other => Self::Other,
             // `DataTrackSchemaEncoding` is `#[non_exhaustive]`; map any future
+            // variant to the catch-all encoding.
+            _ => Self::Other,
+        }
+    }
+}
+
+impl From<proto::DataTrackFrameEncoding> for DataTrackFrameEncoding {
+    fn from(encoding: proto::DataTrackFrameEncoding) -> Self {
+        match encoding {
+            proto::DataTrackFrameEncoding::Ros1 => Self::Ros1,
+            proto::DataTrackFrameEncoding::Cdr => Self::Cdr,
+            proto::DataTrackFrameEncoding::Protobuf => Self::Protobuf,
+            proto::DataTrackFrameEncoding::Flatbuffer => Self::Flatbuffer,
+            proto::DataTrackFrameEncoding::Cbor => Self::Cbor,
+            proto::DataTrackFrameEncoding::Msgpack => Self::Msgpack,
+            proto::DataTrackFrameEncoding::Json => Self::Json,
+            proto::DataTrackFrameEncoding::Other => Self::Other,
+        }
+    }
+}
+
+impl From<DataTrackFrameEncoding> for proto::DataTrackFrameEncoding {
+    fn from(encoding: DataTrackFrameEncoding) -> Self {
+        match encoding {
+            DataTrackFrameEncoding::Ros1 => Self::Ros1,
+            DataTrackFrameEncoding::Cdr => Self::Cdr,
+            DataTrackFrameEncoding::Protobuf => Self::Protobuf,
+            DataTrackFrameEncoding::Flatbuffer => Self::Flatbuffer,
+            DataTrackFrameEncoding::Cbor => Self::Cbor,
+            DataTrackFrameEncoding::Msgpack => Self::Msgpack,
+            DataTrackFrameEncoding::Json => Self::Json,
+            DataTrackFrameEncoding::Other => Self::Other,
+            // `DataTrackFrameEncoding` is `#[non_exhaustive]`; map any future
             // variant to the catch-all encoding.
             _ => Self::Other,
         }

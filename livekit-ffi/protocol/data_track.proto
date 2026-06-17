@@ -30,6 +30,10 @@ message DataTrackInfo {
   required string sid = 2;
   // Whether or not frames sent on the track use end-to-end encryption.
   required bool uses_e2ee = 3;
+  // Schema associated with frames sent on the track, if any.
+  optional DataTrackSchemaId schema = 4;
+  // Encoding of frames sent on the track, if specified.
+  optional DataTrackFrameEncoding frame_encoding = 5;
 }
 
 // A frame published on a data track.
@@ -110,6 +114,10 @@ message DataTrackOptions {
   // Must not be empty and must be unique per publisher.
   //
   required string name = 1;
+  // Schema describing frames sent on the track.
+  optional DataTrackSchemaId schema = 2;
+  // Encoding of frames sent on the track.
+  optional DataTrackFrameEncoding frame_encoding = 3;
 }
 
 // Publish a data track
@@ -251,14 +259,26 @@ message DataTrackStreamEOS {
 
 // Encoding used to interpret a data track schema definition.
 enum DataTrackSchemaEncoding {
-  DATA_TRACK_SCHEMA_ENCODING_PROTOBUF = 0;
-  DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER = 1;
-  DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG = 2;
-  DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG = 3;
-  DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL = 4;
-  DATA_TRACK_SCHEMA_ENCODING_OMG_IDL = 5;
-  DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA = 6;
-  DATA_TRACK_SCHEMA_ENCODING_OTHER = 7;
+  DATA_TRACK_SCHEMA_ENCODING_OTHER = 0;
+  DATA_TRACK_SCHEMA_ENCODING_PROTOBUF = 1;
+  DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER = 2;
+  DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG = 3;
+  DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG = 4;
+  DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL = 5;
+  DATA_TRACK_SCHEMA_ENCODING_OMG_IDL = 6;
+  DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA = 7;
+}
+
+// Encoding used for frames sent on a data track.
+enum DataTrackFrameEncoding {
+  DATA_TRACK_FRAME_ENCODING_OTHER = 0;
+  DATA_TRACK_FRAME_ENCODING_ROS1 = 1;
+  DATA_TRACK_FRAME_ENCODING_CDR = 2;
+  DATA_TRACK_FRAME_ENCODING_PROTOBUF = 3;
+  DATA_TRACK_FRAME_ENCODING_FLATBUFFER = 4;
+  DATA_TRACK_FRAME_ENCODING_CBOR = 5;
+  DATA_TRACK_FRAME_ENCODING_MSGPACK = 6;
+  DATA_TRACK_FRAME_ENCODING_JSON = 7;
 }
 
 // Uniquely identifies a data track schema.
