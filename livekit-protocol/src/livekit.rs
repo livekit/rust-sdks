@@ -643,7 +643,6 @@ pub struct DataTrackInfo {
 ///
 /// Schemas with the same name but different encodings are distinct.
 ///
-#[derive(Eq)] #[derive(Hash)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataTrackSchemaId {
@@ -670,7 +669,6 @@ pub struct DataTrackSubscriptionOptions {
     pub target_fps: ::core::option::Option<u32>,
 }
 /// Key used to uniquely identify a data blob for storage and retrieval.
-#[derive(Eq)] #[derive(Hash)]
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataBlobKey {
@@ -679,7 +677,6 @@ pub struct DataBlobKey {
 }
 /// Nested message and enum types in `DataBlobKey`.
 pub mod data_blob_key {
-    #[derive(Eq)] #[derive(Hash)]
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Key {
