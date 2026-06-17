@@ -162,6 +162,35 @@ async fn test_publish_duplicate_name() -> Result<()> {
 
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
+async fn test_publish_with_schema_and_frame_encoding() -> Result<()> {
+    use livekit::data_track::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSchemaId};
+
+    let mut rooms = test_rooms(2).await?;
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
+
+    let schema_id = DataTrackSchemaId::new("my_schema", DataTrackSchemaEncoding::JsonSchema);
+    let frame_encoding = DataTrackFrameEncoding::Json;
+
+    let options = DataTrackOptions::new("my_track")
+        .with_schema(schema_id.clone())
+        .with_frame_encoding(frame_encoding);
+
+    let local_track = pub_room.local_participant().publish_data_track(options).await?;
+    assert_eq!(local_track.info().schema(), Some(&schema_id));
+    assert_eq!(local_track.info().frame_encoding(), Some(frame_encoding));
+
+    // The subscriber should observe the same schema and frame encoding metadata.
+    let remote_track =
+        timeout(Duration::from_secs(5), wait_for_remote_track(&mut sub_room_event_rx)).await??;
+    assert_eq!(remote_track.info().schema(), Some(&schema_id));
+    assert_eq!(remote_track.info().frame_encoding(), Some(frame_encoding));
+
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
 async fn test_e2ee() -> Result<()> {
     use livekit::e2ee::{
         key_provider::{KeyProvider, KeyProviderOptions},
