@@ -3694,7 +3694,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.36"
+version = "0.3.37"
 dependencies = [
  "cxx",
  "env_logger 0.11.10",
@@ -3817,7 +3817,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.45"
+version = "0.7.46"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3848,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
@@ -3905,7 +3905,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.63"
+version = "0.12.64"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -8343,7 +8343,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.34"
+version = "0.3.35"
 dependencies = [
  "cc",
  "cxx",
