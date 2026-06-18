@@ -1170,7 +1170,7 @@ async fn test_resume_failure_escalates_impl(mode: SignalingMode) -> Result<()> {
 /// to a full reconnect rather than resuming again forever.
 ///
 /// The concurrent failure is injected via fault injection during the FIRST resume —
-/// `escalate_during_next_resume` drives the exact same `reconnection_needed` path a
+/// `fail_transport_during_next_resume` drives the exact same `reconnection_needed` path a
 /// real server `Leave{Resume}` takes — and the resume still succeeds as a plain
 /// resume (no republish). Post-fix, the SECOND resume cycle escalates to a full
 /// reconnect, observed via `LocalTrackRepublished` (only the full-reconnect path
@@ -1221,7 +1221,7 @@ async fn test_resume_escalation_sticks_across_cycles_impl(mode: SignalingMode) -
 
     // --- Cycle 1: a resume with a concurrent failure injected mid-resume. The resume
     // must still succeed as a plain resume (no republish). ---
-    room_arc.escalate_during_next_resume();
+    room_arc.fail_transport_during_next_resume();
     log::info!("[{}] Cycle 1: resume + concurrent failure injected mid-resume", mode.name());
     room_arc.simulate_scenario(SimulateScenario::SignalReconnect).await?;
 

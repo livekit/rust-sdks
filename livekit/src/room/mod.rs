@@ -841,8 +841,8 @@ impl Room {
     /// transport failure (then still succeeds), reproducing the resume-reports-
     /// success-while-a-failure-was-pending race.
     #[cfg(feature = "__lk-e2e-test")]
-    pub fn escalate_during_next_resume(&self) {
-        self.inner.rtc_engine.escalate_during_next_resume();
+    pub fn fail_transport_during_next_resume(&self) {
+        self.inner.rtc_engine.fail_transport_during_next_resume();
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {

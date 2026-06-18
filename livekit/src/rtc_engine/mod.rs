@@ -258,7 +258,7 @@ struct EngineInner {
     /// while a failure was pending — the failure must escalate the *next* cycle to
     /// a full reconnect. Always false in production builds.
     #[cfg(feature = "__lk-e2e-test")]
-    escalate_during_next_resume: std::sync::atomic::AtomicBool,
+    fail_transport_during_next_resume: std::sync::atomic::AtomicBool,
 }
 
 pub struct RtcEngine {
@@ -414,8 +414,8 @@ impl RtcEngine {
     /// concurrent transport failure (then still succeeds), reproducing a resume
     /// that reports success while a failure was pending.
     #[cfg(feature = "__lk-e2e-test")]
-    pub fn escalate_during_next_resume(&self) {
-        self.inner.escalate_during_next_resume.store(true, std::sync::atomic::Ordering::Release);
+    pub fn fail_transport_during_next_resume(&self) {
+        self.inner.fail_transport_during_next_resume.store(true, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -460,7 +460,7 @@ impl EngineInner {
                         #[cfg(feature = "__lk-e2e-test")]
                         fail_resume_attempts: std::sync::atomic::AtomicU32::new(0),
                         #[cfg(feature = "__lk-e2e-test")]
-                        escalate_during_next_resume: std::sync::atomic::AtomicBool::new(false),
+                        fail_transport_during_next_resume: std::sync::atomic::AtomicBool::new(false),
                     });
 
                     // Start initial tasks
@@ -988,7 +988,7 @@ impl EngineInner {
             // proceeds and succeeds — reproducing a resume that reports success while a
             // failure was pending. Post-fix this sticks a full-reconnect escalation onto
             // the next cycle; pre-fix it was dropped and the engine resumed again.
-            if self.escalate_during_next_resume.swap(false, Ordering::AcqRel) {
+            if self.fail_transport_during_next_resume.swap(false, Ordering::AcqRel) {
                 log::warn!("test fault injection: simulating concurrent failure during resume");
                 self.reconnection_needed(false, false);
             }
