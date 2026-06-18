@@ -198,6 +198,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     simulcast: bool,
 
+    /// Disable dynacast so the publisher encodes even when subscriber quality updates are unavailable
+    #[arg(long, default_value_t = false)]
+    disable_dynacast: bool,
+
     /// LiveKit participant identity
     #[arg(long, default_value = "rust-camera-pub")]
     identity: String,
@@ -925,7 +929,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = false;
-    room_options.dynacast = true;
+    room_options.dynacast = !args.disable_dynacast;
+    if args.disable_dynacast {
+        info!("Dynacast disabled: publisher will encode without subscribed-quality updates");
+    }
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {

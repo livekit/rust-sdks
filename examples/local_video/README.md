@@ -130,6 +130,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--fps <n>`: Desired capture framerate (default: `30`).
 - `--codec <codec>`: Video codec to use for publishing: `h264`, `h265`, `vp8`, `vp9`, or `av1` (default: `h264`). H.265 falls back to H.264 on failure. On Jetson Orin, `h264`, `h265`, and `av1` use the hardware encoder; elsewhere `av1` is encoded in software via libaom.
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
+- `--disable-dynacast`: Encode continuously instead of waiting for subscribed-quality updates.
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
 - `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
