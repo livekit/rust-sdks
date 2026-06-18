@@ -316,6 +316,7 @@ async fn publish_frames(
         let frame = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: 0,
+            rtp_timestamp: 0,
             frame_metadata,
             buffer,
         };

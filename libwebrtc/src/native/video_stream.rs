@@ -133,6 +133,7 @@ impl sys_vt::VideoSink for VideoTrackObserver {
         self.frame_queue.push(VideoFrame {
             rotation: frame.rotation().into(),
             timestamp_us: frame.timestamp_us(),
+            rtp_timestamp: frame.timestamp(),
             frame_metadata,
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
@@ -310,6 +311,7 @@ mod tests {
         VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us,
+            rtp_timestamp: 0,
             frame_metadata: None,
             buffer: Box::new(I420Buffer::new(2, 2)),
         }
