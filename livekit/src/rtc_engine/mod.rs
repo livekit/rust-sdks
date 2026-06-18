@@ -415,7 +415,9 @@ impl RtcEngine {
     /// that reports success while a failure was pending.
     #[cfg(feature = "__lk-e2e-test")]
     pub fn fail_transport_during_next_resume(&self) {
-        self.inner.fail_transport_during_next_resume.store(true, std::sync::atomic::Ordering::Release);
+        self.inner
+            .fail_transport_during_next_resume
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -460,7 +462,9 @@ impl EngineInner {
                         #[cfg(feature = "__lk-e2e-test")]
                         fail_resume_attempts: std::sync::atomic::AtomicU32::new(0),
                         #[cfg(feature = "__lk-e2e-test")]
-                        fail_transport_during_next_resume: std::sync::atomic::AtomicBool::new(false),
+                        fail_transport_during_next_resume: std::sync::atomic::AtomicBool::new(
+                            false,
+                        ),
                     });
 
                     // Start initial tasks
