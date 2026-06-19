@@ -246,22 +246,24 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
                            kTrailerEnvelopeSize;
 
   // user_data is embedded only if it fits the remaining trailer budget.
-  // The trailer length is a single byte (max 255 total) and the TLV length
-  // field is also a single byte; oversize user_data is dropped + logged
-  // rather than truncated, so the frame is never silently corrupted.
-  bool embed_user_data = false;
-  if (!user_data.empty()) {
-    if (user_data.size() <= 255 &&
-        fixed_len + kUserDataTlvHeaderSize + user_data.size() <=
-            kPacketTrailerMaxTotal) {
-      embed_user_data = true;
-    } else {
-      RTC_LOG(LS_WARNING)
-          << "PacketTrailerTransformer::AppendTrailer dropping user_data: "
-          << user_data.size() << " bytes exceeds remaining trailer budget ("
-          << (kPacketTrailerMaxTotal - fixed_len - kUserDataTlvHeaderSize)
-          << " bytes)";
-    }
+  // The whole trailer length is a single byte (255 max), so after the
+  // always-present timestamp TLV, the optional frame_id TLV, the envelope
+  // and this TLV's own 2-byte header, the value can never approach 255 --
+  // the real cap is (255 - fixed_len - 2), at most ~238 bytes. Oversize
+  // user_data is dropped + logged rather than truncated, so the frame is
+  // never silently corrupted. (This bound is always < 256, so the 1-byte
+  // TLV length field below can't overflow.)
+  const size_t user_data_budget =
+      kPacketTrailerMaxTotal > fixed_len + kUserDataTlvHeaderSize
+          ? kPacketTrailerMaxTotal - fixed_len - kUserDataTlvHeaderSize
+          : 0;
+  const bool embed_user_data =
+      !user_data.empty() && user_data.size() <= user_data_budget;
+  if (!user_data.empty() && !embed_user_data) {
+    RTC_LOG(LS_WARNING)
+        << "PacketTrailerTransformer::AppendTrailer dropping user_data: "
+        << user_data.size() << " bytes exceeds remaining trailer budget ("
+        << user_data_budget << " bytes)";
   }
 
   const size_t trailer_len =
