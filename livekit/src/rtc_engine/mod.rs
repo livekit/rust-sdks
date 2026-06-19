@@ -738,6 +738,14 @@ impl EngineInner {
         // exhausts all attempts leaves the room stuck in Reconnecting forever because
         // the room's task never sees the event that drives `handle_disconnected`.
         let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
+
+        // Signal any in-flight reconnect loop to stop. The reconnect task selects
+        // on `close_notifier`, both at the top-level (cancelling the whole task)
+        // and within its backoff wait (breaking the loop early). We notify LAST,
+        // after teardown has completed: the reconnect loop's own bail paths call
+        // `close()` from inside the task, so notifying earlier could let the
+        // top-level select drop the task mid-`close()` and leave teardown partial.
+        self.close_notifier.notify_waiters();
     }
 
     /// When waiting for reconnection, it ensures we're always using the latest session.
@@ -808,7 +816,13 @@ impl EngineInner {
 
                 tokio::select! {
                     _ = &mut close_receiver => {
+                        // The engine was closed; abandon the reconnect attempt.
+                        // Clear `reconnecting` (the success/failure path below does
+                        // this after the select; this branch returns early so it
+                        // must do so itself) to avoid leaving a closed engine stuck
+                        // with reconnecting = true.
                         log::debug!("reconnection cancelled");
+                        inner.running_handle.write().reconnecting = false;
                         return;
                     }
                     res = inner.reconnect_task() => {
@@ -948,12 +962,17 @@ impl EngineInner {
 
             // Exponential backoff with full jitter between attempts (DELTA 3).
             // A server-requested reconnect signals retry_now_notify to collapse
-            // this wait so the next attempt fires immediately.
+            // this wait so the next attempt fires immediately; a close signals
+            // close_notifier to break out of the loop early (the next iteration's
+            // `is_closed` check then returns) instead of waiting out the backoff.
             let backoff = reconnect_backoff_delay(i);
             tokio::select! {
                 _ = livekit_runtime::sleep(backoff) => {}
                 _ = self.retry_now_notify.notified() => {
                     log::debug!("retry_now signalled, skipping reconnect backoff");
+                }
+                _ = self.close_notifier.notified() => {
+                    log::debug!("engine closed, cancelling reconnect backoff");
                 }
             }
         }
