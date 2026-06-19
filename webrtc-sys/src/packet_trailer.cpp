@@ -97,7 +97,7 @@ void PacketTrailerTransformer::TransformSend(
   std::vector<uint8_t> new_data;
   if (enabled_.load()) {
     new_data = AppendTrailer(data, meta_to_embed.user_timestamp,
-                             meta_to_embed.frame_id);
+                             meta_to_embed.frame_id, meta_to_embed.user_data);
     frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
   }
 
@@ -238,11 +238,35 @@ void PacketTrailerTransformer::TransformReceive(
 std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
     webrtc::ArrayView<const uint8_t> data,
     uint64_t user_timestamp,
-    uint32_t frame_id) {
+    uint32_t frame_id,
+    const std::vector<uint8_t>& user_data) {
   const bool has_frame_id = frame_id != 0;
-  const size_t trailer_len = kTimestampTlvSize +
-                             (has_frame_id ? kFrameIdTlvSize : 0) +
-                             kTrailerEnvelopeSize;
+  const size_t fixed_len = kTimestampTlvSize +
+                           (has_frame_id ? kFrameIdTlvSize : 0) +
+                           kTrailerEnvelopeSize;
+
+  // user_data is embedded only if it fits the remaining trailer budget.
+  // The trailer length is a single byte (max 255 total) and the TLV length
+  // field is also a single byte; oversize user_data is dropped + logged
+  // rather than truncated, so the frame is never silently corrupted.
+  bool embed_user_data = false;
+  if (!user_data.empty()) {
+    if (user_data.size() <= 255 &&
+        fixed_len + kUserDataTlvHeaderSize + user_data.size() <=
+            kPacketTrailerMaxTotal) {
+      embed_user_data = true;
+    } else {
+      RTC_LOG(LS_WARNING)
+          << "PacketTrailerTransformer::AppendTrailer dropping user_data: "
+          << user_data.size() << " bytes exceeds remaining trailer budget ("
+          << (kPacketTrailerMaxTotal - fixed_len - kUserDataTlvHeaderSize)
+          << " bytes)";
+    }
+  }
+
+  const size_t trailer_len =
+      fixed_len +
+      (embed_user_data ? kUserDataTlvHeaderSize + user_data.size() : 0);
   std::vector<uint8_t> result;
   result.reserve(data.size() + trailer_len);
 
@@ -267,6 +291,15 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
     for (int i = 3; i >= 0; --i) {
       result.push_back(
           static_cast<uint8_t>(((frame_id >> (i * 8)) & 0xFF) ^ 0xFF));
+    }
+  }
+
+  if (embed_user_data) {
+    // TLV: user_data (tag=0x03, len=N, N arbitrary bytes)
+    result.push_back(kTagUserData ^ 0xFF);
+    result.push_back(static_cast<uint8_t>(user_data.size()) ^ 0xFF);
+    for (uint8_t byte : user_data) {
+      result.push_back(static_cast<uint8_t>(byte ^ 0xFF));
     }
   }
 
@@ -332,6 +365,12 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
         fid = (fid << 8) | (val[i] ^ 0xFF);
       }
       meta.frame_id = fid;
+      found_any = true;
+    } else if (tag == kTagUserData) {
+      meta.user_data.resize(len);
+      for (uint8_t i = 0; i < len; ++i) {
+        meta.user_data[i] = static_cast<uint8_t>(val[i] ^ 0xFF);
+      }
       found_any = true;
     }
     // Unknown tags are silently skipped.
@@ -401,7 +440,8 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::lookup_frame_meta
 void PacketTrailerTransformer::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
-    uint32_t frame_id) {
+    uint32_t frame_id,
+    rust::Slice<const uint8_t> user_data) {
   // Truncate to millisecond precision to match what WebRTC stores
   // internally.  The encoder pipeline converts the VideoFrame's
   // timestamp_us to capture_time_ms_ = timestamp_us / 1000, and
@@ -426,7 +466,9 @@ void PacketTrailerTransformer::store_frame_metadata(
   if (send_map_.find(key) == send_map_.end()) {
     send_map_order_.push_back(key);
   }
-  send_map_[key] = PacketTrailerMetadata{user_timestamp, frame_id, 0};
+  send_map_[key] = PacketTrailerMetadata{
+      user_timestamp, frame_id, 0,
+      std::vector<uint8_t>(user_data.begin(), user_data.end())};
 }
 
 void PacketTrailerTransformer::set_publish_timing_observer(
@@ -554,6 +596,7 @@ uint64_t PacketTrailerHandler::lookup_timestamp(uint32_t rtp_timestamp) const {
   auto meta = transformer_->lookup_frame_metadata(rtp_timestamp);
   if (meta.has_value()) {
     last_frame_id_ = meta->frame_id;
+    last_user_data_ = meta->user_data;
     return meta->user_timestamp;
   }
   return UINT64_MAX;
@@ -563,11 +606,22 @@ uint32_t PacketTrailerHandler::last_lookup_frame_id() const {
   return last_frame_id_;
 }
 
+rust::Vec<uint8_t> PacketTrailerHandler::last_lookup_user_data() const {
+  rust::Vec<uint8_t> out;
+  out.reserve(last_user_data_.size());
+  for (uint8_t byte : last_user_data_) {
+    out.push_back(byte);
+  }
+  return out;
+}
+
 void PacketTrailerHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
-    uint32_t frame_id) const {
-  transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
+    uint32_t frame_id,
+    rust::Slice<const uint8_t> user_data) const {
+  transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp,
+                                     frame_id, user_data);
 }
 
 void PacketTrailerHandler::set_publish_timing_observer(

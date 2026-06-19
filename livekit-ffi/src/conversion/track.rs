@@ -173,6 +173,9 @@ impl From<livekit_protocol::PacketTrailerFeature> for proto::FrameMetadataFeatur
             livekit_protocol::PacketTrailerFeature::PtfFrameId => {
                 proto::FrameMetadataFeature::FmfFrameId
             }
+            livekit_protocol::PacketTrailerFeature::PtfUserData => {
+                proto::FrameMetadataFeature::FmfUserData
+            }
         }
     }
 }

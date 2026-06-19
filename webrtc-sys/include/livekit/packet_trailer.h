@@ -62,11 +62,20 @@ constexpr size_t kTrailerEnvelopeSize = 5;
 // TLV tag IDs
 constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian uint64
 constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32
+constexpr uint8_t kTagUserData = 0x03;     // value: arbitrary bytes (len <= 255)
 
 constexpr size_t kTimestampTlvSize = 10;  // tag + len + 8-byte value
 constexpr size_t kFrameIdTlvSize = 6;     // tag + len + 4-byte value
+constexpr size_t kUserDataTlvHeaderSize = 2;  // tag + len, before value bytes
 
-// Trailer size varies because frame_id is omitted when it is unset (0).
+// The trailer length is encoded in a single XORed byte, so the entire
+// trailer (TLV region + envelope) can never exceed 255 bytes. user_data
+// that would push the trailer past this budget is dropped (see
+// AppendTrailer), never truncated.
+constexpr size_t kPacketTrailerMaxTotal = 255;
+
+// Fixed-feature trailer size varies because frame_id is omitted when it is
+// unset (0). user_data is variable-length and accounted for separately.
 constexpr size_t kPacketTrailerMinSize =
     kTimestampTlvSize + kTrailerEnvelopeSize;
 constexpr size_t kPacketTrailerMaxSize =
@@ -76,6 +85,7 @@ struct PacketTrailerMetadata {
   uint64_t user_timestamp;
   uint32_t frame_id;
   uint32_t ssrc;  // SSRC that produced this entry (for simulcast tracking)
+  std::vector<uint8_t> user_data;  // arbitrary app-supplied bytes (PTF_USER_DATA)
 };
 
 /// Frame transformer that appends/extracts packet trailers.
@@ -121,7 +131,8 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// in the encoder pipeline.
   void store_frame_metadata(int64_t capture_timestamp_us,
                             uint64_t user_timestamp,
-                            uint32_t frame_id);
+                            uint32_t frame_id,
+                            rust::Slice<const uint8_t> user_data);
 
   /// Set the observer receiving sender-side publish timing events.
   void set_publish_timing_observer(
@@ -168,7 +179,8 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   std::vector<uint8_t> AppendTrailer(
       webrtc::ArrayView<const uint8_t> data,
       uint64_t user_timestamp,
-      uint32_t frame_id);
+      uint32_t frame_id,
+      const std::vector<uint8_t>& user_data);
 
   /// Extract and remove frame metadata trailer from frame data
   std::optional<PacketTrailerMetadata> ExtractTrailer(
@@ -237,10 +249,16 @@ class PacketTrailerHandler {
   /// lookup_timestamp() call. Returns 0 if no lookup succeeded.
   uint32_t last_lookup_frame_id() const;
 
+  /// Returns the user_data from the most recent successful
+  /// lookup_timestamp() call. Returns an empty vector if no lookup
+  /// succeeded or the frame carried no user_data.
+  rust::Vec<uint8_t> last_lookup_user_data() const;
+
   /// Store frame metadata for a given capture timestamp (sender side).
   void store_frame_metadata(int64_t capture_timestamp_us,
                             uint64_t user_timestamp,
-                            uint32_t frame_id) const;
+                            uint32_t frame_id,
+                            rust::Slice<const uint8_t> user_data) const;
 
   /// Set the observer receiving sender-side publish timing events.
   void set_publish_timing_observer(
@@ -275,6 +293,7 @@ class PacketTrailerHandler {
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable uint32_t last_frame_id_{0};
+  mutable std::vector<uint8_t> last_user_data_;
 };
 
 // Factory functions for Rust FFI

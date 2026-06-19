@@ -1574,7 +1574,7 @@ async fn run_capture_loop(
             debug_assert_eq!(burned_timestamp_us, Some(capture_wall_time_us));
         }
         frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
-            Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+            Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid, user_data: None })
         } else {
             None
         };
@@ -1819,7 +1819,7 @@ async fn run_argus_capture_loop(
                     None
                 };
                 let frame_metadata = if user_ts.is_some() || fid.is_some() {
-                    Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+                    Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid, user_data: None })
                 } else {
                     None
                 };

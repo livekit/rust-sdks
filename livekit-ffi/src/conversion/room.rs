@@ -44,6 +44,9 @@ fn frame_metadata_features_from_proto(features: Vec<i32>) -> FrameMetadataFeatur
             proto::FrameMetadataFeature::FmfFrameId => {
                 frame_metadata_features.frame_id = true;
             }
+            proto::FrameMetadataFeature::FmfUserData => {
+                frame_metadata_features.user_data = true;
+            }
         }
     }
 
