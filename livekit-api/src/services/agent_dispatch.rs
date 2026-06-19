@@ -46,7 +46,9 @@ impl AgentDispatchClient {
     /// To use explicit dispatch, your agent must be registered with an `agent_name`.
     ///
     /// # Arguments
-    /// * `req` - Request containing dispatch creation parameters
+    /// * `req` - Request containing dispatch creation parameters. The request can include
+    ///   an optional `deployment` field to target a specific agent deployment.
+    ///   Leave empty to target the production deployment.
     ///
     /// # Returns
     /// The created agent dispatch object

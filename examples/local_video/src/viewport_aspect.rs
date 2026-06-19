@@ -59,6 +59,12 @@ pub(crate) fn native_options(initial_aspect: Option<f32>) -> eframe::NativeOptio
     {
         wgpu_options.present_mode = wgpu::PresentMode::AutoNoVsync;
     }
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WGPU_BACKEND").is_none() {
+        if let egui_wgpu_backend::WgpuSetup::CreateNew(create_new) = &mut wgpu_options.wgpu_setup {
+            create_new.instance_descriptor.backends = wgpu::Backends::VULKAN;
+        }
+    }
     wgpu_options.desired_maximum_frame_latency = Some(1);
 
     eframe::NativeOptions {
