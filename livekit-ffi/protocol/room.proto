@@ -84,6 +84,10 @@ enum SimulateScenarioKind {
   // Asks the server to send `LeaveRequest{Reconnect}`, forcing a full
   // reconnect (new RtcSession; SDK republishes existing local tracks).
   SIMULATE_FULL_RECONNECT = 7;
+  // Asks the server to drop the signalling connection during the next resume,
+  // then triggers a resume locally. The resume cannot complete, so the engine
+  // escalates to a full reconnect — exercising the resume→full escalation path.
+  SIMULATE_DISCONNECT_SIGNAL_ON_RESUME = 8;
 }
 message SimulateScenarioRequest {
   required uint64 room_handle = 1;
