@@ -74,12 +74,12 @@ pub struct AudioPreset {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct PacketTrailerFeatures {
+pub struct FrameMetadataFeatures {
     pub user_timestamp: bool,
     pub frame_id: bool,
 }
 
-impl PacketTrailerFeatures {
+impl FrameMetadataFeatures {
     pub(crate) fn is_empty(&self) -> bool {
         !self.user_timestamp && !self.frame_id
     }
@@ -121,7 +121,7 @@ pub struct TrackPublishOptions {
     pub source: TrackSource,
     pub stream: String,
     pub preconnect_buffer: bool,
-    pub packet_trailer_features: PacketTrailerFeatures,
+    pub frame_metadata_features: FrameMetadataFeatures,
     /// Preferred encoder backend for video tracks published with these options.
     ///
     /// If the requested backend is unavailable, the SDK logs a warning and
@@ -146,7 +146,7 @@ impl Default for TrackPublishOptions {
             source: TrackSource::Unknown,
             stream: "".to_string(),
             preconnect_buffer: false,
-            packet_trailer_features: PacketTrailerFeatures::default(),
+            frame_metadata_features: FrameMetadataFeatures::default(),
             video_encoder: VideoEncoderBackend::Auto,
             scalability_mode: None,
         }

@@ -20,7 +20,7 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } from "./participant_pb.js";
-import type { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackPublicationInfo, TrackSource } from "./track_pb.js";
+import type { FrameMetadataFeature, OwnedTrack, OwnedTrackPublication, TrackPublicationInfo, TrackSource } from "./track_pb.js";
 import type { RtcStats } from "./stats_pb.js";
 import type { VideoCodec } from "./video_frame_pb.js";
 import type { E2eeOptions, EncryptionState } from "./e2ee_pb.js";
@@ -1844,9 +1844,9 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
   preconnectBuffer?: boolean;
 
   /**
-   * @generated from field: repeated livekit.proto.PacketTrailerFeature packet_trailer_features = 10;
+   * @generated from field: repeated livekit.proto.FrameMetadataFeature frame_metadata_features = 10;
    */
-  packetTrailerFeatures: PacketTrailerFeature[];
+  frameMetadataFeatures: FrameMetadataFeature[];
 
   /**
    * RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP

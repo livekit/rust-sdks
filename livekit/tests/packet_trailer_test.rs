@@ -39,7 +39,7 @@ use livekit::{
         key_provider::{KeyProvider, KeyProviderOptions},
         EncryptionType,
     },
-    options::{PacketTrailerFeatures, TrackPublishOptions, VideoCodec},
+    options::{FrameMetadataFeatures, TrackPublishOptions, VideoCodec},
     prelude::*,
     webrtc::video_frame::FrameMetadata,
     E2eeOptions, RoomOptions,
@@ -139,9 +139,9 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
 
     let pub_room = Arc::new(pub_room);
 
-    let mut packet_trailer_features = PacketTrailerFeatures::default();
-    packet_trailer_features.user_timestamp = params.attach_timestamp;
-    packet_trailer_features.frame_id = params.attach_frame_id;
+    let mut frame_metadata_features = FrameMetadataFeatures::default();
+    frame_metadata_features.user_timestamp = params.attach_timestamp;
+    frame_metadata_features.frame_id = params.attach_frame_id;
 
     let rtc_source =
         NativeVideoSource::new(VideoResolution { width: TEST_WIDTH, height: TEST_HEIGHT }, false);
@@ -157,7 +157,7 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
             TrackPublishOptions {
                 video_codec: params.codec,
                 simulcast: false,
-                packet_trailer_features,
+                frame_metadata_features,
                 ..Default::default()
             },
         )
