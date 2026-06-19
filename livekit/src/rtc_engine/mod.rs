@@ -22,7 +22,7 @@ use std::{
     borrow::Cow,
     fmt::Debug,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use thiserror::Error;
 use tokio::sync::{
@@ -47,46 +47,18 @@ use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 mod dc_sender;
 pub mod lk_runtime;
 mod peer_transport;
+mod reconnect_strategy;
 mod rtc_events;
 mod rtc_session;
+
+// Re-exported to preserve the public `rtc_engine::RECONNECT_*` paths.
+pub use reconnect_strategy::{
+    RECONNECT_ATTEMPTS, RECONNECT_BACKOFF_MULTIPLIER, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY,
+};
 
 pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
-
-pub const RECONNECT_ATTEMPTS: u32 = 10;
-pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
-
-/// Exponential-backoff-with-full-jitter parameters for spacing reconnect
-/// attempts. The per-attempt delay is sampled uniformly from
-/// `[0, min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))]`.
-/// This replaces the previous fixed [`RECONNECT_INTERVAL`] spacing: it recovers
-/// faster from transient blips and spreads retries to avoid synchronised
-/// reconnect storms across many clients after a server hiccup.
-pub const RECONNECT_BASE_DELAY: Duration = Duration::from_millis(300);
-pub const RECONNECT_BACKOFF_MULTIPLIER: u64 = 2;
-pub const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(7);
-
-/// Un-jittered backoff ceiling for the given 1-based reconnect attempt:
-/// `min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))`,
-/// floored at 1ms. Grows geometrically until it saturates at the cap.
-fn reconnect_backoff_nominal(attempt: u32) -> Duration {
-    let base = RECONNECT_BASE_DELAY.as_millis() as u64;
-    let cap = RECONNECT_MAX_DELAY.as_millis() as u64;
-    let exp = RECONNECT_BACKOFF_MULTIPLIER.saturating_pow(attempt.saturating_sub(1));
-    Duration::from_millis(base.saturating_mul(exp).min(cap).max(1))
-}
-
-/// Full-jitter backoff delay for the given 1-based reconnect attempt: sampled
-/// uniformly from `[0, reconnect_backoff_nominal(attempt)]`. A dependency-free
-/// pseudo-random source from the system clock is sufficient — backoff jitter
-/// does not need cryptographic quality, only de-correlation across clients.
-fn reconnect_backoff_delay(attempt: u32) -> Duration {
-    let nominal = reconnect_backoff_nominal(attempt).as_millis() as u64;
-    let seed =
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
-    Duration::from_millis(seed % (nominal + 1))
-}
 
 /// Settling delay before checking PeerConnection state on the resume path.
 ///
@@ -965,7 +937,7 @@ impl EngineInner {
             // this wait so the next attempt fires immediately; a close signals
             // close_notifier to break out of the loop early (the next iteration's
             // `is_closed` check then returns) instead of waiting out the backoff.
-            let backoff = reconnect_backoff_delay(i);
+            let backoff = reconnect_strategy::delay(i);
             tokio::select! {
                 _ = livekit_runtime::sleep(backoff) => {}
                 _ = self.retry_now_notify.notified() => {
@@ -1155,49 +1127,6 @@ mod tests {
                 "{:?} must not be treated as a disconnect Leave",
                 err
             );
-        }
-    }
-
-    #[test]
-    fn backoff_nominal_grows_geometrically_then_caps() {
-        // attempt 1 == base, then x2 each step, until it saturates at the cap.
-        assert_eq!(reconnect_backoff_nominal(1), RECONNECT_BASE_DELAY);
-        assert_eq!(
-            reconnect_backoff_nominal(2),
-            RECONNECT_BASE_DELAY * RECONNECT_BACKOFF_MULTIPLIER as u32
-        );
-        assert_eq!(
-            reconnect_backoff_nominal(3),
-            RECONNECT_BASE_DELAY * (RECONNECT_BACKOFF_MULTIPLIER * RECONNECT_BACKOFF_MULTIPLIER) as u32
-        );
-
-        // Monotonic non-decreasing and never above the cap.
-        let mut prev = Duration::ZERO;
-        for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal = reconnect_backoff_nominal(attempt);
-            assert!(nominal >= prev, "backoff must not decrease (attempt {attempt})");
-            assert!(nominal <= RECONNECT_MAX_DELAY, "backoff must not exceed the cap");
-            prev = nominal;
-        }
-
-        // Late attempts are pinned to the cap, and large attempt indices don't
-        // overflow into a wrapped-around small value.
-        assert_eq!(reconnect_backoff_nominal(RECONNECT_ATTEMPTS), RECONNECT_MAX_DELAY);
-        assert_eq!(reconnect_backoff_nominal(u32::MAX), RECONNECT_MAX_DELAY);
-    }
-
-    #[test]
-    fn backoff_delay_stays_within_nominal_jitter_window() {
-        // Full jitter: every sample must land within [0, nominal(attempt)].
-        for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal = reconnect_backoff_nominal(attempt);
-            for _ in 0..1000 {
-                let delay = reconnect_backoff_delay(attempt);
-                assert!(
-                    delay <= nominal,
-                    "jittered delay {delay:?} exceeded nominal {nominal:?} (attempt {attempt})"
-                );
-            }
         }
     }
 }
