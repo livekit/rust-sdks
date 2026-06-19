@@ -63,7 +63,8 @@ mod tests {
         assert_eq!(nominal(2), RECONNECT_BASE_DELAY * RECONNECT_BACKOFF_MULTIPLIER as u32);
         assert_eq!(
             nominal(3),
-            RECONNECT_BASE_DELAY * (RECONNECT_BACKOFF_MULTIPLIER * RECONNECT_BACKOFF_MULTIPLIER) as u32
+            RECONNECT_BASE_DELAY
+                * (RECONNECT_BACKOFF_MULTIPLIER * RECONNECT_BACKOFF_MULTIPLIER) as u32
         );
 
         // Monotonic non-decreasing and never above the cap.
