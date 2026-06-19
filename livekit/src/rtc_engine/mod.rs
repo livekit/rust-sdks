@@ -1082,7 +1082,7 @@ impl EngineInner {
             // the next cycle; pre-fix it was dropped and the engine resumed again.
             if self.fail_transport_during_next_resume.swap(false, Ordering::AcqRel) {
                 log::warn!("test fault injection: simulating concurrent failure during resume");
-                self.reconnection_needed(false, false);
+                self.reconnection_needed(false, false, DisconnectReason::UnknownReason);
             }
         }
 
