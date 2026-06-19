@@ -77,11 +77,12 @@ pub struct AudioPreset {
 pub struct FrameMetadataFeatures {
     pub user_timestamp: bool,
     pub frame_id: bool,
+    pub user_data: bool,
 }
 
 impl FrameMetadataFeatures {
     pub(crate) fn is_empty(&self) -> bool {
-        !self.user_timestamp && !self.frame_id
+        !self.user_timestamp && !self.frame_id && !self.user_data
     }
 
     pub(crate) fn to_proto(&self) -> Vec<proto::PacketTrailerFeature> {
@@ -93,6 +94,10 @@ impl FrameMetadataFeatures {
 
         if self.frame_id {
             features.push(proto::PacketTrailerFeature::PtfFrameId);
+        }
+
+        if self.user_data {
+            features.push(proto::PacketTrailerFeature::PtfUserData);
         }
 
         features
