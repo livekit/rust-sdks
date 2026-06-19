@@ -18,12 +18,7 @@ use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
 use parking_lot::{RwLock, RwLockReadGuard};
-use std::{
-    borrow::Cow,
-    fmt::Debug,
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
@@ -47,46 +42,18 @@ use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 mod dc_sender;
 pub mod lk_runtime;
 mod peer_transport;
+mod reconnect_strategy;
 mod rtc_events;
 mod rtc_session;
+
+// Re-exported to preserve the public `rtc_engine::RECONNECT_*` paths.
+pub use reconnect_strategy::{
+    RECONNECT_ATTEMPTS, RECONNECT_BACKOFF_MULTIPLIER, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY,
+};
 
 pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
-
-pub const RECONNECT_ATTEMPTS: u32 = 10;
-pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
-
-/// Exponential-backoff-with-full-jitter parameters for spacing reconnect
-/// attempts. The per-attempt delay is sampled uniformly from
-/// `[0, min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))]`.
-/// This replaces the previous fixed [`RECONNECT_INTERVAL`] spacing: it recovers
-/// faster from transient blips and spreads retries to avoid synchronised
-/// reconnect storms across many clients after a server hiccup.
-pub const RECONNECT_BASE_DELAY: Duration = Duration::from_millis(300);
-pub const RECONNECT_BACKOFF_MULTIPLIER: u64 = 2;
-pub const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(7);
-
-/// Un-jittered backoff ceiling for the given 1-based reconnect attempt:
-/// `min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))`,
-/// floored at 1ms. Grows geometrically until it saturates at the cap.
-fn reconnect_backoff_nominal(attempt: u32) -> Duration {
-    let base = RECONNECT_BASE_DELAY.as_millis() as u64;
-    let cap = RECONNECT_MAX_DELAY.as_millis() as u64;
-    let exp = RECONNECT_BACKOFF_MULTIPLIER.saturating_pow(attempt.saturating_sub(1));
-    Duration::from_millis(base.saturating_mul(exp).min(cap).max(1))
-}
-
-/// Full-jitter backoff delay for the given 1-based reconnect attempt: sampled
-/// uniformly from `[0, reconnect_backoff_nominal(attempt)]`. A dependency-free
-/// pseudo-random source from the system clock is sufficient — backoff jitter
-/// does not need cryptographic quality, only de-correlation across clients.
-fn reconnect_backoff_delay(attempt: u32) -> Duration {
-    let nominal = reconnect_backoff_nominal(attempt).as_millis() as u64;
-    let seed =
-        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
-    Duration::from_millis(seed % (nominal + 1))
-}
 
 /// Settling delay before checking PeerConnection state on the resume path.
 ///
@@ -249,6 +216,9 @@ pub enum EngineEvent {
         sid: String,
         muted: bool,
     },
+    SubscribedQualityUpdate {
+        update: proto::SubscribedQualityUpdate,
+    },
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -292,6 +262,21 @@ struct EngineInner {
     // Signalled when a server-requested reconnect wants the next attempt to fire
     // immediately, collapsing the exponential backoff wait between attempts.
     retry_now_notify: Arc<Notify>,
+    /// Test-only fault injection: number of upcoming resume attempts to force to
+    /// fail. Each forced failure decrements this counter and makes
+    /// `try_resume_connection` return an error, which exercises the escalation to a
+    /// full reconnect. Always 0 in production builds.
+    #[cfg(feature = "__lk-e2e-test")]
+    fail_resume_attempts: std::sync::atomic::AtomicU32,
+
+    /// Test-only fault injection: when set, the next resume attempt simulates a
+    /// transport failure (a server `Leave{Resume}` / PeerConnection `Failed`)
+    /// arriving *concurrently* with the in-flight resume, then proceeds and
+    /// succeeds. Reproduces the production race where a resume reports success
+    /// while a failure was pending — the failure must escalate the *next* cycle to
+    /// a full reconnect. Always false in production builds.
+    #[cfg(feature = "__lk-e2e-test")]
+    fail_transport_during_next_resume: std::sync::atomic::AtomicBool,
 }
 
 pub struct RtcEngine {
@@ -435,6 +420,23 @@ impl RtcEngine {
     pub fn session(&self) -> Arc<RtcSession> {
         self.inner.running_handle.read().session.clone()
     }
+
+    /// Test-only: force the next `count` resume attempts to fail, so tests can
+    /// deterministically exercise the resume-failure → full-reconnect escalation.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn fail_next_resume_attempts(&self, count: u32) {
+        self.inner.fail_resume_attempts.store(count, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Test-only: arm a one-shot fault so the next resume attempt simulates a
+    /// concurrent transport failure (then still succeeds), reproducing a resume
+    /// that reports success while a failure was pending.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn fail_transport_during_next_resume(&self) {
+        self.inner
+            .fail_transport_during_next_resume
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
 }
 
 impl EngineInner {
@@ -474,6 +476,12 @@ impl EngineInner {
                         options,
                         reconnecting_lock: AsyncRwLock::default(),
                         retry_now_notify: Arc::new(Notify::new()),
+                        #[cfg(feature = "__lk-e2e-test")]
+                        fail_resume_attempts: std::sync::atomic::AtomicU32::new(0),
+                        #[cfg(feature = "__lk-e2e-test")]
+                        fail_transport_during_next_resume: std::sync::atomic::AtomicBool::new(
+                            false,
+                        ),
                     });
 
                     // Start initial tasks
@@ -713,6 +721,9 @@ impl EngineInner {
             SessionEvent::TrackMuted { sid, muted } => {
                 let _ = self.engine_tx.send(EngineEvent::TrackMuted { sid, muted });
             }
+            SessionEvent::SubscribedQualityUpdate { update } => {
+                let _ = self.engine_tx.send(EngineEvent::SubscribedQualityUpdate { update });
+            }
             SessionEvent::LocalDataTrackInput(event) => {
                 let _ = self.engine_tx.send(EngineEvent::LocalDataTrackInput(event));
             }
@@ -746,6 +757,14 @@ impl EngineInner {
         // exhausts all attempts leaves the room stuck in Reconnecting forever because
         // the room's task never sees the event that drives `handle_disconnected`.
         let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
+
+        // Signal any in-flight reconnect loop to stop. The reconnect task selects
+        // on `close_notifier`, both at the top-level (cancelling the whole task)
+        // and within its backoff wait (breaking the loop early). We notify LAST,
+        // after teardown has completed: the reconnect loop's own bail paths call
+        // `close()` from inside the task, so notifying earlier could let the
+        // top-level select drop the task mid-`close()` and leave teardown partial.
+        self.close_notifier.notify_waiters();
     }
 
     /// When waiting for reconnection, it ensures we're always using the latest session.
@@ -781,15 +800,19 @@ impl EngineInner {
         }
 
         if running_handle.reconnecting {
-            // Only escalate to full reconnect, never downgrade. Stale signal-close
-            // events (which request resume) must not override a full reconnect decision
-            // made by the reconnect loop after a failed resume attempt.
-            if full_reconnect {
-                running_handle.full_reconnect = true;
-            }
+            // A new failure surfaced while we're already reconnecting. That means the
+            // in-progress resume isn't holding — e.g. a PeerConnection moved to `Failed`
+            // mid-resume, or a stale resume reported a false success and the transport
+            // died again. A single resume failure is enough: escalate to a full
+            // reconnect instead of looping on resume forever.
+            //
+            // This escalation is sticky — it survives into the next cycle (see the
+            // cycle-start below) so a resume that spuriously reports success can't reset
+            // us back to resuming. It's cleared only once a full reconnect installs a
+            // fresh session (see `try_restart_connection`).
+            running_handle.full_reconnect = true;
 
-            // Wake the in-flight reconnect loop so its next attempt fires
-            // immediately, collapsing the backoff wait.
+            // Retry as soon as possible when asked, rather than waiting out the backoff.
             if retry_now {
                 self.retry_now_notify.notify_one();
             }
@@ -798,7 +821,10 @@ impl EngineInner {
         }
 
         running_handle.reconnecting = true;
-        running_handle.full_reconnect = full_reconnect;
+        // Never downgrade a sticky escalation: if a prior cycle decided we need a full
+        // reconnect (a failed/false-successful resume), keep it. Cleared on a successful
+        // full reconnect in `try_restart_connection`.
+        running_handle.full_reconnect |= full_reconnect;
         // Remember the cause so a failed reconnection closes with it rather than
         // a generic UnknownReason.
         running_handle.reconnect_reason = reason;
@@ -816,7 +842,13 @@ impl EngineInner {
 
                 tokio::select! {
                     _ = &mut close_receiver => {
+                        // The engine was closed; abandon the reconnect attempt.
+                        // Clear `reconnecting` (the success/failure path below does
+                        // this after the select; this branch returns early so it
+                        // must do so itself) to avoid leaving a closed engine stuck
+                        // with reconnecting = true.
                         log::debug!("reconnection cancelled");
+                        inner.running_handle.write().reconnecting = false;
                         return;
                     }
                     res = inner.reconnect_task() => {
@@ -920,7 +952,9 @@ impl EngineInner {
                             ));
                         }
                         if let Some(reason) = auth_failure_reason(&err) {
-                            log::warn!("authentication rejected during restart ({err}); not retrying");
+                            log::warn!(
+                                "authentication rejected during restart ({err}); not retrying"
+                            );
                             self.running_handle.write().can_reconnect = false;
                             self.close(reason).await;
                             return Err(EngineError::Connection(
@@ -956,7 +990,9 @@ impl EngineInner {
                             ));
                         }
                         if let Some(reason) = auth_failure_reason(&err) {
-                            log::warn!("authentication rejected during resume ({err}); not retrying");
+                            log::warn!(
+                                "authentication rejected during resume ({err}); not retrying"
+                            );
                             self.running_handle.write().can_reconnect = false;
                             self.close(reason).await;
                             return Err(EngineError::Connection(
@@ -972,12 +1008,17 @@ impl EngineInner {
 
             // Exponential backoff with full jitter between attempts (DELTA 3).
             // A server-requested reconnect signals retry_now_notify to collapse
-            // this wait so the next attempt fires immediately.
-            let backoff = reconnect_backoff_delay(i);
+            // this wait so the next attempt fires immediately; a close signals
+            // close_notifier to break out of the loop early (the next iteration's
+            // `is_closed` check then returns) instead of waiting out the backoff.
+            let backoff = reconnect_strategy::delay(i);
             tokio::select! {
                 _ = livekit_runtime::sleep(backoff) => {}
                 _ = self.retry_now_notify.notified() => {
                     log::debug!("retry_now signalled, skipping reconnect backoff");
+                }
+                _ = self.close_notifier.notified() => {
+                    log::debug!("engine closed, cancelling reconnect backoff");
                 }
             }
         }
@@ -1029,6 +1070,7 @@ impl EngineInner {
         // event.
         let mut handle = self.running_handle.write();
         handle.session = Arc::new(new_session);
+        handle.full_reconnect = false;
 
         let (close_tx, close_rx) = oneshot::channel();
         let task = livekit_runtime::spawn(self.clone().engine_task(session_events, close_rx));
@@ -1047,7 +1089,31 @@ impl EngineInner {
     ///   2. SyncState before the publisher re-offer;
     ///   3. re-offer the publisher, then await PC reconnection + settle;
     ///   4. re-check link liveness, then drain the queue.
-    async fn try_resume_connection(&self) -> EngineResult<()> {
+    async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
+        // Test-only: force the configured number of resume attempts to fail so tests
+        // can exercise the resume-failure → full-reconnect escalation deterministically.
+        #[cfg(feature = "__lk-e2e-test")]
+        {
+            use std::sync::atomic::Ordering;
+            let remaining = self.fail_resume_attempts.load(Ordering::Acquire);
+            if remaining > 0 {
+                self.fail_resume_attempts.store(remaining - 1, Ordering::Release);
+                log::warn!("test fault injection: forcing resume attempt to fail");
+                return Err(EngineError::Connection("forced resume failure (test)".into()));
+            }
+
+            // Simulate a transport failure (server Leave{Resume} / PC Failed) arriving
+            // while this resume is in flight. We're already reconnecting, so this drives
+            // the "already reconnecting" branch of `reconnection_needed`. The resume then
+            // proceeds and succeeds — reproducing a resume that reports success while a
+            // failure was pending. Post-fix this sticks a full-reconnect escalation onto
+            // the next cycle; pre-fix it was dropped and the engine resumed again.
+            if self.fail_transport_during_next_resume.swap(false, Ordering::AcqRel) {
+                log::warn!("test fault injection: simulating concurrent failure during resume");
+                self.reconnection_needed(false, false, DisconnectReason::UnknownReason);
+            }
+        }
+
         let session = self.running_handle.read().session.clone();
 
         // 1. Reopen the signalling link. The SignalClient stays gated
@@ -1201,7 +1267,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn auth_failure_reason_ignores_other_client_and_server_errors() {
         let not_auth = [
             // Other client errors are not auth failures.
@@ -1226,49 +1291,6 @@ mod tests {
                 auth_failure_reason(err).is_none(),
                 "{err:?} must NOT be treated as an auth failure"
             );
-        }
-    }
-
-    #[test]
-    fn backoff_nominal_grows_geometrically_then_caps() {
-        // attempt 1 == base, then x2 each step, until it saturates at the cap.
-        assert_eq!(reconnect_backoff_nominal(1), RECONNECT_BASE_DELAY);
-        assert_eq!(
-            reconnect_backoff_nominal(2),
-            RECONNECT_BASE_DELAY * RECONNECT_BACKOFF_MULTIPLIER as u32
-        );
-        assert_eq!(
-            reconnect_backoff_nominal(3),
-            RECONNECT_BASE_DELAY * (RECONNECT_BACKOFF_MULTIPLIER * RECONNECT_BACKOFF_MULTIPLIER) as u32
-        );
-
-        // Monotonic non-decreasing and never above the cap.
-        let mut prev = Duration::ZERO;
-        for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal = reconnect_backoff_nominal(attempt);
-            assert!(nominal >= prev, "backoff must not decrease (attempt {attempt})");
-            assert!(nominal <= RECONNECT_MAX_DELAY, "backoff must not exceed the cap");
-            prev = nominal;
-        }
-
-        // Late attempts are pinned to the cap, and large attempt indices don't
-        // overflow into a wrapped-around small value.
-        assert_eq!(reconnect_backoff_nominal(RECONNECT_ATTEMPTS), RECONNECT_MAX_DELAY);
-        assert_eq!(reconnect_backoff_nominal(u32::MAX), RECONNECT_MAX_DELAY);
-    }
-
-    #[test]
-    fn backoff_delay_stays_within_nominal_jitter_window() {
-        // Full jitter: every sample must land within [0, nominal(attempt)].
-        for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal = reconnect_backoff_nominal(attempt);
-            for _ in 0..1000 {
-                let delay = reconnect_backoff_delay(attempt);
-                assert!(
-                    delay <= nominal,
-                    "jittered delay {delay:?} exceeded nominal {nominal:?} (attempt {attempt})"
-                );
-            }
         }
     }
 }

@@ -281,6 +281,77 @@ impl LocalParticipant {
     }
 
     /// Publishes a media track.
+    ///
+    /// # Examples
+    ///
+    /// Publish an audio track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::TrackPublishOptions,
+    /// #   webrtc::{prelude::*, audio_source::native::NativeAudioSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the audio source
+    /// let source = NativeAudioSource::new(
+    ///     AudioSourceOptions::default(),
+    ///     48_000, // Sample rate (hz)
+    ///     1,      // Number of channels
+    ///     1000,   // Buffer duration (ms)
+    /// );
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalAudioTrack::create_audio_track(
+    ///     "microphone", // Track name
+    ///     RtcAudioSource::Native(source.clone()),
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Microphone,
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Audio(track), options)
+    /// 	.await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Publish a video track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::{TrackPublishOptions, VideoCodec},
+    /// #   webrtc::video_source::{RtcVideoSource, VideoResolution, native::NativeVideoSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the video source
+    /// let resolution = VideoResolution { width: 1920, height: 1080 };
+    /// let source = NativeVideoSource::new(resolution, false);
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalVideoTrack::create_video_track(
+    ///     "camera", // Track name
+    ///     RtcVideoSource::Native(source)
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Camera,
+    ///     video_codec: VideoCodec::H264,
+    ///     simulcast: true, // Optionally enable simulcast for supported codecs
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Video(track), options)
+    ///     .await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub async fn publish_track(
         &self,
         track: LocalTrack,
