@@ -62,7 +62,9 @@ constexpr size_t kTrailerEnvelopeSize = 5;
 // TLV tag IDs
 constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian uint64
 constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32
-constexpr uint8_t kTagUserData = 0x03;     // value: arbitrary bytes (len <= 255)
+constexpr uint8_t kTagUserData = 0x03;     // value: arbitrary bytes, bounded
+                                           // by the remaining trailer budget
+                                           // (255 - fixed TLVs - envelope - 2)
 
 constexpr size_t kTimestampTlvSize = 10;  // tag + len + 8-byte value
 constexpr size_t kFrameIdTlvSize = 6;     // tag + len + 4-byte value
