@@ -593,11 +593,54 @@ mod tests {
     }
 }
 
+/// Per-channel (increment, decrement) keys: Q/A=CH1, W/S=CH2, E/D=CH3, R/F=CH4,
+/// T/G=CH5, Y/H=CH6.
+const CHANNEL_KEYS: [(egui::Key, egui::Key); crate::user_data::NUM_CHANNELS] = [
+    (egui::Key::Q, egui::Key::A),
+    (egui::Key::W, egui::Key::S),
+    (egui::Key::E, egui::Key::D),
+    (egui::Key::R, egui::Key::F),
+    (egui::Key::T, egui::Key::G),
+    (egui::Key::Y, egui::Key::H),
+];
+
+/// How fast a held key drives a channel (value units/second). Full `±VALUE_RANGE`
+/// span in ~2s.
+const CHANNEL_RATE_PER_S: f32 = 1.0;
+
+type ChannelValues = Arc<Mutex<[f32; crate::user_data::NUM_CHANNELS]>>;
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     timing_overlay_state: PublisherTimingOverlayState,
+    /// Keyboard-controlled user_data channel values shared with the capture loop.
+    channels: Option<ChannelValues>,
+}
+
+/// Apply held-key deltas to the shared channel values and return the current
+/// values for display. Returns `None` when channel control is off.
+fn drive_channels(
+    ctx: &egui::Context,
+    targets: &ChannelValues,
+) -> [f32; crate::user_data::NUM_CHANNELS] {
+    let dt = ctx.input(|i| i.stable_dt).min(0.1);
+    let mut values = targets.lock();
+    for (idx, (inc, dec)) in CHANNEL_KEYS.iter().enumerate() {
+        let (inc_down, dec_down) = ctx.input(|i| (i.key_down(*inc), i.key_down(*dec)));
+        let mut delta = 0.0;
+        if inc_down {
+            delta += CHANNEL_RATE_PER_S * dt;
+        }
+        if dec_down {
+            delta -= CHANNEL_RATE_PER_S * dt;
+        }
+        if delta != 0.0 {
+            values[idx] = crate::user_data::clamp_value(values[idx] + delta);
+        }
+    }
+    *values
 }
 
 impl eframe::App for VideoApp {
@@ -612,6 +655,8 @@ impl eframe::App for VideoApp {
         if let Some((width, height)) = video_size(&self.shared) {
             self.viewport.set_video_size(ctx, width, height);
         }
+
+        let channel_values = self.channels.as_ref().map(|targets| drive_channels(ctx, targets));
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             ui.ctx().request_repaint();
@@ -662,8 +707,43 @@ impl eframe::App for VideoApp {
                     });
             });
 
+        if let Some(values) = channel_values {
+            paint_channel_controls(ctx, &values);
+        }
+
         ctx.request_repaint_after(viewport_aspect::VIDEO_REPAINT_INTERVAL);
     }
+}
+
+/// Bottom-left HUD listing the channel key bindings and current values.
+fn paint_channel_controls(ctx: &egui::Context, values: &[f32; crate::user_data::NUM_CHANNELS]) {
+    const KEY_LABELS: [&str; crate::user_data::NUM_CHANNELS] =
+        ["Q/A", "W/S", "E/D", "R/F", "T/G", "Y/H"];
+    let mut lines = vec!["user_data channels".to_string()];
+    for (idx, value) in values.iter().enumerate() {
+        lines.push(format!("CH{} [{}]: {:>+6.2}", idx + 1, KEY_LABELS[idx], value));
+    }
+
+    egui::Area::new("channel_controls".into())
+        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_black_alpha(160))
+                .corner_radius(egui::CornerRadius::same(4))
+                .inner_margin(egui::Margin::same(6))
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(lines.join("\n"))
+                                .monospace()
+                                .size(12.0)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .extend(),
+                    );
+                });
+        });
 }
 
 pub(crate) fn run_display(
@@ -671,12 +751,14 @@ pub(crate) fn run_display(
     shared: Arc<Mutex<SharedYuv>>,
     ctrl_c_received: Arc<AtomicBool>,
     initial_aspect: Option<f32>,
+    channels: Option<ChannelValues>,
 ) -> Result<()> {
     let app = VideoApp {
         shared,
         ctrl_c_received: ctrl_c_received.clone(),
         viewport: AspectConstrainedViewport::new(initial_aspect),
         timing_overlay_state: PublisherTimingOverlayState::default(),
+        channels,
     };
     let native_options = viewport_aspect::native_options(initial_aspect);
     let result = eframe::run_native(title, native_options, Box::new(|_| Ok(Box::new(app))));
