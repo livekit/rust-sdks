@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
-    self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
+    self, video as video_presets, FrameMetadataFeatures, TrackPublishOptions, VideoCodec,
     VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
@@ -1178,16 +1178,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         );
     }
 
-    let mut packet_trailer_features = PacketTrailerFeatures::default();
-    packet_trailer_features.user_timestamp = args.attach_timestamp;
-    packet_trailer_features.frame_id = args.attach_frame_id;
+    let mut frame_metadata_features = FrameMetadataFeatures::default();
+    frame_metadata_features.user_timestamp = args.attach_timestamp;
+    frame_metadata_features.frame_id = args.attach_frame_id;
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
         source: TrackSource::Camera,
         simulcast: args.simulcast,
         video_codec: codec,
         video_encoder: requested_encoder,
-        packet_trailer_features,
+        frame_metadata_features,
         video_encoding: Some(main_encoding.clone()),
         simulcast_layers: args.simulcast.then(|| simulcast_presets.clone()),
         ..Default::default()
