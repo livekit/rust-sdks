@@ -76,10 +76,11 @@ constexpr size_t kUserDataTlvHeaderSize = 2;  // tag + len, before value bytes
 // AppendTrailer), never truncated.
 constexpr size_t kPacketTrailerMaxTotal = 255;
 
-// Fixed-feature trailer size varies because frame_id is omitted when it is
-// unset (0). user_data is variable-length and accounted for separately.
-constexpr size_t kPacketTrailerMinSize =
-    kTimestampTlvSize + kTrailerEnvelopeSize;
+// Fixed-feature trailer size varies because every TLV is optional and
+// independent: the timestamp and frame_id TLVs are each omitted when unset
+// (0), and user_data is variable-length and accounted for separately. A
+// frame whose features carry no data gets no trailer at all. kPacketTrailerMax
+// is the largest trailer with both fixed TLVs present (user_data excluded).
 constexpr size_t kPacketTrailerMaxSize =
     kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 

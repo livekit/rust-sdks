@@ -118,7 +118,10 @@ impl VideoTrackObserver {
                 })
             })
             .map(|(ts, fid, user_data)| FrameMetadata {
-                user_timestamp: Some(ts),
+                // Each field is an independently negotiable feature: a zero /
+                // empty value means the corresponding TLV was absent from the
+                // trailer, so surface it as None rather than a placeholder.
+                user_timestamp: if ts != 0 { Some(ts) } else { None },
                 frame_id: if fid != 0 { Some(fid) } else { None },
                 user_data: if user_data.is_empty() { None } else { Some(user_data) },
             })
