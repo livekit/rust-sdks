@@ -13,7 +13,7 @@ use livekit_api::access_token;
 use log::{debug, info};
 use parking_lot::Mutex;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     env,
     sync::OnceLock,
     sync::{
@@ -24,6 +24,7 @@ use std::{
 };
 
 mod codec_display;
+mod user_data;
 mod subscriber_timing;
 mod viewport_aspect;
 
@@ -946,7 +947,7 @@ async fn handle_track_subscribed(
             if drained_frames > 0 {
                 debug!("Dropped {drained_frames} stale decoded frames before render upload");
             }
-            if let Some(metadata) = frame.frame_metadata {
+            if let Some(metadata) = &frame.frame_metadata {
                 if let Some(capture_timestamp_us) = metadata.user_timestamp {
                     subscriber_timing_sink.record_frame_received_by_sink(
                         capture_timestamp_us,
@@ -1120,6 +1121,81 @@ fn subscriber_overlay_lines(
     Some(lines)
 }
 
+/// Render a live line graph of the six decoded channel values (top-right overlay).
+/// Each trace is normalized so ±`VALUE_RANGE` spans the plot height.
+fn paint_channel_graph(ctx: &egui::Context, history: &VecDeque<[f32; user_data::NUM_CHANNELS]>) {
+    if history.is_empty() {
+        return;
+    }
+    let latest = *history.back().unwrap();
+
+    egui::Area::new("channel_graph".into())
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_black_alpha(180))
+                .corner_radius(egui::CornerRadius::same(4))
+                .inner_margin(egui::Margin::same(8))
+                .show(ui, |ui| {
+                    let plot_size = egui::vec2(360.0, 160.0);
+                    // Pin the panel to the plot width so the legend wraps within it
+                    // instead of stretching the frame wider than the graph.
+                    ui.set_max_width(plot_size.x);
+
+                    ui.label(
+                        egui::RichText::new("user_data channels")
+                            .monospace()
+                            .size(12.0)
+                            .color(egui::Color32::WHITE),
+                    );
+
+                    let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
+                    let painter = ui.painter_at(rect);
+
+                    // Zero axis.
+                    painter.hline(
+                        rect.x_range(),
+                        rect.center().y,
+                        egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
+                    );
+
+                    let n = history.len();
+                    let denom = (n.saturating_sub(1)).max(1) as f32;
+                    let half_h = rect.height() / 2.0 - 2.0;
+                    for j in 0..user_data::NUM_CHANNELS {
+                        let points: Vec<egui::Pos2> = history
+                            .iter()
+                            .enumerate()
+                            .map(|(i, sample)| {
+                                let x = rect.left() + (i as f32 / denom) * rect.width();
+                                let norm = (sample[j] / user_data::VALUE_RANGE)
+                                    .clamp(-1.0, 1.0);
+                                let y = rect.center().y - norm * half_h;
+                                egui::pos2(x, y)
+                            })
+                            .collect();
+                        painter.add(egui::Shape::line(
+                            points,
+                            egui::Stroke::new(1.5, CHANNEL_COLORS[j]),
+                        ));
+                    }
+
+                    // Legend: current value per channel.
+                    ui.horizontal_wrapped(|ui| {
+                        for (j, value) in latest.iter().enumerate() {
+                            ui.label(
+                                egui::RichText::new(format!("CH{}: {:>+6.2}", j + 1, value))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(CHANNEL_COLORS[j]),
+                            );
+                        }
+                    });
+                });
+        });
+}
+
 fn paint_subscriber_overlay(ctx: &egui::Context, lines: &[String]) {
     egui::Area::new("subscriber_overlay".into())
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
@@ -1182,6 +1258,19 @@ fn handle_track_unpublished(
     clear_hud_and_simulcast(shared, frame_slot, video_size, simulcast, subscriber_timing);
 }
 
+/// Number of channel samples retained for the live graph (~10s at 30fps).
+const CHANNEL_HISTORY_LEN: usize = 300;
+
+/// Distinct colors for the six channel traces.
+const CHANNEL_COLORS: [egui::Color32; user_data::NUM_CHANNELS] = [
+    egui::Color32::from_rgb(0xef, 0x53, 0x50), // red
+    egui::Color32::from_rgb(0xff, 0xa7, 0x26), // orange
+    egui::Color32::from_rgb(0xff, 0xee, 0x58), // yellow
+    egui::Color32::from_rgb(0x66, 0xbb, 0x6a), // green
+    egui::Color32::from_rgb(0x42, 0xa5, 0xf5), // blue
+    egui::Color32::from_rgb(0xab, 0x47, 0xbc), // purple
+];
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     frame_slot: Arc<LatestRenderFrameSlot>,
@@ -1192,6 +1281,8 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     display_timestamp: bool,
+    /// Rolling history of decoded channel values from the user_data trailer.
+    channel_history: VecDeque<[f32; user_data::NUM_CHANNELS]>,
 }
 
 impl eframe::App for VideoApp {
@@ -1208,13 +1299,20 @@ impl eframe::App for VideoApp {
 
         let render_frame = self.frame_slot.take();
         if let Some(frame) = render_frame.as_ref() {
-            if let Some(metadata) = frame.frame_metadata {
+            if let Some(metadata) = &frame.frame_metadata {
                 if let Some(capture_timestamp_us) = metadata.user_timestamp {
                     self.subscriber_timing.record_frame_selected_for_render(
                         capture_timestamp_us,
                         metadata.frame_id,
                         current_timestamp_us(),
                     );
+                }
+                // Decode the 6 user_data channel values for the live graph.
+                if let Some(values) = metadata.user_data.as_deref().and_then(user_data::decode) {
+                    if self.channel_history.len() >= CHANNEL_HISTORY_LEN {
+                        self.channel_history.pop_front();
+                    }
+                    self.channel_history.push_back(values);
                 }
             }
         }
@@ -1254,6 +1352,8 @@ impl eframe::App for VideoApp {
         if let Some(lines) = overlay_lines.as_ref() {
             paint_subscriber_overlay(ctx, lines);
         }
+
+        paint_channel_graph(ctx, &self.channel_history);
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -1450,6 +1550,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ctrl_c_received: ctrl_c_received.clone(),
         viewport,
         display_timestamp: args.display_timestamp,
+        channel_history: VecDeque::with_capacity(CHANNEL_HISTORY_LEN),
     };
     let native_options = viewport_aspect::native_options(None);
     eframe::run_native(
@@ -1797,8 +1898,8 @@ impl CallbackTrait for YuvPaintCallback {
 
         let frame_for_upload = self.render_frame.lock().take().map(|frame| {
             let prepare_timestamp_us = current_timestamp_us();
-            let frame_id = frame.frame_metadata.and_then(|m| m.frame_id);
-            let sample = frame.frame_metadata.and_then(|metadata| {
+            let frame_id = frame.frame_metadata.as_ref().and_then(|m| m.frame_id);
+            let sample = frame.frame_metadata.as_ref().and_then(|metadata| {
                 metadata.user_timestamp.map(|capture_timestamp_us| PendingPaintSample {
                     frame_id,
                     capture_timestamp_us,
