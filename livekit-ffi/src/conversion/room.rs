@@ -545,6 +545,8 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
             attributes: msg.attributes,
             content_header,
             encryption_type: 0,
+            inline_content: None,
+            compression: livekit_protocol::data_stream::CompressionType::None.into(),
         }
     }
 }

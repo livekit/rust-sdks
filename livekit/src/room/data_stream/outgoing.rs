@@ -308,6 +308,8 @@ impl OutgoingStreamManager {
             total_length: None,
             encryption_type: proto::encryption::Type::None.into(),
             attributes: options.attributes,
+            inline_content: None,
+            compression: proto::data_stream::CompressionType::None.into(),
             content_header: Some(proto::data_stream::header::ContentHeader::TextHeader(
                 text_header.clone(),
             )),
@@ -334,6 +336,8 @@ impl OutgoingStreamManager {
             total_length: options.total_length,
             encryption_type: proto::encryption::Type::None.into(),
             attributes: options.attributes,
+            inline_content: None,
+            compression: proto::data_stream::CompressionType::None.into(),
             content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
                 byte_header.clone(),
             )),
@@ -371,6 +375,8 @@ impl OutgoingStreamManager {
             total_length: Some(text.bytes().len() as u64),
             encryption_type: proto::encryption::Type::None.into(),
             attributes: options.attributes,
+            inline_content: None,
+            compression: proto::data_stream::CompressionType::None.into(),
             content_header: Some(proto::data_stream::header::ContentHeader::TextHeader(
                 text_header.clone(),
             )),
@@ -419,6 +425,8 @@ impl OutgoingStreamManager {
             total_length: Some(bytes.len() as u64), // not overridable
             encryption_type: proto::encryption::Type::None.into(),
             attributes: options.attributes,
+            inline_content: None,
+            compression: proto::data_stream::CompressionType::None.into(),
             content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
                 byte_header.clone(),
             )),
@@ -462,6 +470,8 @@ impl OutgoingStreamManager {
             total_length: Some(file_size as u64), // not overridable
             encryption_type: proto::encryption::Type::None.into(),
             attributes: options.attributes,
+            inline_content: None,
+            compression: proto::data_stream::CompressionType::None.into(),
             content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
                 byte_header.clone(),
             )),
@@ -523,6 +533,8 @@ mod tests {
                 total_length: None,
                 encryption_type: proto::encryption::Type::None.into(),
                 attributes: HashMap::new(),
+                inline_content: None,
+                compression: proto::data_stream::CompressionType::None.into(),
                 content_header: None,
             };
 
