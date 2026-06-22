@@ -53,11 +53,11 @@ fn main() {
     let config = config.unwrap_or_else(|| Utf8PathBuf::from("uniffi.toml"));
 
     uniffi_dart::gen::generate_dart_bindings(
-        &config,        // udl_file: only consulted to locate config in library mode
-        None,           // config_file_override
+        &config,        // udl_file (unused in library mode once a config override is set)
+        Some(&config), // config_file_override: routes through the supplier that reads [bindings.dart]
         Some(&out_dir), // out_dir_override
-        &library,       // compiled cdylib to read metadata from
-        true,           // library_mode
+        &library,      // compiled cdylib to read metadata from
+        true,          // library_mode
     )
     .expect("failed to generate Dart bindings");
 

@@ -19,6 +19,7 @@ LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
 NPM_NAME = "@livekit/uniffi"
+DART_PACKAGE_NAME = "livekit_uniffi"
 
 # Base URL for downloading release builds of the cdylib.
 # Currently, it is assumed the archives will be named "ffi-<platform>-<arch>.zip".
@@ -631,3 +632,58 @@ exec cargo run --features dart-bindgen --bin uniffi-bindgen-dart -- \
     --library ${LIB_PATH} \
     --out-dir ${out_dir}
 """
+
+# Assemble a consumable Dart package around the generated bindings: idiomatic
+# lib/ layout, a pubspec, the Native Assets build hook, and (dev) the locally
+# built dynamic library so a consumer can load it without a download step.
+#
+#   packages/dart/
+#     pubspec.yaml          (from support/dart/pubspec.yaml.tera)
+#     lib/livekit_uniffi.dart
+#     hook/build.dart       (from support/dart/hook/build.dart)
+#     liblivekit_uniffi.<ext>  (dev: copied local build)
+
+[tasks.dart-move-code-into-lib]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/lib
+mv ${PACKAGES_DIR}/${LANG}/*.dart ${PACKAGES_DIR}/${LANG}/lib
+"""
+
+[tasks.dart-generate-manifest]
+private = true
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/pubspec.yaml.tera", "-o", "${PACKAGES_DIR}/${LANG}/pubspec.yaml"]
+
+[tasks.dart-copy-hook]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/hook
+cp ${SUPPORT_DIR}/${LANG}/hook/build.dart ${PACKAGES_DIR}/${LANG}/hook/build.dart
+"""
+
+# Dev delivery: copy the locally built dylib into the package root, where the
+# build hook resolves it. A release flow would replace this with a download.
+[tasks.dart-copy-lib]
+private = true
+script_runner = "@shell"
+script = """
+cp ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/
+"""
+
+[tasks.dart-package-flow]
+private = true
+dependencies = [
+    "bindgen-dart",
+    "dart-move-code-into-lib",
+    "dart-generate-manifest",
+    "dart-copy-hook",
+    "dart-copy-lib"
+]
+
+[tasks.dart-package]
+description = "Build a consumable Dart package with bindings, hook, and (dev) native lib"
+env = { LANG = "dart" }
+run_task = "dart-package-flow"
