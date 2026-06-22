@@ -21,9 +21,10 @@ SPM_NAME = "LiveKitUniFFI"
 NPM_NAME = "@livekit/uniffi"
 DART_PACKAGE_NAME = "livekit_uniffi"
 
-# Base URL for downloading release builds of the cdylib.
-# Currently, it is assumed the archives will be named "ffi-<platform>-<arch>.zip".
-CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/example/releases/download/example/build"
+# Per-release directory holding the cdylib archives published by
+# .github/workflows/uniffi-cdylib.yml. Downloaders append
+# `/v<version>/build-<triple>.zip` (and a `.sha256` sidecar).
+CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/rust-sdks/releases/download/livekit-uniffi"
 
 [config]
 skip_core_tasks = true
@@ -656,13 +657,18 @@ private = true
 extend = "tera"
 args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/pubspec.yaml.tera", "-o", "${PACKAGES_DIR}/${LANG}/pubspec.yaml"]
 
-[tasks.dart-copy-hook]
+# Render the build hook from its template, baking in the package version and the
+# release download base used by the hook's download (release) mode.
+[tasks.dart-make-hook-dir]
 private = true
 script_runner = "@shell"
-script = """
-mkdir -p ${PACKAGES_DIR}/${LANG}/hook
-cp ${SUPPORT_DIR}/${LANG}/hook/build.dart ${PACKAGES_DIR}/${LANG}/hook/build.dart
-"""
+script = "mkdir -p ${PACKAGES_DIR}/${LANG}/hook"
+
+[tasks.dart-copy-hook]
+private = true
+dependencies = ["dart-make-hook-dir"]
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/hook/build.dart.tera", "-o", "${PACKAGES_DIR}/${LANG}/hook/build.dart"]
 
 # Dev delivery: copy the locally built dylib into the package root, where the
 # build hook resolves it. A release flow would replace this with a download.

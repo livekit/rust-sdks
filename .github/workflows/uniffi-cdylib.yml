@@ -1,0 +1,172 @@
+name: UniFFI cdylib builds
+
+# Builds the livekit-uniffi dynamic library for every Dart/Flutter target and
+# attaches them to the livekit-uniffi release as `build-<triple>.zip` (+ a
+# `.sha256` sidecar). The Dart build hook (support/dart/hook/build.dart.tera)
+# downloads these at consumer build time.
+#
+# Reusable workflow, invoked from uniffi-packages.yml once the release tag has
+# been resolved. Mirrors the structure of ffi-builds.yml. Not triggered directly.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version (e.g. 0.1.1)
+        required: true
+        type: string
+      tag_name:
+        description: Source release tag (e.g. livekit-uniffi/v0.1.1)
+        required: true
+        type: string
+      dry_run:
+        description: Build artifacts but skip release upload
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: apple
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            platform: apple
+          - os: macos-latest
+            target: aarch64-apple-ios
+            platform: apple
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            platform: linux
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            platform: linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            platform: windows
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            platform: windows
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            platform: android
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+            platform: android
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+            platform: android
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+          # This action defaults RUSTFLAGS to "-D warnings"; clear it so
+          # dependency warnings don't fail the build (matches ffi-builds.yml).
+          rustflags: ""
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Apple, Windows: build the cdylib directly for the target.
+      - name: Build (Apple / Windows)
+        if: ${{ matrix.platform == 'apple' || matrix.platform == 'windows' }}
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }} -p livekit-uniffi
+
+      # Linux: native build for x64; cross toolchain for aarch64.
+      - name: Build (Linux)
+        if: ${{ matrix.platform == 'linux' }}
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get update
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+            # .cargo/config.toml forces -fuse-ld=lld for this target to link
+            # libwebrtc; livekit-uniffi doesn't use libwebrtc. A non-empty global
+            # RUSTFLAGS overrides that per-target config, selecting the GNU bfd
+            # linker the cross binutils provides.
+            export RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
+          fi
+          cargo build --release --target ${{ matrix.target }} -p livekit-uniffi
+
+      # Android: build with cargo-ndk.
+      - name: Build (Android)
+        if: ${{ matrix.platform == 'android' }}
+        run: |
+          cargo install cargo-ndk
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit-uniffi
+
+      # macOS/Linux: zip + shasum are available.
+      - name: Package artifact (Unix)
+        if: ${{ matrix.platform != 'windows' }}
+        shell: bash
+        run: |
+          triple="${{ matrix.target }}"
+          dir="target/${triple}/release"
+          case "$triple" in
+            *apple*) lib="liblivekit_uniffi.dylib" ;;
+            *)       lib="liblivekit_uniffi.so" ;;
+          esac
+          out="build-${triple}.zip"
+          # Zip with the bare library name at the archive root.
+          (cd "$dir" && zip "$GITHUB_WORKSPACE/$out" "$lib")
+          # SHA-256 sidecar, in `shasum -a 256` format (lowercase hex first).
+          shasum -a 256 "$out" > "$out.sha256"
+
+      # Windows runners lack `zip`/`shasum`; use PowerShell equivalents and
+      # emit the same `<lowercase-hex>  <file>` sidecar format the hook parses.
+      - name: Package artifact (Windows)
+        if: ${{ matrix.platform == 'windows' }}
+        shell: pwsh
+        run: |
+          $triple = "${{ matrix.target }}"
+          $lib = "target/$triple/release/livekit_uniffi.dll"
+          $out = "build-$triple.zip"
+          Compress-Archive -Path $lib -DestinationPath $out -Force
+          $hash = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
+          "$hash  $out" | Out-File -Encoding ascii -NoNewline "$out.sha256"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cdylib-${{ matrix.target }}
+          path: |
+            build-${{ matrix.target }}.zip
+            build-${{ matrix.target }}.zip.sha256
+
+  release:
+    name: Attach cdylibs to release
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: cdylib-*
+          merge-multiple: true
+          path: cdylibs
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag_name }}" cdylibs/* --repo "${{ github.repository }}" --clobber
