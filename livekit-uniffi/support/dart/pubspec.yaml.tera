@@ -13,4 +13,8 @@ dev_dependencies:
   # Native Assets build-hook support. `any` tracks the SDK-bundled versions.
   code_assets: any
   hooks: any
+  # Used by hook/build.dart to download and verify prebuilt libraries.
+  archive: ^4.0.0
+  crypto: ^3.0.0
+  http: ^1.2.0
   test: ^1.25.0

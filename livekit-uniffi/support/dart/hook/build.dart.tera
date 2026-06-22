@@ -1,0 +1,141 @@
+// Native Assets build hook for the LiveKit UniFFI Dart bindings.
+//
+// The generated bindings call the native library through `@Native` annotations
+// bound to the asset id `package:<pkg>/uniffi:livekit_uniffi`. This hook
+// resolves the dynamic library for the target and registers that code asset.
+//
+// Two modes, chosen automatically:
+//   - Local:   if a prebuilt library sits in the package root (placed there by
+//              `cargo make dart-package` during development), use it directly.
+//   - Download: otherwise fetch the prebuilt library for the target platform
+//              from the release host, verifying its SHA-256.
+//
+// Generated from support/dart/hook/build.dart.tera; do not edit the copy under
+// packages/.
+import 'dart:io';
+
+import 'package:archive/archive.dart';
+import 'package:code_assets/code_assets.dart';
+import 'package:crypto/crypto.dart';
+import 'package:hooks/hooks.dart';
+import 'package:http/http.dart' as http;
+
+// Matches `cdylib_name` in uniffi.toml and the asset name in the generated Dart.
+const _cdylibName = 'livekit_uniffi';
+const _version = '{{ CARGO_MAKE_CRATE_VERSION }}';
+// Per-release directory holding the `livekit_uniffi-<triple>.zip` assets.
+const _downloadBase = '{{ CDYLIB_DOWNLOAD_BASE_URL }}';
+
+void main(List<String> args) async {
+  await build(args, (input, output) async {
+    if (!input.config.buildCodeAssets) return;
+
+    final code = input.config.code;
+    final libFile = await _resolveLibrary(
+      input,
+      output,
+      code.targetOS,
+      code.targetArchitecture,
+    );
+
+    output.assets.code.add(
+      CodeAsset(
+        package: input.packageName,
+        // Dart prefixes this with `package:<packageName>/`.
+        name: 'uniffi:$_cdylibName',
+        linkMode: DynamicLoadingBundled(),
+        file: libFile,
+      ),
+    );
+  });
+}
+
+Future<Uri> _resolveLibrary(
+  BuildInput input,
+  BuildOutputBuilder output,
+  OS os,
+  Architecture arch,
+) async {
+  final libName = _libFileName(os);
+
+  // Local mode: library copied into the package root for development.
+  final local = File.fromUri(input.packageRoot.resolve(libName));
+  if (await local.exists()) return local.uri;
+
+  // Download mode: fetch the prebuilt library for the target. The hooks-runner
+  // already caches hook results across builds, so there's no manual cache check.
+  final outDir = Directory.fromUri(
+    input.outputDirectoryShared.resolve('$_cdylibName/'),
+  );
+  final libFile = File.fromUri(outDir.uri.resolve(libName));
+
+  final triple = _targetTriple(os, arch);
+  // Asset naming matches the existing node downloader convention so one set of
+  // release assets serves both: `<base>/v<version>/build-<triple>.zip`.
+  final zipUrl = Uri.parse('$_downloadBase/v$_version/build-$triple.zip');
+  final bytes = await _downloadAndVerify(zipUrl);
+
+  await outDir.create(recursive: true);
+  for (final entry in ZipDecoder().decodeBytes(bytes)) {
+    if (!entry.isFile) continue;
+    final out = File.fromUri(outDir.uri.resolve(entry.name));
+    await out.create(recursive: true);
+    await out.writeAsBytes(entry.content as List<int>);
+  }
+
+  if (!await libFile.exists()) {
+    throw Exception('$libName not found in $zipUrl');
+  }
+  output.dependencies.add(libFile.uri);
+  return libFile.uri;
+}
+
+Future<List<int>> _downloadAndVerify(Uri zipUrl) async {
+  final zipResp = await http.get(zipUrl);
+  if (zipResp.statusCode != 200) {
+    throw Exception('Failed to download $zipUrl: HTTP ${zipResp.statusCode}');
+  }
+  final shaResp = await http.get(Uri.parse('$zipUrl.sha256'));
+  if (shaResp.statusCode != 200) {
+    throw Exception(
+      'Failed to download checksum for $zipUrl: HTTP ${shaResp.statusCode}',
+    );
+  }
+  // `shasum`/`sha256sum` format: "<hex>  <filename>"; take the first token.
+  final expected = shaResp.body.trim().split(RegExp(r'\s+')).first;
+  final actual = sha256.convert(zipResp.bodyBytes).toString();
+  if (actual != expected) {
+    throw Exception(
+      'Checksum mismatch for $zipUrl: expected $expected, got $actual',
+    );
+  }
+  return zipResp.bodyBytes;
+}
+
+String _libFileName(OS os) {
+  if (os == OS.windows) return '$_cdylibName.dll';
+  if (os == OS.macOS || os == OS.iOS) return 'lib$_cdylibName.dylib';
+  return 'lib$_cdylibName.so'; // linux, android
+}
+
+// Maps a target to the Rust triple used in the published asset name. Kept in
+// sync with the build matrix in .github/workflows/uniffi-cdylib.yml.
+String _targetTriple(OS os, Architecture arch) {
+  if (os == OS.macOS) {
+    if (arch == Architecture.arm64) return 'aarch64-apple-darwin';
+    if (arch == Architecture.x64) return 'x86_64-apple-darwin';
+  } else if (os == OS.linux) {
+    if (arch == Architecture.arm64) return 'aarch64-unknown-linux-gnu';
+    if (arch == Architecture.x64) return 'x86_64-unknown-linux-gnu';
+  } else if (os == OS.windows) {
+    if (arch == Architecture.arm64) return 'aarch64-pc-windows-msvc';
+    if (arch == Architecture.x64) return 'x86_64-pc-windows-msvc';
+  } else if (os == OS.android) {
+    if (arch == Architecture.arm64) return 'aarch64-linux-android';
+    if (arch == Architecture.arm) return 'armv7-linux-androideabi';
+    if (arch == Architecture.x64) return 'x86_64-linux-android';
+  } else if (os == OS.iOS) {
+    if (arch == Architecture.arm64) return 'aarch64-apple-ios';
+  }
+  throw UnsupportedError('No prebuilt $_cdylibName for $os $arch');
+}
