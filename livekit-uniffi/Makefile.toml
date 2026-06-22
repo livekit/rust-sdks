@@ -165,7 +165,8 @@ command = "tera"
 [tasks.bindgen]
 dependencies = [
     "bindgen-kotlin",
-    "bindgen-python"
+    "bindgen-python",
+    "bindgen-dart",
 ]
 
 # MARK: - Kotlin
@@ -612,3 +613,21 @@ run_task = "android-publish-maven-local"
 
 # Add other bindgen tasks here, following the same pattern
 # as above for the task name (e.g., "bindgen-<lang>").
+
+# MARK: - Dart
+
+# uniffi-dart has no standalone CLI, so the `uniffi-bindgen-dart` bin drives its
+# library API instead (gated behind the `dart-bindgen` feature to keep its heavy
+# deps out of regular library builds). Reads metadata from the compiled cdylib
+# in library mode, like the Kotlin/Python tasks.
+[tasks.bindgen-dart]
+description = "Generate Dart bindings"
+dependencies = ["build", "locate-lib"]
+env = { LANG = "dart" }
+script_runner = "@duckscript"
+script = """
+out_dir = join_path ${PACKAGES_DIR} ${LANG}
+exec cargo run --features dart-bindgen --bin uniffi-bindgen-dart -- \
+    --library ${LIB_PATH} \
+    --out-dir ${out_dir}
+"""
