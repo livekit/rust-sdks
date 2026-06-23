@@ -54,12 +54,24 @@ pub mod ffi {
         None,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum VideoEncoderBackend {
+        Auto,
+        Software,
+        Hardware,
+        Nvenc,
+        Vaapi,
+        VideoToolbox,
+    }
+
     unsafe extern "C++" {
         include!("livekit/webrtc.h");
 
         type LogSink;
 
         fn create_random_uuid() -> String;
+        fn video_encoder_backend_list() -> Vec<VideoEncoderBackend>;
         fn new_log_sink(fnc: fn(String, LoggingSeverity)) -> UniquePtr<LogSink>;
     }
 }

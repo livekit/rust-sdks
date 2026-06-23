@@ -27,12 +27,12 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Simulcast
 - [x] SVC codecs (AV1/VP9)
 - [ ] Adaptive Streaming
-- [ ] Dynacast
+- [x] Dynacast
 - [x] Hardware video enc/dec
   - [x] H.264, H.265 using VideoToolbox (MacOS/iOS)
   - [x] H.264, H.265 on NVidia discrete GPUs (Linux)
   - [x] H.264, H.265 on AMD CPUs & GPUs (Linux)
-  - [ ] H.264, H.265 on NVidia Jetson (Linux)
+  - [x] H.264, H.265, AV1 on NVidia Jetson (Linux)
 - Supported Platforms
   - [x] Windows
   - [x] MacOS
@@ -179,17 +179,6 @@ When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implemen
 ```
 *** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector sent to instance 0x600003bc6660'
 ```
-
-## Environment variables
-
-### `LIVEKIT_PREFERRED_HW_ENCODER`
-
-On Linux builds that include support for multiple hardware video encoders (NVENC and VAAPI), this variable selects which one is preferred when both are available at runtime. Accepted values:
-
-- `nvenc` — prefer the NVIDIA NVENC encoder.
-- `vaapi` — prefer the VAAPI encoder.
-
-If unset (the default), NVENC is preferred. If the requested encoder is not supported or not compiled in, the SDK logs a warning and falls back to the other available hardware encoder (or software encoders). Any other value is ignored with a warning.
 
 ## Motivation and Design Goals
 

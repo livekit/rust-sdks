@@ -16,8 +16,9 @@
 use {
     anyhow::{Context, Result},
     common::test_rooms,
-    livekit::prelude::PerformRpcData,
+    livekit::{prelude::PerformRpcData, RoomEvent},
     std::time::Duration,
+    tokio::sync::mpsc::UnboundedReceiver,
 };
 
 mod common;
@@ -38,13 +39,9 @@ pub async fn test_rpc_invocation() -> Result<()> {
         Box::pin(async move { Ok(data.payload.to_string()) })
     });
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: PAYLOAD.to_string(),
-        response_timeout: Duration::from_millis(500),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(PAYLOAD)
+        .with_response_timeout(Duration::from_millis(500));
     let return_payload = caller_room
         .local_participant()
         .perform_rpc(perform_data)
@@ -65,13 +62,9 @@ pub async fn test_rpc_unregistered() -> Result<()> {
     const METHOD_NAME: &str = "unregistered-method";
     const PAYLOAD: &str = "test-payload";
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: PAYLOAD.to_string(),
-        response_timeout: Duration::from_millis(500),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(PAYLOAD)
+        .with_response_timeout(Duration::from_millis(500));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error");
     Ok(())
@@ -93,13 +86,9 @@ pub async fn test_rpc_large_payload() -> Result<()> {
         Box::pin(async move { Ok(data.payload.to_string()) })
     });
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: large_payload.clone(),
-        response_timeout: Duration::from_secs(5),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload(large_payload.clone())
+        .with_response_timeout(Duration::from_secs(5));
     let return_payload = caller_room
         .local_participant()
         .perform_rpc(perform_data)
@@ -127,13 +116,9 @@ pub async fn test_rpc_error_response() -> Result<()> {
         })
     });
 
-    let perform_data = PerformRpcData {
-        method: METHOD_NAME.to_string(),
-        destination_identity: callee_identity.to_string(),
-        payload: "test".to_string(),
-        response_timeout: Duration::from_secs(5),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new(callee_identity.clone(), METHOD_NAME)
+        .with_payload("test")
+        .with_response_timeout(Duration::from_secs(5));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error response");
     let err = result.unwrap_err();
@@ -148,14 +133,61 @@ pub async fn test_rpc_unknown_destination() -> Result<()> {
     let mut rooms = test_rooms(1).await?;
     let (caller_room, _) = rooms.pop().unwrap();
 
-    let perform_data = PerformRpcData {
-        method: "unregistered-method".to_string(),
-        destination_identity: "unknown-participant".to_string(),
-        payload: "test-payload".to_string(),
-        response_timeout: Duration::from_millis(500),
-        ..Default::default()
-    };
+    let perform_data = PerformRpcData::new("unknown-participant", "unregistered-method")
+        .with_payload("test-payload")
+        .with_response_timeout(Duration::from_millis(500));
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error");
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+pub async fn test_rpc_v2_does_not_emit_data_stream_events() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (caller_room, caller_events) = rooms.pop().unwrap();
+    let (callee_room, callee_events) = rooms.pop().unwrap();
+    let callee_identity = callee_room.local_participant().identity();
+
+    callee_room
+        .local_participant()
+        .register_rpc_method("echo".to_string(), |data| Box::pin(async move { Ok(data.payload) }));
+
+    async fn collect(mut rx: UnboundedReceiver<RoomEvent>) -> Vec<RoomEvent> {
+        let mut events = Vec::new();
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(250), rx.recv()).await {
+            events.push(ev);
+        }
+        events
+    }
+    let caller_handle = tokio::spawn(collect(caller_events));
+    let callee_handle = tokio::spawn(collect(callee_events));
+
+    let perform_data = PerformRpcData::new(callee_identity.clone(), "echo")
+        .with_payload("hi")
+        .with_response_timeout(Duration::from_millis(500));
+    let resp = caller_room
+        .local_participant()
+        .perform_rpc(perform_data)
+        .await
+        .context("Invocation failed")?;
+    assert_eq!(resp, "hi");
+
+    let caller = caller_handle.await?;
+    let callee = callee_handle.await?;
+    for ev in caller.iter().chain(callee.iter()) {
+        assert!(
+            !matches!(
+                ev,
+                RoomEvent::TextStreamOpened { .. }
+                    | RoomEvent::ByteStreamOpened { .. }
+                    | RoomEvent::StreamHeaderReceived { .. }
+                    | RoomEvent::StreamChunkReceived { .. }
+                    | RoomEvent::StreamTrailerReceived { .. }
+            ),
+            "unexpected data-stream event leaked from internal RPC traffic: {:?}",
+            ev,
+        );
+    }
     Ok(())
 }

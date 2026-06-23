@@ -312,11 +312,22 @@ message TrackPublishOptions {
   optional TrackSource source = 7;
   optional string stream = 8;
   optional bool preconnect_buffer = 9;
-  repeated PacketTrailerFeature packet_trailer_features = 10;
+  repeated FrameMetadataFeature frame_metadata_features = 10;
   // RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
   // encoding is produced with this mode, enabling true SVC for codecs
   // that support it (VP9, AV1). Has no effect for VP8/H264.
   optional string scalability_mode = 11;
+  // Preferred encoder backend to use when publishing a video track.
+  optional VideoEncoderBackend video_encoder = 12;
+}
+
+enum VideoEncoderBackend {
+  ENCODER_BACKEND_AUTO = 0;
+  ENCODER_BACKEND_SOFTWARE = 1;
+  ENCODER_BACKEND_HARDWARE = 2;
+  ENCODER_BACKEND_NVENC = 3;
+  ENCODER_BACKEND_VAAPI = 4;
+  ENCODER_BACKEND_VIDEOTOOLBOX = 5;
 }
 
 enum IceTransportType {

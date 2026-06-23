@@ -20,7 +20,7 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } from "./participant_pb.js";
-import type { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackPublicationInfo, TrackSource } from "./track_pb.js";
+import type { FrameMetadataFeature, OwnedTrack, OwnedTrackPublication, TrackPublicationInfo, TrackSource } from "./track_pb.js";
 import type { RtcStats } from "./stats_pb.js";
 import type { VideoCodec } from "./video_frame_pb.js";
 import type { E2eeOptions, EncryptionState } from "./e2ee_pb.js";
@@ -81,6 +81,41 @@ export declare enum SimulateScenarioKind {
    * @generated from enum value: SIMULATE_FULL_RECONNECT = 7;
    */
   SIMULATE_FULL_RECONNECT = 7,
+}
+
+/**
+ * @generated from enum livekit.proto.VideoEncoderBackend
+ */
+export declare enum VideoEncoderBackend {
+  /**
+   * @generated from enum value: ENCODER_BACKEND_AUTO = 0;
+   */
+  ENCODER_BACKEND_AUTO = 0,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_SOFTWARE = 1;
+   */
+  ENCODER_BACKEND_SOFTWARE = 1,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_HARDWARE = 2;
+   */
+  ENCODER_BACKEND_HARDWARE = 2,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_NVENC = 3;
+   */
+  ENCODER_BACKEND_NVENC = 3,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_VAAPI = 4;
+   */
+  ENCODER_BACKEND_VAAPI = 4,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_VIDEOTOOLBOX = 5;
+   */
+  ENCODER_BACKEND_VIDEOTOOLBOX = 5,
 }
 
 /**
@@ -1809,9 +1844,9 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
   preconnectBuffer?: boolean;
 
   /**
-   * @generated from field: repeated livekit.proto.PacketTrailerFeature packet_trailer_features = 10;
+   * @generated from field: repeated livekit.proto.FrameMetadataFeature frame_metadata_features = 10;
    */
-  packetTrailerFeatures: PacketTrailerFeature[];
+  frameMetadataFeatures: FrameMetadataFeature[];
 
   /**
    * RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
@@ -1821,6 +1856,13 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
    * @generated from field: optional string scalability_mode = 11;
    */
   scalabilityMode?: string;
+
+  /**
+   * Preferred encoder backend to use when publishing a video track.
+   *
+   * @generated from field: optional livekit.proto.VideoEncoderBackend video_encoder = 12;
+   */
+  videoEncoder?: VideoEncoderBackend;
 
   constructor(data?: PartialMessage<TrackPublishOptions>);
 

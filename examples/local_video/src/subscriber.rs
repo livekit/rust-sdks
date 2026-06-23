@@ -4,7 +4,7 @@ use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
 use egui_wgpu as egui_wgpu_backend;
 use egui_wgpu_backend::CallbackTrait;
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::BoxVideoFrame;
@@ -15,17 +15,20 @@ use parking_lot::Mutex;
 use std::{
     collections::HashMap,
     env,
+    sync::OnceLock,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-mod timestamp_burn;
+mod codec_display;
+mod subscriber_timing;
 mod viewport_aspect;
 
-use timestamp_burn::{format_timestamp_us, LatencyDisplay};
+use codec_display::{codec_from_mime, codec_with_implementation};
+use subscriber_timing::SubscriberTimingHandle;
 use viewport_aspect::AspectConstrainedViewport;
 
 #[cfg(target_os = "macos")]
@@ -370,12 +373,6 @@ mod macos_native_video {
     }
 }
 
-async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
-    while !flag.load(Ordering::Acquire) {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -415,32 +412,111 @@ struct Args {
 struct SharedYuv {
     width: u32,
     height: u32,
-    frame: Option<BoxVideoFrame>,
     codec: String,
+    codec_implementation: String,
+    bitrate_mbps: Option<f64>,
     fps: f32,
-    dirty: bool,
-    /// Time when the latest frame became available to the subscriber code.
-    received_at_us: Option<u64>,
-    /// Packet-trailer metadata from the most recent frame, if any.
-    frame_metadata: Option<livekit::webrtc::video_frame::FrameMetadata>,
-    /// Latest frame whose GPU submit has completed; lags CPU receive by ~1 display frame.
-    gpu_done: Option<GpuDoneSample>,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct GpuDoneSample {
-    frame_id: Option<u32>,
-    capture_timestamp_us: Option<u64>,
-    cpu_received_us: u64,
-    gpu_done_us: u64,
+struct LatestRenderFrameSlot {
+    frame: Mutex<Option<BoxVideoFrame>>,
 }
 
-/// Carried from upload into the wgpu submit callback to stamp `gpu_done_us`.
+impl LatestRenderFrameSlot {
+    fn new() -> Self {
+        Self { frame: Mutex::new(None) }
+    }
+
+    fn store(&self, frame: BoxVideoFrame) {
+        *self.frame.lock() = Some(frame);
+    }
+
+    fn take(&self) -> Option<BoxVideoFrame> {
+        self.frame.lock().take()
+    }
+
+    fn clear(&self) {
+        self.frame.lock().take();
+    }
+}
+
+#[derive(Default)]
+struct AtomicVideoSize {
+    width: AtomicU32,
+    height: AtomicU32,
+}
+
+impl AtomicVideoSize {
+    fn store(&self, width: u32, height: u32) {
+        self.width.store(width, Ordering::Relaxed);
+        self.height.store(height, Ordering::Release);
+    }
+
+    fn clear(&self) {
+        self.store(0, 0);
+    }
+
+    fn load(&self) -> Option<(u32, u32)> {
+        let height = self.height.load(Ordering::Acquire);
+        let width = self.width.load(Ordering::Relaxed);
+        (width > 0 && height > 0).then_some((width, height))
+    }
+}
+
+/// Carried from prepare into the WGPU paint callback to stamp the paint boundary.
 #[derive(Clone, Copy, Debug)]
-struct PendingGpuSample {
+struct PendingPaintSample {
     frame_id: Option<u32>,
-    capture_timestamp_us: Option<u64>,
-    cpu_received_us: u64,
+    capture_timestamp_us: u64,
+    prepare_timestamp_us: u64,
+}
+
+struct PendingPaintSampleSlot {
+    capture_timestamp_us: AtomicU64,
+    prepare_timestamp_us: AtomicU64,
+    frame_id: AtomicU32,
+}
+
+impl PendingPaintSampleSlot {
+    const NO_SAMPLE: u64 = 0;
+    const NO_FRAME_ID: u32 = u32::MAX;
+
+    fn new() -> Self {
+        Self {
+            capture_timestamp_us: AtomicU64::new(Self::NO_SAMPLE),
+            prepare_timestamp_us: AtomicU64::new(0),
+            frame_id: AtomicU32::new(Self::NO_FRAME_ID),
+        }
+    }
+
+    fn store(&self, sample: PendingPaintSample) {
+        let frame_id = sample.frame_id.unwrap_or(Self::NO_FRAME_ID);
+        self.frame_id.store(frame_id, Ordering::Relaxed);
+        self.prepare_timestamp_us.store(sample.prepare_timestamp_us, Ordering::Relaxed);
+        self.capture_timestamp_us.store(sample.capture_timestamp_us, Ordering::Release);
+    }
+
+    fn clear(&self) {
+        self.capture_timestamp_us.store(Self::NO_SAMPLE, Ordering::Release);
+    }
+
+    fn take(&self) -> Option<PendingPaintSample> {
+        let capture_timestamp_us =
+            self.capture_timestamp_us.swap(Self::NO_SAMPLE, Ordering::Acquire);
+        if capture_timestamp_us == Self::NO_SAMPLE {
+            return None;
+        }
+
+        let frame_id = match self.frame_id.load(Ordering::Relaxed) {
+            Self::NO_FRAME_ID => None,
+            frame_id => Some(frame_id),
+        };
+        Some(PendingPaintSample {
+            frame_id,
+            capture_timestamp_us,
+            prepare_timestamp_us: self.prepare_timestamp_us.load(Ordering::Relaxed),
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -462,12 +538,6 @@ impl Default for SimulcastState {
             full_dims: None,
         }
     }
-}
-
-fn codec_label(mime: &str) -> String {
-    let base = mime.split(';').next().unwrap_or(mime).trim();
-    let last = base.rsplit('/').next().unwrap_or(base).trim();
-    last.to_ascii_uppercase()
 }
 
 fn infer_quality_from_dims(
@@ -506,6 +576,12 @@ struct JitterBufferSnapshot {
     target_delay_secs: f64,
     minimum_delay_secs: f64,
     emitted_count: u64,
+}
+
+#[derive(Clone, Copy)]
+struct ReceiveBitrateSnapshot {
+    bytes_received: u64,
+    at: Instant,
 }
 
 fn seconds_to_ms(seconds: f64) -> f64 {
@@ -601,6 +677,30 @@ fn log_video_inbound_stats(stats: &[livekit::webrtc::stats::RtcStats]) {
     }
 }
 
+fn log_video_decode_health(stats: &[livekit::webrtc::stats::RtcStats]) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+
+    info!(
+        "Decode health: received={}, decoded={}, keyframes_decoded={}, rendered={}, dropped={}, assembled_multi_packet={}, decode_time={:.3}s, decoder={}",
+        inbound.inbound.frames_received,
+        inbound.inbound.frames_decoded,
+        inbound.inbound.key_frames_decoded,
+        inbound.inbound.frames_rendered,
+        inbound.inbound.frames_dropped,
+        inbound.inbound.frames_assembled_from_multiple_packets,
+        inbound.inbound.total_decode_time,
+        inbound.inbound.decoder_implementation,
+    );
+
+    if inbound.inbound.frames_received > 0 && inbound.inbound.frames_decoded == 0 {
+        log::warn!(
+            "RTP video is arriving but the decoder has produced no frames; this usually points to a malformed or incomplete keyframe"
+        );
+    }
+}
+
 fn update_simulcast_quality_from_stats(
     stats: &[livekit::webrtc::stats::RtcStats],
     simulcast: &Arc<Mutex<SimulcastState>>,
@@ -622,19 +722,68 @@ fn update_simulcast_quality_from_stats(
     sc.active_quality = Some(q);
 }
 
-/// Returns the current wall-clock time as microseconds since Unix epoch.
+fn update_decoder_implementation_from_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    shared: &Arc<Mutex<SharedYuv>>,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+    if inbound.inbound.decoder_implementation.is_empty() {
+        return;
+    }
+
+    let mut shared = shared.lock();
+    shared.codec_implementation = inbound.inbound.decoder_implementation;
+}
+
+fn update_receive_bitrate_from_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    previous: &mut Option<ReceiveBitrateSnapshot>,
+    shared: &Arc<Mutex<SharedYuv>>,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+
+    let now = Instant::now();
+    let current =
+        ReceiveBitrateSnapshot { bytes_received: inbound.inbound.bytes_received, at: now };
+    let bitrate_mbps = previous.and_then(|prev| {
+        let byte_delta = current.bytes_received.checked_sub(prev.bytes_received)?;
+        let elapsed_secs = current.at.duration_since(prev.at).as_secs_f64();
+        (elapsed_secs > 0.0).then(|| byte_delta as f64 * 8.0 / elapsed_secs / 1_000_000.0)
+    });
+
+    *previous = Some(current);
+
+    if let Some(bitrate_mbps) = bitrate_mbps {
+        shared.lock().bitrate_mbps = Some(bitrate_mbps);
+    }
+}
+
+struct TimestampAnchor {
+    unix_timestamp_us: u64,
+    instant: Instant,
+}
+
+impl TimestampAnchor {
+    fn new() -> Self {
+        Self {
+            unix_timestamp_us: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as u64,
+            instant: Instant::now(),
+        }
+    }
+}
+
+/// Returns a monotonic approximation of wall-clock time as microseconds since Unix epoch.
 fn current_timestamp_us() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
-}
-
-fn format_optional_timestamp_us(ts_us: Option<u64>) -> String {
-    ts_us.map(format_timestamp_us).unwrap_or_else(|| "NA".to_string())
-}
-
-/// Format the us delta as a millisecond string like `"12.3ms"`.
-fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
-    let delta_us = later_us.saturating_sub(earlier_us);
-    format!("{:.1}MS", delta_us as f64 / 1_000.0)
+    static TIMESTAMP_ANCHOR: OnceLock<TimestampAnchor> = OnceLock::new();
+    let anchor = TIMESTAMP_ANCHOR.get_or_init(TimestampAnchor::new);
+    anchor.unix_timestamp_us.saturating_add(anchor.instant.elapsed().as_micros() as u64)
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
@@ -642,61 +791,46 @@ fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32,
     sc.full_dims
 }
 
-fn video_quality_label(q: livekit::track::VideoQuality) -> &'static str {
-    match q {
-        livekit::track::VideoQuality::Low => "LOW",
-        livekit::track::VideoQuality::Medium => "MED",
-        livekit::track::VideoQuality::High => "HIGH",
+fn video_status_line(
+    width: u32,
+    height: u32,
+    fps: f32,
+    codec: &str,
+    codec_implementation: &str,
+    bitrate_mbps: Option<f64>,
+    simulcast: bool,
+) -> String {
+    let codec = codec_with_implementation(codec, codec_implementation);
+    let bitrate = bitrate_mbps.map(|mbps| format!(" {:.1}mbps", mbps.max(0.0))).unwrap_or_default();
+    if simulcast {
+        format!("{}x{} {:.1}fps {codec}{bitrate} Simulcast", width, height, fps.max(0.0))
+    } else {
+        format!("{}x{} {:.1}fps {codec}{bitrate}", width, height, fps.max(0.0))
     }
 }
 
-fn frame_id_label(frame_id: Option<u32>) -> String {
-    frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string())
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn overlay_stats_line(label: &str, value: impl std::fmt::Display) -> String {
-    format!("{label:<17}{value}")
-}
+    #[test]
+    fn subscriber_overlay_shows_status_without_timing() {
+        let shared = Arc::new(Mutex::new(SharedYuv {
+            width: 1280,
+            height: 720,
+            codec: "H264".to_string(),
+            codec_implementation: "NVIDIA H264 Decoder".to_string(),
+            bitrate_mbps: Some(1.25),
+            fps: 29.6,
+        }));
+        let simulcast =
+            Arc::new(Mutex::new(SimulcastState { available: true, ..Default::default() }));
+        let subscriber_timing = SubscriberTimingHandle::new();
 
-fn build_timing_overlay_lines(
-    frame_id: Option<u32>,
-    publish_us: Option<u64>,
-    receive_us: u64,
-    prev_render: Option<GpuDoneSample>,
-    prev_latency_display: &str,
-) -> Vec<String> {
-    let mut lines = vec![
-        overlay_stats_line("FRAME ID:", frame_id_label(frame_id)),
-        overlay_stats_line("CAPT TIMESTAMP:", format_optional_timestamp_us(publish_us)),
-        overlay_stats_line("RECV TIMESTAMP:", format_timestamp_us(receive_us)),
-    ];
+        let lines = subscriber_overlay_lines(&shared, &simulcast, false, &subscriber_timing)
+            .expect("overlay should render");
 
-    if let Some(sample) = prev_render {
-        lines.push(overlay_stats_line("PREV FRAME ID:", frame_id_label(sample.frame_id)));
-        lines.push(overlay_stats_line(
-            "PREV CAPT:",
-            format_optional_timestamp_us(sample.capture_timestamp_us),
-        ));
-        lines.push(overlay_stats_line("PREV RECV:", format_timestamp_us(sample.cpu_received_us)));
-        lines.push(overlay_stats_line("PREV RENDER:", format_timestamp_us(sample.gpu_done_us)));
-        lines.push(overlay_stats_line("PREV LATENCY:", prev_latency_display));
-    } else {
-        lines.push(overlay_stats_line("PREV FRAME ID:", "NA"));
-        lines.push(overlay_stats_line("PREV CAPT:", "NA"));
-        lines.push(overlay_stats_line("PREV RECV:", "NA"));
-        lines.push(overlay_stats_line("PREV RENDER:", "NA"));
-        lines.push(overlay_stats_line("PREV LATENCY:", prev_latency_display));
-    }
-
-    lines
-}
-
-fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
-    let s = shared.lock();
-    if s.width > 0 && s.height > 0 {
-        Some((s.width, s.height))
-    } else {
-        None
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC 1.2mbps Simulcast"]);
     }
 }
 
@@ -706,10 +840,13 @@ async fn handle_track_subscribed(
     participant: RemoteParticipant,
     allowed_identity: &Option<String>,
     shared: &Arc<Mutex<SharedYuv>>,
+    frame_slot: &Arc<LatestRenderFrameSlot>,
+    video_size: &Arc<AtomicVideoSize>,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     ctrl_c_received: &Arc<AtomicBool>,
     simulcast: &Arc<Mutex<SimulcastState>>,
-    repaint_ctx: &Arc<Mutex<Option<egui::Context>>>,
+    repaint_ctx: &Arc<OnceLock<egui::Context>>,
+    subscriber_timing: SubscriberTimingHandle,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -724,7 +861,7 @@ async fn handle_track_subscribed(
     };
 
     let sid = publication.sid().clone();
-    let codec = codec_label(&publication.mime_type());
+    let codec = codec_from_mime(&publication.mime_type());
     // Only handle if we don't already have an active video track
     {
         let mut active = active_sid.lock();
@@ -743,32 +880,41 @@ async fn handle_track_subscribed(
         *active = Some(sid.clone());
     }
 
-    // Update HUD codec label and feature flags early (before first frame arrives)
+    info!(
+        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, frame_metadata_features: {:?}",
+        publication.name(),
+        publication.sid(),
+        participant.identity(),
+        codec,
+        publication.simulcasted(),
+        publication.dimension().0,
+        publication.dimension().1,
+        publication.frame_metadata_features(),
+    );
+
     {
         let mut s = shared.lock();
         s.codec = codec;
     }
 
-    info!(
-        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, packet_trailer_features: {:?}",
-        publication.name(),
-        publication.sid(),
-        participant.identity(),
-        publication.mime_type(),
-        publication.simulcasted(),
-        publication.dimension().0,
-        publication.dimension().1,
-        publication.packet_trailer_features(),
-    );
-
-    let rtc_track = video_track.rtc_track();
+    let mut timing_events = video_track.subscribe_timing_events();
+    let subscriber_timing_events = subscriber_timing.clone();
+    tokio::spawn(async move {
+        while let Some(event) = timing_events.next().await {
+            subscriber_timing_events.record_subscribe_event(event);
+        }
+    });
 
     // Start background sink task immediately so stats lookup cannot delay first-frame handling.
+    let rtc_track = video_track.rtc_track();
     let shared2 = shared.clone();
+    let frame_slot_sink = frame_slot.clone();
+    let video_size_sink = video_size.clone();
     let active_sid2 = active_sid.clone();
     let my_sid = sid.clone();
     let ctrl_c_sink = ctrl_c_received.clone();
     let repaint_ctx_sink = repaint_ctx.clone();
+    let subscriber_timing_sink = subscriber_timing.clone();
     // Initialize simulcast state for this publication
     {
         let mut sc = simulcast.lock();
@@ -791,12 +937,24 @@ async fn handle_track_subscribed(
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
             }
-            let next = tokio::select! {
-                _ = wait_for_shutdown(ctrl_c_sink.clone()) => None,
-                frame = sink.next() => frame,
-            };
-            let Some(frame) = next else { break };
-            let received_at_us = current_timestamp_us();
+            let Some(mut frame) = sink.next().await else { break };
+            let mut drained_frames = 0_u64;
+            while let Some(Some(newer_frame)) = sink.next().now_or_never() {
+                frame = newer_frame;
+                drained_frames += 1;
+            }
+            if drained_frames > 0 {
+                debug!("Dropped {drained_frames} stale decoded frames before render upload");
+            }
+            if let Some(metadata) = frame.frame_metadata {
+                if let Some(capture_timestamp_us) = metadata.user_timestamp {
+                    subscriber_timing_sink.record_frame_received_by_sink(
+                        capture_timestamp_us,
+                        metadata.frame_id,
+                        current_timestamp_us(),
+                    );
+                }
+            }
             let w = frame.buffer.width();
             let h = frame.buffer.height();
 
@@ -805,8 +963,7 @@ async fn handle_track_subscribed(
                 logged_first = true;
             }
 
-            let mut s = shared2.lock();
-
+            let mut fps_update = None;
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
             let win_elapsed = fps_window_start.elapsed();
@@ -818,20 +975,21 @@ async fn handle_track_subscribed(
                     // light EMA smoothing to reduce jitter
                     (fps_smoothed * 0.7) + (inst_fps * 0.3)
                 };
-                s.fps = fps_smoothed;
+                fps_update = Some(fps_smoothed);
                 fps_window_frames = 0;
                 fps_window_start = Instant::now();
             }
 
+            let mut s = shared2.lock();
+            if let Some(fps) = fps_update {
+                s.fps = fps;
+            }
             s.width = w;
             s.height = h;
-            s.dirty = true;
-            s.received_at_us = Some(received_at_us);
-            s.frame_metadata = frame.frame_metadata;
-            s.frame = Some(frame);
-            drop(s);
+            video_size_sink.store(w, h);
+            frame_slot_sink.store(frame);
 
-            if let Some(ctx) = repaint_ctx_sink.lock().as_ref() {
+            if let Some(ctx) = repaint_ctx_sink.get() {
                 ctx.request_repaint();
             }
 
@@ -856,9 +1014,11 @@ async fn handle_track_subscribed(
     let active_sid_stats = active_sid.clone();
     let my_sid_stats = sid.clone();
     let simulcast_stats = simulcast.clone();
+    let shared_stats = shared.clone();
     tokio::spawn(async move {
         let mut logged_initial = false;
         let mut jitter_buffer_snapshot = None;
+        let mut receive_bitrate_snapshot = None;
         let mut last_jitter_buffer_log =
             Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -878,10 +1038,17 @@ async fn handle_track_subscribed(
                         log_video_inbound_stats(&stats);
                         logged_initial = true;
                     }
+                    log_video_decode_health(&stats);
                     if last_jitter_buffer_log.elapsed() >= Duration::from_secs(5) {
                         log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
                         last_jitter_buffer_log = Instant::now();
                     }
+                    update_decoder_implementation_from_stats(&stats, &shared_stats);
+                    update_receive_bitrate_from_stats(
+                        &stats,
+                        &mut receive_bitrate_snapshot,
+                        &shared_stats,
+                    );
                     update_simulcast_quality_from_stats(&stats, &simulcast_stats);
                 }
                 Err(e) if !logged_initial => {
@@ -896,55 +1063,66 @@ async fn handle_track_subscribed(
     });
 }
 
-fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex<SimulcastState>>) {
+fn clear_hud_and_simulcast(
+    shared: &Arc<Mutex<SharedYuv>>,
+    frame_slot: &Arc<LatestRenderFrameSlot>,
+    video_size: &Arc<AtomicVideoSize>,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+    subscriber_timing: &SubscriberTimingHandle,
+) {
     {
         let mut s = shared.lock();
+        s.width = 0;
+        s.height = 0;
         s.codec.clear();
+        s.codec_implementation.clear();
+        s.bitrate_mbps = None;
         s.fps = 0.0;
-        s.frame = None;
-        s.dirty = false;
-        s.received_at_us = None;
-        s.frame_metadata = None;
-        s.gpu_done = None;
     }
+    frame_slot.clear();
+    subscriber_timing.reset();
+    video_size.clear();
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
 }
 
-fn timing_overlay_lines(
+fn subscriber_overlay_lines(
     shared: &Arc<Mutex<SharedYuv>>,
-    latency_display: &mut LatencyDisplay,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+    include_timing: bool,
+    subscriber_timing: &SubscriberTimingHandle,
 ) -> Option<Vec<String>> {
-    let s = shared.lock();
-    let receive_us = s.received_at_us?;
-    let frame_id = s.frame_metadata.and_then(|m| m.frame_id);
-    let publish_us = s.frame_metadata.and_then(|m| m.user_timestamp);
-    let previous_gpu_done = s.gpu_done;
-    drop(s);
+    let status_line = {
+        let s = shared.lock();
+        if s.width == 0 || s.height == 0 {
+            return None;
+        }
 
-    let prev_latency_display = latency_display
-        .value(
-            Instant::now(),
-            previous_gpu_done.and_then(|sample| {
-                sample
-                    .capture_timestamp_us
-                    .map(|capture_us| format_us_delta_ms(sample.gpu_done_us, capture_us))
-            }),
+        let simulcast_enabled = simulcast.lock().available;
+        video_status_line(
+            s.width,
+            s.height,
+            s.fps,
+            &s.codec,
+            &s.codec_implementation,
+            s.bitrate_mbps,
+            simulcast_enabled,
         )
-        .to_string();
+    };
 
-    Some(build_timing_overlay_lines(
-        frame_id,
-        publish_us,
-        receive_us,
-        previous_gpu_done,
-        &prev_latency_display,
-    ))
+    let mut lines = vec![status_line];
+    if include_timing {
+        if let Some(mut timing_lines) = subscriber_timing.display_overlay_lines(Instant::now()) {
+            lines.append(&mut timing_lines);
+        }
+    }
+
+    Some(lines)
 }
 
-fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[String]) {
-    egui::Area::new("timing_overlay".into())
-        .fixed_pos(video_rect.left_top() + egui::vec2(10.0, 10.0))
+fn paint_subscriber_overlay(ctx: &egui::Context, lines: &[String]) {
+    egui::Area::new("subscriber_overlay".into())
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
         .interactable(false)
         .show(ctx, |ui| {
             egui::Frame::NONE
@@ -952,6 +1130,9 @@ fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[St
                 .corner_radius(egui::CornerRadius::same(4))
                 .inner_margin(egui::Margin::same(6))
                 .show(ui, |ui| {
+                    if lines.len() > 1 {
+                        ui.set_min_width(subscriber_timing::TIMING_LINE_WIDTH as f32 * 8.0);
+                    }
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(lines.join("\n"))
@@ -968,8 +1149,11 @@ fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[St
 fn handle_track_unsubscribed(
     publication: RemoteTrackPublication,
     shared: &Arc<Mutex<SharedYuv>>,
+    frame_slot: &Arc<LatestRenderFrameSlot>,
+    video_size: &Arc<AtomicVideoSize>,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    subscriber_timing: &SubscriberTimingHandle,
 ) {
     let sid = publication.sid().clone();
     let mut active = active_sid.lock();
@@ -977,14 +1161,17 @@ fn handle_track_unsubscribed(
         info!("Video track unsubscribed ({}), clearing active sink", sid);
         *active = None;
     }
-    clear_hud_and_simulcast(shared, simulcast);
+    clear_hud_and_simulcast(shared, frame_slot, video_size, simulcast, subscriber_timing);
 }
 
 fn handle_track_unpublished(
     publication: RemoteTrackPublication,
     shared: &Arc<Mutex<SharedYuv>>,
+    frame_slot: &Arc<LatestRenderFrameSlot>,
+    video_size: &Arc<AtomicVideoSize>,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    subscriber_timing: &SubscriberTimingHandle,
 ) {
     let sid = publication.sid().clone();
     let mut active = active_sid.lock();
@@ -992,56 +1179,60 @@ fn handle_track_unpublished(
         info!("Video track unpublished ({}), clearing active sink", sid);
         *active = None;
     }
-    clear_hud_and_simulcast(shared, simulcast);
+    clear_hud_and_simulcast(shared, frame_slot, video_size, simulcast, subscriber_timing);
 }
 
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
+    frame_slot: Arc<LatestRenderFrameSlot>,
+    video_size: Arc<AtomicVideoSize>,
     simulcast: Arc<Mutex<SimulcastState>>,
-    repaint_ctx: Arc<Mutex<Option<egui::Context>>>,
+    subscriber_timing: SubscriberTimingHandle,
+    repaint_ctx: Arc<OnceLock<egui::Context>>,
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     display_timestamp: bool,
-    latency_display: LatencyDisplay,
 }
 
 impl eframe::App for VideoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        *self.repaint_ctx.lock() = Some(ctx.clone());
+        let _ = self.repaint_ctx.set(ctx.clone());
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
 
-        let mut aspect_just_changed = false;
-        if let Some((width, height)) = video_size(&self.shared) {
-            aspect_just_changed = self.viewport.set_video_size(ctx, width, height);
+        if let Some((width, height)) = self.video_size.load() {
+            self.viewport.set_video_size(ctx, width, height);
         }
-        self.viewport.constrain(ctx, aspect_just_changed);
 
-        let timing_lines = self
-            .display_timestamp
-            .then(|| timing_overlay_lines(&self.shared, &mut self.latency_display))
-            .flatten();
+        let render_frame = self.frame_slot.take();
+        if let Some(frame) = render_frame.as_ref() {
+            if let Some(metadata) = frame.frame_metadata {
+                if let Some(capture_timestamp_us) = metadata.user_timestamp {
+                    self.subscriber_timing.record_frame_selected_for_render(
+                        capture_timestamp_us,
+                        metadata.frame_id,
+                        current_timestamp_us(),
+                    );
+                }
+            }
+        }
+
+        let overlay_lines = subscriber_overlay_lines(
+            &self.shared,
+            &self.simulcast,
+            self.display_timestamp,
+            &self.subscriber_timing,
+        );
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
-            // Ensure we keep repainting for smooth playback.
             ui.ctx().request_repaint();
 
-            // Render into a centered rect that matches the source aspect ratio. This keeps resize
-            // smooth (no feedback loop) and avoids stretching/distortion while dragging.
-            let available = ui.available_size();
-            let size = if let Some(aspect) = self.viewport.aspect() {
-                let mut w = available.x.max(1.0);
-                let mut h = (w / aspect).max(1.0);
-                if h > available.y.max(1.0) {
-                    h = available.y.max(1.0);
-                    w = (h * aspect).max(1.0);
-                }
-                egui::vec2(w, h)
-            } else {
-                egui::vec2(available.x.max(1.0), available.y.max(1.0))
-            };
+            // Let the native window follow live resize, and letterbox the video instead of
+            // programmatically resizing the window while the user is dragging it.
+            let size =
+                viewport_aspect::fitted_video_size(ui.available_size(), self.viewport.aspect());
 
             ui.with_layout(
                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -1049,48 +1240,20 @@ impl eframe::App for VideoApp {
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
                     let cb = egui_wgpu_backend::Callback::new_paint_callback(
                         rect,
-                        YuvPaintCallback { shared: self.shared.clone() },
+                        YuvPaintCallback {
+                            render_frame: Mutex::new(render_frame),
+                            video_size: self.video_size.clone(),
+                            subscriber_timing: self.subscriber_timing.clone(),
+                        },
                     );
                     ui.painter().add(cb);
-                    if let Some(lines) = timing_lines.as_ref() {
-                        paint_timing_overlay(ui.ctx(), rect, lines);
-                    }
                 },
             );
         });
 
-        // Non-timing video stats stay in egui so they don't become part of the frame timing record.
-        egui::Area::new("video_hud".into())
-            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
-            .interactable(false)
-            .show(ctx, |ui| {
-                let s = self.shared.lock();
-                if s.width == 0 || s.height == 0 || s.fps <= 0.0 || s.codec.is_empty() {
-                    return;
-                }
-                let mut text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
-                drop(s);
-
-                let sc = self.simulcast.lock();
-                if sc.available {
-                    let layer = sc.active_quality.map(video_quality_label).unwrap_or("NA");
-                    text.push_str(&format!("\nSimulcast: {}", layer));
-                } else {
-                    text.push_str("\nSimulcast: off");
-                }
-                drop(sc);
-
-                egui::Frame::NONE
-                    .fill(egui::Color32::from_black_alpha(140))
-                    .corner_radius(egui::CornerRadius::same(4))
-                    .inner_margin(egui::Margin::same(6))
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(text).color(egui::Color32::WHITE))
-                                .extend(),
-                        );
-                    });
-            });
+        if let Some(lines) = overlay_lines.as_ref() {
+            paint_subscriber_overlay(ctx, lines);
+        }
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -1113,6 +1276,7 @@ impl eframe::App for VideoApp {
                         let resp = ui.selectable_label(is_selected, label);
                         if resp.clicked() {
                             if let Some(ref pub_remote) = sc.publication {
+                                info!("Requesting layer: {:?}", q);
                                 pub_remote.set_video_quality(q);
                                 sc.requested_quality = Some(q);
                             }
@@ -1121,7 +1285,7 @@ impl eframe::App for VideoApp {
                 });
             });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ctx.request_repaint_after(viewport_aspect::VIDEO_REPAINT_INTERVAL);
     }
 }
 
@@ -1172,7 +1336,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
     room_options.dynacast = true;
-    room_options.adaptive_stream = true;
+    room_options.adaptive_stream = false;
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {
@@ -1199,26 +1363,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let shared = Arc::new(Mutex::new(SharedYuv {
         width: 0,
         height: 0,
-        frame: None,
         codec: String::new(),
+        codec_implementation: String::new(),
+        bitrate_mbps: None,
         fps: 0.0,
-        dirty: false,
-        received_at_us: None,
-        frame_metadata: None,
-        gpu_done: None,
     }));
+    let frame_slot = Arc::new(LatestRenderFrameSlot::new());
+    let video_size = Arc::new(AtomicVideoSize::default());
+    let subscriber_timing = SubscriberTimingHandle::new();
 
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
     let shared_clone = shared.clone();
+    let frame_slot_events = frame_slot.clone();
+    let video_size_events = video_size.clone();
     // Track currently active video track SID to handle unpublish/unsubscribe
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     // Shared simulcast UI/control state
     let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
-    let repaint_ctx = Arc::new(Mutex::new(None::<egui::Context>));
+    let repaint_ctx = Arc::new(OnceLock::new());
     let simulcast_events = simulcast.clone();
     let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
+    let subscriber_timing_events = subscriber_timing.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
         let simulcast = simulcast_events;
@@ -1234,33 +1401,55 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         participant,
                         &allowed_identity,
                         &shared_clone,
+                        &frame_slot_events,
+                        &video_size_events,
                         &active_sid,
                         &ctrl_c_events,
                         &simulcast,
                         &repaint_ctx_events,
+                        subscriber_timing_events.clone(),
                     )
                     .await;
                 }
                 RoomEvent::TrackUnsubscribed { publication, .. } => {
-                    handle_track_unsubscribed(publication, &shared_clone, &active_sid, &simulcast);
+                    handle_track_unsubscribed(
+                        publication,
+                        &shared_clone,
+                        &frame_slot_events,
+                        &video_size_events,
+                        &active_sid,
+                        &simulcast,
+                        &subscriber_timing_events,
+                    );
                 }
                 RoomEvent::TrackUnpublished { publication, .. } => {
-                    handle_track_unpublished(publication, &shared_clone, &active_sid, &simulcast);
+                    handle_track_unpublished(
+                        publication,
+                        &shared_clone,
+                        &frame_slot_events,
+                        &video_size_events,
+                        &active_sid,
+                        &simulcast,
+                        &subscriber_timing_events,
+                    );
                 }
                 _ => {}
             }
         }
     });
 
+    let viewport = AspectConstrainedViewport::new(None);
     // Start UI
     let app = VideoApp {
         shared,
+        frame_slot,
+        video_size,
         simulcast,
+        subscriber_timing,
         repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
-        viewport: AspectConstrainedViewport::new(None),
+        viewport,
         display_timestamp: args.display_timestamp,
-        latency_display: LatencyDisplay::default(),
     };
     let native_options = viewport_aspect::native_options(None);
     eframe::run_native(
@@ -1278,7 +1467,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 // ===== WGPU I420 renderer =====
 
 struct YuvPaintCallback {
-    shared: Arc<Mutex<SharedYuv>>,
+    render_frame: Mutex<Option<BoxVideoFrame>>,
+    video_size: Arc<AtomicVideoSize>,
+    subscriber_timing: SubscriberTimingHandle,
 }
 
 struct YuvGpuState {
@@ -1293,10 +1484,12 @@ struct YuvGpuState {
     v_view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
     params_buf: wgpu::Buffer,
+    params: ParamsUniform,
     y_tex_w: u32,
     uv_tex_w: u32,
     dims: (u32, u32),
     yuv_layout: u32,
+    pending_paint_sample: PendingPaintSampleSlot,
     cpu_upload_logged: bool,
     #[cfg(target_os = "macos")]
     native_resources: Option<macos_native_video::NativeFrameResources>,
@@ -1370,10 +1563,18 @@ impl YuvGpuState {
             ],
         });
     }
+
+    fn update_params(&mut self, queue: &wgpu::Queue, params: ParamsUniform) {
+        if self.params == params {
+            return;
+        }
+        queue.write_buffer(&self.params_buf, 0, bytemuck::bytes_of(&params));
+        self.params = params;
+    }
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, PartialEq, Eq, bytemuck::Pod, bytemuck::Zeroable)]
 struct ParamsUniform {
     src_w: u32,
     src_h: u32,
@@ -1394,13 +1595,9 @@ impl CallbackTrait for YuvPaintCallback {
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu_backend::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        // Initialize or update GPU state lazily based on current frame
-        let mut shared = self.shared.lock();
-
-        // Nothing to draw yet
-        if shared.width == 0 || shared.height == 0 {
+        let Some(dims) = self.video_size.load() else {
             return Vec::new();
-        }
+        };
 
         // Fetch or create our GPU state
         if resources.get::<YuvGpuState>().is_none() {
@@ -1523,18 +1720,19 @@ impl CallbackTrait for YuvPaintCallback {
                 ..Default::default()
             });
 
+            let params = ParamsUniform {
+                src_w: 1,
+                src_h: 1,
+                y_tex_w: 1,
+                uv_tex_w: 1,
+                yuv_layout: 0,
+                _pad0: 0,
+                _pad1: 0,
+                _pad2: 0,
+            };
             let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("yuv_params"),
-                contents: bytemuck::bytes_of(&ParamsUniform {
-                    src_w: 1,
-                    src_h: 1,
-                    y_tex_w: 1,
-                    uv_tex_w: 1,
-                    yuv_layout: 0,
-                    _pad0: 0,
-                    _pad1: 0,
-                    _pad2: 0,
-                }),
+                contents: bytemuck::bytes_of(&params),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
@@ -1577,10 +1775,12 @@ impl CallbackTrait for YuvPaintCallback {
                 v_view,
                 bind_group,
                 params_buf,
+                params,
                 y_tex_w: 1,
                 uv_tex_w: 1,
                 dims: (0, 0),
                 yuv_layout: 0,
+                pending_paint_sample: PendingPaintSampleSlot::new(),
                 cpu_upload_logged: false,
                 #[cfg(target_os = "macos")]
                 native_resources: None,
@@ -1595,20 +1795,18 @@ impl CallbackTrait for YuvPaintCallback {
         }
         let state = resources.get_mut::<YuvGpuState>().unwrap();
 
-        let dims = (shared.width, shared.height);
-        let frame_for_upload = if shared.dirty {
-            shared.dirty = false;
-            shared.frame.take().map(|frame| {
-                let frame_id = shared.frame_metadata.and_then(|m| m.frame_id);
-                let capture_timestamp_us = shared.frame_metadata.and_then(|m| m.user_timestamp);
-                let cpu_received_us = shared.received_at_us.unwrap_or_default();
-                let sample = PendingGpuSample { frame_id, capture_timestamp_us, cpu_received_us };
-                (frame, sample)
-            })
-        } else {
-            None
-        };
-        drop(shared);
+        let frame_for_upload = self.render_frame.lock().take().map(|frame| {
+            let prepare_timestamp_us = current_timestamp_us();
+            let frame_id = frame.frame_metadata.and_then(|m| m.frame_id);
+            let sample = frame.frame_metadata.and_then(|metadata| {
+                metadata.user_timestamp.map(|capture_timestamp_us| PendingPaintSample {
+                    frame_id,
+                    capture_timestamp_us,
+                    prepare_timestamp_us,
+                })
+            });
+            (frame, sample)
+        });
 
         // Recreate CPU-upload textures/bind group on size change.
         if state.dims != dims && state.yuv_layout == 0 {
@@ -1626,7 +1824,6 @@ impl CallbackTrait for YuvPaintCallback {
             state.recreate_bind_group(device);
         }
 
-        let mut gpu_sample_in_flight: Option<PendingGpuSample> = None;
         let mut frame_for_cpu_upload = frame_for_upload;
 
         #[cfg(target_os = "macos")]
@@ -1668,10 +1865,9 @@ impl CallbackTrait for YuvPaintCallback {
                                 state.native_import_logged = true;
                             }
                             state.recreate_bind_group(device);
-                            queue.write_buffer(
-                                &state.params_buf,
-                                0,
-                                bytemuck::bytes_of(&ParamsUniform {
+                            state.update_params(
+                                queue,
+                                ParamsUniform {
                                     src_w: full_size.0,
                                     src_h: full_size.1,
                                     y_tex_w: state.y_tex_w,
@@ -1680,9 +1876,12 @@ impl CallbackTrait for YuvPaintCallback {
                                     _pad0: 0,
                                     _pad1: 0,
                                     _pad2: 0,
-                                }),
+                                },
                             );
-                            gpu_sample_in_flight = Some(sample);
+                            match sample {
+                                Some(sample) => state.pending_paint_sample.store(sample),
+                                None => state.pending_paint_sample.clear(),
+                            }
                         }
                         Err(err) => {
                             if !state.native_import_failed_logged {
@@ -1793,10 +1992,9 @@ impl CallbackTrait for YuvPaintCallback {
                 );
             }
 
-            queue.write_buffer(
-                &state.params_buf,
-                0,
-                bytemuck::bytes_of(&ParamsUniform {
+            state.update_params(
+                queue,
+                ParamsUniform {
                     src_w: dims.0,
                     src_h: dims.1,
                     y_tex_w: state.y_tex_w,
@@ -1805,32 +2003,15 @@ impl CallbackTrait for YuvPaintCallback {
                     _pad0: 0,
                     _pad1: 0,
                     _pad2: 0,
-                }),
+                },
             );
-            gpu_sample_in_flight = Some(sample);
+            match sample {
+                Some(sample) => state.pending_paint_sample.store(sample),
+                None => state.pending_paint_sample.clear(),
+            }
         }
 
-        // Ride an empty command buffer with egui's submit so we can stamp GPU-done.
-        if let Some(sample) = gpu_sample_in_flight {
-            let shared_for_cb = self.shared.clone();
-            let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("yuv_gpu_done_probe"),
-            });
-            let cb = encoder.finish();
-            cb.on_submitted_work_done(move || {
-                let gpu_done_us = current_timestamp_us();
-                let mut s = shared_for_cb.lock();
-                s.gpu_done = Some(GpuDoneSample {
-                    frame_id: sample.frame_id,
-                    capture_timestamp_us: sample.capture_timestamp_us,
-                    cpu_received_us: sample.cpu_received_us,
-                    gpu_done_us,
-                });
-            });
-            vec![cb]
-        } else {
-            Vec::new()
-        }
+        Vec::new()
     }
 
     fn paint(
@@ -1846,8 +2027,19 @@ impl CallbackTrait for YuvPaintCallback {
             return;
         }
 
+        let painted_sample = state.pending_paint_sample.take();
+
         render_pass.set_pipeline(&state.pipeline);
         render_pass.set_bind_group(0, &state.bind_group, &[]);
         render_pass.draw(0..3, 0..1);
+
+        if let Some(sample) = painted_sample {
+            self.subscriber_timing.record_frame_painted(
+                sample.capture_timestamp_us,
+                sample.frame_id,
+                sample.prepare_timestamp_us,
+                current_timestamp_us(),
+            );
+        }
     }
 }

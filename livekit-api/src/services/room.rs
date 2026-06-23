@@ -40,6 +40,12 @@ pub struct UpdateParticipantOptions {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct RemoveParticipantOptions {
+    /// Revoke all tokens issued to this participant before this Unix timestamp (ms).
+    pub revoke_token_ts: i64,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct SendDataOptions {
     pub kind: proto::data_packet::Kind,
     #[deprecated(note = "Use destination_identities instead")]
@@ -206,6 +212,7 @@ impl RoomClient {
                 proto::RoomParticipantIdentity {
                     room: room.to_owned(),
                     identity: identity.to_owned(),
+                    ..Default::default()
                 },
                 self.base.auth_header(
                     VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },
@@ -217,6 +224,16 @@ impl RoomClient {
     }
 
     pub async fn remove_participant(&self, room: &str, identity: &str) -> ServiceResult<()> {
+        self.remove_participant_with_options(room, identity, RemoveParticipantOptions::default())
+            .await
+    }
+
+    pub async fn remove_participant_with_options(
+        &self,
+        room: &str,
+        identity: &str,
+        options: RemoveParticipantOptions,
+    ) -> ServiceResult<()> {
         self.client
             .request(
                 SVC,
@@ -224,6 +241,7 @@ impl RoomClient {
                 proto::RoomParticipantIdentity {
                     room: room.to_owned(),
                     identity: identity.to_owned(),
+                    revoke_token_ts: options.revoke_token_ts,
                 },
                 self.base.auth_header(
                     VideoGrants { room_admin: true, room: room.to_owned(), ..Default::default() },

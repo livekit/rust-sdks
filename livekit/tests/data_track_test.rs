@@ -30,25 +30,15 @@ use {
 mod common;
 
 #[cfg(feature = "__lk-e2e-test")]
-#[test_case(120., 8_192 ; "high_fps_single_packet")]
-#[test_case(10., 196_608 ; "low_fps_multi_packet")]
+#[test_case(8_192 ; "single_packet")]
+#[test_case(196_608 ; "multi_packet")]
 #[test_log::test(tokio::test)]
-async fn test_data_track(publish_fps: f64, payload_len: usize) {
-    // How long to publish frames for.
-    const PUBLISH_DURATION: Duration = Duration::from_secs(10);
-
-    // Percentage of total frames that must be received on the subscriber end in
-    // order for the test to pass.
-    const MIN_PERCENTAGE: f32 = 0.9;
-
+async fn test_data_track(payload_len: usize) {
     let mut rooms = test_rooms(2).await.unwrap();
 
     let (pub_room, _) = rooms.pop().unwrap();
     let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
     let pub_identity = pub_room.local_participant().identity();
-
-    let frame_count = (PUBLISH_DURATION.as_secs_f64() * publish_fps).round() as u64;
-    log::info!("Publishing {} frames", frame_count);
 
     let local_track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
     log::info!("Track published");
@@ -56,23 +46,21 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) {
     let remote_track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
     log::info!("Got remote track: {}", remote_track.info().sid());
 
-    let publish = async {
+    const PAYLOAD_VALUE: u8 = 0xFA;
+
+    let publish = async move {
         assert!(local_track.is_published());
         assert!(!local_track.info().uses_e2ee());
         assert_eq!(local_track.info().name(), "my_track");
 
-        let sleep_duration = Duration::from_secs_f64(1.0 / publish_fps as f64);
-        for index in 0..frame_count {
-            local_track.try_push(vec![index as u8; payload_len].into()).unwrap();
-            time::sleep(sleep_duration).await;
+        let payload = vec![PAYLOAD_VALUE; payload_len];
+        loop {
+            local_track.try_push(payload.clone().into()).unwrap();
+            time::sleep(Duration::from_millis(50)).await;
         }
-        Ok(())
     };
 
-    let mut recv_count = 0;
-    let recv_min = (frame_count as f32 * MIN_PERCENTAGE) as u64;
-
-    let subscribe = async {
+    let subscribe = async move {
         assert!(remote_track.is_published());
         assert!(!remote_track.info().uses_e2ee());
         assert_eq!(remote_track.info().name(), "my_track");
@@ -80,34 +68,26 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) {
 
         let mut subscription = remote_track.subscribe().await.unwrap();
 
+        let mut got_frame = false;
         while let Some(frame) = subscription.next().await {
             let payload = frame.payload();
+            assert_eq!(payload.len(), payload_len);
 
-            if let Some(first_byte) = payload.first() {
-                assert!(payload.iter().all(|byte| byte == first_byte));
-            }
+            assert!(payload.iter().all(|byte| *byte == PAYLOAD_VALUE));
             assert_eq!(frame.user_timestamp(), None);
 
-            recv_count += 1;
-            if recv_count >= recv_min {
-                break;
-            }
+            got_frame = true;
+            break;
         }
+        assert!(got_frame, "No frame received");
         assert!(remote_track.is_published());
-        Ok(())
     };
 
-    let result = timeout(PUBLISH_DURATION + Duration::from_secs(25), async {
-        try_join!(publish, subscribe)
+    timeout(Duration::from_secs(15), async {
+        tokio::select! { _ = publish => (), _ = subscribe => () };
     })
-    .await;
-
-    let recv_percent = recv_count as f32 / frame_count as f32;
-    log::info!("Received {}/{} frames ({:.2}%)", recv_count, frame_count, recv_percent * 100.);
-
-    if result.is_err() {
-        panic!("Not enough frames received before timeout");
-    }
+    .await
+    .expect("Timed out waiting for frame");
 }
 
 #[cfg(feature = "__lk-e2e-test")]

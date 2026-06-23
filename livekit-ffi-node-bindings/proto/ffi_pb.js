@@ -29,7 +29,7 @@ const { E2eeRequest, E2eeResponse } = require("./e2ee_pb.js");
 const { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } = require("./rpc_pb.js");
 const { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } = require("./track_publication_pb.js");
 const { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } = require("./data_stream_pb.js");
-const { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } = require("./data_track_pb.js");
+const { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } = require("./data_track_pb.js");
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -128,6 +128,7 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 73, name: "subscribe_data_track", kind: "message", T: SubscribeDataTrackRequest, oneof: "message" },
     { no: 74, name: "remote_data_track_is_published", kind: "message", T: RemoteDataTrackIsPublishedRequest, oneof: "message" },
     { no: 75, name: "data_track_stream_read", kind: "message", T: DataTrackStreamReadRequest, oneof: "message" },
+    { no: 84, name: "remote_data_track_set_pipeline_options", kind: "message", T: RemoteDataTrackSetPipelineOptionsRequest, oneof: "message" },
     { no: 76, name: "simulate_scenario", kind: "message", T: SimulateScenarioRequest, oneof: "message" },
     { no: 77, name: "new_platform_audio", kind: "message", T: NewPlatformAudioRequest, oneof: "message" },
     { no: 78, name: "get_audio_devices", kind: "message", T: GetAudioDevicesRequest, oneof: "message" },
@@ -220,6 +221,7 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 72, name: "subscribe_data_track", kind: "message", T: SubscribeDataTrackResponse, oneof: "message" },
     { no: 73, name: "remote_data_track_is_published", kind: "message", T: RemoteDataTrackIsPublishedResponse, oneof: "message" },
     { no: 74, name: "data_track_stream_read", kind: "message", T: DataTrackStreamReadResponse, oneof: "message" },
+    { no: 84, name: "remote_data_track_set_pipeline_options", kind: "message", T: RemoteDataTrackSetPipelineOptionsResponse, oneof: "message" },
     { no: 75, name: "simulate_scenario", kind: "message", T: SimulateScenarioResponse, oneof: "message" },
     { no: 76, name: "new_platform_audio", kind: "message", T: NewPlatformAudioResponse, oneof: "message" },
     { no: 77, name: "get_audio_devices", kind: "message", T: GetAudioDevicesResponse, oneof: "message" },

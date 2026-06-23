@@ -34,4 +34,5 @@ protoc \
     $PROTOCOL/livekit_models.proto \
     $PROTOCOL/livekit_connector.proto \
     $PROTOCOL/livekit_connector_whatsapp.proto \
-    $PROTOCOL/livekit_connector_twilio.proto
+    $PROTOCOL/livekit_connector_twilio.proto \
+    $PROTOCOL/livekit_analytics.proto

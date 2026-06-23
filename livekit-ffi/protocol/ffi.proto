@@ -163,6 +163,7 @@ message FfiRequest {
     SubscribeDataTrackRequest subscribe_data_track = 73;
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
+    RemoteDataTrackSetPipelineOptionsRequest remote_data_track_set_pipeline_options = 84;
 
     // Reconnection / chaos testing
     SimulateScenarioRequest simulate_scenario = 76;
@@ -178,7 +179,7 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 84
+    // NEXT_ID: 85
   }
 }
 
@@ -287,6 +288,7 @@ message FfiResponse {
     SubscribeDataTrackResponse subscribe_data_track = 72;
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
+    RemoteDataTrackSetPipelineOptionsResponse remote_data_track_set_pipeline_options = 84;
 
     // Reconnection / chaos testing
     SimulateScenarioResponse simulate_scenario = 75;
@@ -302,7 +304,7 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 83
+    // NEXT_ID: 85
   }
 }
 

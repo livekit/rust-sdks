@@ -33,6 +33,7 @@ message ParticipantInfo {
   required int64 joined_at = 9;
   repeated ParticipantKindDetail kind_details = 10;
   optional ParticipantPermission permission = 11;
+  required int32 client_protocol = 12;
 }
 
 message OwnedParticipant {

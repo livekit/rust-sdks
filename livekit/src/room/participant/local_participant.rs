@@ -57,6 +57,13 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 
+fn needs_video_sender_transformer(
+    options: &TrackPublishOptions,
+    has_publish_timing_subscribers: bool,
+) -> bool {
+    !options.frame_metadata_features.is_empty() || has_publish_timing_subscribers
+}
+
 #[derive(Default)]
 struct LocalEvents {
     local_track_published: Mutex<Option<LocalTrackPublishedHandler>>,
@@ -274,6 +281,77 @@ impl LocalParticipant {
     }
 
     /// Publishes a media track.
+    ///
+    /// # Examples
+    ///
+    /// Publish an audio track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::TrackPublishOptions,
+    /// #   webrtc::{prelude::*, audio_source::native::NativeAudioSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the audio source
+    /// let source = NativeAudioSource::new(
+    ///     AudioSourceOptions::default(),
+    ///     48_000, // Sample rate (hz)
+    ///     1,      // Number of channels
+    ///     1000,   // Buffer duration (ms)
+    /// );
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalAudioTrack::create_audio_track(
+    ///     "microphone", // Track name
+    ///     RtcAudioSource::Native(source.clone()),
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Microphone,
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Audio(track), options)
+    /// 	.await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Publish a video track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::{TrackPublishOptions, VideoCodec},
+    /// #   webrtc::video_source::{RtcVideoSource, VideoResolution, native::NativeVideoSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the video source
+    /// let resolution = VideoResolution { width: 1920, height: 1080 };
+    /// let source = NativeVideoSource::new(resolution, false);
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalVideoTrack::create_video_track(
+    ///     "camera", // Track name
+    ///     RtcVideoSource::Native(source)
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Camera,
+    ///     video_codec: VideoCodec::H264,
+    ///     simulcast: true, // Optionally enable simulcast for supported codecs
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Video(track), options)
+    ///     .await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub async fn publish_track(
         &self,
         track: LocalTrack,
@@ -299,7 +377,7 @@ impl LocalParticipant {
         }
 
         req.packet_trailer_features =
-            options.packet_trailer_features.to_proto().into_iter().map(|f| f as i32).collect();
+            options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
 
         let mut encodings = Vec::default();
         match &track {
@@ -355,14 +433,22 @@ impl LocalParticipant {
 
         track.set_transceiver(Some(transceiver));
 
-        if !options.packet_trailer_features.is_empty() {
-            if let LocalTrack::Video(video_track) = &track {
-                log::info!("packet_trailer enabled for local video track {}", publication.sid(),);
+        if let LocalTrack::Video(video_track) = &track {
+            let has_timing_subscribers = video_track.has_publish_timing_subscribers();
+            if needs_video_sender_transformer(&options, has_timing_subscribers) {
+                let trailers_enabled = !options.frame_metadata_features.is_empty();
+                log::info!(
+                    "sender frame transformer enabled for local video track {} (packet_trailer={}, publish_timing={})",
+                    publication.sid(),
+                    trailers_enabled,
+                    has_timing_subscribers,
+                );
                 let sender = track.transceiver().unwrap().sender();
                 let handler = packet_trailer::create_sender_handler(
                     LkRuntime::instance().pc_factory(),
                     &sender,
                 );
+                handler.set_enabled(trailers_enabled);
                 video_track.set_packet_trailer_handler(handler.clone());
 
                 #[cfg(not(target_arch = "wasm32"))]
@@ -901,5 +987,44 @@ impl LocalParticipant {
     #[doc(hidden)]
     pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
         // Local participants don't receive data messages, so this is a no-op
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::FrameMetadataFeatures;
+
+    #[test]
+    fn timing_subscribers_request_video_sender_transformer_without_frame_metadata() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, true));
+    }
+
+    #[test]
+    fn frame_metadata_features_request_video_sender_transformer_without_timing_subscribers() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures {
+                user_timestamp: true,
+                frame_id: false,
+            },
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, false));
+    }
+
+    #[test]
+    fn video_sender_transformer_is_skipped_without_timing_or_frame_metadata() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(!needs_video_sender_transformer(&options, false));
     }
 }

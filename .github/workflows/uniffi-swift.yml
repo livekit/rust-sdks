@@ -36,22 +36,27 @@ env:
 jobs:
   build-and-publish:
     name: Build & publish Swift xcframework
-    runs-on: macos-26
+    runs-on: macos-26-xlarge
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: latest-stable
 
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          cache: false
+          rustflags: ""
+
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - name: Install Apple Rust targets (tier 1/2)
+      - name: Install Apple Rust targets
         run: |
           rustup target add \
             aarch64-apple-ios \
@@ -60,14 +65,11 @@ jobs:
             aarch64-apple-ios-macabi \
             x86_64-apple-ios-macabi \
             aarch64-apple-darwin \
-            x86_64-apple-darwin
-
-      # tvOS + visionOS are still tier 3 (no prebuilt std), so cargo-swift
-      # builds them via `cargo +nightly -Zbuild-std`. Toolchain + rust-src
-      # need to exist ahead of time.
-      - name: Install nightly + rust-src (tvOS/visionOS tier-3 targets)
-        run: |
-          rustup toolchain install nightly --profile minimal --component rust-src
+            x86_64-apple-darwin \
+            aarch64-apple-tvos \
+            aarch64-apple-tvos-sim \
+            aarch64-apple-visionos \
+            aarch64-apple-visionos-sim
 
       - uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
       - run: cargo binstall cargo-make --no-confirm
@@ -91,6 +93,7 @@ jobs:
             ${{ env.OUTPUT_DIR }}/Package@swift-6.2.swift:Package@swift-6.2.swift
             ${{ env.OUTPUT_DIR }}/${{ env.SPM_NAME }}.podspec:${{ env.SPM_NAME }}.podspec
             ${{ env.OUTPUT_DIR }}/LICENSE:LICENSE
+            ${{ env.OUTPUT_DIR }}/PrivacyInfo.xcprivacy:PrivacyInfo.xcprivacy
             ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift:Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift
           token: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
           pr-body: |

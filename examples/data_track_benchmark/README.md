@@ -15,7 +15,8 @@ cargo run -p data_track_benchmark -- \
   --api-secret your-api-secret \
   --sizes 1,4,16,64,128,256,512 \
   --frequencies 1,5,10,25,50,100,200,500,1000 \
-  --duration 10
+  --duration 10 \
+  --output results.csv
 ```
 
 Or via environment variables:
@@ -30,30 +31,11 @@ cargo run -p data_track_benchmark -- -s 1,4,16,64 -f 1,5,10,25,1000 -d 10
 
 ### CLI flags
 
-| Flag | Short | Env var | Description | Default |
-|------|-------|---------|-------------|---------|
-| `--url` | | `LIVEKIT_URL` | LiveKit server URL | (required) |
-| `--api-key` | | `LIVEKIT_API_KEY` | API key for token generation | (required) |
-| `--api-secret` | | `LIVEKIT_API_SECRET` | API secret for token generation | (required) |
-| `--sizes` | `-s` | | Comma-separated payload sizes in KiB | (required) |
-| `--frequencies` | `-f` | | Comma-separated send frequencies in Hz | (required) |
-| `--duration` | `-d` | | Seconds to send per combination | `10` |
-| `--room` | `-r` | | LiveKit room name | `data-track-benchmark` |
+See help page:
+```
+cargo run -p data_track_benchmark -- --help
+```
 
 ## Output
 
-CSV printed to stdout with one row per (size, frequency) combination:
-
-```
-payload_size_kb,frequency_hz,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms
-1,1,10,10,10,1.00,12.30,8.00,18.00
-1,5,10,50,50,1.00,11.50,7.00,20.00
-64,1000,10,10000,3300,0.33,45.20,12.00,120.00
-...
-```
-
-Pipe to a file for further analysis:
-
-```sh
-cargo run -p data_track_benchmark -- -s 1,4,16,64 -f 1,10,100,1000 -d 10 > results.csv
-```
+CSV is written to stdout by default, or to `--output` when specified, with one row per (size, frequency) combination.

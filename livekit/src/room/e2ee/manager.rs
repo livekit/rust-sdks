@@ -39,6 +39,17 @@ use std::fmt::Debug;
 
 type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Send>;
 
+fn has_packet_trailer_features(features: &[i32]) -> bool {
+    features.iter().any(|f| {
+        *f == PacketTrailerFeature::PtfUserTimestamp as i32
+            || *f == PacketTrailerFeature::PtfFrameId as i32
+    })
+}
+
+fn needs_video_receiver_packet_trailer_handler(features: &[i32]) -> bool {
+    has_packet_trailer_features(features)
+}
+
 struct ManagerInner {
     options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
     enabled: bool,                // Used to enable/disable e2ee
@@ -106,28 +117,26 @@ impl E2eeManager {
         let receiver = track.transceiver().unwrap().receiver();
         let mut packet_trailer_handler = None;
 
-        let has_packet_trailer = publication.proto_info().packet_trailer_features.iter().any(|f| {
-            *f == PacketTrailerFeature::PtfUserTimestamp as i32
-                || *f == PacketTrailerFeature::PtfFrameId as i32
-        });
+        let needs_packet_trailer_handler = needs_video_receiver_packet_trailer_handler(
+            &publication.proto_info().packet_trailer_features,
+        );
 
         if let RemoteTrack::Video(video_track) = &track {
-            let handler = packet_trailer::create_receiver_handler(
-                LkRuntime::instance().pc_factory(),
-                &receiver,
-            );
-            video_track.set_packet_trailer_handler(handler.clone());
-            packet_trailer_handler = Some(handler);
-
-            if has_packet_trailer {
+            if needs_packet_trailer_handler {
+                let handler = packet_trailer::create_receiver_handler(
+                    LkRuntime::instance().pc_factory(),
+                    &receiver,
+                );
+                video_track.set_packet_trailer_handler(handler.clone());
+                packet_trailer_handler = Some(handler);
                 log::info!(
                     "attached packet_trailer handler for subscribed track {} from {}",
                     publication.sid(),
                     identity,
                 );
             } else {
-                log::info!(
-                    "attached packet_trailer handler for subscribed track {} from {} without advertised packet trailer support",
+                log::debug!(
+                    "skipping packet_trailer handler for subscribed track {} from {} without advertised packet trailer support",
                     publication.sid(),
                     identity,
                 );
@@ -341,5 +350,29 @@ impl Debug for E2eeManager {
         f.debug_struct("E2eeManager")
             .field("enabled", &self.inner.lock().enabled)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receiver_packet_trailer_handler_is_skipped_without_features() {
+        assert!(!needs_video_receiver_packet_trailer_handler(&[]));
+    }
+
+    #[test]
+    fn receiver_packet_trailer_handler_is_needed_for_user_timestamp() {
+        let features = [PacketTrailerFeature::PtfUserTimestamp as i32];
+
+        assert!(needs_video_receiver_packet_trailer_handler(&features));
+    }
+
+    #[test]
+    fn receiver_packet_trailer_handler_is_needed_for_frame_id() {
+        let features = [PacketTrailerFeature::PtfFrameId as i32];
+
+        assert!(needs_video_receiver_packet_trailer_handler(&features));
     }
 }

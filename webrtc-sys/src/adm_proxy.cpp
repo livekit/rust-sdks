@@ -22,42 +22,50 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/thread.h"
 
+#if defined(__ANDROID__)
+#include <jni.h>
+#include "sdk/android/native_api/audio_device_module/audio_device_android.h"
+#include "sdk/android/native_api/base/init.h"
+#endif
+
 namespace livekit_ffi {
 
 AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread)
     : env_(env),
       worker_thread_(worker_thread) {
-  RTC_LOG(LS_INFO) << "AdmProxy::AdmProxy() - Initializing";
-
   // Create the synthetic ADM for synthetic mode. SyntheticAudioDevice pumps
   // the WebRTC audio pipeline without platform audio, allowing FFI callbacks
   // to receive decoded remote audio.
   synthetic_adm_ = webrtc::make_ref_counted<SyntheticAudioDevice>(env_);
   if (synthetic_adm_->Init() != 0) {
     RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize synthetic ADM";
-  } else {
-    RTC_LOG(LS_INFO) << "AdmProxy: Synthetic ADM initialized";
   }
 
   // Create the Platform ADM for real audio I/O.
   // This is created immediately (not lazily) for iOS compatibility.
   // iOS audio session requires early setup to avoid KVO race conditions.
+  // On Android, we defer Platform ADM creation to AcquirePlatformAdm().
+  // This is because:
+  // 1. CreateAudioDeviceModule requires JNI to be fully initialized
+  // 2. The JNI initialization (via JNI_OnLoad or manual init) may not have
+  //    completed by the time the AdmProxy constructor runs
+  // 3. Deferring creation ensures JNI is ready when we actually need the ADM
+#if defined(__ANDROID__)
+  // platform_adm_ stays nullptr, will be created in EnsurePlatformAdmCreated()
+#else
   platform_adm_ = webrtc::CreateAudioDeviceModule(
       env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
 
   if (!platform_adm_) {
-    RTC_LOG(LS_ERROR) << "AdmProxy: Failed to create Platform ADM";
+    RTC_LOG(LS_ERROR) << "AdmProxy: CreateAudioDeviceModule returned nullptr";
   } else {
     int32_t init_result = platform_adm_->Init();
     if (init_result != 0) {
-      RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize Platform ADM, error=" << init_result;
+      RTC_LOG(LS_ERROR) << "AdmProxy: Platform ADM Init() failed with error=" << init_result;
       platform_adm_ = nullptr;
-    } else {
-      RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM initialized, "
-                       << platform_adm_->RecordingDevices() << " recording devices, "
-                       << platform_adm_->PlayoutDevices() << " playout devices";
     }
   }
+#endif
 }
 
 AdmProxy::~AdmProxy() {
@@ -97,17 +105,55 @@ webrtc::AudioDeviceModule* AdmProxy::recording_adm() const {
 // Platform ADM Lifecycle Management
 // =============================================================================
 
+#if defined(__ANDROID__)
+// Lazily creates the Platform ADM on Android. Must be called with mutex held.
+// Returns true if ADM is available (either already existed or successfully created).
+bool AdmProxy::EnsurePlatformAdmCreated() {
+  if (platform_adm_) {
+    return true;  // Already created
+  }
+
+  // Use CreateAndroidAudioDeviceModule which properly uses GetAppContext()
+  // to get the application context set via ContextUtils.initialize().
+  platform_adm_ = webrtc::CreateAndroidAudioDeviceModule(
+      env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
+
+  if (!platform_adm_) {
+    RTC_LOG(LS_ERROR) << "AdmProxy: CreateAndroidAudioDeviceModule returned nullptr. "
+                      << "Ensure ContextUtils.initialize() was called.";
+    return false;
+  }
+
+  int32_t init_result = platform_adm_->Init();
+  if (init_result != 0) {
+    RTC_LOG(LS_ERROR) << "AdmProxy: Platform ADM Init() failed with error=" << init_result;
+    platform_adm_ = nullptr;
+    return false;
+  }
+
+  return true;
+}
+#endif
+
 bool AdmProxy::AcquirePlatformAdm() {
   webrtc::MutexLock lock(&mutex_);
 
+#if defined(__ANDROID__)
+  // On Android, lazily create the Platform ADM on first acquire.
+  // This ensures JNI is fully initialized before we try to create the ADM.
+  if (!EnsurePlatformAdmCreated()) {
+    RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Failed to create Platform ADM";
+    return false;
+  }
+#else
   if (!platform_adm_) {
     RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Platform ADM not available";
     return false;
   }
+#endif
 
   int old_ref_count = platform_adm_ref_count_;
   platform_adm_ref_count_++;
-  RTC_LOG(LS_INFO) << "AdmProxy::AcquirePlatformAdm() ref_count=" << platform_adm_ref_count_;
 
   // If this is the first acquisition and playout/recording is enabled,
   // we may need to switch from synthetic mode to platform ADM
@@ -129,7 +175,6 @@ void AdmProxy::ReleasePlatformAdm() {
   }
 
   platform_adm_ref_count_--;
-  RTC_LOG(LS_INFO) << "AdmProxy::ReleasePlatformAdm() ref_count=" << platform_adm_ref_count_;
 
   // If ref_count reaches 0, switch back from platform ADM to synthetic mode
   // Note: We do NOT terminate the Platform ADM - it stays alive until destructor.
@@ -157,12 +202,9 @@ bool AdmProxy::is_platform_adm_active() const {
 
 void AdmProxy::set_recording_enabled(bool enabled) {
   webrtc::MutexLock lock(&mutex_);
-  RTC_LOG(LS_INFO) << "AdmProxy::set_recording_enabled(" << enabled << ")";
-
   if (recording_enabled_ == enabled) {
     return;
   }
-
   recording_enabled_ = enabled;
   SwitchRecordingAdmIfNeeded();
 }
@@ -174,12 +216,9 @@ bool AdmProxy::recording_enabled() const {
 
 void AdmProxy::set_playout_enabled(bool enabled) {
   webrtc::MutexLock lock(&mutex_);
-  RTC_LOG(LS_INFO) << "AdmProxy::set_playout_enabled(" << enabled << ")";
-
   if (playout_enabled_ == enabled) {
     return;
   }
-
   playout_enabled_ = enabled;
   SwitchPlayoutModeIfNeeded();
 }
@@ -200,8 +239,6 @@ void AdmProxy::SwitchPlayoutModeIfNeeded() {
 
   if (use_platform) {
     // Switch to platform mode - stop synthetic, start platform ADM
-    RTC_LOG(LS_INFO) << "AdmProxy: Switching playout to platform mode";
-
     if (synthetic_adm_) {
       synthetic_adm_->StopPlayout();
     }
@@ -210,9 +247,7 @@ void AdmProxy::SwitchPlayoutModeIfNeeded() {
       platform_adm_->StartPlayout();
     }
   } else {
-    // Switch to synthetic mode: stop platform ADM, start synthetic ADM.
-    RTC_LOG(LS_INFO) << "AdmProxy: Switching playout to synthetic mode";
-
+    // Switch to synthetic mode - stop platform ADM, start synthetic ADM
     if (platform_adm_) {
       platform_adm_->StopPlayout();
     }
@@ -231,11 +266,9 @@ void AdmProxy::SwitchRecordingAdmIfNeeded() {
   // Start if new ADM supports recording
   auto* adm = recording_adm();
   if (adm) {
-    RTC_LOG(LS_INFO) << "AdmProxy: Switching recording to platform ADM";
     adm->InitRecording();
     adm->StartRecording();
   } else {
-    RTC_LOG(LS_INFO) << "AdmProxy: Recording stopped (no ADM available)";
     recording_ = false;
   }
 }
@@ -469,7 +502,6 @@ int32_t AdmProxy::StartPlayout() {
   playing_ = true;
 
   if (is_platform_playout_active()) {
-    RTC_LOG(LS_INFO) << "AdmProxy::StartPlayout() using platform ADM";
     if (platform_adm_) {
       return platform_adm_->StartPlayout();
     }
@@ -477,7 +509,6 @@ int32_t AdmProxy::StartPlayout() {
   }
 
   // Synthetic mode
-  RTC_LOG(LS_INFO) << "AdmProxy::StartPlayout() using synthetic ADM";
   if (synthetic_adm_) {
     return synthetic_adm_->StartPlayout();
   }
@@ -512,14 +543,11 @@ int32_t AdmProxy::StartRecording() {
   auto* adm = recording_adm();
   if (!adm) {
     // Recording not available - return success to avoid breaking WebRTC
-    RTC_LOG(LS_INFO) << "AdmProxy::StartRecording() - recording not enabled, skipping";
     return 0;
   }
 
   recording_ = true;
-  int32_t result = adm->StartRecording();
-  RTC_LOG(LS_INFO) << "AdmProxy::StartRecording() result=" << result;
-  return result;
+  return adm->StartRecording();
 }
 
 int32_t AdmProxy::StopRecording() {

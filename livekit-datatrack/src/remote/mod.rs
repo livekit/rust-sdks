@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
-use events::{InputEvent, SubscribeRequest};
+use events::{InputEvent, SetPipelineOptions, SubscribeRequest};
 use livekit_runtime::timeout;
 use std::{
     marker::PhantomData,
@@ -115,6 +115,19 @@ impl DataTrack<Remote> {
     /// Identity of the participant who published the track.
     pub fn publisher_identity(&self) -> &str {
         &self.inner().publisher_identity
+    }
+
+    /// Configures options for the pipeline handling incoming packets for this track.
+    ///
+    /// These options apply to all current and future subscriptions of this track, and may be
+    /// set at any time. New options take affect with the next received packet.
+    ///
+    pub fn set_pipeline_options(&self, options: RemoteDataTrackPipelineOptions) {
+        let Some(event_in_tx) = self.inner().event_in_tx.upgrade() else {
+            return;
+        };
+        let event = SetPipelineOptions { sid: self.info.sid(), options };
+        _ = event_in_tx.try_send(event.into());
     }
 }
 
@@ -222,6 +235,67 @@ impl DataTrackSubscribeOptions {
 }
 
 impl Default for DataTrackSubscribeOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Track-level options that configure how the incoming-frame pipeline reassembles packets
+/// for a [`RemoteDataTrack`].
+///
+/// Applied via [`RemoteDataTrack::set_pipeline_options`].
+///
+/// # Examples
+///
+/// Allow up to 10 partial frames to be assembled concurrently:
+///
+/// ```
+/// # use livekit_datatrack::api::RemoteDataTrackPipelineOptions;
+/// let options = RemoteDataTrackPipelineOptions::default()
+///     .with_max_partial_frames(10);
+///
+/// # assert_eq!(options.max_partial_frames(), 10);
+/// ```
+///
+#[derive(Debug, Clone)]
+pub struct RemoteDataTrackPipelineOptions {
+    max_partial_frames: usize,
+}
+
+impl RemoteDataTrackPipelineOptions {
+    /// Creates pipeline options with default values.
+    ///
+    /// Equivalent to [`Self::default`].
+    ///
+    pub fn new() -> Self {
+        Self { max_partial_frames: 1 }
+    }
+
+    /// Maximum number of partial frames the depacketizer will track concurrently for this
+    /// track.
+    ///
+    /// Defaults to `1`. Higher values give more out-of-order tolerance for high-frequency
+    /// senders at the cost of additional buffering.
+    ///
+    pub fn max_partial_frames(&self) -> usize {
+        self.max_partial_frames
+    }
+
+    /// Sets the maximum number of partial frames the depacketizer will track concurrently.
+    ///
+    /// Zero is not a valid value; if a value of zero is provided, it will be clamped to one.
+    ///
+    pub fn with_max_partial_frames(mut self, mut frames: usize) -> Self {
+        if frames == 0 {
+            log::warn!("Zero is not a valid value for max_partial_frames, using one");
+            frames = 1;
+        }
+        self.max_partial_frames = frames;
+        self
+    }
+}
+
+impl Default for RemoteDataTrackPipelineOptions {
     fn default() -> Self {
         Self::new()
     }

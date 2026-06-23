@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.5.2 (2026-06-17)
+
+### Fixes
+
+#### Shrink binaries with an HMAC-only JWT crypto provider
+
+`livekit-api` now installs a minimal in-crate HMAC `CryptoProvider`
+(HS256/384/512) instead of jsonwebtoken's `rust_crypto` backend, dropping the
+unused RSA/EC/EdDSA algorithms. LiveKit access tokens are HS256, so there is no
+public API or behavior change. This trims ~200 KiB of unreachable crypto code,
+shrinking the shipped binaries ~25–29% — the `RustLiveKitUniFFI` iOS framework
+drops from ~900 KiB to ~672 KiB (arm64) and the Android arm64-v8a `.so` from
+~1.13 MiB to ~816 KiB. `livekit-ffi` and `livekit` benefit too.
+
+#### fix: surface full error chain in region fetch failures for better TLS error diagnosis.
+
+When connecting to LiveKit Cloud from containers without CA certificates installed, the error message now includes the full error chain (e.g., "invalid peer certificate: UnknownIssuer") instead of just "error sending request for url (...)". This makes TLS certificate issues self-diagnosing.
+
+Also added documentation for TLS features in Cargo.toml, highlighting `rustls-tls-webpki-roots` as the recommended option for container deployments.
+
+## 0.5.1 (2026-06-03)
+
+### Fixes
+
+- Send publisher offer with join request to accelerate connection - #996 (@cnderrauber)
+
+## 0.5.0 (2026-05-29)
+
+### Features
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+- add pagination to ListEgressRequest
+
 ## [0.4.14](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.13...rust-sdks/livekit-api@0.4.14) - 2026-02-16
 
 ### Fixed
@@ -96,6 +129,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+
+
 ## 0.4.24 (2026-05-20)
 
 ### Fixes

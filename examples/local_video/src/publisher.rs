@@ -1,9 +1,9 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
-    self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
-    VideoEncoding, VideoPreset,
+    self, video as video_presets, FrameMetadataFeatures, TrackPublishOptions, VideoCodec,
+    VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
@@ -20,6 +20,7 @@ use nokhwa::utils::{
 };
 use nokhwa::Camera;
 use parking_lot::Mutex;
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -28,14 +29,127 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+mod argus;
+mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
 mod video_display;
 mod viewport_aspect;
 
 use test_pattern::TestPattern;
-use timestamp_burn::{LatencyDisplay, TimestampOverlay};
+use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherCodec {
+    H264,
+    H265,
+    VP8,
+    VP9,
+    AV1,
+}
+
+impl From<PublisherCodec> for VideoCodec {
+    fn from(codec: PublisherCodec) -> Self {
+        match codec {
+            PublisherCodec::H264 => VideoCodec::H264,
+            PublisherCodec::H265 => VideoCodec::H265,
+            PublisherCodec::VP8 => VideoCodec::VP8,
+            PublisherCodec::VP9 => VideoCodec::VP9,
+            PublisherCodec::AV1 => VideoCodec::AV1,
+        }
+    }
+}
+
+/// Selects the camera backend used by the publisher.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum SourceKind {
+    /// USB / V4L2 camera via the `nokhwa` crate (default).
+    Uvc,
+    /// NVIDIA Jetson MIPI CSI camera via libargus (Jetson-only).
+    Argus,
+}
+
+/// Selects the UVC camera capture pixel format.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum CaptureFormat {
+    /// Try YUYV first and fall back to MJPEG.
+    Auto,
+    /// Request uncompressed YUYV capture.
+    Yuv,
+    /// Request compressed MJPEG capture.
+    Mjpeg,
+}
+
+impl CaptureFormat {
+    fn frame_formats(self) -> &'static [FrameFormat] {
+        match self {
+            Self::Auto => &[FrameFormat::YUYV, FrameFormat::MJPEG],
+            Self::Yuv => &[FrameFormat::YUYV],
+            Self::Mjpeg => &[FrameFormat::MJPEG],
+        }
+    }
+}
+
+impl std::fmt::Display for CaptureFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Yuv => write!(f, "yuv"),
+            Self::Mjpeg => write!(f, "mjpeg"),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherEncoder {
+    Auto,
+    Software,
+    Hardware,
+    Nvenc,
+    Vaapi,
+    #[value(name = "videotoolbox")]
+    VideoToolbox,
+}
+
+impl PublisherEncoder {
+    fn as_str(&self) -> &'static str {
+        match self {
+            PublisherEncoder::Auto => "auto",
+            PublisherEncoder::Software => "software",
+            PublisherEncoder::Hardware => "hardware",
+            PublisherEncoder::Nvenc => "nvenc",
+            PublisherEncoder::Vaapi => "vaapi",
+            PublisherEncoder::VideoToolbox => "videotoolbox",
+        }
+    }
+}
+
+impl From<PublisherEncoder> for VideoEncoderBackend {
+    fn from(encoder: PublisherEncoder) -> Self {
+        match encoder {
+            PublisherEncoder::Auto => VideoEncoderBackend::Auto,
+            PublisherEncoder::Software => VideoEncoderBackend::Software,
+            PublisherEncoder::Hardware => VideoEncoderBackend::Hardware,
+            PublisherEncoder::Nvenc => VideoEncoderBackend::Nvenc,
+            PublisherEncoder::Vaapi => VideoEncoderBackend::Vaapi,
+            PublisherEncoder::VideoToolbox => VideoEncoderBackend::VideoToolbox,
+        }
+    }
+}
+
+fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
+    match backend {
+        VideoEncoderBackend::Auto => "auto",
+        VideoEncoderBackend::Software => "software",
+        VideoEncoderBackend::Hardware => "hardware",
+        VideoEncoderBackend::Nvenc => "nvenc",
+        VideoEncoderBackend::Vaapi => "vaapi",
+        VideoEncoderBackend::VideoToolbox => "videotoolbox",
+        _ => "unknown",
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -44,12 +158,24 @@ struct Args {
     #[arg(long)]
     list_cameras: bool,
 
+    /// List available video encoder backends and exit
+    #[arg(long)]
+    list_encoders: bool,
+
     /// Camera index to use (numeric)
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
 
+    /// Camera backend: `uvc` (default, V4L2/USB via nokhwa) or `argus` (Jetson MIPI CSI).
+    #[arg(long, value_enum, default_value_t = SourceKind::Uvc)]
+    source: SourceKind,
+
+    /// UVC camera capture format: `auto` tries YUYV then MJPEG; `mjpeg` uses less USB bandwidth.
+    #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
+    format: CaptureFormat,
+
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
+    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
     test_pattern: bool,
 
     /// Desired width
@@ -100,13 +226,21 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
-    /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
-    #[arg(long, default_value_t = false)]
-    h265: bool,
+    /// Video codec to use for publishing
+    #[arg(long, value_enum, default_value_t = PublisherCodec::H264)]
+    codec: PublisherCodec,
+
+    /// Preferred video encoder backend to use for publishing
+    #[arg(long, value_enum, default_value_t = PublisherEncoder::Auto)]
+    encoder: PublisherEncoder,
 
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
     attach_timestamp: bool,
+
+    /// Enable dynacast (pause unused simulcast layers based on subscriber demand)
+    #[arg(long, default_value_t = false)]
+    dynacast: bool,
 
     /// Burn the attached timestamp into each video frame; does nothing unless --attach-timestamp is also enabled
     #[arg(long, default_value_t = false)]
@@ -133,12 +267,90 @@ fn unix_time_us_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
 }
 
+const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
+
+#[derive(Default)]
+struct CaptureTimestampLogState {
+    logged_source: bool,
+    logged_missing: bool,
+    logged_invalid: bool,
+}
+
+fn validate_backend_capture_timestamp_us(
+    capture_timestamp: Duration,
+    read_wall_time_us: u64,
+) -> Result<u64, &'static str> {
+    let capture_timestamp_us =
+        u64::try_from(capture_timestamp.as_micros()).map_err(|_| "overflows u64")?;
+    if capture_timestamp_us == 0 {
+        return Err("is zero");
+    }
+    if capture_timestamp_us > read_wall_time_us {
+        return Err("is in the future");
+    }
+    if read_wall_time_us - capture_timestamp_us > MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US {
+        return Err("is too old");
+    }
+    Ok(capture_timestamp_us)
+}
+
+fn select_capture_wall_time_us(
+    backend_capture_timestamp: Option<Duration>,
+    fallback_wall_time_us: u64,
+    read_wall_time_us: u64,
+    log_state: &mut CaptureTimestampLogState,
+) -> u64 {
+    match backend_capture_timestamp {
+        Some(capture_timestamp) => {
+            match validate_backend_capture_timestamp_us(capture_timestamp, read_wall_time_us) {
+                Ok(capture_timestamp_us) => {
+                    if !log_state.logged_source {
+                        info!("Using camera capture_timestamp for user_timestamp");
+                        log_state.logged_source = true;
+                    }
+                    capture_timestamp_us
+                }
+                Err(reason) => {
+                    if !log_state.logged_invalid {
+                        log::warn!(
+                            "Ignoring camera capture_timestamp because it {reason}; falling back to system wall clock"
+                        );
+                        log_state.logged_invalid = true;
+                    }
+                    fallback_wall_time_us
+                }
+            }
+        }
+        None => {
+            if !log_state.logged_missing {
+                log::warn!(
+                    "Buffer::capture_timestamp() not available; falling back to system wall clock"
+                );
+                log_state.logged_missing = true;
+            }
+            fallback_wall_time_us
+        }
+    }
+}
+
 fn is_twirp_not_found(err: &ServiceError) -> bool {
     matches!(
         err,
         ServiceError::Twirp(TwirpError::Twirp(code))
             if code.code == TwirpErrorCode::NOT_FOUND
     )
+}
+
+fn requested_playout_delay(
+    min_playout_delay: Option<u32>,
+    max_playout_delay: Option<u32>,
+) -> Option<(u32, u32)> {
+    match (min_playout_delay, max_playout_delay) {
+        (None, None) => None,
+        (min_playout_delay, max_playout_delay) => {
+            Some((min_playout_delay.unwrap_or_default(), max_playout_delay.unwrap_or_default()))
+        }
+    }
 }
 
 fn normalize_twirp_host(url: &str) -> String {
@@ -149,12 +361,6 @@ fn normalize_twirp_host(url: &str) -> String {
         return format!("http://{}", rest.trim_end_matches("/rtc"));
     }
     url.trim_end_matches("/rtc").to_string()
-}
-
-/// Format the us delta as a millisecond string like `"12.3ms"`.
-fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
-    let delta_us = later_us.saturating_sub(earlier_us);
-    format!("{:.1}ms", delta_us as f64 / 1_000.0)
 }
 
 #[derive(Default)]
@@ -187,6 +393,136 @@ struct PublisherTimingSummary {
     frame_draw_ms: RollingMs,
     submit_to_webrtc_ms: RollingMs,
     capture_to_webrtc_total_ms: RollingMs,
+}
+
+fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Option<&str> {
+    let mut fallback = None;
+    for stat in stats {
+        let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
+            continue;
+        };
+        if outbound.stream.kind != "video" || outbound.outbound.encoder_implementation.is_empty() {
+            continue;
+        }
+
+        let implementation = outbound.outbound.encoder_implementation.as_str();
+        if outbound.outbound.active {
+            return Some(implementation);
+        }
+        fallback.get_or_insert(implementation);
+    }
+
+    fallback
+}
+
+fn find_video_outbound_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+) -> Option<livekit::webrtc::stats::OutboundRtpStats> {
+    let mut fallback = None;
+    for stat in stats {
+        let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
+            continue;
+        };
+        if outbound.stream.kind != "video" {
+            continue;
+        }
+        if outbound.outbound.active {
+            return Some(outbound.clone());
+        }
+        fallback.get_or_insert_with(|| outbound.clone());
+    }
+    fallback
+}
+
+fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
+    let Some(outbound) = find_video_outbound_stats(stats) else {
+        return;
+    };
+
+    info!(
+        "Publish health: encoded={}, sent={}, keyframes={}, packets_sent={}, bytes_sent={}, pli={}, fir={}, encoder={}",
+        outbound.outbound.frames_encoded,
+        outbound.outbound.frames_sent,
+        outbound.outbound.key_frames_encoded,
+        outbound.sent.packets_sent,
+        outbound.sent.bytes_sent,
+        outbound.outbound.pli_count,
+        outbound.outbound.fir_count,
+        outbound.outbound.encoder_implementation,
+    );
+
+    if outbound.outbound.frames_encoded > 0 && outbound.sent.packets_sent == 0 {
+        log::warn!(
+            "Encoder produced frames but no RTP packets were sent; the AV1 bitstream may be malformed"
+        );
+    }
+    if outbound.outbound.key_frames_encoded == 0 && outbound.outbound.pli_count > 0 {
+        log::warn!(
+            "Remote side requested keyframes (PLI={}) but the publisher has not encoded any keyframes",
+            outbound.outbound.pli_count
+        );
+    }
+}
+
+async fn update_publisher_video_stats(track: LocalVideoTrack, ctrl_c_received: Arc<AtomicBool>) {
+    let mut last_log =
+        Instant::now().checked_sub(Duration::from_secs(2)).unwrap_or_else(Instant::now);
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        if let Ok(stats) = track.get_stats().await {
+            if last_log.elapsed() >= Duration::from_secs(2) {
+                log_publisher_outbound_health(&stats);
+                last_log = Instant::now();
+            }
+        }
+
+        interval.tick().await;
+    }
+}
+
+async fn update_publisher_encoder_overlay(
+    track: LocalVideoTrack,
+    shared: Arc<Mutex<SharedYuv>>,
+    ctrl_c_received: Arc<AtomicBool>,
+) {
+    let mut logged_initial = false;
+    let mut last_implementation = String::new();
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        match track.get_stats().await {
+            Ok(stats) => {
+                if let Some(implementation) = find_video_outbound_encoder(&stats) {
+                    if implementation != last_implementation {
+                        info!("Publisher video encoder implementation: {implementation}");
+                        last_implementation = implementation.to_string();
+                    }
+
+                    let mut shared = shared.lock();
+                    shared.codec_implementation = implementation.to_string();
+                }
+                logged_initial = true;
+            }
+            Err(e) if !logged_initial => {
+                debug!("Failed to get publisher stats for video track: {:?}", e);
+                logged_initial = true;
+            }
+            Err(_) => {}
+        }
+
+        interval.tick().await;
+    }
 }
 
 impl PublisherTimingSummary {
@@ -234,6 +570,233 @@ fn format_timing_line(timings: &PublisherTimingSummary) -> String {
     format!("Timing ms: {}\nTiming ms: {}", line_one.join(" | "), line_two.join(" | "))
 }
 
+const MAX_PUBLISH_TIMING_SAMPLES: usize = 300;
+
+#[derive(Default)]
+struct PublisherTimingState {
+    samples: HashMap<u64, PublisherTimingSample>,
+    order: VecDeque<u64>,
+    latest_complete_sample: Option<PublisherTimingSample>,
+}
+
+impl PublisherTimingState {
+    fn record_frame_buffer(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        got_frame_buffer_timestamp_us: u64,
+        frame_id: Option<u32>,
+    ) -> PublisherTimingSample {
+        let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
+        sample.got_frame_buffer_timestamp_us = Some(got_frame_buffer_timestamp_us);
+        *sample
+    }
+
+    fn record_sdk_event(&mut self, event: PublishTimingEvent) -> Option<PublisherTimingSample> {
+        if event.capture_timestamp_us == 0 {
+            return None;
+        }
+
+        let updated_sample = {
+            let sample = self.get_or_insert_sample(event.capture_timestamp_us, event.frame_id);
+            match event.stage {
+                PublishTimingStage::EncoderUpload => {
+                    sample.encoder_upload_timestamp_us = Some(event.timestamp_us);
+                }
+                PublishTimingStage::EncoderOutput => {
+                    sample.encoder_output_timestamp_us = Some(event.timestamp_us);
+                }
+                PublishTimingStage::WebrtcPacketize => {
+                    sample.webrtc_packetize_timestamp_us = Some(event.timestamp_us);
+                }
+            }
+            *sample
+        };
+
+        if updated_sample.is_complete() {
+            self.latest_complete_sample = Some(updated_sample);
+            Some(updated_sample)
+        } else {
+            None
+        }
+    }
+
+    fn display_sample(&self) -> Option<PublisherTimingSample> {
+        self.latest_complete_sample
+    }
+
+    fn get_or_insert_sample(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        frame_id: Option<u32>,
+    ) -> &mut PublisherTimingSample {
+        if !self.samples.contains_key(&sensor_exposure_timestamp_us) {
+            self.samples.insert(
+                sensor_exposure_timestamp_us,
+                PublisherTimingSample::new(sensor_exposure_timestamp_us, frame_id),
+            );
+            self.order.push_back(sensor_exposure_timestamp_us);
+            self.prune();
+        }
+
+        let sample = self
+            .samples
+            .get_mut(&sensor_exposure_timestamp_us)
+            .expect("timing sample should exist after insertion");
+        if frame_id.is_some() {
+            sample.frame_id = frame_id;
+        }
+        sample
+    }
+
+    fn prune(&mut self) {
+        while self.order.len() > MAX_PUBLISH_TIMING_SAMPLES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.samples.remove(&oldest);
+                if self
+                    .latest_complete_sample
+                    .is_some_and(|sample| sample.sensor_exposure_timestamp_us == oldest)
+                {
+                    self.latest_complete_sample = None;
+                }
+            }
+        }
+    }
+}
+
+fn update_shared_timing_sample(
+    shared: Option<&Arc<Mutex<SharedYuv>>>,
+    sample: PublisherTimingSample,
+) {
+    if let Some(shared) = shared {
+        let mut shared = shared.lock();
+        let should_update = shared.timing_sample.map_or(true, |current| {
+            sample.sensor_exposure_timestamp_us >= current.sensor_exposure_timestamp_us
+        });
+        if should_update {
+            shared.timing_sample = Some(sample);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requested_playout_delay_is_absent_when_no_delay_flags_are_set() {
+        assert_eq!(requested_playout_delay(None, None), None);
+    }
+
+    #[test]
+    fn requested_playout_delay_defaults_unset_partial_delay() {
+        assert_eq!(requested_playout_delay(Some(120), None), Some((120, 0)));
+        assert_eq!(requested_playout_delay(None, Some(240)), Some((0, 240)));
+        assert_eq!(requested_playout_delay(Some(120), Some(240)), Some((120, 240)));
+    }
+
+    fn timing_event(
+        stage: PublishTimingStage,
+        capture_timestamp_us: u64,
+        timestamp_us: u64,
+    ) -> PublishTimingEvent {
+        PublishTimingEvent { stage, timestamp_us, capture_timestamp_us, frame_id: Some(7) }
+    }
+
+    #[test]
+    fn publisher_timing_state_waits_for_complete_sample() {
+        let mut state = PublisherTimingState::default();
+        state.record_frame_buffer(1_000, 1_100, Some(7));
+
+        assert!(state.display_sample().is_none());
+        assert!(state
+            .record_sdk_event(timing_event(PublishTimingStage::EncoderUpload, 1_000, 1_200))
+            .is_none());
+        assert!(state
+            .record_sdk_event(timing_event(PublishTimingStage::EncoderOutput, 1_000, 1_300))
+            .is_none());
+        assert!(state.display_sample().is_none());
+    }
+
+    #[test]
+    fn publisher_timing_state_displays_packetized_sample() {
+        let mut state = PublisherTimingState::default();
+        state.record_frame_buffer(1_000, 1_100, Some(7));
+        state.record_sdk_event(timing_event(PublishTimingStage::EncoderUpload, 1_000, 1_200));
+        state.record_sdk_event(timing_event(PublishTimingStage::EncoderOutput, 1_000, 1_300));
+
+        let sample = state
+            .record_sdk_event(timing_event(PublishTimingStage::WebrtcPacketize, 1_000, 1_400))
+            .expect("packetized sample should be displayable");
+
+        assert!(sample.is_complete());
+        assert_eq!(state.display_sample().unwrap().webrtc_packetize_timestamp_us, Some(1_400));
+    }
+
+    #[test]
+    fn publisher_timing_shared_update_accepts_current_frame() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        let mut current = PublisherTimingSample::new(1_000, Some(1));
+        shared.lock().timing_sample = Some(current);
+
+        current.encoder_upload_timestamp_us = Some(1_500);
+        update_shared_timing_sample(Some(&shared), current);
+
+        assert_eq!(shared.lock().timing_sample.unwrap().encoder_upload_timestamp_us, Some(1_500));
+    }
+
+    #[test]
+    fn publisher_timing_shared_update_ignores_other_frames() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        let current = PublisherTimingSample::new(2_000, Some(2));
+        let mut stale = PublisherTimingSample::new(1_000, Some(1));
+        stale.encoder_upload_timestamp_us = Some(1_500);
+        shared.lock().timing_sample = Some(current);
+
+        update_shared_timing_sample(Some(&shared), stale);
+
+        assert_eq!(
+            shared.lock().timing_sample.unwrap().sensor_exposure_timestamp_us,
+            current.sensor_exposure_timestamp_us
+        );
+    }
+
+    #[test]
+    fn capture_timestamp_validation_rejects_future_timestamp() {
+        assert_eq!(
+            validate_backend_capture_timestamp_us(Duration::from_micros(1_001), 1_000),
+            Err("is in the future")
+        );
+    }
+
+    #[test]
+    fn capture_timestamp_selection_falls_back_for_invalid_backend_timestamp() {
+        let mut log_state = CaptureTimestampLogState::default();
+
+        let selected = select_capture_wall_time_us(
+            Some(Duration::from_micros(1_001)),
+            900,
+            1_000,
+            &mut log_state,
+        );
+
+        assert_eq!(selected, 900);
+    }
+
+    #[test]
+    fn capture_timestamp_selection_uses_valid_backend_timestamp() {
+        let mut log_state = CaptureTimestampLogState::default();
+
+        let selected = select_capture_wall_time_us(
+            Some(Duration::from_micros(950)),
+            900,
+            1_000,
+            &mut log_state,
+        );
+
+        assert_eq!(selected, 950);
+    }
+}
+
 fn list_cameras() -> Result<()> {
     let cams = nokhwa::query(ApiBackend::Auto)?;
     println!("Available cameras:");
@@ -243,9 +806,21 @@ fn list_cameras() -> Result<()> {
     Ok(())
 }
 
+fn list_encoders() {
+    println!("Available video encoder backends:");
+    for backend in VideoEncoderBackend::list_available() {
+        println!("- {}", video_encoder_backend_name(backend));
+    }
+}
+
 enum VideoInput {
     TestPattern(TestPattern),
-    Camera { camera: Camera, is_yuyv: bool },
+    Camera {
+        camera: Camera,
+        is_yuyv: bool,
+    },
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    Argus(argus::ArgusCaptureSession),
 }
 
 #[derive(Clone, Copy)]
@@ -294,6 +869,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
     }
+    if args.list_encoders {
+        list_encoders();
+        return Ok(());
+    }
 
     // LiveKit connection details
     let url = args
@@ -309,12 +888,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
-    if args.min_playout_delay.is_some() || args.max_playout_delay.is_some() {
+    if let Some((min_playout_delay, max_playout_delay)) =
+        requested_playout_delay(args.min_playout_delay, args.max_playout_delay)
+    {
         let twirp_host = normalize_twirp_host(&url);
         let room_client = RoomClient::with_api_key(&twirp_host, &api_key, &api_secret);
         info!(
-            "Recreating room '{}' with playout delay min={:?} max={:?} ms",
-            args.room_name, args.min_playout_delay, args.max_playout_delay
+            "Recreating room '{}' with playout delay min={} max={} ms",
+            args.room_name, min_playout_delay, max_playout_delay
         );
         match room_client.delete_room(&args.room_name).await {
             Ok(()) => info!("Deleted existing room '{}'", args.room_name),
@@ -327,8 +908,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             .create_room_with_playout_delay(
                 &args.room_name,
                 CreateRoomOptions::default(),
-                args.min_playout_delay.unwrap_or_default(),
-                args.max_playout_delay.unwrap_or_default(),
+                min_playout_delay,
+                max_playout_delay,
             )
             .await?;
     }
@@ -340,6 +921,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             room_join: true,
             room: args.room_name.clone(),
             can_publish: true,
+            can_subscribe: false,
             ..Default::default()
         })
         .to_jwt()?;
@@ -347,7 +929,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
-    room_options.dynacast = true;
+    room_options.dynacast = args.dynacast;
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {
@@ -382,99 +964,232 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         });
     }
 
-    let (width, height, video_input) = if args.test_pattern {
-        let width = args.width;
-        let height = args.height;
-        let fps = args.fps;
-        info!("Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps", width, height, fps);
-        (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
-    } else {
-        // Setup camera
-        let index = CameraIndex::Index(args.camera_index as u32);
-        let requested =
-            RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
-        let mut camera = Camera::new(index, requested)?;
-        // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
-        let wanted = CameraFormat::new(
-            Resolution::new(args.width, args.height),
-            FrameFormat::YUYV,
-            args.fps,
-        );
-        let mut using_fmt = "YUYV";
-        if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-            RequestedFormatType::Exact(wanted),
-        )) {
-            let alt = CameraFormat::new(
-                Resolution::new(args.width, args.height),
-                FrameFormat::MJPEG,
-                args.fps,
-            );
-            using_fmt = "MJPEG";
-            let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-                RequestedFormatType::Exact(alt),
-            ));
+    let (width, height, video_input) = match args.source {
+        SourceKind::Argus => {
+            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            {
+                if args.test_pattern {
+                    anyhow::bail!("--test-pattern is not supported with --source argus");
+                }
+                if args.display_video {
+                    anyhow::bail!("--display-video is not supported with --source argus");
+                }
+                if args.burn_timestamp {
+                    log::warn!(
+                        "--burn-timestamp is ignored with --source argus (DMA buffers are not CPU-mapped on the publish path)"
+                    );
+                }
+                let session = argus::ArgusCaptureSession::new(
+                    args.camera_index as u32,
+                    args.width,
+                    args.height,
+                    args.fps,
+                )?;
+                info!(
+                    "Argus MIPI capture session opened: {}x{} @ {} fps (camera {})",
+                    session.width(),
+                    session.height(),
+                    args.fps,
+                    args.camera_index,
+                );
+                (session.width(), session.height(), VideoInput::Argus(session))
+            }
+            #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+            {
+                anyhow::bail!(
+                    "--source argus requires Linux aarch64 on NVIDIA Jetson; this binary was built for {}-{}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                );
+            }
         }
-        camera.open_stream()?;
-        let fmt = camera.camera_format();
-        let width = fmt.width();
-        let height = fmt.height();
-        let fps = fmt.frame_rate();
-        let is_yuyv = fmt.format() == FrameFormat::YUYV;
-        info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
-        debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
-        info!(
-            "Selected conversion path: {}",
-            if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
-        );
-        (width, height, VideoInput::Camera { camera, is_yuyv })
+        SourceKind::Uvc => {
+            if args.test_pattern {
+                let width = args.width;
+                let height = args.height;
+                let fps = args.fps;
+                info!(
+                    "Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps",
+                    width, height, fps
+                );
+                (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
+            } else {
+                // Setup camera
+                let index = CameraIndex::Index(args.camera_index as u32);
+                let requested = RequestedFormat::new::<RgbFormat>(
+                    RequestedFormatType::AbsoluteHighestFrameRate,
+                );
+                let mut camera = Camera::new(index, requested)?;
+
+                let mut requested_camera_format = None;
+                let mut last_request_error = None;
+                for frame_format in args.format.frame_formats() {
+                    let wanted = CameraFormat::new(
+                        Resolution::new(args.width, args.height),
+                        *frame_format,
+                        args.fps,
+                    );
+                    match camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
+                        RequestedFormatType::Exact(wanted),
+                    )) {
+                        Ok(format) => {
+                            requested_camera_format = Some(format);
+                            break;
+                        }
+                        Err(err) => {
+                            last_request_error = Some(err);
+                        }
+                    }
+                }
+                if let Some(requested_camera_format) = requested_camera_format {
+                    debug!("Requested nokhwa CameraFormat: {:?}", requested_camera_format);
+                } else if args.format == CaptureFormat::Auto {
+                    if let Some(err) = last_request_error {
+                        log::warn!(
+                            "Failed to request YUYV or MJPEG at {}x{} @ {} fps; using backend-selected camera format: {}",
+                            args.width,
+                            args.height,
+                            args.fps,
+                            err
+                        );
+                    }
+                } else {
+                    let formats = args
+                        .format
+                        .frame_formats()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" or ");
+                    return Err(match last_request_error {
+                        Some(err) => anyhow::anyhow!(
+                            "failed to request camera format {} at {}x{} @ {} fps: {}",
+                            formats,
+                            args.width,
+                            args.height,
+                            args.fps,
+                            err
+                        ),
+                        None => anyhow::anyhow!("no camera capture formats were requested"),
+                    });
+                }
+                camera.open_stream()?;
+                let fmt = camera.camera_format();
+                let width = fmt.width();
+                let height = fmt.height();
+                let fps = fmt.frame_rate();
+                let is_yuyv = fmt.format() == FrameFormat::YUYV;
+                info!(
+                    "Camera opened: {}x{} @ {} fps (format: {}, requested: {})",
+                    width,
+                    height,
+                    fps,
+                    fmt.format(),
+                    args.format
+                );
+                debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
+                info!(
+                    "Selected conversion path: {}",
+                    if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
+                );
+                (width, height, VideoInput::Camera { camera, is_yuyv })
+            }
+        }
     };
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     let track =
         LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
+    let display_shared = args.display_video.then(|| Arc::new(Mutex::new(SharedYuv::default())));
+    let publish_timing_state =
+        args.display_timing.then(|| Arc::new(Mutex::new(PublisherTimingState::default())));
+
+    if let Some(timing_state) = publish_timing_state.as_ref() {
+        let timing_state = timing_state.clone();
+        let display_shared_for_timing = display_shared.clone();
+        let mut events = track.publish_timing_events();
+        tokio::spawn(async move {
+            use tokio_stream::StreamExt;
+
+            while let Some(event) = events.next().await {
+                let sample = timing_state.lock().record_sdk_event(event);
+                if let Some(sample) = sample {
+                    update_shared_timing_sample(display_shared_for_timing.as_ref(), sample);
+                }
+            }
+        });
+    }
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
-    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
-    info!("Attempting publish with codec: {}", requested_codec.as_str());
+    let requested_codec = VideoCodec::from(args.codec);
+    let requested_encoder = VideoEncoderBackend::from(args.encoder);
+    let available_encoders: Vec<_> = VideoEncoderBackend::list_available().into_iter().collect();
+    info!(
+        "Available video encoder backends: {}",
+        available_encoders
+            .iter()
+            .map(|backend| video_encoder_backend_name(*backend))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    if !available_encoders.contains(&requested_encoder) {
+        log::warn!(
+            "Requested video encoder backend '{}' is not reported as available; libwebrtc may fall back to another compatible encoder",
+            args.encoder.as_str()
+        );
+    }
+    info!(
+        "Attempting publish with codec: {}, encoder: {}",
+        requested_codec.as_str(),
+        args.encoder.as_str()
+    );
 
-    // Compute an explicit video encoding so all simulcast layers use 30 fps.
-    // The SDK defaults reduce lower layers to 15/20 fps; we override that here.
+    // Compute an explicit video encoding so the published layer uses the requested FPS.
+    // When simulcast is enabled, lower layers also use this FPS instead of SDK defaults.
     let target_fps = args.fps as f64;
     let main_encoding = {
-        let base = options::compute_appropriate_encoding(false, width, height, VideoCodec::H264);
+        let base = options::compute_appropriate_encoding(false, width, height, requested_codec);
         VideoEncoding {
             max_bitrate: args.max_bitrate.unwrap_or(base.max_bitrate),
             max_framerate: target_fps,
         }
     };
     let simulcast_presets = compute_simulcast_presets_30fps(width, height, target_fps);
-    info!(
-        "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
-        width,
-        height,
-        target_fps,
-        main_encoding.max_bitrate,
-        simulcast_presets
-            .iter()
-            .map(|p| format!(
-                "{}x{}@{:.0}fps/{}bps",
-                p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
-            ))
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
+    if args.simulcast {
+        info!(
+            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
+            width,
+            height,
+            target_fps,
+            main_encoding.max_bitrate,
+            simulcast_presets
+                .iter()
+                .map(|p| format!(
+                    "{}x{}@{:.0}fps/{}bps",
+                    p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
+                ))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    } else {
+        info!(
+            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast disabled)",
+            width, height, target_fps, main_encoding.max_bitrate,
+        );
+    }
 
-    let mut packet_trailer_features = PacketTrailerFeatures::default();
-    packet_trailer_features.user_timestamp = args.attach_timestamp;
-    packet_trailer_features.frame_id = args.attach_frame_id;
+    let mut frame_metadata_features = FrameMetadataFeatures::default();
+    frame_metadata_features.user_timestamp = args.attach_timestamp;
+    frame_metadata_features.frame_id = args.attach_frame_id;
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
         source: TrackSource::Camera,
         simulcast: args.simulcast,
         video_codec: codec,
-        packet_trailer_features,
+        video_encoder: requested_encoder,
+        frame_metadata_features,
         video_encoding: Some(main_encoding.clone()),
-        simulcast_layers: Some(simulcast_presets.clone()),
+        simulcast_layers: args.simulcast.then(|| simulcast_presets.clone()),
         ..Default::default()
     };
 
@@ -507,42 +1222,79 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_timing: args.display_timing,
     };
 
-    if args.display_video {
-        let shared = Arc::new(Mutex::new(SharedYuv {
-            codec: actual_codec.as_str().to_ascii_uppercase(),
-            ..Default::default()
-        }));
-        let capture_task = tokio::spawn(run_capture_loop(
-            capture_config,
-            ctrl_c_received.clone(),
-            rtc_source,
-            video_input,
-            width,
-            height,
-            Some(shared.clone()),
-        ));
+    let publish_stats_task =
+        tokio::spawn(update_publisher_video_stats(track.clone(), ctrl_c_received.clone()));
 
-        let display_result = video_display::run_display(
-            "LiveKit Video Publisher",
-            shared,
-            ctrl_c_received.clone(),
-            Some(width as f32 / height as f32),
-        );
+    match video_input {
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        VideoInput::Argus(session) => {
+            let capture_result = run_argus_capture_loop(
+                capture_config,
+                ctrl_c_received,
+                rtc_source,
+                session,
+                width,
+                height,
+            )
+            .await;
+            let _ = publish_stats_task.await;
+            capture_result?;
+        }
+        video_input => {
+            if args.display_video {
+                let shared =
+                    display_shared.expect("display video should create shared preview state");
+                {
+                    let mut shared = shared.lock();
+                    shared.codec = actual_codec.as_str().to_ascii_uppercase();
+                    shared.simulcast = args.simulcast;
+                }
+                let overlay_task = tokio::spawn(update_publisher_encoder_overlay(
+                    track.clone(),
+                    shared.clone(),
+                    ctrl_c_received.clone(),
+                ));
+                let capture_task = tokio::spawn(run_capture_loop(
+                    capture_config,
+                    ctrl_c_received.clone(),
+                    track.clone(),
+                    rtc_source,
+                    video_input,
+                    width,
+                    height,
+                    Some(shared.clone()),
+                    publish_timing_state.clone(),
+                ));
 
-        let capture_result = capture_task.await?;
-        display_result?;
-        capture_result?;
-    } else {
-        run_capture_loop(
-            capture_config,
-            ctrl_c_received,
-            rtc_source,
-            video_input,
-            width,
-            height,
-            None,
-        )
-        .await?;
+                let display_result = video_display::run_display(
+                    "LiveKit Video Publisher",
+                    shared,
+                    ctrl_c_received.clone(),
+                    Some(width as f32 / height as f32),
+                );
+
+                let capture_result = capture_task.await?;
+                let _ = publish_stats_task.await;
+                let _ = overlay_task.await;
+                display_result?;
+                capture_result?;
+            } else {
+                let capture_result = run_capture_loop(
+                    capture_config,
+                    ctrl_c_received,
+                    track,
+                    rtc_source,
+                    video_input,
+                    width,
+                    height,
+                    None,
+                    publish_timing_state.clone(),
+                )
+                .await;
+                let _ = publish_stats_task.await;
+                capture_result?;
+            }
+        }
     }
 
     Ok(())
@@ -551,11 +1303,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 async fn run_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,
+    track: LocalVideoTrack,
     rtc_source: NativeVideoSource,
     mut video_input: VideoInput,
     width: u32,
     height: u32,
     display_shared: Option<Arc<Mutex<SharedYuv>>>,
+    publish_timing_state: Option<Arc<Mutex<PublisherTimingState>>>,
 ) -> Result<()> {
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = config.fps as f64;
@@ -578,23 +1332,11 @@ async fn run_capture_loop(
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
     let mut logged_mjpeg_fallback = false;
-    let mut logged_sensor_ts_source = false;
-    let mut logged_sensor_ts_missing = false;
+    let mut capture_timestamp_log_state = CaptureTimestampLogState::default();
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
-    let mut latency_display = LatencyDisplay::default();
     let align_buffers_for_display = display_shared.is_some();
-
-    // Reuse a single I420 buffer
-    let mut frame = VideoFrame {
-        rotation: VideoRotation::VideoRotation0,
-        timestamp_us: 0,
-        frame_metadata: None,
-        buffer: create_i420_buffer(width, height, align_buffers_for_display),
-    };
-    let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-    let stride_y_usize = stride_y as usize;
 
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
@@ -604,6 +1346,18 @@ async fn run_capture_loop(
         let paced_wait_started_at = Instant::now();
         ticker.tick().await;
         let paced_wait_finished_at = Instant::now();
+
+        // WebRTC may queue the frame and hardware encoders may upload it asynchronously.
+        // Give each submitted frame unique backing storage so later captures cannot
+        // overwrite buffers that are still in-flight.
+        let mut frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: 0,
+            frame_metadata: None,
+            buffer: create_i420_buffer(width, height, align_buffers_for_display),
+        };
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let stride_y_usize = stride_y as usize;
 
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
@@ -644,26 +1398,15 @@ async fn run_capture_loop(
                 let read_wall_time_us = unix_time_us_now();
                 let camera_frame_acquired_at = Instant::now();
 
-                // Prefer the backend-provided sensor/PTS wallclock when available for
-                // a more accurate capture-to-subscriber latency measurement.
-                let capture_wall_time_us = match frame_buf.capture_timestamp() {
-                    Some(d) => {
-                        if !logged_sensor_ts_source {
-                            info!("Using sensor capture_timestamp for user_timestamp");
-                            logged_sensor_ts_source = true;
-                        }
-                        d.as_micros() as u64
-                    }
-                    None => {
-                        if !logged_sensor_ts_missing {
-                            log::warn!(
-                                "Buffer::capture_timestamp() not available; falling back to system wall clock"
-                            );
-                            logged_sensor_ts_missing = true;
-                        }
-                        frame_wall_time_us
-                    }
-                };
+                // Prefer backend capture timestamps only when they are plausible Unix
+                // wall-clock times. Some camera APIs expose stream-relative or future
+                // presentation timestamps; attaching those makes latency appear negative.
+                let capture_wall_time_us = select_capture_wall_time_us(
+                    frame_buf.capture_timestamp(),
+                    frame_wall_time_us,
+                    read_wall_time_us,
+                    &mut capture_timestamp_log_state,
+                );
 
                 let (decode_finished_at, convert_finished_at, used_decode_path) = if *is_yuyv {
                     // Fast path for YUYV: convert directly to I420 via libyuv
@@ -790,6 +1533,13 @@ async fn run_capture_loop(
                     true,
                 )
             }
+            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            VideoInput::Argus(_) => {
+                // The Argus source bypasses this loop entirely and is dispatched to
+                // `run_argus_capture_loop` from `run`. This arm exists only to satisfy
+                // exhaustiveness checking on Jetson builds.
+                unreachable!("argus video input must be driven by run_argus_capture_loop")
+            }
         };
 
         let fid = if config.attach_frame_id {
@@ -799,6 +1549,9 @@ async fn run_capture_loop(
         } else {
             None
         };
+        if let Some(timing_state) = publish_timing_state.as_ref() {
+            timing_state.lock().record_frame_buffer(capture_wall_time_us, read_wall_time_us, fid);
+        }
         let mut buffer_ready_at = convert_finished_at;
         let mut frame_draw_ms = None;
         let mut burned_timestamp_us = None;
@@ -811,10 +1564,14 @@ async fn run_capture_loop(
             buffer_ready_at = overlay_finished_at;
         }
 
-        // Build frame metadata from enabled packet trailer features
-        let user_ts = if config.attach_timestamp { Some(capture_wall_time_us) } else { None };
+        // Build frame metadata from enabled packet trailer features and local timing correlation.
+        let user_ts = if config.attach_timestamp || config.display_timing {
+            Some(capture_wall_time_us)
+        } else {
+            None
+        };
         if burned_timestamp_us.is_some() {
-            debug_assert_eq!(burned_timestamp_us, user_ts);
+            debug_assert_eq!(burned_timestamp_us, Some(capture_wall_time_us));
         }
         frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
             Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
@@ -824,25 +1581,16 @@ async fn run_capture_loop(
         // Monotonic, microseconds since start.
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
         rtc_source.capture_frame(&frame);
-        let sent_timestamp_us = unix_time_us_now();
         let webrtc_capture_finished_at = Instant::now();
         if let Some(shared) = display_shared.as_ref() {
             let (stride_y, stride_u, stride_v) = frame.buffer.strides();
             let (data_y, data_u, data_v) = frame.buffer.data();
-            let (timing_sample, publish_latency_display) = if config.display_timing {
-                let timing_sample = PublisherTimingSample {
-                    frame_id: fid,
-                    capture_timestamp_us: capture_wall_time_us,
-                    read_timestamp_us: read_wall_time_us,
-                    sent_timestamp_us,
-                };
-                let publish_latency_display = latency_display.value(
-                    Instant::now(),
-                    Some(format_us_delta_ms(sent_timestamp_us, capture_wall_time_us)),
-                );
-                (Some(timing_sample), Some(publish_latency_display))
+            let timing_sample = if config.display_timing {
+                publish_timing_state
+                    .as_ref()
+                    .and_then(|timing_state| timing_state.lock().display_sample())
             } else {
-                (None, None)
+                None
             };
             video_display::pack_i420_into_shared(
                 shared,
@@ -855,7 +1603,6 @@ async fn run_capture_loop(
                 data_v,
                 stride_v as u32,
                 timing_sample,
-                publish_latency_display,
             );
         }
 
@@ -906,11 +1653,29 @@ async fn run_capture_loop(
         if last_fps_log.elapsed() >= std::time::Duration::from_secs(2) {
             let secs = last_fps_log.elapsed().as_secs_f64();
             let fps_est = frames as f64 / secs;
+            let layers = track.publishing_layers();
+            let layers_str = if layers.is_empty() {
+                "n/a".to_string()
+            } else {
+                layers
+                    .iter()
+                    .map(|layer| {
+                        format!(
+                            "{}({})={}",
+                            layer.rid,
+                            layer.quality,
+                            if layer.active { "on" } else { "off" }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             info!(
-                "Video status: {}x{} | ~{:.1} fps | target {:.2} ms",
+                "Video status: {}x{} | ~{:.1} fps | layers: [{}] | target {:.2} ms",
                 width,
                 height,
                 fps_est,
+                layers_str,
                 target.as_secs_f64() * 1000.0,
             );
             info!("{}", format_timing_line(&timings));
@@ -919,6 +1684,230 @@ async fn run_capture_loop(
             last_fps_log = Instant::now();
         }
     }
+
+    Ok(())
+}
+
+/// Capture loop dedicated to Jetson MIPI capture via libargus.
+///
+/// Argus blocks inside `acquireFrame`, pacing capture itself, so this loop runs in a
+/// dedicated OS thread and pushes NV12 DMA-buffer fds straight into `NativeVideoSource`
+/// via [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
+/// to the Jetson hardware encoder.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+async fn run_argus_capture_loop(
+    config: CaptureConfig,
+    ctrl_c_received: Arc<AtomicBool>,
+    rtc_source: NativeVideoSource,
+    session: argus::ArgusCaptureSession,
+    width: u32,
+    height: u32,
+) -> Result<()> {
+    let capture_handle = std::thread::Builder::new()
+        .name("mipi-capture".into())
+        .spawn(move || -> Result<()> {
+            let mut session = session;
+            let start_ts = Instant::now();
+            let mut frames: u64 = 0;
+            let mut last_fps_log = Instant::now();
+            let mut sum_acquire_ms = 0.0;
+            let mut sum_argus_wait_ms = 0.0;
+            let mut sum_argus_blit_ms = 0.0;
+            let mut sum_capture_ms = 0.0;
+            let mut sum_iter_ms = 0.0;
+            let mut consecutive_failures: u32 = 0;
+            let mut frame_counter: u32 = 1;
+            let mut logged_sensor_ts_source = false;
+            let mut logged_sensor_ts_missing = false;
+            let mut logged_sensor_ts_conversion_failed = false;
+            let mut sensor_timestamp_frames: u64 = 0;
+            let mut backup_timestamp_frames: u64 = 0;
+            let mut sum_sensor_to_acquire_ms = 0.0;
+            let mut sum_sensor_to_argus_acquire_ms = 0.0;
+
+            loop {
+                if ctrl_c_received.load(Ordering::Acquire) {
+                    break;
+                }
+
+                let iter_start = Instant::now();
+                let acquire_started_at = Instant::now();
+                let argus_frame = match session.acquire_frame() {
+                    Ok(frame) => {
+                        consecutive_failures = 0;
+                        frame
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        if consecutive_failures <= 3 {
+                            log::warn!(
+                                "MIPI frame acquisition failed (attempt {}): {}",
+                                consecutive_failures,
+                                e
+                            );
+                        }
+                        let backoff =
+                            Duration::from_millis(5 * (consecutive_failures as u64).min(20));
+                        std::thread::sleep(backoff);
+                        continue;
+                    }
+                };
+                let acquire_finished_at = Instant::now();
+                let fallback_wall_time_us =
+                    if config.attach_timestamp { unix_time_us_now() } else { 0 };
+
+                let (capture_wall_time_us, timestamp_from_sensor) = if config.attach_timestamp {
+                    match argus_frame.sensor_timestamp_ns {
+                        Some(sensor_timestamp_ns) => match argus::sensor_monotonic_ns_to_unix_us(
+                            sensor_timestamp_ns,
+                            fallback_wall_time_us,
+                        ) {
+                            Some(sensor_wall_time_us) => {
+                                if !logged_sensor_ts_source {
+                                    info!(
+                                        "Using Argus sensor timestamp for packet trailer user_timestamp"
+                                    );
+                                    logged_sensor_ts_source = true;
+                                }
+                                (sensor_wall_time_us, true)
+                            }
+                            None => {
+                                if !logged_sensor_ts_conversion_failed {
+                                    log::warn!(
+                                        "Failed to convert Argus sensor timestamp to wall time; using backup system wall clock for packet trailer user_timestamp"
+                                    );
+                                    logged_sensor_ts_conversion_failed = true;
+                                }
+                                (fallback_wall_time_us, false)
+                            }
+                        },
+                        None => {
+                            if !logged_sensor_ts_missing {
+                                log::warn!(
+                                    "Argus sensor timestamp not available; using backup system wall clock for packet trailer user_timestamp"
+                                );
+                                logged_sensor_ts_missing = true;
+                            }
+                            (fallback_wall_time_us, false)
+                        }
+                    }
+                } else {
+                    (0, false)
+                };
+                if config.attach_timestamp {
+                    if timestamp_from_sensor {
+                        sensor_timestamp_frames += 1;
+                        let sensor_to_acquire_ms = fallback_wall_time_us
+                            .saturating_sub(capture_wall_time_us)
+                            as f64
+                            / 1_000.0;
+                        let blit_ms = argus_frame.blit_ns as f64 / 1_000_000.0;
+                        sum_sensor_to_acquire_ms += sensor_to_acquire_ms;
+                        sum_sensor_to_argus_acquire_ms +=
+                            (sensor_to_acquire_ms - blit_ms).max(0.0);
+                    } else {
+                        backup_timestamp_frames += 1;
+                    }
+                }
+                let user_ts =
+                    if config.attach_timestamp { Some(capture_wall_time_us) } else { None };
+                let fid = if config.attach_frame_id {
+                    let id = frame_counter;
+                    frame_counter = frame_counter.wrapping_add(1);
+                    Some(id)
+                } else {
+                    None
+                };
+                let frame_metadata = if user_ts.is_some() || fid.is_some() {
+                    Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+                } else {
+                    None
+                };
+
+                rtc_source.capture_dmabuf_frame_with_metadata(
+                    argus_frame.dmabuf_fd,
+                    width,
+                    height,
+                    0, // NV12
+                    start_ts.elapsed().as_micros() as i64,
+                    frame_metadata,
+                );
+                let capture_finished_at = Instant::now();
+
+                frames += 1;
+                sum_acquire_ms += (acquire_finished_at - acquire_started_at).as_secs_f64() * 1000.0;
+                sum_argus_wait_ms += argus_frame.acquire_wait_ns as f64 / 1_000_000.0;
+                sum_argus_blit_ms += argus_frame.blit_ns as f64 / 1_000_000.0;
+                sum_capture_ms +=
+                    (capture_finished_at - acquire_finished_at).as_secs_f64() * 1000.0;
+                sum_iter_ms += (Instant::now() - iter_start).as_secs_f64() * 1000.0;
+
+                if last_fps_log.elapsed() >= Duration::from_secs(2) {
+                    let secs = last_fps_log.elapsed().as_secs_f64();
+                    let fps_est = frames as f64 / secs;
+                    let n = frames.max(1) as f64;
+                    if config.attach_timestamp {
+                        let sensor_age_ms = if sensor_timestamp_frames > 0 {
+                            sum_sensor_to_acquire_ms / sensor_timestamp_frames as f64
+                        } else {
+                            0.0
+                        };
+                        let sensor_to_argus_acquire_ms = if sensor_timestamp_frames > 0 {
+                            sum_sensor_to_argus_acquire_ms / sensor_timestamp_frames as f64
+                        } else {
+                            0.0
+                        };
+                        info!(
+                            "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_argus_acquire {:.2}, argus_wait {:.2}, argus_blit {:.2}, sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
+                            width,
+                            height,
+                            fps_est,
+                            sensor_timestamp_frames,
+                            backup_timestamp_frames,
+                            sensor_to_argus_acquire_ms,
+                            sum_argus_wait_ms / n,
+                            sum_argus_blit_ms / n,
+                            sensor_age_ms,
+                            sum_acquire_ms / n,
+                            sum_capture_ms / n,
+                            sum_iter_ms / n,
+                        );
+                    } else {
+                        info!(
+                            "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp: disabled | avg ms: argus_wait {:.2}, argus_blit {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
+                            width,
+                            height,
+                            fps_est,
+                            sum_argus_wait_ms / n,
+                            sum_argus_blit_ms / n,
+                            sum_acquire_ms / n,
+                            sum_capture_ms / n,
+                            sum_iter_ms / n,
+                        );
+                    }
+                    frames = 0;
+                    sensor_timestamp_frames = 0;
+                    backup_timestamp_frames = 0;
+                    sum_acquire_ms = 0.0;
+                    sum_argus_wait_ms = 0.0;
+                    sum_argus_blit_ms = 0.0;
+                    sum_capture_ms = 0.0;
+                    sum_iter_ms = 0.0;
+                    sum_sensor_to_acquire_ms = 0.0;
+                    sum_sensor_to_argus_acquire_ms = 0.0;
+                    last_fps_log = Instant::now();
+                }
+            }
+
+            Ok(())
+        })?;
+
+    tokio::task::spawn_blocking(move || {
+        capture_handle
+            .join()
+            .map_err(|e| anyhow::anyhow!("MIPI capture thread panicked: {:?}", e))?
+    })
+    .await??;
 
     Ok(())
 }

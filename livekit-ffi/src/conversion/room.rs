@@ -18,7 +18,10 @@ use livekit::{
         key_provider::{KeyProvider, KeyProviderOptions},
         E2eeOptions, EncryptionType,
     },
-    options::{AudioEncoding, PacketTrailerFeatures, TrackPublishOptions, VideoEncoding},
+    options::{
+        AudioEncoding, FrameMetadataFeatures, TrackPublishOptions, VideoEncoderBackend,
+        VideoEncoding,
+    },
     prelude::*,
     webrtc::{
         native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
@@ -28,23 +31,36 @@ use livekit::{
 };
 use std::time::Duration;
 
-fn packet_trailer_features_from_proto(features: Vec<i32>) -> PacketTrailerFeatures {
-    let mut packet_trailer_features = PacketTrailerFeatures::default();
+fn frame_metadata_features_from_proto(features: Vec<i32>) -> FrameMetadataFeatures {
+    let mut frame_metadata_features = FrameMetadataFeatures::default();
 
     for feature in
-        features.into_iter().filter_map(|value| proto::PacketTrailerFeature::try_from(value).ok())
+        features.into_iter().filter_map(|value| proto::FrameMetadataFeature::try_from(value).ok())
     {
         match feature {
-            proto::PacketTrailerFeature::PtfUserTimestamp => {
-                packet_trailer_features.user_timestamp = true;
+            proto::FrameMetadataFeature::FmfUserTimestamp => {
+                frame_metadata_features.user_timestamp = true;
             }
-            proto::PacketTrailerFeature::PtfFrameId => {
-                packet_trailer_features.frame_id = true;
+            proto::FrameMetadataFeature::FmfFrameId => {
+                frame_metadata_features.frame_id = true;
             }
         }
     }
 
-    packet_trailer_features
+    frame_metadata_features
+}
+
+fn video_encoder_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend> {
+    match backend.and_then(|value| proto::VideoEncoderBackend::try_from(value).ok())? {
+        proto::VideoEncoderBackend::EncoderBackendAuto => Some(VideoEncoderBackend::Auto),
+        proto::VideoEncoderBackend::EncoderBackendSoftware => Some(VideoEncoderBackend::Software),
+        proto::VideoEncoderBackend::EncoderBackendHardware => Some(VideoEncoderBackend::Hardware),
+        proto::VideoEncoderBackend::EncoderBackendNvenc => Some(VideoEncoderBackend::Nvenc),
+        proto::VideoEncoderBackend::EncoderBackendVaapi => Some(VideoEncoderBackend::Vaapi),
+        proto::VideoEncoderBackend::EncoderBackendVideotoolbox => {
+            Some(VideoEncoderBackend::VideoToolbox)
+        }
+    }
 }
 
 impl From<EncryptionState> for proto::EncryptionState {
@@ -313,9 +329,11 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             preconnect_buffer: opts
                 .preconnect_buffer
                 .unwrap_or(default_publish_options.preconnect_buffer),
-            packet_trailer_features: packet_trailer_features_from_proto(
-                opts.packet_trailer_features,
+            frame_metadata_features: frame_metadata_features_from_proto(
+                opts.frame_metadata_features,
             ),
+            video_encoder: video_encoder_from_proto(opts.video_encoder)
+                .unwrap_or(default_publish_options.video_encoder),
             scalability_mode: opts.scalability_mode,
         }
     }
@@ -335,26 +353,54 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 
 #[cfg(test)]
 mod tests {
-    use super::packet_trailer_features_from_proto;
+    use livekit::options::{TrackPublishOptions, VideoEncoderBackend};
+
+    use super::{frame_metadata_features_from_proto, video_encoder_from_proto};
     use crate::proto;
 
     #[test]
-    fn packet_trailer_features_default_to_empty() {
-        let features = packet_trailer_features_from_proto(Vec::new());
+    fn frame_metadata_features_default_to_empty() {
+        let features = frame_metadata_features_from_proto(Vec::new());
 
         assert!(!features.user_timestamp);
         assert!(!features.frame_id);
     }
 
     #[test]
-    fn packet_trailer_features_enable_known_flags() {
-        let features = packet_trailer_features_from_proto(vec![
-            proto::PacketTrailerFeature::PtfUserTimestamp.into(),
-            proto::PacketTrailerFeature::PtfFrameId.into(),
+    fn frame_metadata_features_enable_known_flags() {
+        let features = frame_metadata_features_from_proto(vec![
+            proto::FrameMetadataFeature::FmfUserTimestamp.into(),
+            proto::FrameMetadataFeature::FmfFrameId.into(),
         ]);
 
         assert!(features.user_timestamp);
         assert!(features.frame_id);
+    }
+
+    #[test]
+    fn video_encoder_defaults_to_auto() {
+        let options = TrackPublishOptions::from(proto::TrackPublishOptions::default());
+
+        assert_eq!(options.video_encoder, VideoEncoderBackend::Auto);
+    }
+
+    #[test]
+    fn video_encoder_maps_known_values() {
+        let cases = [
+            (proto::VideoEncoderBackend::EncoderBackendAuto, VideoEncoderBackend::Auto),
+            (proto::VideoEncoderBackend::EncoderBackendSoftware, VideoEncoderBackend::Software),
+            (proto::VideoEncoderBackend::EncoderBackendHardware, VideoEncoderBackend::Hardware),
+            (proto::VideoEncoderBackend::EncoderBackendNvenc, VideoEncoderBackend::Nvenc),
+            (proto::VideoEncoderBackend::EncoderBackendVaapi, VideoEncoderBackend::Vaapi),
+            (
+                proto::VideoEncoderBackend::EncoderBackendVideotoolbox,
+                VideoEncoderBackend::VideoToolbox,
+            ),
+        ];
+
+        for (proto_backend, expected) in cases {
+            assert_eq!(video_encoder_from_proto(Some(proto_backend as i32)), Some(expected));
+        }
     }
 }
 
@@ -496,6 +542,9 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
             attributes: msg.attributes,
             content_header,
             encryption_type: 0,
+            // Data streams v2 fields
+            inline_content: None,
+            compression: livekit_protocol::data_stream::CompressionType::None as i32,
         }
     }
 }

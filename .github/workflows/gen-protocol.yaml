@@ -39,9 +39,11 @@ jobs:
           submodules: true
           ref: ${{ github.event.pull_request.head.ref }}
 
-      - uses: actions-rs/toolchain@16499b5e05bf2e26879000db0c1d13f7e13fa3af # v1.0.7
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:
-          toolchain: stable
+          cache: false
+          rustflags: ""
 
       - name: Install Protoc
         uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0

@@ -65,6 +65,8 @@ class RtpSender {
 
   void set_parameters(RtpParameters params) const;
 
+  void set_video_encoder_backend(VideoEncoderBackend backend) const;
+
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const {
     return sender_;
   }

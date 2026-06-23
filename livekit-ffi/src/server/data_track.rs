@@ -109,6 +109,15 @@ impl FfiRemoteDataTrack {
         Ok(proto::RemoteDataTrackIsPublishedResponse { is_published })
     }
 
+    pub fn set_pipeline_options(
+        self,
+        _server: &'static FfiServer,
+        request: proto::RemoteDataTrackSetPipelineOptionsRequest,
+    ) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
+        self.inner.set_pipeline_options(request.options.into());
+        Ok(proto::RemoteDataTrackSetPipelineOptionsResponse::default())
+    }
+
     pub fn subscribe(
         self,
         server: &'static FfiServer,

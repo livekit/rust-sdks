@@ -41,6 +41,10 @@ namespace livekit_ffi {
 class PeerConnectionFactory;
 class RtpSender;
 class RtpReceiver;
+enum class VideoPublishTimingStage : int32_t;
+enum class VideoSubscribeTimingStage : int32_t;
+struct VideoPublishTimingObserverWrapper;
+struct VideoSubscribeTimingObserverWrapper;
 }  // namespace livekit_ffi
 
 namespace livekit_ffi {
@@ -119,11 +123,46 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
                             uint64_t user_timestamp,
                             uint32_t frame_id);
 
+  /// Set the observer receiving sender-side publish timing events.
+  void set_publish_timing_observer(
+      rust::Box<VideoPublishTimingObserverWrapper> observer);
+
+  /// Clear the observer receiving sender-side publish timing events.
+  void clear_publish_timing_observer();
+
+  /// Emit a sender-side publish timing event.
+  void emit_publish_timing(VideoPublishTimingStage stage,
+                           uint64_t user_timestamp,
+                           uint32_t frame_id) const;
+
+  /// Set the observer receiving receiver-side subscribe timing events.
+  void set_subscribe_timing_observer(
+      rust::Box<VideoSubscribeTimingObserverWrapper> observer);
+
+  /// Clear the observer receiving receiver-side subscribe timing events.
+  void clear_subscribe_timing_observer();
+
+  /// Emit a receiver-side subscribe timing event.
+  void emit_subscribe_timing(VideoSubscribeTimingStage stage,
+                             uint64_t user_timestamp,
+                             uint32_t frame_id) const;
+
  private:
   void TransformSend(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
   void TransformReceive(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
+  void emit_subscribe_timing(VideoSubscribeTimingStage stage,
+                             uint64_t user_timestamp,
+                             uint32_t frame_id,
+                             uint64_t timestamp_us) const;
+  bool publish_timing_enabled() const;
+  bool subscribe_timing_enabled() const;
+
+  PacketTrailerMetadata LookupSendMetadata(
+      const webrtc::TransformableFrameInterface& frame,
+      uint32_t ssrc,
+      uint32_t rtp_timestamp) const;
 
   /// Append frame metadata trailer to frame data
   std::vector<uint8_t> AppendTrailer(
@@ -161,6 +200,15 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
 
   // Simulcast tracking: detect layer switches and flush stale entries.
   mutable uint32_t recv_active_ssrc_{0};
+
+  mutable webrtc::Mutex publish_timing_observer_mutex_;
+  std::atomic<bool> publish_timing_enabled_{false};
+  mutable std::shared_ptr<rust::Box<VideoPublishTimingObserverWrapper>>
+      publish_timing_observer_;
+  mutable webrtc::Mutex subscribe_timing_observer_mutex_;
+  std::atomic<bool> subscribe_timing_enabled_{false};
+  mutable std::shared_ptr<rust::Box<VideoSubscribeTimingObserverWrapper>>
+      subscribe_timing_observer_;
 };
 
 /// Wrapper class for Rust FFI that manages packet trailer transformers.
@@ -193,6 +241,30 @@ class PacketTrailerHandler {
   void store_frame_metadata(int64_t capture_timestamp_us,
                             uint64_t user_timestamp,
                             uint32_t frame_id) const;
+
+  /// Set the observer receiving sender-side publish timing events.
+  void set_publish_timing_observer(
+      rust::Box<VideoPublishTimingObserverWrapper> observer) const;
+
+  /// Clear the observer receiving sender-side publish timing events.
+  void clear_publish_timing_observer() const;
+
+  /// Emit a sender-side publish timing event.
+  void emit_publish_timing(VideoPublishTimingStage stage,
+                           uint64_t user_timestamp,
+                           uint32_t frame_id) const;
+
+  /// Set the observer receiving receiver-side subscribe timing events.
+  void set_subscribe_timing_observer(
+      rust::Box<VideoSubscribeTimingObserverWrapper> observer) const;
+
+  /// Clear the observer receiving receiver-side subscribe timing events.
+  void clear_subscribe_timing_observer() const;
+
+  /// Emit a receiver-side subscribe timing event.
+  void emit_subscribe_timing(VideoSubscribeTimingStage stage,
+                             uint64_t user_timestamp,
+                             uint32_t frame_id) const;
 
   /// Access the underlying transformer for chaining.
   webrtc::scoped_refptr<PacketTrailerTransformer> transformer() const;

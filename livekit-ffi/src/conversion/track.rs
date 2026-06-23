@@ -39,10 +39,10 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
                 .into_iter()
                 .map(|i| proto::AudioTrackFeature::from(i).into())
                 .collect(),
-            packet_trailer_features: publication
-                .packet_trailer_features()
+            frame_metadata_features: publication
+                .frame_metadata_features()
                 .into_iter()
-                .map(|i| proto::PacketTrailerFeature::from(i).into())
+                .map(|i| proto::FrameMetadataFeature::from(i).into())
                 .collect(),
         }
     }
@@ -164,14 +164,17 @@ impl From<AudioTrackFeature> for proto::AudioTrackFeature {
     }
 }
 
-impl From<livekit_protocol::PacketTrailerFeature> for proto::PacketTrailerFeature {
+impl From<livekit_protocol::PacketTrailerFeature> for proto::FrameMetadataFeature {
     fn from(value: livekit_protocol::PacketTrailerFeature) -> Self {
         match value {
             livekit_protocol::PacketTrailerFeature::PtfUserTimestamp => {
-                proto::PacketTrailerFeature::PtfUserTimestamp
+                proto::FrameMetadataFeature::FmfUserTimestamp
             }
             livekit_protocol::PacketTrailerFeature::PtfFrameId => {
-                proto::PacketTrailerFeature::PtfFrameId
+                proto::FrameMetadataFeature::FmfFrameId
+            }
+            livekit_protocol::PacketTrailerFeature::PtfUserData => {
+                unimplemented!("Not exposed yet")
             }
         }
     }

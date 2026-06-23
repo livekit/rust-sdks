@@ -26,6 +26,8 @@
 //! internal map keyed by RTP timestamp. Decoded frames look up their
 //! metadata via lookup_frame_metadata(rtp_timestamp).
 
+use std::sync::Arc;
+
 use cxx::SharedPtr;
 use webrtc_sys::packet_trailer::ffi as sys_pt;
 
@@ -33,6 +35,103 @@ use crate::{
     peer_connection_factory::PeerConnectionFactory, rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
 };
+
+/// Stage reached by a native local video frame in the publish pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublishTimingStage {
+    /// The adapted raw frame was handed to WebRTC's encoder path.
+    EncoderUpload,
+    /// WebRTC produced an encoded frame for packetization.
+    EncoderOutput,
+    /// The encoded frame was handed back to WebRTC's packetizer.
+    WebrtcPacketize,
+}
+
+/// Stage reached by a native remote video frame in the subscribe pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubscribeTimingStage {
+    /// WebRTC produced an encoded frame after RTP depacketization.
+    WebrtcReceive,
+    /// The encoded frame was handed to WebRTC's decoder.
+    DecoderUpload,
+    /// WebRTC produced a decoded frame for the native video sink.
+    DecoderOutput,
+}
+
+/// Timestamped native local video publish pipeline event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PublishTimingEvent {
+    /// Publish pipeline stage reached by the frame.
+    pub stage: PublishTimingStage,
+    /// Wall-clock time when this stage was observed, in microseconds since the Unix epoch.
+    pub timestamp_us: u64,
+    /// User capture timestamp associated with this frame, in microseconds since the Unix epoch.
+    pub capture_timestamp_us: u64,
+    /// Optional application frame ID associated with this frame.
+    pub frame_id: Option<u32>,
+}
+
+/// Timestamped native remote video subscribe pipeline event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubscribeTimingEvent {
+    /// Subscribe pipeline stage reached by the frame.
+    pub stage: SubscribeTimingStage,
+    /// Wall-clock time when this stage was observed, in microseconds since the Unix epoch.
+    pub timestamp_us: u64,
+    /// User capture timestamp associated with this frame, in microseconds since the Unix epoch.
+    pub capture_timestamp_us: u64,
+    /// Optional application frame ID associated with this frame.
+    pub frame_id: Option<u32>,
+}
+
+/// Callback invoked for native local video publish timing events.
+pub type PublishTimingObserver = Arc<dyn Fn(PublishTimingEvent) + Send + Sync + 'static>;
+/// Callback invoked for native remote video subscribe timing events.
+pub type SubscribeTimingObserver = Arc<dyn Fn(SubscribeTimingEvent) + Send + Sync + 'static>;
+
+impl From<sys_pt::VideoPublishTimingStage> for PublishTimingStage {
+    fn from(stage: sys_pt::VideoPublishTimingStage) -> Self {
+        match stage {
+            sys_pt::VideoPublishTimingStage::EncoderUpload => Self::EncoderUpload,
+            sys_pt::VideoPublishTimingStage::EncoderOutput => Self::EncoderOutput,
+            sys_pt::VideoPublishTimingStage::WebrtcPacketize => Self::WebrtcPacketize,
+            _ => Self::WebrtcPacketize,
+        }
+    }
+}
+
+impl From<sys_pt::VideoPublishTimingEvent> for PublishTimingEvent {
+    fn from(event: sys_pt::VideoPublishTimingEvent) -> Self {
+        Self {
+            stage: event.stage.into(),
+            timestamp_us: event.timestamp_us,
+            capture_timestamp_us: event.capture_timestamp_us,
+            frame_id: (event.frame_id != 0).then_some(event.frame_id),
+        }
+    }
+}
+
+impl From<sys_pt::VideoSubscribeTimingStage> for SubscribeTimingStage {
+    fn from(stage: sys_pt::VideoSubscribeTimingStage) -> Self {
+        match stage {
+            sys_pt::VideoSubscribeTimingStage::WebrtcReceive => Self::WebrtcReceive,
+            sys_pt::VideoSubscribeTimingStage::DecoderUpload => Self::DecoderUpload,
+            sys_pt::VideoSubscribeTimingStage::DecoderOutput => Self::DecoderOutput,
+            _ => Self::DecoderOutput,
+        }
+    }
+}
+
+impl From<sys_pt::VideoSubscribeTimingEvent> for SubscribeTimingEvent {
+    fn from(event: sys_pt::VideoSubscribeTimingEvent) -> Self {
+        Self {
+            stage: event.stage.into(),
+            timestamp_us: event.timestamp_us,
+            capture_timestamp_us: event.capture_timestamp_us,
+            frame_id: (event.frame_id != 0).then_some(event.frame_id),
+        }
+    }
+}
 
 /// Handler for packet trailer embedding/extraction on RTP streams.
 ///
@@ -95,6 +194,46 @@ impl PacketTrailerHandler {
 
     pub(crate) fn sys_handle(&self) -> SharedPtr<sys_pt::PacketTrailerHandler> {
         self.sys_handle.clone()
+    }
+
+    /// Set the callback receiving sender-side publish timing events.
+    pub fn set_publish_timing_observer(&self, observer: Option<PublishTimingObserver>) {
+        if let Some(observer) = observer {
+            self.sys_handle.set_publish_timing_observer(Box::new(
+                webrtc_sys::packet_trailer::VideoPublishTimingObserverWrapper::new(Box::new(
+                    move |event| observer(event.into()),
+                )),
+            ));
+        } else {
+            self.sys_handle.clear_publish_timing_observer();
+        }
+    }
+
+    /// Set the callback receiving receiver-side subscribe timing events.
+    pub fn set_subscribe_timing_observer(&self, observer: Option<SubscribeTimingObserver>) {
+        if let Some(observer) = observer {
+            self.sys_handle.set_subscribe_timing_observer(Box::new(
+                webrtc_sys::packet_trailer::VideoSubscribeTimingObserverWrapper::new(Box::new(
+                    move |event| observer(event.into()),
+                )),
+            ));
+        } else {
+            self.sys_handle.clear_subscribe_timing_observer();
+        }
+    }
+
+    pub(crate) fn emit_subscribe_timing(
+        &self,
+        stage: SubscribeTimingStage,
+        capture_timestamp_us: u64,
+        frame_id: u32,
+    ) {
+        let stage = match stage {
+            SubscribeTimingStage::WebrtcReceive => sys_pt::VideoSubscribeTimingStage::WebrtcReceive,
+            SubscribeTimingStage::DecoderUpload => sys_pt::VideoSubscribeTimingStage::DecoderUpload,
+            SubscribeTimingStage::DecoderOutput => sys_pt::VideoSubscribeTimingStage::DecoderOutput,
+        };
+        self.sys_handle.emit_subscribe_timing(stage, capture_timestamp_us, frame_id);
     }
 }
 

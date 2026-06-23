@@ -16,7 +16,7 @@ use crate::proto;
 use livekit::{
     data_track::{
         DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSubscribeError, PublishError,
-        PushFrameError, PushFrameErrorReason,
+        PushFrameError, PushFrameErrorReason, RemoteDataTrackPipelineOptions,
     },
     prelude::DataTrackSubscribeOptions,
 };
@@ -53,9 +53,19 @@ impl From<proto::DataTrackFrame> for DataTrackFrame {
     }
 }
 
+impl From<proto::RemoteDataTrackPipelineOptions> for RemoteDataTrackPipelineOptions {
+    fn from(msg: proto::RemoteDataTrackPipelineOptions) -> Self {
+        let mut options = Self::new();
+        if let Some(max_partial_frames) = msg.max_partial_frames {
+            options = options.with_max_partial_frames(max_partial_frames as usize);
+        }
+        options
+    }
+}
+
 impl From<proto::DataTrackSubscribeOptions> for DataTrackSubscribeOptions {
     fn from(msg: proto::DataTrackSubscribeOptions) -> Self {
-        let mut options = DataTrackSubscribeOptions::new();
+        let mut options = Self::new();
         if let Some(buffer_size) = msg.buffer_size {
             options = options.with_buffer_size(buffer_size as usize);
         }

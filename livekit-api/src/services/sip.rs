@@ -78,6 +78,8 @@ pub struct CreateSIPInboundTrunkOptions {
     pub max_call_duration: Option<Duration>,
     pub ringing_timeout: Option<Duration>,
     pub krisp_enabled: Option<bool>,
+    /// Authentication realm advertised on inbound SIP invites.
+    pub auth_realm: Option<String>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -191,6 +193,7 @@ impl SIPClient {
                         allowed_addresses: options.allowed_addresses.unwrap_or_default(),
                         auth_username: options.auth_username.unwrap_or_default(),
                         auth_password: options.auth_password.unwrap_or_default(),
+                        auth_realm: options.auth_realm.unwrap_or_default(),
                         headers: options.headers.unwrap_or_default(),
                         headers_to_attributes: options.headers_to_attributes.unwrap_or_default(),
                         attributes_to_headers: options.attributes_to_headers.unwrap_or_default(),
@@ -203,6 +206,7 @@ impl SIPClient {
                         media_encryption: Default::default(),
                         created_at: Default::default(),
                         updated_at: Default::default(),
+                        media: Default::default(),
                     }),
                 },
                 self.base.auth_header(
@@ -248,6 +252,7 @@ impl SIPClient {
                         created_at: Default::default(),
                         updated_at: Default::default(),
                         from_host: Default::default(),
+                        media: Default::default(),
                     }),
                 },
                 self.base.auth_header(
