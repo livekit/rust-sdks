@@ -238,15 +238,25 @@ impl SignalClient {
                 // if every region fails the caller sees why the last region
                 // connection failed.
                 let mut last_err = err;
-                for url in urls.iter() {
-                    log::info!("fallback connection to: {}", url);
-                    match SignalInner::connect(url, token, options.clone(), publisher_offer.clone())
-                        .await
+                for region_url in urls.iter() {
+                    log::info!("fallback connection to: {}", region_url);
+                    match SignalInner::connect(
+                        region_url,
+                        token,
+                        options.clone(),
+                        publisher_offer.clone(),
+                    )
+                    .await
                     {
                         Ok((inner, join_response, stream_events)) => {
                             return Ok(handle_success(inner, join_response, stream_events))
                         }
-                        Err(region_conn_err) => last_err = region_conn_err,
+                        Err(region_conn_err) => {
+                            // This region is unreachable; drop it from the cache
+                            // so the next attempt doesn't hand it out again.
+                            RegionUrlProvider::mark_failed(url, region_url);
+                            last_err = region_conn_err;
+                        }
                     }
                 }
 
