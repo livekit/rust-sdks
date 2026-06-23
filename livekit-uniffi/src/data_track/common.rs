@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use bytes::Bytes;
-use livekit_datatrack::api::{DataTrackFrame, DataTrackSid};
+use livekit_datatrack::api::DataTrackSid;
 use livekit_protocol as proto;
 use prost::Message;
 
@@ -23,10 +23,31 @@ uniffi::custom_type!(DataTrackSid, String, {
     try_lift: |s| DataTrackSid::try_from(s).map_err(|e| uniffi::deps::anyhow::anyhow!("{e}")),
 });
 
-#[uniffi::remote(Record)]
+/// A frame published on a data track.
+///
+/// FFI wrapper around [`livekit_datatrack::api::DataTrackFrame`]. The underlying type uses the
+/// builder pattern with private fields.
+///
+#[derive(uniffi::Record)]
 pub struct DataTrackFrame {
     pub payload: Bytes,
     pub user_timestamp: Option<u64>,
+}
+
+impl Into<livekit_datatrack::api::DataTrackFrame> for DataTrackFrame {
+    fn into(self) -> livekit_datatrack::api::DataTrackFrame {
+        let mut frame = livekit_datatrack::api::DataTrackFrame::new(self.payload);
+        if let Some(user_timestamp) = self.user_timestamp {
+            frame = frame.with_user_timestamp(user_timestamp);
+        }
+        frame
+    }
+}
+
+impl Into<DataTrackFrame> for livekit_datatrack::api::DataTrackFrame {
+    fn into(self) -> DataTrackFrame {
+        DataTrackFrame { payload: self.payload(), user_timestamp: self.user_timestamp() }
+    }
 }
 
 /// Information about a published data track.

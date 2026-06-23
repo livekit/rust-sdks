@@ -152,7 +152,7 @@ impl Drop for LocalTrackInner {
 ///
 #[derive(Clone, Debug)]
 pub struct DataTrackOptions {
-    pub name: String,
+    pub(crate) name: String,
 }
 
 impl DataTrackOptions {

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError}
+use super::common::{
+    deserialize_signal_response, DataTrackFrame, DataTrackInfo, HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
 use livekit_datatrack::{
-    api::{DataTrack, DataTrackFrame, DataTrackSid, DataTrackSubscribeError, Remote},
+    api::{DataTrack, DataTrackSid, DataTrackSubscribeError, Remote},
     backend::{remote, DecryptionProvider},
 };
 use livekit_protocol as proto;
@@ -72,7 +72,7 @@ impl DataTrackStream {
     /// Returns the next received frame or `None` if the subscription has ended.
     pub async fn next(&self) -> Option<DataTrackFrame> {
         // TODO: avoid mutex?
-        self.0.lock().await.next().await
+        self.0.lock().await.next().await.map(Into::into)
     }
 }
 

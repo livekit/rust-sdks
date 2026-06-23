@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError}
+use super::common::{
+    deserialize_signal_response, DataTrackFrame, DataTrackInfo, HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
 use livekit_datatrack::{
-    api::{DataTrack, DataTrackFrame, DataTrackOptions, Local, PublishError, PushFrameErrorReason},
+    api::{DataTrack, Local, PublishError, PushFrameErrorReason},
     backend::{local, EncryptionProvider},
 };
 use livekit_protocol as proto;
@@ -55,7 +55,7 @@ impl LocalDataTrack {
     pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
         // `PushFrameError` returns ownership of the unpublished frame to the caller;
         // since this isn't applicable in an FFI context, just provide the reason.
-        self.0.try_push(frame).map_err(|err| err.reason())
+        self.0.try_push(frame.into()).map_err(|err| err.reason())
     }
 
     /// Unpublishes the track.
@@ -64,9 +64,20 @@ impl LocalDataTrack {
     }
 }
 
-#[uniffi::remote(Record)]
+/// Options for publishing a data track.
+///
+/// FFI wrapper around [`livekit_datatrack::api::DataTrackOptions`]. The underlying type uses the
+/// builder pattern with private fields.
+///
+#[derive(uniffi::Record)]
 pub struct DataTrackOptions {
     pub name: String,
+}
+
+impl From<DataTrackOptions> for livekit_datatrack::api::DataTrackOptions {
+    fn from(options: DataTrackOptions) -> Self {
+        livekit_datatrack::api::DataTrackOptions::new(options.name)
+    }
 }
 
 /// System for managing data track publications.
@@ -95,8 +106,7 @@ impl LocalDataTrackManager {
     ) -> Arc<Self> {
         let token = CancellationToken::new();
 
-        let encryption_provider = encryption_provider
-            .map(|p| p as Arc<dyn EncryptionProvider>);
+        let encryption_provider = encryption_provider.map(|p| p as Arc<dyn EncryptionProvider>);
         let manager_options = local::ManagerOptions { encryption_provider };
 
         let (manager, input, output) = local::Manager::new(manager_options);
@@ -120,7 +130,7 @@ impl LocalDataTrackManager {
         &self,
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
-        self.input.publish_track(options).await.map(LocalDataTrack)
+        self.input.publish_track(options.into()).await.map(LocalDataTrack)
     }
 
     /// Get information about all currently published tracks.

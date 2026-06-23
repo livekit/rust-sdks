@@ -32,8 +32,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 ///
 #[derive(Clone, Default)]
 pub struct DataTrackFrame {
-    pub payload: Bytes,
-    pub user_timestamp: Option<u64>,
+    pub(crate) payload: Bytes,
+    pub(crate) user_timestamp: Option<u64>,
 }
 
 impl DataTrackFrame {
