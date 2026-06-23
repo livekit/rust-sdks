@@ -52,11 +52,8 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: aarch64-apple-darwin
-            e2e-testing: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            e2e-testing: true
-
     name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
@@ -150,64 +147,19 @@ jobs:
             libxcomposite-dev \
             libglib2.0-dev
 
-      # Use the official install script for latest. If it fails (typically
-      # because GitHub's unauthenticated API rate-limit fires and the script
-      # can't resolve the latest tag → `Invalid version:`), fall back to a
-      # pinned release downloaded directly from GitHub releases. The fallback
-      # version is bumped manually here when needed; e2e tests don't need
-      # bleeding-edge server features.
-      - name: Install LiveKit server
-        if: ${{ matrix.e2e-testing }}
+      - name: Run LiveKit dev server
+        uses: livekit/dev-server-action@61e2b4dcb170dd3591e0c9b0db3c3fe5db93b500
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Test
         env:
-          LIVEKIT_FALLBACK_VERSION: v1.11.0
+          RUST_LOG: info
+        shell: bash
         run: |
-          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-            brew install livekit
-            exit 0
-          fi
-
-          # Linux: try the install script first. errexit is suppressed inside
-          # an `if` condition, so a failed install just falls through to the
-          # fallback path instead of aborting.
-          if curl -sSL https://get.livekit.io | bash; then
-            echo "Installed livekit-server via install.livekit.io"
-            exit 0
-          fi
-
-          echo "::warning::install.livekit.io failed (likely API rate-limit); falling back to ${LIVEKIT_FALLBACK_VERSION}"
-          mkdir -p ~/.local/bin
-          case "${{ runner.arch }}" in
-            X64)   asset="livekit_${LIVEKIT_FALLBACK_VERSION#v}_linux_amd64.tar.gz" ;;
-            ARM64) asset="livekit_${LIVEKIT_FALLBACK_VERSION#v}_linux_arm64.tar.gz" ;;
-            *) echo "::error::no livekit-server linux asset for arch ${{ runner.arch }}"; exit 1 ;;
-          esac
-          url="https://github.com/livekit/livekit/releases/download/${LIVEKIT_FALLBACK_VERSION}/${asset}"
-          curl --fail --silent --show-error --location --retry 3 --output /tmp/livekit.tar.gz "$url"
-          tar -xzf /tmp/livekit.tar.gz -C /tmp
-          mv /tmp/livekit-server ~/.local/bin/
-          rm /tmp/livekit.tar.gz
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Run LiveKit server
-        if: ${{ matrix.e2e-testing }}
-        env:
-          # TODO: once data tracks is enabled by default in a subsequent SFU release, remove this.
-          LIVEKIT_CONFIG: "enable_data_tracks: true"
-        run: livekit-server --dev &
-
-      # Unit tests run in dev profile to keep CI compile time low. E2E tests
-      # run in release: their timing windows (ICE handshake, reconnect, ping
-      # timeout) are sensitive to real-clock runtime, and dev-profile WebRTC
-      # adds enough overhead under load to push close to test timeouts.
-      # sccache absorbs most of the extra release-profile compile cost.
-      - name: Test (no E2E)
-        if: ${{ !matrix.e2e-testing }}
-        env:
-          RUST_LOG: info
-        run: cargo test --verbose --target ${{ matrix.target }} -- --nocapture
-
-      - name: Test (with E2E)
-        if: ${{ matrix.e2e-testing }}
-        env:
-          RUST_LOG: info
-        run: cargo test --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture --test-threads=1
+          cargo test --verbose \
+            --target ${{ matrix.target }} \
+            --features __lk-e2e-test \
+            -- \
+            --nocapture \
+            --test-threads=1

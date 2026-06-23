@@ -1,10 +1,11 @@
 [package]
 name = "livekit"
-version = "0.7.44"
+version = "0.7.47"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
 repository.workspace = true
+readme = "README.md"
 
 [features]
 # By default ws TLS is not enabled
@@ -14,6 +15,11 @@ async = ["livekit-api/signal-client-async"]
 tokio = ["livekit-api/signal-client-tokio"]
 dispatcher = ["livekit-api/signal-client-dispatcher"]
 
+# On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
+# GDBus requires a GLib event loop to be running. Enable this feature if you
+# wish to use screensharing, and you do not already have a GLib event loop
+# running in your application.
+glib-main-loop = [ "libwebrtc/glib-main-loop" ]
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys

@@ -1,0 +1,100 @@
+/*
+ * Copyright 2026 LiveKit, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+ 
+#ifndef WEBRTC_JETSON_AV1_ENCODER_IMPL_H_
+#define WEBRTC_JETSON_AV1_ENCODER_IMPL_H_
+
+#include <cstdint>
+#include <vector>
+
+#include "api/environment/environment.h"
+#include "api/video/video_codec_constants.h"
+#include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_encoder.h"
+#include "modules/video_coding/svc/scalable_video_controller_no_layering.h"
+
+#include "jetson_mmapi_encoder.h"
+
+namespace webrtc {
+
+class JetsonAV1EncoderImpl : public VideoEncoder {
+ public:
+  struct LayerConfig {
+    int simulcast_idx = 0;
+    int width = -1;
+    int height = -1;
+    bool sending = true;
+    bool key_frame_request = false;
+    float max_frame_rate = 0;
+    uint32_t target_bps = 0;
+    uint32_t max_bps = 0;
+    bool frame_dropping_on = false;
+    int key_frame_interval = 0;
+    int num_temporal_layers = 1;
+
+    void SetStreamState(bool send_stream);
+  };
+
+ public:
+  JetsonAV1EncoderImpl(const webrtc::Environment& env,
+                       const SdpVideoFormat& format);
+  ~JetsonAV1EncoderImpl() override;
+
+  int32_t InitEncode(const VideoCodec* codec_settings,
+                     const Settings& settings) override;
+
+  int32_t RegisterEncodeCompleteCallback(
+      EncodedImageCallback* callback) override;
+
+  int32_t Release() override;
+
+  int32_t Encode(const VideoFrame& frame,
+                 const std::vector<VideoFrameType>* frame_types) override;
+
+  void SetRates(const RateControlParameters& rc_parameters) override;
+
+  EncoderInfo GetEncoderInfo() const override;
+
+ private:
+  int32_t ProcessEncodedFrame(std::vector<uint8_t>& packet,
+                              const ::webrtc::VideoFrame& input_frame,
+                              bool is_keyframe);
+
+  const webrtc::Environment& env_;
+  EncodedImageCallback* encoded_image_callback_ = nullptr;
+  livekit::JetsonMmapiEncoder encoder_;
+  LayerConfig configuration_;
+  EncodedImage encoded_image_;
+  VideoCodec codec_;
+  void ReportInit();
+  void ReportError();
+  bool has_reported_init_ = false;
+  bool has_reported_error_ = false;
+  bool sent_decodable_keyframe_ = false;
+  std::vector<uint8_t> cached_sequence_header_obu_;
+  // Produces the per-frame GenericFrameInfo and the keyframe
+  // FrameDependencyStructure that back the AV1 dependency descriptor. The
+  // Jetson hardware only emits an OBU bitstream, so (like libaom's encoder and
+  // WebRTC's SimpleEncoderWrapper) we synthesize the L1T1 scalability metadata
+  // here. Without it the RTP layer has no dependency descriptor to send and the
+  // packetizer never emits packets for AV1.
+  ScalableVideoControllerNoLayering svc_controller_;
+  const SdpVideoFormat format_;
+};
+
+}  // namespace webrtc
+
+#endif  // WEBRTC_JETSON_AV1_ENCODER_IMPL_H_
