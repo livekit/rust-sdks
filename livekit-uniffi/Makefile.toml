@@ -679,6 +679,14 @@ script = """
 cp ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/
 """
 
+[tasks.dart-copy-tests]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/test
+cp ${SUPPORT_DIR}/${LANG}/test/*.dart ${PACKAGES_DIR}/${LANG}/test/
+"""
+
 [tasks.dart-package-flow]
 private = true
 dependencies = [
@@ -686,7 +694,8 @@ dependencies = [
     "dart-move-code-into-lib",
     "dart-generate-manifest",
     "dart-copy-hook",
-    "dart-copy-lib"
+    "dart-copy-lib",
+    "dart-copy-tests"
 ]
 
 [tasks.dart-package]
