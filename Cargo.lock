@@ -3888,15 +3888,19 @@ version = "0.1.0"
 dependencies = [
  "block2 0.6.2",
  "bytes",
+ "cc",
  "dispatch2",
+ "image",
  "imgproc",
  "livekit",
+ "nokhwa",
  "objc2 0.6.4",
  "objc2-av-foundation",
  "objc2-core-media",
  "objc2-core-video",
  "objc2-foundation 0.3.2",
  "thiserror 2.0.18",
+ "yuv-sys",
 ]
 
 [[package]]

@@ -53,8 +53,12 @@ pub enum CapturePixelFormat {
     Bgra,
     /// Packed RGB24.
     Rgb24,
+    /// Packed BGR24.
+    Bgr24,
     /// Packed YUYV/YUY2.
     Yuyv,
+    /// Single-plane 8-bit luma.
+    Gray,
     /// Encoded MJPEG frames.
     Mjpeg,
 }

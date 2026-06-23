@@ -14,9 +14,13 @@
 
 //! Optional capture sources that feed the shared capture paths.
 
+#[cfg(feature = "libargus")]
+pub mod argus;
 #[cfg(feature = "gstreamer")]
 pub mod gstreamer;
 #[cfg(feature = "rtsp")]
 pub mod rtsp;
 #[cfg(feature = "tcp-source")]
 pub mod tcp;
+#[cfg(feature = "v4l")]
+pub mod v4l;

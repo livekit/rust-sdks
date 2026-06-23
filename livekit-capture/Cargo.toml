@@ -9,9 +9,11 @@ repository.workspace = true
 
 [dependencies]
 bytes = { workspace = true }
+image = { workspace = true, optional = true }
 imgproc = { workspace = true, optional = true }
 livekit = { workspace = true }
 thiserror = { workspace = true }
+yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
 [features]
 default = []
@@ -46,8 +48,13 @@ avfoundation = [
     "objc2-foundation/NSString",
 ]
 gstreamer = []
+libargus = []
 rtsp = []
 tcp-source = []
+v4l = ["dep:image", "dep:nokhwa", "dep:yuv-sys"]
+
+[build-dependencies]
+cc = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = { version = "0.6.2", default-features = false, optional = true }
@@ -57,3 +64,6 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, optional = 
 objc2-core-media = { version = "0.3.2", default-features = false, optional = true }
 objc2-core-video = { version = "0.3.2", default-features = false, optional = true }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-v4l"], optional = true }
