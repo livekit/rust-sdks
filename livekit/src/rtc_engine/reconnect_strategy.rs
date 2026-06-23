@@ -70,10 +70,10 @@ mod tests {
         // Monotonic non-decreasing and never above the cap.
         let mut prev = Duration::ZERO;
         for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal = nominal(attempt);
-            assert!(nominal >= prev, "backoff must not decrease (attempt {attempt})");
-            assert!(nominal <= RECONNECT_MAX_DELAY, "backoff must not exceed the cap");
-            prev = nominal;
+            let nominal_duration = nominal(attempt);
+            assert!(nominal_duration >= prev, "backoff must not decrease (attempt {attempt})");
+            assert!(nominal_duration <= RECONNECT_MAX_DELAY, "backoff must not exceed the cap");
+            prev = nominal_duration;
         }
 
         // Late attempts are pinned to the cap, and large attempt indices don't
@@ -86,12 +86,12 @@ mod tests {
     fn backoff_delay_stays_within_nominal_jitter_window() {
         // Full jitter: every sample must land within [0, nominal(attempt)].
         for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal = nominal(attempt);
+            let nominal_duration = nominal(attempt);
             for _ in 0..1000 {
-                let delay = delay(attempt);
+                let delay_duration = delay(attempt);
                 assert!(
-                    delay <= nominal,
-                    "jittered delay {delay:?} exceeded nominal {nominal:?} (attempt {attempt})"
+                    delay_duration <= nominal_duration,
+                    "jittered delay {delay_duration:?} exceeded nominal {nominal_duration:?} (attempt {attempt})"
                 );
             }
         }

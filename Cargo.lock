@@ -3825,6 +3825,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures-util",
+ "http 1.4.0",
  "lazy_static",
  "libloading 0.8.9",
  "libwebrtc",
