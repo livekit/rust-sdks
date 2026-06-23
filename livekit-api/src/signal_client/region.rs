@@ -27,12 +27,6 @@ use crate::http_client;
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 
-/// How long a fetched region list is reused before being re-fetched. Matches
-/// client-sdk-js's `DEFAULT_MAX_AGE_MS`. (The server's `Cache-Control: max-age`
-/// is not yet honoured — a fixed TTL keeps this backend-agnostic; honouring the
-/// header is a possible refinement.)
-const REGION_CACHE_TTL: Duration = Duration::from_secs(5);
-
 struct CachedRegions {
     urls: Vec<String>,
     fetched_at: Instant,
@@ -43,20 +37,37 @@ struct CachedRegions {
 /// per-connection object) means it survives across reconnect attempts — each of
 /// which rebuilds the SignalClient — so the reconnect loop does not re-pay the
 /// region fetch on every attempt.
-fn region_cache() -> &'static Mutex<HashMap<String, CachedRegions>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, CachedRegions>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+struct RegionCache {
+    entries: Mutex<HashMap<String, CachedRegions>>,
+    ttl: Duration,
 }
 
-/// Cached region URLs for `host` if the entry is still within
-/// [`REGION_CACHE_TTL`], else `None` (the caller should re-fetch).
-fn cached_region_urls(host: &str) -> Option<Vec<String>> {
-    let cache = region_cache().lock();
-    cache.get(host).filter(|e| e.fetched_at.elapsed() < REGION_CACHE_TTL).map(|e| e.urls.clone())
-}
+impl RegionCache {
+    /// How long a fetched region list is reused before being re-fetched. Matches
+    /// client-sdk-js's `DEFAULT_MAX_AGE_MS`. (The server's `Cache-Control: max-age`
+    /// is not yet honoured — a fixed TTL keeps this backend-agnostic; honouring
+    /// the header is a possible refinement.)
+    const TTL: Duration = Duration::from_secs(5);
 
-fn store_region_urls(host: String, urls: Vec<String>) {
-    region_cache().lock().insert(host, CachedRegions { urls, fetched_at: Instant::now() });
+    fn shared() -> &'static RegionCache {
+        static CACHE: OnceLock<RegionCache> = OnceLock::new();
+        CACHE.get_or_init(|| Self::new(Self::TTL))
+    }
+
+    fn new(ttl: Duration) -> Self {
+        Self { entries: Mutex::new(HashMap::new()), ttl }
+    }
+
+    /// Cached region URLs for `host` if the entry is still within [`Self::ttl`],
+    /// else `None` (the caller should re-fetch).
+    fn get(&self, host: &str) -> Option<Vec<String>> {
+        let entries = self.entries.lock();
+        entries.get(host).filter(|e| e.fetched_at.elapsed() < self.ttl).map(|e| e.urls.clone())
+    }
+
+    fn insert(&self, host: String, urls: Vec<String>) {
+        self.entries.lock().insert(host, CachedRegions { urls, fetched_at: Instant::now() });
+    }
 }
 
 fn region_host(url: &str) -> SignalResult<String> {
@@ -102,20 +113,20 @@ impl RegionUrlProvider {
     /// Fetch the ordered list of region signalling URLs for a LiveKit Cloud
     /// host. Non-cloud (direct / self-hosted) URLs have no regions, so this
     /// returns an empty list. Successful results are cached per host for
-    /// [`REGION_CACHE_TTL`]; failures are never cached.
+    /// [`RegionCache::TTL`]; failures are never cached.
     pub async fn fetch_region_urls(url: &str, token: &str) -> SignalResult<Vec<String>> {
         if !is_cloud_url(url)? {
             return Ok(vec![]);
         }
 
         let host = region_host(url)?;
-        if let Some(urls) = cached_region_urls(&host) {
+        if let Some(urls) = RegionCache::shared().get(&host) {
             return Ok(urls);
         }
 
         let endpoint = region_endpoint(url)?;
         let urls = fetch_from_endpoint(&endpoint, token).await?;
-        store_region_urls(host, urls.clone());
+        RegionCache::shared().insert(host, urls.clone());
         Ok(urls)
     }
 }
@@ -342,22 +353,23 @@ mod tests {
 
     #[test]
     fn region_cache_hits_fresh_and_misses_unknown_or_stale() {
-        // Unique hosts so the process-wide cache doesn't collide with other tests.
+        let cache = RegionCache::new(RegionCache::TTL);
+
         let host = "cache-fresh.livekit.cloud";
-        assert!(cached_region_urls(host).is_none(), "unknown host is a miss");
+        assert!(cache.get(host).is_none(), "unknown host is a miss");
 
         let urls = vec!["wss://r1.livekit.cloud".to_string(), "wss://r2.livekit.cloud".to_string()];
-        store_region_urls(host.to_string(), urls.clone());
-        assert_eq!(cached_region_urls(host), Some(urls), "fresh entry is a hit");
+        cache.insert(host.to_string(), urls.clone());
+        assert_eq!(cache.get(host), Some(urls), "fresh entry is a hit");
 
         // A stale entry (fetched older than the TTL) is treated as a miss.
         let stale_host = "cache-stale.livekit.cloud";
-        if let Some(past) = Instant::now().checked_sub(REGION_CACHE_TTL * 2) {
-            region_cache().lock().insert(
+        if let Some(past) = Instant::now().checked_sub(RegionCache::TTL * 2) {
+            cache.entries.lock().insert(
                 stale_host.to_string(),
                 CachedRegions { urls: vec!["wss://old.livekit.cloud".into()], fetched_at: past },
             );
-            assert!(cached_region_urls(stale_host).is_none(), "stale entry is a miss");
+            assert!(cache.get(stale_host).is_none(), "stale entry is a miss");
         }
     }
 
