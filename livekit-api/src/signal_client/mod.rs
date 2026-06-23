@@ -1299,7 +1299,7 @@ mod tests {
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
         let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
 
-        let urls = result.unwrap();
+        let (urls, _max_age) = result.unwrap();
         assert_eq!(
             urls,
             vec![

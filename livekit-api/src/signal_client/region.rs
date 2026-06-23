@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use http::header::{HeaderMap, HeaderValue, AUTHORIZATION, CACHE_CONTROL};
 use parking_lot::Mutex;
 use serde::Deserialize;
 
@@ -30,6 +30,20 @@ use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 struct CachedRegions {
     urls: Vec<String>,
     fetched_at: Instant,
+    /// Effective lifetime of this entry: the server's `Cache-Control: max-age`
+    /// when present, otherwise [`RegionCache::default_ttl`].
+    ttl: Duration,
+}
+
+/// Outcome of a [`RegionCache::get`] lookup.
+enum Cached {
+    /// Entry exists and is within the TTL — safe to use without re-fetching.
+    Fresh(Vec<String>),
+    /// Entry exists but is older than the TTL — the caller should re-fetch, but
+    /// may fall back to these URLs if the re-fetch fails.
+    Stale(Vec<String>),
+    /// No entry for this host.
+    Miss,
 }
 
 /// Process-wide region-list cache keyed by host, mirroring client-sdk-js's
@@ -39,34 +53,41 @@ struct CachedRegions {
 /// region fetch on every attempt.
 struct RegionCache {
     entries: Mutex<HashMap<String, CachedRegions>>,
-    ttl: Duration,
+    default_ttl: Duration,
 }
 
 impl RegionCache {
-    /// How long a fetched region list is reused before being re-fetched. Matches
-    /// client-sdk-js's `DEFAULT_MAX_AGE_MS`. (The server's `Cache-Control: max-age`
-    /// is not yet honoured — a fixed TTL keeps this backend-agnostic; honouring
-    /// the header is a possible refinement.)
-    const TTL: Duration = Duration::from_secs(5);
+    /// Fallback entry lifetime, used when the server's region response carries
+    /// no `Cache-Control: max-age`. Matches client-sdk-js's `DEFAULT_MAX_AGE_MS`.
+    const DEFAULT_TTL: Duration = Duration::from_secs(5);
 
     fn shared() -> &'static RegionCache {
         static CACHE: OnceLock<RegionCache> = OnceLock::new();
-        CACHE.get_or_init(|| Self::new(Self::TTL))
+        CACHE.get_or_init(|| Self::new(Self::DEFAULT_TTL))
     }
 
-    fn new(ttl: Duration) -> Self {
-        Self { entries: Mutex::new(HashMap::new()), ttl }
+    fn new(default_ttl: Duration) -> Self {
+        Self { entries: Mutex::new(HashMap::new()), default_ttl }
     }
 
-    /// Cached region URLs for `host` if the entry is still within [`Self::ttl`],
-    /// else `None` (the caller should re-fetch).
-    fn get(&self, host: &str) -> Option<Vec<String>> {
+    /// Looks up the cached region URLs for `host`, reporting whether the entry
+    /// is fresh (within its TTL), stale, or absent. A stale entry is retained so
+    /// callers can fall back to it when a re-fetch fails.
+    fn get(&self, host: &str) -> Cached {
         let entries = self.entries.lock();
-        entries.get(host).filter(|e| e.fetched_at.elapsed() < self.ttl).map(|e| e.urls.clone())
+        match entries.get(host) {
+            Some(e) if e.fetched_at.elapsed() < e.ttl => Cached::Fresh(e.urls.clone()),
+            Some(e) => Cached::Stale(e.urls.clone()),
+            None => Cached::Miss,
+        }
     }
 
-    fn insert(&self, host: String, urls: Vec<String>) {
-        self.entries.lock().insert(host, CachedRegions { urls, fetched_at: Instant::now() });
+    /// Stores `urls` for `host`, honouring the server's `Cache-Control: max-age`
+    /// (`max_age`) as the entry's TTL and falling back to [`Self::default_ttl`]
+    /// when the header is absent.
+    fn insert(&self, host: String, urls: Vec<String>, max_age: Option<Duration>) {
+        let ttl = max_age.unwrap_or(self.default_ttl);
+        self.entries.lock().insert(host, CachedRegions { urls, fetched_at: Instant::now(), ttl });
     }
 }
 
@@ -112,29 +133,50 @@ pub struct RegionUrlInfo {
 impl RegionUrlProvider {
     /// Fetch the ordered list of region signalling URLs for a LiveKit Cloud
     /// host. Non-cloud (direct / self-hosted) URLs have no regions, so this
-    /// returns an empty list. Successful results are cached per host for
-    /// [`RegionCache::TTL`]; failures are never cached.
+    /// returns an empty list. Successful results are cached per host for the
+    /// server's `Cache-Control: max-age` (or [`RegionCache::DEFAULT_TTL`] when
+    /// absent); failures are never cached. Once an entry goes stale a re-fetch
+    /// is attempted, but if it fails the stale entry is returned as a fallback
+    /// rather than surfacing the error.
     pub async fn fetch_region_urls(url: &str, token: &str) -> SignalResult<Vec<String>> {
         if !is_cloud_url(url)? {
             return Ok(vec![]);
         }
 
         let host = region_host(url)?;
-        if let Some(urls) = RegionCache::shared().get(&host) {
-            return Ok(urls);
-        }
+        let cache = RegionCache::shared();
+        let stale = match cache.get(&host) {
+            Cached::Fresh(urls) => return Ok(urls),
+            Cached::Stale(urls) => Some(urls),
+            Cached::Miss => None,
+        };
 
         let endpoint = region_endpoint(url)?;
-        let urls = fetch_from_endpoint(&endpoint, token).await?;
-        RegionCache::shared().insert(host, urls.clone());
-        Ok(urls)
+        match fetch_from_endpoint(&endpoint, token).await {
+            Ok((urls, max_age)) => {
+                cache.insert(host, urls.clone(), max_age);
+                Ok(urls)
+            }
+            // The fresh fetch failed; fall back to the stale entry if we have
+            // one rather than failing outright.
+            Err(err) => match stale {
+                Some(urls) => {
+                    log::warn!("region fetch failed ({err}); using stale cached regions for {host}");
+                    Ok(urls)
+                }
+                None => Err(err),
+            },
+        }
     }
 }
 
+/// Fetches the region list from `endpoint_url`, returning the ordered URLs
+/// together with the server's `Cache-Control: max-age` (if any) so the caller
+/// can use it as the cache TTL.
 pub(crate) async fn fetch_from_endpoint(
     endpoint_url: &str,
     token: &str,
-) -> SignalResult<Vec<String>> {
+) -> SignalResult<(Vec<String>, Option<Duration>)> {
     let fetch_fut = async {
         let client = http_client::Client::new();
         let mut headers = HeaderMap::new();
@@ -149,16 +191,32 @@ pub(crate) async fn fetch_from_endpoint(
         if !res.status().is_success() {
             return Err(SignalError::Client(res.status(), res.text().await.unwrap_or_default()));
         }
+
+        // Read the cache lifetime before `json()` consumes the response.
+        let max_age =
+            res.headers().get(CACHE_CONTROL).and_then(|v| v.to_str().ok()).and_then(parse_max_age);
+
         let res = res
             .json::<RegionUrlResponse>()
             .await
             .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
-        Ok(res.regions.into_iter().map(|i| i.url).collect())
+        Ok((res.regions.into_iter().map(|i| i.url).collect(), max_age))
     };
 
     livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
         .await
         .map_err(|_| SignalError::RegionError("region fetch timed out".into()))?
+}
+
+/// Parses the `max-age` directive (in seconds) out of a `Cache-Control` header
+/// value, e.g. `"max-age=300, public"` -> `Some(300s)`. Returns `None` when the
+/// directive is absent or unparseable, leaving the caller on the default TTL.
+fn parse_max_age(cache_control: &str) -> Option<Duration> {
+    cache_control.split(',').find_map(|directive| {
+        let (name, value) = directive.split_once('=')?;
+        name.trim().eq_ignore_ascii_case("max-age").then_some(())?;
+        value.trim().parse::<u64>().ok().map(Duration::from_secs)
+    })
 }
 
 fn is_cloud_url(url: &str) -> SignalResult<bool> {
@@ -352,25 +410,61 @@ mod tests {
     }
 
     #[test]
-    fn region_cache_hits_fresh_and_misses_unknown_or_stale() {
-        let cache = RegionCache::new(RegionCache::TTL);
+    fn region_cache_reports_fresh_stale_and_miss() {
+        let cache = RegionCache::new(RegionCache::DEFAULT_TTL);
 
         let host = "cache-fresh.livekit.cloud";
-        assert!(cache.get(host).is_none(), "unknown host is a miss");
+        assert!(matches!(cache.get(host), Cached::Miss), "unknown host is a miss");
 
         let urls = vec!["wss://r1.livekit.cloud".to_string(), "wss://r2.livekit.cloud".to_string()];
-        cache.insert(host.to_string(), urls.clone());
-        assert_eq!(cache.get(host), Some(urls), "fresh entry is a hit");
+        cache.insert(host.to_string(), urls.clone(), None);
+        assert!(
+            matches!(cache.get(host), Cached::Fresh(u) if u == urls),
+            "fresh entry is a fresh hit"
+        );
 
-        // A stale entry (fetched older than the TTL) is treated as a miss.
+        // An entry older than its TTL is reported as stale (retained for fallback).
         let stale_host = "cache-stale.livekit.cloud";
-        if let Some(past) = Instant::now().checked_sub(RegionCache::TTL * 2) {
+        let stale_urls = vec!["wss://old.livekit.cloud".to_string()];
+        if let Some(past) = Instant::now().checked_sub(RegionCache::DEFAULT_TTL * 2) {
             cache.entries.lock().insert(
                 stale_host.to_string(),
-                CachedRegions { urls: vec!["wss://old.livekit.cloud".into()], fetched_at: past },
+                CachedRegions {
+                    urls: stale_urls.clone(),
+                    fetched_at: past,
+                    ttl: RegionCache::DEFAULT_TTL,
+                },
             );
-            assert!(cache.get(stale_host).is_none(), "stale entry is a miss");
+            assert!(
+                matches!(cache.get(stale_host), Cached::Stale(u) if u == stale_urls),
+                "expired entry is a stale hit"
+            );
         }
+    }
+
+    #[test]
+    fn region_cache_honors_server_max_age() {
+        // A short max-age expires before the (longer) default TTL would, proving
+        // the server's Cache-Control wins over the default.
+        let cache = RegionCache::new(Duration::from_secs(3600));
+        let host = "max-age.livekit.cloud";
+        let urls = vec!["wss://r1.livekit.cloud".to_string()];
+
+        cache.insert(host.to_string(), urls.clone(), Some(Duration::ZERO));
+        assert!(
+            matches!(cache.get(host), Cached::Stale(u) if u == urls),
+            "max-age=0 entry is immediately stale despite the long default TTL"
+        );
+    }
+
+    #[test]
+    fn test_parse_max_age() {
+        assert_eq!(parse_max_age("max-age=300"), Some(Duration::from_secs(300)));
+        assert_eq!(parse_max_age("public, max-age=300"), Some(Duration::from_secs(300)));
+        assert_eq!(parse_max_age("MAX-AGE=0, no-cache"), Some(Duration::ZERO));
+        assert_eq!(parse_max_age("no-store"), None);
+        assert_eq!(parse_max_age("max-age=notanumber"), None);
+        assert_eq!(parse_max_age(""), None);
     }
 
     #[test]
