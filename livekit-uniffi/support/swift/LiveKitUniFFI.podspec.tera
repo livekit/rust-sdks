@@ -1,0 +1,31 @@
+# Generated from Rust template
+Pod::Spec.new do |spec|
+  spec.name = "{{ SPM_NAME }}"
+  spec.version = "{{ SPM_VERSION }}"
+  spec.summary = "LiveKit UniFFI bindings"
+  spec.description = <<-DESC
+    LiveKit UniFFI XCFramework with Swift bindings
+  DESC
+
+  spec.homepage = "https://github.com/{{ SPM_HOSTING_REPO }}"
+  spec.author = "LiveKit"
+
+  spec.ios.deployment_target = "13.0"
+  spec.osx.deployment_target = "10.15"
+
+  spec.source = {
+    :git => "https://github.com/{{ SPM_HOSTING_REPO }}.git",
+    :tag => spec.version.to_s
+  }
+
+  spec.prepare_command = <<-CMD
+    FRAMEWORK_URL="https://github.com/{{ SPM_HOSTING_REPO }}/releases/download/#{spec.version}/Rust{{ SPM_NAME }}.xcframework.zip"
+    curl -L -o Rust{{ SPM_NAME }}.xcframework.zip "$FRAMEWORK_URL"
+    unzip -q Rust{{ SPM_NAME }}.xcframework.zip
+    rm Rust{{ SPM_NAME }}.xcframework.zip
+  CMD
+
+  spec.module_name = "{{ SPM_NAME }}"
+  spec.source_files = "Sources/{{ SPM_NAME }}/**/*.swift"
+  spec.vendored_frameworks = "Rust{{ SPM_NAME }}.xcframework"
+end

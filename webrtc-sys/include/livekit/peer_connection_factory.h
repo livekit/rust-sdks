@@ -16,10 +16,12 @@
 
 #pragma once
 
+#include "api/environment/environment_factory.h"
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_factory.h"
-#include "livekit/audio_device.h"
+#include "livekit/adm_proxy.h"
+#include "livekit/audio_device_controller.h"
 #include "media_stream.h"
 #include "rtp_parameters.h"
 #include "rust/cxx.h"
@@ -27,6 +29,7 @@
 
 namespace livekit_ffi {
 class PeerConnectionFactory;
+class AudioDeviceController;
 class PeerConnectionObserverWrapper;
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
@@ -56,17 +59,24 @@ class PeerConnectionFactory {
       rust::String label,
       std::shared_ptr<AudioTrackSource> source) const;
 
+  // Create an audio track that uses the ADM for capture (microphone)
+  // This creates a track that captures from the selected recording device
+  std::shared_ptr<AudioTrack> create_device_audio_track(
+      rust::String label) const;
+
   RtpCapabilities rtp_sender_capabilities(MediaType type) const;
 
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
 
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
+  std::shared_ptr<AudioDeviceController> audio_device() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  webrtc::scoped_refptr<AudioDevice> audio_device_;
+  webrtc::scoped_refptr<AdmProxy> adm_proxy_;
+  std::shared_ptr<AudioDeviceController> audio_device_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
-  webrtc::TaskQueueFactory* task_queue_factory_;
+  webrtc::Environment env_;
 };
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();

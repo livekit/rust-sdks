@@ -1,23 +1,13 @@
 [package]
 name = "livekit-protocol"
-version = "0.7.0"
+version = "0.7.8"
 edition.workspace = true
 license.workspace = true
 description = "Livekit protocol and utilities for the Rust SDK"
 repository.workspace = true
 
 [dependencies]
-livekit-runtime = { workspace = true }
-tokio = { workspace = true, default-features = false, features = [
-    "sync",
-    "macros",
-    "rt",
-] }
-futures-util = { workspace = true, features = ["sink"] }
-parking_lot = { workspace = true }
 prost = "0.12"
-
 serde = { workspace = true }
 pbjson = "0.6"
 pbjson-types = "0.6"
-thiserror = { workspace = true }

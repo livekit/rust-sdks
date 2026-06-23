@@ -39,7 +39,12 @@ impl From<sys_rp::ffi::RtpParameters> for RtpParameters {
         Self {
             codecs: value.codecs.into_iter().map(Into::into).collect(),
             header_extensions: value.header_extensions.into_iter().map(Into::into).collect(),
+            encodings: value.encodings.into_iter().map(Into::into).collect(),
             rtcp: value.rtcp.into(),
+            transaction_id: value.transaction_id,
+            mid: value.mid,
+            has_degradation_preference: value.has_degradation_preference,
+            degradation_preference: value.degradation_preference.repr,
         }
     }
 }
@@ -51,13 +56,35 @@ impl From<sys_rp::ffi::RtpCodecParameters> for RtpCodecParameters {
             payload_type: value.payload_type as u8,
             clock_rate: value.has_clock_rate.then_some(value.clock_rate as u64),
             channels: value.has_num_channels.then_some(value.num_channels as u16),
+            name: value.name,
+            kind: value.kind.repr,
+            has_max_ptime: value.has_max_ptime,
+            max_ptime: value.max_ptime,
+            has_ptime: value.has_ptime,
+            ptime: value.ptime,
+            rtcp_feedback: value
+                .rtcp_feedback
+                .into_iter()
+                .map(|f| CodecFeedback {
+                    feedback_type: f.feedback_type.repr,
+                    has_message_type: f.has_message_type,
+                    message_type: f.message_type.repr,
+                })
+                .collect(),
+            parameters: value.parameters.into_iter().map(|kv| (kv.key, kv.value)).collect(),
         }
     }
 }
 
 impl From<sys_rp::ffi::RtcpParameters> for RtcpParameters {
     fn from(value: sys_rp::ffi::RtcpParameters) -> Self {
-        Self { cname: value.cname, reduced_size: value.reduced_size }
+        Self {
+            cname: value.cname,
+            reduced_size: value.reduced_size,
+            mux: value.mux,
+            has_ssrc: value.has_ssrc,
+            ssrc: value.ssrc,
+        }
     }
 }
 
@@ -72,6 +99,9 @@ impl From<sys_rp::ffi::RtpEncodingParameters> for RtpEncodingParameters {
             scale_resolution_down_by: value
                 .has_scale_resolution_down_by
                 .then_some(value.scale_resolution_down_by),
+            scalability_mode: value.has_scalability_mode.then_some(value.scalability_mode),
+            has_ssrc: value.has_ssrc,
+            ssrc: value.ssrc,
         }
     }
 }
@@ -139,21 +169,24 @@ impl From<RtpHeaderExtensionParameters> for sys_rp::ffi::RtpExtension {
 
 impl From<RtpParameters> for sys_rp::ffi::RtpParameters {
     fn from(value: RtpParameters) -> Self {
+        let degradation_preference =
+            sys_rp::ffi::DegradationPreference { repr: value.degradation_preference };
         Self {
             codecs: value.codecs.into_iter().map(Into::into).collect(),
             header_extensions: value.header_extensions.into_iter().map(Into::into).collect(),
-            encodings: Vec::new(),
+            encodings: value.encodings.into_iter().map(Into::into).collect(),
             rtcp: value.rtcp.into(),
-            transaction_id: "".to_string(),
-            mid: "".to_string(),
-            has_degradation_preference: false,
-            degradation_preference: sys_rp::ffi::DegradationPreference::Balanced,
+            transaction_id: value.transaction_id,
+            mid: value.mid,
+            has_degradation_preference: value.has_degradation_preference,
+            degradation_preference,
         }
     }
 }
 
 impl From<RtpCodecParameters> for sys_rp::ffi::RtpCodecParameters {
     fn from(value: RtpCodecParameters) -> Self {
+        let kind = sys_webrtc::ffi::MediaType { repr: value.kind };
         Self {
             payload_type: value.payload_type as i32,
             mime_type: value.mime_type,
@@ -161,14 +194,31 @@ impl From<RtpCodecParameters> for sys_rp::ffi::RtpCodecParameters {
             clock_rate: value.clock_rate.unwrap_or_default() as i32,
             has_num_channels: value.channels.is_some(),
             num_channels: value.channels.unwrap_or_default() as i32,
-            name: "".to_string(),
-            kind: sys_rp::ffi::MediaType::Audio,
-            has_max_ptime: false,
-            max_ptime: 0,
-            has_ptime: false,
-            ptime: 0,
-            rtcp_feedback: Vec::new(),
-            parameters: Vec::new(),
+            name: value.name,
+            kind,
+            has_max_ptime: value.has_max_ptime,
+            max_ptime: value.max_ptime,
+            has_ptime: value.has_ptime,
+            ptime: value.ptime,
+            rtcp_feedback: value
+                .rtcp_feedback
+                .into_iter()
+                .map(|f| {
+                    let feedback_type = sys_rp::ffi::RtcpFeedbackType { repr: f.feedback_type };
+                    let message_type =
+                        sys_rp::ffi::RtcpFeedbackMessageType { repr: f.message_type };
+                    sys_rp::ffi::RtcpFeedback {
+                        feedback_type,
+                        has_message_type: f.has_message_type,
+                        message_type,
+                    }
+                })
+                .collect(),
+            parameters: value
+                .parameters
+                .into_iter()
+                .map(|(key, value)| sys_rp::ffi::StringKeyValue { key, value })
+                .collect(),
         }
     }
 }
@@ -178,9 +228,9 @@ impl From<RtcpParameters> for sys_rp::ffi::RtcpParameters {
         Self {
             cname: value.cname,
             reduced_size: value.reduced_size,
-            has_ssrc: false,
-            ssrc: 0,
-            mux: false,
+            has_ssrc: value.has_ssrc,
+            ssrc: value.ssrc,
+            mux: value.mux,
         }
     }
 }
@@ -203,10 +253,10 @@ impl From<RtpEncodingParameters> for sys_rp::ffi::RtpEncodingParameters {
             min_bitrate_bps: 0,
             has_num_temporal_layers: false,
             num_temporal_layers: 0,
-            has_scalability_mode: false,
-            scalability_mode: "".to_string(),
-            has_ssrc: false,
-            ssrc: 0,
+            has_scalability_mode: value.scalability_mode.is_some(),
+            scalability_mode: value.scalability_mode.unwrap_or_default(),
+            has_ssrc: value.has_ssrc,
+            ssrc: value.ssrc,
         }
     }
 }

@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.5.2 (2026-06-17)
+
+### Fixes
+
+#### Shrink binaries with an HMAC-only JWT crypto provider
+
+`livekit-api` now installs a minimal in-crate HMAC `CryptoProvider`
+(HS256/384/512) instead of jsonwebtoken's `rust_crypto` backend, dropping the
+unused RSA/EC/EdDSA algorithms. LiveKit access tokens are HS256, so there is no
+public API or behavior change. This trims ~200 KiB of unreachable crypto code,
+shrinking the shipped binaries ~25–29% — the `RustLiveKitUniFFI` iOS framework
+drops from ~900 KiB to ~672 KiB (arm64) and the Android arm64-v8a `.so` from
+~1.13 MiB to ~816 KiB. `livekit-ffi` and `livekit` benefit too.
+
+#### fix: surface full error chain in region fetch failures for better TLS error diagnosis.
+
+When connecting to LiveKit Cloud from containers without CA certificates installed, the error message now includes the full error chain (e.g., "invalid peer certificate: UnknownIssuer") instead of just "error sending request for url (...)". This makes TLS certificate issues self-diagnosing.
+
+Also added documentation for TLS features in Cargo.toml, highlighting `rustls-tls-webpki-roots` as the recommended option for container deployments.
+
+## 0.5.1 (2026-06-03)
+
+### Fixes
+
+- Send publisher offer with join request to accelerate connection - #996 (@cnderrauber)
+
+## 0.5.0 (2026-05-29)
+
+### Features
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+- add pagination to ListEgressRequest
+
+## [0.4.14](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.13...rust-sdks/livekit-api@0.4.14) - 2026-02-16
+
+### Fixed
+
+- fix full_reconnect downgrade & don't ignore Leave messages ([#893](https://github.com/livekit/rust-sdks/pull/893))
+
+### Other
+
+- turn single peerconnection off by default ([#897](https://github.com/livekit/rust-sdks/pull/897))
+- ensure signal connections times out properly and retries ([#895](https://github.com/livekit/rust-sdks/pull/895))
+- added Single Peer Connection support to Rust ([#888](https://github.com/livekit/rust-sdks/pull/888))
+
 ## [0.4.13](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.12...rust-sdks/livekit-api@0.4.13) - 2026-02-09
 
 ### Other
@@ -84,3 +129,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+
+
+## 0.4.24 (2026-05-20)
+
+### Fixes
+
+- Support for large RPC messages using data streams - #1013 (@1egoman)
+
+## 0.4.23 (2026-05-18)
+
+### Fixes
+
+- Expose room playout delay options in the server API and let the local video publisher recreate rooms with explicit min/max playout delay settings.
+
+## 0.4.22 (2026-05-14)
+
+### Fixes
+
+- Proper client SDK - #1081 (@stephen-derosa)
+
+## 0.4.21 (2026-05-11)
+
+### Fixes
+
+- Upgrade protocol to v1.45.8
+
+## 0.4.20 (2026-05-10)
+
+### Features
+
+- Bump `rustls-webpki` to 0.103.13, addressing [GHSA-82j2-j2ch-gfr8](https://github.com/advisories/GHSA-82j2-j2ch-gfr8)
+
+### Fixes
+
+- fix(signal-client): carry access token on validate() fallback - #1044 (@abhisheksingh-R41)
+- Add advertising of SDK client capabilities - #1022 (@chenosaurus)
+
+## 0.4.19 (2026-04-23)
+
+### Features
+
+#### Add support for frame level packet trailer
+
+##890 by @chenosaurus
+
+- Add support to attach/parse frame level timestamps & frame ID to VideoTracks as a custom payload trailer.
+- Breaking change in VideoFrame API, must include `frame_metadata` or use VideoFrame::new().
+
+### Fixes
+
+- Add device-info crate and send device_info to telemetry - #982 (@maxheimbrock)
+
+## 0.4.18 (2026-04-02)
+
+### Fixes
+
+#### use the bounded buffer for video stream
+
+##956 by @xianshijing-lk
+
+Before this PR, it uses an unbounded buffer for video stream, that will cause multiple problems:
+1, video will be lagged behind if rendering is slow or just wake up from background
+2, it will be out of sync with audio
+
+This PRs provides options to set a bounded buffer for video stream, and use 1 buffer as the default option.
+
+## 0.4.17 (2026-03-31)
+
+### Fixes
+
+- Fix clippy warnings in livekit-api and build.rs
+- Upgrade to thiserror 2
+
+## 0.4.16 (2026-03-22)
+
+### Fixes
+
+#### Send client os and os_version from rust
+
+##952 by @MaxHeimbrock
+
+Adds [os_info](https://crates.io/crates/os_info) crate as dependency and sends the data for client connections.
+
+## 0.4.15 (2026-03-13)
+
+### Fixes
+
+#### Bump jsonwebtoken to v10 to address CVE-2026-25537
+
+##917 by @gasmith

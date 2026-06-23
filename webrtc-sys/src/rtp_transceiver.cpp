@@ -49,9 +49,11 @@ MediaType RtpTransceiver::media_type() const {
 }
 
 rust::String RtpTransceiver::mid() const {
-  // The error/Result is converted into an Option in Rust (Wait for Option
-  // suport in cxx.rs) (value throws an error if there's no value)
-  return transceiver_->mid().value();
+  // libwebrtc is typically built with -fno-exceptions, so calling
+  // std::optional::value() on an empty optional aborts the process instead of
+  // throwing. Use value_or("") and treat empty string as "no mid yet" on the
+  // Rust side (see libwebrtc/src/native/rtp_transceiver.rs::mid).
+  return transceiver_->mid().value_or("");
 }
 
 std::shared_ptr<RtpSender> RtpTransceiver::sender() const {

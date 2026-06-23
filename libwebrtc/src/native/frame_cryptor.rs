@@ -19,11 +19,26 @@ use parking_lot::Mutex;
 use webrtc_sys::frame_cryptor::{self as sys_fc};
 
 use crate::{
-    peer_connection_factory::PeerConnectionFactory, rtp_receiver::RtpReceiver,
-    rtp_sender::RtpSender,
+    native::packet_trailer::PacketTrailerHandler, peer_connection_factory::PeerConnectionFactory,
+    rtp_receiver::RtpReceiver, rtp_sender::RtpSender,
 };
 
 pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
+
+#[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
+pub enum KeyDerivationAlgorithm {
+    PBKDF2,
+    HKDF,
+}
+impl Into<sys_fc::ffi::KeyDerivationAlgorithm> for KeyDerivationAlgorithm {
+    fn into(self) -> sys_fc::ffi::KeyDerivationAlgorithm {
+        match self {
+            KeyDerivationAlgorithm::PBKDF2 => sys_fc::ffi::KeyDerivationAlgorithm::PBKDF2,
+            KeyDerivationAlgorithm::HKDF => sys_fc::ffi::KeyDerivationAlgorithm::HKDF,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct KeyProviderOptions {
@@ -31,6 +46,8 @@ pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
     pub failure_tolerance: i32,
+    pub key_ring_size: i32,
+    pub key_derivation_algorithm: KeyDerivationAlgorithm,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +185,10 @@ impl FrameCryptor {
     pub fn on_state_change(&self, handler: Option<OnStateChange>) {
         *self.observer.state_change_handler.lock() = handler;
     }
+
+    pub fn set_packet_trailer_handler(&self, handler: &PacketTrailerHandler) {
+        self.sys_handle.set_packet_trailer_handler(handler.sys_handle());
+    }
 }
 
 #[derive(Clone)]
@@ -272,6 +293,8 @@ impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
             failure_tolerance: value.failure_tolerance,
+            key_ring_size: value.key_ring_size,
+            key_derivation_algorithm: value.key_derivation_algorithm.into(),
         }
     }
 }

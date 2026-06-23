@@ -69,6 +69,9 @@ pub struct SIPGrants {
 pub struct RoomAgentDispatch {
     pub agent_name: String,
     pub metadata: String,
+    pub restart_policy: i32,
+    pub deployment: String,
+    pub attributes: HashMap<String, String>,
 }
 
 /// Room configuration
@@ -223,6 +226,7 @@ pub fn token_generate(
             sync_streams: room_configuration.sync_streams,
             agents: room_configuration.agents,
             egress: None,
+            tags: HashMap::default(),
         };
         token = token.with_room_config(room_config);
     }

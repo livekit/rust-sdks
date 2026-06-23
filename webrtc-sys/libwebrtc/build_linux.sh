@@ -1,4 +1,8 @@
 #!/bin/bash
+# Exit immediately if any command fails. This ensures CI properly reports build
+# failures instead of continuing to create empty/broken artifacts.
+set -e
+
 # Copyright 2023 LiveKit, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -68,43 +72,50 @@ fi
 
 cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/fix_license_json_parsing.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-cd build
-
-git apply "$COMMAND_DIR/patches/force_gcc.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
-cd ..
+# Disable CREL (compact relocations). Chromium's build enables experimental
+# CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
+# broken on arm32 and s390x too).
+# See: https://crbug.com/376278218
+# See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
+git -C build apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 cd third_party
 
 git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-cd ../..
+cd libyuv
+
+git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+cd ../../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
 python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
-
-if [ "$arch" = "arm64" ]; then
-  sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
-fi
 
 debug="false"
 if [ "$profile" = "debug" ]; then
   debug="true"
 fi
 
+# Note: use_clang_modules=false is required to avoid C++ module compilation issues.
+# Without this flag, the build may fail partway through, resulting in missing
+# or incomplete artifacts.
 args="is_debug=$debug  \
   target_os=\"linux\" \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
   use_llvm_libatomic=false \
-  use_libcxx_modules=false \
+  use_custom_libcxx=false \
   use_custom_libcxx_for_host=false \
+  use_clang_modules=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
@@ -119,7 +130,6 @@ args="is_debug=$debug  \
   symbol_level=0 \
   enable_iterator_debugging=false \
   use_rtti=true \
-  is_clang=false \
   rtc_use_x11=true"
 
 # generate ninja files
@@ -131,14 +141,17 @@ ninja -C "$OUTPUT_DIR" :default
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
-python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
+# License generation is optional - may fail with some Python versions
+# Use vpython3 from depot_tools for consistent Python version
+vpython3 "./src/tools_webrtc/libs/generate_licenses.py" \
+  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR" || echo "Warning: License generation failed (non-critical)"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
+
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
 cd src

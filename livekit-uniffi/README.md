@@ -20,6 +20,10 @@ Generate Swift bindings and build a multi-platform XCFramework:
 cargo make swift-package
 ```
 
+For a fast, debuggable variant (macOS-only, unstripped), run `cargo make swift-package-debug` — see [support/swift/DEBUGGING.md](./support/swift/DEBUGGING.md).
+
+See [support/swift/README.md](./support/swift/README.md) for debugging vs. release modes, consumer integration, and prerequisites (Xcode, Rust Apple targets).
+
 ### Node
 
 Generate Node bindings:
@@ -28,3 +32,15 @@ cargo make node-package
 ```
 
 To test them out, run `cd node_test && npx tsx index.ts`
+
+### Android
+
+Build native libraries, Kotlin bindings, and a release AAR:
+
+```
+cargo make android-package                              # debug .so in release AAR
+cargo make --profile release android-package            # release .so (CI / publishing)
+cargo make android-package-local                        # + publish to Maven Local
+```
+
+See [support/android/README.md](./support/android/README.md) for prerequisites (Android SDK/NDK).

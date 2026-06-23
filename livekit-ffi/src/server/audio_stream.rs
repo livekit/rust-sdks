@@ -17,7 +17,10 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use livekit::track::Track;
-use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
+use livekit::webrtc::{
+    audio_stream::native::{NativeAudioStream, NativeAudioStreamOptions},
+    prelude::*,
+};
 use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -95,15 +98,35 @@ impl FfiAudioStream {
             #[cfg(not(target_arch = "wasm32"))]
             proto::AudioStreamType::AudioStreamNative => {
                 let audio_stream = Self { handle_id, stream_type, self_dropped_tx };
-                let sample_rate = new_stream.sample_rate.unwrap_or(48000);
+                let output_sample_rate = new_stream.sample_rate.unwrap_or(48000);
                 let num_channels = new_stream.num_channels.unwrap_or(1);
+                let options = NativeAudioStreamOptions {
+                    queue_size_frames: new_stream
+                        .queue_size_frames
+                        .map(|capacity| capacity as usize),
+                };
 
-                let native_stream =
-                    NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
+                // When the audio filter supports separate rates (v2), create
+                // the WebRTC sink at the codec's native rate to skip
+                // resampling — the filter handles rate conversion.
+                let input_sample_rate =
+                    if audio_filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
+                        ffi_track.track.codec_clock_rate().unwrap_or(48000)
+                    } else {
+                        output_sample_rate
+                    };
+
+                let native_stream = NativeAudioStream::with_options(
+                    rtc_track,
+                    input_sample_rate as i32,
+                    num_channels as i32,
+                    options,
+                );
 
                 let stream = if let Some(audio_filter) = &audio_filter {
                     let session = audio_filter.clone().new_session(
-                        sample_rate,
+                        input_sample_rate,
+                        output_sample_rate,
                         new_stream.audio_filter_options.unwrap_or("".into()),
                         info.as_ref().map(|i| i.stream_info.clone()).unwrap(),
                     );
@@ -114,7 +137,8 @@ impl FfiAudioStream {
                                 native_stream,
                                 session,
                                 Duration::from_millis(10),
-                                sample_rate,
+                                input_sample_rate,
+                                output_sample_rate,
                                 num_channels,
                             );
                             AudioStreamKind::Filtered(stream)
@@ -137,7 +161,7 @@ impl FfiAudioStream {
                     true,
                     info,
                     new_stream.frame_size_ms,
-                    sample_rate.try_into().unwrap(),
+                    output_sample_rate.try_into().unwrap(),
                     num_channels.try_into().unwrap(),
                 ));
                 server.watch_panic(handle);
@@ -241,9 +265,12 @@ impl FfiAudioStream {
                 let (c_tx, c_rx) = oneshot::channel::<()>();
                 let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
-                let sample_rate = request.sample_rate.unwrap_or(48000) as i32;
+                let output_sample_rate = request.sample_rate.unwrap_or(48000) as i32;
                 let num_channels = request.num_channels.unwrap_or(1) as i32;
                 let track_sid = track.sid();
+                let options = NativeAudioStreamOptions {
+                    queue_size_frames: request.queue_size_frames.map(|capacity| capacity as usize),
+                };
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
@@ -259,6 +286,13 @@ impl FfiAudioStream {
                         }
                     }
                 });
+
+                let input_sample_rate =
+                    if filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
+                        track.codec_clock_rate().unwrap_or(48000) as i32
+                    } else {
+                        output_sample_rate
+                    };
 
                 let (mut audio_filter_session, info) = match &filter {
                     Some(filter) => match &request.audio_filter_options {
@@ -278,7 +312,8 @@ impl FfiAudioStream {
                             };
 
                             let session = filter.clone().new_session(
-                                sample_rate as u32,
+                                input_sample_rate as u32,
+                                output_sample_rate as u32,
                                 &options,
                                 info.stream_info.clone(),
                             );
@@ -292,14 +327,20 @@ impl FfiAudioStream {
                     None => (None, None),
                 };
 
-                let native_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
+                let native_stream = NativeAudioStream::with_options(
+                    rtc_track,
+                    input_sample_rate,
+                    num_channels,
+                    options,
+                );
 
                 let stream = if let Some(session) = audio_filter_session.take() {
                     let stream = AudioFilterAudioStream::new(
                         native_stream,
                         session,
                         Duration::from_millis(10),
-                        sample_rate as u32,
+                        input_sample_rate as u32,
+                        output_sample_rate as u32,
                         num_channels as u32,
                     );
                     AudioStreamKind::Filtered(stream)
@@ -317,7 +358,7 @@ impl FfiAudioStream {
                         false,
                         info,
                         request.frame_size_ms,
-                        sample_rate.try_into().unwrap(),
+                        output_sample_rate.try_into().unwrap(),
                         num_channels.try_into().unwrap(),
                     )
                     .await;

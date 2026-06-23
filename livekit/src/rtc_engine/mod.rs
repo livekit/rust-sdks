@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
-
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
+use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
-use livekit_runtime::{interval, Interval, JoinHandle};
+use livekit_runtime::{interval, Interval, JoinHandle, MissedTickBehavior};
 use parking_lot::{RwLock, RwLockReadGuard};
+use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
@@ -40,6 +40,7 @@ use crate::{
 };
 use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 
+mod dc_sender;
 pub mod lk_runtime;
 mod peer_transport;
 mod rtc_events;
@@ -52,8 +53,21 @@ pub(crate) type EngineResult<T> = Result<T, EngineError>;
 pub const RECONNECT_ATTEMPTS: u32 = 10;
 pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 
+/// Settling delay before checking PeerConnection state on the resume path.
+///
+/// Lets a freshly issued ICE-restart offer/answer round-trip take effect when the
+/// underlying PC was still in `Connected` at the moment we started the reconnect
+/// (e.g. signal-only failure). Without this, the resume can return success
+/// immediately and the next failure detector then trips the engine into a real
+/// disconnect.
+///
+/// Only applied to the resume path. Full reconnect builds brand-new PCs which
+/// don't suffer from the "looks-Connected-but-isn't" race.
+pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(1);
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
+    /// Closes the signal channel locally; the engine attempts a Resume.
     SignalReconnect,
     Speaker,
     NodeFailure,
@@ -61,6 +75,9 @@ pub enum SimulateScenario {
     Migration,
     ForceTcp,
     ForceTls,
+    /// Tells the server to issue a `LeaveRequest{Reconnect}`, forcing a
+    /// full reconnect (new RtcSession, republish required).
+    FullReconnect,
 }
 
 #[derive(Error, Debug)]
@@ -80,6 +97,8 @@ pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
     pub signal_options: SignalOptions,
     pub join_retries: u32,
+    /// Enable single peer connection mode
+    pub single_peer_connection: bool,
 }
 
 #[derive(Debug)]
@@ -189,6 +208,11 @@ pub enum EngineEvent {
         sid: String,
         muted: bool,
     },
+    SubscribedQualityUpdate {
+        update: proto::SubscribedQualityUpdate,
+    },
+    LocalDataTrackInput(dt::local::InputEvent),
+    RemoteDataTrackInput(dt::remote::InputEvent),
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -222,6 +246,22 @@ struct EngineInner {
     // (This also prevents new reconnection to happens if a read guard is still held)
     reconnecting_lock: AsyncRwLock<()>,
     reconnecting_interval: AsyncMutex<Interval>,
+
+    /// Test-only fault injection: number of upcoming resume attempts to force to
+    /// fail. Each forced failure decrements this counter and makes
+    /// `try_resume_connection` return an error, which exercises the escalation to a
+    /// full reconnect. Always 0 in production builds.
+    #[cfg(feature = "__lk-e2e-test")]
+    fail_resume_attempts: std::sync::atomic::AtomicU32,
+
+    /// Test-only fault injection: when set, the next resume attempt simulates a
+    /// transport failure (a server `Leave{Resume}` / PeerConnection `Failed`)
+    /// arriving *concurrently* with the in-flight resume, then proceeds and
+    /// succeeds. Reproduces the production race where a resume reports success
+    /// while a failure was pending — the failure must escalate the *next* cycle to
+    /// a full reconnect. Always false in production builds.
+    #[cfg(feature = "__lk-e2e-test")]
+    fail_transport_during_next_resume: std::sync::atomic::AtomicBool,
 }
 
 pub struct RtcEngine {
@@ -269,6 +309,30 @@ impl RtcEngine {
             (handle.session.clone(), _r_lock)
         };
         session.simulate_scenario(scenario).await
+    }
+
+    pub async fn handle_local_data_track_output(
+        &self,
+        event: dt::local::OutputEvent,
+    ) -> EngineResult<()> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.handle_local_data_track_output(event).await;
+        Ok(())
+    }
+
+    pub async fn handle_remote_data_track_output(
+        &self,
+        event: dt::remote::OutputEvent,
+    ) -> EngineResult<()> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.handle_remote_data_track_output(event).await;
+        Ok(())
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -341,6 +405,23 @@ impl RtcEngine {
     pub fn session(&self) -> Arc<RtcSession> {
         self.inner.running_handle.read().session.clone()
     }
+
+    /// Test-only: force the next `count` resume attempts to fail, so tests can
+    /// deterministically exercise the resume-failure → full-reconnect escalation.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn fail_next_resume_attempts(&self, count: u32) {
+        self.inner.fail_resume_attempts.store(count, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Test-only: arm a one-shot fault so the next resume attempt simulates a
+    /// concurrent transport failure (then still succeeds), reproducing a resume
+    /// that reports success while a failure was pending.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn fail_transport_during_next_resume(&self) {
+        self.inner
+            .fail_transport_during_next_resume
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
 }
 
 impl EngineInner {
@@ -364,6 +445,8 @@ impl EngineInner {
                     session.wait_pc_connection().await?;
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
+                    let mut interval = interval(RECONNECT_INTERVAL);
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
                     let inner = Arc::new(Self {
                         lk_runtime,
                         engine_tx,
@@ -378,7 +461,13 @@ impl EngineInner {
                         }),
                         options,
                         reconnecting_lock: AsyncRwLock::default(),
-                        reconnecting_interval: AsyncMutex::new(interval(RECONNECT_INTERVAL)),
+                        reconnecting_interval: AsyncMutex::new(interval),
+                        #[cfg(feature = "__lk-e2e-test")]
+                        fail_resume_attempts: std::sync::atomic::AtomicU32::new(0),
+                        #[cfg(feature = "__lk-e2e-test")]
+                        fail_transport_during_next_resume: std::sync::atomic::AtomicBool::new(
+                            false,
+                        ),
                     });
 
                     // Start initial tasks
@@ -609,6 +698,15 @@ impl EngineInner {
             SessionEvent::TrackMuted { sid, muted } => {
                 let _ = self.engine_tx.send(EngineEvent::TrackMuted { sid, muted });
             }
+            SessionEvent::SubscribedQualityUpdate { update } => {
+                let _ = self.engine_tx.send(EngineEvent::SubscribedQualityUpdate { update });
+            }
+            SessionEvent::LocalDataTrackInput(event) => {
+                let _ = self.engine_tx.send(EngineEvent::LocalDataTrackInput(event));
+            }
+            SessionEvent::RemoteDataTrackInput(event) => {
+                let _ = self.engine_tx.send(EngineEvent::RemoteDataTrackInput(event));
+            }
         }
         Ok(())
     }
@@ -626,11 +724,16 @@ impl EngineInner {
         };
 
         if let Some((engine_task, close_tx)) = engine_task {
-            session.close().await;
+            session.close(reason).await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
-            let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
         }
+
+        // Always emit Disconnected, even when the engine_task was already taken by a
+        // prior failed `try_restart_connection`. Without this, a reconnect cycle that
+        // exhausts all attempts leaves the room stuck in Reconnecting forever because
+        // the room's task never sees the event that drives `handle_disconnected`.
+        let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
     }
 
     /// When waiting for reconnection, it ensures we're always using the latest session.
@@ -660,11 +763,19 @@ impl EngineInner {
         }
 
         if running_handle.reconnecting {
-            // If we're already reconnecting just update the interval to restart a new attempt
-            // ASAP
+            // A new failure surfaced while we're already reconnecting. That means the
+            // in-progress resume isn't holding — e.g. a PeerConnection moved to `Failed`
+            // mid-resume, or a stale resume reported a false success and the transport
+            // died again. A single resume failure is enough: escalate to a full
+            // reconnect instead of looping on resume forever.
+            //
+            // This escalation is sticky — it survives into the next cycle (see the
+            // cycle-start below) so a resume that spuriously reports success can't reset
+            // us back to resuming. It's cleared only once a full reconnect installs a
+            // fresh session (see `try_restart_connection`).
+            running_handle.full_reconnect = true;
 
-            running_handle.full_reconnect = full_reconnect;
-
+            // Retry as soon as possible when asked, rather than waiting out the backoff.
             if retry_now {
                 let inner = self.clone();
                 livekit_runtime::spawn(async move {
@@ -676,7 +787,10 @@ impl EngineInner {
         }
 
         running_handle.reconnecting = true;
-        running_handle.full_reconnect = full_reconnect;
+        // Never downgrade a sticky escalation: if a prior cycle decided we need a full
+        // reconnect (a failed/false-successful resume), keep it. Cleared on a successful
+        // full reconnect in `try_restart_connection`.
+        running_handle.full_reconnect |= full_reconnect;
 
         livekit_runtime::spawn({
             let inner = self.clone();
@@ -729,7 +843,7 @@ impl EngineInner {
             )
         };
 
-        for i in 0..RECONNECT_ATTEMPTS {
+        for i in 1..=RECONNECT_ATTEMPTS {
             let (is_closed, full_reconnect) = {
                 let running_handle = self.running_handle.read();
                 (running_handle.closed, running_handle.full_reconnect)
@@ -740,14 +854,14 @@ impl EngineInner {
             }
 
             if full_reconnect {
-                if i == 0 {
+                if i == 1 {
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Restarting(tx));
                     let _ = rx.await;
                 }
 
                 log::error!("restarting connection... attempt: {}", i);
-                if let Err(err) = self
+                match self
                     .try_restart_connection(
                         &url,
                         &token,
@@ -756,30 +870,52 @@ impl EngineInner {
                     )
                     .await
                 {
-                    log::error!("restarting connection failed: {}", err);
-                } else {
-                    let (tx, rx) = oneshot::channel();
-                    let _ = self.engine_tx.send(EngineEvent::Restarted(tx));
-                    let _ = rx.await;
-                    return Ok(());
+                    Ok(()) => {
+                        let (tx, rx) = oneshot::channel();
+                        let _ = self.engine_tx.send(EngineEvent::Restarted(tx));
+                        let _ = rx.await;
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        if let Some(reason) = leave_disconnect_reason(&err) {
+                            log::warn!("server requested disconnect during restart: {:?}", reason);
+                            self.running_handle.write().can_reconnect = false;
+                            self.close(reason).await;
+                            return Err(EngineError::Connection(
+                                "server requested disconnect during restart".into(),
+                            ));
+                        }
+                        log::error!("restarting connection failed: {}", err);
+                    }
                 }
             } else {
-                if i == 0 {
+                if i == 1 {
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Resuming(tx));
                     let _ = rx.await;
                 }
 
                 log::error!("resuming connection... attempt: {}", i);
-                if let Err(err) = self.try_resume_connection().await {
-                    log::error!("resuming connection failed: {}", err);
-                    let mut running_handle = self.running_handle.write();
-                    running_handle.full_reconnect = true;
-                } else {
-                    let (tx, rx) = oneshot::channel();
-                    let _ = self.engine_tx.send(EngineEvent::Resumed(tx));
-                    let _ = rx.await;
-                    return Ok(());
+                match self.try_resume_connection().await {
+                    Ok(()) => {
+                        let (tx, rx) = oneshot::channel();
+                        let _ = self.engine_tx.send(EngineEvent::Resumed(tx));
+                        let _ = rx.await;
+                        return Ok(());
+                    }
+                    Err(err) => {
+                        if let Some(reason) = leave_disconnect_reason(&err) {
+                            log::warn!("server requested disconnect during resume: {:?}", reason);
+                            self.running_handle.write().can_reconnect = false;
+                            self.close(reason).await;
+                            return Err(EngineError::Connection(
+                                "server requested disconnect during resume".into(),
+                            ));
+                        }
+                        log::error!("resuming connection failed: {}", err);
+                        let mut running_handle = self.running_handle.write();
+                        running_handle.full_reconnect = true;
+                    }
                 }
             }
 
@@ -810,7 +946,7 @@ impl EngineInner {
         };
 
         if let Some((engine_task, close_tx)) = engine_task {
-            session.close().await;
+            session.close(DisconnectReason::ClientInitiated).await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
         }
@@ -833,6 +969,7 @@ impl EngineInner {
         // event.
         let mut handle = self.running_handle.write();
         handle.session = Arc::new(new_session);
+        handle.full_reconnect = false;
 
         let (close_tx, close_rx) = oneshot::channel();
         let task = livekit_runtime::spawn(self.clone().engine_task(session_events, close_rx));
@@ -842,18 +979,129 @@ impl EngineInner {
     }
 
     /// Try to restart the current session
-    async fn try_resume_connection(&self) -> EngineResult<()> {
+    async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
+        // Test-only: force the configured number of resume attempts to fail so tests
+        // can exercise the resume-failure → full-reconnect escalation deterministically.
+        #[cfg(feature = "__lk-e2e-test")]
+        {
+            use std::sync::atomic::Ordering;
+            let remaining = self.fail_resume_attempts.load(Ordering::Acquire);
+            if remaining > 0 {
+                self.fail_resume_attempts.store(remaining - 1, Ordering::Release);
+                log::warn!("test fault injection: forcing resume attempt to fail");
+                return Err(EngineError::Connection("forced resume failure (test)".into()));
+            }
+
+            // Simulate a transport failure (server Leave{Resume} / PC Failed) arriving
+            // while this resume is in flight. We're already reconnecting, so this drives
+            // the "already reconnecting" branch of `reconnection_needed`. The resume then
+            // proceeds and succeeds — reproducing a resume that reports success while a
+            // failure was pending. Post-fix this sticks a full-reconnect escalation onto
+            // the next cycle; pre-fix it was dropped and the engine resumed again.
+            if self.fail_transport_during_next_resume.swap(false, Ordering::AcqRel) {
+                log::warn!("test fault injection: simulating concurrent failure during resume");
+                self.reconnection_needed(false, false);
+            }
+        }
+
         let session = self.running_handle.read().session.clone();
         let reconnect_response = session.restart().await?;
 
         let (tx, rx) = oneshot::channel();
         let _ = self.engine_tx.send(EngineEvent::SignalResumed { reconnect_response, tx });
 
-        // With SignalResumed, the room will send a SyncState message to the server
+        // With SignalResumed, the room will send a SyncState message to the server.
+        // SyncState is a pass-through signal so it goes out immediately even though
+        // the SignalClient is still in `reconnecting=true` state.
         let _ = rx.await;
 
         // The publisher offer must be sent AFTER the SyncState message
         session.restart_publisher().await?;
-        session.wait_pc_connection().await
+        session.wait_pc_reconnected(PC_RECONNECT_SETTLE_DELAY).await?;
+
+        // Re-check the signal connection BEFORE flushing the queue. If the WS died
+        // while we were waiting for PCs to come back, draining queued mutations
+        // would just push them into the void; better to bail and let the engine
+        // try a fresh resume (or escalate).
+        if !session.signal_client().is_connected().await {
+            return Err(EngineError::Connection("signal connection severed during resume".into()));
+        }
+
+        // Flush queued mutations and clear the `reconnecting` flag — at this point
+        // the resume has fully recovered, so deferred subscription updates / mutes
+        // / etc. should now reach the server. Mirrors `client.setReconnected()`.
+        session.signal_client().set_reconnected().await;
+
+        Ok(())
+    }
+}
+
+impl From<livekit_datatrack::api::InternalError> for EngineError {
+    fn from(err: livekit_datatrack::api::InternalError) -> Self {
+        Self::Internal(err.to_string().into())
+    }
+}
+
+/// Inspect a reconnect-attempt error and return the server-supplied disconnect
+/// reason iff the server sent `LeaveRequest{action: Disconnect}` while we were
+/// trying to (re)connect. In that case the reconnect loop should bail out
+/// rather than escalate to a full reconnect — the server is explicitly telling
+/// us to stop trying. `Reconnect`/`Resume` actions still fall through to the
+/// normal escalation path.
+fn leave_disconnect_reason(err: &EngineError) -> Option<DisconnectReason> {
+    if let EngineError::Signal(SignalError::LeaveRequest { reason, action }) = err {
+        if *action == proto::leave_request::Action::Disconnect {
+            return Some(*reason);
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leave_disconnect_reason_returns_some_only_for_disconnect_action() {
+        let disconnect_err = EngineError::Signal(SignalError::LeaveRequest {
+            reason: DisconnectReason::ServerShutdown,
+            action: proto::leave_request::Action::Disconnect,
+        });
+        assert_eq!(
+            leave_disconnect_reason(&disconnect_err),
+            Some(DisconnectReason::ServerShutdown),
+            "Disconnect action should propagate the server reason"
+        );
+
+        for action in
+            [proto::leave_request::Action::Reconnect, proto::leave_request::Action::Resume]
+        {
+            let err = EngineError::Signal(SignalError::LeaveRequest {
+                reason: DisconnectReason::ServerShutdown,
+                action,
+            });
+            assert!(
+                leave_disconnect_reason(&err).is_none(),
+                "{:?} action must NOT short-circuit the reconnect loop",
+                action
+            );
+        }
+    }
+
+    #[test]
+    fn leave_disconnect_reason_ignores_non_leave_errors() {
+        let other_errors = [
+            EngineError::Connection("network".into()),
+            EngineError::Internal("bug".into()),
+            EngineError::Signal(SignalError::SendError),
+            EngineError::Signal(SignalError::Timeout("waiting".into())),
+        ];
+        for err in &other_errors {
+            assert!(
+                leave_disconnect_reason(err).is_none(),
+                "{:?} must not be treated as a disconnect Leave",
+                err
+            );
+        }
     }
 }

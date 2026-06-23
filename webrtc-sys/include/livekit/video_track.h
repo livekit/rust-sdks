@@ -33,6 +33,7 @@ namespace livekit_ffi {
 class VideoTrack;
 class NativeVideoSink;
 class VideoTrackSource;
+class PacketTrailerHandler;  // forward declaration to avoid circular include
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/video_track.rs.h"
 
@@ -87,10 +88,10 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 class VideoTrackSource {
   class InternalSource : public webrtc::AdaptedVideoTrackSource {
    public:
-    InternalSource(const VideoResolution&
-                       resolution);  // (0, 0) means no resolution/optional, the
-                                     // source will guess the resolution at the
-                                     // first captured frame
+    InternalSource(const VideoResolution& resolution,
+                   bool is_screencast);  // (0, 0) means no resolution/optional, the
+                                         // source will guess the resolution at the
+                                         // first captured frame
     ~InternalSource() override;
 
     bool is_screencast() const override;
@@ -98,21 +99,41 @@ class VideoTrackSource {
     SourceState state() const override;
     bool remote() const override;
     VideoResolution video_resolution() const;
-    bool on_captured_frame(const webrtc::VideoFrame& frame);
+    bool on_captured_frame(const webrtc::VideoFrame& frame,
+                           const FrameMetadata& frame_metadata);
+
+    void set_packet_trailer_handler(
+        std::shared_ptr<PacketTrailerHandler> handler);
 
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
+    std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
+    bool is_screencast_;
   };
 
  public:
-  VideoTrackSource(const VideoResolution& resolution);
+  VideoTrackSource(const VideoResolution& resolution, bool is_screencast);
 
   VideoResolution video_resolution() const;
 
-  bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
+  bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame,
+                         const FrameMetadata& frame_metadata)
       const;  // frames pushed from Rust (+interior mutability)
+
+  // Single-call DmaBuf capture: creates the DmaBufVideoFrameBuffer and
+  // VideoFrame internally, avoiding multiple FFI round-trips and heap
+  // allocations on the hot path.
+  bool capture_dmabuf_frame(int dmabuf_fd,
+                            int width,
+                            int height,
+                            int pixel_format,
+                            int64_t timestamp_us,
+                            const FrameMetadata& frame_metadata) const;
+
+  void set_packet_trailer_handler(
+      std::shared_ptr<PacketTrailerHandler> handler) const;
 
   webrtc::scoped_refptr<InternalSource> get() const;
 
@@ -121,7 +142,7 @@ class VideoTrackSource {
 };
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(
-    const VideoResolution& resolution);
+    const VideoResolution& resolution, bool is_screencast);
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     convert::TryInto,
     fmt::Debug,
     sync::{
@@ -23,23 +23,27 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
+use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
-use proto::{
-    debouncer::{self, Debouncer},
-    SignalTarget,
-};
+use proto::SignalTarget;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, watch, Notify};
+use tokio::sync::{
+    mpsc::{self, WeakUnboundedSender},
+    oneshot, watch, Notify,
+};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
     id::ParticipantIdentity,
+    rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
     utils::{
+        debouncer::{self, Debouncer},
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
     },
@@ -63,9 +67,22 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
+
+/// Default data-channel max message size (bytes), used when the remote SDP
+/// answer does not advertise an `a=max-message-size` attribute (RFC 8841).
+pub const DEFAULT_MAX_MESSAGE_SIZE: u64 = 64000;
+
+/// Buffered-amount low threshold for the `_data_track` DC.
+///
+/// Kept small (vs. the 2 MiB default for reliable/lossy) so we hand at most
+/// one in-flight message to SCTP at a time; data tracks prefer dropping
+/// packets over queueing. Note that `bufferedAmount` only covers bytes
+/// before SCTP accepts them — queueing below that is bounded by OS/qdisc.
+pub const DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 8 * 1024;
 
 #[derive(Debug)]
 enum NegotiationState {
@@ -198,6 +215,11 @@ pub enum SessionEvent {
         sid: String,
         muted: bool,
     },
+    SubscribedQualityUpdate {
+        update: proto::SubscribedQualityUpdate,
+    },
+    LocalDataTrackInput(dt::local::InputEvent),
+    RemoteDataTrackInput(dt::remote::InputEvent),
 }
 
 #[derive(Debug)]
@@ -335,7 +357,26 @@ struct SessionInner {
     fast_publish: AtomicBool,
 
     publisher_pc: PeerTransport,
-    subscriber_pc: PeerTransport,
+    /// In single peer connection mode, this is None and publisher_pc handles both send/receive
+    subscriber_pc: Option<PeerTransport>,
+    /// Whether single peer connection mode is active
+    single_pc_mode: bool,
+    /// Mapping from SDP mid to track ID, used for track resolution in single PC mode
+    mid_to_track_id: Mutex<HashMap<String, String>>,
+
+    /// `(mid, stream_id)` pairs we've already dispatched as
+    /// `SessionEvent::MediaTrack`.
+    ///
+    /// libwebrtc-native's `OnTrack` callback only fires when a transceiver is
+    /// first created — it does NOT refire when an existing transceiver's
+    /// receiver gains a new associated `MediaStream` via an msid update
+    /// (e.g. an SFU reusing an empty transceiver slot for a new subscription).
+    /// Browsers paper over this by running the W3C "process the addition of
+    /// remote tracks" algorithm in blink (RTCPeerConnection::DidModifyTransceivers
+    /// in third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc),
+    /// diffing receiver streams across each setRemoteDescription and dispatching
+    /// `track` events for newly-added streams.
+    dispatched_streams: Mutex<HashSet<(String, String)>>,
 
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
 
@@ -345,6 +386,12 @@ struct SessionInner {
     lossy_dc_buffered_amount_low_threshold: AtomicU64,
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
+    data_track_dc: DataChannel,
+
+    /// Negotiated SCTP max message size (bytes), parsed from the publisher
+    /// answer SDP (`a=max-message-size`). `0` means "no limit". Defaults to
+    /// [`DEFAULT_MAX_MESSAGE_SIZE`] until an answer is received.
+    max_message_size: AtomicU64,
 
     /// Next sequence number for reliable packets.
     next_packet_sequence: AtomicU32,
@@ -360,6 +407,10 @@ struct SessionInner {
     // so we can receive data from other participants
     sub_lossy_dc: Mutex<Option<DataChannel>>,
     sub_reliable_dc: Mutex<Option<DataChannel>>,
+    sub_data_track_dc: Mutex<Option<DataChannel>>,
+
+    /// Drop-oldest queue for handing data-track packets to the sender task.
+    dt_packet_tx: DataTrackSendQueue,
 
     closed: AtomicBool,
     emitter: SessionEmitter,
@@ -371,6 +422,8 @@ struct SessionInner {
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
+    subscriber_primary: bool,
+    pc_state_notify: Notify,
 }
 
 /// Information about the local participant needed for outgoing
@@ -411,6 +464,7 @@ struct SessionHandle {
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
+    dt_sender_task: JoinHandle<()>,
 }
 
 impl RtcSession {
@@ -422,52 +476,117 @@ impl RtcSession {
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
         let (emitter, session_events) = mpsc::unbounded_channel();
 
-        let (signal_client, join_response, signal_events) =
-            SignalClient::connect(url, token, options.signal_options.clone()).await?;
+        let lk_runtime = LkRuntime::instance();
+        let use_single_pc = options.signal_options.single_peer_connection;
+
+        let mut publisher_offer = None;
+        let early_publisher_pc = if use_single_pc {
+            let publisher_pc = PeerTransport::new(
+                lk_runtime.pc_factory().create_peer_connection(options.rtc_config.clone())?,
+                proto::SignalTarget::Publisher,
+                true,
+            );
+
+            let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+
+            Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
+
+            match publisher_pc.create_initial_offer().await {
+                Ok(Some(offer)) => {
+                    publisher_offer = Some(proto::SessionDescription {
+                        r#type: "offer".to_string(),
+                        sdp: offer.to_string(),
+                        id: 0,
+                        mid_to_track_id: Default::default(),
+                    });
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    log::warn!("failed to create initial publisher offer: {:?}", err);
+                }
+            }
+
+            Some((publisher_pc, dcs))
+        } else {
+            None
+        };
+
+        let (signal_client, mut join_response, signal_events) = SignalClient::connect(
+            url,
+            token,
+            options.signal_options.clone(),
+            publisher_offer.clone(),
+        )
+        .await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
+        let subscriber_primary = join_response.subscriber_primary;
+
+        // Determine if single PC mode is active based on the path used
+        let single_pc_mode = signal_client.is_single_pc_mode_active();
 
         let Some(participant_info) = SessionParticipantInfo::from_join(&join_response) else {
             Err(EngineError::Internal("Join response missing participant info".into()))?
         };
+        if let Ok(initial_publications) = dt::remote::event_from_join(&mut join_response) {
+            _ = emitter.send(SessionEvent::RemoteDataTrackInput(initial_publications.into()));
+        }
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = make_rtc_config_join(join_response.clone(), options.rtc_config.clone());
 
         let (dc_emitter, dc_events) = mpsc::unbounded_channel();
 
-        let lk_runtime = LkRuntime::instance();
-        let mut publisher_pc = PeerTransport::new(
-            lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
-            proto::SignalTarget::Publisher,
-        );
+        let sent_publisher_offer;
+        let (mut publisher_pc, mut reliable_dc, mut lossy_dc, data_track_dc) =
+            if let Some((pub_pc, dcs)) = early_publisher_pc {
+                if single_pc_mode {
+                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
+                    sent_publisher_offer = publisher_offer.is_some();
+                } else {
+                    pub_pc.clear_pending_initial_offer().await;
+                    pub_pc.peer_connection().set_configuration(rtc_config.clone())?;
+                    sent_publisher_offer = false;
+                }
+                (pub_pc, dcs.0, dcs.1, dcs.2)
+            } else {
+                sent_publisher_offer = false;
+                let publisher_pc = PeerTransport::new(
+                    lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
+                    proto::SignalTarget::Publisher,
+                    single_pc_mode,
+                );
+                let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
+                (publisher_pc, dcs.0, dcs.1, dcs.2)
+            };
 
-        let mut subscriber_pc = PeerTransport::new(
-            lk_runtime.pc_factory().create_peer_connection(rtc_config)?,
-            proto::SignalTarget::Subscriber,
-        );
-
-        let mut lossy_dc = publisher_pc.peer_connection().create_data_channel(
-            LOSSY_DC_LABEL,
-            DataChannelInit {
-                ordered: false,
-                max_retransmits: Some(0),
-                ..DataChannelInit::default()
-            },
-        )?;
-
-        let mut reliable_dc = publisher_pc.peer_connection().create_data_channel(
-            RELIABLE_DC_LABEL,
-            DataChannelInit { ordered: true, ..DataChannelInit::default() },
-        )?;
+        // In single PC mode, subscriber_pc is None
+        let mut subscriber_pc = if single_pc_mode {
+            None
+        } else {
+            Some(PeerTransport::new(
+                lk_runtime.pc_factory().create_peer_connection(rtc_config)?,
+                proto::SignalTarget::Subscriber,
+                false,
+            ))
+        };
 
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
-        rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
+        if let Some(ref mut sub_pc) = subscriber_pc {
+            rtc_events::forward_pc_events(sub_pc, rtc_emitter.clone());
+        }
         rtc_events::forward_dc_events(&mut lossy_dc, DataPacketKind::Lossy, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
         let (close_tx, close_rx) = watch::channel(false);
+
+        let dt_sender_options = DataChannelSenderOptions {
+            low_buffer_threshold: DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            dc: data_track_dc.clone(),
+            close_rx: close_rx.clone(),
+        };
+        let (dt_sender, dt_packet_tx) = DataChannelSender::new(dt_sender_options);
 
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
@@ -475,6 +594,9 @@ impl RtcSession {
             signal_client,
             publisher_pc,
             subscriber_pc,
+            single_pc_mode,
+            mid_to_track_id: Mutex::new(HashMap::new()),
+            dispatched_streams: Mutex::new(HashSet::new()),
             pending_tracks: Default::default(),
             lossy_dc,
             lossy_dc_buffered_amount_low_threshold: AtomicU64::new(
@@ -484,12 +606,16 @@ impl RtcSession {
             reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
+            data_track_dc,
+            max_message_size: AtomicU64::new(DEFAULT_MAX_MESSAGE_SIZE),
             next_packet_sequence: 1.into(),
             packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             participant_info,
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
+            sub_data_track_dc: Mutex::new(None),
+            dt_packet_tx,
             closed: Default::default(),
             emitter,
             options,
@@ -497,22 +623,116 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
+            subscriber_primary,
+            pc_state_notify: Notify::new(),
         });
+
+        // Log when a publisher data channel closes without the engine or peer
+        // connection tearing it down
+        for (dc, label) in [
+            (&inner.reliable_dc, RELIABLE_DC_LABEL),
+            (&inner.lossy_dc, LOSSY_DC_LABEL),
+            (&inner.data_track_dc, DATA_TRACK_DC_LABEL),
+        ] {
+            let weak_inner = Arc::downgrade(&inner);
+            dc.on_state_change(Some(Box::new(move |state| {
+                if state != DataChannelState::Closed {
+                    return;
+                }
+                let Some(inner) = weak_inner.upgrade() else {
+                    return;
+                };
+                if !inner.closed.load(Ordering::Acquire) && inner.publisher_pc.is_connected() {
+                    log::error!("publisher data channel '{}' closed unexpectedly", label);
+                }
+            })));
+        }
 
         // Start session tasks
         let signal_task =
             livekit_runtime::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task =
             livekit_runtime::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
-        let dc_task = livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx));
+        let dc_task =
+            livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
+        let dt_sender_task = livekit_runtime::spawn(dt_sender.run());
 
-        let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task, dc_task }));
+        let handle = Mutex::new(Some(SessionHandle {
+            close_tx,
+            signal_task,
+            rtc_task,
+            dc_task,
+            dt_sender_task,
+        }));
+
+        // If we already sent the publisher offer with the JoinRequest, skip initial
+        // negotiation - the server will respond with an answer via the signal channel.
+        // Otherwise, trigger negotiation as before.
+        if sent_publisher_offer {
+            inner.has_published.store(true, Ordering::Release);
+        } else if single_pc_mode || join_response.fast_publish || !subscriber_primary {
+            inner.publisher_negotiation_needed();
+        }
 
         Ok((Self { inner, handle }, join_response, session_events))
     }
 
+    fn create_data_channels(
+        publisher_pc: &PeerTransport,
+        emitter: &mpsc::UnboundedSender<SessionEvent>,
+    ) -> EngineResult<(DataChannel, DataChannel, DataChannel)> {
+        let reliable_dc = publisher_pc.peer_connection().create_data_channel(
+            RELIABLE_DC_LABEL,
+            DataChannelInit { ordered: true, ..Default::default() },
+        )?;
+
+        let lossy_options =
+            DataChannelInit { ordered: false, max_retransmits: Some(0), ..Default::default() };
+
+        let lossy_dc = publisher_pc
+            .peer_connection()
+            .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
+
+        let data_track_dc = publisher_pc
+            .peer_connection()
+            .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
+        handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
+
+        Ok((reliable_dc, lossy_dc, data_track_dc))
+    }
+
+    fn add_recv_media_sections(
+        pc: &PeerConnection,
+        audio_count: u32,
+        video_count: u32,
+    ) -> EngineResult<()> {
+        let recvonly_init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::RecvOnly,
+            stream_ids: Vec::new(),
+            send_encodings: Vec::new(),
+        };
+
+        for _ in 0..audio_count {
+            pc.add_transceiver_for_media(MediaType::Audio, recvonly_init.clone())?;
+        }
+        for _ in 0..video_count {
+            pc.add_transceiver_for_media(MediaType::Video, recvonly_init.clone())?;
+        }
+        Ok(())
+    }
+
     pub fn has_published(&self) -> bool {
         self.inner.has_published.load(Ordering::Acquire)
+    }
+
+    /// Returns whether single peer connection mode is active
+    pub fn is_single_pc_mode(&self) -> bool {
+        self.inner.single_pc_mode
+    }
+
+    /// Get the track ID for a given SDP mid (used in single PC mode)
+    pub fn get_track_id_for_mid(&self, mid: &str) -> Option<String> {
+        self.inner.mid_to_track_id.lock().get(mid).cloned()
     }
 
     pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
@@ -541,7 +761,7 @@ impl RtcSession {
     }
 
     /// Close the PeerConnections and the SignalClient
-    pub async fn close(&self) {
+    pub async fn close(&self, reason: DisconnectReason) {
         // Close the tasks
         let handle = self.handle.lock().take();
         if let Some(handle) = handle {
@@ -549,11 +769,12 @@ impl RtcSession {
             let _ = handle.rtc_task.await;
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
+            let _ = handle.dt_sender_task.await;
         }
 
         // Close the PeerConnections after the task
         // So if a sensitive operation is running, we can wait for it
-        self.inner.close().await;
+        self.inner.close(reason).await;
     }
 
     pub async fn publish_data(
@@ -577,6 +798,22 @@ impl RtcSession {
         self.inner.wait_pc_connection().await
     }
 
+    /// Wait for PCs to be connected on the resume path.
+    ///
+    /// Sleeps `settle_delay` before polling, giving the just-issued ICE
+    /// restart offer/answer round-trip a chance to take effect when the
+    /// failure was signal-only (PCs may still report `Connected` immediately
+    /// after a WS hiccup, even though the new ufrag/pwd hasn't propagated yet).
+    pub async fn wait_pc_reconnected(&self, settle_delay: Duration) -> EngineResult<()> {
+        self.inner.wait_pc_connection_with_delay(settle_delay).await
+    }
+
+    /// Ensure the publisher peer connection is connected and the data channel is open.
+    /// This triggers negotiation if needed and waits for the connection to be established.
+    pub async fn ensure_publisher_connected(&self) -> EngineResult<()> {
+        self.inner.ensure_publisher_connected(DataPacketKind::Reliable).await
+    }
+
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.simulate_scenario(scenario).await
     }
@@ -584,7 +821,12 @@ impl RtcSession {
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
         let publisher_stats = self.inner.publisher_pc.peer_connection().get_stats().await?;
 
-        let subscriber_stats = self.inner.subscriber_pc.peer_connection().get_stats().await?;
+        let subscriber_stats = if let Some(ref sub_pc) = self.inner.subscriber_pc {
+            sub_pc.peer_connection().get_stats().await?
+        } else {
+            // In single PC mode, there's no separate subscriber stats
+            Vec::new()
+        };
 
         Ok(SessionStats { publisher_stats, subscriber_stats })
     }
@@ -593,8 +835,8 @@ impl RtcSession {
         &self.inner.publisher_pc
     }
 
-    pub fn subscriber(&self) -> &PeerTransport {
-        &self.inner.subscriber_pc
+    pub fn subscriber(&self) -> Option<&PeerTransport> {
+        self.inner.subscriber_pc.as_ref()
     }
 
     pub fn signal_client(&self) -> &Arc<SignalClient> {
@@ -603,6 +845,61 @@ impl RtcSession {
 
     pub fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
         self.inner.data_channel(target, kind)
+    }
+
+    /// Handles an event from the local data track manager.
+    pub(super) async fn handle_local_data_track_output(&self, event: dt::local::OutputEvent) {
+        use dt::local::OutputEvent;
+        match event {
+            OutputEvent::SfuPublishRequest(event) => {
+                if let Err(err) = self.inner.ensure_data_track_publisher_connected().await {
+                    log::error!("Failed to open data track publish transport: {}", err);
+                }
+                self.signal_client()
+                    .send(proto::signal_request::Message::PublishDataTrackRequest(event.into()))
+                    .await
+            }
+            OutputEvent::SfuUnpublishRequest(event) => {
+                self.signal_client()
+                    .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
+                    .await
+            }
+            OutputEvent::PacketsAvailable(packets) => self.try_send_data_track_packets(packets),
+        }
+    }
+
+    /// Handles an event from the remote data track manager.
+    pub(super) async fn handle_remote_data_track_output(&self, event: dt::remote::OutputEvent) {
+        use dt::remote::OutputEvent;
+        match event.into() {
+            OutputEvent::SfuUpdateSubscription(event) => {
+                self.signal_client()
+                    .send(proto::signal_request::Message::UpdateDataSubscription(event.into()))
+                    .await
+            }
+            _ => {}
+        }
+    }
+
+    /// Try to send data track packets over the transport.
+    ///
+    /// All packets belong to one application frame and are enqueued atomically
+    /// so a partial frame is never queued or evicted; drop-oldest applies at
+    /// whole-frame granularity.
+    fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
+        if packets.is_empty() {
+            return;
+        }
+        let packet_count = packets.len();
+        if let Some(stale) = self.inner.dt_packet_tx.send(packets) {
+            let stale_bytes: usize = stale.iter().map(|p| p.len()).sum();
+            log::trace!(
+                "evicted oldest queued data-track frame ({} packets / {} total bytes) in favor of newer {}-packet frame",
+                stale.len(),
+                stale_bytes,
+                packet_count,
+            );
+        }
     }
 
     pub fn e2ee_manager(&self) -> Option<E2eeManager> {
@@ -651,6 +948,43 @@ impl RtcSession {
 }
 
 impl SessionInner {
+    /// Walks the given peer connection's transceivers and synthesizes a
+    /// `SessionEvent::MediaTrack` for any `(mid, stream_id)` pair we
+    /// haven't already dispatched.
+    ///
+    /// Mirrors `RTCPeerConnection::DidModifyTransceivers` in Chromium's
+    /// blink renderer:
+    /// `third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc`.
+    fn process_remote_track_addition(&self, pc: &libwebrtc::peer_connection::PeerConnection) {
+        let mut current =
+            HashMap::<(String, String), (MediaStream, MediaStreamTrack, RtpTransceiver)>::new();
+        for transceiver in pc.transceivers() {
+            let Some(mid) = transceiver.mid() else { continue };
+            let receiver = transceiver.receiver();
+            let Some(track) = receiver.track() else { continue };
+            for stream in receiver.streams() {
+                let stream_id = stream.id();
+                current
+                    .entry((mid.clone(), stream_id))
+                    .or_insert_with(|| (stream, track.clone(), transceiver.clone()));
+            }
+        }
+
+        let mut dispatched = self.dispatched_streams.lock();
+        dispatched.retain(|key| current.contains_key(key));
+
+        for (key, (stream, track, transceiver)) in current {
+            if dispatched.insert(key.clone()) {
+                log::debug!(
+                    "blink-diff: synthesizing MediaTrack for mid={}, stream_id={}",
+                    key.0,
+                    key.1
+                );
+                let _ = self.emitter.send(SessionEvent::MediaTrack { stream, track, transceiver });
+            }
+        }
+    }
+
     async fn rtc_session_task(
         self: Arc<Self>,
         mut rtc_events: RtcEvents,
@@ -764,11 +1098,30 @@ impl SessionInner {
                             if event.kind == DataPacketKind::Reliable {
                                 request.packet.sequence = self.next_packet_sequence.fetch_add(1, Ordering::Relaxed);
                             }
+                            let encoded_packet: EncodedPacket = request.packet.into();
+
+                            let max_message_size = self.max_message_size.load(Ordering::Acquire);
+                            if max_message_size != 0
+                                && encoded_packet.data.len() as u64 > max_message_size
+                            {
+                                let err = EngineError::Internal(
+                                    format!(
+                                        "data packet size ({} bytes) exceeds the negotiated maximum message size ({} bytes)",
+                                        encoded_packet.data.len(),
+                                        max_message_size
+                                    )
+                                    .into(),
+                                );
+                                log::warn!("{}", err);
+                                _ = request.completion_tx.send(Err(err));
+                                continue;
+                            }
+
                             let ev = DataChannelEvent {
                                 kind: event.kind,
                                 detail: DataChannelEventDetail::PublishData(PublishDataRequest {
-                                    encoded_packet: request.packet.into(),
-                                    completion_tx: request.completion_tx.into()
+                                    encoded_packet,
+                                    completion_tx: request.completion_tx.into(),
                                 })
                             };
                             if let Err(err) = self.dc_emitter.send(ev) {
@@ -843,6 +1196,7 @@ impl SessionInner {
             let Some(request) = request_queue.pop_front() else {
                 break;
             };
+
             *buffered_amount += request.encoded_packet.data.len() as u64;
             let result = self
                 .data_channel(SignalTarget::Publisher, kind)
@@ -851,6 +1205,7 @@ impl SessionInner {
                 .map_err(|err| {
                     EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
                 });
+
             if let Some(completion_tx) = request.completion_tx {
                 _ = completion_tx.send(result);
             }
@@ -909,13 +1264,37 @@ impl SessionInner {
         rx_state.set(&packet.participant_sid, Some(packet.sequence));
     }
 
-    async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
+    async fn on_signal_event(
+        self: &Arc<Self>,
+        event: proto::signal_response::Message,
+    ) -> EngineResult<()> {
         match event {
             proto::signal_response::Message::Answer(answer) => {
                 log::debug!("received publisher answer: {:?}", answer);
+
+                // Store mid_to_track_id mapping in single PC mode
+                if self.single_pc_mode && !answer.mid_to_track_id.is_empty() {
+                    let mut mapping = self.mid_to_track_id.lock();
+                    for (mid, track_id) in &answer.mid_to_track_id {
+                        mapping.insert(mid.clone(), track_id.clone());
+                    }
+                }
+
+                let max_message_size = std::cmp::min(
+                    parse_sdp_max_message_size(&answer.sdp).unwrap_or(DEFAULT_MAX_MESSAGE_SIZE),
+                    DEFAULT_MAX_MESSAGE_SIZE,
+                );
+
+                self.max_message_size.store(max_message_size, Ordering::Release);
+                log::debug!("negotiated data channel max message size: {} bytes", max_message_size);
+
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
                 self.publisher_pc.set_remote_description(answer).await?;
+
+                if self.single_pc_mode {
+                    self.process_remote_track_addition(&self.publisher_pc.peer_connection());
+                }
 
                 if self.fast_publish.load(Ordering::Acquire) {
                     if self.negotiation_queue.waiting_for_answer.swap(false, Ordering::AcqRel) {
@@ -925,11 +1304,24 @@ impl SessionInner {
                 }
             }
             proto::signal_response::Message::Offer(offer) => {
+                // In single PC mode, client always offers and server always answers,
+                // so we should never receive an offer from the server.
+                if self.single_pc_mode {
+                    log::warn!("received unexpected offer in single PC mode, ignoring");
+                    return Ok(());
+                }
+
+                // Dual PC mode: handle offer on subscriber PC
                 log::debug!("received subscriber offer: {:?}", offer);
-                let offer =
+                let offer_sdp =
                     SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap()).unwrap();
-                let answer =
-                    self.subscriber_pc.create_anwser(offer, AnswerOptions::default()).await?;
+
+                let answer = self
+                    .subscriber_pc
+                    .as_ref()
+                    .unwrap()
+                    .create_anwser(offer_sdp, AnswerOptions::default())
+                    .await?;
 
                 self.signal_client
                     .send(proto::signal_request::Message::Answer(proto::SessionDescription {
@@ -953,8 +1345,11 @@ impl SessionInner {
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc.add_ice_candidate(ice_candidate).await?;
+                } else if self.single_pc_mode {
+                    // In single PC mode, all ICE candidates go to publisher
+                    self.publisher_pc.add_ice_candidate(ice_candidate).await?;
                 } else {
-                    self.subscriber_pc.add_ice_candidate(ice_candidate).await?;
+                    self.subscriber_pc.as_ref().unwrap().add_ice_candidate(ice_candidate).await?;
                 }
             }
             proto::signal_response::Message::Leave(leave) => {
@@ -966,7 +1361,14 @@ impl SessionInner {
                     true,
                 );
             }
-            proto::signal_response::Message::Update(update) => {
+            proto::signal_response::Message::Update(mut update) => {
+                let local_participant_identity = self.participant_info.identity.as_str().into();
+                if let Ok(event) = dt::remote::event_from_participant_update(
+                    &mut update,
+                    local_participant_identity,
+                ) {
+                    _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
+                }
                 let _ = self
                     .emitter
                     .send(SessionEvent::ParticipantUpdate { updates: update.participants });
@@ -998,10 +1400,28 @@ impl SessionInner {
                 });
             }
             proto::signal_response::Message::RequestResponse(request_response) => {
+                if let Some(event) =
+                    dt::local::publish_result_from_request_response(&request_response)
+                {
+                    _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
+                    return Ok(());
+                }
                 let mut pending_requests = self.pending_requests.lock();
                 if let Some(tx) = pending_requests.remove(&request_response.request_id) {
                     let _ = tx.send(request_response);
                 }
+            }
+            proto::signal_response::Message::PublishDataTrackResponse(publish_res) => {
+                let event: dt::local::SfuPublishResponse = publish_res.try_into()?;
+                _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
+            }
+            proto::signal_response::Message::UnpublishDataTrackResponse(unpublish_res) => {
+                let event: dt::local::SfuUnpublishResponse = unpublish_res.try_into()?;
+                _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
+            }
+            proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
+                let event: dt::remote::SfuSubscriberHandles = subscriber_handles.try_into()?;
+                _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
             }
             proto::signal_response::Message::RefreshToken(ref token) => {
                 let url = self.signal_client.url();
@@ -1011,8 +1431,45 @@ impl SessionInner {
                 let _ =
                     self.emitter.send(SessionEvent::TrackMuted { sid: req.sid, muted: req.muted });
             }
+            proto::signal_response::Message::MediaSectionsRequirement(req) => {
+                if self.single_pc_mode {
+                    self.handle_media_sections_requirement(req)?;
+                }
+            }
+            proto::signal_response::Message::SubscribedQualityUpdate(update) => {
+                log::debug!(
+                    "received subscribed quality update for track {}: {:?}",
+                    update.track_sid,
+                    update.subscribed_codecs
+                );
+                let _ = self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
+            }
             _ => {}
         }
+
+        Ok(())
+    }
+
+    /// Handle MediaSectionsRequirement by adding recvonly transceivers to publisher PC.
+    /// This matches the JS SDK behavior: add transceivers and trigger negotiation.
+    fn handle_media_sections_requirement(
+        self: &Arc<Self>,
+        req: proto::MediaSectionsRequirement,
+    ) -> EngineResult<()> {
+        log::debug!(
+            "MediaSectionsRequirement: adding {} audio and {} video recvonly transceivers",
+            req.num_audios,
+            req.num_videos
+        );
+
+        RtcSession::add_recv_media_sections(
+            &self.publisher_pc.peer_connection(),
+            req.num_audios,
+            req.num_videos,
+        )?;
+
+        // Trigger renegotiation
+        self.publisher_negotiation_needed();
 
         Ok(())
     }
@@ -1037,6 +1494,8 @@ impl SessionInner {
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
 
+                self.pc_state_notify.notify_waiters();
+
                 if state == PeerConnectionState::Failed {
                     log::error!("{:?} pc state failed", target);
                     self.on_session_disconnected(
@@ -1048,14 +1507,25 @@ impl SessionInner {
                 }
             }
             RtcEvent::DataChannel { data_channel, target } => {
-                log::debug!("received data channel: {:?} {:?}", data_channel, target);
-                if target == SignalTarget::Subscriber {
-                    if data_channel.label() == LOSSY_DC_LABEL {
-                        self.sub_lossy_dc.lock().replace(data_channel);
-                    } else if data_channel.label() == RELIABLE_DC_LABEL {
-                        self.sub_reliable_dc.lock().replace(data_channel);
-                    }
+                // In single PC mode, subscriber data channels come from publisher target
+                let is_subscriber_dc = if self.single_pc_mode {
+                    target == SignalTarget::Publisher
+                } else {
+                    target == SignalTarget::Subscriber
+                };
+                if !is_subscriber_dc {
+                    return Ok(());
                 }
+                let dc_ref = match data_channel.label().as_str() {
+                    LOSSY_DC_LABEL => &self.sub_lossy_dc,
+                    RELIABLE_DC_LABEL => &self.sub_reliable_dc,
+                    DATA_TRACK_DC_LABEL => {
+                        handle_remote_dt_packets(&data_channel, self.emitter.downgrade());
+                        &self.sub_data_track_dc
+                    }
+                    _ => return Ok(()),
+                };
+                dc_ref.lock().replace(data_channel);
             }
             RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
@@ -1071,13 +1541,17 @@ impl SessionInner {
             }
             RtcEvent::Track { mut streams, track, transceiver, target: _ } => {
                 if !streams.is_empty() {
-                    let _ = self.emitter.send(SessionEvent::MediaTrack {
-                        stream: streams.remove(0),
-                        track,
-                        transceiver,
-                    });
-                } else {
-                    log::warn!("Track event with no streams");
+                    let stream = streams.remove(0);
+                    let mid = transceiver.mid().unwrap_or_default();
+                    let already_dispatched = !mid.is_empty()
+                        && !self.dispatched_streams.lock().insert((mid, stream.id()));
+                    if !already_dispatched {
+                        let _ = self.emitter.send(SessionEvent::MediaTrack {
+                            stream,
+                            track,
+                            transceiver,
+                        });
+                    }
                 }
             }
             RtcEvent::Data { data, binary, kind } => {
@@ -1174,7 +1648,7 @@ impl SessionInner {
                 let caller_identity = participant_identity;
                 self.emitter.send(SessionEvent::RpcRequest {
                     caller_identity,
-                    request_id: rpc_request.id,
+                    request_id: rpc_request.id.clone(),
                     method: rpc_request.method,
                     payload: rpc_request.payload,
                     response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
@@ -1186,6 +1660,7 @@ impl SessionInner {
                     None => (None, None),
                     Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
                     Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
+                    Some(proto::rpc_response::Value::CompressedPayload(_)) => (None, None),
                 };
                 self.emitter.send(SessionEvent::RpcResponse {
                     request_id: rpc_response.request_id,
@@ -1229,14 +1704,15 @@ impl SessionInner {
             proto::data_packet::Value::EncryptedPacket(encrypted_packet) => {
                 // Handle encrypted data packets
                 if let Some(e2ee_manager) = &self.e2ee_manager {
+                    let encryption_type = encrypted_packet.encryption_type();
                     let participant_identity_str =
                         participant_identity.as_ref().map(|p| p.0.as_str()).unwrap_or("");
 
-                    match e2ee_manager.handle_encrypted_data(
-                        &encrypted_packet.encrypted_value,
-                        &encrypted_packet.iv,
-                        participant_identity_str,
+                    match e2ee_manager.decrypt_data(
+                        encrypted_packet.encrypted_value,
+                        encrypted_packet.iv,
                         encrypted_packet.key_index,
+                        participant_identity_str,
                     ) {
                         Some(decrypted_payload) => {
                             // Parse the decrypted payload as EncryptedPacketPayload
@@ -1249,7 +1725,7 @@ impl SessionInner {
                                             participant_sid,
                                             participant_identity,
                                             convert_encrypted_to_data_packet_value(decrypted_value),
-                                            encrypted_packet.encryption_type(),
+                                            encryption_type,
                                         );
                                         Ok(())
                                     } else {
@@ -1353,6 +1829,8 @@ impl SessionInner {
             self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if track.kind() == TrackKind::Video {
+            transceiver.sender().set_video_encoder_backend(options.video_encoder);
+
             let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
                 match track.kind() {
                     TrackKind::Video => MediaType::Video,
@@ -1406,31 +1884,26 @@ impl SessionInner {
         });
     }
 
-    async fn close(&self) {
+    async fn close(&self, reason: DisconnectReason) {
         self.closed.store(true, Ordering::Release);
+        self.pc_state_notify.notify_waiters();
 
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
                 action: proto::leave_request::Action::Disconnect.into(),
-                reason: DisconnectReason::ClientInitiated as i32,
+                reason: reason as i32,
                 ..Default::default()
             }))
             .await;
 
         self.signal_client.close().await;
         self.publisher_pc.close();
-        self.subscriber_pc.close();
+        if let Some(ref sub_pc) = self.subscriber_pc {
+            sub_pc.close();
+        }
     }
 
-    async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
-        let simulate_leave = || {
-            self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
-                action: proto::leave_request::Action::Reconnect.into(),
-                reason: DisconnectReason::ClientInitiated as i32,
-                ..Default::default()
-            }))
-        };
-
+    async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
             SimulateScenario::SignalReconnect => {
                 self.signal_client.close().await;
@@ -1474,7 +1947,12 @@ impl SessionInner {
                     }))
                     .await;
 
-                simulate_leave().await?
+                self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Reconnect.into(),
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    ..Default::default()
+                }))
+                .await?
             }
             SimulateScenario::ForceTls => {
                 self.signal_client
@@ -1487,7 +1965,21 @@ impl SessionInner {
                     }))
                     .await;
 
-                simulate_leave().await?
+                self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Reconnect.into(),
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    ..Default::default()
+                }))
+                .await?
+            }
+            SimulateScenario::FullReconnect => {
+                self.signal_client
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::LeaveRequestFullReconnect(true),
+                        ),
+                    }))
+                    .await;
             }
         }
         Ok(())
@@ -1522,13 +2014,14 @@ impl SessionInner {
 
                     // Encode the payload and encrypt it
                     let payload_bytes = encrypted_payload.encode_to_vec();
+
                     let key_index = e2ee_manager
                         .key_provider()
-                        .map(|kp| kp.get_latest_key_index() as u32)
-                        .unwrap_or(0);
+                        .map_or(0, |kp| kp.get_latest_key_index() as u32);
+
                     match e2ee_manager.encrypt_data(
-                        &payload_bytes,
-                        &self.participant_info.identity.0,
+                        payload_bytes,
+                        &self.participant_info.identity,
                         key_index,
                     ) {
                         Ok(encrypted_data) => {
@@ -1556,8 +2049,12 @@ impl SessionInner {
                 // DC encryption not enabled, restore original packet
                 packet.value = packet_value;
             }
+        } else {
+            // No e2ee_manager or no packet value - restore original
+            packet.value = packet_value;
         }
 
+        // Send through the queue with backpressure
         let (completion_tx, completion_rx) = oneshot::channel();
         let ev = DataChannelEvent {
             kind,
@@ -1585,7 +2082,9 @@ impl SessionInner {
         let rtc_config =
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
         self.publisher_pc.peer_connection().set_configuration(rtc_config.clone())?;
-        self.subscriber_pc.peer_connection().set_configuration(rtc_config)?;
+        if let Some(ref sub_pc) = self.subscriber_pc {
+            sub_pc.peer_connection().set_configuration(rtc_config)?;
+        }
 
         let ev = DataChannelEvent {
             kind: DataPacketKind::Reliable,
@@ -1599,7 +2098,10 @@ impl SessionInner {
     }
 
     async fn restart_publisher(&self) -> EngineResult<()> {
-        if self.has_published.load(Ordering::Acquire) {
+        // In single-PC mode the publisher is the only transport, so always restart its ICE
+        // even if the user hasn't explicitly published a track yet. Otherwise only restart
+        // when we have something to keep alive on the publisher side.
+        if self.single_pc_mode || self.has_published.load(Ordering::Acquire) {
             self.publisher_pc
                 .create_and_send_offer(OfferOptions { ice_restart: true, ..Default::default() })
                 .await?;
@@ -1609,15 +2111,40 @@ impl SessionInner {
 
     /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
+        self.wait_pc_connection_with_delay(Duration::ZERO).await
+    }
+
+    /// Like [`Self::wait_pc_connection`] but sleeps `settle_delay` before polling.
+    async fn wait_pc_connection_with_delay(&self, settle_delay: Duration) -> EngineResult<()> {
         let wait_connected = async move {
-            while !self.subscriber_pc.is_connected()
-                || (self.has_published.load(Ordering::Acquire) && !self.publisher_pc.is_connected())
-            {
+            if !settle_delay.is_zero() {
+                livekit_runtime::sleep(settle_delay).await;
+            }
+
+            loop {
+                let notified = self.pc_state_notify.notified();
+
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                livekit_runtime::sleep(Duration::from_millis(50)).await;
+                let publisher_connected = self.publisher_pc.is_connected();
+                let subscriber_connected = if self.single_pc_mode || !self.subscriber_primary {
+                    true // No subscriber in single PC mode or if PC is publisher primary
+                } else {
+                    self.subscriber_pc.as_ref().map(|pc| pc.is_connected()).unwrap_or(true)
+                };
+
+                // In single-PC mode the publisher is the only transport, so it must always
+                // be connected — independent of whether the user has published any tracks.
+                let need_publisher =
+                    self.single_pc_mode || self.has_published.load(Ordering::Acquire);
+
+                if subscriber_connected && (!need_publisher || publisher_connected) {
+                    break;
+                }
+
+                let _ = tokio::time::timeout(Duration::from_millis(50), notified).await;
             }
 
             Ok(())
@@ -1745,11 +2272,29 @@ impl SessionInner {
         }
     }
 
-    /// Ensure the Publisher PC is connected, if not, start the negotiation
-    /// This is required when sending data to the server
+    /// Ensure the publisher peer connection and data channel for the specified packet
+    /// type are connected. If not, start the negotiation.
+    ///
+    /// This is required when sending data to the server.
+    ///
     async fn ensure_publisher_connected(
         self: &Arc<Self>,
         kind: DataPacketKind,
+    ) -> EngineResult<()> {
+        let required_dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
+        self.ensure_publisher_connected_with_dc(required_dc).await?;
+        Ok(())
+    }
+
+    /// Ensure the required data channel for publishing data track frames is open.
+    async fn ensure_data_track_publisher_connected(self: &Arc<Self>) -> EngineResult<()> {
+        self.ensure_publisher_connected_with_dc(self.data_track_dc.clone()).await?;
+        Ok(())
+    }
+
+    async fn ensure_publisher_connected_with_dc(
+        self: &Arc<Self>,
+        required_dc: DataChannel,
     ) -> EngineResult<()> {
         if !self.has_published.load(Ordering::Acquire) {
             // The publisher has never been connected, start the negotiation
@@ -1757,14 +2302,14 @@ impl SessionInner {
             self.publisher_negotiation_needed();
         }
 
-        let dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
-        if dc.state() == DataChannelState::Open {
+        if required_dc.state() == DataChannelState::Open {
             return Ok(());
         }
 
         // Wait until the PeerConnection is connected
         let wait_connected = async {
-            while !self.publisher_pc.is_connected() || dc.state() != DataChannelState::Open {
+            while !self.publisher_pc.is_connected() || required_dc.state() != DataChannelState::Open
+            {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".into()));
                 }
@@ -1775,14 +2320,16 @@ impl SessionInner {
             Ok(())
         };
 
-        tokio::select! {
+        let result = tokio::select! {
             res = wait_connected => res,
             _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("could not establish publisher connection: timeout".into());
                 log::error!("{}", err);
                 Err(err)
             }
-        }
+        };
+
+        result
     }
 
     fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
@@ -1821,6 +2368,28 @@ impl SessionInner {
     }
 }
 
+/// Parses the `a=max-message-size` attribute (RFC 8841) from an SDP, returning
+/// the value in bytes. Returns `None` when the attribute is absent or invalid.
+fn parse_sdp_max_message_size(sdp: &str) -> Option<u64> {
+    sdp.lines()
+        .find_map(|line| line.trim().strip_prefix("a=max-message-size:"))
+        .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+/// Emit incoming data track packets as session events.
+pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<SessionEvent>) {
+    let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
+        if !buffer.binary {
+            log::error!("Received non-binary message");
+            return;
+        }
+        let packet: Bytes = buffer.data.to_vec().into(); // TODO: avoid clone if possible
+        let Some(emitter) = emitter.upgrade() else { return };
+        _ = emitter.send(SessionEvent::RemoteDataTrackInput(packet.into()));
+    });
+    dc.on_message(on_message.into());
+}
+
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
         fn $fncname(value: $proto, mut config: RtcConfiguration) -> RtcConfiguration {
@@ -1847,3 +2416,47 @@ macro_rules! make_rtc_config {
 
 make_rtc_config!(make_rtc_config_join, proto::JoinResponse);
 make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_sdp_max_message_size, DEFAULT_MAX_MESSAGE_SIZE};
+
+    #[test]
+    fn parses_max_message_size_from_application_section() {
+        let sdp = "v=0\r\n\
+                   m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n\
+                   a=sctp-port:5000\r\n\
+                   a=max-message-size:262144\r\n";
+        assert_eq!(parse_sdp_max_message_size(sdp), Some(262144));
+    }
+
+    #[test]
+    fn parses_with_lf_only_and_surrounding_whitespace() {
+        let sdp = "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\n a=max-message-size: 65536 \n";
+        assert_eq!(parse_sdp_max_message_size(sdp), Some(65536));
+    }
+
+    #[test]
+    fn missing_attribute_returns_none_so_default_is_used() {
+        let sdp = "v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=sctp-port:5000\r\n";
+        assert_eq!(parse_sdp_max_message_size(sdp), None);
+        // Callers fall back to the default when the attribute is absent.
+        assert_eq!(
+            parse_sdp_max_message_size(sdp).unwrap_or(DEFAULT_MAX_MESSAGE_SIZE),
+            DEFAULT_MAX_MESSAGE_SIZE
+        );
+    }
+
+    #[test]
+    fn zero_is_parsed_and_means_no_limit() {
+        // RFC 8841: a value of 0 indicates the peer can receive any message size.
+        // The send guard treats 0 as "no limit" and skips the check.
+        assert_eq!(parse_sdp_max_message_size("a=max-message-size:0\r\n"), Some(0));
+    }
+
+    #[test]
+    fn invalid_or_empty_value_returns_none() {
+        assert_eq!(parse_sdp_max_message_size("a=max-message-size:abc\r\n"), None);
+        assert_eq!(parse_sdp_max_message_size("a=max-message-size:\r\n"), None);
+    }
+}

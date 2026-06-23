@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use chrono::{DateTime, Utc};
-use livekit_protocol::{data_stream as proto, enum_dispatch};
+use libwebrtc::enum_dispatch;
+use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -24,6 +25,16 @@ pub use incoming::*;
 pub use outgoing::*;
 
 use crate::e2ee::EncryptionType;
+use crate::room::rpc::{RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC};
+
+/// Data stream topics reserved for internal SDK use. Events for these
+/// topics are handled within the `livekit` crate and never surfaced
+/// through `RoomEvent`.
+pub(crate) const INTERNAL_TOPICS: &[&str] = &[RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC];
+
+pub(crate) fn is_internal_topic(topic: &str) -> bool {
+    INTERNAL_TOPICS.contains(&topic)
+}
 
 /// Result type for data stream operations.
 pub type StreamResult<T> = Result<T, StreamError>;

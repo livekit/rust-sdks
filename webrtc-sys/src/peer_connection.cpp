@@ -22,6 +22,7 @@
 #include "api/data_channel_interface.h"
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
+#include "livekit/candidate.h"
 #include "livekit/data_channel.h"
 #include "livekit/jsep.h"
 #include "livekit/media_stream.h"
@@ -398,7 +399,7 @@ void PeerConnection::OnIceGatheringChange(
 }
 
 void PeerConnection::OnIceCandidate(
-    const webrtc::IceCandidateInterface* candidate) {
+    const webrtc::IceCandidate* candidate) {
   auto new_candidate = webrtc::CreateIceCandidate(candidate->sdp_mid(),
                                                   candidate->sdp_mline_index(),
                                                   candidate->candidate());
@@ -414,14 +415,11 @@ void PeerConnection::OnIceCandidateError(const std::string& address,
   observer_->on_ice_candidate_error(address, port, url, error_code, error_text);
 }
 
-void PeerConnection::OnIceCandidatesRemoved(
-    const std::vector<cricket::Candidate>& candidates) {
+void PeerConnection::OnIceCandidateRemoved(const webrtc::IceCandidate* ice_candidate) {
   rust::Vec<CandidatePtr> vec;
-
-  for (const auto& item : candidates) {
-    vec.push_back(CandidatePtr{std::make_unique<Candidate>(item)});
+  if(ice_candidate != nullptr) {
+    vec.push_back(CandidatePtr{std::make_unique<Candidate>(ice_candidate->candidate())});
   }
-
   observer_->on_ice_candidates_removed(std::move(vec));
 }
 
@@ -430,7 +428,7 @@ void PeerConnection::OnIceConnectionReceivingChange(bool receiving) {
 }
 
 void PeerConnection::OnIceSelectedCandidatePairChanged(
-    const cricket::CandidatePairChangeEvent& event) {
+    const webrtc::CandidatePairChangeEvent& event) {
   CandidatePairChangeEvent e{};
   e.selected_candidate_pair.local =
       std::make_unique<Candidate>(event.selected_candidate_pair.local);

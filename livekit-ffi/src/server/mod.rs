@@ -24,6 +24,7 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
+use livekit::prelude::DisconnectReason;
 use livekit::webrtc::{
     native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
 };
@@ -37,8 +38,10 @@ pub mod audio_source;
 pub mod audio_stream;
 pub mod colorcvt;
 pub mod data_stream;
+pub mod data_track;
 pub mod logger;
 pub mod participant;
+pub mod platform_audio;
 pub mod requests;
 pub mod resampler;
 pub mod room;
@@ -148,7 +151,7 @@ impl FfiServer {
         *self.config.lock() = Some(config.clone());
         self.logger.set_capture_logs(config.capture_logs);
 
-        log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
+        log::debug!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
 
     /// Returns whether the server has been setup.
@@ -157,8 +160,7 @@ impl FfiServer {
     }
 
     pub async fn dispose(&'static self) {
-        self.logger.set_capture_logs(false);
-        log::info!("disposing ffi server");
+        log::debug!("disposing ffi server");
 
         // Close all rooms
         let mut rooms = Vec::new();
@@ -169,8 +171,10 @@ impl FfiServer {
         }
 
         for room in rooms {
-            room.close(self).await;
+            room.close(self, DisconnectReason::ClientInitiated).await;
         }
+
+        self.logger.set_capture_logs(false);
 
         // Drop all handles
         *self.config.lock() = None; // Invalidate the config
@@ -252,6 +256,9 @@ impl FfiServer {
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
         let existed = self.ffi_handles.remove(&id).is_some();
         self.handle_dropped_txs.remove(&id);
+        if !existed {
+            log::warn!("Attempted to drop unknown FFI handle: {id}");
+        }
         return existed;
     }
 

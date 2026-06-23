@@ -67,8 +67,8 @@ impl ServiceBase {
     ) -> Result<HeaderMap, AccessTokenError> {
         let mut tok =
             AccessToken::with_api_key(&self.api_key, &self.api_secret).with_grants(grants);
-        if sip.is_some() {
-            tok = tok.with_sip_grants(sip.unwrap())
+        if let Some(sip_grants) = sip {
+            tok = tok.with_sip_grants(sip_grants);
         }
         let token = tok.to_jwt()?;
 

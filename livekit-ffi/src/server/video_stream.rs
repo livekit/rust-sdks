@@ -15,13 +15,17 @@
 use futures_util::StreamExt;
 use livekit::{
     prelude::Track,
-    webrtc::{prelude::*, video_stream::native::NativeVideoStream},
+    webrtc::{
+        prelude::*,
+        video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
+    },
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::{colorcvt, room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+use livekit::webrtc::video_frame::FrameMetadata;
 
 pub struct FfiVideoStream {
     pub handle_id: FfiHandleId,
@@ -32,6 +36,13 @@ pub struct FfiVideoStream {
 }
 
 impl FfiHandle for FfiVideoStream {}
+
+fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::FrameMetadata> {
+    metadata.map(|metadata| proto::FrameMetadata {
+        user_timestamp: metadata.user_timestamp,
+        frame_id: metadata.frame_id,
+    })
+}
 
 impl FfiVideoStream {
     /// Setup a new VideoStream and forward the frame data to the client/the foreign
@@ -60,12 +71,17 @@ impl FfiVideoStream {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
                 let video_stream = Self { handle_id, self_dropped_tx, stream_type };
+                let options = NativeVideoStreamOptions {
+                    queue_size_frames: new_stream
+                        .queue_size_frames
+                        .map(|capacity| capacity as usize),
+                };
                 let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
                     new_stream.format.and_then(|_| Some(new_stream.format())),
                     new_stream.normalize_stride.unwrap_or(true),
-                    NativeVideoStream::new(rtc_track),
+                    NativeVideoStream::with_options(rtc_track, options),
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
                     true,
@@ -136,6 +152,9 @@ impl FfiVideoStream {
                         break;
                     };
 
+                    let metadata = frame_metadata_to_proto(frame.frame_metadata);
+                    let timestamp_us = frame.timestamp_us;
+                    let rotation = proto::VideoRotation::from(frame.rotation).into();
                     let Ok((buffer, info)) = colorcvt::to_video_buffer_info(frame.buffer, dst_type, normalize_stride) else {
                         log::error!("video stream failed to convert video frame to {:?}", dst_type);
                         continue;
@@ -150,14 +169,15 @@ impl FfiVideoStream {
                             stream_handle,
                             message: Some(proto::video_stream_event::Message::FrameReceived(
                                 proto::VideoFrameReceived {
-                                    timestamp_us: frame.timestamp_us,
-                                    rotation: proto::VideoRotation::from(frame.rotation).into(),
+                                    timestamp_us,
+                                    rotation,
                                     buffer: proto::OwnedVideoBuffer {
                                         handle: proto::FfiOwnedHandle {
                                             id: handle_id,
                                         },
                                         info,
                                     },
+                                    metadata,
                                 }
                             )),
                         }.into()
@@ -202,6 +222,8 @@ impl FfiVideoStream {
         };
 
         let track_source = request.track_source();
+        let normalize_stride = request.normalize_stride.unwrap_or(true);
+        let queue_size_frames = request.queue_size_frames.map(|capacity| capacity as usize);
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
         let (track_finished_tx, track_finished_rx) = broadcast::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
@@ -222,6 +244,7 @@ impl FfiVideoStream {
                 let (c_tx, c_rx) = oneshot::channel::<()>();
                 let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
+                let options = NativeVideoStreamOptions { queue_size_frames };
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
@@ -243,8 +266,8 @@ impl FfiVideoStream {
                         server,
                         stream_handle,
                         dst_type,
-                        request.normalize_stride.unwrap_or(true),
-                        NativeVideoStream::new(rtc_track),
+                        normalize_stride,
+                        NativeVideoStream::with_options(rtc_track, options),
                         c_rx,
                         handle_dropped_rx,
                         false,
@@ -275,5 +298,28 @@ impl FfiVideoStream {
         ) {
             log::warn!("failed to send video EOS: {}", err);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_metadata_to_proto;
+    use livekit::webrtc::video_frame::FrameMetadata;
+
+    #[test]
+    fn missing_frame_metadata_stays_missing() {
+        assert!(frame_metadata_to_proto(None).is_none());
+    }
+
+    #[test]
+    fn frame_metadata_optionality_is_preserved() {
+        let metadata = frame_metadata_to_proto(Some(FrameMetadata {
+            user_timestamp: Some(123),
+            frame_id: None,
+        }))
+        .unwrap();
+
+        assert_eq!(metadata.user_timestamp, Some(123));
+        assert_eq!(metadata.frame_id, None);
     }
 }

@@ -23,7 +23,7 @@ use std::{
 };
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
     ParticipantTrackPermission,
 };
 use crate::{
@@ -31,33 +31,38 @@ use crate::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
+    data_track::{self, DataTrack, DataTrackOptions, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
+    room::rpc::{RpcError, RpcErrorCode, RpcInvocationData},
+    rtc_engine::lk_runtime::LkRuntime,
     rtc_engine::{EngineError, RtcEngine},
-    ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
+    ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
 };
 use chrono::Utc;
-use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
+use libwebrtc::{
+    native::{create_random_uuid, packet_trailer},
+    rtp_parameters::RtpEncodingParameters,
+    video_source::RtcVideoSource,
+};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
-use semver::Version;
-use tokio::sync::oneshot;
-
-type RpcHandler = Arc<
-    dyn Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
-        + Send
-        + Sync,
->;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
+
+fn needs_video_sender_transformer(
+    options: &TrackPublishOptions,
+    has_publish_timing_subscribers: bool,
+) -> bool {
+    !options.frame_metadata_features.is_empty() || has_publish_timing_subscribers
+}
 
 #[derive(Default)]
 struct LocalEvents {
@@ -65,25 +70,9 @@ struct LocalEvents {
     local_track_unpublished: Mutex<Option<LocalTrackUnpublishedHandler>>,
 }
 
-struct RpcState {
-    pending_acks: HashMap<String, oneshot::Sender<()>>,
-    pending_responses: HashMap<String, oneshot::Sender<Result<String, RpcError>>>,
-    handlers: HashMap<String, RpcHandler>,
-}
-
-impl RpcState {
-    fn new() -> Self {
-        Self {
-            pending_acks: HashMap::new(),
-            pending_responses: HashMap::new(),
-            handlers: HashMap::new(),
-        }
-    }
-}
 struct LocalInfo {
     events: LocalEvents,
     encryption_type: EncryptionType,
-    rpc_state: Mutex<RpcState>,
     all_participants_allowed: Mutex<bool>,
     track_permissions: Mutex<Vec<ParticipantTrackPermission>>,
     session: RwLock<Option<Weak<RoomSession>>>,
@@ -101,6 +90,7 @@ impl Debug for LocalParticipant {
             .field("sid", &self.sid())
             .field("identity", &self.identity())
             .field("name", &self.name())
+            .field("state", &self.state())
             .finish()
     }
 }
@@ -113,10 +103,13 @@ impl LocalParticipant {
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
+        state: ParticipantState,
         metadata: String,
         attributes: HashMap<String, String>,
+        joined_at: i64,
         encryption_type: EncryptionType,
         permission: Option<proto::ParticipantPermission>,
+        client_protocol: i32,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -124,16 +117,18 @@ impl LocalParticipant {
                 sid,
                 identity,
                 name,
+                state,
                 metadata,
                 attributes,
                 kind,
                 kind_details,
+                joined_at,
                 permission,
+                client_protocol,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
                 encryption_type,
-                rpc_state: Mutex::new(RpcState::new()),
                 all_participants_allowed: Mutex::new(true),
                 track_permissions: Mutex::new(vec![]),
                 session: Default::default(),
@@ -249,6 +244,114 @@ impl LocalParticipant {
         vec
     }
 
+    /// Publishes a data track.
+    ///
+    /// # Returns
+    ///
+    /// The published data track if successful. Use [`LocalDataTrack::try_push`]
+    /// to send data frames on the track.
+    ///
+    /// # Examples
+    ///
+    /// Publish a track named "my_track":
+    ///
+    /// ```
+    /// # use livekit::prelude::*;
+    /// # async fn with_room(room: Room) -> Result<(), PublishError> {
+    /// let track = room
+    ///     .local_participant()
+    ///     .publish_data_track("my_track")
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Note: if you are self-hosting the LiveKit SFU and get [`data_track::PublishError::Timeout`],
+    /// this may indicate you are using an outdated release that does not support data tracks.
+    ///
+    pub async fn publish_data_track(
+        &self,
+        options: impl Into<DataTrackOptions>,
+    ) -> Result<DataTrack<Local>, data_track::PublishError> {
+        self.session()
+            .ok_or(PublishError::Disconnected)?
+            .local_dt_input
+            .publish_track(options.into())
+            .await
+    }
+
+    /// Publishes a media track.
+    ///
+    /// # Examples
+    ///
+    /// Publish an audio track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::TrackPublishOptions,
+    /// #   webrtc::{prelude::*, audio_source::native::NativeAudioSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the audio source
+    /// let source = NativeAudioSource::new(
+    ///     AudioSourceOptions::default(),
+    ///     48_000, // Sample rate (hz)
+    ///     1,      // Number of channels
+    ///     1000,   // Buffer duration (ms)
+    /// );
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalAudioTrack::create_audio_track(
+    ///     "microphone", // Track name
+    ///     RtcAudioSource::Native(source.clone()),
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Microphone,
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Audio(track), options)
+    /// 	.await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Publish a video track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::{TrackPublishOptions, VideoCodec},
+    /// #   webrtc::video_source::{RtcVideoSource, VideoResolution, native::NativeVideoSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the video source
+    /// let resolution = VideoResolution { width: 1920, height: 1080 };
+    /// let source = NativeVideoSource::new(resolution, false);
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalVideoTrack::create_video_track(
+    ///     "camera", // Track name
+    ///     RtcVideoSource::Native(source)
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Camera,
+    ///     video_codec: VideoCodec::H264,
+    ///     simulcast: true, // Optionally enable simulcast for supported codecs
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Video(track), options)
+    ///     .await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub async fn publish_track(
         &self,
         track: LocalTrack,
@@ -273,6 +376,9 @@ impl LocalParticipant {
             req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
         }
 
+        req.packet_trailer_features =
+            options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
+
         let mut encodings = Vec::default();
         match &track {
             LocalTrack::Video(video_track) => {
@@ -284,6 +390,25 @@ impl LocalParticipant {
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+
+                // Populate simulcast_codecs so the server knows this track has
+                // multiple quality layers — either real simulcast (multiple
+                // RTP encodings) or SVC (one encoding with several spatial
+                // layers carried inside it).
+                let is_svc_multilayer = encodings.len() == 1
+                    && encodings
+                        .first()
+                        .and_then(|e| e.scalability_mode.as_ref())
+                        .map(|m| options::spatial_layers_from_scalability_mode(m) > 1)
+                        .unwrap_or(false);
+                if (options.simulcast && encodings.len() > 1) || is_svc_multilayer {
+                    req.simulcast_codecs = vec![proto::SimulcastCodec {
+                        codec: options.video_codec.as_str().to_string(),
+                        cid: track.rtc_track().id(),
+                        layers: req.layers.clone(),
+                        ..Default::default()
+                    }];
+                }
             }
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding
@@ -307,6 +432,31 @@ impl LocalParticipant {
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
 
         track.set_transceiver(Some(transceiver));
+
+        if let LocalTrack::Video(video_track) = &track {
+            let has_timing_subscribers = video_track.has_publish_timing_subscribers();
+            if needs_video_sender_transformer(&options, has_timing_subscribers) {
+                let trailers_enabled = !options.frame_metadata_features.is_empty();
+                log::info!(
+                    "sender frame transformer enabled for local video track {} (packet_trailer={}, publish_timing={})",
+                    publication.sid(),
+                    trailers_enabled,
+                    has_timing_subscribers,
+                );
+                let sender = track.transceiver().unwrap().sender();
+                let handler = packet_trailer::create_sender_handler(
+                    LkRuntime::instance().pc_factory(),
+                    &sender,
+                );
+                handler.set_enabled(trailers_enabled);
+                video_track.set_packet_trailer_handler(handler.clone());
+
+                #[cfg(not(target_arch = "wasm32"))]
+                if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
+                    native_source.set_packet_trailer_handler(handler.clone());
+                }
+            }
+        }
 
         self.inner.rtc_engine.publisher_negotiation_needed();
 
@@ -505,6 +655,7 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(packet, kind, true).await.map_err(Into::into)
     }
 
+    /// Publishes a data packet.
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
         let kind = match packet.reliable {
             true => DataPacketKind::Reliable,
@@ -603,76 +754,6 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
-    async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
-        let destination_identities = vec![rpc_request.destination_identity];
-        let rpc_request_message = proto::RpcRequest {
-            id: rpc_request.id,
-            method: rpc_request.method,
-            payload: rpc_request.payload,
-            response_timeout_ms: rpc_request.response_timeout.as_millis() as u32,
-            version: rpc_request.version,
-            ..Default::default()
-        };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::RpcRequest(rpc_request_message)),
-            destination_identities,
-            ..Default::default()
-        };
-
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
-        let destination_identities = vec![rpc_response.destination_identity];
-        let rpc_response_message = proto::RpcResponse {
-            request_id: rpc_response.request_id,
-            value: Some(match rpc_response.error {
-                Some(error) => proto::rpc_response::Value::Error(proto::RpcError {
-                    code: error.code,
-                    message: error.message,
-                    data: error.data,
-                }),
-                None => proto::rpc_response::Value::Payload(rpc_response.payload.unwrap()),
-            }),
-            ..Default::default()
-        };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
-            destination_identities: destination_identities.clone(),
-            ..Default::default()
-        };
-
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
-        let destination_identities = vec![rpc_ack.destination_identity];
-        let rpc_ack_message =
-            proto::RpcAck { request_id: rpc_ack.request_id, ..Default::default() };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::RpcAck(rpc_ack_message)),
-            destination_identities: destination_identities.clone(),
-            ..Default::default()
-        };
-
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
     pub(crate) async fn update_track_subscription_permissions(&self) {
         let all_participants_allowed = *self.local.all_participants_allowed.lock();
         let track_permissions = self
@@ -714,6 +795,10 @@ impl LocalParticipant {
 
     pub fn name(&self) -> String {
         self.inner.info.read().name.clone()
+    }
+
+    pub fn state(&self) -> ParticipantState {
+        self.inner.info.read().state
     }
 
     pub fn metadata(&self) -> String {
@@ -764,104 +849,24 @@ impl LocalParticipant {
         self.inner.info.read().disconnect_reason
     }
 
+    pub fn joined_at(&self) -> i64 {
+        self.inner.info.read().joined_at
+    }
+
     pub fn permission(&self) -> Option<proto::ParticipantPermission> {
         self.inner.info.read().permission.clone()
     }
 
+    pub fn client_protocol(&self) -> i32 {
+        self.inner.info.read().client_protocol
+    }
+
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
-        // Maximum amount of time it should ever take for an RPC request to reach the destination, and the ACK to come back
-        // This is set to 7 seconds to account for various relay timeouts and retries in LiveKit Cloud that occur in rare cases
-
-        let max_round_trip_latency = Duration::from_millis(7000);
-        let min_effective_timeout = Duration::from_millis(1000);
-
-        if data.payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
-        }
-
-        if let Some(server_info) =
-            self.inner.rtc_engine.session().signal_client().join_response().server_info
-        {
-            if !server_info.version.is_empty() {
-                let server_version = Version::parse(&server_info.version).unwrap();
-                let min_required_version = Version::parse("1.8.0").unwrap();
-                if server_version < min_required_version {
-                    return Err(RpcError::built_in(RpcErrorCode::UnsupportedServer, None));
-                }
-            }
-        }
-
-        let id = create_random_uuid();
-        let (ack_tx, ack_rx) = oneshot::channel();
-        let (response_tx, response_rx) = oneshot::channel();
-        let effective_timeout = std::cmp::max(
-            data.response_timeout.saturating_sub(max_round_trip_latency),
-            min_effective_timeout,
-        );
-
-        // Register channels BEFORE sending the request to avoid race condition
-        // where the response arrives before we've registered the handlers
-        {
-            let mut rpc_state = self.local.rpc_state.lock();
-            rpc_state.pending_acks.insert(id.clone(), ack_tx);
-            rpc_state.pending_responses.insert(id.clone(), response_tx);
-        }
-
-        if let Err(e) = self
-            .publish_rpc_request(RpcRequest {
-                destination_identity: data.destination_identity.clone(),
-                id: id.clone(),
-                method: data.method.clone(),
-                payload: data.payload.clone(),
-                response_timeout: effective_timeout,
-                version: 1,
-            })
-            .await
-        {
-            // Clean up on failure
-            let mut rpc_state = self.local.rpc_state.lock();
-            rpc_state.pending_acks.remove(&id);
-            rpc_state.pending_responses.remove(&id);
-            log::error!("Failed to publish RPC request: {}", e);
-            return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
-        }
-
-        // Wait for ack timeout
-        match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
-            Err(_) => {
-                let mut rpc_state = self.local.rpc_state.lock();
-                rpc_state.pending_acks.remove(&id);
-                rpc_state.pending_responses.remove(&id);
-                return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
-            }
-            Ok(_) => {
-                // Ack received, continue to wait for response
-            }
-        }
-
-        // Wait for response timout
-        let response = match tokio::time::timeout(data.response_timeout, response_rx).await {
-            Err(_) => {
-                self.local.rpc_state.lock().pending_responses.remove(&id);
-                return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
-            }
-            Ok(result) => result,
-        };
-
-        match response {
-            Err(_) => {
-                // Something went wrong locally
-                Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
-            }
-            Ok(Err(e)) => {
-                // RPC error from remote, forward it
-                Err(e)
-            }
-            Ok(Ok(payload)) => {
-                // Successful response
-                Ok(payload)
-            }
-        }
+        let session = self.session().ok_or_else(|| {
+            RpcError::built_in(RpcErrorCode::SendFailed, Some("Not connected".to_string()))
+        })?;
+        let transport = crate::room::rpc::SessionTransport(session.clone());
+        session.rpc_client.perform_rpc(data, &transport).await
     }
 
     pub fn register_rpc_method(
@@ -872,108 +877,19 @@ impl LocalParticipant {
             + Sync
             + 'static,
     ) {
-        self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
+        if let Some(session) = self.session() {
+            session.rpc_server.register_method(method, handler);
+        }
+
+        // Pre-connect the publisher PC so ACKs can be sent immediately when requests arrive.
+        // Without this, the first RPC request would trigger publisher negotiation, causing
+        // a ~300-500ms delay before the ACK can be sent (ICE negotiation time).
+        self.inner.rtc_engine.publisher_negotiation_needed();
     }
 
     pub fn unregister_rpc_method(&self, method: String) {
-        self.local.rpc_state.lock().handlers.remove(&method);
-    }
-
-    pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
-        let mut rpc_state = self.local.rpc_state.lock();
-        if let Some(tx) = rpc_state.pending_acks.remove(&request_id) {
-            let _ = tx.send(());
-        } else {
-            log::error!("Ack received for unexpected RPC request: {}", request_id);
-        }
-    }
-
-    pub(crate) fn handle_incoming_rpc_response(
-        &self,
-        request_id: String,
-        payload: Option<String>,
-        error: Option<proto::RpcError>,
-    ) {
-        let mut rpc_state = self.local.rpc_state.lock();
-        if let Some(tx) = rpc_state.pending_responses.remove(&request_id) {
-            let _ = tx.send(match error {
-                Some(e) => Err(RpcError::from_proto(e)),
-                None => Ok(payload.unwrap_or_default()),
-            });
-        } else {
-            log::error!("Response received for unexpected RPC request: {}", request_id);
-        }
-    }
-
-    pub(crate) async fn handle_incoming_rpc_request(
-        &self,
-        caller_identity: ParticipantIdentity,
-        request_id: String,
-        method: String,
-        payload: String,
-        response_timeout: Duration,
-        version: u32,
-    ) {
-        if let Err(e) = self
-            .publish_rpc_ack(RpcAck {
-                destination_identity: caller_identity.to_string(),
-                request_id: request_id.clone(),
-            })
-            .await
-        {
-            log::error!("Failed to publish RPC ACK: {:?}", e);
-        }
-
-        let caller_identity_2 = caller_identity.clone();
-        let request_id_2 = request_id.clone();
-
-        let response = if version != 1 {
-            Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
-        } else {
-            let handler = self.local.rpc_state.lock().handlers.get(&method).cloned();
-
-            match handler {
-                Some(handler) => {
-                    match tokio::task::spawn(async move {
-                        handler(RpcInvocationData {
-                            request_id: request_id.clone(),
-                            caller_identity: caller_identity.clone(),
-                            payload: payload.clone(),
-                            response_timeout,
-                        })
-                        .await
-                    })
-                    .await
-                    {
-                        Ok(result) => result,
-                        Err(e) => {
-                            log::error!("RPC method handler returned an error: {:?}", e);
-                            Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
-                        }
-                    }
-                }
-                None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
-            }
-        };
-
-        let (payload, error) = match response {
-            Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => {
-                (Some(response_payload), None)
-            }
-            Ok(_) => (None, Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None))),
-            Err(e) => (None, Some(e.into())),
-        };
-
-        if let Err(e) = self
-            .publish_rpc_response(RpcResponse {
-                destination_identity: caller_identity_2.to_string(),
-                request_id: request_id_2,
-                payload,
-                error: error.map(|e| e.to_proto()),
-            })
-            .await
-        {
-            log::error!("Failed to publish RPC response: {:?}", e);
+        if let Some(session) = self.session() {
+            session.rpc_server.unregister_method(&method);
         }
     }
 
@@ -1071,5 +987,44 @@ impl LocalParticipant {
     #[doc(hidden)]
     pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
         // Local participants don't receive data messages, so this is a no-op
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::FrameMetadataFeatures;
+
+    #[test]
+    fn timing_subscribers_request_video_sender_transformer_without_frame_metadata() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, true));
+    }
+
+    #[test]
+    fn frame_metadata_features_request_video_sender_transformer_without_timing_subscribers() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures {
+                user_timestamp: true,
+                frame_id: false,
+            },
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, false));
+    }
+
+    #[test]
+    fn video_sender_transformer_is_skipped_without_timing_or_frame_metadata() {
+        let options = TrackPublishOptions {
+            frame_metadata_features: FrameMetadataFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(!needs_video_sender_transformer(&options, false));
     }
 }

@@ -28,6 +28,15 @@ message NewVideoStreamRequest {
   // Get the frame on a specific format
   optional VideoBufferType format = 3;
   optional bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
+  // Maximum number of queued WebRTC sink frames on the receive path. Omit this
+  // field to use the default bounded queue size of 1 frame. Set it to 0 to
+  // request unbounded buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 5;
 }
 message NewVideoStreamResponse { required OwnedVideoStream stream = 1; }
 
@@ -38,17 +47,27 @@ message VideoStreamFromParticipantRequest {
   required TrackSource track_source = 3;
   optional VideoBufferType format = 4;
   optional bool normalize_stride = 5;
+  // Maximum number of queued WebRTC sink frames on the receive path. Omit this
+  // field to use the default bounded queue size of 1 frame. Set it to 0 to
+  // request unbounded buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 6;
 }
 
 message VideoStreamFromParticipantResponse { required OwnedVideoStream stream = 1;}
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
-message NewVideoSourceRequest { 
-  required VideoSourceType type = 1; 
+message NewVideoSourceRequest {
+  required VideoSourceType type = 1;
   // Used to determine which encodings to use + simulcast layers
-  // Most of the time it corresponds to the source resolution 
+  // Most of the time it corresponds to the source resolution
   required VideoSourceResolution resolution = 2;
+  optional bool is_screencast = 3;
 }
 message NewVideoSourceResponse { required OwnedVideoSource source = 1; }
 
@@ -58,6 +77,7 @@ message CaptureVideoFrameRequest {
   required VideoBufferInfo buffer = 2;
   required int64 timestamp_us = 3; // In microseconds
   required VideoRotation rotation = 4;
+  optional FrameMetadata metadata = 5;
 }
 
 message CaptureVideoFrameResponse {}
@@ -134,6 +154,11 @@ message OwnedVideoBuffer {
   required VideoBufferInfo info = 2;
 }
 
+message FrameMetadata {
+  optional uint64 user_timestamp = 1;
+  optional uint32 frame_id = 2;
+}
+
 //
 // VideoStream
 //
@@ -165,6 +190,7 @@ message VideoFrameReceived {
   required OwnedVideoBuffer buffer = 1;
   required int64 timestamp_us = 2; // In microseconds
   required VideoRotation rotation = 3;
+  optional FrameMetadata metadata = 4;
 }
 
 message VideoStreamEOS {}

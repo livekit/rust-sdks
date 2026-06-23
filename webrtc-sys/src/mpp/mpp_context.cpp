@@ -19,8 +19,6 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 
-#include <iostream>
-
 #include "rtc_base/logging.h"
 
 namespace livekit_ffi {
@@ -71,7 +69,6 @@ bool MppContext::IsAvailable() {
     return false;
   }
 
-  std::cout << "Rockchip MPP encoder is supported." << std::endl;
   return true;
 }
 

@@ -90,6 +90,10 @@ pub struct MetricsRecordingHeader {
     pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
     #[prost(map="string, string", tag="5")]
     pub room_tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(string, tag="6")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="7")]
+    pub room_start_time: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -367,6 +371,10 @@ pub struct ParticipantInfo {
     /// protocol version used for client feature compatibility
     #[prost(int32, tag="20")]
     pub client_protocol: i32,
+    /// capabilities the participant's client advertises, mirrored from ClientInfo.
+    /// Lets other participants perform client-side feature detection.
+    #[prost(enumeration="client_info::Capability", repeated, tag="21")]
+    pub capabilities: ::prost::alloc::vec::Vec<i32>,
 }
 /// Nested message and enum types in `ParticipantInfo`.
 pub mod participant_info {
@@ -610,6 +618,8 @@ pub struct TrackInfo {
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
     #[prost(enumeration="BackupCodecPolicy", tag="20")]
     pub backup_codec_policy: i32,
+    #[prost(enumeration="PacketTrailerFeature", repeated, tag="21")]
+    pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -946,6 +956,9 @@ pub struct RpcRequest {
     pub response_timeout_ms: u32,
     #[prost(uint32, tag="5")]
     pub version: u32,
+    /// Compressed payload data. When set, this field is used instead of `payload`.
+    #[prost(bytes="vec", tag="6")]
+    pub compressed_payload: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -958,7 +971,7 @@ pub struct RpcAck {
 pub struct RpcResponse {
     #[prost(string, tag="1")]
     pub request_id: ::prost::alloc::string::String,
-    #[prost(oneof="rpc_response::Value", tags="2, 3")]
+    #[prost(oneof="rpc_response::Value", tags="2, 3, 4")]
     pub value: ::core::option::Option<rpc_response::Value>,
 }
 /// Nested message and enum types in `RpcResponse`.
@@ -970,6 +983,9 @@ pub mod rpc_response {
         Payload(::prost::alloc::string::String),
         #[prost(message, tag="3")]
         Error(super::RpcError),
+        /// Compressed payload data. When set, this field is used instead of `payload`.
+        #[prost(bytes, tag="4")]
+        CompressedPayload(::prost::alloc::vec::Vec<u8>),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1072,6 +1088,10 @@ pub struct ClientInfo {
     /// client protocol version
     #[prost(int32, tag="12")]
     pub client_protocol: i32,
+    /// capabilities the client advertises. Populated automatically by each SDK;
+    /// not a user-configurable setting.
+    #[prost(enumeration="client_info::Capability", repeated, tag="13")]
+    pub capabilities: ::prost::alloc::vec::Vec<i32>,
 }
 /// Nested message and enum types in `ClientInfo`.
 pub mod client_info {
@@ -1136,6 +1156,39 @@ pub mod client_info {
                 "NODE" => Some(Self::Node),
                 "UNREAL" => Some(Self::Unreal),
                 "ESP32" => Some(Self::Esp32),
+                _ => None,
+            }
+        }
+    }
+    /// Optional capabilities advertised by the client at connect time. The SFU
+    /// uses these flags to decide whether to enable features that require
+    /// client-side support (e.g. passing RTP packet trailers through to the
+    /// subscriber instead of stripping them).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Capability {
+        CapUnused = 0,
+        CapPacketTrailer = 1,
+        CapCompressionDeflateRaw = 2,
+    }
+    impl Capability {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Capability::CapUnused => "CAP_UNUSED",
+                Capability::CapPacketTrailer => "CAP_PACKET_TRAILER",
+                Capability::CapCompressionDeflateRaw => "CAP_COMPRESSION_DEFLATE_RAW",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "CAP_UNUSED" => Some(Self::CapUnused),
+                "CAP_PACKET_TRAILER" => Some(Self::CapPacketTrailer),
+                "CAP_COMPRESSION_DEFLATE_RAW" => Some(Self::CapCompressionDeflateRaw),
                 _ => None,
             }
         }
@@ -1435,6 +1488,13 @@ pub mod data_stream {
         /// user defined attributes map that can carry additional info
         #[prost(map="string, string", tag="8")]
         pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        /// Optional inline content so that a data stream can be sent as a single packet for short payloads.
+        ///
+        /// content as binary (bytes)
+        #[prost(bytes="vec", optional, tag="11")]
+        pub inline_content: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
+        #[prost(enumeration="CompressionType", tag="12")]
+        pub compression: i32,
         /// oneof to choose between specific header types
         #[prost(oneof="header::ContentHeader", tags="9, 10")]
         pub content_header: ::core::option::Option<header::ContentHeader>,
@@ -1512,6 +1572,37 @@ pub mod data_stream {
                 "UPDATE" => Some(Self::Update),
                 "DELETE" => Some(Self::Delete),
                 "REACTION" => Some(Self::Reaction),
+                _ => None,
+            }
+        }
+    }
+    /// The compression type of the whole data stream
+    ///
+    /// This will only get populated when send to participants with a
+    /// client protocol >= 2 which advertise a client capability of CAP_COMPRESSION_DEFLATE_RAW
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum CompressionType {
+        None = 0,
+        /// DEFLATE_RAW = DEFLATE without header+checksum/trailer
+        DeflateRaw = 1,
+    }
+    impl CompressionType {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                CompressionType::None => "NONE",
+                CompressionType::DeflateRaw => "DEFLATE_RAW",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "NONE" => Some(Self::None),
+                "DEFLATE_RAW" => Some(Self::DeflateRaw),
                 _ => None,
             }
         }
@@ -1887,6 +1978,8 @@ pub enum DisconnectReason {
     ConnectionTimeout = 14,
     /// media stream failure or media timeout
     MediaFailure = 15,
+    /// agent encountered an error
+    AgentError = 16,
 }
 impl DisconnectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1911,6 +2004,7 @@ impl DisconnectReason {
             DisconnectReason::SipTrunkFailure => "SIP_TRUNK_FAILURE",
             DisconnectReason::ConnectionTimeout => "CONNECTION_TIMEOUT",
             DisconnectReason::MediaFailure => "MEDIA_FAILURE",
+            DisconnectReason::AgentError => "AGENT_ERROR",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1932,6 +2026,7 @@ impl DisconnectReason {
             "SIP_TRUNK_FAILURE" => Some(Self::SipTrunkFailure),
             "CONNECTION_TIMEOUT" => Some(Self::ConnectionTimeout),
             "MEDIA_FAILURE" => Some(Self::MediaFailure),
+            "AGENT_ERROR" => Some(Self::AgentError),
             _ => None,
         }
     }
@@ -2042,272 +2137,293 @@ impl AudioTrackFeature {
         }
     }
 }
-/// composite using a web browser
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PacketTrailerFeature {
+    PtfUserTimestamp = 0,
+    PtfFrameId = 1,
+    PtfUserData = 2,
+}
+impl PacketTrailerFeature {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            PacketTrailerFeature::PtfUserTimestamp => "PTF_USER_TIMESTAMP",
+            PacketTrailerFeature::PtfFrameId => "PTF_FRAME_ID",
+            PacketTrailerFeature::PtfUserData => "PTF_USER_DATA",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PTF_USER_TIMESTAMP" => Some(Self::PtfUserTimestamp),
+            "PTF_FRAME_ID" => Some(Self::PtfFrameId),
+            "PTF_USER_DATA" => Some(Self::PtfUserData),
+            _ => None,
+        }
+    }
+}
+// --- Core Request ---
+
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RoomCompositeEgressRequest {
-    /// required
+pub struct StartEgressRequest {
     #[prost(string, tag="1")]
     pub room_name: ::prost::alloc::string::String,
-    /// (optional)
-    #[prost(string, tag="2")]
-    pub layout: ::prost::alloc::string::String,
-    /// (default false)
-    #[prost(bool, tag="3")]
-    pub audio_only: bool,
-    /// only applies to audio_only egress (default DEFAULT_MIXING)
-    #[prost(enumeration="AudioMixing", tag="15")]
-    pub audio_mixing: i32,
-    /// (default false)
-    #[prost(bool, tag="4")]
-    pub video_only: bool,
-    /// template base url (default <https://recorder.livekit.io>)
-    #[prost(string, tag="5")]
-    pub custom_base_url: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag="11")]
-    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
-    #[prost(message, repeated, tag="12")]
-    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
-    #[prost(message, repeated, tag="13")]
-    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
-    #[prost(message, repeated, tag="14")]
-    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
-    /// extra webhooks to call for this request
-    #[prost(message, repeated, tag="16")]
+    /// At least one required
+    #[prost(message, repeated, tag="7")]
+    pub outputs: ::prost::alloc::vec::Vec<Output>,
+    /// Request-level storage default
+    #[prost(message, optional, tag="8")]
+    pub storage: ::core::option::Option<StorageConfig>,
+    /// Optional additional webhook config
+    #[prost(message, repeated, tag="9")]
     pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
-    /// deprecated (use _output fields)
-    #[prost(oneof="room_composite_egress_request::Output", tags="6, 7, 10")]
-    pub output: ::core::option::Option<room_composite_egress_request::Output>,
-    #[prost(oneof="room_composite_egress_request::Options", tags="8, 9")]
-    pub options: ::core::option::Option<room_composite_egress_request::Options>,
+    #[prost(oneof="start_egress_request::Source", tags="2, 3, 4")]
+    pub source: ::core::option::Option<start_egress_request::Source>,
+    /// Optional — default H264_720P_30
+    #[prost(oneof="start_egress_request::Encoding", tags="5, 6")]
+    pub encoding: ::core::option::Option<start_egress_request::Encoding>,
 }
-/// Nested message and enum types in `RoomCompositeEgressRequest`.
-pub mod room_composite_egress_request {
-    /// deprecated (use _output fields)
+/// Nested message and enum types in `StartEgressRequest`.
+pub mod start_egress_request {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Output {
-        #[prost(message, tag="6")]
-        File(super::EncodedFileOutput),
-        #[prost(message, tag="7")]
-        Stream(super::StreamOutput),
-        #[prost(message, tag="10")]
-        Segments(super::SegmentedFileOutput),
+    pub enum Source {
+        #[prost(message, tag="2")]
+        Template(super::TemplateSource),
+        #[prost(message, tag="3")]
+        Web(super::WebSource),
+        #[prost(message, tag="4")]
+        Media(super::MediaSource),
     }
+    /// Optional — default H264_720P_30
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Options {
-        /// (default H264_720P_30)
-        #[prost(enumeration="super::EncodingOptionsPreset", tag="8")]
+    pub enum Encoding {
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="5")]
         Preset(i32),
-        /// (optional)
-        #[prost(message, tag="9")]
+        #[prost(message, tag="6")]
         Advanced(super::EncodingOptions),
     }
 }
-/// record any website
+// --- Source Types ---
+
+/// Room composite recording via layout template.
+/// Service generates token, constructs recorder URL, awaits start signal.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct WebEgressRequest {
+pub struct TemplateSource {
+    #[prost(string, tag="1")]
+    pub layout: ::prost::alloc::string::String,
+    #[prost(bool, tag="2")]
+    pub audio_only: bool,
+    #[prost(bool, tag="3")]
+    pub video_only: bool,
+    #[prost(string, tag="4")]
+    pub custom_base_url: ::prost::alloc::string::String,
+}
+/// Record a custom URL via headless browser.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebSource {
     #[prost(string, tag="1")]
     pub url: ::prost::alloc::string::String,
     #[prost(bool, tag="2")]
     pub audio_only: bool,
     #[prost(bool, tag="3")]
     pub video_only: bool,
-    #[prost(bool, tag="12")]
+    #[prost(bool, tag="4")]
     pub await_start_signal: bool,
-    #[prost(message, repeated, tag="9")]
-    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
-    #[prost(message, repeated, tag="10")]
-    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
-    #[prost(message, repeated, tag="11")]
-    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
-    #[prost(message, repeated, tag="13")]
-    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
-    /// extra webhooks to call for this request
-    #[prost(message, repeated, tag="14")]
-    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
-    /// deprecated (use _output fields)
-    #[prost(oneof="web_egress_request::Output", tags="4, 5, 6")]
-    pub output: ::core::option::Option<web_egress_request::Output>,
-    #[prost(oneof="web_egress_request::Options", tags="7, 8")]
-    pub options: ::core::option::Option<web_egress_request::Options>,
 }
-/// Nested message and enum types in `WebEgressRequest`.
-pub mod web_egress_request {
-    /// deprecated (use _output fields)
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Output {
-        #[prost(message, tag="4")]
-        File(super::EncodedFileOutput),
-        #[prost(message, tag="5")]
-        Stream(super::StreamOutput),
-        #[prost(message, tag="6")]
-        Segments(super::SegmentedFileOutput),
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Options {
-        #[prost(enumeration="super::EncodingOptionsPreset", tag="7")]
-        Preset(i32),
-        #[prost(message, tag="8")]
-        Advanced(super::EncodingOptions),
-    }
-}
-/// record audio and video from a single participant
+/// Capture tracks directly from a room via SDK.
+/// Unifies deprecated Participant, TrackComposite, and Track egress.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ParticipantEgressRequest {
-    /// required
+pub struct MediaSource {
+    /// TODO: DataConfig data = 4;
+    #[prost(message, optional, tag="3")]
+    pub audio: ::core::option::Option<AudioConfig>,
+    #[prost(oneof="media_source::Video", tags="1, 2")]
+    pub video: ::core::option::Option<media_source::Video>,
+}
+/// Nested message and enum types in `MediaSource`.
+pub mod media_source {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Video {
+        #[prost(string, tag="1")]
+        VideoTrackId(::prost::alloc::string::String),
+        #[prost(message, tag="2")]
+        ParticipantVideo(super::ParticipantVideo),
+    }
+}
+// --- Video Configuration ---
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantVideo {
     #[prost(string, tag="1")]
-    pub room_name: ::prost::alloc::string::String,
-    /// required
-    #[prost(string, tag="2")]
     pub identity: ::prost::alloc::string::String,
-    /// (default false)
-    #[prost(bool, tag="3")]
-    pub screen_share: bool,
-    #[prost(message, repeated, tag="6")]
-    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
-    #[prost(message, repeated, tag="7")]
-    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
-    #[prost(message, repeated, tag="8")]
-    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
-    #[prost(message, repeated, tag="9")]
-    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
-    /// extra webhooks to call for this request
-    #[prost(message, repeated, tag="10")]
-    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
-    #[prost(oneof="participant_egress_request::Options", tags="4, 5")]
-    pub options: ::core::option::Option<participant_egress_request::Options>,
+    #[prost(bool, tag="2")]
+    pub prefer_screen_share: bool,
 }
-/// Nested message and enum types in `ParticipantEgressRequest`.
-pub mod participant_egress_request {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Options {
-        /// (default H264_720P_30)
-        #[prost(enumeration="super::EncodingOptionsPreset", tag="4")]
-        Preset(i32),
-        /// (optional)
-        #[prost(message, tag="5")]
-        Advanced(super::EncodingOptions),
-    }
-}
-/// containerize up to one audio and one video track
+// --- Audio Configuration ---
+
+/// Unified audio selection and channel routing.
+/// Each route specifies both which audio to capture and which channel to output to.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TrackCompositeEgressRequest {
-    /// required
-    #[prost(string, tag="1")]
-    pub room_name: ::prost::alloc::string::String,
-    /// (optional)
-    #[prost(string, tag="2")]
-    pub audio_track_id: ::prost::alloc::string::String,
-    /// (optional)
-    #[prost(string, tag="3")]
-    pub video_track_id: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag="11")]
-    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
-    #[prost(message, repeated, tag="12")]
-    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
-    #[prost(message, repeated, tag="13")]
-    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
-    #[prost(message, repeated, tag="14")]
-    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
-    /// extra webhooks to call for this request
-    #[prost(message, repeated, tag="15")]
-    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
-    /// deprecated (use _output fields)
-    #[prost(oneof="track_composite_egress_request::Output", tags="4, 5, 8")]
-    pub output: ::core::option::Option<track_composite_egress_request::Output>,
-    #[prost(oneof="track_composite_egress_request::Options", tags="6, 7")]
-    pub options: ::core::option::Option<track_composite_egress_request::Options>,
+pub struct AudioConfig {
+    /// If true, all unmatched audio is recorded to both channels
+    #[prost(bool, tag="1")]
+    pub capture_all: bool,
+    #[prost(message, repeated, tag="2")]
+    pub routes: ::prost::alloc::vec::Vec<AudioRoute>,
 }
-/// Nested message and enum types in `TrackCompositeEgressRequest`.
-pub mod track_composite_egress_request {
-    /// deprecated (use _output fields)
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AudioRoute {
+    #[prost(enumeration="AudioChannel", tag="4")]
+    pub channel: i32,
+    #[prost(oneof="audio_route::Match", tags="1, 2, 3")]
+    pub r#match: ::core::option::Option<audio_route::Match>,
+}
+/// Nested message and enum types in `AudioRoute`.
+pub mod audio_route {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Output {
-        #[prost(message, tag="4")]
-        File(super::EncodedFileOutput),
-        #[prost(message, tag="5")]
+    pub enum Match {
+        #[prost(string, tag="1")]
+        TrackId(::prost::alloc::string::String),
+        #[prost(string, tag="2")]
+        ParticipantIdentity(::prost::alloc::string::String),
+        #[prost(enumeration="super::participant_info::Kind", tag="3")]
+        ParticipantKind(i32),
+    }
+}
+// --- Data Track Configuration ---
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataConfig {
+    #[prost(bool, tag="1")]
+    pub capture_all: bool,
+    #[prost(message, repeated, tag="2")]
+    pub selectors: ::prost::alloc::vec::Vec<DataSelector>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataSelector {
+    #[prost(oneof="data_selector::Match", tags="1, 2")]
+    pub r#match: ::core::option::Option<data_selector::Match>,
+}
+/// Nested message and enum types in `DataSelector`.
+pub mod data_selector {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Match {
+        #[prost(string, tag="1")]
+        TrackId(::prost::alloc::string::String),
+        #[prost(string, tag="2")]
+        ParticipantIdentity(::prost::alloc::string::String),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EncodingOptions {
+    /// (default 1920)
+    #[prost(int32, tag="1")]
+    pub width: i32,
+    /// (default 1080)
+    #[prost(int32, tag="2")]
+    pub height: i32,
+    /// (default 24)
+    #[prost(int32, tag="3")]
+    pub depth: i32,
+    /// (default 30)
+    #[prost(int32, tag="4")]
+    pub framerate: i32,
+    /// (default OPUS)
+    #[prost(enumeration="AudioCodec", tag="5")]
+    pub audio_codec: i32,
+    /// (default 128)
+    #[prost(int32, tag="6")]
+    pub audio_bitrate: i32,
+    /// (default 44100)
+    #[prost(int32, tag="7")]
+    pub audio_frequency: i32,
+    /// (default H264_MAIN)
+    #[prost(enumeration="VideoCodec", tag="8")]
+    pub video_codec: i32,
+    /// (default 4500)
+    #[prost(int32, tag="9")]
+    pub video_bitrate: i32,
+    /// in seconds (default 4s for streaming, segment duration for segmented output, encoder default for files)
+    #[prost(double, tag="10")]
+    pub key_frame_interval: f64,
+    /// --- Deprecated ---
+    ///
+    /// quality setting on audio encoder
+    #[deprecated]
+    #[prost(int32, tag="11")]
+    pub audio_quality: i32,
+    /// quality setting on video encoder
+    #[deprecated]
+    #[prost(int32, tag="12")]
+    pub video_quality: i32,
+}
+// --- Output Types ---
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Output {
+    /// Per-output storage override (falls back to request, then server)
+    #[prost(message, optional, tag="6")]
+    pub storage: ::core::option::Option<StorageConfig>,
+    #[prost(oneof="output::Config", tags="1, 2, 3, 4")]
+    pub config: ::core::option::Option<output::Config>,
+}
+/// Nested message and enum types in `Output`.
+pub mod output {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Config {
+        #[prost(message, tag="1")]
+        File(super::FileOutput),
+        #[prost(message, tag="2")]
         Stream(super::StreamOutput),
-        #[prost(message, tag="8")]
-        Segments(super::SegmentedFileOutput),
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Options {
-        /// (default H264_720P_30)
-        #[prost(enumeration="super::EncodingOptionsPreset", tag="6")]
-        Preset(i32),
-        /// (optional)
-        #[prost(message, tag="7")]
-        Advanced(super::EncodingOptions),
-    }
-}
-/// record tracks individually, without transcoding
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TrackEgressRequest {
-    /// required
-    #[prost(string, tag="1")]
-    pub room_name: ::prost::alloc::string::String,
-    /// required
-    #[prost(string, tag="2")]
-    pub track_id: ::prost::alloc::string::String,
-    /// extra webhooks to call for this request
-    #[prost(message, repeated, tag="5")]
-    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
-    /// required
-    #[prost(oneof="track_egress_request::Output", tags="3, 4")]
-    pub output: ::core::option::Option<track_egress_request::Output>,
-}
-/// Nested message and enum types in `TrackEgressRequest`.
-pub mod track_egress_request {
-    /// required
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Output {
         #[prost(message, tag="3")]
-        File(super::DirectFileOutput),
-        #[prost(string, tag="4")]
-        WebsocketUrl(::prost::alloc::string::String),
+        Segments(super::SegmentedFileOutput),
+        /// TODO: DataOutput data = 5;
+        #[prost(message, tag="4")]
+        Images(super::ImageOutput),
     }
 }
+/// Unified file output — replaces v1 EncodedFileOutput and DirectFileOutput.
+/// Whether transcoded depends on encoding options on the request.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EncodedFileOutput {
-    /// (optional)
+pub struct FileOutput {
     #[prost(enumeration="EncodedFileType", tag="1")]
     pub file_type: i32,
-    /// see egress docs for templating (default {room_name}-{time})
     #[prost(string, tag="2")]
     pub filepath: ::prost::alloc::string::String,
-    /// disable upload of manifest file (default false)
-    #[prost(bool, tag="6")]
+    #[prost(bool, tag="3")]
     pub disable_manifest: bool,
-    #[prost(oneof="encoded_file_output::Output", tags="3, 4, 5, 7")]
-    pub output: ::core::option::Option<encoded_file_output::Output>,
 }
-/// Nested message and enum types in `EncodedFileOutput`.
-pub mod encoded_file_output {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Output {
-        #[prost(message, tag="3")]
-        S3(super::S3Upload),
-        #[prost(message, tag="4")]
-        Gcp(super::GcpUpload),
-        #[prost(message, tag="5")]
-        Azure(super::AzureBlobUpload),
-        #[prost(message, tag="7")]
-        AliOss(super::AliOssUpload),
-    }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamOutput {
+    /// required
+    #[prost(enumeration="StreamProtocol", tag="1")]
+    pub protocol: i32,
+    /// required
+    #[prost(string, repeated, tag="2")]
+    pub urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 /// Used to generate HLS segments or other kind of segmented output
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2334,13 +2450,13 @@ pub struct SegmentedFileOutput {
     /// disable upload of manifest file (default false)
     #[prost(bool, tag="8")]
     pub disable_manifest: bool,
-    /// required
+    /// TODO: deprecate
     #[prost(oneof="segmented_file_output::Output", tags="5, 6, 7, 9")]
     pub output: ::core::option::Option<segmented_file_output::Output>,
 }
 /// Nested message and enum types in `SegmentedFileOutput`.
 pub mod segmented_file_output {
-    /// required
+    /// TODO: deprecate
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Output {
@@ -2354,33 +2470,7 @@ pub mod segmented_file_output {
         AliOss(super::AliOssUpload),
     }
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DirectFileOutput {
-    /// see egress docs for templating (default {track_id}-{time})
-    #[prost(string, tag="1")]
-    pub filepath: ::prost::alloc::string::String,
-    /// disable upload of manifest file (default false)
-    #[prost(bool, tag="5")]
-    pub disable_manifest: bool,
-    #[prost(oneof="direct_file_output::Output", tags="2, 3, 4, 6")]
-    pub output: ::core::option::Option<direct_file_output::Output>,
-}
-/// Nested message and enum types in `DirectFileOutput`.
-pub mod direct_file_output {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Output {
-        #[prost(message, tag="2")]
-        S3(super::S3Upload),
-        #[prost(message, tag="3")]
-        Gcp(super::GcpUpload),
-        #[prost(message, tag="4")]
-        Azure(super::AzureBlobUpload),
-        #[prost(message, tag="6")]
-        AliOss(super::AliOssUpload),
-    }
-}
+/// Capture images at a specified interval
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ImageOutput {
@@ -2405,13 +2495,13 @@ pub struct ImageOutput {
     /// disable upload of manifest file (default false)
     #[prost(bool, tag="7")]
     pub disable_manifest: bool,
-    /// required
+    /// TODO: deprecate
     #[prost(oneof="image_output::Output", tags="8, 9, 10, 11")]
     pub output: ::core::option::Option<image_output::Output>,
 }
 /// Nested message and enum types in `ImageOutput`.
 pub mod image_output {
-    /// required
+    /// TODO: deprecate
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Output {
@@ -2422,6 +2512,29 @@ pub mod image_output {
         #[prost(message, tag="10")]
         Azure(super::AzureBlobUpload),
         #[prost(message, tag="11")]
+        AliOss(super::AliOssUpload),
+    }
+}
+// --- Storage ---
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StorageConfig {
+    #[prost(oneof="storage_config::Provider", tags="1, 2, 3, 4")]
+    pub provider: ::core::option::Option<storage_config::Provider>,
+}
+/// Nested message and enum types in `StorageConfig`.
+pub mod storage_config {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Provider {
+        #[prost(message, tag="1")]
+        S3(super::S3Upload),
+        #[prost(message, tag="2")]
+        Gcp(super::GcpUpload),
+        #[prost(message, tag="3")]
+        Azure(super::AzureBlobUpload),
+        #[prost(message, tag="4")]
         AliOss(super::AliOssUpload),
     }
 }
@@ -2503,74 +2616,8 @@ pub struct ProxyConfig {
     #[prost(string, tag="3")]
     pub password: ::prost::alloc::string::String,
 }
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamOutput {
-    /// required
-    #[prost(enumeration="StreamProtocol", tag="1")]
-    pub protocol: i32,
-    /// required
-    #[prost(string, repeated, tag="2")]
-    pub urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct EncodingOptions {
-    /// (default 1920)
-    #[prost(int32, tag="1")]
-    pub width: i32,
-    /// (default 1080)
-    #[prost(int32, tag="2")]
-    pub height: i32,
-    /// (default 24)
-    #[prost(int32, tag="3")]
-    pub depth: i32,
-    /// (default 30)
-    #[prost(int32, tag="4")]
-    pub framerate: i32,
-    /// (default OPUS)
-    #[prost(enumeration="AudioCodec", tag="5")]
-    pub audio_codec: i32,
-    /// (default 128)
-    #[prost(int32, tag="6")]
-    pub audio_bitrate: i32,
-    /// quality setting on audio encoder
-    #[prost(int32, tag="11")]
-    pub audio_quality: i32,
-    /// (default 44100)
-    #[prost(int32, tag="7")]
-    pub audio_frequency: i32,
-    /// (default H264_MAIN)
-    #[prost(enumeration="VideoCodec", tag="8")]
-    pub video_codec: i32,
-    /// (default 4500)
-    #[prost(int32, tag="9")]
-    pub video_bitrate: i32,
-    /// quality setting on video encoder
-    #[prost(int32, tag="12")]
-    pub video_quality: i32,
-    /// in seconds (default 4s for streaming, segment duration for segmented output, encoder default for files)
-    #[prost(double, tag="10")]
-    pub key_frame_interval: f64,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateLayoutRequest {
-    #[prost(string, tag="1")]
-    pub egress_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub layout: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateStreamRequest {
-    #[prost(string, tag="1")]
-    pub egress_id: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag="2")]
-    pub add_output_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, repeated, tag="3")]
-    pub remove_output_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
+// --- Control RPCs ---
+
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListEgressRequest {
@@ -2583,12 +2630,32 @@ pub struct ListEgressRequest {
     /// (optional, list active egress only)
     #[prost(bool, tag="3")]
     pub active: bool,
+    /// next field id: 5
+    #[prost(message, optional, tag="4")]
+    pub page_token: ::core::option::Option<TokenPagination>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListEgressResponse {
     #[prost(message, repeated, tag="1")]
     pub items: ::prost::alloc::vec::Vec<EgressInfo>,
+    /// next field id: 3
+    #[prost(message, optional, tag="2")]
+    pub next_page_token: ::core::option::Option<TokenPagination>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateEgressRequest {
+    #[prost(string, tag="1")]
+    pub egress_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub layout: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="4")]
+    pub add_stream_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="5")]
+    pub remove_stream_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2596,6 +2663,8 @@ pub struct StopEgressRequest {
     #[prost(string, tag="1")]
     pub egress_id: ::prost::alloc::string::String,
 }
+// --- Egress Info ---
+
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EgressInfo {
@@ -2615,12 +2684,6 @@ pub struct EgressInfo {
     pub ended_at: i64,
     #[prost(int64, tag="18")]
     pub updated_at: i64,
-    #[prost(string, tag="21")]
-    pub details: ::prost::alloc::string::String,
-    #[prost(string, tag="9")]
-    pub error: ::prost::alloc::string::String,
-    #[prost(int32, tag="22")]
-    pub error_code: i32,
     #[prost(message, repeated, tag="15")]
     pub stream_results: ::prost::alloc::vec::Vec<StreamInfo>,
     #[prost(message, repeated, tag="16")]
@@ -2629,14 +2692,23 @@ pub struct EgressInfo {
     pub segment_results: ::prost::alloc::vec::Vec<SegmentsInfo>,
     #[prost(message, repeated, tag="20")]
     pub image_results: ::prost::alloc::vec::Vec<ImagesInfo>,
+    #[prost(string, tag="9")]
+    pub error: ::prost::alloc::string::String,
+    #[prost(int32, tag="22")]
+    pub error_code: i32,
+    #[prost(string, tag="21")]
+    pub details: ::prost::alloc::string::String,
     #[prost(string, tag="23")]
     pub manifest_location: ::prost::alloc::string::String,
-    /// next ID: 27
     #[prost(bool, tag="25")]
     pub backup_storage_used: bool,
-    #[prost(oneof="egress_info::Request", tags="4, 14, 19, 5, 6")]
+    #[prost(int32, tag="27")]
+    pub retry_count: i32,
+    #[prost(oneof="egress_info::Request", tags="29, 30, 4, 14, 19, 5, 6")]
     pub request: ::core::option::Option<egress_info::Request>,
-    /// deprecated (use _result fields)
+    // next ID: 31
+
+    /// --- Deprecated ---
     #[prost(oneof="egress_info::Result", tags="7, 8, 12")]
     pub result: ::core::option::Option<egress_info::Result>,
 }
@@ -2645,6 +2717,11 @@ pub mod egress_info {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Request {
+        #[prost(message, tag="29")]
+        Egress(super::StartEgressRequest),
+        #[prost(message, tag="30")]
+        Replay(super::ExportReplayRequest),
+        /// TODO: deprecate
         #[prost(message, tag="4")]
         RoomComposite(super::RoomCompositeEgressRequest),
         #[prost(message, tag="14")]
@@ -2656,7 +2733,9 @@ pub mod egress_info {
         #[prost(message, tag="6")]
         Track(super::TrackEgressRequest),
     }
-    /// deprecated (use _result fields)
+    // next ID: 31
+
+    /// --- Deprecated ---
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Result {
@@ -2667,12 +2746,6 @@ pub mod egress_info {
         #[prost(message, tag="12")]
         Segments(super::SegmentsInfo),
     }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct StreamInfoList {
-    #[prost(message, repeated, tag="1")]
-    pub info: ::prost::alloc::vec::Vec<StreamInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2776,6 +2849,8 @@ pub struct ImagesInfo {
     #[prost(int64, tag="3")]
     pub ended_at: i64,
 }
+// --- Auto Egress ---
+
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AutoParticipantEgress {
@@ -2826,6 +2901,409 @@ pub mod auto_track_egress {
         AliOss(super::AliOssUpload),
     }
 }
+// --- Replay Export (message only — RPC defined in cloud_replay.proto) ---
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ExportReplayRequest {
+    #[prost(string, tag="1")]
+    pub replay_id: ::prost::alloc::string::String,
+    #[prost(int64, tag="2")]
+    pub start_offset_ms: i64,
+    #[prost(int64, tag="3")]
+    pub end_offset_ms: i64,
+    #[prost(message, repeated, tag="9")]
+    pub outputs: ::prost::alloc::vec::Vec<Output>,
+    #[prost(message, optional, tag="10")]
+    pub storage: ::core::option::Option<StorageConfig>,
+    #[prost(message, repeated, tag="11")]
+    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
+    #[prost(oneof="export_replay_request::Source", tags="4, 5, 6")]
+    pub source: ::core::option::Option<export_replay_request::Source>,
+    #[prost(oneof="export_replay_request::Encoding", tags="7, 8")]
+    pub encoding: ::core::option::Option<export_replay_request::Encoding>,
+}
+/// Nested message and enum types in `ExportReplayRequest`.
+pub mod export_replay_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Source {
+        #[prost(message, tag="4")]
+        Template(super::TemplateSource),
+        #[prost(message, tag="5")]
+        Web(super::WebSource),
+        #[prost(message, tag="6")]
+        Media(super::MediaSource),
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Encoding {
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="7")]
+        Preset(i32),
+        #[prost(message, tag="8")]
+        Advanced(super::EncodingOptions),
+    }
+}
+// TODO: deprecate --- V1 ---
+
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RoomCompositeEgressRequest {
+    #[prost(string, tag="1")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub layout: ::prost::alloc::string::String,
+    #[prost(bool, tag="3")]
+    pub audio_only: bool,
+    #[prost(enumeration="AudioMixing", tag="15")]
+    pub audio_mixing: i32,
+    #[prost(bool, tag="4")]
+    pub video_only: bool,
+    #[prost(string, tag="5")]
+    pub custom_base_url: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="11")]
+    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
+    #[prost(message, repeated, tag="12")]
+    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
+    #[prost(message, repeated, tag="13")]
+    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="14")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
+    #[prost(message, repeated, tag="16")]
+    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
+    #[prost(oneof="room_composite_egress_request::Output", tags="6, 7, 10")]
+    pub output: ::core::option::Option<room_composite_egress_request::Output>,
+    #[prost(oneof="room_composite_egress_request::Options", tags="8, 9")]
+    pub options: ::core::option::Option<room_composite_egress_request::Options>,
+}
+/// Nested message and enum types in `RoomCompositeEgressRequest`.
+pub mod room_composite_egress_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(message, tag="6")]
+        File(super::EncodedFileOutput),
+        #[prost(message, tag="7")]
+        Stream(super::StreamOutput),
+        #[prost(message, tag="10")]
+        Segments(super::SegmentedFileOutput),
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Options {
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="8")]
+        Preset(i32),
+        #[prost(message, tag="9")]
+        Advanced(super::EncodingOptions),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebEgressRequest {
+    #[prost(string, tag="1")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(bool, tag="2")]
+    pub audio_only: bool,
+    #[prost(bool, tag="3")]
+    pub video_only: bool,
+    #[prost(bool, tag="12")]
+    pub await_start_signal: bool,
+    #[prost(message, repeated, tag="9")]
+    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
+    #[prost(message, repeated, tag="10")]
+    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
+    #[prost(message, repeated, tag="11")]
+    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="13")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
+    #[prost(message, repeated, tag="14")]
+    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
+    #[prost(oneof="web_egress_request::Output", tags="4, 5, 6")]
+    pub output: ::core::option::Option<web_egress_request::Output>,
+    #[prost(oneof="web_egress_request::Options", tags="7, 8")]
+    pub options: ::core::option::Option<web_egress_request::Options>,
+}
+/// Nested message and enum types in `WebEgressRequest`.
+pub mod web_egress_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(message, tag="4")]
+        File(super::EncodedFileOutput),
+        #[prost(message, tag="5")]
+        Stream(super::StreamOutput),
+        #[prost(message, tag="6")]
+        Segments(super::SegmentedFileOutput),
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Options {
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="7")]
+        Preset(i32),
+        #[prost(message, tag="8")]
+        Advanced(super::EncodingOptions),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ParticipantEgressRequest {
+    #[prost(string, tag="1")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub identity: ::prost::alloc::string::String,
+    #[prost(bool, tag="3")]
+    pub screen_share: bool,
+    #[prost(message, repeated, tag="6")]
+    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
+    #[prost(message, repeated, tag="7")]
+    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
+    #[prost(message, repeated, tag="8")]
+    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="9")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
+    #[prost(message, repeated, tag="10")]
+    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
+    #[prost(oneof="participant_egress_request::Options", tags="4, 5")]
+    pub options: ::core::option::Option<participant_egress_request::Options>,
+}
+/// Nested message and enum types in `ParticipantEgressRequest`.
+pub mod participant_egress_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Options {
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="4")]
+        Preset(i32),
+        #[prost(message, tag="5")]
+        Advanced(super::EncodingOptions),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TrackCompositeEgressRequest {
+    #[prost(string, tag="1")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub audio_track_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub video_track_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="11")]
+    pub file_outputs: ::prost::alloc::vec::Vec<EncodedFileOutput>,
+    #[prost(message, repeated, tag="12")]
+    pub stream_outputs: ::prost::alloc::vec::Vec<StreamOutput>,
+    #[prost(message, repeated, tag="13")]
+    pub segment_outputs: ::prost::alloc::vec::Vec<SegmentedFileOutput>,
+    #[prost(message, repeated, tag="14")]
+    pub image_outputs: ::prost::alloc::vec::Vec<ImageOutput>,
+    #[prost(message, repeated, tag="15")]
+    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
+    #[prost(oneof="track_composite_egress_request::Output", tags="4, 5, 8")]
+    pub output: ::core::option::Option<track_composite_egress_request::Output>,
+    #[prost(oneof="track_composite_egress_request::Options", tags="6, 7")]
+    pub options: ::core::option::Option<track_composite_egress_request::Options>,
+}
+/// Nested message and enum types in `TrackCompositeEgressRequest`.
+pub mod track_composite_egress_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(message, tag="4")]
+        File(super::EncodedFileOutput),
+        #[prost(message, tag="5")]
+        Stream(super::StreamOutput),
+        #[prost(message, tag="8")]
+        Segments(super::SegmentedFileOutput),
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Options {
+        #[prost(enumeration="super::EncodingOptionsPreset", tag="6")]
+        Preset(i32),
+        #[prost(message, tag="7")]
+        Advanced(super::EncodingOptions),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TrackEgressRequest {
+    #[prost(string, tag="1")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub track_id: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="5")]
+    pub webhooks: ::prost::alloc::vec::Vec<WebhookConfig>,
+    #[prost(oneof="track_egress_request::Output", tags="3, 4")]
+    pub output: ::core::option::Option<track_egress_request::Output>,
+}
+/// Nested message and enum types in `TrackEgressRequest`.
+pub mod track_egress_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(message, tag="3")]
+        File(super::DirectFileOutput),
+        #[prost(string, tag="4")]
+        WebsocketUrl(::prost::alloc::string::String),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DirectFileOutput {
+    #[prost(string, tag="1")]
+    pub filepath: ::prost::alloc::string::String,
+    #[prost(bool, tag="5")]
+    pub disable_manifest: bool,
+    #[prost(oneof="direct_file_output::Output", tags="2, 3, 4, 6")]
+    pub output: ::core::option::Option<direct_file_output::Output>,
+}
+/// Nested message and enum types in `DirectFileOutput`.
+pub mod direct_file_output {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(message, tag="2")]
+        S3(super::S3Upload),
+        #[prost(message, tag="3")]
+        Gcp(super::GcpUpload),
+        #[prost(message, tag="4")]
+        Azure(super::AzureBlobUpload),
+        #[prost(message, tag="6")]
+        AliOss(super::AliOssUpload),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct EncodedFileOutput {
+    #[prost(enumeration="EncodedFileType", tag="1")]
+    pub file_type: i32,
+    #[prost(string, tag="2")]
+    pub filepath: ::prost::alloc::string::String,
+    #[prost(bool, tag="6")]
+    pub disable_manifest: bool,
+    #[prost(oneof="encoded_file_output::Output", tags="3, 4, 5, 7")]
+    pub output: ::core::option::Option<encoded_file_output::Output>,
+}
+/// Nested message and enum types in `EncodedFileOutput`.
+pub mod encoded_file_output {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Output {
+        #[prost(message, tag="3")]
+        S3(super::S3Upload),
+        #[prost(message, tag="4")]
+        Gcp(super::GcpUpload),
+        #[prost(message, tag="5")]
+        Azure(super::AzureBlobUpload),
+        #[prost(message, tag="7")]
+        AliOss(super::AliOssUpload),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateLayoutRequest {
+    #[prost(string, tag="1")]
+    pub egress_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub layout: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateStreamRequest {
+    #[prost(string, tag="1")]
+    pub egress_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="2")]
+    pub add_output_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="3")]
+    pub remove_output_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamInfoList {
+    #[prost(message, repeated, tag="1")]
+    pub info: ::prost::alloc::vec::Vec<StreamInfo>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AudioChannel {
+    Both = 0,
+    Left = 1,
+    Right = 2,
+}
+impl AudioChannel {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            AudioChannel::Both => "AUDIO_CHANNEL_BOTH",
+            AudioChannel::Left => "AUDIO_CHANNEL_LEFT",
+            AudioChannel::Right => "AUDIO_CHANNEL_RIGHT",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "AUDIO_CHANNEL_BOTH" => Some(Self::Both),
+            "AUDIO_CHANNEL_LEFT" => Some(Self::Left),
+            "AUDIO_CHANNEL_RIGHT" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+// --- Encoding ---
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum EncodingOptionsPreset {
+    ///   1280x720, 30fps, 3000kpbs, H.264_MAIN / OPUS
+    H264720p30 = 0,
+    ///   1280x720, 60fps, 4500kbps, H.264_MAIN / OPUS
+    H264720p60 = 1,
+    /// 1920x1080, 30fps, 4500kbps, H.264_MAIN / OPUS
+    H2641080p30 = 2,
+    /// 1920x1080, 60fps, 6000kbps, H.264_MAIN / OPUS
+    H2641080p60 = 3,
+    ///   720x1280, 30fps, 3000kpbs, H.264_MAIN / OPUS
+    PortraitH264720p30 = 4,
+    ///   720x1280, 60fps, 4500kbps, H.264_MAIN / OPUS
+    PortraitH264720p60 = 5,
+    /// 1080x1920, 30fps, 4500kbps, H.264_MAIN / OPUS
+    PortraitH2641080p30 = 6,
+    /// 1080x1920, 60fps, 6000kbps, H.264_MAIN / OPUS
+    PortraitH2641080p60 = 7,
+}
+impl EncodingOptionsPreset {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            EncodingOptionsPreset::H264720p30 => "H264_720P_30",
+            EncodingOptionsPreset::H264720p60 => "H264_720P_60",
+            EncodingOptionsPreset::H2641080p30 => "H264_1080P_30",
+            EncodingOptionsPreset::H2641080p60 => "H264_1080P_60",
+            EncodingOptionsPreset::PortraitH264720p30 => "PORTRAIT_H264_720P_30",
+            EncodingOptionsPreset::PortraitH264720p60 => "PORTRAIT_H264_720P_60",
+            EncodingOptionsPreset::PortraitH2641080p30 => "PORTRAIT_H264_1080P_30",
+            EncodingOptionsPreset::PortraitH2641080p60 => "PORTRAIT_H264_1080P_60",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "H264_720P_30" => Some(Self::H264720p30),
+            "H264_720P_60" => Some(Self::H264720p60),
+            "H264_1080P_30" => Some(Self::H2641080p30),
+            "H264_1080P_60" => Some(Self::H2641080p60),
+            "PORTRAIT_H264_720P_30" => Some(Self::PortraitH264720p30),
+            "PORTRAIT_H264_720P_60" => Some(Self::PortraitH264720p60),
+            "PORTRAIT_H264_1080P_30" => Some(Self::PortraitH2641080p30),
+            "PORTRAIT_H264_1080P_60" => Some(Self::PortraitH2641080p60),
+            _ => None,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum EncodedFileType {
@@ -2855,6 +3333,39 @@ impl EncodedFileType {
             "MP4" => Some(Self::Mp4),
             "OGG" => Some(Self::Ogg),
             "MP3" => Some(Self::Mp3),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum StreamProtocol {
+    /// protocol chosen based on urls
+    DefaultProtocol = 0,
+    Rtmp = 1,
+    Srt = 2,
+    Websocket = 3,
+}
+impl StreamProtocol {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            StreamProtocol::DefaultProtocol => "DEFAULT_PROTOCOL",
+            StreamProtocol::Rtmp => "RTMP",
+            StreamProtocol::Srt => "SRT",
+            StreamProtocol::Websocket => "WEBSOCKET",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "DEFAULT_PROTOCOL" => Some(Self::DefaultProtocol),
+            "RTMP" => Some(Self::Rtmp),
+            "SRT" => Some(Self::Srt),
+            "WEBSOCKET" => Some(Self::Websocket),
             _ => None,
         }
     }
@@ -2943,114 +3454,26 @@ impl ImageFileSuffix {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum StreamProtocol {
-    /// protocol chosen based on urls
-    DefaultProtocol = 0,
-    Rtmp = 1,
-    Srt = 2,
+pub enum EgressSourceType {
+    Web = 0,
+    Sdk = 1,
 }
-impl StreamProtocol {
+impl EgressSourceType {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            StreamProtocol::DefaultProtocol => "DEFAULT_PROTOCOL",
-            StreamProtocol::Rtmp => "RTMP",
-            StreamProtocol::Srt => "SRT",
+            EgressSourceType::Web => "EGRESS_SOURCE_TYPE_WEB",
+            EgressSourceType::Sdk => "EGRESS_SOURCE_TYPE_SDK",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "DEFAULT_PROTOCOL" => Some(Self::DefaultProtocol),
-            "RTMP" => Some(Self::Rtmp),
-            "SRT" => Some(Self::Srt),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum AudioMixing {
-    /// all users are mixed together
-    DefaultMixing = 0,
-    /// agent audio in the left channel, all other audio in the right channel
-    DualChannelAgent = 1,
-    /// each new audio track alternates between left and right channels
-    DualChannelAlternate = 2,
-}
-impl AudioMixing {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            AudioMixing::DefaultMixing => "DEFAULT_MIXING",
-            AudioMixing::DualChannelAgent => "DUAL_CHANNEL_AGENT",
-            AudioMixing::DualChannelAlternate => "DUAL_CHANNEL_ALTERNATE",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "DEFAULT_MIXING" => Some(Self::DefaultMixing),
-            "DUAL_CHANNEL_AGENT" => Some(Self::DualChannelAgent),
-            "DUAL_CHANNEL_ALTERNATE" => Some(Self::DualChannelAlternate),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum EncodingOptionsPreset {
-    ///   1280x720, 30fps, 3000kpbs, H.264_MAIN / OPUS
-    H264720p30 = 0,
-    ///   1280x720, 60fps, 4500kbps, H.264_MAIN / OPUS
-    H264720p60 = 1,
-    /// 1920x1080, 30fps, 4500kbps, H.264_MAIN / OPUS
-    H2641080p30 = 2,
-    /// 1920x1080, 60fps, 6000kbps, H.264_MAIN / OPUS
-    H2641080p60 = 3,
-    ///   720x1280, 30fps, 3000kpbs, H.264_MAIN / OPUS
-    PortraitH264720p30 = 4,
-    ///   720x1280, 60fps, 4500kbps, H.264_MAIN / OPUS
-    PortraitH264720p60 = 5,
-    /// 1080x1920, 30fps, 4500kbps, H.264_MAIN / OPUS
-    PortraitH2641080p30 = 6,
-    /// 1080x1920, 60fps, 6000kbps, H.264_MAIN / OPUS
-    PortraitH2641080p60 = 7,
-}
-impl EncodingOptionsPreset {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            EncodingOptionsPreset::H264720p30 => "H264_720P_30",
-            EncodingOptionsPreset::H264720p60 => "H264_720P_60",
-            EncodingOptionsPreset::H2641080p30 => "H264_1080P_30",
-            EncodingOptionsPreset::H2641080p60 => "H264_1080P_60",
-            EncodingOptionsPreset::PortraitH264720p30 => "PORTRAIT_H264_720P_30",
-            EncodingOptionsPreset::PortraitH264720p60 => "PORTRAIT_H264_720P_60",
-            EncodingOptionsPreset::PortraitH2641080p30 => "PORTRAIT_H264_1080P_30",
-            EncodingOptionsPreset::PortraitH2641080p60 => "PORTRAIT_H264_1080P_60",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "H264_720P_30" => Some(Self::H264720p30),
-            "H264_720P_60" => Some(Self::H264720p60),
-            "H264_1080P_30" => Some(Self::H2641080p30),
-            "H264_1080P_60" => Some(Self::H2641080p60),
-            "PORTRAIT_H264_720P_30" => Some(Self::PortraitH264720p30),
-            "PORTRAIT_H264_720P_60" => Some(Self::PortraitH264720p60),
-            "PORTRAIT_H264_1080P_30" => Some(Self::PortraitH2641080p30),
-            "PORTRAIT_H264_1080P_60" => Some(Self::PortraitH2641080p60),
+            "EGRESS_SOURCE_TYPE_WEB" => Some(Self::Web),
+            "EGRESS_SOURCE_TYPE_SDK" => Some(Self::Sdk),
             _ => None,
         }
     }
@@ -3098,26 +3521,29 @@ impl EgressStatus {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
-pub enum EgressSourceType {
-    Web = 0,
-    Sdk = 1,
+pub enum AudioMixing {
+    DefaultMixing = 0,
+    DualChannelAgent = 1,
+    DualChannelAlternate = 2,
 }
-impl EgressSourceType {
+impl AudioMixing {
     /// String value of the enum field names used in the ProtoBuf definition.
     ///
     /// The values are not transformed in any way and thus are considered stable
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            EgressSourceType::Web => "EGRESS_SOURCE_TYPE_WEB",
-            EgressSourceType::Sdk => "EGRESS_SOURCE_TYPE_SDK",
+            AudioMixing::DefaultMixing => "DEFAULT_MIXING",
+            AudioMixing::DualChannelAgent => "DUAL_CHANNEL_AGENT",
+            AudioMixing::DualChannelAlternate => "DUAL_CHANNEL_ALTERNATE",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
-            "EGRESS_SOURCE_TYPE_WEB" => Some(Self::Web),
-            "EGRESS_SOURCE_TYPE_SDK" => Some(Self::Sdk),
+            "DEFAULT_MIXING" => Some(Self::DefaultMixing),
+            "DUAL_CHANNEL_AGENT" => Some(Self::DualChannelAgent),
+            "DUAL_CHANNEL_ALTERNATE" => Some(Self::DualChannelAlternate),
             _ => None,
         }
     }
@@ -3356,6 +3782,8 @@ pub struct AddTrackRequest {
     pub backup_codec_policy: i32,
     #[prost(enumeration="AudioTrackFeature", repeated, tag="17")]
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="PacketTrailerFeature", repeated, tag="18")]
+    pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4218,6 +4646,10 @@ pub struct Job {
     pub state: ::core::option::Option<JobState>,
     #[prost(bool, tag="10")]
     pub enable_recording: bool,
+    #[prost(string, tag="11")]
+    pub deployment: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="12")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4243,7 +4675,7 @@ pub struct JobState {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerMessage {
-    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7")]
     pub message: ::core::option::Option<worker_message::Message>,
 }
 /// Nested message and enum types in `WorkerMessage`.
@@ -4269,17 +4701,13 @@ pub mod worker_message {
         SimulateJob(super::SimulateJobRequest),
         #[prost(message, tag="7")]
         MigrateJob(super::MigrateJobRequest),
-        #[prost(message, tag="8")]
-        TextResponse(super::TextMessageResponse),
-        #[prost(message, tag="9")]
-        PushText(super::PushTextRequest),
     }
 }
 /// from Server to Worker
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4, 6")]
+    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4")]
     pub message: ::core::option::Option<server_message::Message>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -4299,8 +4727,6 @@ pub mod server_message {
         Termination(super::JobTermination),
         #[prost(message, tag="4")]
         Pong(super::WorkerPong),
-        #[prost(message, tag="6")]
-        TextRequest(super::TextMessageRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4344,6 +4770,8 @@ pub struct RegisterWorkerRequest {
     pub namespace: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag="7")]
     pub allowed_permissions: ::core::option::Option<ParticipantPermission>,
+    #[prost(string, tag="9")]
+    pub deployment: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4429,61 +4857,6 @@ pub struct JobAssignment {
 pub struct JobTermination {
     #[prost(string, tag="1")]
     pub job_id: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AgentSessionState {
-    #[prost(uint64, tag="1")]
-    pub version: u64,
-    #[prost(oneof="agent_session_state::Data", tags="2, 3")]
-    pub data: ::core::option::Option<agent_session_state::Data>,
-}
-/// Nested message and enum types in `AgentSessionState`.
-pub mod agent_session_state {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Data {
-        #[prost(bytes, tag="2")]
-        Snapshot(::prost::alloc::vec::Vec<u8>),
-        #[prost(bytes, tag="3")]
-        Delta(::prost::alloc::vec::Vec<u8>),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TextMessageRequest {
-    #[prost(string, tag="1")]
-    pub message_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub session_id: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub agent_name: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
-    pub metadata: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="5")]
-    pub session_state: ::core::option::Option<AgentSessionState>,
-    #[prost(string, tag="6")]
-    pub text: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PushTextRequest {
-    /// The message_id of the TextMessageRequest that this push is for
-    #[prost(string, tag="1")]
-    pub message_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub content: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TextMessageResponse {
-    /// Indicate the request is completed
-    #[prost(string, tag="1")]
-    pub message_id: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="2")]
-    pub session_state: ::core::option::Option<AgentSessionState>,
-    #[prost(string, tag="3")]
-    pub error: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -4581,6 +4954,13 @@ pub struct CreateAgentDispatchRequest {
     pub room: ::prost::alloc::string::String,
     #[prost(string, tag="3")]
     pub metadata: ::prost::alloc::string::String,
+    /// cloud only
+    #[prost(enumeration="JobRestartPolicy", tag="4")]
+    pub restart_policy: i32,
+    #[prost(string, tag="5")]
+    pub deployment: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="6")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4589,6 +4969,13 @@ pub struct RoomAgentDispatch {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub metadata: ::prost::alloc::string::String,
+    /// cloud only
+    #[prost(enumeration="JobRestartPolicy", tag="3")]
+    pub restart_policy: i32,
+    #[prost(string, tag="4")]
+    pub deployment: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="5")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4627,6 +5014,13 @@ pub struct AgentDispatch {
     pub metadata: ::prost::alloc::string::String,
     #[prost(message, optional, tag="5")]
     pub state: ::core::option::Option<AgentDispatchState>,
+    /// cloud only
+    #[prost(enumeration="JobRestartPolicy", tag="6")]
+    pub restart_policy: i32,
+    #[prost(string, tag="7")]
+    pub deployment: ::prost::alloc::string::String,
+    #[prost(map="string, string", tag="8")]
+    pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4639,6 +5033,34 @@ pub struct AgentDispatchState {
     pub created_at: i64,
     #[prost(int64, tag="3")]
     pub deleted_at: i64,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum JobRestartPolicy {
+    /// restart when the job fails (default)
+    JrpOnFailure = 0,
+    /// never restart
+    JrpNever = 1,
+}
+impl JobRestartPolicy {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            JobRestartPolicy::JrpOnFailure => "JRP_ON_FAILURE",
+            JobRestartPolicy::JrpNever => "JRP_NEVER",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "JRP_ON_FAILURE" => Some(Self::JrpOnFailure),
+            "JRP_NEVER" => Some(Self::JrpNever),
+            _ => None,
+        }
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4664,6 +5086,9 @@ pub struct CreateRoomRequest {
     /// metadata of room
     #[prost(string, tag="5")]
     pub metadata: ::prost::alloc::string::String,
+    /// search tags
+    #[prost(map="string, string", tag="15")]
+    pub tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// auto-egress configurations
     #[prost(message, optional, tag="6")]
     pub egress: ::core::option::Option<RoomEgress>,
@@ -4680,8 +5105,6 @@ pub struct CreateRoomRequest {
     #[prost(bool, tag="13")]
     pub replay_enabled: bool,
     /// Define agents that should be dispatched to this room
-    ///
-    /// NEXT-ID: 15
     #[prost(message, repeated, tag="14")]
     pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
 }
@@ -4747,6 +5170,10 @@ pub struct RoomParticipantIdentity {
     /// identity of the participant
     #[prost(string, tag="2")]
     pub identity: ::prost::alloc::string::String,
+    /// Unix timestamp used to invalidate token whose nbf is before this value.
+    /// Used only by RemoveParticipant; defaults to now(server)+leeway(1min) if left empty.
+    #[prost(int64, tag="3")]
+    pub revoke_token_ts: i64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4885,6 +5312,9 @@ pub struct RoomConfiguration {
     /// Define agents that should be dispatched to this room
     #[prost(message, repeated, tag="10")]
     pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
+    /// Tags to attach to the room
+    #[prost(map="string, string", tag="12")]
+    pub tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5434,6 +5864,29 @@ pub struct CreateSipTrunkRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipCodec {
+    #[prost(string, tag="1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(uint32, tag="2")]
+    pub rate: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipMediaConfig {
+    /// if set, ignore the default codecs and use the list below.
+    #[prost(bool, tag="1")]
+    pub only_listed_codecs: bool,
+    /// List of allowed codecs. If only_listed_codecs is not set, this list is added to default codecs.
+    #[prost(message, repeated, tag="2")]
+    pub codecs: ::prost::alloc::vec::Vec<SipCodec>,
+    #[prost(enumeration="SipMediaEncryption", optional, tag="3")]
+    pub encryption: ::core::option::Option<i32>,
+    /// Use specific media timeout. If zero or not specified, will use default timeout.
+    #[prost(message, optional, tag="4")]
+    pub media_timeout: ::core::option::Option<::pbjson_types::Duration>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProviderInfo {
     #[prost(string, tag="1")]
     pub id: ::prost::alloc::string::String,
@@ -5576,6 +6029,8 @@ pub struct SipInboundTrunkInfo {
     pub auth_username: ::prost::alloc::string::String,
     #[prost(string, tag="8")]
     pub auth_password: ::prost::alloc::string::String,
+    #[prost(string, tag="19")]
+    pub auth_realm: ::prost::alloc::string::String,
     /// Include these SIP X-* headers in 200 OK responses.
     #[prost(map="string, string", tag="9")]
     pub headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
@@ -5602,8 +6057,15 @@ pub struct SipInboundTrunkInfo {
     pub max_call_duration: ::core::option::Option<::pbjson_types::Duration>,
     #[prost(bool, tag="13")]
     pub krisp_enabled: bool,
+    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", tag="16")]
     pub media_encryption: i32,
+    #[prost(message, optional, tag="20")]
+    pub media: ::core::option::Option<SipMediaConfig>,
+    #[prost(message, optional, tag="17")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="18")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5618,12 +6080,17 @@ pub struct SipInboundTrunkUpdate {
     pub auth_username: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="5")]
     pub auth_password: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="9")]
+    pub auth_realm: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="6")]
     pub name: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="7")]
     pub metadata: ::core::option::Option<::prost::alloc::string::String>,
+    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", optional, tag="8")]
     pub media_encryption: ::core::option::Option<i32>,
+    #[prost(message, optional, tag="10")]
+    pub media: ::core::option::Option<SipMediaConfig>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5701,8 +6168,20 @@ pub struct SipOutboundTrunkInfo {
     /// lowercase header names should be used, for example: sip.h.x-custom-header.
     #[prost(enumeration="SipHeaderOptions", tag="12")]
     pub include_headers: i32,
+    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", tag="13")]
     pub media_encryption: i32,
+    #[prost(message, optional, tag="18")]
+    pub media: ::core::option::Option<SipMediaConfig>,
+    /// Optional custom hostname for the 'From' SIP header in outbound INVITEs.
+    /// When set, outbound calls from this trunk will use this host instead of the default project SIP domain.
+    /// Enables originating calls from custom domains.
+    #[prost(string, tag="15")]
+    pub from_host: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="16")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="17")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5723,8 +6202,13 @@ pub struct SipOutboundTrunkUpdate {
     pub name: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag="7")]
     pub metadata: ::core::option::Option<::prost::alloc::string::String>,
+    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", optional, tag="8")]
     pub media_encryption: ::core::option::Option<i32>,
+    #[prost(message, optional, tag="11")]
+    pub media: ::core::option::Option<SipMediaConfig>,
+    #[prost(string, optional, tag="10")]
+    pub from_host: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5827,6 +6311,9 @@ pub struct SipDispatchRuleIndividual {
     /// Optional pin required to enter room
     #[prost(string, tag="2")]
     pub pin: ::prost::alloc::string::String,
+    /// Optionally append random suffix
+    #[prost(bool, tag="3")]
+    pub no_randomness: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5963,11 +6450,17 @@ pub struct SipDispatchRuleInfo {
     /// RoomConfiguration to use if the participant initiates the room
     #[prost(message, optional, tag="10")]
     pub room_config: ::core::option::Option<RoomConfiguration>,
+    #[prost(message, optional, tag="16")]
+    pub media: ::core::option::Option<SipMediaConfig>,
     #[prost(bool, tag="11")]
     pub krisp_enabled: bool,
-    /// NEXT ID: 14
+    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", tag="12")]
     pub media_encryption: i32,
+    #[prost(message, optional, tag="14")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="15")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5982,8 +6475,11 @@ pub struct SipDispatchRuleUpdate {
     pub metadata: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(map="string, string", tag="5")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", optional, tag="6")]
     pub media_encryption: ::core::option::Option<i32>,
+    #[prost(message, optional, tag="7")]
+    pub media: ::core::option::Option<SipMediaConfig>,
 }
 /// ListSIPDispatchRuleRequest lists dispatch rules for given filters. If no filters are set, all rules are listed.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -6037,6 +6533,9 @@ pub struct SipOutboundConfig {
     /// Keys are the names of attributes and values are the names of X-* headers they will be mapped to.
     #[prost(map="string, string", tag="6")]
     pub attributes_to_headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Optional custom hostname for the 'From' SIP header. When set, outbound calls use this host instead of the default project SIP domain.
+    #[prost(string, tag="8")]
+    pub from_host: ::prost::alloc::string::String,
 }
 /// A SIP Participant is a singular SIP session connected to a LiveKit room via
 /// a SIP Trunk into a SIP DispatchRule
@@ -6048,6 +6547,15 @@ pub struct CreateSipParticipantRequest {
     pub sip_trunk_id: ::prost::alloc::string::String,
     #[prost(message, optional, tag="20")]
     pub trunk: ::core::option::Option<SipOutboundConfig>,
+    /// INVITE <uri>
+    #[prost(message, optional, tag="24")]
+    pub sip_request_uri: ::core::option::Option<SipRequestDest>,
+    /// To:   "Name" <uri>
+    #[prost(message, optional, tag="25")]
+    pub sip_to_header: ::core::option::Option<SipNamedDest>,
+    /// From: "Name" <uri>
+    #[prost(message, optional, tag="26")]
+    pub sip_from_header: ::core::option::Option<SipNamedDest>,
     /// What number should be dialed via SIP
     #[prost(string, tag="2")]
     pub sip_call_to: ::prost::alloc::string::String,
@@ -6103,8 +6611,11 @@ pub struct CreateSipParticipantRequest {
     /// Enable voice isolation for the callee.
     #[prost(bool, tag="14")]
     pub krisp_enabled: bool,
+    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", tag="18")]
     pub media_encryption: i32,
+    #[prost(message, optional, tag="23")]
+    pub media: ::core::option::Option<SipMediaConfig>,
     /// Wait for the answer for the call before returning.
     #[prost(bool, tag="19")]
     pub wait_until_answered: bool,
@@ -6116,7 +6627,7 @@ pub struct CreateSipParticipantRequest {
     /// 3) Non-empty: Use the specified value as the display name.
     #[prost(string, optional, tag="21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
-    /// NEXT ID: 23
+    /// NEXT ID: 27
     #[prost(message, optional, tag="22")]
     pub destination: ::core::option::Option<Destination>,
 }
@@ -6248,6 +6759,44 @@ pub struct SipUri {
     pub port: u32,
     #[prost(enumeration="SipTransport", tag="5")]
     pub transport: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipRequestDest {
+    #[prost(oneof="sip_request_dest::Uri", tags="1, 2")]
+    pub uri: ::core::option::Option<sip_request_dest::Uri>,
+}
+/// Nested message and enum types in `SIPRequestDest`.
+pub mod sip_request_dest {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Uri {
+        /// <sip:user@sip.example.com:5060;transport=tcp>
+        #[prost(string, tag="1")]
+        Raw(::prost::alloc::string::String),
+        #[prost(message, tag="2")]
+        Values(super::SipUri),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipNamedDest {
+    #[prost(string, tag="3")]
+    pub display_name: ::prost::alloc::string::String,
+    #[prost(oneof="sip_named_dest::Uri", tags="1, 2")]
+    pub uri: ::core::option::Option<sip_named_dest::Uri>,
+}
+/// Nested message and enum types in `SIPNamedDest`.
+pub mod sip_named_dest {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Uri {
+        /// <sip:user@sip.example.com:5060;transport=tcp>
+        #[prost(string, tag="1")]
+        Raw(::prost::alloc::string::String),
+        #[prost(message, tag="2")]
+        Values(super::SipUri),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6796,10 +7345,11 @@ pub struct DialWhatsAppCallRequest {
     #[prost(map="string, string", tag="10")]
     pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
-    ///
-    /// Next - 13
     #[prost(string, tag="11")]
     pub destination_country: ::prost::alloc::string::String,
+    /// Max time for the callee to answer the call.
+    #[prost(message, optional, tag="13")]
+    pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6922,10 +7472,14 @@ pub struct AcceptWhatsAppCallRequest {
     #[prost(map="string, string", tag="11")]
     pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
-    ///
-    /// Next - 14
     #[prost(string, tag="12")]
     pub destination_country: ::prost::alloc::string::String,
+    /// Max time for the callee to answer the call.
+    #[prost(message, optional, tag="14")]
+    pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+    /// Wait for the answer for the call before returning.
+    #[prost(bool, tag="15")]
+    pub wait_until_answered: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -7062,6 +7616,620 @@ impl ConnectorType {
             "Unspecified" => Some(Self::Unspecified),
             "WhatsApp" => Some(Self::WhatsApp),
             "Twilio" => Some(Self::Twilio),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsVideoLayer {
+    #[prost(int32, tag="1")]
+    pub layer: i32,
+    #[prost(uint32, tag="2")]
+    pub packets: u32,
+    #[prost(uint64, tag="3")]
+    pub bytes: u64,
+    #[prost(uint32, tag="4")]
+    pub frames: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsStream {
+    #[prost(uint32, tag="1")]
+    pub ssrc: u32,
+    #[prost(uint32, tag="2")]
+    pub primary_packets: u32,
+    #[prost(uint64, tag="3")]
+    pub primary_bytes: u64,
+    #[prost(uint32, tag="4")]
+    pub retransmit_packets: u32,
+    #[prost(uint64, tag="5")]
+    pub retransmit_bytes: u64,
+    #[prost(uint32, tag="6")]
+    pub padding_packets: u32,
+    #[prost(uint64, tag="7")]
+    pub padding_bytes: u64,
+    #[prost(uint32, tag="8")]
+    pub packets_lost: u32,
+    #[prost(uint32, tag="9")]
+    pub frames: u32,
+    #[prost(uint32, tag="10")]
+    pub rtt: u32,
+    #[prost(uint32, tag="11")]
+    pub jitter: u32,
+    #[prost(uint32, tag="12")]
+    pub nacks: u32,
+    #[prost(uint32, tag="13")]
+    pub plis: u32,
+    #[prost(uint32, tag="14")]
+    pub firs: u32,
+    #[prost(message, repeated, tag="15")]
+    pub video_layers: ::prost::alloc::vec::Vec<AnalyticsVideoLayer>,
+    #[prost(message, optional, tag="17")]
+    pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="18")]
+    pub end_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(uint32, tag="19")]
+    pub packets_out_of_order: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsStat {
+    /// unique id for this stat
+    #[prost(string, tag="14")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="1")]
+    pub analytics_key: ::prost::alloc::string::String,
+    #[prost(enumeration="StreamType", tag="2")]
+    pub kind: i32,
+    #[prost(message, optional, tag="3")]
+    pub time_stamp: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(string, tag="4")]
+    pub node: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub room_id: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub track_id: ::prost::alloc::string::String,
+    /// average score
+    #[prost(float, tag="9")]
+    pub score: f32,
+    #[prost(message, repeated, tag="10")]
+    pub streams: ::prost::alloc::vec::Vec<AnalyticsStream>,
+    #[prost(string, tag="11")]
+    pub mime: ::prost::alloc::string::String,
+    #[prost(float, tag="12")]
+    pub min_score: f32,
+    #[prost(float, tag="13")]
+    pub median_score: f32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsStats {
+    #[prost(message, repeated, tag="1")]
+    pub stats: ::prost::alloc::vec::Vec<AnalyticsStat>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsClientMeta {
+    #[prost(string, tag="1")]
+    pub region: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub node: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub client_addr: ::prost::alloc::string::String,
+    #[prost(uint32, tag="4")]
+    pub client_connect_time: u32,
+    /// udp, tcp, turn
+    #[prost(string, tag="5")]
+    pub connection_type: ::prost::alloc::string::String,
+    #[prost(enumeration="ReconnectReason", tag="6")]
+    pub reconnect_reason: i32,
+    #[prost(string, optional, tag="7")]
+    pub geo_hash: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag="8")]
+    pub country: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(uint32, optional, tag="9")]
+    pub isp_asn: ::core::option::Option<u32>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsEvent {
+    /// unique id for this event
+    #[prost(string, tag="25")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(enumeration="AnalyticsEventType", tag="1")]
+    pub r#type: i32,
+    #[prost(message, optional, tag="2")]
+    pub timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(string, tag="3")]
+    pub room_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="4")]
+    pub room: ::core::option::Option<Room>,
+    #[prost(string, tag="5")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="6")]
+    pub participant: ::core::option::Option<ParticipantInfo>,
+    #[prost(string, tag="7")]
+    pub track_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="8")]
+    pub track: ::core::option::Option<TrackInfo>,
+    #[prost(string, tag="10")]
+    pub analytics_key: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="11")]
+    pub client_info: ::core::option::Option<ClientInfo>,
+    #[prost(message, optional, tag="12")]
+    pub client_meta: ::core::option::Option<AnalyticsClientMeta>,
+    #[prost(string, tag="13")]
+    pub egress_id: ::prost::alloc::string::String,
+    #[prost(string, tag="19")]
+    pub ingress_id: ::prost::alloc::string::String,
+    #[prost(enumeration="VideoQuality", tag="14")]
+    pub max_subscribed_video_quality: i32,
+    #[prost(message, optional, tag="15")]
+    pub publisher: ::core::option::Option<ParticipantInfo>,
+    #[prost(string, tag="16")]
+    pub mime: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="17")]
+    pub egress: ::core::option::Option<EgressInfo>,
+    #[prost(message, optional, tag="18")]
+    pub ingress: ::core::option::Option<IngressInfo>,
+    #[prost(string, tag="20")]
+    pub error: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="21")]
+    pub rtp_stats: ::core::option::Option<RtpStats>,
+    #[prost(int32, tag="22")]
+    pub video_layer: i32,
+    #[prost(string, tag="24")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag="26")]
+    pub sip_call_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="27")]
+    pub sip_call: ::core::option::Option<SipCallInfo>,
+    #[prost(string, tag="28")]
+    pub sip_trunk_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="29")]
+    pub sip_inbound_trunk: ::core::option::Option<SipInboundTrunkInfo>,
+    #[prost(message, optional, tag="30")]
+    pub sip_outbound_trunk: ::core::option::Option<SipOutboundTrunkInfo>,
+    #[prost(string, tag="31")]
+    pub sip_dispatch_rule_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="32")]
+    pub sip_dispatch_rule: ::core::option::Option<SipDispatchRuleInfo>,
+    #[prost(message, optional, tag="36")]
+    pub sip_transfer: ::core::option::Option<SipTransferInfo>,
+    #[prost(message, optional, tag="33")]
+    pub report: ::core::option::Option<ReportInfo>,
+    #[prost(message, optional, tag="34")]
+    pub api_call: ::core::option::Option<ApiCallInfo>,
+    #[prost(message, optional, tag="35")]
+    pub webhook: ::core::option::Option<WebhookInfo>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsEvents {
+    #[prost(message, repeated, tag="1")]
+    pub events: ::prost::alloc::vec::Vec<AnalyticsEvent>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsRoomParticipant {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub identity: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(enumeration="participant_info::State", tag="4")]
+    pub state: i32,
+    #[prost(message, optional, tag="5")]
+    pub joined_at: ::core::option::Option<::pbjson_types::Timestamp>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsRoom {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub project_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, repeated, tag="4")]
+    pub participants: ::prost::alloc::vec::Vec<AnalyticsRoomParticipant>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AnalyticsNodeRooms {
+    #[prost(string, tag="1")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(uint64, tag="2")]
+    pub sequence_number: u64,
+    #[prost(message, optional, tag="3")]
+    pub timestamp: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, repeated, tag="4")]
+    pub rooms: ::prost::alloc::vec::Vec<AnalyticsRoom>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportInfo {
+    #[prost(oneof="report_info::Message", tags="1")]
+    pub message: ::core::option::Option<report_info::Message>,
+}
+/// Nested message and enum types in `ReportInfo`.
+pub mod report_info {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Message {
+        #[prost(message, tag="1")]
+        FeatureUsage(super::FeatureUsageInfo),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TimeRange {
+    #[prost(message, optional, tag="1")]
+    pub started_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="2")]
+    pub ended_at: ::core::option::Option<::pbjson_types::Timestamp>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FeatureUsageInfo {
+    #[prost(enumeration="feature_usage_info::Feature", tag="1")]
+    pub feature: i32,
+    #[prost(string, tag="2")]
+    pub project_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub room_id: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub track_id: ::prost::alloc::string::String,
+    /// time ranges during which the feature was enabled.
+    /// for e. g., noise cancellation may not be applied when a media track is paused/muted,
+    /// this allows reporting only periods during which a feature is active.
+    #[prost(message, repeated, tag="8")]
+    pub time_ranges: ::prost::alloc::vec::Vec<TimeRange>,
+    /// Feature specific metadata included in the report
+    #[prost(map="string, string", tag="9")]
+    pub feature_info: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+}
+/// Nested message and enum types in `FeatureUsageInfo`.
+pub mod feature_usage_info {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Feature {
+        KrispNoiseCancellation = 0,
+        KrispBackgroundVoiceCancellation = 1,
+        AicAudioEnhancement = 2,
+        KrispViva = 3,
+    }
+    impl Feature {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Feature::KrispNoiseCancellation => "KRISP_NOISE_CANCELLATION",
+                Feature::KrispBackgroundVoiceCancellation => "KRISP_BACKGROUND_VOICE_CANCELLATION",
+                Feature::AicAudioEnhancement => "AIC_AUDIO_ENHANCEMENT",
+                Feature::KrispViva => "KRISP_VIVA",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "KRISP_NOISE_CANCELLATION" => Some(Self::KrispNoiseCancellation),
+                "KRISP_BACKGROUND_VOICE_CANCELLATION" => Some(Self::KrispBackgroundVoiceCancellation),
+                "AIC_AUDIO_ENHANCEMENT" => Some(Self::AicAudioEnhancement),
+                "KRISP_VIVA" => Some(Self::KrispViva),
+                _ => None,
+            }
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApiCallRequest {
+    #[prost(oneof="api_call_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
+    pub message: ::core::option::Option<api_call_request::Message>,
+}
+/// Nested message and enum types in `APICallRequest`.
+pub mod api_call_request {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Message {
+        #[prost(message, tag="1")]
+        CreateRoomRequest(super::CreateRoomRequest),
+        #[prost(message, tag="2")]
+        ListRoomsRequest(super::ListRoomsRequest),
+        #[prost(message, tag="3")]
+        DeleteRoomRequest(super::DeleteRoomRequest),
+        #[prost(message, tag="4")]
+        ListParticipantsRequest(super::ListParticipantsRequest),
+        #[prost(message, tag="5")]
+        RoomParticipantIdentity(super::RoomParticipantIdentity),
+        #[prost(message, tag="6")]
+        MuteRoomTrackRequest(super::MuteRoomTrackRequest),
+        #[prost(message, tag="7")]
+        UpdateParticipantRequest(super::UpdateParticipantRequest),
+        #[prost(message, tag="8")]
+        UpdateSubscriptionsRequest(super::UpdateSubscriptionsRequest),
+        #[prost(message, tag="9")]
+        SendDataRequest(super::SendDataRequest),
+        #[prost(message, tag="10")]
+        UpdateRoomMetadataRequest(super::UpdateRoomMetadataRequest),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ApiCallInfo {
+    #[prost(string, tag="1")]
+    pub project_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub request: ::core::option::Option<ApiCallRequest>,
+    #[prost(string, tag="3")]
+    pub service: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub method: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(int32, tag="6")]
+    pub status: i32,
+    #[prost(string, tag="7")]
+    pub twirp_error_code: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub twirp_error_message: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="10")]
+    pub room_id: ::prost::alloc::string::String,
+    #[prost(string, tag="11")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="12")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="13")]
+    pub track_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="14")]
+    pub started_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(int64, tag="15")]
+    pub duration_ns: i64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebhookInfo {
+    #[prost(string, tag="1")]
+    pub event_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub event: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub project_id: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub room_name: ::prost::alloc::string::String,
+    #[prost(string, tag="5")]
+    pub room_id: ::prost::alloc::string::String,
+    #[prost(string, tag="6")]
+    pub participant_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="7")]
+    pub participant_id: ::prost::alloc::string::String,
+    #[prost(string, tag="8")]
+    pub track_id: ::prost::alloc::string::String,
+    #[prost(string, tag="9")]
+    pub egress_id: ::prost::alloc::string::String,
+    #[prost(string, tag="10")]
+    pub ingress_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="11")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="12")]
+    pub queued_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(int64, tag="13")]
+    pub queue_duration_ns: i64,
+    #[prost(message, optional, tag="14")]
+    pub sent_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(int64, tag="15")]
+    pub send_duration_ns: i64,
+    #[prost(string, tag="16")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(int32, tag="17")]
+    pub num_dropped: i32,
+    #[prost(bool, tag="18")]
+    pub is_dropped: bool,
+    #[prost(string, tag="19")]
+    pub service_status: ::prost::alloc::string::String,
+    #[prost(int32, tag="20")]
+    pub service_error_code: i32,
+    #[prost(string, tag="21")]
+    pub service_error: ::prost::alloc::string::String,
+    #[prost(string, tag="22")]
+    pub send_error: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum StreamType {
+    Upstream = 0,
+    Downstream = 1,
+}
+impl StreamType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            StreamType::Upstream => "UPSTREAM",
+            StreamType::Downstream => "DOWNSTREAM",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UPSTREAM" => Some(Self::Upstream),
+            "DOWNSTREAM" => Some(Self::Downstream),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum AnalyticsEventType {
+    RoomCreated = 0,
+    RoomEnded = 1,
+    ParticipantJoined = 2,
+    ParticipantLeft = 3,
+    ParticipantConnectionAborted = 45,
+    TrackPublished = 4,
+    TrackPublishRequested = 20,
+    TrackUnpublished = 5,
+    TrackSubscribed = 6,
+    TrackSubscribeRequested = 21,
+    TrackSubscribeFailed = 25,
+    TrackUnsubscribed = 7,
+    TrackPublishedUpdate = 10,
+    TrackMuted = 23,
+    TrackUnmuted = 24,
+    TrackPublishStats = 26,
+    TrackSubscribeStats = 27,
+    ParticipantActive = 11,
+    ParticipantResumed = 22,
+    EgressStarted = 12,
+    EgressEnded = 13,
+    EgressUpdated = 28,
+    TrackMaxSubscribedVideoQuality = 14,
+    Reconnected = 15,
+    IngressCreated = 18,
+    IngressDeleted = 19,
+    IngressStarted = 16,
+    IngressEnded = 17,
+    IngressUpdated = 29,
+    SipInboundTrunkCreated = 30,
+    SipInboundTrunkDeleted = 31,
+    SipOutboundTrunkCreated = 32,
+    SipOutboundTrunkDeleted = 33,
+    SipDispatchRuleCreated = 34,
+    SipDispatchRuleDeleted = 35,
+    SipParticipantCreated = 36,
+    SipCallIncoming = 37,
+    SipCallStarted = 38,
+    SipCallEnded = 39,
+    SipTransferRequested = 43,
+    SipTransferComplete = 44,
+    SipCallUpdate = 46,
+    Report = 40,
+    ApiCall = 41,
+    Webhook = 42,
+}
+impl AnalyticsEventType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            AnalyticsEventType::RoomCreated => "ROOM_CREATED",
+            AnalyticsEventType::RoomEnded => "ROOM_ENDED",
+            AnalyticsEventType::ParticipantJoined => "PARTICIPANT_JOINED",
+            AnalyticsEventType::ParticipantLeft => "PARTICIPANT_LEFT",
+            AnalyticsEventType::ParticipantConnectionAborted => "PARTICIPANT_CONNECTION_ABORTED",
+            AnalyticsEventType::TrackPublished => "TRACK_PUBLISHED",
+            AnalyticsEventType::TrackPublishRequested => "TRACK_PUBLISH_REQUESTED",
+            AnalyticsEventType::TrackUnpublished => "TRACK_UNPUBLISHED",
+            AnalyticsEventType::TrackSubscribed => "TRACK_SUBSCRIBED",
+            AnalyticsEventType::TrackSubscribeRequested => "TRACK_SUBSCRIBE_REQUESTED",
+            AnalyticsEventType::TrackSubscribeFailed => "TRACK_SUBSCRIBE_FAILED",
+            AnalyticsEventType::TrackUnsubscribed => "TRACK_UNSUBSCRIBED",
+            AnalyticsEventType::TrackPublishedUpdate => "TRACK_PUBLISHED_UPDATE",
+            AnalyticsEventType::TrackMuted => "TRACK_MUTED",
+            AnalyticsEventType::TrackUnmuted => "TRACK_UNMUTED",
+            AnalyticsEventType::TrackPublishStats => "TRACK_PUBLISH_STATS",
+            AnalyticsEventType::TrackSubscribeStats => "TRACK_SUBSCRIBE_STATS",
+            AnalyticsEventType::ParticipantActive => "PARTICIPANT_ACTIVE",
+            AnalyticsEventType::ParticipantResumed => "PARTICIPANT_RESUMED",
+            AnalyticsEventType::EgressStarted => "EGRESS_STARTED",
+            AnalyticsEventType::EgressEnded => "EGRESS_ENDED",
+            AnalyticsEventType::EgressUpdated => "EGRESS_UPDATED",
+            AnalyticsEventType::TrackMaxSubscribedVideoQuality => "TRACK_MAX_SUBSCRIBED_VIDEO_QUALITY",
+            AnalyticsEventType::Reconnected => "RECONNECTED",
+            AnalyticsEventType::IngressCreated => "INGRESS_CREATED",
+            AnalyticsEventType::IngressDeleted => "INGRESS_DELETED",
+            AnalyticsEventType::IngressStarted => "INGRESS_STARTED",
+            AnalyticsEventType::IngressEnded => "INGRESS_ENDED",
+            AnalyticsEventType::IngressUpdated => "INGRESS_UPDATED",
+            AnalyticsEventType::SipInboundTrunkCreated => "SIP_INBOUND_TRUNK_CREATED",
+            AnalyticsEventType::SipInboundTrunkDeleted => "SIP_INBOUND_TRUNK_DELETED",
+            AnalyticsEventType::SipOutboundTrunkCreated => "SIP_OUTBOUND_TRUNK_CREATED",
+            AnalyticsEventType::SipOutboundTrunkDeleted => "SIP_OUTBOUND_TRUNK_DELETED",
+            AnalyticsEventType::SipDispatchRuleCreated => "SIP_DISPATCH_RULE_CREATED",
+            AnalyticsEventType::SipDispatchRuleDeleted => "SIP_DISPATCH_RULE_DELETED",
+            AnalyticsEventType::SipParticipantCreated => "SIP_PARTICIPANT_CREATED",
+            AnalyticsEventType::SipCallIncoming => "SIP_CALL_INCOMING",
+            AnalyticsEventType::SipCallStarted => "SIP_CALL_STARTED",
+            AnalyticsEventType::SipCallEnded => "SIP_CALL_ENDED",
+            AnalyticsEventType::SipTransferRequested => "SIP_TRANSFER_REQUESTED",
+            AnalyticsEventType::SipTransferComplete => "SIP_TRANSFER_COMPLETE",
+            AnalyticsEventType::SipCallUpdate => "SIP_CALL_UPDATE",
+            AnalyticsEventType::Report => "REPORT",
+            AnalyticsEventType::ApiCall => "API_CALL",
+            AnalyticsEventType::Webhook => "WEBHOOK",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ROOM_CREATED" => Some(Self::RoomCreated),
+            "ROOM_ENDED" => Some(Self::RoomEnded),
+            "PARTICIPANT_JOINED" => Some(Self::ParticipantJoined),
+            "PARTICIPANT_LEFT" => Some(Self::ParticipantLeft),
+            "PARTICIPANT_CONNECTION_ABORTED" => Some(Self::ParticipantConnectionAborted),
+            "TRACK_PUBLISHED" => Some(Self::TrackPublished),
+            "TRACK_PUBLISH_REQUESTED" => Some(Self::TrackPublishRequested),
+            "TRACK_UNPUBLISHED" => Some(Self::TrackUnpublished),
+            "TRACK_SUBSCRIBED" => Some(Self::TrackSubscribed),
+            "TRACK_SUBSCRIBE_REQUESTED" => Some(Self::TrackSubscribeRequested),
+            "TRACK_SUBSCRIBE_FAILED" => Some(Self::TrackSubscribeFailed),
+            "TRACK_UNSUBSCRIBED" => Some(Self::TrackUnsubscribed),
+            "TRACK_PUBLISHED_UPDATE" => Some(Self::TrackPublishedUpdate),
+            "TRACK_MUTED" => Some(Self::TrackMuted),
+            "TRACK_UNMUTED" => Some(Self::TrackUnmuted),
+            "TRACK_PUBLISH_STATS" => Some(Self::TrackPublishStats),
+            "TRACK_SUBSCRIBE_STATS" => Some(Self::TrackSubscribeStats),
+            "PARTICIPANT_ACTIVE" => Some(Self::ParticipantActive),
+            "PARTICIPANT_RESUMED" => Some(Self::ParticipantResumed),
+            "EGRESS_STARTED" => Some(Self::EgressStarted),
+            "EGRESS_ENDED" => Some(Self::EgressEnded),
+            "EGRESS_UPDATED" => Some(Self::EgressUpdated),
+            "TRACK_MAX_SUBSCRIBED_VIDEO_QUALITY" => Some(Self::TrackMaxSubscribedVideoQuality),
+            "RECONNECTED" => Some(Self::Reconnected),
+            "INGRESS_CREATED" => Some(Self::IngressCreated),
+            "INGRESS_DELETED" => Some(Self::IngressDeleted),
+            "INGRESS_STARTED" => Some(Self::IngressStarted),
+            "INGRESS_ENDED" => Some(Self::IngressEnded),
+            "INGRESS_UPDATED" => Some(Self::IngressUpdated),
+            "SIP_INBOUND_TRUNK_CREATED" => Some(Self::SipInboundTrunkCreated),
+            "SIP_INBOUND_TRUNK_DELETED" => Some(Self::SipInboundTrunkDeleted),
+            "SIP_OUTBOUND_TRUNK_CREATED" => Some(Self::SipOutboundTrunkCreated),
+            "SIP_OUTBOUND_TRUNK_DELETED" => Some(Self::SipOutboundTrunkDeleted),
+            "SIP_DISPATCH_RULE_CREATED" => Some(Self::SipDispatchRuleCreated),
+            "SIP_DISPATCH_RULE_DELETED" => Some(Self::SipDispatchRuleDeleted),
+            "SIP_PARTICIPANT_CREATED" => Some(Self::SipParticipantCreated),
+            "SIP_CALL_INCOMING" => Some(Self::SipCallIncoming),
+            "SIP_CALL_STARTED" => Some(Self::SipCallStarted),
+            "SIP_CALL_ENDED" => Some(Self::SipCallEnded),
+            "SIP_TRANSFER_REQUESTED" => Some(Self::SipTransferRequested),
+            "SIP_TRANSFER_COMPLETE" => Some(Self::SipTransferComplete),
+            "SIP_CALL_UPDATE" => Some(Self::SipCallUpdate),
+            "REPORT" => Some(Self::Report),
+            "API_CALL" => Some(Self::ApiCall),
+            "WEBHOOK" => Some(Self::Webhook),
             _ => None,
         }
     }

@@ -17,7 +17,7 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/candidate.h");
 
-        type Candidate; // cricket::Candidate
+        type Candidate; // webrtc::Candidate
 
         fn _shared_candidate() -> SharedPtr<Candidate>;
     }

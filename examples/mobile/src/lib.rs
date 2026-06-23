@@ -423,12 +423,15 @@ pub mod ios {
 pub mod android {
     use android_logger::Config;
     use jni::{
-        objects::{JClass, JShortArray, JString},
+        objects::{JClass, JObject, JShortArray, JString},
         sys::{jboolean, jint, JNI_VERSION_1_6},
         JNIEnv, JavaVM,
     };
     use log::LevelFilter;
     use std::os::raw::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static CONTEXT_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
     #[allow(non_snake_case)]
     #[no_mangle]
@@ -438,8 +441,53 @@ pub mod android {
         );
 
         log::info!("JNI_OnLoad, initializing LiveKit");
+        // Early JVM init for video/data. PlatformAudio requires additional context init
+        // via initializeContextNative() - see Java_io_livekit_rustexample_App_initializeContextNative.
         livekit::webrtc::android::initialize_android(&vm);
         JNI_VERSION_1_6
+    }
+
+    /// Initialize the Android application context for WebRTC audio (PlatformAudio).
+    /// This should be called from Application.onCreate() or Activity.onCreate()
+    /// with the application context.
+    ///
+    /// This function handles both JVM and context initialization, so it's safe to call
+    /// even if JNI_OnLoad already ran (idempotent).
+    ///
+    /// Note: This is only required if you want to use PlatformAudio (microphone/speaker
+    /// via WebRTC ADM). If you only use NativeAudioSource (custom audio buffers),
+    /// this is not needed.
+    #[allow(non_snake_case)]
+    #[no_mangle]
+    pub extern "C" fn Java_io_livekit_rustexample_App_initializeContextNative(
+        env: JNIEnv,
+        _: JClass,
+        context: JObject,
+    ) -> jboolean {
+        // Only initialize once
+        if CONTEXT_INITIALIZED.swap(true, Ordering::SeqCst) {
+            log::info!("Android context already initialized");
+            return 1; // true
+        }
+
+        let vm = match env.get_java_vm() {
+            Ok(vm) => vm,
+            Err(e) => {
+                log::error!("Failed to get JavaVM: {:?}", e);
+                CONTEXT_INITIALIZED.store(false, Ordering::SeqCst);
+                return 0;
+            }
+        };
+
+        let result = livekit::webrtc::android::initialize_android_context(&vm, &context);
+        if result {
+            log::info!("Android context initialized successfully");
+            1
+        } else {
+            log::error!("Failed to initialize Android context");
+            CONTEXT_INITIALIZED.store(false, Ordering::SeqCst);
+            0
+        }
     }
 
     /// Connect to a LiveKit room

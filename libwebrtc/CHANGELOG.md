@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.26](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.25...rust-sdks/libwebrtc@0.3.26) - 2026-02-16
+
+### Other
+
+- add is_screencast to VideoSource ([#896](https://github.com/livekit/rust-sdks/pull/896))
+
 ## [0.3.25](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.24...rust-sdks/libwebrtc@0.3.25) - 2026-02-09
 
 ### Fixed
@@ -133,3 +139,185 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.37 (2026-06-17)
+
+### Features
+
+#### Add dynacast support - #1003 (@chenosaurus, @stephen-derosa)
+
+This includes a minor breaking change for `libwebrtc`: `RtpParameters` now
+contains additional RTP sender state that must be preserved when round-tripping
+through `set_parameters()`.
+
+#### Make GLib an opt-in dependency
+
+`webrtc-sys` no longer links against `glib-2.0`/`gobject-2.0`/`gio-2.0` by default.
+
+Breaking: Wayland screen sharing now requires the `glib-main-loop` feature on `livekit` (or `libwebrtc`).
+
+### Fixes
+
+- Fix silent subscription failures in single-pc mode when the SFU reuses an existing empty transceiver for a new remote track. Also make `RtpTransceiver::mid()` safe to call on transceivers that haven't been negotiated yet — libwebrtc is built with `-fno-exceptions`, so `std::optional::value()` aborted the process instead of throwing.
+- Add `LK_DISABLE_NVDEC` to bypass NVIDIA NVDEC decoder registration when the environment variable is set.
+- Add Jetson DMA-buffer video publishing support for libargus MIPI capture and the Jetson hardware encoder, including AV1 hardware encoding on supported Jetson Orin devices.
+
+## 0.3.36 (2026-06-09)
+
+### Fixes
+
+- Fix NVIDIA encoder I420 uploads to copy each plane using its actual source stride, avoiding chroma corruption when source frames use padded YUV planes. Also fix the `local_video` publisher reusing mutable I420 frame storage after handing frames to WebRTC.
+- Keep one-frame native video streams as latest-frame queues. Move local video subscriber timing metrics into the example and use the WGPU paint callback as the render boundary.
+- Add per-publication video encoder backend selection. Add a video encoder backend availability query. Remove `LIVEKIT_PREFERRED_HW_ENCODER` in favor of per-publication backend selection.
+
+## 0.3.35 (2026-05-29)
+
+### Fixes
+
+- Add native video pipeline timing instrumentation for local video measurements, exposing local publish and subscribe timing through async streams and subscriber overlay GPU upload and receive-to-GPU latency metrics through explicit timing observers.
+
+## 0.3.34 (2026-05-21)
+
+### Fixes
+
+#### feat: add Android application context initialization for PlatformAudio support.
+
+Android requires `ContextUtils.initialize(applicationContext)` before WebRTC audio components can be created. This change:
+
+- Adds `livekit_ffi_initialize_android_context()` C FFI function for Unity and other FFI consumers
+- Uses `CreateAndroidAudioDeviceModule()` instead of generic `CreateAudioDeviceModule()` on Android
+- Handles empty device GUIDs on Android (falls back to index 0)
+- Documents Android-specific limitations: single default device, no app-level device selection
+
+Platform notes:
+- Android device enumeration returns only one "default" device with empty name/GUID
+- Audio routing (speaker/earpiece/Bluetooth) is controlled by Android's AudioManager, not WebRTC
+
+## 0.3.33 (2026-05-14)
+
+### Fixes
+
+- feat: add scalability mode for AV1/VP9. - #1076 (@cloudwebrtc)
+- Add `LIVEKIT_PREFERRED_HW_ENCODER` to prefer `nvenc` or `vaapi` hardware video encoding when both are available.
+- Relocate unrelated types out of `livekit-protocol`
+
+#### Get WebRTC ADM into Rust - #1037 (@xianshijing-lk)
+
+This PR introduces platform audio device management via WebRTC's Audio Device Module (ADM).
+
+#### Features
+- **ADM Proxy**: New `AdmProxy` class that switches between Dummy ADM (synthetic mode) and Platform ADM (real audio I/O)
+- **PlatformAudio API**: High-level Rust API for microphone capture and speaker playout with AEC/AGC/NS
+- **Device enumeration**: List and select recording/playout devices by index or GUID
+- **Mode switching**: Seamlessly switch between synthetic mode (FFI callbacks) and platform mode (native speakers) while audio is active
+- **FFI platform audio support**: Expose platform audio device enumeration and selection through `livekit-ffi`
+- **Audio processing**: Configure echo cancellation, noise suppression, and auto gain control with platform-specific defaults (hardware on iOS, software elsewhere)
+
+#### Audio Modes
+| Mode | Recording | Playout | Use Case |
+|------|-----------|---------|----------|
+| Synthetic | NativeAudioSource | Dummy ADM + FFI | Unity audio, agents |
+| Platform | Platform ADM mic | Platform ADM speakers | VoIP with AEC |
+
+#### API
+```rust
+// Create PlatformAudio for microphone/speaker access
+let audio = PlatformAudio::new()?;
+
+// Enumerate and select devices
+for i in 0..audio.recording_devices() as u16 {
+    println!("Mic {}: {}", i, audio.recording_device_name(i));
+}
+audio.set_recording_device(0)?;
+
+// Create audio track for publishing
+let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());
+```
+
+## 0.3.32 (2026-05-11)
+
+### Fixes
+
+- Upgrade protocol to v1.45.8
+
+## 0.3.31 (2026-05-10)
+
+### Fixes
+
+- Fix missing `libwebrtc.jar` for Android builds, harden build scripts
+- fix race in download_webrtc to reduce flaky build - #1047 (@hechen-eng)
+- Improve WebRTC build scripts and add external_audio_source patch - #1053 (@xianshijing-lk)
+
+## 0.3.30 (2026-04-23)
+
+### Features
+
+#### Add support for frame level packet trailer
+
+##890 by @chenosaurus
+
+- Add support to attach/parse frame level timestamps & frame ID to VideoTracks as a custom payload trailer.
+- Breaking change in VideoFrame API, must include `frame_metadata` or use VideoFrame::new().
+
+## 0.3.29 (2026-04-02)
+
+### Features
+
+#### chore: upgrade libwebrtc to m144.
+
+##965 by @cloudwebrtc
+
+### Fixes
+
+#### use the bounded buffer for video stream
+
+##956 by @xianshijing-lk
+
+Before this PR, it uses an unbounded buffer for video stream, that will cause multiple problems:
+1, video will be lagged behind if rendering is slow or just wake up from background
+2, it will be out of sync with audio
+
+This PRs provides options to set a bounded buffer for video stream, and use 1 buffer as the default option.
+
+## 0.3.28 (2026-03-31)
+
+### Fixes
+
+- Upgrade to thiserror 2
+
+#### fix: fix unavailable sem symbol for Linux aarch64.
+
+##975 by @cloudwebrtc
+
+## 0.3.27 (2026-03-22)
+
+### Features
+
+#### E2EE: allow setting key_ring_size and key_derivation_algorithm, update webrtc to m144
+
+##921 by @onestacked
+
+This PR uses [this webrtc-sdk PR](https://github.com/webrtc-sdk/webrtc/pull/224) to configure the KDF.
+
+I've tested this with https://codeberg.org/esoteric_programmer/matrix-jukebox and it is compatible with Element Call.
+
+Fixed: https://github.com/livekit/rust-sdks/issues/796
+
+### Fixes
+
+- Fix H.264 codec matching
+
+#### add bounded buffer to audio_stream, and use 10 frames as the default
+
+##945 by @xianshijing-lk
+
+#### fix clang build issue from zed patches (#949)
+
+##950 by @cloudwebrtc
+
+* webrtc-sys: Use clang instead of gcc
+
+* Debug CI output for aarch64-linux
+
+* ci: Install lld for aarch64-linux FFI builders
+
+* webrtc-sys: Disable CREL

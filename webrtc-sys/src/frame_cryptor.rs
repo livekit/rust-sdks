@@ -25,6 +25,15 @@ pub mod ffi {
         pub ratchet_window_size: i32,
         pub ratchet_salt: Vec<u8>,
         pub failure_tolerance: i32,
+        pub key_ring_size: i32,
+        pub key_derivation_algorithm: KeyDerivationAlgorithm,
+    }
+
+    #[derive(Debug)]
+    #[repr(i32)]
+    pub enum KeyDerivationAlgorithm {
+        PBKDF2 = 0,
+        HKDF,
     }
 
     #[derive(Debug)]
@@ -93,10 +102,12 @@ pub mod ffi {
         include!("livekit/rtp_sender.h");
         include!("livekit/rtp_receiver.h");
         include!("livekit/peer_connection_factory.h");
+        include!("livekit/packet_trailer.h");
 
         type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
         type PeerConnectionFactory = crate::peer_connection_factory::ffi::PeerConnectionFactory;
+        type PacketTrailerHandler = crate::packet_trailer::ffi::PacketTrailerHandler;
 
         pub type FrameCryptor;
 
@@ -132,6 +143,11 @@ pub mod ffi {
         );
 
         pub fn unregister_observer(self: &FrameCryptor);
+
+        pub fn set_packet_trailer_handler(
+            self: &FrameCryptor,
+            handler: SharedPtr<PacketTrailerHandler>,
+        );
     }
 
     unsafe extern "C++" {
@@ -249,6 +265,8 @@ mod tests {
             ratchet_window_size: 16,
             ratchet_salt: vec![],
             failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
         };
 
         let key_provider = ffi::new_key_provider(options);

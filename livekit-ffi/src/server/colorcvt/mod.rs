@@ -18,60 +18,17 @@ use std::slice;
 
 pub mod cvtimpl;
 
-macro_rules! to_i420 {
-    ($buffer:ident) => {{
-        let proto::VideoBufferInfo { width, height, components, .. } = $buffer;
-        let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
-
-        let (data_y, data_u, data_v) = unsafe {
-            (
-                slice::from_raw_parts(c0.data_ptr as *const u8, c0.size as usize),
-                slice::from_raw_parts(c1.data_ptr as *const u8, c1.size as usize),
-                slice::from_raw_parts(c2.data_ptr as *const u8, c2.size as usize),
-            )
-        };
-
-        let mut i420 = I420Buffer::with_strides(width, height, c0.stride, c1.stride, c2.stride);
-
-        let (dy, du, dv) = i420.data_mut();
-        dy.copy_from_slice(data_y);
-        du.copy_from_slice(data_u);
-        dv.copy_from_slice(data_v);
-        Box::new(i420) as BoxVideoBuffer
-    }};
-}
-
 pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffer {
     let r#type = info.r#type();
     let proto::VideoBufferInfo { width, height, components, .. } = info.clone();
 
     match r#type {
-        // For rgba buffer, automatically convert to I420
-        proto::VideoBufferType::Rgba => {
-            let (_data, info) =
-                cvtimpl::cvt_rgba(info, proto::VideoBufferType::I420, false).unwrap();
-            to_i420!(info)
-        }
-        proto::VideoBufferType::Abgr => {
-            let (_data, info) =
-                cvtimpl::cvt_abgr(info, proto::VideoBufferType::I420, false).unwrap();
-            to_i420!(info)
-        }
-        proto::VideoBufferType::Argb => {
-            let (_data, info) =
-                cvtimpl::cvt_argb(info, proto::VideoBufferType::I420, false).unwrap();
-            to_i420!(info)
-        }
-        proto::VideoBufferType::Bgra => {
-            let (_data, info) =
-                cvtimpl::cvt_bgra(info, proto::VideoBufferType::I420, false).unwrap();
-            to_i420!(info)
-        }
-        proto::VideoBufferType::Rgb24 => {
-            let (_data, info) =
-                cvtimpl::cvt_rgb24(info, proto::VideoBufferType::I420, false).unwrap();
-            to_i420!(info)
-        }
+        // For RGBA-family / RGB24 buffers, fused conversion directly into I420Buffer
+        proto::VideoBufferType::Rgba => cvtimpl::cvt_rgba_to_i420_buffer(info, false),
+        proto::VideoBufferType::Abgr => cvtimpl::cvt_abgr_to_i420_buffer(info, false),
+        proto::VideoBufferType::Argb => cvtimpl::cvt_argb_to_i420_buffer(info, false),
+        proto::VideoBufferType::Bgra => cvtimpl::cvt_bgra_to_i420_buffer(info, false),
+        proto::VideoBufferType::Rgb24 => cvtimpl::cvt_rgb24_to_i420_buffer(info, false),
         proto::VideoBufferType::I420 | proto::VideoBufferType::I420a => {
             let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
 

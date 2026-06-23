@@ -101,7 +101,7 @@ mod test {
         let resolution = wait_for_resolution(&resolution_signal);
         log::info!("Detected capture resolution: {}x{}", resolution.width, resolution.height);
 
-        let buffer_source = NativeVideoSource::new(resolution.clone());
+        let buffer_source = NativeVideoSource::new(resolution.clone(), true);
         {
             let mut slot = video_source_slot.lock().unwrap();
             *slot = Some(buffer_source.clone());
@@ -185,8 +185,9 @@ mod test {
         let callback = {
             let mut frame_buffer = VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
-                buffer: I420Buffer::new(1, 1),
                 timestamp_us: 0,
+                frame_metadata: None,
+                buffer: I420Buffer::new(1, 1),
             };
             move |result: Result<DesktopFrame, CaptureError>| {
                 let frame = match result {

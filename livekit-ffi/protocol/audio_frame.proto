@@ -30,6 +30,16 @@ message NewAudioStreamRequest {
   optional string audio_filter_module_id = 5; // Unique identifier passed in LoadAudioFilterPluginRequest
   optional string audio_filter_options = 6;
   optional uint32 frame_size_ms = 7;
+  // Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+  // of decoded PCM audio on the receive path. Omit this field to use the
+  // default bounded queue size of 10 frames. Set it to 0 to request unbounded
+  // buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 8;
 }
 message NewAudioStreamResponse { required OwnedAudioStream stream = 1; }
 
@@ -42,6 +52,16 @@ message AudioStreamFromParticipantRequest {
   optional string audio_filter_module_id = 7;
   optional string audio_filter_options = 8;
   optional uint32 frame_size_ms = 9;
+  // Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+  // of decoded PCM audio on the receive path. Omit this field to use the
+  // default bounded queue size of 10 frames. Set it to 0 to request unbounded
+  // buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 10;
 }
 
 message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 1; }
@@ -50,9 +70,18 @@ message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 
 message NewAudioSourceRequest {
   required AudioSourceType type = 1;
   optional AudioSourceOptions options = 2;
-  required uint32 sample_rate = 3;
-  required uint32 num_channels = 4;
+  // Sample rate in Hz. Optional - defaults to 48000 if not specified.
+  // For AudioSourcePlatform: ignored, ADM uses hardware native sample rate.
+  // For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+  optional uint32 sample_rate = 3;
+  // Number of audio channels. Optional - defaults to 1 (mono) if not specified.
+  // For AudioSourcePlatform: ignored, ADM uses hardware native channels.
+  // For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+  optional uint32 num_channels = 4;
   optional uint32 queue_size_ms = 5;
+  // For AudioSourcePlatform: the PlatformAudio handle to configure audio processing on.
+  // If provided with options, audio processing will be configured on the PlatformAudio.
+  optional uint64 platform_audio_handle = 6;
 }
 message NewAudioSourceResponse { required OwnedAudioSource source = 1; }
 
@@ -263,10 +292,17 @@ message AudioSourceOptions {
   required bool echo_cancellation = 1;
   required bool noise_suppression = 2;
   required bool auto_gain_control = 3;
+  // Prefer hardware audio processing (e.g., iOS VPIO). Lower latency.
+  // Only applies to AudioSourcePlatform. Default: true.
+  optional bool prefer_hardware = 4;
 }
 
 enum AudioSourceType {
+  // Push-based audio source - manually capture frames via CaptureAudioFrameRequest
   AUDIO_SOURCE_NATIVE = 0;
+  // Platform ADM-based audio source - captures from microphone automatically
+  // Requires PlatformAudio to be created first to enable ADM recording
+  AUDIO_SOURCE_PLATFORM = 1;
 }
 
 message AudioSourceInfo {
@@ -318,5 +354,174 @@ message LoadAudioFilterPluginRequest {
 }
 
 message LoadAudioFilterPluginResponse {
+  optional string error = 1;
+}
+
+//
+// PlatformAudio - Platform audio device management via WebRTC's ADM
+//
+// PlatformAudio provides access to the platform's audio devices (microphones and
+// speakers) via WebRTC's Audio Device Module (ADM). Use it to:
+//
+// - Capture audio from the microphone for publishing
+// - Play received audio through the speakers
+// - Enumerate and select audio devices
+//
+// # Usage
+//
+// 1. Create a PlatformAudio handle with NewPlatformAudioRequest
+// 2. Enumerate devices with GetAudioDevicesRequest (optional)
+// 3. Select devices with SetRecordingDeviceRequest/SetPlayoutDeviceRequest (optional)
+// 4. Create an audio track using AudioSourcePlatform type
+// 5. When done, drop the handle (the ADM is disabled when all handles are released)
+//
+
+// Information about an audio device.
+message AudioDeviceInfo {
+  // Device index (0-based). Note: indices can change when devices are added/removed.
+  required uint32 index = 1;
+  // Device name as reported by the operating system.
+  required string name = 2;
+  // Platform-specific unique device identifier (GUID).
+  // This is stable across device additions/removals and should be preferred
+  // over index for device selection. Format varies by platform:
+  // - Windows: Device interface path
+  // - macOS: AudioObjectID as string
+  // - Linux: ALSA/PulseAudio device identifier
+  optional string guid = 3;
+}
+
+// Information about a PlatformAudio instance.
+message PlatformAudioInfo {
+  // Number of available recording (microphone) devices.
+  required int32 recording_device_count = 1;
+  // Number of available playout (speaker) devices.
+  required int32 playout_device_count = 2;
+}
+
+// Owned PlatformAudio handle with info.
+message OwnedPlatformAudio {
+  required FfiOwnedHandle handle = 1;
+  required PlatformAudioInfo info = 2;
+}
+
+// Create a new PlatformAudio instance.
+//
+// This enables the platform ADM for microphone capture and speaker playout.
+// If another PlatformAudio instance exists, this reuses the same underlying ADM.
+//
+// The returned handle must be kept alive while platform audio is needed.
+// When all handles are released, the ADM is automatically disabled.
+message NewPlatformAudioRequest {}
+
+message NewPlatformAudioResponse {
+  oneof message {
+    // The PlatformAudio handle on success.
+    OwnedPlatformAudio platform_audio = 1;
+    // Error message if creation failed.
+    string error = 2;
+  }
+}
+
+// Get available audio devices.
+//
+// Returns lists of available recording (microphone) and playout (speaker) devices.
+//
+// # Platform Notes
+//
+// - Desktop (Windows/macOS/Linux): Returns all available devices with names and GUIDs.
+// - Mobile (iOS/Android): Returns only one "default" device with empty name and GUID.
+//   Device enumeration is not meaningful on mobile - use for device count only.
+message GetAudioDevicesRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message GetAudioDevicesResponse {
+  // Available playout devices (speakers/headphones).
+  repeated AudioDeviceInfo playout_devices = 1;
+  // Available recording devices (microphones).
+  repeated AudioDeviceInfo recording_devices = 2;
+  // Error message if enumeration failed, empty/absent on success.
+  optional string error = 3;
+}
+
+// Set the recording device (microphone).
+//
+// Call this before creating audio tracks to select which microphone to use.
+// Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
+//
+// # Platform Notes
+//
+// - Desktop: Works as expected - selects from enumerated devices.
+// - Mobile (iOS/Android): No-op. Mobile platforms handle microphone selection at the
+//   system level. This will succeed but has no effect. Skip calling on mobile.
+message SetRecordingDeviceRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+  // Device GUID from AudioDeviceInfo.guid - stable across device additions/removals.
+  required string device_id = 2;
+}
+
+message SetRecordingDeviceResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success (including no-op success on mobile).
+  optional string error = 1;
+}
+
+// Set the playout device (speaker/headphones).
+//
+// Call this before connecting to select which speaker to use for audio output.
+// Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
+//
+// # Platform Notes
+//
+// - Desktop: Works as expected - selects from enumerated devices.
+// - Mobile (iOS/Android): No-op. Mobile platforms handle audio routing at the system level.
+//   This will succeed but has no effect. For audio routing on mobile:
+//   - iOS: Use AVAudioSession to control speaker/earpiece/Bluetooth routing
+//   - Android: Use AudioManager.setSpeakerphoneOn() to switch outputs
+message SetPlayoutDeviceRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+  // Device GUID from AudioDeviceInfo.guid - stable across device additions/removals.
+  required string device_id = 2;
+}
+
+message SetPlayoutDeviceResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success (including no-op success on mobile).
+  optional string error = 1;
+}
+
+// Start recording from the microphone.
+//
+// Recording is started automatically when PlatformAudio is created.
+// Use this to resume recording after calling StopRecording.
+// This also turns on the system's recording privacy indicator.
+message StartRecordingRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message StartRecordingResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success.
+  optional string error = 1;
+}
+
+// Stop recording from the microphone.
+//
+// Use this to temporarily stop recording without disposing PlatformAudio.
+// This will turn off the system's recording privacy indicator (e.g., on macOS/iOS).
+// Call StartRecording to resume recording.
+message StopRecordingRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message StopRecordingResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success.
   optional string error = 1;
 }

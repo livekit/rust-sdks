@@ -19,6 +19,9 @@ use crate::{
     media_stream_track::{media_stream_track, RtcTrackState},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::packet_trailer::PacketTrailerHandler;
+
 #[derive(Clone)]
 pub struct RtcVideoTrack {
     pub(crate) handle: imp_vt::RtcVideoTrack,
@@ -26,6 +29,22 @@ pub struct RtcVideoTrack {
 
 impl RtcVideoTrack {
     media_stream_track!();
+
+    /// Set the packet trailer handler for this track.
+    ///
+    /// When set, any `NativeVideoStream` created from this track will
+    /// automatically use this handler to populate `user_timestamp`
+    /// on each decoded frame.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.handle.set_packet_trailer_handler(handler);
+    }
+
+    /// Get the packet trailer handler, if one has been set.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+        self.handle.packet_trailer_handler()
+    }
 }
 
 impl Debug for RtcVideoTrack {

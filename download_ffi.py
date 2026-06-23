@@ -73,13 +73,16 @@ def ffi_version():
 
 def download_ffi(platform, arch, version, output):
     filename = "ffi-%s-%s.zip" % (platform, arch)
-    url = "https://github.com/livekit/client-sdk-rust/releases/download/rust-sdks/livekit-ffi@%s/%s"
-    url = url % (version, filename)
+    repo_url = "https://github.com/livekit/rust-sdks/releases/download"
+    new_url = "%s/livekit-ffi/v%s/%s" % (repo_url, version, filename)
+    old_url = "%s/rust-sdks/livekit-ffi@%s/%s" % (repo_url, version, filename)
 
     tmp = os.path.join(tempfile.gettempdir(), filename)
 
-    # download the binary
-    resp = requests.get(url, stream=True)
+    # try new tag format first, fall back to old format
+    resp = requests.get(new_url, stream=True)
+    if resp.status_code != 200:
+        resp = requests.get(old_url, stream=True)
     if resp.status_code != 200:
         raise Exception("failed to download, status: %d" % (resp.status_code))
 

@@ -165,7 +165,7 @@ class PeerConnection : webrtc::PeerConnectionObserver {
   void OnIceGatheringChange(
       webrtc::PeerConnectionInterface::IceGatheringState new_state) override;
 
-  void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override;
+  void OnIceCandidate(const webrtc::IceCandidate* candidate) override;
 
   void OnIceCandidateError(const std::string& address,
                            int port,
@@ -173,13 +173,12 @@ class PeerConnection : webrtc::PeerConnectionObserver {
                            int error_code,
                            const std::string& error_text) override;
 
-  void OnIceCandidatesRemoved(
-      const std::vector<cricket::Candidate>& candidates) override;
+  void OnIceCandidateRemoved(const webrtc::IceCandidate* candidate) override;
 
   void OnIceConnectionReceivingChange(bool receiving) override;
 
   void OnIceSelectedCandidatePairChanged(
-      const cricket::CandidatePairChangeEvent& event) override;
+      const webrtc::CandidatePairChangeEvent& event) override;
 
   void OnAddTrack(
       webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,

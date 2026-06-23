@@ -19,17 +19,22 @@ pub enum AsyncCmd {
     SimulateScenario { scenario: SimulateScenario },
     ToggleLogo,
     ToggleSine,
+    ToggleDataTrack,
     SubscribeTrack { publication: RemoteTrackPublication },
     UnsubscribeTrack { publication: RemoteTrackPublication },
     SetVideoQuality { publication: RemoteTrackPublication, quality: VideoQuality },
     E2eeKeyRatchet,
     LogStats,
+    RpcSendRequest { destination: String, method: String, payload: String, request_id: u64 },
 }
 
 #[derive(Debug)]
 pub enum UiCmd {
     ConnectResult { result: RoomResult<()> },
     RoomEvent { event: RoomEvent },
+    DataTrackPublished { track: LocalDataTrack },
+    DataTrackUnpublished,
+    RpcSendResult { request_id: u64, result: Result<String, RpcError> },
 }
 
 /// AppService is the "asynchronous" part of our application, where we connect to a room and
@@ -39,6 +44,7 @@ pub struct LkService {
     ui_rx: mpsc::UnboundedReceiver<UiCmd>,
     handle: tokio::task::JoinHandle<()>,
     inner: Arc<ServiceInner>,
+    runtime: tokio::runtime::Handle,
 }
 
 struct ServiceInner {
@@ -55,11 +61,15 @@ impl LkService {
         let inner = Arc::new(ServiceInner { ui_tx, room: Default::default() });
         let handle = async_handle.spawn(service_task(inner.clone(), cmd_rx));
 
-        Self { cmd_tx, ui_rx, handle, inner }
+        Self { cmd_tx, ui_rx, handle, inner, runtime: async_handle.clone() }
     }
 
     pub fn room(&self) -> Option<Arc<Room>> {
         self.inner.room.lock().clone()
+    }
+
+    pub fn runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
     }
 
     pub fn send(&self, cmd: AsyncCmd) -> Result<(), SendError<AsyncCmd>> {
@@ -82,6 +92,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
         room: Arc<Room>,
         logo_track: LogoTrack,
         sine_track: SineTrack,
+        data_track: Option<LocalDataTrack>,
     }
 
     let mut running_state = None;
@@ -111,6 +122,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                         room: new_room.clone(),
                         logo_track: LogoTrack::new(new_room.clone()),
                         sine_track: SineTrack::new(new_room.clone(), SineParameters::default()),
+                        data_track: None,
                     });
 
                     // Allow direct access to the room from the UI (Used for sync access)
@@ -155,6 +167,24 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     }
                 }
             }
+            AsyncCmd::ToggleDataTrack => {
+                if let Some(state) = running_state.as_mut() {
+                    if let Some(track) = state.data_track.take() {
+                        track.unpublish();
+                        let _ = inner.ui_tx.send(UiCmd::DataTrackUnpublished);
+                    } else {
+                        match state.room.local_participant().publish_data_track("slider").await {
+                            Ok(track) => {
+                                let _ = inner
+                                    .ui_tx
+                                    .send(UiCmd::DataTrackPublished { track: track.clone() });
+                                state.data_track = Some(track);
+                            }
+                            Err(err) => log::error!("failed to publish data track: {err}"),
+                        }
+                    }
+                }
+            }
             AsyncCmd::SubscribeTrack { publication } => {
                 publication.set_subscribed(true);
             }
@@ -170,6 +200,29 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     if let Some(key_provider) = e2ee_manager.key_provider() {
                         key_provider.ratchet_shared_key(0);
                     }
+                }
+            }
+            AsyncCmd::RpcSendRequest { destination, method, payload, request_id } => {
+                if let Some(state) = running_state.as_ref() {
+                    let local = state.room.local_participant();
+                    let ui_tx = inner.ui_tx.clone();
+                    tokio::spawn(async move {
+                        let result = local
+                            .perform_rpc(
+                                PerformRpcData::new(destination, method).with_payload(payload),
+                            )
+                            .await;
+                        let _ = ui_tx.send(UiCmd::RpcSendResult { request_id, result });
+                    });
+                } else {
+                    let _ = inner.ui_tx.send(UiCmd::RpcSendResult {
+                        request_id,
+                        result: Err(RpcError {
+                            code: RpcErrorCode::SendFailed as u32,
+                            message: "Not connected".to_string(),
+                            data: None,
+                        }),
+                    });
                 }
             }
             AsyncCmd::LogStats => {

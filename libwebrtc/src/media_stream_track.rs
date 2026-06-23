@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_protocol::enum_dispatch;
-
-use crate::{audio_track::RtcAudioTrack, video_track::RtcVideoTrack};
+use crate::{audio_track::RtcAudioTrack, enum_dispatch, video_track::RtcVideoTrack};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RtcTrackState {

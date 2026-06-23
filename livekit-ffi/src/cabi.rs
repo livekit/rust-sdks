@@ -47,7 +47,7 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
         sdk_version: CStr::from_ptr(sdk_version).to_string_lossy().into_owned(),
     });
 
-    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
+    log::debug!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
 }
 
 /// # Safety
@@ -116,16 +116,89 @@ pub extern "C" fn livekit_ffi_dispose() {
 #[cfg(target_os = "android")]
 pub mod android {
     use jni::{
-        sys::{jint, JNI_VERSION_1_6},
+        objects::JObject,
+        sys::{jint, jobject, JNI_VERSION_1_6},
         JavaVM,
     };
     use std::os::raw::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Track whether device_info has been initialized.
+    /// WebRTC init is handled by C++ with its own idempotency.
+    static DEVICE_INFO_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    /// Initialize device_info with the JVM. Called once.
+    fn init_device_info(vm: &JavaVM) {
+        if DEVICE_INFO_INITIALIZED
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            device_info::android::init_vm(vm);
+        }
+    }
 
     #[allow(non_snake_case)]
     #[no_mangle]
     pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
-        println!("JNI_OnLoad, initializing LiveKit");
         livekit::webrtc::android::initialize_android(&vm);
+        init_device_info(&vm);
         JNI_VERSION_1_6
+    }
+
+    // TODO(CLT-xxxx): Add JNI entry point for C++/Python SDKs when they support Android.
+    // This would allow Java/Kotlin code to call:
+    //   System.loadLibrary("livekit_ffi");
+    //   LiveKitFfi.initializeContext(getApplicationContext());
+    //
+    // The native method would be:
+    //   #[allow(non_snake_case)]
+    //   #[no_mangle]
+    //   pub extern "C" fn Java_livekit_ffi_LiveKitFfi_initializeContext(...)
+
+    /// Initialize Android WebRTC with the application context.
+    /// This is required for Android audio (microphone/speaker) to work.
+    ///
+    /// This function performs:
+    /// 1. JVM initialization (WebRTC's InitAndroid) - idempotent
+    /// 2. ContextUtils initialization with the application context - idempotent
+    /// 3. device_info initialization - idempotent
+    ///
+    /// # Safety
+    /// * `vm_ptr` must be a valid pointer to a JavaVM
+    /// * `context_ptr` must be a valid jobject pointing to an Android Context
+    ///
+    /// # Arguments
+    /// * `vm_ptr` - Pointer to the JavaVM
+    /// * `context_ptr` - The Android application context (jobject)
+    ///
+    /// # Returns
+    /// true if context initialization was successful, false otherwise.
+    /// Note: JVM initialization always happens regardless of return value.
+    #[no_mangle]
+    pub unsafe extern "C" fn livekit_ffi_initialize_android_context(
+        vm_ptr: *mut c_void,
+        context_ptr: jobject,
+    ) -> bool {
+        if vm_ptr.is_null() || context_ptr.is_null() {
+            log::error!("livekit_ffi_initialize_android_context: null pointer provided");
+            return false;
+        }
+
+        // Safety: vm_ptr must be a valid JavaVM pointer
+        let vm = match JavaVM::from_raw(vm_ptr as *mut _) {
+            Ok(vm) => vm,
+            Err(e) => {
+                log::error!("Failed to get JavaVM from pointer: {:?}", e);
+                return false;
+            }
+        };
+
+        // Initialize device_info (Rust-only, separate from WebRTC)
+        init_device_info(&vm);
+
+        // Initialize WebRTC JVM + ContextUtils (handled by C++ layer, idempotent)
+        // Safety: context_ptr is guaranteed to be valid by the caller
+        let context = JObject::from_raw(context_ptr);
+        livekit::webrtc::android::initialize_android_context(&vm, &context)
     }
 }

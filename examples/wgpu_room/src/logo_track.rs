@@ -47,10 +47,10 @@ pub struct LogoTrack {
 impl LogoTrack {
     pub fn new(room: Arc<Room>) -> Self {
         Self {
-            rtc_source: NativeVideoSource::new(VideoResolution {
-                width: FB_WIDTH as u32,
-                height: FB_HEIGHT as u32,
-            }),
+            rtc_source: NativeVideoSource::new(
+                VideoResolution { width: FB_WIDTH as u32, height: FB_HEIGHT as u32 },
+                false,
+            ),
             room,
             handle: None,
         }
@@ -116,8 +116,9 @@ impl LogoTrack {
             framebuffer: Arc::new(Mutex::new(vec![0u8; FB_WIDTH * FB_HEIGHT * 4])),
             video_frame: Arc::new(Mutex::new(VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
-                buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
                 timestamp_us: 0,
+                frame_metadata: None,
+                buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
             })),
             pos: (0, 0),
             direction: (1, 1),

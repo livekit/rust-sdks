@@ -22,6 +22,7 @@ use crate::{
     proto,
     server::{
         data_stream::{FfiByteStreamWriter, FfiTextStreamWriter},
+        data_track::FfiLocalDataTrack,
         room::RoomInner,
         FfiHandle, FfiServer,
     },
@@ -58,17 +59,15 @@ impl FfiParticipant {
         let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {
-            let result = local
-                .perform_rpc(PerformRpcData {
-                    destination_identity: request.destination_identity.to_string(),
-                    method: request.method,
-                    payload: request.payload,
-                    response_timeout: request
-                        .response_timeout_ms
-                        .map(|ms| Duration::from_millis(ms as u64))
-                        .unwrap_or(PerformRpcData::default().response_timeout),
-                })
-                .await;
+            let mut data = PerformRpcData::new(request.destination_identity, request.method)
+                .with_payload(request.payload);
+            if let Some(ms) = request.response_timeout_ms {
+                data = data.with_response_timeout(Duration::from_millis(ms as u64));
+            }
+            if let Some(ms) = request.max_round_trip_latency_ms {
+                data = data.with_max_round_trip_latency(Duration::from_millis(ms as u64));
+            }
+            let result = local.perform_rpc(data).await;
 
             let callback = proto::PerformRpcCallback {
                 async_id,
@@ -241,6 +240,29 @@ impl FfiParticipant {
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamOpenResponse { async_id })
+    }
+
+    pub fn publish_data_track(
+        &self,
+        server: &'static FfiServer,
+        request: proto::PublishDataTrackRequest,
+    ) -> FfiResult<proto::PublishDataTrackResponse> {
+        let async_id = server.resolve_async_id(request.request_async_id);
+        let local = self.guard_local_participant()?;
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = match local.publish_data_track(request.options).await {
+                Ok(track) => {
+                    let ffi_track = FfiLocalDataTrack::from_track(server, track);
+                    proto::publish_data_track_callback::Result::Track(ffi_track)
+                }
+                Err(err) => proto::publish_data_track_callback::Result::Error(err.into()),
+            };
+            let callback = proto::PublishDataTrackCallback { async_id, result: Some(result) };
+            let _ = server.send_event(callback.into());
+        });
+        server.watch_panic(handle);
+        Ok(proto::PublishDataTrackResponse { async_id })
     }
 }
 

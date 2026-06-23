@@ -1,0 +1,292 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Changeset Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, unlabeled]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-changeset:
+    name: Check for changeset
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Check for changeset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eo pipefail
+
+          COMMENT_MARKER="<!-- changeset-check -->"
+
+          delete_comment() {
+            local comment_id
+            comment_id=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq ".[] | select(.body | contains(\"${COMMENT_MARKER}\")) | .id" | head -1)
+            if [ -n "$comment_id" ]; then
+              gh api -X DELETE "repos/${REPO}/issues/comments/${comment_id}" || true
+            fi
+          }
+
+          upsert_comment() {
+            local body="$1"
+            local comment_id
+            comment_id=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq ".[] | select(.body | contains(\"${COMMENT_MARKER}\")) | .id" | head -1)
+            if [ -n "$comment_id" ]; then
+              gh api -X PATCH "repos/${REPO}/issues/comments/${comment_id}" -f body="$body"
+            else
+              gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$body"
+            fi
+          }
+
+          # --- Check for internal label ---
+          HAS_INTERNAL=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels \
+            --jq '[.labels[].name] | any(. == "internal")')
+          if [ "$HAS_INTERNAL" = "true" ]; then
+            echo "PR has 'internal' label - changeset not required"
+            delete_comment
+            exit 0
+          fi
+
+          # --- Get changed files ---
+          CHANGED_FILES=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
+
+          # --- Check for changeset in diff ---
+          CHANGESET_FILES=$(echo "$CHANGED_FILES" | grep '^\.changeset/.*\.md$' || true)
+
+          if [ -n "$CHANGESET_FILES" ]; then
+            echo "Changeset found in PR diff"
+
+            # Parse changeset files to extract version bumps
+            export CHANGESET_FILES
+            BUMPS=$(python3 << 'PYEOF'
+          import json, os, re, sys
+
+          BUMP_ORDER = {"patch": 0, "minor": 1, "major": 2}
+          bumps = {}
+
+          for filepath in os.environ["CHANGESET_FILES"].strip().split("\n"):
+              filepath = filepath.strip()
+              if not filepath:
+                  continue
+              try:
+                  with open(filepath) as f:
+                      content = f.read()
+                  match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+                  if not match:
+                      continue
+                  for line in match.group(1).strip().split("\n"):
+                      line = line.strip()
+                      if ":" not in line:
+                          continue
+                      pkg, bump = line.split(":", 1)
+                      pkg, bump = pkg.strip(), bump.strip()
+                      if bump in BUMP_ORDER:
+                          if pkg not in bumps or BUMP_ORDER[bump] > BUMP_ORDER[bumps[pkg]]:
+                              bumps[pkg] = bump
+              except Exception:
+                  continue
+
+          json.dump(sorted(bumps.items()), sys.stdout)
+          PYEOF
+            )
+
+            # Build summary comment with version bump table
+            TABLE_ROWS=$(echo "$BUMPS" | jq -r '.[] | "| `\(.[0])` | `\(.[1])` |"')
+
+            COMMENT_BODY=$(
+              echo "$COMMENT_MARKER"
+              echo "### Changeset"
+              echo ""
+              if [ -n "$TABLE_ROWS" ]; then
+                echo "The following package versions will be affected by this PR:"
+                echo ""
+                echo "| Package | Bump |"
+                echo "|---------|------|"
+                echo "$TABLE_ROWS"
+              else
+                echo "Changeset found but no version bumps declared."
+              fi
+            )
+
+            upsert_comment "$COMMENT_BODY" || true
+            exit 0
+          fi
+
+          echo "No changeset found - detecting affected packages..."
+
+          # --- Detect affected packages via cargo metadata + knope.toml ---
+          export CHANGED_FILES
+          DETECTION=$(python3 << 'PYEOF'
+          import json, os, re, subprocess, sys
+
+          changed_files = [f for f in os.environ["CHANGED_FILES"].strip().split("\n") if f]
+
+          # Parse knope-managed package names from knope.toml
+          with open("knope.toml") as f:
+              knope_packages = set(re.findall(r"^\[packages\.([^\]]+)\]", f.read(), re.MULTILINE))
+
+          # Get workspace metadata (--no-deps avoids network access)
+          try:
+              meta = json.loads(subprocess.check_output(
+                  ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+                  text=True, stderr=subprocess.DEVNULL
+              ))
+          except Exception as e:
+              json.dump({"error": str(e), "direct": [], "downstream": [], "changeset_content": ""}, sys.stdout)
+              sys.exit(0)
+
+          workspace_root = meta["workspace_root"]
+
+          # Map knope-managed package name -> relative directory
+          pkg_to_dir = {}
+          for pkg in meta["packages"]:
+              if pkg["name"] in knope_packages:
+                  manifest_dir = os.path.dirname(pkg["manifest_path"])
+                  pkg_to_dir[pkg["name"]] = os.path.relpath(manifest_dir, workspace_root)
+
+          # Build direct dependency graph between knope-managed packages
+          # (packages[].dependencies includes both normal and build deps)
+          direct_deps = {name: set() for name in knope_packages}
+          for pkg in meta["packages"]:
+              if pkg["name"] not in knope_packages:
+                  continue
+              for dep in pkg.get("dependencies", []):
+                  if dep["name"] in knope_packages:
+                      direct_deps[pkg["name"]].add(dep["name"])
+
+          # Reverse the graph: for each package, who depends on it (downstream)
+          reverse = {name: set() for name in knope_packages}
+          for pkg, deps in direct_deps.items():
+              for dep in deps:
+                  reverse[dep].add(pkg)
+
+          # Compute transitive downstream closure
+          def transitive_downstream(pkg):
+              visited = set()
+              stack = list(reverse.get(pkg, set()))
+              while stack:
+                  node = stack.pop()
+                  if node not in visited:
+                      visited.add(node)
+                      stack.extend(reverse.get(node, set()) - visited)
+              return visited
+
+          # Match changed files to packages (longest directory prefix wins)
+          sorted_pkgs = sorted(pkg_to_dir.items(), key=lambda x: len(x[1]), reverse=True)
+          direct_affected = set()
+          for f in changed_files:
+              for pkg_name, pkg_dir in sorted_pkgs:
+                  if f.startswith(pkg_dir + "/"):
+                      direct_affected.add(pkg_name)
+                      break
+
+          # Expand with downstream dependencies
+          all_affected = set(direct_affected)
+          downstream_only = set()
+          for pkg in direct_affected:
+              for dep in transitive_downstream(pkg):
+                  all_affected.add(dep)
+                  if dep not in direct_affected:
+                      downstream_only.add(dep)
+
+          # Build changeset content
+          lines = ["---"]
+          for pkg in sorted(all_affected):
+              lines.append(f"{pkg}: patch")
+          pr_title = os.environ.get("PR_TITLE", "Description of your change")
+          pr_number = os.environ.get("PR_NUMBER", "")
+          pr_author = os.environ.get("PR_AUTHOR", "")
+          description = f"{pr_title} - #{pr_number} (@{pr_author})"
+          lines.extend(["---", "", description])
+
+          json.dump({
+              "direct": sorted(direct_affected),
+              "downstream": sorted(downstream_only),
+              "changeset_content": "\n".join(lines),
+          }, sys.stdout)
+          PYEOF
+          )
+
+          # Handle cargo metadata errors gracefully
+          ERROR=$(echo "$DETECTION" | jq -r '.error // empty')
+          if [ -n "$ERROR" ]; then
+            echo "::warning::Failed to detect packages via cargo metadata: $ERROR"
+          fi
+
+          # --- If no packages affected, pass ---
+          NUM_DIRECT=$(echo "$DETECTION" | jq '.direct | length')
+          if [ "$NUM_DIRECT" = "0" ]; then
+            echo "No versioned packages affected - changeset not required"
+            delete_comment
+            exit 0
+          fi
+
+          # --- Build changeset file content and URL ---
+          CHANGESET_CONTENT=$(echo "$DETECTION" | jq -r '.changeset_content')
+
+          # --- Generate file name slug from PR title ---
+          SLUG=$(echo "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '_' | sed 's/^_//; s/_$//')
+          SLUG="${SLUG:0:60}"
+          [ -z "$SLUG" ] && SLUG="pr_${PR_NUMBER}"
+
+          # --- Build GitHub create-file URL ---
+          ENCODED_CONTENT=$(printf '%s' "$CHANGESET_CONTENT" | jq -sRr @uri)
+          CREATE_URL="https://github.com/${REPO}/new/${PR_BRANCH}?filename=.changeset/${SLUG}.md&value=${ENCODED_CONTENT}"
+
+          # --- Build comment body ---
+          DIRECT_LIST=$(echo "$DETECTION" | jq -r '.direct[] | "- `\(.)`"')
+          DOWNSTREAM_LIST=$(echo "$DETECTION" | jq -r '.downstream[] | "- `\(.)`"')
+
+          COMMENT_BODY=$(
+            echo "$COMMENT_MARKER"
+            echo "### No changeset found"
+            echo ""
+            echo "This PR modifies the following packages but doesn't include a changeset:"
+            echo ""
+            echo "**Directly changed:**"
+            echo "$DIRECT_LIST"
+            if [ -n "$DOWNSTREAM_LIST" ]; then
+              echo ""
+              echo "**Downstream dependencies (also need a version bump):**"
+              echo "$DOWNSTREAM_LIST"
+            fi
+            echo ""
+            echo "[**Click here to create a changeset**](${CREATE_URL})"
+            echo ""
+            echo "The link pre-populates a changeset file with \`patch\` bumps for all affected packages."
+            echo "Edit the description and bump types as needed before committing."
+            echo ""
+            echo "If this change doesn't require a version bump, add the \`internal\` label to this PR."
+          )
+
+          # --- Post or update comment ---
+          upsert_comment "$COMMENT_BODY" || echo "::warning::Could not post PR comment (this can happen for fork PRs with limited permissions)"
+
+          echo "::error::No changeset found. Add a changeset or apply the 'internal' label."
+          exit 1
