@@ -625,7 +625,10 @@ run_task = "android-publish-maven-local"
 [tasks.bindgen-dart]
 description = "Generate Dart bindings"
 dependencies = ["build", "locate-lib"]
-env = { LANG = "dart" }
+# Library-mode bindgen reads UNIFFI_META_* symbols from the cdylib. The release
+# profile's `strip = "symbols"` removes them on Linux (macOS strips less
+# aggressively), leaving no metadata to generate from — so keep symbols here.
+env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 script_runner = "@duckscript"
 script = """
 out_dir = join_path ${PACKAGES_DIR} ${LANG}
@@ -700,5 +703,6 @@ dependencies = [
 
 [tasks.dart-package]
 description = "Build a consumable Dart package with bindings, hook, and (dev) native lib"
-env = { LANG = "dart" }
+# See bindgen-dart: keep symbols so library-mode bindgen can read metadata.
+env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "dart-package-flow"
