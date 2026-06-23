@@ -14,16 +14,25 @@
 
 //! Capture helpers for publishing decoded, DMA-BUF, and encoded video with LiveKit.
 
+pub mod device;
 pub mod dmabuf;
 pub mod encoded;
 mod error;
 pub mod metadata;
+pub mod platform;
+pub mod sources;
 pub mod track;
 
+pub use device::{
+    CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest,
+    CapturePixelFormat, CaptureResolution,
+};
 pub use dmabuf::{DmaBufFrame, DmaBufPixelFormat, DmaBufPlane};
 pub use encoded::{
+    ingress::{EncodedAccessUnitSource, EncodedIngress, EncodedIngressError},
     CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
-    EncodedPayload, EncodedVideoCodec, H264PacketizationMode,
+    EncodedPayload, EncodedVideoCodec, EncodedWireFormat, H264PacketizationMode,
+    OwnedEncodedAccessUnit,
 };
 pub use error::CaptureError;
 pub use metadata::FrameMetadata;

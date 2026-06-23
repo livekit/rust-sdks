@@ -1,0 +1,119 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use livekit::{
+    options::{TrackPublishOptions, VideoEncoderBackend},
+    prelude::LocalVideoTrack,
+    webrtc::{
+        video_frame::{EncodedVideoFrame, VideoBuffer, VideoFrame},
+        video_source::{native::NativeVideoSource, RtcVideoSource, VideoResolution},
+    },
+};
+
+use crate::{
+    encoded::{EncodedAccessUnit, EncodedVideoCodec},
+    error::CaptureError,
+};
+
+#[cfg(target_os = "linux")]
+use crate::dmabuf::DmaBufFrame;
+
+/// Capture path used by a source implementation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CapturePath {
+    /// Decoded CPU or native frame buffers.
+    FrameBuffer,
+    /// Linux DMA-BUF backed frames.
+    DmaBuf,
+    /// Pre-encoded compressed access units.
+    Encoded,
+}
+
+/// Capture source backed by a LiveKit local video track.
+#[derive(Debug, Clone)]
+pub struct VideoCaptureTrack {
+    source: NativeVideoSource,
+    track: LocalVideoTrack,
+}
+
+impl VideoCaptureTrack {
+    /// Creates a capture track with the supplied resolution.
+    pub fn new(name: &str, resolution: VideoResolution, is_screencast: bool) -> Self {
+        let source = NativeVideoSource::new(resolution, is_screencast);
+        let track =
+            LocalVideoTrack::create_video_track(name, RtcVideoSource::Native(source.clone()));
+        Self { source, track }
+    }
+
+    /// Returns the publishable local video track.
+    pub fn track(&self) -> LocalVideoTrack {
+        self.track.clone()
+    }
+
+    /// Captures one decoded video frame.
+    pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
+        self.source.capture_frame(frame);
+    }
+
+    /// Captures one DMA-BUF backed frame.
+    #[cfg(target_os = "linux")]
+    pub fn capture_dmabuf(&self, frame: &DmaBufFrame) -> Result<(), CaptureError> {
+        let plane = frame.planes.first().ok_or(CaptureError::MissingDmaBufPlane)?;
+        let ok = self.source.capture_dmabuf_frame_with_metadata(
+            plane.fd,
+            frame.width,
+            frame.height,
+            frame.pixel_format.as_native(),
+            frame.timestamp_us,
+            frame.metadata.into_rtc(),
+        );
+        ok.then_some(()).ok_or(CaptureError::CaptureFailed)
+    }
+
+    /// Captures one encoded video access unit.
+    pub fn capture_encoded(&self, access_unit: &EncodedAccessUnit<'_>) -> Result<(), CaptureError> {
+        match access_unit.codec {
+            EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => {}
+            EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+                return Err(CaptureError::UnsupportedCodec(access_unit.codec));
+            }
+        }
+        if access_unit.payload.is_empty() {
+            return Err(CaptureError::EmptyPayload);
+        }
+
+        let payload = access_unit.payload.to_vec();
+        let frame = EncodedVideoFrame {
+            codec: access_unit.codec.into(),
+            payload: &payload,
+            timestamp_us: access_unit.timestamp_us,
+            frame_type: access_unit.frame_type.into(),
+            width: access_unit.width,
+            height: access_unit.height,
+            frame_metadata: access_unit.metadata.into_rtc(),
+        };
+        self.source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
+    }
+
+    /// Returns publish options appropriate for encoded passthrough.
+    pub fn encoded_publish_options(codec: EncodedVideoCodec) -> TrackPublishOptions {
+        TrackPublishOptions {
+            video_codec: codec.into(),
+            video_encoder: VideoEncoderBackend::PreEncoded,
+            simulcast: false,
+            ..Default::default()
+        }
+    }
+}
