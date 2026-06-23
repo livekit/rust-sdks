@@ -1,6 +1,6 @@
 [package]
 name = "livekit"
-version = "0.7.47"
+version = "0.7.48"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
