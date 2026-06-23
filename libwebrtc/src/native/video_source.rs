@@ -22,6 +22,8 @@ use livekit_runtime::interval;
 use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
+#[cfg(target_os = "linux")]
+use crate::video_frame::FrameMetadata;
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
     video_frame::{I420Buffer, VideoBuffer, VideoFrame},
@@ -128,6 +130,61 @@ impl NativeVideoSource {
                 frame_id: fid,
             },
         );
+    }
+
+    /// Captures a Jetson DMA-buffer backed video frame.
+    ///
+    /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+    #[cfg(target_os = "linux")]
+    pub fn capture_dmabuf_frame(
+        &self,
+        dmabuf_fd: i32,
+        width: u32,
+        height: u32,
+        pixel_format: i32,
+        timestamp_us: i64,
+    ) -> bool {
+        self.capture_dmabuf_frame_with_metadata(
+            dmabuf_fd,
+            width,
+            height,
+            pixel_format,
+            timestamp_us,
+            None,
+        )
+    }
+
+    /// Captures a Jetson DMA-buffer backed video frame with packet trailer metadata.
+    ///
+    /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+    #[cfg(target_os = "linux")]
+    pub fn capture_dmabuf_frame_with_metadata(
+        &self,
+        dmabuf_fd: i32,
+        width: u32,
+        height: u32,
+        pixel_format: i32,
+        timestamp_us: i64,
+        frame_metadata: Option<FrameMetadata>,
+    ) -> bool {
+        let (has_trailer, user_ts, fid) = match frame_metadata {
+            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
+            None => (false, 0, 0),
+        };
+
+        self.inner.lock().captured_frames += 1;
+        self.sys_handle.capture_dmabuf_frame(
+            dmabuf_fd,
+            width as i32,
+            height as i32,
+            pixel_format,
+            timestamp_us,
+            &vt_sys::ffi::FrameMetadata {
+                has_packet_trailer: has_trailer,
+                user_timestamp: user_ts,
+                frame_id: fid,
+            },
+        )
     }
 
     /// Set the packet trailer handler used by this source.

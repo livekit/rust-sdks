@@ -56,7 +56,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - name: Install Apple Rust targets (tier 1/2)
+      - name: Install Apple Rust targets
         run: |
           rustup target add \
             aarch64-apple-ios \
@@ -65,14 +65,11 @@ jobs:
             aarch64-apple-ios-macabi \
             x86_64-apple-ios-macabi \
             aarch64-apple-darwin \
-            x86_64-apple-darwin
-
-      # tvOS + visionOS are still tier 3 (no prebuilt std), so cargo-swift
-      # builds them via `cargo +nightly -Zbuild-std`. Toolchain + rust-src
-      # need to exist ahead of time.
-      - name: Install nightly + rust-src (tvOS/visionOS tier-3 targets)
-        run: |
-          rustup toolchain install nightly --profile minimal --component rust-src
+            x86_64-apple-darwin \
+            aarch64-apple-tvos \
+            aarch64-apple-tvos-sim \
+            aarch64-apple-visionos \
+            aarch64-apple-visionos-sim
 
       - uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
       - run: cargo binstall cargo-make --no-confirm

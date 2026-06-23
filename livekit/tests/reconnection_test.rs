@@ -66,7 +66,9 @@ async fn assert_recovers(
     // local signal channel or ask the server to issue a Leave); recovery then
     // proceeds asynchronously and surfaces as room events, which are buffered on
     // an unbounded channel until we observe them below.
-    room.simulate_scenario(scenario).await.map_err(|e| anyhow!("simulate_scenario failed: {e:?}"))?;
+    room.simulate_scenario(scenario)
+        .await
+        .map_err(|e| anyhow!("simulate_scenario failed: {e:?}"))?;
 
     // Expect Reconnecting, then Reconnected. Ignore unrelated events in between.
     let observe = async {

@@ -14,6 +14,7 @@
 
 use std::{
     collections::HashMap,
+    error::Error as StdError,
     sync::OnceLock,
     time::{Duration, Instant},
 };
@@ -66,6 +67,23 @@ fn region_host(url: &str) -> SignalResult<String> {
         .ok_or_else(|| SignalError::UrlParse("invalid hostname".into()))
 }
 
+/// Converts an error into a string that includes the full error chain.
+/// This is important for debugging TLS errors, where the root cause
+/// (e.g., "invalid peer certificate: UnknownIssuer") is often buried
+/// in the source chain.
+fn error_with_chain(err: &dyn StdError) -> String {
+    let mut source = err.source();
+
+    std::iter::once(err.to_string())
+        .chain(std::iter::from_fn(move || {
+            let err = source?;
+            source = err.source();
+            Some(err.to_string())
+        }))
+        .collect::<Vec<_>>()
+        .join(": ")
+}
+
 pub struct RegionUrlProvider;
 
 #[derive(Deserialize)]
@@ -115,7 +133,7 @@ pub(crate) async fn fetch_from_endpoint(
             .headers(headers)
             .send()
             .await
-            .map_err(|e| SignalError::RegionError(e.to_string()))?;
+            .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
 
         if !res.status().is_success() {
             return Err(SignalError::Client(res.status(), res.text().await.unwrap_or_default()));
@@ -123,7 +141,7 @@ pub(crate) async fn fetch_from_endpoint(
         let res = res
             .json::<RegionUrlResponse>()
             .await
-            .map_err(|e| SignalError::RegionError(e.to_string()))?;
+            .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
         Ok(res.regions.into_iter().map(|i| i.url).collect())
     };
 
@@ -159,6 +177,150 @@ fn region_endpoint(url: &str) -> SignalResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt;
+    use std::io;
+
+    // Mock error types to test error chain preservation
+    #[derive(Debug)]
+    struct RootCauseError {
+        message: String,
+    }
+
+    impl fmt::Display for RootCauseError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.message)
+        }
+    }
+
+    impl std::error::Error for RootCauseError {}
+
+    #[derive(Debug)]
+    struct MiddleError {
+        message: String,
+        source: RootCauseError,
+    }
+
+    impl fmt::Display for MiddleError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.message)
+        }
+    }
+
+    impl std::error::Error for MiddleError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.source)
+        }
+    }
+
+    #[derive(Debug)]
+    struct OuterError {
+        message: String,
+        source: MiddleError,
+    }
+
+    impl fmt::Display for OuterError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(f, "{}", self.message)
+        }
+    }
+
+    impl std::error::Error for OuterError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.source)
+        }
+    }
+
+    #[test]
+    fn test_error_with_chain_single_error() {
+        let err = RootCauseError { message: "root cause".to_string() };
+        let result = error_with_chain(&err);
+        assert_eq!(result, "root cause");
+    }
+
+    #[test]
+    fn test_error_with_chain_two_level_chain() {
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
+        let result = error_with_chain(&middle);
+        assert_eq!(result, "error trying to connect: invalid peer certificate: UnknownIssuer");
+    }
+
+    #[test]
+    fn test_error_with_chain_three_level_chain() {
+        // Simulates the actual error chain from reqwest -> hyper -> TLS
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
+        let outer = OuterError {
+            message:
+                "error sending request for url (https://example.livekit.cloud/settings/regions)"
+                    .to_string(),
+            source: middle,
+        };
+        let result = error_with_chain(&outer);
+        assert_eq!(
+            result,
+            "error sending request for url (https://example.livekit.cloud/settings/regions): error trying to connect: invalid peer certificate: UnknownIssuer"
+        );
+    }
+
+    #[test]
+    fn test_error_with_chain_preserves_tls_error_info() {
+        // Verify that TLS-specific error messages are preserved in the chain
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let outer = MiddleError { message: "TLS connection error".to_string(), source: root };
+        let result = error_with_chain(&outer);
+
+        // The error message should contain both the outer message and the root cause
+        assert!(result.contains("TLS connection error"));
+        assert!(result.contains("UnknownIssuer"));
+        assert!(result.contains("invalid peer certificate"));
+    }
+
+    #[test]
+    fn test_region_error_includes_full_chain() {
+        // Test that SignalError::RegionError properly includes the full error chain
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
+        let outer = OuterError { message: "error sending request".to_string(), source: middle };
+
+        let signal_error = SignalError::RegionError(error_with_chain(&outer));
+        let error_string = signal_error.to_string();
+
+        // Verify the full chain is in the error message
+        assert!(
+            error_string.contains("UnknownIssuer"),
+            "Error should contain root cause 'UnknownIssuer', got: {}",
+            error_string
+        );
+        assert!(
+            error_string.contains("error trying to connect"),
+            "Error should contain middle error, got: {}",
+            error_string
+        );
+        assert!(
+            error_string.contains("error sending request"),
+            "Error should contain outer error, got: {}",
+            error_string
+        );
+    }
+
+    #[test]
+    fn test_error_with_chain_io_error() {
+        // Test with a real std::io::Error chain
+        let inner = io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused");
+        let outer = io::Error::new(io::ErrorKind::Other, inner);
+
+        let result = error_with_chain(&outer);
+        assert!(
+            result.contains("connection refused"),
+            "Should contain the inner error message, got: {}",
+            result
+        );
+    }
 
     #[test]
     fn test_is_cloud_url() {
