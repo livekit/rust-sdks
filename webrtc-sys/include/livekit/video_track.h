@@ -132,6 +132,11 @@ class VideoTrackSource {
                             int64_t timestamp_us,
                             const FrameMetadata& frame_metadata) const;
 
+  bool capture_encoded_frame(int width,
+                             int height,
+                             const EncodedVideoFrameData& frame,
+                             const FrameMetadata& frame_metadata) const;
+
   void set_packet_trailer_handler(
       std::shared_ptr<PacketTrailerHandler> handler) const;
 

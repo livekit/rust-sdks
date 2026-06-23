@@ -27,6 +27,7 @@
 #include "audio/remix_resample.h"
 #include "common_audio/include/audio_util.h"
 #include "livekit/dmabuf_video_frame_buffer.h"
+#include "livekit/encoded_video_frame_buffer.h"
 #include "livekit/media_stream.h"
 #include "livekit/packet_trailer.h"
 #include "livekit/video_track.h"
@@ -38,6 +39,33 @@
 #include "webrtc-sys/src/video_track.rs.h"
 
 namespace livekit_ffi {
+namespace {
+
+livekit::EncodedVideoCodec ToNativeEncodedCodec(EncodedVideoCodec codec) {
+  switch (codec) {
+    case EncodedVideoCodec::H264:
+      return livekit::EncodedVideoCodec::kH264;
+    case EncodedVideoCodec::H265:
+      return livekit::EncodedVideoCodec::kH265;
+    case EncodedVideoCodec::VP8:
+      return livekit::EncodedVideoCodec::kVP8;
+    case EncodedVideoCodec::VP9:
+      return livekit::EncodedVideoCodec::kVP9;
+    case EncodedVideoCodec::AV1:
+      return livekit::EncodedVideoCodec::kAV1;
+  }
+}
+
+livekit::EncodedFrameType ToNativeEncodedFrameType(EncodedFrameType frame_type) {
+  switch (frame_type) {
+    case EncodedFrameType::Key:
+      return livekit::EncodedFrameType::kKey;
+    case EncodedFrameType::Delta:
+      return livekit::EncodedFrameType::kDelta;
+  }
+}
+
+}  // namespace
 
 VideoTrack::VideoTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
                        webrtc::scoped_refptr<webrtc::VideoTrackInterface> track)
@@ -239,6 +267,26 @@ bool VideoTrackSource::capture_dmabuf_frame(int dmabuf_fd,
                    .set_video_frame_buffer(std::move(buffer))
                    .set_rotation(webrtc::kVideoRotation_0)
                    .set_timestamp_us(ts)
+                   .build();
+
+  return source_->on_captured_frame(frame, frame_metadata);
+}
+
+bool VideoTrackSource::capture_encoded_frame(
+    int width,
+    int height,
+    const EncodedVideoFrameData& encoded_frame,
+    const FrameMetadata& frame_metadata) const {
+  auto buffer = webrtc::make_ref_counted<livekit::EncodedVideoFrameBuffer>(
+      width, height, ToNativeEncodedCodec(encoded_frame.codec),
+      ToNativeEncodedFrameType(encoded_frame.frame_type),
+      std::vector<uint8_t>(encoded_frame.payload.begin(),
+                           encoded_frame.payload.end()));
+
+  auto frame = webrtc::VideoFrame::Builder()
+                   .set_video_frame_buffer(std::move(buffer))
+                   .set_rotation(webrtc::kVideoRotation_0)
+                   .set_timestamp_us(encoded_frame.timestamp_us)
                    .build();
 
   return source_->on_captured_frame(frame, frame_metadata);

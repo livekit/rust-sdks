@@ -26,6 +26,7 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "livekit/objc_video_factory.h"
+#include "livekit/passthrough_video_encoder.h"
 #include "livekit/webrtc.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
@@ -107,6 +108,8 @@ const char* BackendName(VideoEncoderBackend backend) {
       return "vaapi";
     case VideoEncoderBackend::VideoToolbox:
       return "videotoolbox";
+    case VideoEncoderBackend::PreEncoded:
+      return "preencoded";
   }
 }
 
@@ -131,6 +134,9 @@ std::optional<VideoEncoderBackend> BackendFromFormat(
   }
   if (it->second == BackendName(VideoEncoderBackend::VideoToolbox)) {
     return VideoEncoderBackend::VideoToolbox;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::PreEncoded)) {
+    return VideoEncoderBackend::PreEncoded;
   }
 
   return std::nullopt;
@@ -256,6 +262,7 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
   rust::Vec<VideoEncoderBackend> backends;
   backends.push_back(VideoEncoderBackend::Auto);
   backends.push_back(VideoEncoderBackend::Software);
+  backends.push_back(VideoEncoderBackend::PreEncoded);
 
   bool has_hardware_backend = false;
   bool hardware_backend_listed = false;
@@ -299,6 +306,11 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
 }
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
+  AddBackendFactory(
+      factories_,
+      VideoEncoderBackend::PreEncoded,
+      std::make_unique<livekit_ffi::PassthroughVideoEncoderFactory>());
+
 #ifdef __APPLE__
   AddBackendFactory(
       factories_,

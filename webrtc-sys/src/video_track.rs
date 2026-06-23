@@ -49,6 +49,31 @@ pub mod ffi {
         pub frame_id: u32,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum EncodedVideoCodec {
+        H264,
+        H265,
+        VP8,
+        VP9,
+        AV1,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum EncodedFrameType {
+        Key,
+        Delta,
+    }
+
+    #[derive(Debug)]
+    pub struct EncodedVideoFrameData {
+        pub codec: EncodedVideoCodec,
+        pub frame_type: EncodedFrameType,
+        pub payload: Vec<u8>,
+        pub timestamp_us: i64,
+    }
+
     extern "C++" {
         include!("livekit/video_frame.h");
         include!("livekit/media_stream_track.h");
@@ -91,6 +116,13 @@ pub mod ffi {
             height: i32,
             pixel_format: i32,
             timestamp_us: i64,
+            frame_metadata: &FrameMetadata,
+        ) -> bool;
+        fn capture_encoded_frame(
+            self: &VideoTrackSource,
+            width: i32,
+            height: i32,
+            frame: &EncodedVideoFrameData,
             frame_metadata: &FrameMetadata,
         ) -> bool;
         fn set_packet_trailer_handler(

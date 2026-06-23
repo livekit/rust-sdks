@@ -51,7 +51,7 @@ pub mod native {
     use crate::native::packet_trailer::PacketTrailerHandler;
     #[cfg(target_os = "linux")]
     use crate::video_frame::FrameMetadata;
-    use crate::video_frame::{VideoBuffer, VideoFrame};
+    use crate::video_frame::{EncodedVideoFrame, VideoBuffer, VideoFrame};
 
     #[derive(Clone)]
     pub struct NativeVideoSource {
@@ -77,6 +77,11 @@ pub mod native {
 
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
+        }
+
+        /// Captures one pre-encoded video access unit.
+        pub fn capture_encoded_frame(&self, frame: &EncodedVideoFrame<'_>) -> bool {
+            self.handle.capture_encoded_frame(frame)
         }
 
         /// Captures a Jetson DMA-buffer backed video frame.

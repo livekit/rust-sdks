@@ -1,0 +1,12 @@
+[package]
+name = "livekit-capture"
+description = "Capture sources and pre-encoded video publishing helpers for LiveKit"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+livekit = { workspace = true }
+thiserror = { workspace = true }

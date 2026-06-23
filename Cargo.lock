@@ -3883,6 +3883,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-capture"
+version = "0.1.0"
+dependencies = [
+ "livekit",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "livekit-datatrack"
 version = "0.1.8"
 dependencies = [

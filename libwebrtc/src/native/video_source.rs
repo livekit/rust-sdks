@@ -26,7 +26,7 @@ use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_t
 use crate::video_frame::FrameMetadata;
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
-    video_frame::{I420Buffer, VideoBuffer, VideoFrame},
+    video_frame::{EncodedVideoFrame, I420Buffer, VideoBuffer, VideoFrame},
     video_source::VideoResolution,
 };
 
@@ -130,6 +130,37 @@ impl NativeVideoSource {
                 frame_id: fid,
             },
         );
+    }
+
+    pub fn capture_encoded_frame(&self, frame: &EncodedVideoFrame<'_>) -> bool {
+        let (has_trailer, user_ts, fid) = match frame.frame_metadata {
+            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
+            None => (false, 0, 0),
+        };
+
+        let capture_ts = if frame.timestamp_us == 0 {
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            now.as_micros() as i64
+        } else {
+            frame.timestamp_us
+        };
+
+        self.inner.lock().captured_frames += 1;
+        self.sys_handle.capture_encoded_frame(
+            frame.width as i32,
+            frame.height as i32,
+            &vt_sys::ffi::EncodedVideoFrameData {
+                codec: frame.codec.into(),
+                frame_type: frame.frame_type.into(),
+                payload: frame.payload.to_vec(),
+                timestamp_us: capture_ts,
+            },
+            &vt_sys::ffi::FrameMetadata {
+                has_packet_trailer: has_trailer,
+                user_timestamp: user_ts,
+                frame_id: fid,
+            },
+        )
     }
 
     /// Captures a Jetson DMA-buffer backed video frame.

@@ -46,6 +46,8 @@ const char* BackendName(VideoEncoderBackend backend) {
       return "vaapi";
     case VideoEncoderBackend::VideoToolbox:
       return "videotoolbox";
+    case VideoEncoderBackend::PreEncoded:
+      return "preencoded";
   }
 }
 
@@ -70,6 +72,9 @@ std::optional<VideoEncoderBackend> BackendFromFormat(
   }
   if (it->second == BackendName(VideoEncoderBackend::VideoToolbox)) {
     return VideoEncoderBackend::VideoToolbox;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::PreEncoded)) {
+    return VideoEncoderBackend::PreEncoded;
   }
 
   return std::nullopt;
