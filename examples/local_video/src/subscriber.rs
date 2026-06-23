@@ -881,7 +881,7 @@ async fn handle_track_subscribed(
     }
 
     info!(
-        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, packet_trailer_features: {:?}",
+        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, frame_metadata_features: {:?}",
         publication.name(),
         publication.sid(),
         participant.identity(),
@@ -889,7 +889,7 @@ async fn handle_track_subscribed(
         publication.simulcasted(),
         publication.dimension().0,
         publication.dimension().1,
-        publication.packet_trailer_features(),
+        publication.frame_metadata_features(),
     );
 
     {

@@ -61,7 +61,7 @@ fn needs_video_sender_transformer(
     options: &TrackPublishOptions,
     has_publish_timing_subscribers: bool,
 ) -> bool {
-    !options.packet_trailer_features.is_empty() || has_publish_timing_subscribers
+    !options.frame_metadata_features.is_empty() || has_publish_timing_subscribers
 }
 
 #[derive(Default)]
@@ -377,7 +377,7 @@ impl LocalParticipant {
         }
 
         req.packet_trailer_features =
-            options.packet_trailer_features.to_proto().into_iter().map(|f| f as i32).collect();
+            options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
 
         let mut encodings = Vec::default();
         match &track {
@@ -436,7 +436,7 @@ impl LocalParticipant {
         if let LocalTrack::Video(video_track) = &track {
             let has_timing_subscribers = video_track.has_publish_timing_subscribers();
             if needs_video_sender_transformer(&options, has_timing_subscribers) {
-                let trailers_enabled = !options.packet_trailer_features.is_empty();
+                let trailers_enabled = !options.frame_metadata_features.is_empty();
                 log::info!(
                     "sender frame transformer enabled for local video track {} (packet_trailer={}, publish_timing={})",
                     publication.sid(),
@@ -993,12 +993,12 @@ impl LocalParticipant {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::options::PacketTrailerFeatures;
+    use crate::options::FrameMetadataFeatures;
 
     #[test]
-    fn timing_subscribers_request_video_sender_transformer_without_packet_trailers() {
+    fn timing_subscribers_request_video_sender_transformer_without_frame_metadata() {
         let options = TrackPublishOptions {
-            packet_trailer_features: PacketTrailerFeatures::default(),
+            frame_metadata_features: FrameMetadataFeatures::default(),
             ..Default::default()
         };
 
@@ -1006,9 +1006,9 @@ mod tests {
     }
 
     #[test]
-    fn packet_trailer_features_request_video_sender_transformer_without_timing_subscribers() {
+    fn frame_metadata_features_request_video_sender_transformer_without_timing_subscribers() {
         let options = TrackPublishOptions {
-            packet_trailer_features: PacketTrailerFeatures {
+            frame_metadata_features: FrameMetadataFeatures {
                 user_timestamp: true,
                 frame_id: false,
             },
@@ -1019,9 +1019,9 @@ mod tests {
     }
 
     #[test]
-    fn video_sender_transformer_is_skipped_without_timing_or_packet_trailers() {
+    fn video_sender_transformer_is_skipped_without_timing_or_frame_metadata() {
         let options = TrackPublishOptions {
-            packet_trailer_features: PacketTrailerFeatures::default(),
+            frame_metadata_features: FrameMetadataFeatures::default(),
             ..Default::default()
         };
 

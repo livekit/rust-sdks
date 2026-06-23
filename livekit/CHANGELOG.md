@@ -257,6 +257,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.47 (2026-06-19)
+
+### Fixes
+
+- fix: escalate to full reconnect if connection failed during a resume - #1175 (@davidzhao)
+
 ## 0.7.46 (2026-06-17)
 
 ### Features
