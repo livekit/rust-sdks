@@ -5,4 +5,4 @@
 "webrtc-sys": patch
 ---
 
-Add a `livekit-capture` crate with codec-neutral capture types, H264/H265 passthrough support, common encoded ingress helpers, and feature-gated source/platform scaffolding for TCP, RTSP, GStreamer appsink, AVFoundation, Linux V4L, and Jetson libargus capture.
+Add a `livekit-capture` crate with codec-neutral capture types, H264/H265 passthrough support, common encoded ingress helpers, macOS AVFoundation decoded-frame capture, Linux V4L capture, and Jetson libargus capture hooks. The `local_video` examples now open platform camera capture through `livekit-capture` instead of depending on Nokhwa directly.

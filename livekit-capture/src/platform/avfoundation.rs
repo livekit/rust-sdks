@@ -12,13 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use std::thread::JoinHandle;
+
+use livekit::webrtc::video_frame::{I420Buffer, VideoFrame};
 use thiserror::Error;
 
 use crate::{
-    device::{CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormatRequest},
+    device::{
+        CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest,
+        CapturePixelFormat, CaptureResolution,
+    },
     error::CaptureError,
     track::VideoCaptureTrack,
 };
+
+#[cfg(target_os = "macos")]
+const FIRST_FRAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Options used to create an AVFoundation capture session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,11 +54,103 @@ impl Default for AvFoundationCaptureOptions {
     }
 }
 
-/// AVFoundation decoded-frame capture session.
+/// One AVFoundation frame converted to I420.
 #[derive(Debug)]
+pub struct AvFoundationFrame {
+    /// Decoded I420 frame suitable for [`crate::VideoCaptureTrack::capture_frame`].
+    pub frame: VideoFrame<I420Buffer>,
+    /// Source pixel format delivered by AVFoundation.
+    pub source_pixel_format: CapturePixelFormat,
+    /// Wall-clock timestamp selected for metadata and timing correlation.
+    pub capture_wall_time_us: u64,
+    /// Wall-clock timestamp recorded after the frame was read from AVFoundation.
+    pub read_wall_time_us: u64,
+    /// Whether compressed image decoding was needed.
+    pub used_decode_path: bool,
+}
+
+impl AvFoundationFrame {
+    /// Returns the decoded video frame.
+    pub fn video_frame(&self) -> &VideoFrame<I420Buffer> {
+        &self.frame
+    }
+}
+
+/// AVFoundation decoded-frame capture session that emits I420 frames.
+pub struct AvFoundationCaptureSession {
+    format: CaptureFormat,
+    #[cfg(target_os = "macos")]
+    inner: macos::SessionInner,
+}
+
+impl std::fmt::Debug for AvFoundationCaptureSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AvFoundationCaptureSession").field("format", &self.format).finish()
+    }
+}
+
+// SAFETY: `AvFoundationCaptureSession` owns AVFoundation objects and only exposes
+// `&mut self` frame capture plus `Drop`; moving ownership to another thread does
+// not create concurrent access to those Objective-C objects.
+#[cfg(target_os = "macos")]
+unsafe impl Send for AvFoundationCaptureSession {}
+
+impl AvFoundationCaptureSession {
+    /// Opens an AVFoundation decoded-frame capture session.
+    pub fn new(options: AvFoundationCaptureOptions) -> Result<Self, AvFoundationError> {
+        validate_options(&options)?;
+        Self::open(options)
+    }
+
+    /// Captures the next decoded frame and converts it to I420.
+    pub fn capture_frame(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
+        self.capture_frame_inner()
+    }
+
+    /// Returns the negotiated capture format.
+    pub fn format(&self) -> CaptureFormat {
+        self.format
+    }
+
+    #[cfg(target_os = "macos")]
+    fn open(options: AvFoundationCaptureOptions) -> Result<Self, AvFoundationError> {
+        let inner = macos::SessionInner::new(&options)?;
+        let mut format = inner.wait_for_format(FIRST_FRAME_TIMEOUT)?;
+        format.frame_rate = requested_frame_rate_hint(&options.format).unwrap_or(30);
+        Ok(Self { format, inner })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn open(_options: AvFoundationCaptureOptions) -> Result<Self, AvFoundationError> {
+        Err(AvFoundationError::UnsupportedPlatform)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn capture_frame_inner(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
+        self.inner.capture_frame()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn capture_frame_inner(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
+        Err(AvFoundationError::UnsupportedPlatform)
+    }
+}
+
+/// AVFoundation decoded-frame capture session that forwards frames into a track.
 pub struct AvFoundationCapture {
     track: VideoCaptureTrack,
     options: AvFoundationCaptureOptions,
+    runner: Option<CaptureRunner>,
+}
+
+impl std::fmt::Debug for AvFoundationCapture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AvFoundationCapture")
+            .field("track", &self.track)
+            .field("options", &self.options)
+            .field("running", &self.runner.is_some())
+            .finish()
+    }
 }
 
 impl AvFoundationCapture {
@@ -55,7 +160,7 @@ impl AvFoundationCapture {
         options: AvFoundationCaptureOptions,
     ) -> Result<Self, AvFoundationError> {
         ensure_platform_available()?;
-        Ok(Self { track, options })
+        Ok(Self { track, options, runner: None })
     }
 
     /// Returns the capture track that receives decoded frames.
@@ -68,7 +173,7 @@ impl AvFoundationCapture {
         &self.options
     }
 
-    /// Starts AVFoundation capture.
+    /// Starts AVFoundation capture on a background thread.
     pub fn start(&mut self) -> Result<(), AvFoundationError> {
         start_capture(self)
     }
@@ -79,6 +184,18 @@ impl AvFoundationCapture {
     }
 }
 
+impl Drop for AvFoundationCapture {
+    fn drop(&mut self) {
+        let _ = self.stop();
+    }
+}
+
+#[derive(Debug)]
+struct CaptureRunner {
+    stop: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
+
 /// Lists AVFoundation video capture devices.
 pub fn devices() -> Result<Vec<CaptureDeviceInfo>, AvFoundationError> {
     list_devices()
@@ -86,6 +203,7 @@ pub fn devices() -> Result<Vec<CaptureDeviceInfo>, AvFoundationError> {
 
 /// Error returned by AVFoundation capture.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum AvFoundationError {
     /// AVFoundation capture is only available on macOS.
     #[error("AVFoundation capture is only available on macOS")]
@@ -93,12 +211,124 @@ pub enum AvFoundationError {
     /// The requested device was not found.
     #[error("AVFoundation capture device was not found")]
     DeviceNotFound,
-    /// The requested operation is represented by the API but not implemented yet.
-    #[error("{0}")]
-    NotImplemented(&'static str),
+    /// The requested option is invalid.
+    #[error("invalid AVFoundation capture option: {0}")]
+    InvalidOption(&'static str),
+    /// The requested capture format is not supported by this backend.
+    #[error("AVFoundation capture does not support pixel format {0:?}")]
+    UnsupportedPixelFormat(CapturePixelFormat),
+    /// AVFoundation could not configure the capture session.
+    #[error("AVFoundation session setup failed: {0}")]
+    SessionSetup(String),
+    /// Timed out waiting for AVFoundation to deliver a frame.
+    #[error("timed out waiting for AVFoundation frame")]
+    FrameTimeout,
+    /// The capture session is already running.
+    #[error("AVFoundation capture is already running")]
+    AlreadyRunning,
+    /// The capture session is not running.
+    #[error("AVFoundation capture is not running")]
+    NotRunning,
+    /// Captured frame bytes did not match the negotiated format.
+    #[error("invalid AVFoundation frame buffer: {0}")]
+    InvalidFrame(&'static str),
+    /// AVFoundation produced a pixel format this backend cannot convert yet.
+    #[error("unsupported AVFoundation pixel format 0x{0:08x}")]
+    UnsupportedCoreVideoPixelFormat(u32),
+    /// Pixel conversion failed.
+    #[error("failed to convert AVFoundation frame to I420: {0}")]
+    Convert(&'static str),
+    /// AVFoundation reported a runtime capture error.
+    #[error("AVFoundation runtime error: {0}")]
+    Runtime(String),
     /// The shared capture track rejected a frame.
     #[error(transparent)]
     Capture(#[from] CaptureError),
+}
+
+fn validate_options(options: &AvFoundationCaptureOptions) -> Result<(), AvFoundationError> {
+    match &options.device {
+        CaptureDeviceSelector::Default | CaptureDeviceSelector::Index(_) => {}
+        CaptureDeviceSelector::Id(id) => {
+            if id.is_empty() {
+                return Err(AvFoundationError::InvalidOption("device id must be non-empty"));
+            }
+        }
+    }
+
+    validate_format_request(&options.format)
+}
+
+fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), AvFoundationError> {
+    let validate_format = |format: &CaptureFormat| {
+        if format.resolution.width == 0 {
+            return Err(AvFoundationError::InvalidOption("width must be non-zero"));
+        }
+        if format.resolution.height == 0 {
+            return Err(AvFoundationError::InvalidOption("height must be non-zero"));
+        }
+        if format.frame_rate == 0 {
+            return Err(AvFoundationError::InvalidOption("frame_rate must be non-zero"));
+        }
+        validate_pixel_format(format.pixel_format)?;
+        Ok(())
+    };
+
+    match format {
+        CaptureFormatRequest::Default => Ok(()),
+        CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
+            validate_format(format)
+        }
+        CaptureFormatRequest::HighestFrameRate { resolution, pixel_format } => {
+            if let Some(resolution) = resolution {
+                validate_resolution(*resolution)?;
+            }
+            if let Some(pixel_format) = pixel_format {
+                validate_pixel_format(*pixel_format)?;
+            }
+            Ok(())
+        }
+        CaptureFormatRequest::HighestResolution { frame_rate, pixel_format } => {
+            if matches!(frame_rate, Some(0)) {
+                return Err(AvFoundationError::InvalidOption("frame_rate must be non-zero"));
+            }
+            if let Some(pixel_format) = pixel_format {
+                validate_pixel_format(*pixel_format)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_pixel_format(pixel_format: CapturePixelFormat) -> Result<(), AvFoundationError> {
+    if !matches!(
+        pixel_format,
+        CapturePixelFormat::Nv12 | CapturePixelFormat::Bgra | CapturePixelFormat::I420
+    ) {
+        return Err(AvFoundationError::UnsupportedPixelFormat(pixel_format));
+    }
+    Ok(())
+}
+
+fn requested_frame_rate_hint(format: &CaptureFormatRequest) -> Option<u32> {
+    match format {
+        CaptureFormatRequest::Default => None,
+        CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
+            Some(format.frame_rate)
+        }
+        CaptureFormatRequest::HighestFrameRate { .. } => None,
+        CaptureFormatRequest::HighestResolution { frame_rate, .. } => *frame_rate,
+    }
+}
+
+fn validate_resolution(resolution: CaptureResolution) -> Result<(), AvFoundationError> {
+    if resolution.width == 0 {
+        return Err(AvFoundationError::InvalidOption("width must be non-zero"));
+    }
+    if resolution.height == 0 {
+        return Err(AvFoundationError::InvalidOption("height must be non-zero"));
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
@@ -149,10 +379,29 @@ fn non_empty_string(value: String) -> Option<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn start_capture(_capture: &mut AvFoundationCapture) -> Result<(), AvFoundationError> {
-    Err(AvFoundationError::NotImplemented(
-        "AVFoundation decoded-frame delegate capture is not wired yet",
-    ))
+fn start_capture(capture: &mut AvFoundationCapture) -> Result<(), AvFoundationError> {
+    if capture.runner.is_some() {
+        return Err(AvFoundationError::AlreadyRunning);
+    }
+
+    let track = capture.track.clone();
+    let mut session = AvFoundationCaptureSession::new(capture.options.clone())?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let stop_for_thread = stop.clone();
+    let handle = std::thread::Builder::new()
+        .name("avfoundation-capture".into())
+        .spawn(move || {
+            while !stop_for_thread.load(Ordering::Acquire) {
+                match session.capture_frame() {
+                    Ok(frame) => track.capture_frame(&frame.frame),
+                    Err(_) => break,
+                }
+            }
+        })
+        .map_err(|err| AvFoundationError::SessionSetup(err.to_string()))?;
+
+    capture.runner = Some(CaptureRunner { stop, handle });
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -161,11 +410,630 @@ fn start_capture(_capture: &mut AvFoundationCapture) -> Result<(), AvFoundationE
 }
 
 #[cfg(target_os = "macos")]
-fn stop_capture(_capture: &mut AvFoundationCapture) -> Result<(), AvFoundationError> {
+fn stop_capture(capture: &mut AvFoundationCapture) -> Result<(), AvFoundationError> {
+    let Some(runner) = capture.runner.take() else {
+        return Ok(());
+    };
+
+    runner.stop.store(true, Ordering::Release);
+    runner.handle.join().map_err(|_| {
+        AvFoundationError::Runtime("AVFoundation capture thread panicked".to_string())
+    })?;
     Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]
 fn stop_capture(_capture: &mut AvFoundationCapture) -> Result<(), AvFoundationError> {
     Err(AvFoundationError::UnsupportedPlatform)
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    use dispatch2::{DispatchQueue, DispatchRetained};
+    use livekit::webrtc::video_frame::{I420Buffer, VideoBuffer, VideoFrame, VideoRotation};
+    use objc2::rc::Retained;
+    use objc2::runtime::ProtocolObject;
+    use objc2::{define_class, msg_send, AnyThread, DefinedClass, Message};
+    use objc2_av_foundation::{
+        AVCaptureDevice, AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession,
+        AVCaptureSessionPreset1280x720, AVCaptureSessionPreset1920x1080,
+        AVCaptureSessionPreset640x480, AVCaptureSessionPresetHigh, AVCaptureSessionPresetMedium,
+        AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaTypeVideo,
+    };
+    use objc2_core_media::{CMSampleBuffer, CMTime};
+    use objc2_core_video::{
+        kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8Planar,
+        kCVPixelFormatType_420YpCbCr8PlanarFullRange, kCVReturnSuccess, CVImageBuffer,
+        CVPixelBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBaseAddressOfPlane,
+        CVPixelBufferGetBytesPerRow, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight,
+        CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount,
+        CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress,
+        CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+    };
+    use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
+
+    use super::{AvFoundationCaptureOptions, AvFoundationError, AvFoundationFrame};
+    use crate::device::{
+        CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest, CapturePixelFormat,
+        CaptureResolution,
+    };
+    use crate::metadata::FrameMetadata;
+
+    pub(super) struct SessionInner {
+        session: Retained<AVCaptureSession>,
+        _input: Retained<AVCaptureDeviceInput>,
+        output: Retained<AVCaptureVideoDataOutput>,
+        _delegate: Retained<CaptureDelegate>,
+        _queue: DispatchRetained<DispatchQueue>,
+        shared: Arc<FrameQueue>,
+    }
+
+    impl std::fmt::Debug for SessionInner {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("SessionInner").finish_non_exhaustive()
+        }
+    }
+
+    impl Drop for SessionInner {
+        fn drop(&mut self) {
+            self.shared.stop();
+            // SAFETY: The output and session are owned by this wrapper. Clearing
+            // the delegate before stopping prevents callbacks from racing with
+            // the delegate being released during teardown.
+            unsafe {
+                self.output.setSampleBufferDelegate_queue(None, None);
+                self.session.stopRunning();
+            }
+        }
+    }
+
+    impl SessionInner {
+        pub(super) fn new(options: &AvFoundationCaptureOptions) -> Result<Self, AvFoundationError> {
+            let device = select_device(&options.device)?;
+            let session = unsafe { AVCaptureSession::new() };
+            let input = unsafe { AVCaptureDeviceInput::deviceInputWithDevice_error(&device) }
+                .map_err(|err| {
+                    AvFoundationError::SessionSetup(err.localizedDescription().to_string())
+                })?;
+            let output = unsafe { AVCaptureVideoDataOutput::new() };
+            let shared = Arc::new(FrameQueue::default());
+            let delegate = CaptureDelegate::new(shared.clone());
+            let queue = DispatchQueue::new("io.livekit.capture.avfoundation", None);
+
+            // SAFETY: The session is newly created and not running. We add a
+            // camera input and video data output only after canAdd* checks.
+            unsafe {
+                session.beginConfiguration();
+                if let Some(preset) = session_preset(&options.format) {
+                    session.setSessionPreset(preset);
+                }
+                if !session.canAddInput(&input) {
+                    session.commitConfiguration();
+                    return Err(AvFoundationError::SessionSetup(
+                        "capture device input could not be added".to_string(),
+                    ));
+                }
+                session.addInput(&input);
+
+                output.setAlwaysDiscardsLateVideoFrames(true);
+                output.setSampleBufferDelegate_queue(
+                    Some(ProtocolObject::from_ref(&*delegate)),
+                    Some(&queue),
+                );
+                if !session.canAddOutput(&output) {
+                    session.commitConfiguration();
+                    return Err(AvFoundationError::SessionSetup(
+                        "video data output could not be added".to_string(),
+                    ));
+                }
+                session.addOutput(&output);
+                session.commitConfiguration();
+            }
+
+            configure_device(&device, &options.format)?;
+
+            // SAFETY: Configuration has been committed and the session is ready
+            // to synchronously start delivering video samples.
+            unsafe {
+                session.startRunning();
+            }
+
+            Ok(Self { session, _input: input, output, _delegate: delegate, _queue: queue, shared })
+        }
+
+        pub(super) fn wait_for_format(
+            &self,
+            timeout: Duration,
+        ) -> Result<CaptureFormat, AvFoundationError> {
+            self.shared.wait_for_format(timeout)
+        }
+
+        pub(super) fn capture_frame(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
+            self.shared.take_frame()
+        }
+    }
+
+    #[derive(Debug)]
+    struct CaptureDelegateIvars {
+        shared: Arc<FrameQueue>,
+    }
+
+    define_class!(
+        // SAFETY:
+        // - The superclass NSObject does not have subclassing requirements.
+        // - CaptureDelegate does not implement Drop; retained Rust state lives in ivars.
+        #[unsafe(super = NSObject)]
+        #[thread_kind = AnyThread]
+        #[ivars = CaptureDelegateIvars]
+        struct CaptureDelegate;
+
+        // SAFETY: `NSObjectProtocol` has no additional safety requirements.
+        unsafe impl NSObjectProtocol for CaptureDelegate {}
+
+        // SAFETY: The selector signatures match the generated AVFoundation protocol.
+        unsafe impl AVCaptureVideoDataOutputSampleBufferDelegate for CaptureDelegate {
+            #[unsafe(method(captureOutput:didOutputSampleBuffer:fromConnection:))]
+            #[allow(non_snake_case)]
+            unsafe fn captureOutput_didOutputSampleBuffer_fromConnection(
+                &self,
+                _output: &AVCaptureOutput,
+                sample_buffer: &CMSampleBuffer,
+                _connection: &objc2_av_foundation::AVCaptureConnection,
+            ) {
+                if let Err(err) = process_sample_buffer(sample_buffer, &self.ivars().shared) {
+                    self.ivars().shared.set_error(err.to_string());
+                }
+            }
+        }
+    );
+
+    impl CaptureDelegate {
+        fn new(shared: Arc<FrameQueue>) -> Retained<Self> {
+            let this = Self::alloc().set_ivars(CaptureDelegateIvars { shared });
+            // SAFETY: `this` is freshly allocated and initialized exactly once
+            // using NSObject's designated initializer.
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    #[derive(Debug)]
+    struct FrameQueue {
+        state: Mutex<FrameQueueState>,
+        ready: Condvar,
+        started_at: Instant,
+    }
+
+    impl Default for FrameQueue {
+        fn default() -> Self {
+            Self {
+                state: Mutex::new(FrameQueueState::default()),
+                ready: Condvar::new(),
+                started_at: Instant::now(),
+            }
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct FrameQueueState {
+        latest: Option<AvFoundationFrame>,
+        stopped: bool,
+        error: Option<String>,
+    }
+
+    impl FrameQueue {
+        fn push_frame(&self, frame: AvFoundationFrame) {
+            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
+            if state.stopped {
+                return;
+            }
+            state.latest = Some(frame);
+            self.ready.notify_one();
+        }
+
+        fn set_error(&self, error: String) {
+            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
+            state.error = Some(error);
+            self.ready.notify_all();
+        }
+
+        fn stop(&self) {
+            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
+            state.stopped = true;
+            self.ready.notify_all();
+        }
+
+        fn wait_for_format(&self, timeout: Duration) -> Result<CaptureFormat, AvFoundationError> {
+            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
+            loop {
+                if let Some(frame) = state.latest.as_ref() {
+                    let buffer = &frame.frame.buffer;
+                    return Ok(CaptureFormat::new(
+                        CaptureResolution::new(buffer.width(), buffer.height()),
+                        0,
+                        frame.source_pixel_format,
+                    ));
+                }
+                if let Some(error) = state.error.take() {
+                    return Err(AvFoundationError::Runtime(error));
+                }
+                if state.stopped {
+                    return Err(AvFoundationError::NotRunning);
+                }
+
+                let (next_state, wait_result) = self
+                    .ready
+                    .wait_timeout(state, timeout)
+                    .expect("AVFoundation frame queue poisoned");
+                if wait_result.timed_out() {
+                    return Err(AvFoundationError::FrameTimeout);
+                }
+                state = next_state;
+            }
+        }
+
+        fn take_frame(&self) -> Result<AvFoundationFrame, AvFoundationError> {
+            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
+            loop {
+                if let Some(frame) = state.latest.take() {
+                    return Ok(frame);
+                }
+                if let Some(error) = state.error.take() {
+                    return Err(AvFoundationError::Runtime(error));
+                }
+                if state.stopped {
+                    return Err(AvFoundationError::NotRunning);
+                }
+                state = self.ready.wait(state).expect("AVFoundation frame queue poisoned");
+            }
+        }
+
+        fn timestamp_us(&self) -> i64 {
+            elapsed_us(self.started_at.elapsed())
+        }
+    }
+
+    fn select_device(
+        selector: &CaptureDeviceSelector,
+    ) -> Result<Retained<AVCaptureDevice>, AvFoundationError> {
+        let media_type = unsafe { AVMediaTypeVideo }.ok_or(AvFoundationError::DeviceNotFound)?;
+        match selector {
+            CaptureDeviceSelector::Default => {
+                unsafe { AVCaptureDevice::defaultDeviceWithMediaType(media_type) }
+                    .ok_or(AvFoundationError::DeviceNotFound)
+            }
+            CaptureDeviceSelector::Index(index) => {
+                #[allow(deprecated)]
+                let devices = unsafe { AVCaptureDevice::devicesWithMediaType(media_type) };
+                devices
+                    .iter()
+                    .nth(*index)
+                    .map(|device| device.retain())
+                    .ok_or(AvFoundationError::DeviceNotFound)
+            }
+            CaptureDeviceSelector::Id(id) => {
+                let id = NSString::from_str(id);
+                unsafe { AVCaptureDevice::deviceWithUniqueID(&id) }
+                    .ok_or(AvFoundationError::DeviceNotFound)
+            }
+        }
+    }
+
+    fn configure_device(
+        device: &AVCaptureDevice,
+        request: &CaptureFormatRequest,
+    ) -> Result<(), AvFoundationError> {
+        let Some(frame_rate) = requested_frame_rate(request) else {
+            return Ok(());
+        };
+        if frame_rate == 0 {
+            return Ok(());
+        }
+
+        unsafe { device.lockForConfiguration() }.map_err(|err| {
+            AvFoundationError::SessionSetup(err.localizedDescription().to_string())
+        })?;
+        let duration = unsafe { CMTime::with_seconds(1.0 / frame_rate as f64, 600) };
+        // SAFETY: The device is locked for configuration and the CMTime value is finite.
+        unsafe {
+            device.setActiveVideoMinFrameDuration(duration);
+            device.setActiveVideoMaxFrameDuration(duration);
+            device.unlockForConfiguration();
+        }
+        Ok(())
+    }
+
+    fn requested_frame_rate(request: &CaptureFormatRequest) -> Option<u32> {
+        match request {
+            CaptureFormatRequest::Default => None,
+            CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
+                Some(format.frame_rate)
+            }
+            CaptureFormatRequest::HighestFrameRate { .. } => None,
+            CaptureFormatRequest::HighestResolution { frame_rate, .. } => *frame_rate,
+        }
+    }
+
+    fn session_preset(
+        request: &CaptureFormatRequest,
+    ) -> Option<&'static objc2_av_foundation::AVCaptureSessionPreset> {
+        let resolution = match request {
+            CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
+                Some(format.resolution)
+            }
+            CaptureFormatRequest::HighestFrameRate { resolution, .. } => *resolution,
+            CaptureFormatRequest::Default
+            | CaptureFormatRequest::HighestResolution { frame_rate: _, pixel_format: _ } => None,
+        }?;
+
+        match (resolution.width, resolution.height) {
+            (1920, 1080) => Some(unsafe { AVCaptureSessionPreset1920x1080 }),
+            (1280, 720) => Some(unsafe { AVCaptureSessionPreset1280x720 }),
+            (640, 480) => Some(unsafe { AVCaptureSessionPreset640x480 }),
+            (w, h) if w <= 640 && h <= 480 => Some(unsafe { AVCaptureSessionPresetMedium }),
+            _ => Some(unsafe { AVCaptureSessionPresetHigh }),
+        }
+    }
+
+    fn process_sample_buffer(
+        sample_buffer: &CMSampleBuffer,
+        shared: &FrameQueue,
+    ) -> Result<(), AvFoundationError> {
+        let read_wall_time_us = unix_time_us_now().unwrap_or_default();
+        let image_buffer = unsafe { sample_buffer.image_buffer() }
+            .ok_or(AvFoundationError::InvalidFrame("sample buffer has no image buffer"))?;
+        let image_buffer_ref: &CVImageBuffer = &image_buffer;
+        // SAFETY: Video data output sample buffers deliver CVPixelBuffer-backed
+        // CVImageBuffer objects. The retained image buffer keeps the object alive
+        // for the duration of this conversion.
+        let pixel_buffer =
+            unsafe { &*(image_buffer_ref as *const CVImageBuffer as *const CVPixelBuffer) };
+        let (buffer, source_pixel_format) = convert_pixel_buffer(pixel_buffer)?;
+
+        let capture_wall_time_us = read_wall_time_us;
+        let frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: shared.timestamp_us(),
+            frame_metadata: FrameMetadata {
+                user_timestamp: Some(capture_wall_time_us),
+                frame_id: None,
+            }
+            .into_rtc(),
+            buffer,
+        };
+
+        shared.push_frame(AvFoundationFrame {
+            frame,
+            source_pixel_format,
+            capture_wall_time_us,
+            read_wall_time_us,
+            used_decode_path: false,
+        });
+        Ok(())
+    }
+
+    fn convert_pixel_buffer(
+        pixel_buffer: &CVPixelBuffer,
+    ) -> Result<(I420Buffer, CapturePixelFormat), AvFoundationError> {
+        let lock_flags = CVPixelBufferLockFlags::ReadOnly;
+        let lock_result = unsafe { CVPixelBufferLockBaseAddress(pixel_buffer, lock_flags) };
+        if lock_result != kCVReturnSuccess {
+            return Err(AvFoundationError::InvalidFrame("CVPixelBuffer lock failed"));
+        }
+
+        let result = convert_locked_pixel_buffer(pixel_buffer);
+
+        // SAFETY: The pixel buffer was locked above with the same flags.
+        let unlock_result = unsafe { CVPixelBufferUnlockBaseAddress(pixel_buffer, lock_flags) };
+        if unlock_result != kCVReturnSuccess {
+            return Err(AvFoundationError::InvalidFrame("CVPixelBuffer unlock failed"));
+        }
+
+        result
+    }
+
+    fn convert_locked_pixel_buffer(
+        pixel_buffer: &CVPixelBuffer,
+    ) -> Result<(I420Buffer, CapturePixelFormat), AvFoundationError> {
+        let width = u32::try_from(CVPixelBufferGetWidth(pixel_buffer))
+            .map_err(|_| AvFoundationError::InvalidFrame("width is out of range"))?;
+        let height = u32::try_from(CVPixelBufferGetHeight(pixel_buffer))
+            .map_err(|_| AvFoundationError::InvalidFrame("height is out of range"))?;
+        let pixel_format = CVPixelBufferGetPixelFormatType(pixel_buffer);
+
+        match pixel_format {
+            format
+                if format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                    || format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange =>
+            {
+                convert_nv12(pixel_buffer, width, height)
+                    .map(|buffer| (buffer, CapturePixelFormat::Nv12))
+            }
+            format if format == kCVPixelFormatType_32BGRA => {
+                convert_bgra(pixel_buffer, width, height)
+                    .map(|buffer| (buffer, CapturePixelFormat::Bgra))
+            }
+            format
+                if format == kCVPixelFormatType_420YpCbCr8Planar
+                    || format == kCVPixelFormatType_420YpCbCr8PlanarFullRange =>
+            {
+                convert_i420(pixel_buffer, width, height)
+                    .map(|buffer| (buffer, CapturePixelFormat::I420))
+            }
+            other => Err(AvFoundationError::UnsupportedCoreVideoPixelFormat(other)),
+        }
+    }
+
+    fn convert_nv12(
+        pixel_buffer: &CVPixelBuffer,
+        width: u32,
+        height: u32,
+    ) -> Result<I420Buffer, AvFoundationError> {
+        if CVPixelBufferGetPlaneCount(pixel_buffer) < 2 {
+            return Err(AvFoundationError::InvalidFrame("NV12 buffer has fewer than two planes"));
+        }
+
+        let y = plane(pixel_buffer, 0)?;
+        let uv = plane(pixel_buffer, 1)?;
+        let mut buffer = I420Buffer::new(width, height);
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (dst_y, dst_u, dst_v) = buffer.data_mut();
+        let ret = unsafe {
+            yuv_sys::rs_NV12ToI420(
+                y.data.as_ptr(),
+                y.stride as i32,
+                uv.data.as_ptr(),
+                uv.stride as i32,
+                dst_y.as_mut_ptr(),
+                stride_y as i32,
+                dst_u.as_mut_ptr(),
+                stride_u as i32,
+                dst_v.as_mut_ptr(),
+                stride_v as i32,
+                width as i32,
+                height as i32,
+            )
+        };
+        if ret != 0 {
+            return Err(AvFoundationError::Convert("NV12ToI420 failed"));
+        }
+        Ok(buffer)
+    }
+
+    fn convert_bgra(
+        pixel_buffer: &CVPixelBuffer,
+        width: u32,
+        height: u32,
+    ) -> Result<I420Buffer, AvFoundationError> {
+        let bgra = packed_plane(pixel_buffer, 4)?;
+        let mut buffer = I420Buffer::new(width, height);
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (dst_y, dst_u, dst_v) = buffer.data_mut();
+        let ret = unsafe {
+            yuv_sys::rs_BGRAToI420(
+                bgra.data.as_ptr(),
+                bgra.stride as i32,
+                dst_y.as_mut_ptr(),
+                stride_y as i32,
+                dst_u.as_mut_ptr(),
+                stride_u as i32,
+                dst_v.as_mut_ptr(),
+                stride_v as i32,
+                width as i32,
+                height as i32,
+            )
+        };
+        if ret != 0 {
+            return Err(AvFoundationError::Convert("BGRAToI420 failed"));
+        }
+        Ok(buffer)
+    }
+
+    fn convert_i420(
+        pixel_buffer: &CVPixelBuffer,
+        width: u32,
+        height: u32,
+    ) -> Result<I420Buffer, AvFoundationError> {
+        if CVPixelBufferGetPlaneCount(pixel_buffer) < 3 {
+            return Err(AvFoundationError::InvalidFrame("I420 buffer has fewer than three planes"));
+        }
+
+        let y = plane(pixel_buffer, 0)?;
+        let u = plane(pixel_buffer, 1)?;
+        let v = plane(pixel_buffer, 2)?;
+        let mut buffer = I420Buffer::new(width, height);
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (dst_y, dst_u, dst_v) = buffer.data_mut();
+        let ret = unsafe {
+            yuv_sys::rs_I420Copy(
+                y.data.as_ptr(),
+                y.stride as i32,
+                u.data.as_ptr(),
+                u.stride as i32,
+                v.data.as_ptr(),
+                v.stride as i32,
+                dst_y.as_mut_ptr(),
+                stride_y as i32,
+                dst_u.as_mut_ptr(),
+                stride_u as i32,
+                dst_v.as_mut_ptr(),
+                stride_v as i32,
+                width as i32,
+                height as i32,
+            )
+        };
+        if ret != 0 {
+            return Err(AvFoundationError::Convert("I420Copy failed"));
+        }
+        Ok(buffer)
+    }
+
+    struct Plane<'a> {
+        data: &'a [u8],
+        stride: usize,
+    }
+
+    fn plane(pixel_buffer: &CVPixelBuffer, index: usize) -> Result<Plane<'_>, AvFoundationError> {
+        let plane_count = CVPixelBufferGetPlaneCount(pixel_buffer);
+        if index >= plane_count {
+            return Err(AvFoundationError::InvalidFrame("plane index is out of range"));
+        }
+
+        let base = CVPixelBufferGetBaseAddressOfPlane(pixel_buffer, index);
+        if base.is_null() {
+            return Err(AvFoundationError::InvalidFrame("pixel plane has no base address"));
+        }
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(pixel_buffer, index);
+        let height = CVPixelBufferGetHeightOfPlane(pixel_buffer, index);
+        let width = CVPixelBufferGetWidthOfPlane(pixel_buffer, index);
+        let min_len = stride
+            .checked_mul(height.saturating_sub(1))
+            .and_then(|value| value.checked_add(width))
+            .ok_or(AvFoundationError::InvalidFrame("pixel plane size overflow"))?;
+
+        // SAFETY: The CVPixelBuffer is locked for read-only access, the plane
+        // base address is non-null, and CoreVideo reports the minimum readable
+        // extent for this plane.
+        let data = unsafe { std::slice::from_raw_parts(base.cast::<u8>(), min_len) };
+        Ok(Plane { data, stride })
+    }
+
+    fn packed_plane(
+        pixel_buffer: &CVPixelBuffer,
+        bytes_per_pixel: usize,
+    ) -> Result<Plane<'_>, AvFoundationError> {
+        let base = CVPixelBufferGetBaseAddress(pixel_buffer);
+        if base.is_null() {
+            return Err(AvFoundationError::InvalidFrame("pixel buffer has no base address"));
+        }
+        let stride = CVPixelBufferGetBytesPerRow(pixel_buffer);
+        let height = CVPixelBufferGetHeight(pixel_buffer);
+        let width = CVPixelBufferGetWidth(pixel_buffer)
+            .checked_mul(bytes_per_pixel)
+            .ok_or(AvFoundationError::InvalidFrame("packed pixel row size overflow"))?;
+        let min_len = stride
+            .checked_mul(height.saturating_sub(1))
+            .and_then(|value| value.checked_add(width))
+            .ok_or(AvFoundationError::InvalidFrame("packed pixel buffer size overflow"))?;
+
+        // SAFETY: The CVPixelBuffer is locked for read-only access, the base
+        // address is non-null, and CoreVideo reports the minimum readable extent
+        // for this packed buffer.
+        let data = unsafe { std::slice::from_raw_parts(base.cast::<u8>(), min_len) };
+        Ok(Plane { data, stride })
+    }
+
+    fn elapsed_us(duration: Duration) -> i64 {
+        i64::try_from(duration.as_micros()).unwrap_or(i64::MAX)
+    }
+
+    fn unix_time_us_now() -> Option<u64> {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+    }
 }

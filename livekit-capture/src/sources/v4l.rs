@@ -122,6 +122,10 @@ pub struct V4lFrame {
     pub source_pixel_format: CapturePixelFormat,
     /// Backend-provided capture timestamp, when available.
     pub backend_capture_timestamp: Option<Duration>,
+    /// Wall-clock timestamp selected for metadata and timing correlation.
+    pub capture_wall_time_us: u64,
+    /// Wall-clock timestamp recorded after the frame was read from the camera backend.
+    pub read_wall_time_us: u64,
     /// Whether compressed image decoding was needed.
     pub used_decode_path: bool,
 }
@@ -226,7 +230,14 @@ impl V4lCaptureSession {
         )?;
         let source_pixel_format = capture_pixel_format_from_nokhwa(buffer.source_frame_format())?;
 
-        Ok(V4lFrame { frame, source_pixel_format, backend_capture_timestamp, used_decode_path })
+        Ok(V4lFrame {
+            frame,
+            source_pixel_format,
+            backend_capture_timestamp,
+            capture_wall_time_us,
+            read_wall_time_us,
+            used_decode_path,
+        })
     }
 
     #[cfg(not(target_os = "linux"))]

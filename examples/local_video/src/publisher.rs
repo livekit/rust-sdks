@@ -12,13 +12,17 @@ use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
 use livekit_api::services::room::{CreateRoomOptions, RoomClient};
 use livekit_api::services::{ServiceError, TwirpError, TwirpErrorCode};
-use log::{debug, info};
-use nokhwa::pixel_format::RgbFormat;
-use nokhwa::utils::{
-    ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
-    Resolution,
+use livekit_capture::device::{
+    CaptureDeviceSelector, CaptureFormat as LkCaptureFormat, CaptureFormatRequest,
+    CapturePixelFormat, CaptureResolution,
 };
-use nokhwa::Camera;
+#[cfg(target_os = "macos")]
+use livekit_capture::platform::avfoundation::{
+    self, AvFoundationCaptureOptions, AvFoundationCaptureSession,
+};
+#[cfg(target_os = "linux")]
+use livekit_capture::sources::v4l::{self, V4lCaptureOptions, V4lCaptureSession};
+use log::{debug, info};
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::env;
@@ -27,7 +31,6 @@ use std::sync::{
     Arc,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use yuv_sys;
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 mod argus;
@@ -65,7 +68,7 @@ impl From<PublisherCodec> for VideoCodec {
 /// Selects the camera backend used by the publisher.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum SourceKind {
-    /// USB / V4L2 camera via the `nokhwa` crate (default).
+    /// Platform camera via livekit-capture (AVFoundation on macOS, V4L2 on Linux).
     Uvc,
     /// NVIDIA Jetson MIPI CSI camera via libargus (Jetson-only).
     Argus,
@@ -83,11 +86,12 @@ enum CaptureFormat {
 }
 
 impl CaptureFormat {
-    fn frame_formats(self) -> &'static [FrameFormat] {
+    #[cfg(target_os = "linux")]
+    fn pixel_formats(self) -> &'static [CapturePixelFormat] {
         match self {
-            Self::Auto => &[FrameFormat::YUYV, FrameFormat::MJPEG],
-            Self::Yuv => &[FrameFormat::YUYV],
-            Self::Mjpeg => &[FrameFormat::MJPEG],
+            Self::Auto => &[CapturePixelFormat::Yuyv, CapturePixelFormat::Mjpeg],
+            Self::Yuv => &[CapturePixelFormat::Yuyv],
+            Self::Mjpeg => &[CapturePixelFormat::Mjpeg],
         }
     }
 }
@@ -166,7 +170,7 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
 
-    /// Camera backend: `uvc` (default, V4L2/USB via nokhwa) or `argus` (Jetson MIPI CSI).
+    /// Camera backend: `uvc` (default platform camera) or `argus` (Jetson MIPI CSI).
     #[arg(long, value_enum, default_value_t = SourceKind::Uvc)]
     source: SourceKind,
 
@@ -265,72 +269,6 @@ struct Args {
 
 fn unix_time_us_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
-}
-
-const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
-
-#[derive(Default)]
-struct CaptureTimestampLogState {
-    logged_source: bool,
-    logged_missing: bool,
-    logged_invalid: bool,
-}
-
-fn validate_backend_capture_timestamp_us(
-    capture_timestamp: Duration,
-    read_wall_time_us: u64,
-) -> Result<u64, &'static str> {
-    let capture_timestamp_us =
-        u64::try_from(capture_timestamp.as_micros()).map_err(|_| "overflows u64")?;
-    if capture_timestamp_us == 0 {
-        return Err("is zero");
-    }
-    if capture_timestamp_us > read_wall_time_us {
-        return Err("is in the future");
-    }
-    if read_wall_time_us - capture_timestamp_us > MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US {
-        return Err("is too old");
-    }
-    Ok(capture_timestamp_us)
-}
-
-fn select_capture_wall_time_us(
-    backend_capture_timestamp: Option<Duration>,
-    fallback_wall_time_us: u64,
-    read_wall_time_us: u64,
-    log_state: &mut CaptureTimestampLogState,
-) -> u64 {
-    match backend_capture_timestamp {
-        Some(capture_timestamp) => {
-            match validate_backend_capture_timestamp_us(capture_timestamp, read_wall_time_us) {
-                Ok(capture_timestamp_us) => {
-                    if !log_state.logged_source {
-                        info!("Using camera capture_timestamp for user_timestamp");
-                        log_state.logged_source = true;
-                    }
-                    capture_timestamp_us
-                }
-                Err(reason) => {
-                    if !log_state.logged_invalid {
-                        log::warn!(
-                            "Ignoring camera capture_timestamp because it {reason}; falling back to system wall clock"
-                        );
-                        log_state.logged_invalid = true;
-                    }
-                    fallback_wall_time_us
-                }
-            }
-        }
-        None => {
-            if !log_state.logged_missing {
-                log::warn!(
-                    "Buffer::capture_timestamp() not available; falling back to system wall clock"
-                );
-                log_state.logged_missing = true;
-            }
-            fallback_wall_time_us
-        }
-    }
 }
 
 fn is_twirp_not_found(err: &ServiceError) -> bool {
@@ -759,51 +697,33 @@ mod tests {
             current.sensor_exposure_timestamp_us
         );
     }
-
-    #[test]
-    fn capture_timestamp_validation_rejects_future_timestamp() {
-        assert_eq!(
-            validate_backend_capture_timestamp_us(Duration::from_micros(1_001), 1_000),
-            Err("is in the future")
-        );
-    }
-
-    #[test]
-    fn capture_timestamp_selection_falls_back_for_invalid_backend_timestamp() {
-        let mut log_state = CaptureTimestampLogState::default();
-
-        let selected = select_capture_wall_time_us(
-            Some(Duration::from_micros(1_001)),
-            900,
-            1_000,
-            &mut log_state,
-        );
-
-        assert_eq!(selected, 900);
-    }
-
-    #[test]
-    fn capture_timestamp_selection_uses_valid_backend_timestamp() {
-        let mut log_state = CaptureTimestampLogState::default();
-
-        let selected = select_capture_wall_time_us(
-            Some(Duration::from_micros(950)),
-            900,
-            1_000,
-            &mut log_state,
-        );
-
-        assert_eq!(selected, 950);
-    }
 }
 
 fn list_cameras() -> Result<()> {
-    let cams = nokhwa::query(ApiBackend::Auto)?;
+    let cams = platform_devices()?;
     println!("Available cameras:");
     for (i, cam) in cams.iter().enumerate() {
-        println!("{}. {}", i, cam.human_name());
+        println!("{}. {}", i, cam.name);
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn platform_devices() -> Result<Vec<livekit_capture::device::CaptureDeviceInfo>> {
+    Ok(avfoundation::devices()?)
+}
+
+#[cfg(target_os = "linux")]
+fn platform_devices() -> Result<Vec<livekit_capture::device::CaptureDeviceInfo>> {
+    Ok(v4l::devices()?)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn platform_devices() -> Result<Vec<livekit_capture::device::CaptureDeviceInfo>> {
+    anyhow::bail!(
+        "camera capture is not supported on {}; local_video supports macOS AVFoundation and Linux V4L2",
+        std::env::consts::OS
+    );
 }
 
 fn list_encoders() {
@@ -815,12 +735,50 @@ fn list_encoders() {
 
 enum VideoInput {
     TestPattern(TestPattern),
-    Camera {
-        camera: Camera,
-        is_yuyv: bool,
-    },
+    Camera(PlatformCamera),
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     Argus(argus::ArgusCaptureSession),
+}
+
+enum PlatformCamera {
+    #[cfg(target_os = "macos")]
+    AvFoundation(AvFoundationCaptureSession),
+    #[cfg(target_os = "linux")]
+    V4l(V4lCaptureSession),
+}
+
+struct PlatformCameraFrame {
+    frame: VideoFrame<I420Buffer>,
+    capture_wall_time_us: u64,
+    read_wall_time_us: u64,
+    used_decode_path: bool,
+}
+
+impl PlatformCamera {
+    fn capture_frame(&mut self) -> Result<PlatformCameraFrame> {
+        match self {
+            #[cfg(target_os = "macos")]
+            Self::AvFoundation(session) => {
+                let frame = session.capture_frame()?;
+                Ok(PlatformCameraFrame {
+                    frame: frame.frame,
+                    capture_wall_time_us: frame.capture_wall_time_us,
+                    read_wall_time_us: frame.read_wall_time_us,
+                    used_decode_path: frame.used_decode_path,
+                })
+            }
+            #[cfg(target_os = "linux")]
+            Self::V4l(session) => {
+                let frame = session.capture_frame()?;
+                Ok(PlatformCameraFrame {
+                    frame: frame.frame,
+                    capture_wall_time_us: frame.capture_wall_time_us,
+                    read_wall_time_us: frame.read_wall_time_us,
+                    used_decode_path: frame.used_decode_path,
+                })
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -844,6 +802,85 @@ fn create_i420_buffer(width: u32, height: u32, align_for_display: bool) -> I420B
         )
     } else {
         I420Buffer::new(width, height)
+    }
+}
+
+fn open_platform_camera(args: &Args) -> Result<(u32, u32, VideoInput)> {
+    #[cfg(target_os = "macos")]
+    {
+        if args.format != CaptureFormat::Auto {
+            log::warn!(
+                "--format={} is ignored for AVFoundation decoded capture; AVFoundation supplies decoded CVPixelBuffers",
+                args.format
+            );
+        }
+        let requested = LkCaptureFormat::new(
+            CaptureResolution::new(args.width, args.height),
+            args.fps,
+            CapturePixelFormat::Nv12,
+        );
+        let session = AvFoundationCaptureSession::new(AvFoundationCaptureOptions {
+            device: CaptureDeviceSelector::Index(args.camera_index),
+            format: CaptureFormatRequest::Closest(requested),
+            is_screencast: false,
+        })?;
+        let format = session.format();
+        info!(
+            "Camera opened with AVFoundation: {}x{} @ {} fps (source format: {:?}, camera {})",
+            format.resolution.width,
+            format.resolution.height,
+            format.frame_rate,
+            format.pixel_format,
+            args.camera_index,
+        );
+        Ok((
+            format.resolution.width,
+            format.resolution.height,
+            VideoInput::Camera(PlatformCamera::AvFoundation(session)),
+        ))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let requested = LkCaptureFormat::new(
+            CaptureResolution::new(args.width, args.height),
+            args.fps,
+            args.format.pixel_formats()[0],
+        );
+        let mut options = V4lCaptureOptions::new(
+            CaptureDeviceSelector::Index(args.camera_index),
+            requested.resolution,
+            requested.frame_rate,
+        );
+        options.format = if args.format == CaptureFormat::Auto {
+            CaptureFormatRequest::Closest(requested)
+        } else {
+            CaptureFormatRequest::Exact(requested)
+        };
+        options.pixel_formats = args.format.pixel_formats().to_vec();
+        let session = V4lCaptureSession::new(options)?;
+        let format = session.format();
+        info!(
+            "Camera opened with V4L2: {}x{} @ {} fps (format: {:?}, requested: {})",
+            format.resolution.width,
+            format.resolution.height,
+            format.frame_rate,
+            format.pixel_format,
+            args.format,
+        );
+        Ok((
+            format.resolution.width,
+            format.resolution.height,
+            VideoInput::Camera(PlatformCamera::V4l(session)),
+        ))
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        anyhow::bail!(
+            "camera capture is not supported on {}; local_video supports macOS AVFoundation and Linux V4L2",
+            std::env::consts::OS
+        );
     }
 }
 
@@ -877,14 +914,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // LiveKit connection details
     let url = args
         .url
+        .clone()
         .or_else(|| env::var("LIVEKIT_URL").ok())
         .expect("LIVEKIT_URL must be provided via --url or env");
     let api_key = args
         .api_key
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_KEY").ok())
         .expect("LIVEKIT_API_KEY must be provided via --api-key or env");
     let api_secret = args
         .api_secret
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
@@ -1014,85 +1054,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 );
                 (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
             } else {
-                // Setup camera
-                let index = CameraIndex::Index(args.camera_index as u32);
-                let requested = RequestedFormat::new::<RgbFormat>(
-                    RequestedFormatType::AbsoluteHighestFrameRate,
-                );
-                let mut camera = Camera::new(index, requested)?;
-
-                let mut requested_camera_format = None;
-                let mut last_request_error = None;
-                for frame_format in args.format.frame_formats() {
-                    let wanted = CameraFormat::new(
-                        Resolution::new(args.width, args.height),
-                        *frame_format,
-                        args.fps,
-                    );
-                    match camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-                        RequestedFormatType::Exact(wanted),
-                    )) {
-                        Ok(format) => {
-                            requested_camera_format = Some(format);
-                            break;
-                        }
-                        Err(err) => {
-                            last_request_error = Some(err);
-                        }
-                    }
-                }
-                if let Some(requested_camera_format) = requested_camera_format {
-                    debug!("Requested nokhwa CameraFormat: {:?}", requested_camera_format);
-                } else if args.format == CaptureFormat::Auto {
-                    if let Some(err) = last_request_error {
-                        log::warn!(
-                            "Failed to request YUYV or MJPEG at {}x{} @ {} fps; using backend-selected camera format: {}",
-                            args.width,
-                            args.height,
-                            args.fps,
-                            err
-                        );
-                    }
-                } else {
-                    let formats = args
-                        .format
-                        .frame_formats()
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(" or ");
-                    return Err(match last_request_error {
-                        Some(err) => anyhow::anyhow!(
-                            "failed to request camera format {} at {}x{} @ {} fps: {}",
-                            formats,
-                            args.width,
-                            args.height,
-                            args.fps,
-                            err
-                        ),
-                        None => anyhow::anyhow!("no camera capture formats were requested"),
-                    });
-                }
-                camera.open_stream()?;
-                let fmt = camera.camera_format();
-                let width = fmt.width();
-                let height = fmt.height();
-                let fps = fmt.frame_rate();
-                let is_yuyv = fmt.format() == FrameFormat::YUYV;
-                info!(
-                    "Camera opened: {}x{} @ {} fps (format: {}, requested: {})",
-                    width,
-                    height,
-                    fps,
-                    fmt.format(),
-                    args.format
-                );
-                debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
-                info!(
-                    "Selected conversion path: {}",
-                    if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
-                );
-                (width, height, VideoInput::Camera { camera, is_yuyv })
+                open_platform_camera(&args)?
             }
         }
     };
@@ -1331,8 +1293,6 @@ async fn run_capture_loop(
 
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
-    let mut logged_mjpeg_fallback = false;
-    let mut capture_timestamp_log_state = CaptureTimestampLogState::default();
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
@@ -1347,22 +1307,10 @@ async fn run_capture_loop(
         ticker.tick().await;
         let paced_wait_finished_at = Instant::now();
 
-        // WebRTC may queue the frame and hardware encoders may upload it asynchronously.
-        // Give each submitted frame unique backing storage so later captures cannot
-        // overwrite buffers that are still in-flight.
-        let mut frame = VideoFrame {
-            rotation: VideoRotation::VideoRotation0,
-            timestamp_us: 0,
-            frame_metadata: None,
-            buffer: create_i420_buffer(width, height, align_buffers_for_display),
-        };
-        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-        let stride_y_usize = stride_y as usize;
-
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
-        let (data_y, data_u, data_v) = frame.buffer.data_mut();
         let (
+            mut frame,
             capture_wall_time_us,
             read_wall_time_us,
             source_frame_acquired_at,
@@ -1372,6 +1320,17 @@ async fn run_capture_loop(
             record_convert_timing,
         ) = match &mut video_input {
             VideoInput::TestPattern(pattern) => {
+                // WebRTC may queue the frame and hardware encoders may upload it asynchronously.
+                // Give each submitted frame unique backing storage so later captures cannot
+                // overwrite buffers that are still in-flight.
+                let mut frame = VideoFrame {
+                    rotation: VideoRotation::VideoRotation0,
+                    timestamp_us: 0,
+                    frame_metadata: None,
+                    buffer: create_i420_buffer(width, height, align_buffers_for_display),
+                };
+                let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+                let (data_y, data_u, data_v) = frame.buffer.data_mut();
                 pattern.render(
                     data_y,
                     stride_y as i32,
@@ -1382,6 +1341,7 @@ async fn run_capture_loop(
                 );
                 let frame_acquired_at = Instant::now();
                 (
+                    frame,
                     frame_wall_time_us,
                     unix_time_us_now(),
                     frame_acquired_at,
@@ -1391,146 +1351,20 @@ async fn run_capture_loop(
                     false,
                 )
             }
-            VideoInput::Camera { camera, is_yuyv } => {
-                // Capture the frame as early as possible so the attached timestamp is
-                // close to the camera acquisition point.
-                let frame_buf = camera.frame()?;
-                let read_wall_time_us = unix_time_us_now();
+            VideoInput::Camera(camera) => {
+                let mut captured = camera.capture_frame()?;
                 let camera_frame_acquired_at = Instant::now();
-
-                // Prefer backend capture timestamps only when they are plausible Unix
-                // wall-clock times. Some camera APIs expose stream-relative or future
-                // presentation timestamps; attaching those makes latency appear negative.
-                let capture_wall_time_us = select_capture_wall_time_us(
-                    frame_buf.capture_timestamp(),
-                    frame_wall_time_us,
-                    read_wall_time_us,
-                    &mut capture_timestamp_log_state,
-                );
-
-                let (decode_finished_at, convert_finished_at, used_decode_path) = if *is_yuyv {
-                    // Fast path for YUYV: convert directly to I420 via libyuv
-                    let src = frame_buf.buffer();
-                    let src_bytes = src.as_ref();
-                    let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
-                    unsafe {
-                        // returns 0 on success
-                        let _ = yuv_sys::rs_YUY2ToI420(
-                            src_bytes.as_ptr(),
-                            src_stride,
-                            data_y.as_mut_ptr(),
-                            stride_y as i32,
-                            data_u.as_mut_ptr(),
-                            stride_u as i32,
-                            data_v.as_mut_ptr(),
-                            stride_v as i32,
-                            width as i32,
-                            height as i32,
-                        );
-                    }
-                    (camera_frame_acquired_at, Instant::now(), false)
-                } else {
-                    // Auto path (either RGB24 already or compressed MJPEG)
-                    let src = frame_buf.buffer();
-                    if src.len() == (width as usize * height as usize * 3) {
-                        // Already RGB24 from backend; convert directly
-                        unsafe {
-                            let _ = yuv_sys::rs_RGB24ToI420(
-                                src.as_ref().as_ptr(),
-                                (width * 3) as i32,
-                                data_y.as_mut_ptr(),
-                                stride_y as i32,
-                                data_u.as_mut_ptr(),
-                                stride_u as i32,
-                                data_v.as_mut_ptr(),
-                                stride_v as i32,
-                                width as i32,
-                                height as i32,
-                            );
-                        }
-                        (camera_frame_acquired_at, Instant::now(), false)
-                    } else {
-                        // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
-                        let mut used_fast_mjpeg = false;
-                        let fast_mjpeg_buffer_ready_at = unsafe {
-                            // rs_MJPGToI420 returns 0 on success
-                            let ret = yuv_sys::rs_MJPGToI420(
-                                src.as_ref().as_ptr(),
-                                src.len(),
-                                data_y.as_mut_ptr(),
-                                stride_y as i32,
-                                data_u.as_mut_ptr(),
-                                stride_u as i32,
-                                data_v.as_mut_ptr(),
-                                stride_v as i32,
-                                width as i32,
-                                height as i32,
-                                width as i32,
-                                height as i32,
-                            );
-                            if ret == 0 {
-                                used_fast_mjpeg = true;
-                                Instant::now()
-                            } else {
-                                camera_frame_acquired_at
-                            }
-                        };
-                        if used_fast_mjpeg {
-                            (fast_mjpeg_buffer_ready_at, fast_mjpeg_buffer_ready_at, true)
-                        } else {
-                            // Fallback: decode MJPEG using image crate then RGB24->I420
-                            match image::load_from_memory(src.as_ref()) {
-                                Ok(img_dyn) => {
-                                    let rgb8 = img_dyn.to_rgb8();
-                                    let decode_finished_at = Instant::now();
-                                    let dec_w = rgb8.width() as u32;
-                                    let dec_h = rgb8.height() as u32;
-                                    if dec_w != width || dec_h != height {
-                                        log::warn!(
-                                            "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
-                                            dec_w, dec_h, width, height
-                                        );
-                                        continue;
-                                    }
-                                    unsafe {
-                                        let _ = yuv_sys::rs_RGB24ToI420(
-                                            rgb8.as_raw().as_ptr(),
-                                            (dec_w * 3) as i32,
-                                            data_y.as_mut_ptr(),
-                                            stride_y as i32,
-                                            data_u.as_mut_ptr(),
-                                            stride_u as i32,
-                                            data_v.as_mut_ptr(),
-                                            stride_v as i32,
-                                            width as i32,
-                                            height as i32,
-                                        );
-                                    }
-                                    (decode_finished_at, Instant::now(), true)
-                                }
-                                Err(e2) => {
-                                    if !logged_mjpeg_fallback {
-                                        log::error!(
-                                            "MJPEG decode failed; buffer not RGB24 and image decode failed: {}",
-                                            e2
-                                        );
-                                        logged_mjpeg_fallback = true;
-                                    }
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                };
+                captured.frame.rotation = VideoRotation::VideoRotation0;
 
                 (
-                    capture_wall_time_us,
-                    read_wall_time_us,
+                    captured.frame,
+                    captured.capture_wall_time_us,
+                    captured.read_wall_time_us,
                     camera_frame_acquired_at,
-                    decode_finished_at,
-                    convert_finished_at,
-                    used_decode_path,
-                    true,
+                    camera_frame_acquired_at,
+                    camera_frame_acquired_at,
+                    captured.used_decode_path,
+                    false,
                 )
             }
             #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
@@ -1541,6 +1375,8 @@ async fn run_capture_loop(
                 unreachable!("argus video input must be driven by run_argus_capture_loop")
             }
         };
+        let (stride_y, _, _) = frame.buffer.strides();
+        let stride_y_usize = stride_y as usize;
 
         let fid = if config.attach_frame_id {
             let id = frame_counter;
@@ -1557,6 +1393,7 @@ async fn run_capture_loop(
         let mut burned_timestamp_us = None;
         if let Some(overlay) = timestamp_overlay.as_mut() {
             let overlay_started_at = Instant::now();
+            let (data_y, _, _) = frame.buffer.data_mut();
             overlay.draw(data_y, stride_y_usize, capture_wall_time_us, fid);
             burned_timestamp_us = Some(capture_wall_time_us);
             let overlay_finished_at = Instant::now();
