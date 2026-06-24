@@ -27,6 +27,11 @@ name = "clock"
 path = "src/clock.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "moq_publisher"
+path = "src/moq_publisher.rs"
+required-features = ["desktop"]
+
 [dependencies]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 tokio-stream = { workspace = true }
@@ -47,6 +52,13 @@ parking_lot = { workspace = true, features = ["deadlock_detection"] }
 anyhow = { workspace = true }
 chrono = "0.4"
 bytemuck = { version = "1.16", features = ["derive"] }
+hex = "0.4"
+moq-net = { version = "0.1", features = ["serde"] }
+openh264 = "0.9.3"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+url = "2"
+web-transport-quinn = "0.11.9"
 
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["output-threaded"] }
 
