@@ -258,27 +258,47 @@ message DataTrackStreamEOS {
 // MARK: - Schemas
 
 // Encoding used to interpret a data track schema definition.
-enum DataTrackSchemaEncoding {
-  DATA_TRACK_SCHEMA_ENCODING_OTHER = 0;
-  DATA_TRACK_SCHEMA_ENCODING_PROTOBUF = 1;
-  DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER = 2;
-  DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG = 3;
-  DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG = 4;
-  DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL = 5;
-  DATA_TRACK_SCHEMA_ENCODING_OMG_IDL = 6;
-  DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA = 7;
+message DataTrackSchemaEncoding {
+  // Well-known encoding for a schema definition.
+  enum WellKnownSchemaEncoding {
+    WELL_KNOWN_SCHEMA_ENCODING_UNSPECIFIED = 0;
+    WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF = 1;
+    WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER = 2;
+    WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG = 3;
+    WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG = 4;
+    WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL = 5;
+    WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL = 6;
+    WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA = 7;
+  }
+
+  oneof encoding {
+    WellKnownSchemaEncoding well_known = 1;
+    // Identifier of a custom encoding not covered by the well-known cases.
+    // This must be non-empty and no longer than 25 characters.
+    string custom = 2;
+  }
 }
 
 // Encoding used for frames sent on a data track.
-enum DataTrackFrameEncoding {
-  DATA_TRACK_FRAME_ENCODING_OTHER = 0;
-  DATA_TRACK_FRAME_ENCODING_ROS1 = 1;
-  DATA_TRACK_FRAME_ENCODING_CDR = 2;
-  DATA_TRACK_FRAME_ENCODING_PROTOBUF = 3;
-  DATA_TRACK_FRAME_ENCODING_FLATBUFFER = 4;
-  DATA_TRACK_FRAME_ENCODING_CBOR = 5;
-  DATA_TRACK_FRAME_ENCODING_MSGPACK = 6;
-  DATA_TRACK_FRAME_ENCODING_JSON = 7;
+message DataTrackFrameEncoding {
+  // Well-known encoding for frame payloads.
+  enum WellKnownFrameEncoding {
+    WELL_KNOWN_FRAME_ENCODING_UNSPECIFIED = 0;
+    WELL_KNOWN_FRAME_ENCODING_ROS1 = 1;
+    WELL_KNOWN_FRAME_ENCODING_CDR = 2;
+    WELL_KNOWN_FRAME_ENCODING_PROTOBUF = 3;
+    WELL_KNOWN_FRAME_ENCODING_FLATBUFFER = 4;
+    WELL_KNOWN_FRAME_ENCODING_CBOR = 5;
+    WELL_KNOWN_FRAME_ENCODING_MSGPACK = 6;
+    WELL_KNOWN_FRAME_ENCODING_JSON = 7;
+  }
+
+  oneof encoding {
+    WellKnownFrameEncoding well_known = 1;
+    // Identifier of a custom encoding not covered by the well-known cases.
+    // This must be non-empty and no longer than 25 characters.
+    string custom = 2;
+  }
 }
 
 // Uniquely identifies a data track schema.
@@ -286,7 +306,7 @@ message DataTrackSchemaId {
   // Name component of the schema identifier.
   required string name = 1;
   // Encoding of the schema definition.
-  required DataTrackSchemaEncoding encoding = 2;
+  optional DataTrackSchemaEncoding encoding = 2;
 }
 
 // Define (store) a schema definition for the local participant.

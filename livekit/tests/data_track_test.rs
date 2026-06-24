@@ -174,17 +174,17 @@ async fn test_publish_with_schema_and_frame_encoding() -> Result<()> {
 
     let options = DataTrackOptions::new("my_track")
         .with_schema(schema_id.clone())
-        .with_frame_encoding(frame_encoding);
+        .with_frame_encoding(frame_encoding.clone());
 
     let local_track = pub_room.local_participant().publish_data_track(options).await?;
     assert_eq!(local_track.info().schema(), Some(&schema_id));
-    assert_eq!(local_track.info().frame_encoding(), Some(frame_encoding));
+    assert_eq!(local_track.info().frame_encoding(), Some(&frame_encoding));
 
     // The subscriber should observe the same schema and frame encoding metadata.
     let remote_track =
         timeout(Duration::from_secs(5), wait_for_remote_track(&mut sub_room_event_rx)).await??;
     assert_eq!(remote_track.info().schema(), Some(&schema_id));
-    assert_eq!(remote_track.info().frame_encoding(), Some(frame_encoding));
+    assert_eq!(remote_track.info().frame_encoding(), Some(&frame_encoding));
 
     Ok(())
 }
