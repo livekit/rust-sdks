@@ -59,11 +59,15 @@ constexpr size_t kTrailerEnvelopeSize = 5;
 // TLV element overhead: [tag: 1B] [len: 1B] = 2 bytes before value.
 // All TLV bytes (tag, len, value) are XORed with 0xFF.
 
-// TLV tag IDs
-constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian uint64
-constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32
-constexpr uint8_t kTagUserData = 0x03;     // value: arbitrary bytes, bounded
-                                           // by the remaining trailer budget
+// TLV tag IDs. Every field is optional: a TLV is emitted only when its
+// value is set, so a trailer may carry any subset of the features.
+constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian uint64,
+                                           // omitted when timestamp is unset (0)
+constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32,
+                                           // omitted when frame_id is unset (0)
+constexpr uint8_t kTagUserData = 0x03;     // value: arbitrary bytes, omitted
+                                           // when empty; bounded by the
+                                           // remaining trailer budget
                                            // (255 - fixed TLVs - envelope - 2)
 
 constexpr size_t kTimestampTlvSize = 10;  // tag + len + 8-byte value
@@ -76,10 +80,12 @@ constexpr size_t kUserDataTlvHeaderSize = 2;  // tag + len, before value bytes
 // AppendTrailer), never truncated.
 constexpr size_t kPacketTrailerMaxTotal = 255;
 
-// Fixed-feature trailer size varies because frame_id is omitted when it is
-// unset (0). user_data is variable-length and accounted for separately.
+// Fixed-feature trailer size varies because each TLV is omitted when its
+// field is unset. The minimum non-empty trailer carries a single feature
+// (the smallest being frame_id); when no field is set, no trailer is
+// emitted at all. user_data is variable-length and accounted for separately.
 constexpr size_t kPacketTrailerMinSize =
-    kTimestampTlvSize + kTrailerEnvelopeSize;
+    kFrameIdTlvSize + kTrailerEnvelopeSize;
 constexpr size_t kPacketTrailerMaxSize =
     kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 

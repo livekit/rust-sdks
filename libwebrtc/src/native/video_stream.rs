@@ -118,7 +118,7 @@ impl VideoTrackObserver {
                 })
             })
             .map(|(ts, fid, user_data)| FrameMetadata {
-                user_timestamp: Some(ts),
+                user_timestamp: if ts != 0 { Some(ts) } else { None },
                 frame_id: if fid != 0 { Some(fid) } else { None },
                 user_data: if user_data.is_empty() { None } else { Some(user_data) },
             })

@@ -41,16 +41,20 @@ uint64_t CurrentUnixTimeMicros() {
 std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
                                          uint32_t frame_id,
                                          const std::vector<uint8_t>& user_data) {
+  // Every metadata field is optional. A field is embedded only when it is
+  // set (timestamp/frame_id != 0, user_data non-empty), so a frame can
+  // carry any subset -- or none -- of the features.
+  const bool has_timestamp = user_timestamp != 0;
   const bool has_frame_id = frame_id != 0;
-  const size_t fixed_len = kTimestampTlvSize +
+  const size_t fixed_len = (has_timestamp ? kTimestampTlvSize : 0) +
                            (has_frame_id ? kFrameIdTlvSize : 0) +
                            kTrailerEnvelopeSize;
 
   // user_data is embedded only if it fits the remaining trailer budget.
   // The whole trailer length is a single byte (255 max), so after the
-  // always-present timestamp TLV, the optional frame_id TLV, the envelope
-  // and this TLV's own 2-byte header, the value can never approach 255 --
-  // the real cap is (255 - fixed_len - 2), at most ~238 bytes. Oversize
+  // optional timestamp TLV, the optional frame_id TLV, the envelope and
+  // this TLV's own 2-byte header, the value can never approach 255 -- the
+  // real cap is (255 - fixed_len - 2), at most ~248 bytes. Oversize
   // user_data is dropped + logged rather than truncated, so the frame is
   // never silently corrupted. (This bound is always < 256, so the 1-byte
   // TLV length field below can't overflow.)
@@ -67,6 +71,13 @@ std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
         << " bytes)";
   }
 
+  // Nothing embeddable -> no trailer at all. Returning empty (no envelope)
+  // lets AppendTrailer leave the frame untouched, so the receiver never
+  // sees an unparseable envelope-only trailer it can't strip.
+  if (!has_timestamp && !has_frame_id && !embed_user_data) {
+    return {};
+  }
+
   const size_t trailer_len =
       fixed_len +
       (embed_user_data ? kUserDataTlvHeaderSize + user_data.size() : 0);
@@ -75,11 +86,13 @@ std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
 
   // All TLV bytes are XORed with 0xFF to prevent H.264 NAL start code
   // sequences (0x000001 / 0x00000001) from appearing inside the trailer.
-  trailer.push_back(kTagTimestampUs ^ 0xFF);
-  trailer.push_back(8 ^ 0xFF);
-  for (int i = 7; i >= 0; --i) {
-    trailer.push_back(
-        static_cast<uint8_t>(((user_timestamp >> (i * 8)) & 0xFF) ^ 0xFF));
+  if (has_timestamp) {
+    trailer.push_back(kTagTimestampUs ^ 0xFF);
+    trailer.push_back(8 ^ 0xFF);
+    for (int i = 7; i >= 0; --i) {
+      trailer.push_back(
+          static_cast<uint8_t>(((user_timestamp >> (i * 8)) & 0xFF) ^ 0xFF));
+    }
   }
 
   if (has_frame_id) {
@@ -224,8 +237,9 @@ void PacketTrailerTransformer::TransformSend(
   emit_publish_timing(VideoPublishTimingStage::EncoderOutput,
                       meta_to_embed.user_timestamp, meta_to_embed.frame_id);
 
-  // Always append trailer when enabled (even if timestamp is 0,
-  // which indicates no metadata was set for this frame)
+  // Append a trailer only when at least one metadata field is set;
+  // AppendTrailer returns the data unchanged when there is nothing to
+  // embed, so frames without metadata are forwarded as-is.
   std::vector<uint8_t> new_data;
   if (enabled_.load()) {
     new_data = AppendTrailer(data, meta_to_embed.user_timestamp,
@@ -377,6 +391,12 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
     bool is_av1) {
   std::vector<uint8_t> trailer =
       BuildTrailerPayload(user_timestamp, frame_id, user_data);
+
+  // No embeddable metadata -> leave the frame data untouched so the
+  // receiver never encounters an envelope-only trailer it can't strip.
+  if (trailer.empty()) {
+    return std::vector<uint8_t>(data.begin(), data.end());
+  }
 
   if (is_av1) {
     return av1::InsertTrailerObu(data, trailer);

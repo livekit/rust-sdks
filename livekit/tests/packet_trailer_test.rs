@@ -163,12 +163,13 @@ async fn test_user_data_vp8_e2ee() -> Result<()> {
 }
 
 /// user_data that exceeds the remaining trailer budget must be dropped on the
-/// send side (skip + warn), not truncated. The timestamp TLV is always present
-/// so frames still carry metadata; user_data should simply be absent.
+/// send side (skip + warn), not truncated. A timestamp is attached so frames
+/// still carry a trailer after the oversize user_data is dropped; user_data
+/// should simply be absent.
 #[test_log::test(tokio::test)]
 async fn test_user_data_oversize_dropped_vp8() -> Result<()> {
     run_packet_trailer_test(PacketTrailerTestParams {
-        attach_timestamp: false,
+        attach_timestamp: true,
         attach_frame_id: false,
         user_data: Some(vec![0xAB; 250]),
         expect_user_data: None,
