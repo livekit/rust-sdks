@@ -139,6 +139,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.38 (2026-06-23)
+
+### Fixes
+
+- Upgrade protocol to v1.48.0
+
 ## 0.3.37 (2026-06-17)
 
 ### Features

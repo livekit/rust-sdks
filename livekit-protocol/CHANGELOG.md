@@ -62,6 +62,13 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.7.9 (2026-06-23)
+
+### Features
+
+- Rename user facing APIs for Packet Trailer to Frame Metadata.
+- Upgrade protocol to v1.48.0
+
 ## 0.7.8 (2026-05-29)
 
 ### Fixes
