@@ -108,14 +108,15 @@ pub enum DataTrackSchemaEncoding {
     ///
     /// [`Json`]: DataTrackFrameEncoding::Json
     JsonSchema,
-    /// A custom encoding identified by the contained string.
+
+    /// Another well-known encoding not known to this client version.
+    Other,
+    /// An application-specific encoding identified by the contained string.
     ///
-    /// Escape hatch for encodings outside the well-known set. The identifier
-    /// must be non-empty and no longer than 25 characters.
+    /// Prefer using one of the well-known encodings unless the format is not enumerated.
+    /// The identifier must be non-empty and no longer than 25 characters.
     ///
     Custom(String),
-    /// Another encoding not known to this client version.
-    Other,
 }
 
 /// Encoding used for frames pushed on a data track.
@@ -155,14 +156,15 @@ pub enum DataTrackFrameEncoding {
     ///
     /// [`JsonSchema`]: DataTrackSchemaEncoding::JsonSchema
     Json,
-    /// A custom encoding identified by the contained string.
+
+    /// Another well-known encoding not known to this client version.
+    Other,
+    /// An application-specific encoding identified by the contained string.
     ///
-    /// Escape hatch for encodings outside the well-known set. The identifier
-    /// must be non-empty and no longer than 25 characters.
+    /// Prefer using one of the well-known encodings unless the format is not enumerated.
+    /// The identifier must be non-empty and no longer than 25 characters.
     ///
     Custom(String),
-    /// Another encoding not known to this client version.
-    Other,
 }
 
 impl From<proto::DataTrackSchemaId> for DataTrackSchemaId {
@@ -252,7 +254,8 @@ impl From<DataTrackFrameEncoding> for proto::DataTrackFrameEncoding {
             DataTrackFrameEncoding::Json => Value::WellKnown(WellKnown::Json as i32),
             DataTrackFrameEncoding::Custom(name) => Value::Custom(name),
             DataTrackFrameEncoding::Other => Value::WellKnown(WellKnown::Unspecified as i32),
-        }.into();
+        }
+        .into();
         Self { value }
     }
 }
