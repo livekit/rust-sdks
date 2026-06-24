@@ -637,11 +637,163 @@ pub struct DataTrackInfo {
     #[prost(enumeration="encryption::Type", tag="4")]
     pub encryption: i32,
     /// Encoding for frame payloads on this track. If unspecified, the track is untyped.
-    #[prost(enumeration="DataTrackFrameEncoding", optional, tag="5")]
-    pub frame_encoding: ::core::option::Option<i32>,
+    #[prost(message, optional, tag="5")]
+    pub frame_encoding: ::core::option::Option<DataTrackFrameEncoding>,
     /// ID of the schema used by frames on this track if the track is typed.
     #[prost(message, optional, tag="6")]
     pub schema: ::core::option::Option<DataTrackSchemaId>,
+}
+/// Encoding for frame payloads.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataTrackFrameEncoding {
+    #[prost(oneof="data_track_frame_encoding::Encoding", tags="1, 2")]
+    pub encoding: ::core::option::Option<data_track_frame_encoding::Encoding>,
+}
+/// Nested message and enum types in `DataTrackFrameEncoding`.
+pub mod data_track_frame_encoding {
+    /// Well-known encoding for frame payloads.
+    ///
+    /// Mirrors the well-known message encodings from the MCAP spec:
+    /// <https://mcap.dev/spec/registry#message-encodings>
+    ///
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum WellKnownFrameEncoding {
+        Unspecified = 0,
+        /// ROS 1: must be described by `ROS1_MSG` schema encoding.
+        Ros1 = 1,
+        /// CDR: must be described by `ROS2_MSG`, `ROS2_IDL`, or `OMG_IDL` schema encoding.
+        Cdr = 2,
+        /// Protocol Buffer: must be described by `PROTOBUF` schema encoding.
+        Protobuf = 3,
+        /// FlatBuffer: must be described by `FLATBUFFER` schema encoding.
+        Flatbuffer = 4,
+        /// CBOR: self-describing.
+        Cbor = 5,
+        /// MessagePack: self-describing.
+        Msgpack = 6,
+        /// JSON: self-describing or described by `JSON_SCHEMA` schema encoding.
+        Json = 7,
+    }
+    impl WellKnownFrameEncoding {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                WellKnownFrameEncoding::Unspecified => "WELL_KNOWN_FRAME_ENCODING_UNSPECIFIED",
+                WellKnownFrameEncoding::Ros1 => "WELL_KNOWN_FRAME_ENCODING_ROS1",
+                WellKnownFrameEncoding::Cdr => "WELL_KNOWN_FRAME_ENCODING_CDR",
+                WellKnownFrameEncoding::Protobuf => "WELL_KNOWN_FRAME_ENCODING_PROTOBUF",
+                WellKnownFrameEncoding::Flatbuffer => "WELL_KNOWN_FRAME_ENCODING_FLATBUFFER",
+                WellKnownFrameEncoding::Cbor => "WELL_KNOWN_FRAME_ENCODING_CBOR",
+                WellKnownFrameEncoding::Msgpack => "WELL_KNOWN_FRAME_ENCODING_MSGPACK",
+                WellKnownFrameEncoding::Json => "WELL_KNOWN_FRAME_ENCODING_JSON",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "WELL_KNOWN_FRAME_ENCODING_UNSPECIFIED" => Some(Self::Unspecified),
+                "WELL_KNOWN_FRAME_ENCODING_ROS1" => Some(Self::Ros1),
+                "WELL_KNOWN_FRAME_ENCODING_CDR" => Some(Self::Cdr),
+                "WELL_KNOWN_FRAME_ENCODING_PROTOBUF" => Some(Self::Protobuf),
+                "WELL_KNOWN_FRAME_ENCODING_FLATBUFFER" => Some(Self::Flatbuffer),
+                "WELL_KNOWN_FRAME_ENCODING_CBOR" => Some(Self::Cbor),
+                "WELL_KNOWN_FRAME_ENCODING_MSGPACK" => Some(Self::Msgpack),
+                "WELL_KNOWN_FRAME_ENCODING_JSON" => Some(Self::Json),
+                _ => None,
+            }
+        }
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Encoding {
+        #[prost(enumeration="WellKnownFrameEncoding", tag="1")]
+        WellKnown(i32),
+        /// Identifier of a custom encoding not covered by the well-known cases.
+        /// This must be non-empty and no longer than 25 characters.
+        #[prost(string, tag="2")]
+        Custom(::prost::alloc::string::String),
+    }
+}
+/// Encoding for schema definition.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataTrackSchemaEncoding {
+    #[prost(oneof="data_track_schema_encoding::Encoding", tags="1, 2")]
+    pub encoding: ::core::option::Option<data_track_schema_encoding::Encoding>,
+}
+/// Nested message and enum types in `DataTrackSchemaEncoding`.
+pub mod data_track_schema_encoding {
+    /// Well-known encoding for schema definition.
+    ///
+    /// Mirrors the well-known schema encodings from the MCAP spec:
+    /// <https://mcap.dev/spec/registry#schema-encodings>
+    ///
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum WellKnownSchemaEncoding {
+        Unspecified = 0,
+        /// Protocol Buffer IDL: describes `PROTOBUF` frame encoding.
+        Protobuf = 1,
+        /// FlatBuffer IDL: describes `FLATBUFFER` frame encoding.
+        Flatbuffer = 2,
+        /// ROS 1 Message: describes `ROS1` frame encoding.
+        Ros1Msg = 3,
+        /// ROS 2 Message: describes `CDR` frame encoding.
+        Ros2Msg = 4,
+        /// ROS 2 IDL: describes `CDR` frame encoding.
+        Ros2Idl = 5,
+        /// OMG IDL: describes `CDR` frame encoding.
+        OmgIdl = 6,
+        /// JSON Schema: describes `JSON` frame encoding.
+        JsonSchema = 7,
+    }
+    impl WellKnownSchemaEncoding {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                WellKnownSchemaEncoding::Unspecified => "WELL_KNOWN_SCHEMA_ENCODING_UNSPECIFIED",
+                WellKnownSchemaEncoding::Protobuf => "WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF",
+                WellKnownSchemaEncoding::Flatbuffer => "WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER",
+                WellKnownSchemaEncoding::Ros1Msg => "WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG",
+                WellKnownSchemaEncoding::Ros2Msg => "WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG",
+                WellKnownSchemaEncoding::Ros2Idl => "WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL",
+                WellKnownSchemaEncoding::OmgIdl => "WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL",
+                WellKnownSchemaEncoding::JsonSchema => "WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "WELL_KNOWN_SCHEMA_ENCODING_UNSPECIFIED" => Some(Self::Unspecified),
+                "WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF" => Some(Self::Protobuf),
+                "WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER" => Some(Self::Flatbuffer),
+                "WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG" => Some(Self::Ros1Msg),
+                "WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG" => Some(Self::Ros2Msg),
+                "WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL" => Some(Self::Ros2Idl),
+                "WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL" => Some(Self::OmgIdl),
+                "WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA" => Some(Self::JsonSchema),
+                _ => None,
+            }
+        }
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Encoding {
+        #[prost(enumeration="WellKnownSchemaEncoding", tag="1")]
+        WellKnown(i32),
+        /// Identifier of a custom encoding not covered by the well-known cases.
+        /// This must be non-empty and no longer than 25 characters.
+        #[prost(string, tag="2")]
+        Custom(::prost::alloc::string::String),
+    }
 }
 /// Identifier for a data track schema.
 ///
@@ -653,8 +805,8 @@ pub struct DataTrackSchemaId {
     /// This must be non-empty and no longer than 256 characters.
     #[prost(string, tag="1")]
     pub name: ::prost::alloc::string::String,
-    #[prost(enumeration="DataTrackSchemaEncoding", tag="2")]
-    pub encoding: i32,
+    #[prost(message, optional, tag="2")]
+    pub encoding: ::core::option::Option<DataTrackSchemaEncoding>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1871,118 +2023,6 @@ impl TrackSource {
             "MICROPHONE" => Some(Self::Microphone),
             "SCREEN_SHARE" => Some(Self::ScreenShare),
             "SCREEN_SHARE_AUDIO" => Some(Self::ScreenShareAudio),
-            _ => None,
-        }
-    }
-}
-/// Encoding for frame payloads.
-///
-/// Mirrors the well-known message encodings from the MCAP spec:
-/// <https://mcap.dev/spec/registry#message-encodings>
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum DataTrackFrameEncoding {
-    Unspecified = 0,
-    /// ROS 1: must be described by `ROS1_MSG` schema encoding.
-    Ros1 = 1,
-    /// CDR: must be described by `ROS2_MSG`, `ROS2_IDL`, or `OMG_IDL` schema encoding.
-    Cdr = 2,
-    /// Protocol Buffer: must be described by `PROTOBUF` schema encoding.
-    Protobuf = 3,
-    /// FlatBuffer: must be described by `FLATBUFFER` schema encoding.
-    Flatbuffer = 4,
-    /// CBOR: self-describing.
-    Cbor = 5,
-    /// MessagePack: self-describing.
-    Msgpack = 6,
-    /// JSON: self-describing or described by `JSON_SCHEMA` schema encoding.
-    Json = 7,
-}
-impl DataTrackFrameEncoding {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            DataTrackFrameEncoding::Unspecified => "DATA_TRACK_FRAME_ENCODING_UNSPECIFIED",
-            DataTrackFrameEncoding::Ros1 => "DATA_TRACK_FRAME_ENCODING_ROS1",
-            DataTrackFrameEncoding::Cdr => "DATA_TRACK_FRAME_ENCODING_CDR",
-            DataTrackFrameEncoding::Protobuf => "DATA_TRACK_FRAME_ENCODING_PROTOBUF",
-            DataTrackFrameEncoding::Flatbuffer => "DATA_TRACK_FRAME_ENCODING_FLATBUFFER",
-            DataTrackFrameEncoding::Cbor => "DATA_TRACK_FRAME_ENCODING_CBOR",
-            DataTrackFrameEncoding::Msgpack => "DATA_TRACK_FRAME_ENCODING_MSGPACK",
-            DataTrackFrameEncoding::Json => "DATA_TRACK_FRAME_ENCODING_JSON",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "DATA_TRACK_FRAME_ENCODING_UNSPECIFIED" => Some(Self::Unspecified),
-            "DATA_TRACK_FRAME_ENCODING_ROS1" => Some(Self::Ros1),
-            "DATA_TRACK_FRAME_ENCODING_CDR" => Some(Self::Cdr),
-            "DATA_TRACK_FRAME_ENCODING_PROTOBUF" => Some(Self::Protobuf),
-            "DATA_TRACK_FRAME_ENCODING_FLATBUFFER" => Some(Self::Flatbuffer),
-            "DATA_TRACK_FRAME_ENCODING_CBOR" => Some(Self::Cbor),
-            "DATA_TRACK_FRAME_ENCODING_MSGPACK" => Some(Self::Msgpack),
-            "DATA_TRACK_FRAME_ENCODING_JSON" => Some(Self::Json),
-            _ => None,
-        }
-    }
-}
-/// Encoding for schema definitions.
-///
-/// Mirrors the well-known schema encodings from the MCAP spec:
-/// <https://mcap.dev/spec/registry#schema-encodings>
-///
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum DataTrackSchemaEncoding {
-    Unspecified = 0,
-    /// Protocol Buffer IDL: describes `PROTOBUF` frame encoding.
-    Protobuf = 1,
-    /// FlatBuffer IDL: describes `FLATBUFFER` frame encoding.
-    Flatbuffer = 2,
-    /// ROS 1 Message: describes `ROS1` frame encoding.
-    Ros1Msg = 3,
-    /// ROS 2 Message: describes `CDR` frame encoding.
-    Ros2Msg = 4,
-    /// ROS 2 IDL: describes `CDR` frame encoding.
-    Ros2Idl = 5,
-    /// OMG IDL: describes `CDR` frame encoding.
-    OmgIdl = 6,
-    /// JSON Schema: describes `JSON` frame encoding.
-    JsonSchema = 7,
-}
-impl DataTrackSchemaEncoding {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            DataTrackSchemaEncoding::Unspecified => "DATA_TRACK_SCHEMA_ENCODING_UNSPECIFIED",
-            DataTrackSchemaEncoding::Protobuf => "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF",
-            DataTrackSchemaEncoding::Flatbuffer => "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER",
-            DataTrackSchemaEncoding::Ros1Msg => "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG",
-            DataTrackSchemaEncoding::Ros2Msg => "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG",
-            DataTrackSchemaEncoding::Ros2Idl => "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL",
-            DataTrackSchemaEncoding::OmgIdl => "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL",
-            DataTrackSchemaEncoding::JsonSchema => "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "DATA_TRACK_SCHEMA_ENCODING_UNSPECIFIED" => Some(Self::Unspecified),
-            "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF" => Some(Self::Protobuf),
-            "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER" => Some(Self::Flatbuffer),
-            "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG" => Some(Self::Ros1Msg),
-            "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG" => Some(Self::Ros2Msg),
-            "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL" => Some(Self::Ros2Idl),
-            "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL" => Some(Self::OmgIdl),
-            "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA" => Some(Self::JsonSchema),
             _ => None,
         }
     }
@@ -3974,8 +4014,8 @@ pub struct PublishDataTrackRequest {
     #[prost(enumeration="encryption::Type", tag="3")]
     pub encryption: i32,
     /// Encoding for frame payloads on this track. If unspecified, the track is untyped.
-    #[prost(enumeration="DataTrackFrameEncoding", optional, tag="4")]
-    pub frame_encoding: ::core::option::Option<i32>,
+    #[prost(message, optional, tag="4")]
+    pub frame_encoding: ::core::option::Option<DataTrackFrameEncoding>,
     /// ID of the schema used by frames on this track if the track is typed.
     /// If set, the associated schema must be stored with `StoreDataBlobRequest`.
     #[prost(message, optional, tag="5")]
