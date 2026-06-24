@@ -579,7 +579,7 @@ fn nokhwa_frame_format(pixel_format: CapturePixelFormat) -> Option<FrameFormat> 
         CapturePixelFormat::Yuyv => Some(FrameFormat::YUYV),
         CapturePixelFormat::Gray => Some(FrameFormat::GRAY),
         CapturePixelFormat::Mjpeg => Some(FrameFormat::MJPEG),
-        CapturePixelFormat::I420 | CapturePixelFormat::Bgra => None,
+        CapturePixelFormat::I420 | CapturePixelFormat::Bgra | CapturePixelFormat::Uyvy => None,
     }
 }
 
@@ -592,7 +592,7 @@ fn nokhwa_frame_format(pixel_format: CapturePixelFormat) -> Option<()> {
         | CapturePixelFormat::Yuyv
         | CapturePixelFormat::Gray
         | CapturePixelFormat::Mjpeg => Some(()),
-        CapturePixelFormat::I420 | CapturePixelFormat::Bgra => None,
+        CapturePixelFormat::I420 | CapturePixelFormat::Bgra | CapturePixelFormat::Uyvy => None,
     }
 }
 

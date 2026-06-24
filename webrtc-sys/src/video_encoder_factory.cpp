@@ -166,8 +166,12 @@ bool IsSpecificHardwareBackend(VideoEncoderBackend backend) {
 bool BackendMatches(VideoEncoderBackend requested, VideoEncoderBackend actual) {
   return requested == actual ||
          (requested == VideoEncoderBackend::Hardware &&
-          actual != VideoEncoderBackend::Software &&
-          actual != VideoEncoderBackend::Auto);
+          (actual == VideoEncoderBackend::Hardware ||
+           IsSpecificHardwareBackend(actual)));
+}
+
+bool IsAutomaticFallbackBackend(VideoEncoderBackend backend) {
+  return backend != VideoEncoderBackend::PreEncoded;
 }
 
 void AddBackendFactory(
@@ -354,6 +358,9 @@ std::vector<webrtc::SdpVideoFormat>
 VideoEncoderFactory::InternalFactory::GetImplementations() const {
   std::vector<webrtc::SdpVideoFormat> formats;
   for (const auto& backend_factory : factories_) {
+    if (backend_factory.backend == VideoEncoderBackend::PreEncoded) {
+      continue;
+    }
     for (const auto& format : backend_factory.factory->GetImplementations()) {
       formats.push_back(WithBackend(format, backend_factory.backend));
       if (IsSpecificHardwareBackend(backend_factory.backend)) {
@@ -418,6 +425,9 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
   }
 
   for (const auto& backend_factory : factories_) {
+    if (!IsAutomaticFallbackBackend(backend_factory.backend)) {
+      continue;
+    }
     for (const auto& supported_format :
          backend_factory.factory->GetSupportedFormats()) {
       if (stripped_format.IsSameCodec(supported_format)) {
@@ -480,6 +490,9 @@ VideoEncoderFactory::InternalFactory::Create(
   }
 
   for (const auto& backend_factory : factories_) {
+    if (!IsAutomaticFallbackBackend(backend_factory.backend)) {
+      continue;
+    }
     for (const auto& supported_format :
          backend_factory.factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(stripped_format))

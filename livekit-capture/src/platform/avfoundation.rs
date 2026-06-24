@@ -217,6 +217,9 @@ pub enum AvFoundationError {
     /// The requested capture format is not supported by this backend.
     #[error("AVFoundation capture does not support pixel format {0:?}")]
     UnsupportedPixelFormat(CapturePixelFormat),
+    /// The requested capture format is not available on the selected device.
+    #[error("AVFoundation capture format is not available: {0:?}")]
+    UnsupportedFormat(CaptureFormat),
     /// AVFoundation could not configure the capture session.
     #[error("AVFoundation session setup failed: {0}")]
     SessionSetup(String),
@@ -435,26 +438,29 @@ mod macos {
     use dispatch2::{DispatchQueue, DispatchRetained};
     use livekit::webrtc::video_frame::{I420Buffer, VideoBuffer, VideoFrame, VideoRotation};
     use objc2::rc::Retained;
-    use objc2::runtime::ProtocolObject;
+    use objc2::runtime::{AnyObject, ProtocolObject};
     use objc2::{define_class, msg_send, AnyThread, DefinedClass, Message};
     use objc2_av_foundation::{
-        AVCaptureDevice, AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession,
-        AVCaptureSessionPreset1280x720, AVCaptureSessionPreset1920x1080,
+        AVCaptureDevice, AVCaptureDeviceFormat, AVCaptureDeviceInput, AVCaptureOutput,
+        AVCaptureSession, AVCaptureSessionPreset1280x720, AVCaptureSessionPreset1920x1080,
         AVCaptureSessionPreset640x480, AVCaptureSessionPresetHigh, AVCaptureSessionPresetMedium,
         AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaTypeVideo,
     };
-    use objc2_core_media::{CMSampleBuffer, CMTime};
+    use objc2_core_media::{CMSampleBuffer, CMTime, CMVideoFormatDescriptionGetDimensions};
     use objc2_core_video::{
-        kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA,
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
         kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8Planar,
-        kCVPixelFormatType_420YpCbCr8PlanarFullRange, kCVReturnSuccess, CVImageBuffer,
-        CVPixelBuffer, CVPixelBufferGetBaseAddress, CVPixelBufferGetBaseAddressOfPlane,
-        CVPixelBufferGetBytesPerRow, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight,
-        CVPixelBufferGetHeightOfPlane, CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount,
-        CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress,
-        CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+        kCVPixelFormatType_420YpCbCr8PlanarFullRange, kCVPixelFormatType_422YpCbCr8,
+        kCVPixelFormatType_422YpCbCr8FullRange, kCVPixelFormatType_422YpCbCr8_yuvs,
+        kCVReturnSuccess, CVImageBuffer, CVPixelBuffer, CVPixelBufferGetBaseAddress,
+        CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRow,
+        CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane,
+        CVPixelBufferGetPixelFormatType, CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth,
+        CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+        CVPixelBufferUnlockBaseAddress,
     };
-    use objc2_foundation::{NSObject, NSObjectProtocol, NSString};
+    use objc2_foundation::{NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
 
     use super::{AvFoundationCaptureOptions, AvFoundationError, AvFoundationFrame};
     use crate::device::{
@@ -503,38 +509,46 @@ mod macos {
             let shared = Arc::new(FrameQueue::default());
             let delegate = CaptureDelegate::new(shared.clone());
             let queue = DispatchQueue::new("io.livekit.capture.avfoundation", None);
+            let active_format = select_active_format(&device, &options.format)?;
 
             // SAFETY: The session is newly created and not running. We add a
             // camera input and video data output only after canAdd* checks.
             unsafe {
                 session.beginConfiguration();
-                if let Some(preset) = session_preset(&options.format) {
-                    session.setSessionPreset(preset);
+                if active_format.is_none() {
+                    if let Some(preset) = session_preset(&options.format) {
+                        session.setSessionPreset(preset);
+                    }
                 }
-                if !session.canAddInput(&input) {
-                    session.commitConfiguration();
-                    return Err(AvFoundationError::SessionSetup(
-                        "capture device input could not be added".to_string(),
-                    ));
-                }
-                session.addInput(&input);
+                let config_result = (|| {
+                    if !session.canAddInput(&input) {
+                        return Err(AvFoundationError::SessionSetup(
+                            "capture device input could not be added".to_string(),
+                        ));
+                    }
+                    session.addInput(&input);
 
-                output.setAlwaysDiscardsLateVideoFrames(true);
-                output.setSampleBufferDelegate_queue(
-                    Some(ProtocolObject::from_ref(&*delegate)),
-                    Some(&queue),
-                );
-                if !session.canAddOutput(&output) {
-                    session.commitConfiguration();
-                    return Err(AvFoundationError::SessionSetup(
-                        "video data output could not be added".to_string(),
-                    ));
-                }
-                session.addOutput(&output);
+                    configure_device(&device, &options.format, active_format.as_deref())?;
+
+                    if let Some(video_settings) = preferred_video_settings(&output) {
+                        output.setVideoSettings(Some(&video_settings));
+                    }
+                    output.setAlwaysDiscardsLateVideoFrames(true);
+                    output.setSampleBufferDelegate_queue(
+                        Some(ProtocolObject::from_ref(&*delegate)),
+                        Some(&queue),
+                    );
+                    if !session.canAddOutput(&output) {
+                        return Err(AvFoundationError::SessionSetup(
+                            "video data output could not be added".to_string(),
+                        ));
+                    }
+                    session.addOutput(&output);
+                    Ok(())
+                })();
                 session.commitConfiguration();
+                config_result?;
             }
-
-            configure_device(&device, &options.format)?;
 
             // SAFETY: Configuration has been committed and the session is ready
             // to synchronously start delivering video samples.
@@ -555,6 +569,28 @@ mod macos {
         pub(super) fn capture_frame(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
             self.shared.take_frame()
         }
+    }
+
+    fn preferred_video_settings(
+        output: &AVCaptureVideoDataOutput,
+    ) -> Option<Retained<NSDictionary<NSString, AnyObject>>> {
+        let preferred = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+        // SAFETY: `output` is a live AVCaptureVideoDataOutput owned by the session setup path, and
+        // querying advertised CV pixel formats does not mutate Rust-managed memory.
+        let supported = unsafe { output.availableVideoCVPixelFormatTypes() }
+            .iter()
+            .any(|format| format.as_u32() == preferred);
+        if !supported {
+            return None;
+        }
+
+        let pixel_format = NSNumber::new_u32(preferred);
+        // SAFETY: `kCVPixelBufferPixelFormatTypeKey` is a CoreVideo-provided
+        // immutable CFString constant. `CFString` and `NSString` are toll-free
+        // bridged, which objc2-foundation exposes through `AsRef<NSString>`.
+        let key: &NSString = unsafe { kCVPixelBufferPixelFormatTypeKey }.as_ref();
+        let value: &AnyObject = pixel_format.as_ref();
+        Some(NSDictionary::from_slices(&[key], &[value]))
     }
 
     #[derive(Debug)]
@@ -722,26 +758,225 @@ mod macos {
         }
     }
 
+    fn select_active_format(
+        device: &AVCaptureDevice,
+        request: &CaptureFormatRequest,
+    ) -> Result<Option<Retained<AVCaptureDeviceFormat>>, AvFoundationError> {
+        match request {
+            CaptureFormatRequest::Default => Ok(None),
+            CaptureFormatRequest::Exact(format) => {
+                let selected = best_device_format(
+                    device,
+                    Some(format.resolution),
+                    Some(format.frame_rate),
+                    SelectionMode::Exact,
+                );
+                selected.map(Some).ok_or(AvFoundationError::UnsupportedFormat(*format))
+            }
+            CaptureFormatRequest::Closest(format) => Ok(best_device_format(
+                device,
+                Some(format.resolution),
+                Some(format.frame_rate),
+                SelectionMode::Closest,
+            )),
+            CaptureFormatRequest::HighestFrameRate { resolution, .. } => {
+                Ok(best_device_format(device, *resolution, None, SelectionMode::HighestFrameRate))
+            }
+            CaptureFormatRequest::HighestResolution { frame_rate, .. } => {
+                Ok(best_device_format(device, None, *frame_rate, SelectionMode::HighestResolution))
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum SelectionMode {
+        Exact,
+        Closest,
+        HighestFrameRate,
+        HighestResolution,
+    }
+
+    #[derive(Debug)]
+    struct DeviceFormatCandidate {
+        format: Retained<AVCaptureDeviceFormat>,
+        resolution: CaptureResolution,
+        frame_rate_supported: bool,
+        max_frame_rate: u32,
+    }
+
+    fn best_device_format(
+        device: &AVCaptureDevice,
+        resolution: Option<CaptureResolution>,
+        frame_rate: Option<u32>,
+        mode: SelectionMode,
+    ) -> Option<Retained<AVCaptureDeviceFormat>> {
+        // SAFETY: The AVCaptureDevice is retained for the session setup path; querying the
+        // immutable list of supported formats does not mutate Rust-managed memory.
+        let formats = unsafe { device.formats() };
+        let mut candidates = formats
+            .iter()
+            .filter_map(|format| {
+                let candidate_resolution = device_format_resolution(&format)?;
+                let frame_rate_supported = frame_rate
+                    .map(|frame_rate| device_format_supports_frame_rate(&format, frame_rate))
+                    .unwrap_or(true);
+                Some(DeviceFormatCandidate {
+                    format: format.retain(),
+                    resolution: candidate_resolution,
+                    frame_rate_supported,
+                    max_frame_rate: device_format_max_frame_rate(&format),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(resolution) = resolution {
+            if mode == SelectionMode::Exact {
+                return candidates
+                    .into_iter()
+                    .find(|candidate| {
+                        candidate.resolution == resolution && candidate.frame_rate_supported
+                    })
+                    .map(|candidate| candidate.format);
+            }
+        }
+
+        if frame_rate.is_some() && candidates.iter().any(|candidate| candidate.frame_rate_supported)
+        {
+            candidates.retain(|candidate| candidate.frame_rate_supported);
+        }
+
+        match mode {
+            SelectionMode::Exact => None,
+            SelectionMode::Closest => {
+                let resolution = resolution?;
+                candidates
+                    .into_iter()
+                    .min_by_key(|candidate| resolution_distance(candidate.resolution, resolution))
+                    .map(|candidate| candidate.format)
+            }
+            SelectionMode::HighestFrameRate => candidates
+                .into_iter()
+                .filter(|candidate| {
+                    resolution.map(|resolution| candidate.resolution == resolution).unwrap_or(true)
+                })
+                .max_by_key(|candidate| {
+                    (
+                        candidate.max_frame_rate,
+                        candidate.resolution.width as u64 * candidate.resolution.height as u64,
+                    )
+                })
+                .map(|candidate| candidate.format),
+            SelectionMode::HighestResolution => candidates
+                .into_iter()
+                .max_by_key(|candidate| {
+                    (
+                        candidate.resolution.width as u64 * candidate.resolution.height as u64,
+                        candidate.max_frame_rate,
+                    )
+                })
+                .map(|candidate| candidate.format),
+        }
+    }
+
+    fn device_format_resolution(format: &AVCaptureDeviceFormat) -> Option<CaptureResolution> {
+        // SAFETY: `format` is an AVCaptureDeviceFormat from the device's immutable formats array.
+        // Its format description is a valid CMVideoFormatDescription for video capture formats.
+        let description = unsafe { format.formatDescription() };
+        // SAFETY: `description` is the video format description returned by AVFoundation.
+        let dimensions = unsafe { CMVideoFormatDescriptionGetDimensions(&description) };
+        if dimensions.width <= 0 || dimensions.height <= 0 {
+            return None;
+        }
+        Some(CaptureResolution::new(dimensions.width as u32, dimensions.height as u32))
+    }
+
+    fn device_format_supports_frame_rate(format: &AVCaptureDeviceFormat, frame_rate: u32) -> bool {
+        let requested = frame_rate as f64;
+        // SAFETY: `format` is an AVCaptureDeviceFormat from the device's immutable formats array.
+        // The returned frame-rate ranges are immutable AVFoundation objects.
+        unsafe { format.videoSupportedFrameRateRanges() }.iter().any(|range| {
+            // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
+            let min = unsafe { range.minFrameRate() };
+            // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
+            let max = unsafe { range.maxFrameRate() };
+            requested >= min.floor() && requested <= max.ceil()
+        })
+    }
+
+    fn device_format_max_frame_rate(format: &AVCaptureDeviceFormat) -> u32 {
+        // SAFETY: `format` is an AVCaptureDeviceFormat from the device's immutable formats array.
+        // The returned frame-rate ranges are immutable AVFoundation objects.
+        unsafe { format.videoSupportedFrameRateRanges() }
+            .iter()
+            .map(|range| {
+                // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
+                unsafe { range.maxFrameRate() }.floor().max(0.0) as u32
+            })
+            .max()
+            .unwrap_or_default()
+    }
+
+    fn resolution_distance(actual: CaptureResolution, requested: CaptureResolution) -> u64 {
+        let width_delta = actual.width.abs_diff(requested.width) as u64;
+        let height_delta = actual.height.abs_diff(requested.height) as u64;
+        let pixel_delta = (actual.width as u64 * actual.height as u64)
+            .abs_diff(requested.width as u64 * requested.height as u64);
+        pixel_delta + width_delta * width_delta + height_delta * height_delta
+    }
+
     fn configure_device(
         device: &AVCaptureDevice,
         request: &CaptureFormatRequest,
+        active_format: Option<&AVCaptureDeviceFormat>,
     ) -> Result<(), AvFoundationError> {
-        let Some(frame_rate) = requested_frame_rate(request) else {
-            return Ok(());
-        };
-        if frame_rate == 0 {
+        let frame_rate = requested_frame_rate(request);
+        if active_format.is_none() && frame_rate.is_none() {
             return Ok(());
         }
 
         unsafe { device.lockForConfiguration() }.map_err(|err| {
             AvFoundationError::SessionSetup(err.localizedDescription().to_string())
         })?;
+
+        let configure_result = configure_locked_device(device, active_format, frame_rate);
+        // SAFETY: The device was successfully locked above and must be unlocked exactly once.
+        unsafe {
+            device.unlockForConfiguration();
+        }
+        configure_result
+    }
+
+    fn configure_locked_device(
+        device: &AVCaptureDevice,
+        active_format: Option<&AVCaptureDeviceFormat>,
+        frame_rate: Option<u32>,
+    ) -> Result<(), AvFoundationError> {
+        // SAFETY: The caller holds the AVCaptureDevice configuration lock, and `active_format`
+        // was selected from this device's formats array.
+        unsafe {
+            if let Some(active_format) = active_format {
+                device.setActiveFormat(active_format);
+            }
+        }
+
+        let Some(frame_rate) = frame_rate.filter(|frame_rate| *frame_rate > 0) else {
+            return Ok(());
+        };
+
+        let active_format = match active_format {
+            Some(active_format) => active_format.retain(),
+            // SAFETY: The caller holds the configuration lock, and reading activeFormat is valid.
+            None => unsafe { device.activeFormat() },
+        };
+        if !device_format_supports_frame_rate(&active_format, frame_rate) {
+            return Ok(());
+        }
+
         let duration = unsafe { CMTime::with_seconds(1.0 / frame_rate as f64, 600) };
         // SAFETY: The device is locked for configuration and the CMTime value is finite.
         unsafe {
             device.setActiveVideoMinFrameDuration(duration);
             device.setActiveVideoMaxFrameDuration(duration);
-            device.unlockForConfiguration();
         }
         Ok(())
     }
@@ -863,6 +1098,17 @@ mod macos {
                 convert_i420(pixel_buffer, width, height)
                     .map(|buffer| (buffer, CapturePixelFormat::I420))
             }
+            format if format == kCVPixelFormatType_422YpCbCr8 => {
+                convert_uyvy(pixel_buffer, width, height)
+                    .map(|buffer| (buffer, CapturePixelFormat::Uyvy))
+            }
+            format
+                if format == kCVPixelFormatType_422YpCbCr8_yuvs
+                    || format == kCVPixelFormatType_422YpCbCr8FullRange =>
+            {
+                convert_yuy2(pixel_buffer, width, height)
+                    .map(|buffer| (buffer, CapturePixelFormat::Yuyv))
+            }
             other => Err(AvFoundationError::UnsupportedCoreVideoPixelFormat(other)),
         }
     }
@@ -928,6 +1174,70 @@ mod macos {
         };
         if ret != 0 {
             return Err(AvFoundationError::Convert("BGRAToI420 failed"));
+        }
+        Ok(buffer)
+    }
+
+    fn convert_uyvy(
+        pixel_buffer: &CVPixelBuffer,
+        width: u32,
+        height: u32,
+    ) -> Result<I420Buffer, AvFoundationError> {
+        let uyvy = packed_plane(pixel_buffer, 2)?;
+        let mut buffer = I420Buffer::new(width, height);
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (dst_y, dst_u, dst_v) = buffer.data_mut();
+        // SAFETY: The source slice covers the locked CVPixelBuffer plane for the duration of this
+        // call, and the destination planes come from a freshly allocated I420Buffer with matching
+        // width, height, and strides.
+        let ret = unsafe {
+            yuv_sys::rs_UYVYToI420(
+                uyvy.data.as_ptr(),
+                uyvy.stride as i32,
+                dst_y.as_mut_ptr(),
+                stride_y as i32,
+                dst_u.as_mut_ptr(),
+                stride_u as i32,
+                dst_v.as_mut_ptr(),
+                stride_v as i32,
+                width as i32,
+                height as i32,
+            )
+        };
+        if ret != 0 {
+            return Err(AvFoundationError::Convert("UYVYToI420 failed"));
+        }
+        Ok(buffer)
+    }
+
+    fn convert_yuy2(
+        pixel_buffer: &CVPixelBuffer,
+        width: u32,
+        height: u32,
+    ) -> Result<I420Buffer, AvFoundationError> {
+        let yuy2 = packed_plane(pixel_buffer, 2)?;
+        let mut buffer = I420Buffer::new(width, height);
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (dst_y, dst_u, dst_v) = buffer.data_mut();
+        // SAFETY: The source slice covers the locked CVPixelBuffer plane for the duration of this
+        // call, and the destination planes come from a freshly allocated I420Buffer with matching
+        // width, height, and strides.
+        let ret = unsafe {
+            yuv_sys::rs_YUY2ToI420(
+                yuy2.data.as_ptr(),
+                yuy2.stride as i32,
+                dst_y.as_mut_ptr(),
+                stride_y as i32,
+                dst_u.as_mut_ptr(),
+                stride_u as i32,
+                dst_v.as_mut_ptr(),
+                stride_v as i32,
+                width as i32,
+                height as i32,
+            )
+        };
+        if ret != 0 {
+            return Err(AvFoundationError::Convert("YUY2ToI420 failed"));
         }
         Ok(buffer)
     }

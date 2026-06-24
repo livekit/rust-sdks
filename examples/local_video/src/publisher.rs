@@ -151,6 +151,7 @@ fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
         VideoEncoderBackend::Nvenc => "nvenc",
         VideoEncoderBackend::Vaapi => "vaapi",
         VideoEncoderBackend::VideoToolbox => "videotoolbox",
+        VideoEncoderBackend::PreEncoded => "preencoded",
         _ => "unknown",
     }
 }

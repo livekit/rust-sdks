@@ -34,6 +34,7 @@ avfoundation = [
     "objc2-av-foundation/AVVideoSettings",
     "objc2-av-foundation/dispatch2",
     "objc2-av-foundation/objc2-core-media",
+    "objc2-core-media/CMFormatDescription",
     "objc2-core-media/CMTime",
     "objc2-core-media/CMSampleBuffer",
     "objc2-core-media/objc2-core-video",
@@ -46,7 +47,9 @@ avfoundation = [
     "objc2-foundation/NSDictionary",
     "objc2-foundation/NSError",
     "objc2-foundation/NSObject",
+    "objc2-foundation/NSValue",
     "objc2-foundation/NSString",
+    "objc2-foundation/objc2-core-foundation",
 ]
 gstreamer = []
 libargus = []
