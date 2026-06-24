@@ -81,6 +81,15 @@ export declare enum SimulateScenarioKind {
    * @generated from enum value: SIMULATE_FULL_RECONNECT = 7;
    */
   SIMULATE_FULL_RECONNECT = 7,
+
+  /**
+   * Asks the server to drop the signalling connection during the next resume,
+   * then triggers a resume locally. The resume cannot complete, so the engine
+   * escalates to a full reconnect — exercising the resume→full escalation path.
+   *
+   * @generated from enum value: SIMULATE_DISCONNECT_SIGNAL_ON_RESUME = 8;
+   */
+  SIMULATE_DISCONNECT_SIGNAL_ON_RESUME = 8,
 }
 
 /**

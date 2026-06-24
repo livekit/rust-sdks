@@ -178,6 +178,33 @@ async fn test_user_data_oversize_dropped_vp8() -> Result<()> {
     .await
 }
 
+#[test_log::test(tokio::test)]
+async fn test_timestamp_and_frame_id_av1() -> Result<()> {
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: true,
+        user_data: None,
+        expect_user_data: None,
+        e2ee: false,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_user_data_with_timestamp_and_frame_id_av1() -> Result<()> {
+    let payload = b"all-three-features".to_vec();
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: true,
+        user_data: Some(payload.clone()),
+        expect_user_data: Some(payload),
+        e2ee: false,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
 // ==================== Implementation ====================
 
 /// Publishes solid-color video frames with packet trailer metadata (user_timestamp

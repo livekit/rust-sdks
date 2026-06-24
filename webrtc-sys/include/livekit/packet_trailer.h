@@ -90,6 +90,14 @@ struct PacketTrailerMetadata {
   std::vector<uint8_t> user_data;  // arbitrary app-supplied bytes (PTF_USER_DATA)
 };
 
+/// Parses a trailer payload (TLV region followed by the trailer envelope) and
+/// returns the embedded metadata, or `std::nullopt` if the payload is missing
+/// the magic envelope or contains no recognized TLV elements.
+///
+/// Shared by the codec-agnostic trailer path and the AV1 OBU path.
+std::optional<PacketTrailerMetadata> ParseTrailerPayload(
+    webrtc::ArrayView<const uint8_t> trailer);
+
 /// Frame transformer that appends/extracts packet trailers.
 /// This transformer can be used standalone or in conjunction with e2ee.
 ///
@@ -182,12 +190,14 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
       webrtc::ArrayView<const uint8_t> data,
       uint64_t user_timestamp,
       uint32_t frame_id,
-      const std::vector<uint8_t>& user_data);
+      const std::vector<uint8_t>& user_data,
+      bool is_av1);
 
   /// Extract and remove frame metadata trailer from frame data
   std::optional<PacketTrailerMetadata> ExtractTrailer(
       webrtc::ArrayView<const uint8_t> data,
-      std::vector<uint8_t>& out_data);
+      std::vector<uint8_t>& out_data,
+      bool is_av1);
 
   const Direction direction_;
   std::atomic<bool> enabled_{true};

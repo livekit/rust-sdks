@@ -49,6 +49,7 @@ const SimulateScenarioKind = /*@__PURE__*/ proto2.makeEnum(
     {no: 5, name: "SIMULATE_FORCE_TCP"},
     {no: 6, name: "SIMULATE_FORCE_TLS"},
     {no: 7, name: "SIMULATE_FULL_RECONNECT"},
+    {no: 8, name: "SIMULATE_DISCONNECT_SIGNAL_ON_RESUME"},
   ],
 );
 
