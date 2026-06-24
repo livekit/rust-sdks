@@ -441,7 +441,6 @@ rule ServerRequestsDisconnect {
 rule CloseEngine {
     when: CloseEngine(engine)
     requires: engine.status in {connected, reconnecting}
-    ensures: engine.reconnect_permission = revoked
     ensures: engine.status = closed
     ensures: EngineDisconnected(engine, cause: client_initiated)
     @guidance
@@ -449,7 +448,10 @@ rule CloseEngine {
         -- non-terminal state — including mid-reconnect, cancelling an in-flight
         -- reconnect. The implementation signals close_notifier, which breaks the
         -- reconnect loop's backoff/attempt waits immediately rather than waiting
-        -- them out; permission is revoked so a late stimulus can't restart it.
+        -- them out; the `closed` state then stops any further reconnection (a
+        -- late stimulus spawns a loop that bails on the first is-closed check).
+        -- Permission is NOT revoked here — like exhaustion, close lands `closed`
+        -- without revoking (RevokedImpliesClosed asserts only revoked => closed).
 }
 
 -- === Engine: starting / escalating the loop =================================
