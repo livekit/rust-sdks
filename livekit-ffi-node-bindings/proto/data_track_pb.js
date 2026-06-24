@@ -91,25 +91,6 @@ const SubscribeDataTrackErrorCode = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
- * Encoding used to interpret a data track schema definition.
- *
- * @generated from enum livekit.proto.DataTrackSchemaEncoding
- */
-const DataTrackSchemaEncoding = /*@__PURE__*/ proto2.makeEnum(
-  "livekit.proto.DataTrackSchemaEncoding",
-  [
-    {no: 0, name: "DATA_TRACK_SCHEMA_ENCODING_PROTOBUF", localName: "PROTOBUF"},
-    {no: 1, name: "DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER", localName: "FLATBUFFER"},
-    {no: 2, name: "DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG", localName: "ROS1_MSG"},
-    {no: 3, name: "DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG", localName: "ROS2_MSG"},
-    {no: 4, name: "DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL", localName: "ROS2_IDL"},
-    {no: 5, name: "DATA_TRACK_SCHEMA_ENCODING_OMG_IDL", localName: "OMG_IDL"},
-    {no: 6, name: "DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA", localName: "JSON_SCHEMA"},
-    {no: 7, name: "DATA_TRACK_SCHEMA_ENCODING_OTHER", localName: "OTHER"},
-  ],
-);
-
-/**
  * Information about a published data track.
  *
  * @generated from message livekit.proto.DataTrackInfo
@@ -120,6 +101,8 @@ const DataTrackInfo = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 2, name: "sid", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 3, name: "uses_e2ee", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 4, name: "schema", kind: "message", T: DataTrackSchemaId, opt: true },
+    { no: 5, name: "frame_encoding", kind: "message", T: DataTrackFrameEncoding, opt: true },
   ],
 );
 
@@ -189,6 +172,8 @@ const DataTrackOptions = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.DataTrackOptions",
   () => [
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "schema", kind: "message", T: DataTrackSchemaId, opt: true },
+    { no: 3, name: "frame_encoding", kind: "message", T: DataTrackFrameEncoding, opt: true },
   ],
 );
 
@@ -485,6 +470,70 @@ const DataTrackStreamEOS = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * Encoding used to interpret a data track schema definition.
+ *
+ * @generated from message livekit.proto.DataTrackSchemaEncoding
+ */
+const DataTrackSchemaEncoding = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DataTrackSchemaEncoding",
+  () => [
+    { no: 1, name: "well_known", kind: "enum", T: proto2.getEnumType(DataTrackSchemaEncoding_WellKnownSchemaEncoding), oneof: "encoding" },
+    { no: 2, name: "custom", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "encoding" },
+  ],
+);
+
+/**
+ * Well-known encoding for a schema definition.
+ *
+ * @generated from enum livekit.proto.DataTrackSchemaEncoding.WellKnownSchemaEncoding
+ */
+const DataTrackSchemaEncoding_WellKnownSchemaEncoding = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.DataTrackSchemaEncoding.WellKnownSchemaEncoding",
+  [
+    {no: 0, name: "WELL_KNOWN_SCHEMA_ENCODING_UNSPECIFIED", localName: "UNSPECIFIED"},
+    {no: 1, name: "WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF", localName: "PROTOBUF"},
+    {no: 2, name: "WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER", localName: "FLATBUFFER"},
+    {no: 3, name: "WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG", localName: "ROS1_MSG"},
+    {no: 4, name: "WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG", localName: "ROS2_MSG"},
+    {no: 5, name: "WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL", localName: "ROS2_IDL"},
+    {no: 6, name: "WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL", localName: "OMG_IDL"},
+    {no: 7, name: "WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA", localName: "JSON_SCHEMA"},
+  ],
+);
+
+/**
+ * Encoding used for frames sent on a data track.
+ *
+ * @generated from message livekit.proto.DataTrackFrameEncoding
+ */
+const DataTrackFrameEncoding = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DataTrackFrameEncoding",
+  () => [
+    { no: 1, name: "well_known", kind: "enum", T: proto2.getEnumType(DataTrackFrameEncoding_WellKnownFrameEncoding), oneof: "encoding" },
+    { no: 2, name: "custom", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "encoding" },
+  ],
+);
+
+/**
+ * Well-known encoding for frame payloads.
+ *
+ * @generated from enum livekit.proto.DataTrackFrameEncoding.WellKnownFrameEncoding
+ */
+const DataTrackFrameEncoding_WellKnownFrameEncoding = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.DataTrackFrameEncoding.WellKnownFrameEncoding",
+  [
+    {no: 0, name: "WELL_KNOWN_FRAME_ENCODING_UNSPECIFIED", localName: "UNSPECIFIED"},
+    {no: 1, name: "WELL_KNOWN_FRAME_ENCODING_ROS1", localName: "ROS1"},
+    {no: 2, name: "WELL_KNOWN_FRAME_ENCODING_CDR", localName: "CDR"},
+    {no: 3, name: "WELL_KNOWN_FRAME_ENCODING_PROTOBUF", localName: "PROTOBUF"},
+    {no: 4, name: "WELL_KNOWN_FRAME_ENCODING_FLATBUFFER", localName: "FLATBUFFER"},
+    {no: 5, name: "WELL_KNOWN_FRAME_ENCODING_CBOR", localName: "CBOR"},
+    {no: 6, name: "WELL_KNOWN_FRAME_ENCODING_MSGPACK", localName: "MSGPACK"},
+    {no: 7, name: "WELL_KNOWN_FRAME_ENCODING_JSON", localName: "JSON"},
+  ],
+);
+
+/**
  * Uniquely identifies a data track schema.
  *
  * @generated from message livekit.proto.DataTrackSchemaId
@@ -493,7 +542,7 @@ const DataTrackSchemaId = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.DataTrackSchemaId",
   () => [
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
-    { no: 2, name: "encoding", kind: "enum", T: proto2.getEnumType(DataTrackSchemaEncoding), req: true },
+    { no: 2, name: "encoding", kind: "message", T: DataTrackSchemaEncoding, opt: true },
   ],
 );
 
@@ -575,7 +624,6 @@ exports.DataTrackErrorCode = DataTrackErrorCode;
 exports.PublishDataTrackErrorCode = PublishDataTrackErrorCode;
 exports.LocalDataTrackTryPushErrorCode = LocalDataTrackTryPushErrorCode;
 exports.SubscribeDataTrackErrorCode = SubscribeDataTrackErrorCode;
-exports.DataTrackSchemaEncoding = DataTrackSchemaEncoding;
 exports.DataTrackInfo = DataTrackInfo;
 exports.DataTrackFrame = DataTrackFrame;
 exports.DataTrackError = DataTrackError;
@@ -608,6 +656,10 @@ exports.DataTrackStreamReadResponse = DataTrackStreamReadResponse;
 exports.DataTrackStreamEvent = DataTrackStreamEvent;
 exports.DataTrackStreamFrameReceived = DataTrackStreamFrameReceived;
 exports.DataTrackStreamEOS = DataTrackStreamEOS;
+exports.DataTrackSchemaEncoding = DataTrackSchemaEncoding;
+exports.DataTrackSchemaEncoding_WellKnownSchemaEncoding = DataTrackSchemaEncoding_WellKnownSchemaEncoding;
+exports.DataTrackFrameEncoding = DataTrackFrameEncoding;
+exports.DataTrackFrameEncoding_WellKnownFrameEncoding = DataTrackFrameEncoding_WellKnownFrameEncoding;
 exports.DataTrackSchemaId = DataTrackSchemaId;
 exports.DefineSchemaRequest = DefineSchemaRequest;
 exports.DefineSchemaResponse = DefineSchemaResponse;
