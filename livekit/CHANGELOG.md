@@ -257,6 +257,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.49 (2026-06-24)
+
+### Fixes
+
+- harden reconnect behaviour - #1148 (@lukasIO)
+
 ## 0.7.48 (2026-06-23)
 
 ### Features

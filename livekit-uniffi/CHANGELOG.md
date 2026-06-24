@@ -1,3 +1,9 @@
+## 0.1.3 (2026-06-24)
+
+### Fixes
+
+- harden reconnect behaviour - #1148 (@lukasIO)
+
 ## 0.1.2 (2026-06-23)
 
 ### Fixes

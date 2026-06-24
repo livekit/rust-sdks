@@ -1,6 +1,6 @@
 {
   "name": "@livekit/rtc-ffi-bindings-darwin-arm64",
-  "version": "0.12.66",
+  "version": "0.12.67",
   "cpu": [
     "arm64"
   ],
