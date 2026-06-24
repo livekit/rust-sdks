@@ -292,7 +292,7 @@ int32_t MppH265EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  rtc::scoped_refptr<VideoFrameBuffer> vfb = input_frame.video_frame_buffer();
+  webrtc::scoped_refptr<VideoFrameBuffer> vfb = input_frame.video_frame_buffer();
   const bool is_nv12 = (vfb->type() == VideoFrameBuffer::Type::kNV12);
 
   scoped_refptr<I420BufferInterface> i420_buffer;
