@@ -24,8 +24,8 @@ use std::{
 };
 
 mod codec_display;
-mod user_data;
 mod subscriber_timing;
+mod user_data;
 mod viewport_aspect;
 
 use codec_display::{codec_from_mime, codec_with_implementation};
@@ -1169,8 +1169,7 @@ fn paint_channel_graph(ctx: &egui::Context, history: &VecDeque<[f32; user_data::
                             .enumerate()
                             .map(|(i, sample)| {
                                 let x = rect.left() + (i as f32 / denom) * rect.width();
-                                let norm = (sample[j] / user_data::VALUE_RANGE)
-                                    .clamp(-1.0, 1.0);
+                                let norm = (sample[j] / user_data::VALUE_RANGE).clamp(-1.0, 1.0);
                                 let y = rect.center().y - norm * half_h;
                                 egui::pos2(x, y)
                             })

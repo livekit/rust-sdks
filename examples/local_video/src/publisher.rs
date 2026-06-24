@@ -33,8 +33,8 @@ use yuv_sys;
 mod argus;
 mod codec_display;
 mod test_pattern;
-mod user_data;
 mod timestamp_burn;
+mod user_data;
 mod video_display;
 mod viewport_aspect;
 
@@ -1233,9 +1233,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     // Shared keyboard-controlled channel values, written by the preview window
     // and read by the capture loop to fill the user_data trailer.
-    let user_data_channels = args
-        .attach_user_data
-        .then(|| Arc::new(Mutex::new([0.0f32; user_data::NUM_CHANNELS])));
+    let user_data_channels =
+        args.attach_user_data.then(|| Arc::new(Mutex::new([0.0f32; user_data::NUM_CHANNELS])));
 
     let publish_stats_task =
         tokio::spawn(update_publisher_video_stats(track.clone(), ctrl_c_received.clone()));
