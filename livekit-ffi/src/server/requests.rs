@@ -99,6 +99,9 @@ fn on_simulate_scenario(
         proto::SimulateScenarioKind::SimulateForceTcp => SimulateScenario::ForceTcp,
         proto::SimulateScenarioKind::SimulateForceTls => SimulateScenario::ForceTls,
         proto::SimulateScenarioKind::SimulateFullReconnect => SimulateScenario::FullReconnect,
+        proto::SimulateScenarioKind::SimulateDisconnectSignalOnResume => {
+            SimulateScenario::DisconnectSignalOnResume
+        }
     };
 
     let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?.clone();
