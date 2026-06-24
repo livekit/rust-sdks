@@ -218,7 +218,9 @@ impl RegionUrlProvider {
             // one rather than failing outright.
             Err(err) => match stale {
                 Some(urls) => {
-                    log::warn!("region fetch failed ({err}); using stale cached regions for {host}");
+                    log::warn!(
+                        "region fetch failed ({err}); using stale cached regions for {host}"
+                    );
                     Ok(urls)
                 }
                 None => Err(err),
@@ -247,6 +249,7 @@ impl RegionUrlProvider {
     /// Clears the entire region cache. Useful when external state that affects
     /// geo routing changes (e.g. the device's network connectivity), since that
     /// can invalidate every cached host at once.
+    #[allow(dead_code)]
     pub fn clear() {
         RegionCache::shared().clear();
     }
