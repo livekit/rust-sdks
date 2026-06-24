@@ -197,53 +197,6 @@ export declare enum SubscribeDataTrackErrorCode {
 }
 
 /**
- * Encoding used to interpret a data track schema definition.
- *
- * @generated from enum livekit.proto.DataTrackSchemaEncoding
- */
-export declare enum DataTrackSchemaEncoding {
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_PROTOBUF = 0;
-   */
-  PROTOBUF = 0,
-
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_FLATBUFFER = 1;
-   */
-  FLATBUFFER = 1,
-
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_ROS1_MSG = 2;
-   */
-  ROS1_MSG = 2,
-
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_ROS2_MSG = 3;
-   */
-  ROS2_MSG = 3,
-
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_ROS2_IDL = 4;
-   */
-  ROS2_IDL = 4,
-
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_OMG_IDL = 5;
-   */
-  OMG_IDL = 5,
-
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_JSON_SCHEMA = 6;
-   */
-  JSON_SCHEMA = 6,
-
-  /**
-   * @generated from enum value: DATA_TRACK_SCHEMA_ENCODING_OTHER = 7;
-   */
-  OTHER = 7,
-}
-
-/**
  * Information about a published data track.
  *
  * @generated from message livekit.proto.DataTrackInfo
@@ -269,6 +222,20 @@ export declare class DataTrackInfo extends Message<DataTrackInfo> {
    * @generated from field: required bool uses_e2ee = 3;
    */
   usesE2ee?: boolean;
+
+  /**
+   * Schema associated with frames sent on the track, if any.
+   *
+   * @generated from field: optional livekit.proto.DataTrackSchemaId schema = 4;
+   */
+  schema?: DataTrackSchemaId;
+
+  /**
+   * Encoding of frames sent on the track, if specified.
+   *
+   * @generated from field: optional livekit.proto.DataTrackFrameEncoding frame_encoding = 5;
+   */
+  frameEncoding?: DataTrackFrameEncoding;
 
   constructor(data?: PartialMessage<DataTrackInfo>);
 
@@ -447,6 +414,20 @@ export declare class DataTrackOptions extends Message<DataTrackOptions> {
    * @generated from field: required string name = 1;
    */
   name?: string;
+
+  /**
+   * Schema describing frames sent on the track.
+   *
+   * @generated from field: optional livekit.proto.DataTrackSchemaId schema = 2;
+   */
+  schema?: DataTrackSchemaId;
+
+  /**
+   * Encoding of frames sent on the track.
+   *
+   * @generated from field: optional livekit.proto.DataTrackFrameEncoding frame_encoding = 3;
+   */
+  frameEncoding?: DataTrackFrameEncoding;
 
   constructor(data?: PartialMessage<DataTrackOptions>);
 
@@ -1176,6 +1157,182 @@ export declare class DataTrackStreamEOS extends Message<DataTrackStreamEOS> {
 }
 
 /**
+ * Encoding used to interpret a data track schema definition.
+ *
+ * @generated from message livekit.proto.DataTrackSchemaEncoding
+ */
+export declare class DataTrackSchemaEncoding extends Message<DataTrackSchemaEncoding> {
+  /**
+   * @generated from oneof livekit.proto.DataTrackSchemaEncoding.encoding
+   */
+  encoding: {
+    /**
+     * @generated from field: livekit.proto.DataTrackSchemaEncoding.WellKnownSchemaEncoding well_known = 1;
+     */
+    value: DataTrackSchemaEncoding_WellKnownSchemaEncoding;
+    case: "wellKnown";
+  } | {
+    /**
+     * Identifier of a custom encoding not covered by the well-known cases.
+     * This must be non-empty and no longer than 25 characters.
+     *
+     * @generated from field: string custom = 2;
+     */
+    value: string;
+    case: "custom";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<DataTrackSchemaEncoding>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DataTrackSchemaEncoding";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DataTrackSchemaEncoding;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DataTrackSchemaEncoding;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackSchemaEncoding;
+
+  static equals(a: DataTrackSchemaEncoding | PlainMessage<DataTrackSchemaEncoding> | undefined, b: DataTrackSchemaEncoding | PlainMessage<DataTrackSchemaEncoding> | undefined): boolean;
+}
+
+/**
+ * Well-known encoding for a schema definition.
+ *
+ * @generated from enum livekit.proto.DataTrackSchemaEncoding.WellKnownSchemaEncoding
+ */
+export declare enum DataTrackSchemaEncoding_WellKnownSchemaEncoding {
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF = 1;
+   */
+  PROTOBUF = 1,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER = 2;
+   */
+  FLATBUFFER = 2,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG = 3;
+   */
+  ROS1_MSG = 3,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG = 4;
+   */
+  ROS2_MSG = 4,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL = 5;
+   */
+  ROS2_IDL = 5,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL = 6;
+   */
+  OMG_IDL = 6,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA = 7;
+   */
+  JSON_SCHEMA = 7,
+}
+
+/**
+ * Encoding used for frames sent on a data track.
+ *
+ * @generated from message livekit.proto.DataTrackFrameEncoding
+ */
+export declare class DataTrackFrameEncoding extends Message<DataTrackFrameEncoding> {
+  /**
+   * @generated from oneof livekit.proto.DataTrackFrameEncoding.encoding
+   */
+  encoding: {
+    /**
+     * @generated from field: livekit.proto.DataTrackFrameEncoding.WellKnownFrameEncoding well_known = 1;
+     */
+    value: DataTrackFrameEncoding_WellKnownFrameEncoding;
+    case: "wellKnown";
+  } | {
+    /**
+     * Identifier of a custom encoding not covered by the well-known cases.
+     * This must be non-empty and no longer than 25 characters.
+     *
+     * @generated from field: string custom = 2;
+     */
+    value: string;
+    case: "custom";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<DataTrackFrameEncoding>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DataTrackFrameEncoding";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DataTrackFrameEncoding;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DataTrackFrameEncoding;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackFrameEncoding;
+
+  static equals(a: DataTrackFrameEncoding | PlainMessage<DataTrackFrameEncoding> | undefined, b: DataTrackFrameEncoding | PlainMessage<DataTrackFrameEncoding> | undefined): boolean;
+}
+
+/**
+ * Well-known encoding for frame payloads.
+ *
+ * @generated from enum livekit.proto.DataTrackFrameEncoding.WellKnownFrameEncoding
+ */
+export declare enum DataTrackFrameEncoding_WellKnownFrameEncoding {
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_ROS1 = 1;
+   */
+  ROS1 = 1,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_CDR = 2;
+   */
+  CDR = 2,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_PROTOBUF = 3;
+   */
+  PROTOBUF = 3,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_FLATBUFFER = 4;
+   */
+  FLATBUFFER = 4,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_CBOR = 5;
+   */
+  CBOR = 5,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_MSGPACK = 6;
+   */
+  MSGPACK = 6,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_JSON = 7;
+   */
+  JSON = 7,
+}
+
+/**
  * Uniquely identifies a data track schema.
  *
  * @generated from message livekit.proto.DataTrackSchemaId
@@ -1191,7 +1348,7 @@ export declare class DataTrackSchemaId extends Message<DataTrackSchemaId> {
   /**
    * Encoding of the schema definition.
    *
-   * @generated from field: required livekit.proto.DataTrackSchemaEncoding encoding = 2;
+   * @generated from field: optional livekit.proto.DataTrackSchemaEncoding encoding = 2;
    */
   encoding?: DataTrackSchemaEncoding;
 
