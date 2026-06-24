@@ -1144,10 +1144,10 @@ fn set_sensor_subdev_fps(dev: &Device, fps: u32) -> std::io::Result<(u32, u32)> 
     const IOC_WRITE: u32 = 1;
     const IOC_READ: u32 = 2;
     fn iowr(ty: u8, nr: u8, size: usize) -> libc::c_ulong {
-        ((((IOC_READ | IOC_WRITE) as libc::c_ulong) << 30)
+        (((IOC_READ | IOC_WRITE) as libc::c_ulong) << 30)
             | ((ty as libc::c_ulong) << 8)
             | (nr as libc::c_ulong)
-            | ((size as libc::c_ulong) << 16))
+            | ((size as libc::c_ulong) << 16)
     }
 
     let subdev_s_frame_interval = iowr(b'V', 22, std::mem::size_of::<SubdevFrameInterval>());
@@ -1377,14 +1377,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // LiveKit connection details
     let url = args
         .url
+        .clone()
         .or_else(|| env::var("LIVEKIT_URL").ok())
         .expect("LIVEKIT_URL must be provided via --url or env");
     let api_key = args
         .api_key
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_KEY").ok())
         .expect("LIVEKIT_API_KEY must be provided via --api-key or env");
     let api_secret = args
         .api_secret
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
