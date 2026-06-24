@@ -180,9 +180,9 @@ impl From<DataTrackSchemaId> for proto::DataTrackSchemaId {
 
 impl From<proto::DataTrackSchemaEncoding> for DataTrackSchemaEncoding {
     fn from(msg: proto::DataTrackSchemaEncoding) -> Self {
-        use proto::data_track_schema_encoding::{Encoding, WellKnownSchemaEncoding as WellKnown};
-        match msg.encoding {
-            Some(Encoding::WellKnown(value)) => match WellKnown::try_from(value) {
+        use proto::data_track_schema_encoding::{Value, WellKnownSchemaEncoding as WellKnown};
+        match msg.value {
+            Some(Value::WellKnown(value)) => match WellKnown::try_from(value) {
                 Ok(WellKnown::Protobuf) => Self::Protobuf,
                 Ok(WellKnown::Flatbuffer) => Self::Flatbuffer,
                 Ok(WellKnown::Ros1Msg) => Self::Ros1Msg,
@@ -193,7 +193,7 @@ impl From<proto::DataTrackSchemaEncoding> for DataTrackSchemaEncoding {
                 // Unspecified or a value introduced after this client version.
                 Ok(WellKnown::Unspecified) | Err(_) => Self::Other,
             },
-            Some(Encoding::Custom(name)) => Self::Custom(name),
+            Some(Value::Custom(name)) => Self::Custom(name),
             None => Self::Other,
         }
     }
@@ -201,27 +201,28 @@ impl From<proto::DataTrackSchemaEncoding> for DataTrackSchemaEncoding {
 
 impl From<DataTrackSchemaEncoding> for proto::DataTrackSchemaEncoding {
     fn from(value: DataTrackSchemaEncoding) -> Self {
-        use proto::data_track_schema_encoding::{Encoding, WellKnownSchemaEncoding as WellKnown};
-        let encoding = match value {
-            DataTrackSchemaEncoding::Protobuf => Encoding::WellKnown(WellKnown::Protobuf as i32),
-            DataTrackSchemaEncoding::Flatbuffer => Encoding::WellKnown(WellKnown::Flatbuffer as i32),
-            DataTrackSchemaEncoding::Ros1Msg => Encoding::WellKnown(WellKnown::Ros1Msg as i32),
-            DataTrackSchemaEncoding::Ros2Msg => Encoding::WellKnown(WellKnown::Ros2Msg as i32),
-            DataTrackSchemaEncoding::Ros2Idl => Encoding::WellKnown(WellKnown::Ros2Idl as i32),
-            DataTrackSchemaEncoding::OmgIdl => Encoding::WellKnown(WellKnown::OmgIdl as i32),
-            DataTrackSchemaEncoding::JsonSchema => Encoding::WellKnown(WellKnown::JsonSchema as i32),
-            DataTrackSchemaEncoding::Custom(name) => Encoding::Custom(name),
-            DataTrackSchemaEncoding::Other => Encoding::WellKnown(WellKnown::Unspecified as i32),
-        };
-        Self { encoding: Some(encoding) }
+        use proto::data_track_schema_encoding::{Value, WellKnownSchemaEncoding as WellKnown};
+        let value = match value {
+            DataTrackSchemaEncoding::Protobuf => Value::WellKnown(WellKnown::Protobuf as i32),
+            DataTrackSchemaEncoding::Flatbuffer => Value::WellKnown(WellKnown::Flatbuffer as i32),
+            DataTrackSchemaEncoding::Ros1Msg => Value::WellKnown(WellKnown::Ros1Msg as i32),
+            DataTrackSchemaEncoding::Ros2Msg => Value::WellKnown(WellKnown::Ros2Msg as i32),
+            DataTrackSchemaEncoding::Ros2Idl => Value::WellKnown(WellKnown::Ros2Idl as i32),
+            DataTrackSchemaEncoding::OmgIdl => Value::WellKnown(WellKnown::OmgIdl as i32),
+            DataTrackSchemaEncoding::JsonSchema => Value::WellKnown(WellKnown::JsonSchema as i32),
+            DataTrackSchemaEncoding::Custom(name) => Value::Custom(name),
+            DataTrackSchemaEncoding::Other => Value::WellKnown(WellKnown::Unspecified as i32),
+        }
+        .into();
+        Self { value }
     }
 }
 
 impl From<proto::DataTrackFrameEncoding> for DataTrackFrameEncoding {
     fn from(msg: proto::DataTrackFrameEncoding) -> Self {
-        use proto::data_track_frame_encoding::{Encoding, WellKnownFrameEncoding as WellKnown};
-        match msg.encoding {
-            Some(Encoding::WellKnown(value)) => match WellKnown::try_from(value) {
+        use proto::data_track_frame_encoding::{Value, WellKnownFrameEncoding as WellKnown};
+        match msg.value {
+            Some(Value::WellKnown(value)) => match WellKnown::try_from(value) {
                 Ok(WellKnown::Ros1) => Self::Ros1,
                 Ok(WellKnown::Cdr) => Self::Cdr,
                 Ok(WellKnown::Protobuf) => Self::Protobuf,
@@ -232,7 +233,7 @@ impl From<proto::DataTrackFrameEncoding> for DataTrackFrameEncoding {
                 // Unspecified or a value introduced after this client version.
                 Ok(WellKnown::Unspecified) | Err(_) => Self::Other,
             },
-            Some(Encoding::Custom(name)) => Self::Custom(name),
+            Some(Value::Custom(name)) => Self::Custom(name),
             None => Self::Other,
         }
     }
@@ -240,19 +241,19 @@ impl From<proto::DataTrackFrameEncoding> for DataTrackFrameEncoding {
 
 impl From<DataTrackFrameEncoding> for proto::DataTrackFrameEncoding {
     fn from(value: DataTrackFrameEncoding) -> Self {
-        use proto::data_track_frame_encoding::{Encoding, WellKnownFrameEncoding as WellKnown};
-        let encoding = match value {
-            DataTrackFrameEncoding::Ros1 => Encoding::WellKnown(WellKnown::Ros1 as i32),
-            DataTrackFrameEncoding::Cdr => Encoding::WellKnown(WellKnown::Cdr as i32),
-            DataTrackFrameEncoding::Protobuf => Encoding::WellKnown(WellKnown::Protobuf as i32),
-            DataTrackFrameEncoding::Flatbuffer => Encoding::WellKnown(WellKnown::Flatbuffer as i32),
-            DataTrackFrameEncoding::Cbor => Encoding::WellKnown(WellKnown::Cbor as i32),
-            DataTrackFrameEncoding::Msgpack => Encoding::WellKnown(WellKnown::Msgpack as i32),
-            DataTrackFrameEncoding::Json => Encoding::WellKnown(WellKnown::Json as i32),
-            DataTrackFrameEncoding::Custom(name) => Encoding::Custom(name),
-            DataTrackFrameEncoding::Other => Encoding::WellKnown(WellKnown::Unspecified as i32),
-        };
-        Self { encoding: Some(encoding) }
+        use proto::data_track_frame_encoding::{Value, WellKnownFrameEncoding as WellKnown};
+        let value = match value {
+            DataTrackFrameEncoding::Ros1 => Value::WellKnown(WellKnown::Ros1 as i32),
+            DataTrackFrameEncoding::Cdr => Value::WellKnown(WellKnown::Cdr as i32),
+            DataTrackFrameEncoding::Protobuf => Value::WellKnown(WellKnown::Protobuf as i32),
+            DataTrackFrameEncoding::Flatbuffer => Value::WellKnown(WellKnown::Flatbuffer as i32),
+            DataTrackFrameEncoding::Cbor => Value::WellKnown(WellKnown::Cbor as i32),
+            DataTrackFrameEncoding::Msgpack => Value::WellKnown(WellKnown::Msgpack as i32),
+            DataTrackFrameEncoding::Json => Value::WellKnown(WellKnown::Json as i32),
+            DataTrackFrameEncoding::Custom(name) => Value::Custom(name),
+            DataTrackFrameEncoding::Other => Value::WellKnown(WellKnown::Unspecified as i32),
+        }.into();
+        Self { value }
     }
 }
 
