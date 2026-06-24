@@ -16,8 +16,12 @@
 
 use thiserror::Error;
 
+#[cfg(livekit_capture_argus)]
+use crate::device::{CaptureBackend, CaptureDeviceSelector};
 use crate::{
-    device::{CaptureFormat, CapturePixelFormat, CaptureResolution},
+    device::{
+        CaptureDeviceInfo, CaptureFormat, CaptureFrameFormat, CapturePath, CaptureResolution,
+    },
     dmabuf::DmaBufFrame,
 };
 
@@ -70,7 +74,7 @@ impl ArgusCaptureOptions {
     pub const fn new(sensor_index: u32, resolution: CaptureResolution, frame_rate: u32) -> Self {
         Self {
             sensor_index,
-            format: CaptureFormat::new(resolution, frame_rate, CapturePixelFormat::Nv12),
+            format: CaptureFormat::new(resolution, frame_rate, CaptureFrameFormat::Nv12),
             attach_sensor_timestamp: false,
             attach_frame_id: false,
         }
@@ -91,7 +95,7 @@ pub enum ArgusError {
     Unsupported,
     /// Argus only publishes NV12 DMA-BUF frames in this backend.
     #[error("libargus capture only supports NV12 DMA-BUF frames, got {0:?}")]
-    UnsupportedPixelFormat(CapturePixelFormat),
+    UnsupportedFrameFormat(CaptureFrameFormat),
     /// The requested format contains an invalid value.
     #[error("invalid Argus capture option: {0}")]
     InvalidOption(&'static str),
@@ -148,13 +152,19 @@ impl ArgusCaptureSession {
         Self::open(options)
     }
 
-    /// Acquires the next captured frame as an NV12 DMA-BUF.
+    /// Captures the next frame as an NV12 DMA-BUF.
     ///
     /// The returned DMA-BUF file descriptor is owned by the Argus session's
     /// internal buffer ring. It remains valid until the session is dropped, but
     /// callers should publish frames promptly so the ring can be reused.
-    pub fn acquire_frame(&mut self) -> Result<ArgusFrame, ArgusError> {
+    pub fn capture_frame(&mut self) -> Result<ArgusFrame, ArgusError> {
         self.acquire_frame_inner()
+    }
+
+    /// Acquires the next captured frame as an NV12 DMA-BUF.
+    #[deprecated(note = "use capture_frame")]
+    pub fn acquire_frame(&mut self) -> Result<ArgusFrame, ArgusError> {
+        self.capture_frame()
     }
 
     /// Releases the currently held Argus frame, when one is held by the shim.
@@ -175,6 +185,16 @@ impl ArgusCaptureSession {
     /// Returns the requested capture format.
     pub fn format(&self) -> CaptureFormat {
         self.options.format
+    }
+
+    /// Returns the configured capture options.
+    pub fn options(&self) -> &ArgusCaptureOptions {
+        &self.options
+    }
+
+    /// Returns the capture path produced by this session.
+    pub fn capture_path(&self) -> CapturePath {
+        CapturePath::DmaBuf
     }
 
     #[cfg(livekit_capture_argus)]
@@ -282,8 +302,8 @@ impl Drop for ArgusCaptureSession {
 }
 
 fn validate_options(options: &ArgusCaptureOptions) -> Result<(), ArgusError> {
-    if options.format.pixel_format != CapturePixelFormat::Nv12 {
-        return Err(ArgusError::UnsupportedPixelFormat(options.format.pixel_format));
+    if options.format.frame_format != CaptureFrameFormat::Nv12 {
+        return Err(ArgusError::UnsupportedFrameFormat(options.format.frame_format));
     }
     if options.format.resolution.width == 0 {
         return Err(ArgusError::InvalidOption("width must be non-zero"));
@@ -295,6 +315,28 @@ fn validate_options(options: &ArgusCaptureOptions) -> Result<(), ArgusError> {
         return Err(ArgusError::InvalidOption("frame_rate must be non-zero"));
     }
     Ok(())
+}
+
+/// Returns Jetson Argus capture devices.
+pub fn devices() -> Result<Vec<CaptureDeviceInfo>, ArgusError> {
+    #[cfg(livekit_capture_argus)]
+    {
+        return Ok(vec![CaptureDeviceInfo {
+            backend: CaptureBackend::LibArgus,
+            id: "0".to_string(),
+            selector: CaptureDeviceSelector::Index(0),
+            name: "Jetson Argus sensor 0".to_string(),
+            model_id: None,
+            manufacturer: Some("NVIDIA".to_string()),
+            paths: vec![CapturePath::DmaBuf],
+            formats: vec![ArgusCaptureOptions::default().format],
+            formats_complete: false,
+        }]);
+    }
+    #[cfg(not(livekit_capture_argus))]
+    {
+        Err(ArgusError::Unsupported)
+    }
 }
 
 #[cfg(livekit_capture_argus)]
@@ -369,9 +411,9 @@ mod tests {
     #[test]
     fn validates_nv12_only() {
         let mut options = ArgusCaptureOptions::default();
-        options.format.pixel_format = CapturePixelFormat::I420;
+        options.format.frame_format = CaptureFrameFormat::I420;
         let err = ArgusCaptureSession::new(options).expect_err("I420 must be rejected");
-        assert_eq!(err, ArgusError::UnsupportedPixelFormat(CapturePixelFormat::I420));
+        assert_eq!(err, ArgusError::UnsupportedFrameFormat(CaptureFrameFormat::I420));
     }
 
     #[test]

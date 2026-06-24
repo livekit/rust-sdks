@@ -14,6 +14,12 @@
 
 //! Optional capture sources that feed the shared capture paths.
 
+#[cfg(feature = "avfoundation")]
+pub mod avfoundation {
+    //! macOS AVFoundation decoded-frame capture.
+
+    pub use crate::platform::avfoundation::*;
+}
 #[cfg(feature = "libargus")]
 pub mod argus;
 #[cfg(feature = "gstreamer")]

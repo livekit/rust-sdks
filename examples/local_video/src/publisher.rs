@@ -14,10 +14,10 @@ use livekit_api::services::room::{CreateRoomOptions, RoomClient};
 use livekit_api::services::{ServiceError, TwirpError, TwirpErrorCode};
 use livekit_capture::device::{
     CaptureDeviceSelector, CaptureFormat as LkCaptureFormat, CaptureFormatRequest,
-    CapturePixelFormat, CaptureResolution,
+    CaptureFrameFormat, CaptureResolution,
 };
 #[cfg(target_os = "macos")]
-use livekit_capture::platform::avfoundation::{
+use livekit_capture::sources::avfoundation::{
     self, AvFoundationCaptureOptions, AvFoundationCaptureSession,
 };
 #[cfg(target_os = "linux")]
@@ -74,7 +74,7 @@ enum SourceKind {
     Argus,
 }
 
-/// Selects the UVC camera capture pixel format.
+/// Selects the UVC camera capture frame format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum CaptureFormat {
     /// Try YUYV first and fall back to MJPEG.
@@ -87,11 +87,11 @@ enum CaptureFormat {
 
 impl CaptureFormat {
     #[cfg(target_os = "linux")]
-    fn pixel_formats(self) -> &'static [CapturePixelFormat] {
+    fn frame_formats(self) -> &'static [CaptureFrameFormat] {
         match self {
-            Self::Auto => &[CapturePixelFormat::Yuyv, CapturePixelFormat::Mjpeg],
-            Self::Yuv => &[CapturePixelFormat::Yuyv],
-            Self::Mjpeg => &[CapturePixelFormat::Mjpeg],
+            Self::Auto => &[CaptureFrameFormat::Yuyv, CaptureFrameFormat::Mjpeg],
+            Self::Yuv => &[CaptureFrameFormat::Yuyv],
+            Self::Mjpeg => &[CaptureFrameFormat::Mjpeg],
         }
     }
 }
@@ -765,7 +765,7 @@ impl PlatformCamera {
                     frame: frame.frame,
                     capture_wall_time_us: frame.capture_wall_time_us,
                     read_wall_time_us: frame.read_wall_time_us,
-                    used_decode_path: frame.used_decode_path,
+                    used_decode_path: false,
                 })
             }
             #[cfg(target_os = "linux")]
@@ -818,7 +818,7 @@ fn open_platform_camera(args: &Args) -> Result<(u32, u32, VideoInput)> {
         let requested = LkCaptureFormat::new(
             CaptureResolution::new(args.width, args.height),
             args.fps,
-            CapturePixelFormat::Nv12,
+            CaptureFrameFormat::Nv12,
         );
         let session = AvFoundationCaptureSession::new(AvFoundationCaptureOptions {
             device: CaptureDeviceSelector::Index(args.camera_index),
@@ -831,7 +831,7 @@ fn open_platform_camera(args: &Args) -> Result<(u32, u32, VideoInput)> {
             format.resolution.width,
             format.resolution.height,
             format.frame_rate,
-            format.pixel_format,
+            format.frame_format,
             args.camera_index,
         );
         Ok((
@@ -846,7 +846,7 @@ fn open_platform_camera(args: &Args) -> Result<(u32, u32, VideoInput)> {
         let requested = LkCaptureFormat::new(
             CaptureResolution::new(args.width, args.height),
             args.fps,
-            args.format.pixel_formats()[0],
+            args.format.frame_formats()[0],
         );
         let mut options = V4lCaptureOptions::new(
             CaptureDeviceSelector::Index(args.camera_index),
@@ -858,7 +858,7 @@ fn open_platform_camera(args: &Args) -> Result<(u32, u32, VideoInput)> {
         } else {
             CaptureFormatRequest::Exact(requested)
         };
-        options.pixel_formats = args.format.pixel_formats().to_vec();
+        options.frame_formats = args.format.frame_formats().to_vec();
         let session = V4lCaptureSession::new(options)?;
         let format = session.format();
         info!(
@@ -866,7 +866,7 @@ fn open_platform_camera(args: &Args) -> Result<(u32, u32, VideoInput)> {
             format.resolution.width,
             format.resolution.height,
             format.frame_rate,
-            format.pixel_format,
+            format.frame_format,
             args.format,
         );
         Ok((

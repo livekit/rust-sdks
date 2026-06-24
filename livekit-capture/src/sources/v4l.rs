@@ -32,9 +32,11 @@ use nokhwa::{
 };
 use thiserror::Error;
 
+#[cfg(target_os = "linux")]
+use crate::device::CaptureBackend;
 use crate::device::{
     CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest,
-    CapturePixelFormat, CaptureResolution,
+    CaptureFrameFormat, CapturePath, CaptureResolution,
 };
 #[cfg(target_os = "linux")]
 use crate::metadata::FrameMetadata;
@@ -49,8 +51,8 @@ pub struct V4lCaptureOptions {
     pub device: CaptureDeviceSelector,
     /// Requested format policy.
     pub format: CaptureFormatRequest,
-    /// Ordered source pixel formats to try.
-    pub pixel_formats: Vec<CapturePixelFormat>,
+    /// Ordered source frame formats to try.
+    pub frame_formats: Vec<CaptureFrameFormat>,
     /// Attach a wall-clock capture timestamp as [`crate::FrameMetadata::user_timestamp`].
     pub attach_capture_timestamp: bool,
     /// Attach a monotonically increasing frame id as [`crate::FrameMetadata::frame_id`].
@@ -69,9 +71,9 @@ impl V4lCaptureOptions {
             format: CaptureFormatRequest::Exact(CaptureFormat::new(
                 resolution,
                 frame_rate,
-                CapturePixelFormat::Yuyv,
+                CaptureFrameFormat::Yuyv,
             )),
-            pixel_formats: default_pixel_formats(),
+            frame_formats: default_frame_formats(),
             attach_capture_timestamp: false,
             attach_frame_id: false,
         }
@@ -90,9 +92,9 @@ pub enum V4lError {
     /// V4L capture is only available on Linux.
     #[error("V4L capture is not supported on this platform")]
     UnsupportedPlatform,
-    /// The requested pixel format is not supported by this backend.
-    #[error("V4L capture does not support pixel format {0:?}")]
-    UnsupportedPixelFormat(CapturePixelFormat),
+    /// The requested frame format is not supported by this backend.
+    #[error("V4L capture does not support frame format {0:?}")]
+    UnsupportedFrameFormat(CaptureFrameFormat),
     /// The requested option is invalid.
     #[error("invalid V4L capture option: {0}")]
     InvalidOption(&'static str),
@@ -118,15 +120,17 @@ pub enum V4lError {
 pub struct V4lFrame {
     /// Decoded I420 frame suitable for [`crate::VideoCaptureTrack::capture_frame`].
     pub frame: VideoFrame<I420Buffer>,
-    /// Source pixel format delivered by the camera backend.
-    pub source_pixel_format: CapturePixelFormat,
+    /// Source frame format delivered by the camera backend.
+    pub source_format: CaptureFrameFormat,
     /// Backend-provided capture timestamp, when available.
     pub backend_capture_timestamp: Option<Duration>,
     /// Wall-clock timestamp selected for metadata and timing correlation.
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read from the camera backend.
     pub read_wall_time_us: u64,
-    /// Whether compressed image decoding was needed.
+    /// Whether conversion from the source format to I420 was needed.
+    pub used_conversion: bool,
+    /// Whether compressed image decoding was needed before conversion.
     pub used_decode_path: bool,
 }
 
@@ -142,7 +146,6 @@ pub struct V4lCaptureSession {
     #[cfg(target_os = "linux")]
     camera: Camera,
     format: CaptureFormat,
-    #[cfg(target_os = "linux")]
     options: V4lCaptureOptions,
     #[cfg(target_os = "linux")]
     started_at: Instant,
@@ -154,7 +157,6 @@ impl std::fmt::Debug for V4lCaptureSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("V4lCaptureSession");
         debug.field("format", &self.format);
-        #[cfg(target_os = "linux")]
         debug.field("options", &self.options);
         debug.finish()
     }
@@ -175,6 +177,16 @@ impl V4lCaptureSession {
     /// Returns the negotiated capture format.
     pub fn format(&self) -> CaptureFormat {
         self.format
+    }
+
+    /// Returns the configured capture options.
+    pub fn options(&self) -> &V4lCaptureOptions {
+        &self.options
+    }
+
+    /// Returns the capture path produced by this session.
+    pub fn capture_path(&self) -> CapturePath {
+        CapturePath::Raw
     }
 
     #[cfg(target_os = "linux")]
@@ -228,14 +240,15 @@ impl V4lCaptureSession {
             height,
             &mut frame.buffer,
         )?;
-        let source_pixel_format = capture_pixel_format_from_nokhwa(buffer.source_frame_format())?;
+        let source_format = capture_frame_format_from_nokhwa(buffer.source_frame_format())?;
 
         Ok(V4lFrame {
             frame,
-            source_pixel_format,
+            source_format,
             backend_capture_timestamp,
             capture_wall_time_us,
             read_wall_time_us,
+            used_conversion: source_format != CaptureFrameFormat::I420,
             used_decode_path,
         })
     }
@@ -264,13 +277,22 @@ pub fn devices() -> Result<Vec<CaptureDeviceInfo>, V4lError> {
         .map_err(nokhwa_error)?
         .into_iter()
         .map(|info| {
-            let formats = enumerate_formats(&info).unwrap_or_default();
+            let formats = enumerate_formats(&info);
+            let (formats, formats_complete) = match formats {
+                Ok(formats) => (formats, true),
+                Err(_) => (Vec::new(), false),
+            };
+            let id = info.index().as_string();
             Ok(CaptureDeviceInfo {
-                id: info.index().as_string(),
+                backend: CaptureBackend::V4l2,
+                id: id.clone(),
+                selector: CaptureDeviceSelector::Id(id),
                 name: info.human_name(),
                 model_id: Some(info.description().to_string()).filter(|value| !value.is_empty()),
                 manufacturer: None,
+                paths: vec![CapturePath::Raw],
                 formats,
+                formats_complete,
             })
         })
         .collect()
@@ -282,14 +304,20 @@ pub fn devices() -> Result<Vec<CaptureDeviceInfo>, V4lError> {
     Err(V4lError::UnsupportedPlatform)
 }
 
-fn default_pixel_formats() -> Vec<CapturePixelFormat> {
+/// Returns the default ordered V4L source frame formats.
+pub fn default_frame_formats() -> Vec<CaptureFrameFormat> {
     vec![
-        CapturePixelFormat::Yuyv,
-        CapturePixelFormat::Mjpeg,
-        CapturePixelFormat::Gray,
-        CapturePixelFormat::Rgb24,
-        CapturePixelFormat::Nv12,
+        CaptureFrameFormat::Yuyv,
+        CaptureFrameFormat::Mjpeg,
+        CaptureFrameFormat::Gray,
+        CaptureFrameFormat::Rgb24,
+        CaptureFrameFormat::Nv12,
     ]
+}
+
+/// Returns default V4L source frame formats with `first` preferred.
+pub fn ordered_frame_formats_with_first(first: CaptureFrameFormat) -> Vec<CaptureFrameFormat> {
+    ordered_formats_with_first(&default_frame_formats(), first)
 }
 
 fn validate_options(options: &V4lCaptureOptions) -> Result<(), V4lError> {
@@ -305,12 +333,12 @@ fn validate_options(options: &V4lCaptureOptions) -> Result<(), V4lError> {
         }
     }
 
-    if options.pixel_formats.is_empty() {
-        return Err(V4lError::InvalidOption("pixel_formats must include at least one format"));
+    if options.frame_formats.is_empty() {
+        return Err(V4lError::InvalidOption("frame_formats must include at least one format"));
     }
-    for pixel_format in &options.pixel_formats {
-        if nokhwa_frame_format(*pixel_format).is_none() {
-            return Err(V4lError::UnsupportedPixelFormat(*pixel_format));
+    for frame_format in &options.frame_formats {
+        if nokhwa_frame_format(*frame_format).is_none() {
+            return Err(V4lError::UnsupportedFrameFormat(*frame_format));
         }
     }
 
@@ -328,8 +356,8 @@ fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), V4lError
         if format.frame_rate == 0 {
             return Err(V4lError::InvalidOption("frame_rate must be non-zero"));
         }
-        if nokhwa_frame_format(format.pixel_format).is_none() {
-            return Err(V4lError::UnsupportedPixelFormat(format.pixel_format));
+        if nokhwa_frame_format(format.frame_format).is_none() {
+            return Err(V4lError::UnsupportedFrameFormat(format.frame_format));
         }
         Ok(())
     };
@@ -339,24 +367,24 @@ fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), V4lError
         CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
             validate_format(format)
         }
-        CaptureFormatRequest::HighestFrameRate { resolution, pixel_format } => {
+        CaptureFormatRequest::HighestFrameRate { resolution, frame_format } => {
             if let Some(resolution) = resolution {
                 validate_resolution(*resolution)?;
             }
-            if let Some(pixel_format) = pixel_format {
-                if nokhwa_frame_format(*pixel_format).is_none() {
-                    return Err(V4lError::UnsupportedPixelFormat(*pixel_format));
+            if let Some(frame_format) = frame_format {
+                if nokhwa_frame_format(*frame_format).is_none() {
+                    return Err(V4lError::UnsupportedFrameFormat(*frame_format));
                 }
             }
             Ok(())
         }
-        CaptureFormatRequest::HighestResolution { frame_rate, pixel_format } => {
+        CaptureFormatRequest::HighestResolution { frame_rate, frame_format } => {
             if matches!(frame_rate, Some(0)) {
                 return Err(V4lError::InvalidOption("frame_rate must be non-zero"));
             }
-            if let Some(pixel_format) = pixel_format {
-                if nokhwa_frame_format(*pixel_format).is_none() {
-                    return Err(V4lError::UnsupportedPixelFormat(*pixel_format));
+            if let Some(frame_format) = frame_format {
+                if nokhwa_frame_format(*frame_format).is_none() {
+                    return Err(V4lError::UnsupportedFrameFormat(*frame_format));
                 }
             }
             Ok(())
@@ -389,32 +417,31 @@ fn camera_index(selector: &CaptureDeviceSelector) -> Result<CameraIndex, V4lErro
 fn frame_formats_for_request(options: &V4lCaptureOptions) -> Result<Vec<FrameFormat>, V4lError> {
     let mut formats = match &options.format {
         CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
-            ordered_formats_with_first(&options.pixel_formats, format.pixel_format)
+            ordered_formats_with_first(&options.frame_formats, format.frame_format)
         }
-        CaptureFormatRequest::HighestFrameRate { pixel_format: Some(pixel_format), .. }
-        | CaptureFormatRequest::HighestResolution { pixel_format: Some(pixel_format), .. } => {
-            vec![*pixel_format]
+        CaptureFormatRequest::HighestFrameRate { frame_format: Some(frame_format), .. }
+        | CaptureFormatRequest::HighestResolution { frame_format: Some(frame_format), .. } => {
+            vec![*frame_format]
         }
         CaptureFormatRequest::Default
-        | CaptureFormatRequest::HighestFrameRate { pixel_format: None, .. }
-        | CaptureFormatRequest::HighestResolution { pixel_format: None, .. } => {
-            options.pixel_formats.clone()
+        | CaptureFormatRequest::HighestFrameRate { frame_format: None, .. }
+        | CaptureFormatRequest::HighestResolution { frame_format: None, .. } => {
+            options.frame_formats.clone()
         }
     };
     formats.dedup();
     formats
         .into_iter()
-        .map(|format| nokhwa_frame_format(format).ok_or(V4lError::UnsupportedPixelFormat(format)))
+        .map(|format| nokhwa_frame_format(format).ok_or(V4lError::UnsupportedFrameFormat(format)))
         .collect()
 }
 
-#[cfg(target_os = "linux")]
 fn ordered_formats_with_first(
-    pixel_formats: &[CapturePixelFormat],
-    first: CapturePixelFormat,
-) -> Vec<CapturePixelFormat> {
+    frame_formats: &[CaptureFrameFormat],
+    first: CaptureFrameFormat,
+) -> Vec<CaptureFrameFormat> {
     std::iter::once(first)
-        .chain(pixel_formats.iter().copied().filter(|format| *format != first))
+        .chain(frame_formats.iter().copied().filter(|format| *format != first))
         .collect()
 }
 
@@ -494,7 +521,7 @@ fn apply_ordered_format_request(
 
     Err(last_error
         .map(nokhwa_error)
-        .unwrap_or(V4lError::InvalidOption("no V4L pixel formats were requested")))
+        .unwrap_or(V4lError::InvalidOption("no V4L frame formats were requested")))
 }
 
 #[cfg(target_os = "linux")]
@@ -559,8 +586,8 @@ fn nokhwa_camera_format(
 ) -> Result<CameraFormat, V4lError> {
     let frame_format = match override_format {
         Some(format) => format,
-        None => nokhwa_frame_format(format.pixel_format)
-            .ok_or(V4lError::UnsupportedPixelFormat(format.pixel_format))?,
+        None => nokhwa_frame_format(format.frame_format)
+            .ok_or(V4lError::UnsupportedFrameFormat(format.frame_format))?,
     };
     Ok(CameraFormat::new(nokhwa_resolution(format.resolution), frame_format, format.frame_rate))
 }
@@ -571,28 +598,28 @@ fn nokhwa_resolution(resolution: CaptureResolution) -> Resolution {
 }
 
 #[cfg(target_os = "linux")]
-fn nokhwa_frame_format(pixel_format: CapturePixelFormat) -> Option<FrameFormat> {
+fn nokhwa_frame_format(pixel_format: CaptureFrameFormat) -> Option<FrameFormat> {
     match pixel_format {
-        CapturePixelFormat::Nv12 => Some(FrameFormat::NV12),
-        CapturePixelFormat::Rgb24 => Some(FrameFormat::RAWRGB),
-        CapturePixelFormat::Bgr24 => Some(FrameFormat::RAWBGR),
-        CapturePixelFormat::Yuyv => Some(FrameFormat::YUYV),
-        CapturePixelFormat::Gray => Some(FrameFormat::GRAY),
-        CapturePixelFormat::Mjpeg => Some(FrameFormat::MJPEG),
-        CapturePixelFormat::I420 | CapturePixelFormat::Bgra | CapturePixelFormat::Uyvy => None,
+        CaptureFrameFormat::Nv12 => Some(FrameFormat::NV12),
+        CaptureFrameFormat::Rgb24 => Some(FrameFormat::RAWRGB),
+        CaptureFrameFormat::Bgr24 => Some(FrameFormat::RAWBGR),
+        CaptureFrameFormat::Yuyv => Some(FrameFormat::YUYV),
+        CaptureFrameFormat::Gray => Some(FrameFormat::GRAY),
+        CaptureFrameFormat::Mjpeg => Some(FrameFormat::MJPEG),
+        CaptureFrameFormat::I420 | CaptureFrameFormat::Bgra | CaptureFrameFormat::Uyvy => None,
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn nokhwa_frame_format(pixel_format: CapturePixelFormat) -> Option<()> {
+fn nokhwa_frame_format(pixel_format: CaptureFrameFormat) -> Option<()> {
     match pixel_format {
-        CapturePixelFormat::Nv12
-        | CapturePixelFormat::Rgb24
-        | CapturePixelFormat::Bgr24
-        | CapturePixelFormat::Yuyv
-        | CapturePixelFormat::Gray
-        | CapturePixelFormat::Mjpeg => Some(()),
-        CapturePixelFormat::I420 | CapturePixelFormat::Bgra | CapturePixelFormat::Uyvy => None,
+        CaptureFrameFormat::Nv12
+        | CaptureFrameFormat::Rgb24
+        | CaptureFrameFormat::Bgr24
+        | CaptureFrameFormat::Yuyv
+        | CaptureFrameFormat::Gray
+        | CaptureFrameFormat::Mjpeg => Some(()),
+        CaptureFrameFormat::I420 | CaptureFrameFormat::Bgra | CaptureFrameFormat::Uyvy => None,
     }
 }
 
@@ -601,19 +628,19 @@ fn capture_format_from_nokhwa(format: CameraFormat) -> Result<CaptureFormat, V4l
     Ok(CaptureFormat::new(
         CaptureResolution::new(format.width(), format.height()),
         format.frame_rate(),
-        capture_pixel_format_from_nokhwa(format.format())?,
+        capture_frame_format_from_nokhwa(format.format())?,
     ))
 }
 
 #[cfg(target_os = "linux")]
-fn capture_pixel_format_from_nokhwa(format: FrameFormat) -> Result<CapturePixelFormat, V4lError> {
+fn capture_frame_format_from_nokhwa(format: FrameFormat) -> Result<CaptureFrameFormat, V4lError> {
     match format {
-        FrameFormat::MJPEG => Ok(CapturePixelFormat::Mjpeg),
-        FrameFormat::YUYV => Ok(CapturePixelFormat::Yuyv),
-        FrameFormat::NV12 => Ok(CapturePixelFormat::Nv12),
-        FrameFormat::GRAY => Ok(CapturePixelFormat::Gray),
-        FrameFormat::RAWRGB => Ok(CapturePixelFormat::Rgb24),
-        FrameFormat::RAWBGR => Ok(CapturePixelFormat::Bgr24),
+        FrameFormat::MJPEG => Ok(CaptureFrameFormat::Mjpeg),
+        FrameFormat::YUYV => Ok(CaptureFrameFormat::Yuyv),
+        FrameFormat::NV12 => Ok(CaptureFrameFormat::Nv12),
+        FrameFormat::GRAY => Ok(CaptureFrameFormat::Gray),
+        FrameFormat::RAWRGB => Ok(CaptureFrameFormat::Rgb24),
+        FrameFormat::RAWBGR => Ok(CaptureFrameFormat::Bgr24),
     }
 }
 
@@ -871,9 +898,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_empty_pixel_format_preferences() {
+    fn rejects_empty_frame_format_preferences() {
         let mut options = V4lCaptureOptions::default();
-        options.pixel_formats.clear();
+        options.frame_formats.clear();
         let err = V4lCaptureSession::new(options).expect_err("empty formats must be rejected");
         assert!(matches!(err, V4lError::InvalidOption(_)));
     }
@@ -881,9 +908,9 @@ mod tests {
     #[test]
     fn rejects_unsupported_i420_source_format() {
         let mut options = V4lCaptureOptions::default();
-        options.pixel_formats = vec![CapturePixelFormat::I420];
+        options.frame_formats = vec![CaptureFrameFormat::I420];
         let err = V4lCaptureSession::new(options).expect_err("I420 source must be rejected");
-        assert!(matches!(err, V4lError::UnsupportedPixelFormat(CapturePixelFormat::I420)));
+        assert!(matches!(err, V4lError::UnsupportedFrameFormat(CaptureFrameFormat::I420)));
     }
 
     #[test]

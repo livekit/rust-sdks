@@ -26,20 +26,9 @@ use crate::{
     error::CaptureError,
 };
 
+pub use crate::device::CapturePath;
 #[cfg(target_os = "linux")]
 use crate::dmabuf::DmaBufFrame;
-
-/// Capture path used by a source implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum CapturePath {
-    /// Decoded CPU or native frame buffers.
-    FrameBuffer,
-    /// Linux DMA-BUF backed frames.
-    DmaBuf,
-    /// Pre-encoded compressed access units.
-    Encoded,
-}
 
 /// Capture source backed by a LiveKit local video track.
 #[derive(Debug, Clone)]

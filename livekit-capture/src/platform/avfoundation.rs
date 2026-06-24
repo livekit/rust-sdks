@@ -23,8 +23,8 @@ use thiserror::Error;
 
 use crate::{
     device::{
-        CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest,
-        CapturePixelFormat, CaptureResolution,
+        CaptureBackend, CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat,
+        CaptureFormatRequest, CaptureFrameFormat, CapturePath, CaptureResolution,
     },
     error::CaptureError,
     track::VideoCaptureTrack,
@@ -59,14 +59,14 @@ impl Default for AvFoundationCaptureOptions {
 pub struct AvFoundationFrame {
     /// Decoded I420 frame suitable for [`crate::VideoCaptureTrack::capture_frame`].
     pub frame: VideoFrame<I420Buffer>,
-    /// Source pixel format delivered by AVFoundation.
-    pub source_pixel_format: CapturePixelFormat,
+    /// Source frame format delivered by AVFoundation.
+    pub source_format: CaptureFrameFormat,
     /// Wall-clock timestamp selected for metadata and timing correlation.
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read from AVFoundation.
     pub read_wall_time_us: u64,
-    /// Whether compressed image decoding was needed.
-    pub used_decode_path: bool,
+    /// Whether conversion from the source format to I420 was needed.
+    pub used_conversion: bool,
 }
 
 impl AvFoundationFrame {
@@ -79,13 +79,17 @@ impl AvFoundationFrame {
 /// AVFoundation decoded-frame capture session that emits I420 frames.
 pub struct AvFoundationCaptureSession {
     format: CaptureFormat,
+    options: AvFoundationCaptureOptions,
     #[cfg(target_os = "macos")]
     inner: macos::SessionInner,
 }
 
 impl std::fmt::Debug for AvFoundationCaptureSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AvFoundationCaptureSession").field("format", &self.format).finish()
+        f.debug_struct("AvFoundationCaptureSession")
+            .field("format", &self.format)
+            .field("options", &self.options)
+            .finish()
     }
 }
 
@@ -112,12 +116,22 @@ impl AvFoundationCaptureSession {
         self.format
     }
 
+    /// Returns the configured capture options.
+    pub fn options(&self) -> &AvFoundationCaptureOptions {
+        &self.options
+    }
+
+    /// Returns the capture path produced by this session.
+    pub fn capture_path(&self) -> CapturePath {
+        CapturePath::Raw
+    }
+
     #[cfg(target_os = "macos")]
     fn open(options: AvFoundationCaptureOptions) -> Result<Self, AvFoundationError> {
         let inner = macos::SessionInner::new(&options)?;
         let mut format = inner.wait_for_format(FIRST_FRAME_TIMEOUT)?;
         format.frame_rate = requested_frame_rate_hint(&options.format).unwrap_or(30);
-        Ok(Self { format, inner })
+        Ok(Self { format, options, inner })
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -214,9 +228,9 @@ pub enum AvFoundationError {
     /// The requested option is invalid.
     #[error("invalid AVFoundation capture option: {0}")]
     InvalidOption(&'static str),
-    /// The requested capture format is not supported by this backend.
-    #[error("AVFoundation capture does not support pixel format {0:?}")]
-    UnsupportedPixelFormat(CapturePixelFormat),
+    /// The requested capture frame format is not supported by this backend.
+    #[error("AVFoundation capture does not support frame format {0:?}")]
+    UnsupportedFrameFormat(CaptureFrameFormat),
     /// The requested capture format is not available on the selected device.
     #[error("AVFoundation capture format is not available: {0:?}")]
     UnsupportedFormat(CaptureFormat),
@@ -273,7 +287,7 @@ fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), AvFounda
         if format.frame_rate == 0 {
             return Err(AvFoundationError::InvalidOption("frame_rate must be non-zero"));
         }
-        validate_pixel_format(format.pixel_format)?;
+        validate_frame_format(format.frame_format)?;
         Ok(())
     };
 
@@ -282,33 +296,33 @@ fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), AvFounda
         CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
             validate_format(format)
         }
-        CaptureFormatRequest::HighestFrameRate { resolution, pixel_format } => {
+        CaptureFormatRequest::HighestFrameRate { resolution, frame_format } => {
             if let Some(resolution) = resolution {
                 validate_resolution(*resolution)?;
             }
-            if let Some(pixel_format) = pixel_format {
-                validate_pixel_format(*pixel_format)?;
+            if let Some(frame_format) = frame_format {
+                validate_frame_format(*frame_format)?;
             }
             Ok(())
         }
-        CaptureFormatRequest::HighestResolution { frame_rate, pixel_format } => {
+        CaptureFormatRequest::HighestResolution { frame_rate, frame_format } => {
             if matches!(frame_rate, Some(0)) {
                 return Err(AvFoundationError::InvalidOption("frame_rate must be non-zero"));
             }
-            if let Some(pixel_format) = pixel_format {
-                validate_pixel_format(*pixel_format)?;
+            if let Some(frame_format) = frame_format {
+                validate_frame_format(*frame_format)?;
             }
             Ok(())
         }
     }
 }
 
-fn validate_pixel_format(pixel_format: CapturePixelFormat) -> Result<(), AvFoundationError> {
+fn validate_frame_format(frame_format: CaptureFrameFormat) -> Result<(), AvFoundationError> {
     if !matches!(
-        pixel_format,
-        CapturePixelFormat::Nv12 | CapturePixelFormat::Bgra | CapturePixelFormat::I420
+        frame_format,
+        CaptureFrameFormat::Nv12 | CaptureFrameFormat::Bgra | CaptureFrameFormat::I420
     ) {
-        return Err(AvFoundationError::UnsupportedPixelFormat(pixel_format));
+        return Err(AvFoundationError::UnsupportedFrameFormat(frame_format));
     }
     Ok(())
 }
@@ -365,7 +379,17 @@ fn list_devices() -> Result<Vec<CaptureDeviceInfo>, AvFoundationError> {
         let model_id = non_empty_string(unsafe { device.modelID() }.to_string());
         let manufacturer = non_empty_string(unsafe { device.manufacturer() }.to_string());
 
-        results.push(CaptureDeviceInfo { id, name, model_id, manufacturer, formats: Vec::new() });
+        results.push(CaptureDeviceInfo {
+            backend: CaptureBackend::AvFoundation,
+            id: id.clone(),
+            selector: CaptureDeviceSelector::Id(id),
+            name,
+            model_id,
+            manufacturer,
+            paths: vec![CapturePath::Raw],
+            formats: Vec::new(),
+            formats_complete: false,
+        });
     }
 
     Ok(results)
@@ -464,7 +488,7 @@ mod macos {
 
     use super::{AvFoundationCaptureOptions, AvFoundationError, AvFoundationFrame};
     use crate::device::{
-        CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest, CapturePixelFormat,
+        CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest, CaptureFrameFormat,
         CaptureResolution,
     };
     use crate::metadata::FrameMetadata;
@@ -690,7 +714,7 @@ mod macos {
                     return Ok(CaptureFormat::new(
                         CaptureResolution::new(buffer.width(), buffer.height()),
                         0,
-                        frame.source_pixel_format,
+                        frame.source_format,
                     ));
                 }
                 if let Some(error) = state.error.take() {
@@ -1001,7 +1025,7 @@ mod macos {
             }
             CaptureFormatRequest::HighestFrameRate { resolution, .. } => *resolution,
             CaptureFormatRequest::Default
-            | CaptureFormatRequest::HighestResolution { frame_rate: _, pixel_format: _ } => None,
+            | CaptureFormatRequest::HighestResolution { frame_rate: _, frame_format: _ } => None,
         }?;
 
         match (resolution.width, resolution.height) {
@@ -1026,7 +1050,7 @@ mod macos {
         // for the duration of this conversion.
         let pixel_buffer =
             unsafe { &*(image_buffer_ref as *const CVImageBuffer as *const CVPixelBuffer) };
-        let (buffer, source_pixel_format) = convert_pixel_buffer(pixel_buffer)?;
+        let (buffer, source_format) = convert_pixel_buffer(pixel_buffer)?;
 
         let capture_wall_time_us = read_wall_time_us;
         let frame = VideoFrame {
@@ -1042,17 +1066,17 @@ mod macos {
 
         shared.push_frame(AvFoundationFrame {
             frame,
-            source_pixel_format,
+            source_format,
             capture_wall_time_us,
             read_wall_time_us,
-            used_decode_path: false,
+            used_conversion: source_format != CaptureFrameFormat::I420,
         });
         Ok(())
     }
 
     fn convert_pixel_buffer(
         pixel_buffer: &CVPixelBuffer,
-    ) -> Result<(I420Buffer, CapturePixelFormat), AvFoundationError> {
+    ) -> Result<(I420Buffer, CaptureFrameFormat), AvFoundationError> {
         let lock_flags = CVPixelBufferLockFlags::ReadOnly;
         let lock_result = unsafe { CVPixelBufferLockBaseAddress(pixel_buffer, lock_flags) };
         if lock_result != kCVReturnSuccess {
@@ -1072,7 +1096,7 @@ mod macos {
 
     fn convert_locked_pixel_buffer(
         pixel_buffer: &CVPixelBuffer,
-    ) -> Result<(I420Buffer, CapturePixelFormat), AvFoundationError> {
+    ) -> Result<(I420Buffer, CaptureFrameFormat), AvFoundationError> {
         let width = u32::try_from(CVPixelBufferGetWidth(pixel_buffer))
             .map_err(|_| AvFoundationError::InvalidFrame("width is out of range"))?;
         let height = u32::try_from(CVPixelBufferGetHeight(pixel_buffer))
@@ -1085,29 +1109,29 @@ mod macos {
                     || format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange =>
             {
                 convert_nv12(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CapturePixelFormat::Nv12))
+                    .map(|buffer| (buffer, CaptureFrameFormat::Nv12))
             }
             format if format == kCVPixelFormatType_32BGRA => {
                 convert_bgra(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CapturePixelFormat::Bgra))
+                    .map(|buffer| (buffer, CaptureFrameFormat::Bgra))
             }
             format
                 if format == kCVPixelFormatType_420YpCbCr8Planar
                     || format == kCVPixelFormatType_420YpCbCr8PlanarFullRange =>
             {
                 convert_i420(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CapturePixelFormat::I420))
+                    .map(|buffer| (buffer, CaptureFrameFormat::I420))
             }
             format if format == kCVPixelFormatType_422YpCbCr8 => {
                 convert_uyvy(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CapturePixelFormat::Uyvy))
+                    .map(|buffer| (buffer, CaptureFrameFormat::Uyvy))
             }
             format
                 if format == kCVPixelFormatType_422YpCbCr8_yuvs
                     || format == kCVPixelFormatType_422YpCbCr8FullRange =>
             {
                 convert_yuy2(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CapturePixelFormat::Yuyv))
+                    .map(|buffer| (buffer, CaptureFrameFormat::Yuyv))
             }
             other => Err(AvFoundationError::UnsupportedCoreVideoPixelFormat(other)),
         }

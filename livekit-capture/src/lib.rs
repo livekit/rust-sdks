@@ -20,12 +20,15 @@ pub mod encoded;
 mod error;
 pub mod metadata;
 pub mod platform;
+pub mod source;
 pub mod sources;
 pub mod track;
 
+#[allow(deprecated)]
+pub use device::CapturePixelFormat;
 pub use device::{
-    CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest,
-    CapturePixelFormat, CaptureResolution,
+    CaptureBackend, CaptureDeviceInfo, CaptureDeviceQueryError, CaptureDeviceSelector,
+    CaptureFormat, CaptureFormatRequest, CaptureFrameFormat, CapturePath, CaptureResolution,
 };
 pub use dmabuf::{DmaBufFrame, DmaBufPixelFormat, DmaBufPlane};
 pub use encoded::{
@@ -36,4 +39,9 @@ pub use encoded::{
 };
 pub use error::CaptureError;
 pub use metadata::FrameMetadata;
-pub use track::{CapturePath, VideoCaptureTrack};
+pub use source::{
+    CaptureFrame, CaptureFrameSource, CaptureMetadataOptions, CaptureSourceError,
+    CaptureSourceOptions, CaptureTimestampSource, EncodedCaptureFrameSource,
+    EncodedFrameSourceError, RawVideoFrame, VideoCaptureSource,
+};
+pub use track::VideoCaptureTrack;
