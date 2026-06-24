@@ -14,9 +14,10 @@
 
 //! Packet Trailer E2E Tests
 //!
-//! These tests verify that user_timestamp and frame_id metadata survives the
-//! full publish → SFU → subscribe WebRTC pipeline via the packet trailer
-//! mechanism, both with and without E2EE.
+//! These tests verify that user_timestamp, frame_id, and user_data metadata
+//! survives the full publish → SFU → subscribe WebRTC pipeline via the packet
+//! trailer mechanism, both with and without E2EE. They also verify that
+//! oversize user_data is dropped (not truncated) on the send side.
 //!
 //! Run all tests (use --test-threads=1 to avoid local server flakiness):
 //!   livekit-server --dev --node-ip 127.0.0.1
@@ -54,6 +55,13 @@ const TEST_HEIGHT: u32 = 480;
 struct PacketTrailerTestParams {
     attach_timestamp: bool,
     attach_frame_id: bool,
+    /// Bytes the publisher attaches to each frame. `None` means the
+    /// `user_data` feature is disabled and no bytes are sent.
+    user_data: Option<Vec<u8>>,
+    /// What the subscriber is expected to observe. `None` means the
+    /// receiver should see no `user_data` (e.g. the payload was dropped
+    /// because it exceeded the trailer budget).
+    expect_user_data: Option<Vec<u8>>,
     e2ee: bool,
     codec: VideoCodec,
 }
@@ -65,6 +73,8 @@ async fn test_timestamp_only_vp8() -> Result<()> {
     run_packet_trailer_test(PacketTrailerTestParams {
         attach_timestamp: true,
         attach_frame_id: false,
+        user_data: None,
+        expect_user_data: None,
         e2ee: false,
         codec: VideoCodec::VP8,
     })
@@ -76,6 +86,8 @@ async fn test_frame_id_only_vp8() -> Result<()> {
     run_packet_trailer_test(PacketTrailerTestParams {
         attach_timestamp: false,
         attach_frame_id: true,
+        user_data: None,
+        expect_user_data: None,
         e2ee: false,
         codec: VideoCodec::VP8,
     })
@@ -87,6 +99,8 @@ async fn test_timestamp_and_frame_id_vp8() -> Result<()> {
     run_packet_trailer_test(PacketTrailerTestParams {
         attach_timestamp: true,
         attach_frame_id: true,
+        user_data: None,
+        expect_user_data: None,
         e2ee: false,
         codec: VideoCodec::VP8,
     })
@@ -98,7 +112,68 @@ async fn test_timestamp_and_frame_id_vp8_e2ee() -> Result<()> {
     run_packet_trailer_test(PacketTrailerTestParams {
         attach_timestamp: true,
         attach_frame_id: true,
+        user_data: None,
+        expect_user_data: None,
         e2ee: true,
+        codec: VideoCodec::VP8,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_user_data_only_vp8() -> Result<()> {
+    let payload = b"livekit-user-data".to_vec();
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: false,
+        attach_frame_id: false,
+        user_data: Some(payload.clone()),
+        expect_user_data: Some(payload),
+        e2ee: false,
+        codec: VideoCodec::VP8,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_user_data_with_timestamp_and_frame_id_vp8() -> Result<()> {
+    let payload = b"all-three-features".to_vec();
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: true,
+        user_data: Some(payload.clone()),
+        expect_user_data: Some(payload),
+        e2ee: false,
+        codec: VideoCodec::VP8,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_user_data_vp8_e2ee() -> Result<()> {
+    let payload = b"encrypted-user-data".to_vec();
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: false,
+        user_data: Some(payload.clone()),
+        expect_user_data: Some(payload),
+        e2ee: true,
+        codec: VideoCodec::VP8,
+    })
+    .await
+}
+
+/// user_data that exceeds the remaining trailer budget must be dropped on the
+/// send side (skip + warn), not truncated. A timestamp is attached so frames
+/// still carry a trailer after the oversize user_data is dropped; user_data
+/// should simply be absent.
+#[test_log::test(tokio::test)]
+async fn test_user_data_oversize_dropped_vp8() -> Result<()> {
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: false,
+        user_data: Some(vec![0xAB; 250]),
+        expect_user_data: None,
+        e2ee: false,
         codec: VideoCodec::VP8,
     })
     .await
@@ -109,6 +184,22 @@ async fn test_timestamp_and_frame_id_av1() -> Result<()> {
     run_packet_trailer_test(PacketTrailerTestParams {
         attach_timestamp: true,
         attach_frame_id: true,
+        user_data: None,
+        expect_user_data: None,
+        e2ee: false,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_user_data_with_timestamp_and_frame_id_av1() -> Result<()> {
+    let payload = b"all-three-features".to_vec();
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: true,
+        user_data: Some(payload.clone()),
+        expect_user_data: Some(payload),
         e2ee: false,
         codec: VideoCodec::AV1,
     })
@@ -153,6 +244,7 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
     let mut frame_metadata_features = FrameMetadataFeatures::default();
     frame_metadata_features.user_timestamp = params.attach_timestamp;
     frame_metadata_features.frame_id = params.attach_frame_id;
+    frame_metadata_features.user_data = params.user_data.is_some();
 
     let rtc_source =
         NativeVideoSource::new(VideoResolution { width: TEST_WIDTH, height: TEST_HEIGHT }, false);
@@ -179,8 +271,9 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
         let rtc_source = rtc_source.clone();
         let attach_ts = params.attach_timestamp;
         let attach_fid = params.attach_frame_id;
+        let user_data = params.user_data.clone();
         async move {
-            publish_frames(stop_rx, rtc_source, attach_ts, attach_fid).await;
+            publish_frames(stop_rx, rtc_source, attach_ts, attach_fid, user_data).await;
         }
     });
 
@@ -202,6 +295,7 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
         let mut stream = NativeVideoStream::new(remote_track.rtc_track());
         let attach_ts = params.attach_timestamp;
         let attach_fid = params.attach_frame_id;
+        let expect_user_data = params.expect_user_data.clone();
 
         let validate = async {
             let mut validated = 0;
@@ -232,6 +326,21 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
                     let fid = meta.frame_id.expect("Expected frame_id in frame metadata");
                     assert!(fid > 0, "frame_id should be a positive value, got {}", fid);
                     seen_frame_ids.push(fid);
+                }
+
+                match &expect_user_data {
+                    Some(expected) => {
+                        let got =
+                            meta.user_data.as_ref().expect("Expected user_data in frame metadata");
+                        assert_eq!(got, expected, "user_data should round-trip unchanged");
+                    }
+                    None => {
+                        assert!(
+                            meta.user_data.is_none(),
+                            "Expected no user_data, got {:?}",
+                            meta.user_data
+                        );
+                    }
                 }
 
                 validated += 1;
@@ -287,6 +396,7 @@ async fn publish_frames(
     rtc_source: NativeVideoSource,
     attach_timestamp: bool,
     attach_frame_id: bool,
+    user_data: Option<Vec<u8>>,
 ) {
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -318,8 +428,12 @@ async fn publish_frames(
             None
         };
 
-        let frame_metadata = if user_ts.is_some() || fid.is_some() {
-            Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+        let frame_metadata = if user_ts.is_some() || fid.is_some() || user_data.is_some() {
+            Some(FrameMetadata {
+                user_timestamp: user_ts,
+                frame_id: fid,
+                user_data: user_data.clone(),
+            })
         } else {
             None
         };

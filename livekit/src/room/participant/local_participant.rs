@@ -1011,6 +1011,7 @@ mod tests {
             frame_metadata_features: FrameMetadataFeatures {
                 user_timestamp: true,
                 frame_id: false,
+                user_data: false,
             },
             ..Default::default()
         };

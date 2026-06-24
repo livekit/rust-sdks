@@ -39,21 +39,60 @@ uint64_t CurrentUnixTimeMicros() {
 }
 
 std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
-                                         uint32_t frame_id) {
+                                         uint32_t frame_id,
+                                         const std::vector<uint8_t>& user_data) {
+  // Every metadata field is optional. A field is embedded only when it is
+  // set (timestamp/frame_id != 0, user_data non-empty), so a frame can
+  // carry any subset -- or none -- of the features.
+  const bool has_timestamp = user_timestamp != 0;
   const bool has_frame_id = frame_id != 0;
-  const size_t trailer_len = kTimestampTlvSize +
-                             (has_frame_id ? kFrameIdTlvSize : 0) +
-                             kTrailerEnvelopeSize;
+  const size_t fixed_len = (has_timestamp ? kTimestampTlvSize : 0) +
+                           (has_frame_id ? kFrameIdTlvSize : 0) +
+                           kTrailerEnvelopeSize;
+
+  // user_data is embedded only if it fits the remaining trailer budget.
+  // The whole trailer length is a single byte (255 max), so after the
+  // optional timestamp TLV, the optional frame_id TLV, the envelope and
+  // this TLV's own 2-byte header, the value can never approach 255 -- the
+  // real cap is (255 - fixed_len - 2), at most ~248 bytes. Oversize
+  // user_data is dropped + logged rather than truncated, so the frame is
+  // never silently corrupted. (This bound is always < 256, so the 1-byte
+  // TLV length field below can't overflow.)
+  const size_t user_data_budget =
+      kPacketTrailerMaxTotal > fixed_len + kUserDataTlvHeaderSize
+          ? kPacketTrailerMaxTotal - fixed_len - kUserDataTlvHeaderSize
+          : 0;
+  const bool embed_user_data =
+      !user_data.empty() && user_data.size() <= user_data_budget;
+  if (!user_data.empty() && !embed_user_data) {
+    RTC_LOG(LS_WARNING)
+        << "BuildTrailerPayload dropping user_data: " << user_data.size()
+        << " bytes exceeds remaining trailer budget (" << user_data_budget
+        << " bytes)";
+  }
+
+  // Nothing embeddable -> no trailer at all. Returning empty (no envelope)
+  // lets AppendTrailer leave the frame untouched, so the receiver never
+  // sees an unparseable envelope-only trailer it can't strip.
+  if (!has_timestamp && !has_frame_id && !embed_user_data) {
+    return {};
+  }
+
+  const size_t trailer_len =
+      fixed_len +
+      (embed_user_data ? kUserDataTlvHeaderSize + user_data.size() : 0);
   std::vector<uint8_t> trailer;
   trailer.reserve(trailer_len);
 
   // All TLV bytes are XORed with 0xFF to prevent H.264 NAL start code
   // sequences (0x000001 / 0x00000001) from appearing inside the trailer.
-  trailer.push_back(kTagTimestampUs ^ 0xFF);
-  trailer.push_back(8 ^ 0xFF);
-  for (int i = 7; i >= 0; --i) {
-    trailer.push_back(
-        static_cast<uint8_t>(((user_timestamp >> (i * 8)) & 0xFF) ^ 0xFF));
+  if (has_timestamp) {
+    trailer.push_back(kTagTimestampUs ^ 0xFF);
+    trailer.push_back(8 ^ 0xFF);
+    for (int i = 7; i >= 0; --i) {
+      trailer.push_back(
+          static_cast<uint8_t>(((user_timestamp >> (i * 8)) & 0xFF) ^ 0xFF));
+    }
   }
 
   if (has_frame_id) {
@@ -62,6 +101,14 @@ std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
     for (int i = 3; i >= 0; --i) {
       trailer.push_back(
           static_cast<uint8_t>(((frame_id >> (i * 8)) & 0xFF) ^ 0xFF));
+    }
+  }
+
+  if (embed_user_data) {
+    trailer.push_back(kTagUserData ^ 0xFF);
+    trailer.push_back(static_cast<uint8_t>(user_data.size()) ^ 0xFF);
+    for (uint8_t byte : user_data) {
+      trailer.push_back(static_cast<uint8_t>(byte ^ 0xFF));
     }
   }
 
@@ -118,7 +165,14 @@ std::optional<PacketTrailerMetadata> ParseTrailerPayload(
       }
       meta.frame_id = fid;
       found_any = true;
+    } else if (tag == kTagUserData) {
+      meta.user_data.resize(len);
+      for (uint8_t i = 0; i < len; ++i) {
+        meta.user_data[i] = static_cast<uint8_t>(val[i] ^ 0xFF);
+      }
+      found_any = true;
     }
+    // Unknown tags are silently skipped.
 
     pos += len;
   }
@@ -183,12 +237,14 @@ void PacketTrailerTransformer::TransformSend(
   emit_publish_timing(VideoPublishTimingStage::EncoderOutput,
                       meta_to_embed.user_timestamp, meta_to_embed.frame_id);
 
-  // Always append trailer when enabled (even if timestamp is 0,
-  // which indicates no metadata was set for this frame)
+  // Append a trailer only when at least one metadata field is set;
+  // AppendTrailer returns the data unchanged when there is nothing to
+  // embed, so frames without metadata are forwarded as-is.
   std::vector<uint8_t> new_data;
   if (enabled_.load()) {
     new_data = AppendTrailer(data, meta_to_embed.user_timestamp,
-                             meta_to_embed.frame_id, is_av1);
+                             meta_to_embed.frame_id, meta_to_embed.user_data,
+                             is_av1);
     frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
   }
 
@@ -331,8 +387,16 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
     webrtc::ArrayView<const uint8_t> data,
     uint64_t user_timestamp,
     uint32_t frame_id,
+    const std::vector<uint8_t>& user_data,
     bool is_av1) {
-  std::vector<uint8_t> trailer = BuildTrailerPayload(user_timestamp, frame_id);
+  std::vector<uint8_t> trailer =
+      BuildTrailerPayload(user_timestamp, frame_id, user_data);
+
+  // No embeddable metadata -> leave the frame data untouched so the
+  // receiver never encounters an envelope-only trailer it can't strip.
+  if (trailer.empty()) {
+    return std::vector<uint8_t>(data.begin(), data.end());
+  }
 
   if (is_av1) {
     return av1::InsertTrailerObu(data, trailer);
@@ -439,7 +503,8 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::lookup_frame_meta
 void PacketTrailerTransformer::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
-    uint32_t frame_id) {
+    uint32_t frame_id,
+    rust::Slice<const uint8_t> user_data) {
   // Truncate to millisecond precision to match what WebRTC stores
   // internally.  The encoder pipeline converts the VideoFrame's
   // timestamp_us to capture_time_ms_ = timestamp_us / 1000, and
@@ -464,7 +529,9 @@ void PacketTrailerTransformer::store_frame_metadata(
   if (send_map_.find(key) == send_map_.end()) {
     send_map_order_.push_back(key);
   }
-  send_map_[key] = PacketTrailerMetadata{user_timestamp, frame_id, 0};
+  send_map_[key] = PacketTrailerMetadata{
+      user_timestamp, frame_id, 0,
+      std::vector<uint8_t>(user_data.begin(), user_data.end())};
 }
 
 void PacketTrailerTransformer::set_publish_timing_observer(
@@ -592,6 +659,7 @@ uint64_t PacketTrailerHandler::lookup_timestamp(uint32_t rtp_timestamp) const {
   auto meta = transformer_->lookup_frame_metadata(rtp_timestamp);
   if (meta.has_value()) {
     last_frame_id_ = meta->frame_id;
+    last_user_data_ = meta->user_data;
     return meta->user_timestamp;
   }
   return UINT64_MAX;
@@ -601,11 +669,22 @@ uint32_t PacketTrailerHandler::last_lookup_frame_id() const {
   return last_frame_id_;
 }
 
+rust::Vec<uint8_t> PacketTrailerHandler::last_lookup_user_data() const {
+  rust::Vec<uint8_t> out;
+  out.reserve(last_user_data_.size());
+  for (uint8_t byte : last_user_data_) {
+    out.push_back(byte);
+  }
+  return out;
+}
+
 void PacketTrailerHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
-    uint32_t frame_id) const {
-  transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
+    uint32_t frame_id,
+    rust::Slice<const uint8_t> user_data) const {
+  transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp,
+                                     frame_id, user_data);
 }
 
 void PacketTrailerHandler::set_publish_timing_observer(
