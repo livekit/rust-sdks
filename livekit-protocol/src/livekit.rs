@@ -647,8 +647,8 @@ pub struct DataTrackInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataTrackFrameEncoding {
-    #[prost(oneof="data_track_frame_encoding::Encoding", tags="1, 2")]
-    pub encoding: ::core::option::Option<data_track_frame_encoding::Encoding>,
+    #[prost(oneof="data_track_frame_encoding::Value", tags="1, 2")]
+    pub value: ::core::option::Option<data_track_frame_encoding::Value>,
 }
 /// Nested message and enum types in `DataTrackFrameEncoding`.
 pub mod data_track_frame_encoding {
@@ -710,7 +710,7 @@ pub mod data_track_frame_encoding {
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Encoding {
+    pub enum Value {
         #[prost(enumeration="WellKnownFrameEncoding", tag="1")]
         WellKnown(i32),
         /// Identifier of a custom encoding not covered by the well-known cases.
@@ -723,8 +723,8 @@ pub mod data_track_frame_encoding {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataTrackSchemaEncoding {
-    #[prost(oneof="data_track_schema_encoding::Encoding", tags="1, 2")]
-    pub encoding: ::core::option::Option<data_track_schema_encoding::Encoding>,
+    #[prost(oneof="data_track_schema_encoding::Value", tags="1, 2")]
+    pub value: ::core::option::Option<data_track_schema_encoding::Value>,
 }
 /// Nested message and enum types in `DataTrackSchemaEncoding`.
 pub mod data_track_schema_encoding {
@@ -786,7 +786,7 @@ pub mod data_track_schema_encoding {
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Encoding {
+    pub enum Value {
         #[prost(enumeration="WellKnownSchemaEncoding", tag="1")]
         WellKnown(i32),
         /// Identifier of a custom encoding not covered by the well-known cases.
