@@ -20,8 +20,7 @@ use std::sync::Arc;
 /// A compound identifier with two components: name and encoding.
 ///
 /// Two IDs are equal only if both components match; the same name with a
-/// different encoding refers to a distinct schema. Cloning is cheap, as the name
-/// component is reference counted.
+/// different encoding refers to a distinct schema. Cloning this type is cheap.
 ///
 /// # Examples
 ///
@@ -33,26 +32,39 @@ use std::sync::Arc;
 /// assert_eq!(schema.encoding(), &DataTrackSchemaEncoding::Protobuf);
 /// ```
 ///
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct DataTrackSchemaId {
-    name: Arc<str>,
+#[derive(Clone, Hash, PartialEq, Eq)]
+pub struct DataTrackSchemaId(Arc<DataTrackSchemaIdInner>);
+
+#[derive(Hash, PartialEq, Eq)]
+struct DataTrackSchemaIdInner {
+    name: String,
     encoding: DataTrackSchemaEncoding,
+}
+
+impl std::fmt::Debug for DataTrackSchemaId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataTrackSchemaId")
+            .field("name", &self.0.name)
+            .field("encoding", &self.0.encoding)
+            .finish()
+    }
 }
 
 impl DataTrackSchemaId {
     /// Creates a new schema ID.
     pub fn new(name: impl Into<String>, encoding: DataTrackSchemaEncoding) -> Self {
-        Self { name: Arc::<str>::from(name.into()), encoding }
+        let inner = DataTrackSchemaIdInner { name: name.into(), encoding };
+        Self(inner.into())
     }
 
     /// Returns the name component of the ID.
     pub fn name(&self) -> &str {
-        &self.name
+        &self.0.name
     }
 
     /// Returns the encoding component of the ID.
     pub fn encoding(&self) -> &DataTrackSchemaEncoding {
-        &self.encoding
+        &self.0.encoding
     }
 }
 
@@ -162,7 +174,7 @@ impl From<proto::DataTrackSchemaId> for DataTrackSchemaId {
 
 impl From<DataTrackSchemaId> for proto::DataTrackSchemaId {
     fn from(value: DataTrackSchemaId) -> Self {
-        Self { name: value.name.to_string(), encoding: Some(value.encoding.into()) }
+        Self { name: value.name().to_string(), encoding: Some(value.encoding().clone().into()) }
     }
 }
 
