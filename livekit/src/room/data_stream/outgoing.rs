@@ -538,8 +538,6 @@ mod tests {
                 total_length: None,
                 encryption_type: proto::encryption::Type::None.into(),
                 attributes: HashMap::new(),
-                inline_content: None,
-                compression: proto::data_stream::CompressionType::None.into(),
                 content_header: None,
                 // Data streams v2 fields
                 inline_content: None,
