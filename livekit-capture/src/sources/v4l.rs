@@ -38,8 +38,6 @@ use crate::device::{
     CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest,
     CaptureFrameFormat, CapturePath, CaptureResolution,
 };
-#[cfg(target_os = "linux")]
-use crate::metadata::FrameMetadata;
 
 #[cfg(any(target_os = "linux", test))]
 const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
@@ -53,10 +51,6 @@ pub struct V4lCaptureOptions {
     pub format: CaptureFormatRequest,
     /// Ordered source frame formats to try.
     pub frame_formats: Vec<CaptureFrameFormat>,
-    /// Attach a wall-clock capture timestamp as [`crate::FrameMetadata::user_timestamp`].
-    pub attach_capture_timestamp: bool,
-    /// Attach a monotonically increasing frame id as [`crate::FrameMetadata::frame_id`].
-    pub attach_frame_id: bool,
 }
 
 impl V4lCaptureOptions {
@@ -74,8 +68,6 @@ impl V4lCaptureOptions {
                 CaptureFrameFormat::Yuyv,
             )),
             frame_formats: default_frame_formats(),
-            attach_capture_timestamp: false,
-            attach_frame_id: false,
         }
     }
 }
@@ -128,6 +120,8 @@ pub struct V4lFrame {
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read from the camera backend.
     pub read_wall_time_us: u64,
+    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    pub sensor_timestamp_us: Option<u64>,
     /// Whether conversion from the source format to I420 was needed.
     pub used_conversion: bool,
     /// Whether compressed image decoding was needed before conversion.
@@ -149,8 +143,6 @@ pub struct V4lCaptureSession {
     options: V4lCaptureOptions,
     #[cfg(target_os = "linux")]
     started_at: Instant,
-    #[cfg(target_os = "linux")]
-    next_frame_id: u32,
 }
 
 impl std::fmt::Debug for V4lCaptureSession {
@@ -204,7 +196,7 @@ impl V4lCaptureSession {
 
         camera.open_stream().map_err(nokhwa_error)?;
         let format = capture_format_from_nokhwa(camera.camera_format())?;
-        Ok(Self { camera, format, options, started_at: Instant::now(), next_frame_id: 1 })
+        Ok(Self { camera, format, options, started_at: Instant::now() })
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -230,7 +222,7 @@ impl V4lCaptureSession {
         let mut frame = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: elapsed_us(self.started_at.elapsed()),
-            frame_metadata: self.frame_metadata(capture_wall_time_us).into_rtc(),
+            frame_metadata: None,
             buffer: I420Buffer::new(width, height),
         };
         let used_decode_path = convert_to_i420(
@@ -248,6 +240,7 @@ impl V4lCaptureSession {
             backend_capture_timestamp,
             capture_wall_time_us,
             read_wall_time_us,
+            sensor_timestamp_us: None,
             used_conversion: source_format != CaptureFrameFormat::I420,
             used_decode_path,
         })
@@ -256,17 +249,6 @@ impl V4lCaptureSession {
     #[cfg(not(target_os = "linux"))]
     fn capture_frame_inner(&mut self) -> Result<V4lFrame, V4lError> {
         Err(V4lError::UnsupportedPlatform)
-    }
-
-    #[cfg(target_os = "linux")]
-    fn frame_metadata(&mut self, capture_wall_time_us: u64) -> FrameMetadata {
-        let user_timestamp = self.options.attach_capture_timestamp.then_some(capture_wall_time_us);
-        let frame_id = self.options.attach_frame_id.then(|| {
-            let frame_id = self.next_frame_id;
-            self.next_frame_id = self.next_frame_id.wrapping_add(1);
-            frame_id
-        });
-        FrameMetadata { user_timestamp, frame_id }
     }
 }
 

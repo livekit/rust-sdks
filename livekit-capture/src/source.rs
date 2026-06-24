@@ -28,28 +28,6 @@ use crate::{
     track::VideoCaptureTrack,
 };
 
-/// Capture timestamp metadata attached to frames by high-level source options.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum CaptureTimestampSource {
-    /// Do not attach a user timestamp.
-    #[default]
-    None,
-    /// Attach the wall-clock timestamp observed by the source wrapper.
-    WallClock,
-    /// Attach the backend-provided sensor/capture timestamp when available.
-    Backend,
-}
-
-/// Metadata options shared by high-level capture sources.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct CaptureMetadataOptions {
-    /// Timestamp source to attach as [`crate::FrameMetadata::user_timestamp`].
-    pub timestamp: CaptureTimestampSource,
-    /// Whether to attach a monotonically increasing frame id.
-    pub frame_id: bool,
-}
-
 /// Options used by [`VideoCaptureSource::open`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CaptureSourceOptions {
@@ -59,8 +37,6 @@ pub struct CaptureSourceOptions {
     pub device: CaptureDeviceSelector,
     /// Format requested from the backend.
     pub format: CaptureFormatRequest,
-    /// Metadata to attach when the backend supports it.
-    pub metadata: CaptureMetadataOptions,
     /// Whether the resulting track should be marked as a screencast.
     pub is_screencast: bool,
 }
@@ -71,7 +47,6 @@ impl Default for CaptureSourceOptions {
             backend: CaptureBackend::Auto,
             device: CaptureDeviceSelector::Default,
             format: CaptureFormatRequest::Default,
-            metadata: CaptureMetadataOptions::default(),
             is_screencast: false,
         }
     }
@@ -88,6 +63,8 @@ pub struct RawVideoFrame {
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read, in microseconds.
     pub read_wall_time_us: u64,
+    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    pub sensor_timestamp_us: Option<u64>,
     /// Whether the backend converted the source buffer before publishing.
     pub used_conversion: bool,
 }
@@ -379,6 +356,7 @@ impl From<crate::sources::avfoundation::AvFoundationFrame> for RawVideoFrame {
             source_format: frame.source_format,
             capture_wall_time_us: frame.capture_wall_time_us,
             read_wall_time_us: frame.read_wall_time_us,
+            sensor_timestamp_us: frame.sensor_timestamp_us,
             used_conversion: frame.used_conversion,
         }
     }
@@ -410,6 +388,7 @@ impl From<crate::sources::v4l::V4lFrame> for RawVideoFrame {
             source_format: frame.source_format,
             capture_wall_time_us: frame.capture_wall_time_us,
             read_wall_time_us: frame.read_wall_time_us,
+            sensor_timestamp_us: frame.sensor_timestamp_us,
         }
     }
 }
@@ -570,8 +549,6 @@ impl From<CaptureSourceOptions> for crate::sources::v4l::V4lCaptureOptions {
             device: options.device,
             format: options.format,
             frame_formats: crate::sources::v4l::default_frame_formats(),
-            attach_capture_timestamp: options.metadata.timestamp != CaptureTimestampSource::None,
-            attach_frame_id: options.metadata.frame_id,
         };
         if let CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) =
             source_options.format
@@ -654,23 +631,15 @@ impl TryFrom<CaptureSourceOptions> for crate::sources::argus::ArgusCaptureOption
                 });
             }
         };
-        Ok(Self {
-            sensor_index,
-            format,
-            attach_sensor_timestamp: options.metadata.timestamp != CaptureTimestampSource::None,
-            attach_frame_id: options.metadata.frame_id,
-        })
+        Ok(Self { sensor_index, format })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dmabuf::{DmaBufPixelFormat, DmaBufPlane};
     use crate::encoded::{EncodedFrameType, EncodedVideoCodec};
-    use crate::{
-        dmabuf::{DmaBufPixelFormat, DmaBufPlane},
-        metadata::FrameMetadata,
-    };
     use livekit::webrtc::video_frame::VideoRotation;
 
     #[derive(Debug, Error)]
@@ -731,6 +700,7 @@ mod tests {
             source_format: CaptureFrameFormat::I420,
             capture_wall_time_us: 1,
             read_wall_time_us: 2,
+            sensor_timestamp_us: None,
             used_conversion: false,
         });
         assert_eq!(raw.capture_path(), CapturePath::Raw);
@@ -742,7 +712,7 @@ mod tests {
             planes: vec![DmaBufPlane { fd: -1, offset: 0, stride: 2 }],
             modifier: None,
             timestamp_us: 0,
-            metadata: FrameMetadata::default(),
+            sensor_timestamp_us: None,
         });
         assert_eq!(dmabuf.capture_path(), CapturePath::DmaBuf);
 

@@ -18,7 +18,6 @@ pub mod device;
 pub mod dmabuf;
 pub mod encoded;
 mod error;
-pub mod metadata;
 pub mod platform;
 pub mod source;
 pub mod sources;
@@ -38,10 +37,8 @@ pub use encoded::{
     OwnedEncodedAccessUnit,
 };
 pub use error::CaptureError;
-pub use metadata::FrameMetadata;
 pub use source::{
-    CaptureFrame, CaptureFrameSource, CaptureMetadataOptions, CaptureSourceError,
-    CaptureSourceOptions, CaptureTimestampSource, EncodedCaptureFrameSource,
-    EncodedFrameSourceError, RawVideoFrame, VideoCaptureSource,
+    CaptureFrame, CaptureFrameSource, CaptureSourceError, CaptureSourceOptions,
+    EncodedCaptureFrameSource, EncodedFrameSourceError, RawVideoFrame, VideoCaptureSource,
 };
 pub use track::VideoCaptureTrack;

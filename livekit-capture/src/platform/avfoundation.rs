@@ -65,6 +65,8 @@ pub struct AvFoundationFrame {
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read from AVFoundation.
     pub read_wall_time_us: u64,
+    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    pub sensor_timestamp_us: Option<u64>,
     /// Whether conversion from the source format to I420 was needed.
     pub used_conversion: bool,
 }
@@ -491,8 +493,6 @@ mod macos {
         CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest, CaptureFrameFormat,
         CaptureResolution,
     };
-    use crate::metadata::FrameMetadata;
-
     pub(super) struct SessionInner {
         session: Retained<AVCaptureSession>,
         _input: Retained<AVCaptureDeviceInput>,
@@ -1056,11 +1056,7 @@ mod macos {
         let frame = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: shared.timestamp_us(),
-            frame_metadata: FrameMetadata {
-                user_timestamp: Some(capture_wall_time_us),
-                frame_id: None,
-            }
-            .into_rtc(),
+            frame_metadata: None,
             buffer,
         };
 
@@ -1069,6 +1065,7 @@ mod macos {
             source_format,
             capture_wall_time_us,
             read_wall_time_us,
+            sensor_timestamp_us: None,
             used_conversion: source_format != CaptureFrameFormat::I420,
         });
         Ok(())

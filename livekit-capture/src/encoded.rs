@@ -24,7 +24,7 @@ use livekit::{
     },
 };
 
-use crate::{error::CaptureError, metadata::FrameMetadata};
+use crate::error::CaptureError;
 
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
@@ -196,8 +196,6 @@ pub struct EncodedAccessUnit<'a> {
     pub layers: EncodedLayerInfo,
     /// Optional codec-specific metadata.
     pub codec_specific: CodecSpecific,
-    /// Optional packet-trailer metadata.
-    pub metadata: FrameMetadata,
 }
 
 /// Owned encoded video access unit.
@@ -219,8 +217,6 @@ pub struct OwnedEncodedAccessUnit {
     pub layers: EncodedLayerInfo,
     /// Optional codec-specific metadata.
     pub codec_specific: CodecSpecific,
-    /// Optional packet-trailer metadata.
-    pub metadata: FrameMetadata,
 }
 
 impl OwnedEncodedAccessUnit {
@@ -242,7 +238,6 @@ impl OwnedEncodedAccessUnit {
             height,
             layers: EncodedLayerInfo::default(),
             codec_specific: CodecSpecific::None,
-            metadata: FrameMetadata::default(),
         }
     }
 
@@ -257,7 +252,6 @@ impl OwnedEncodedAccessUnit {
             height: self.height,
             layers: self.layers,
             codec_specific: self.codec_specific.clone(),
-            metadata: self.metadata,
         }
     }
 
@@ -272,7 +266,6 @@ impl OwnedEncodedAccessUnit {
             height: access_unit.height,
             layers: access_unit.layers,
             codec_specific: access_unit.codec_specific.clone(),
-            metadata: access_unit.metadata,
         }
     }
 }
@@ -296,7 +289,6 @@ impl<'a> EncodedAccessUnit<'a> {
             height,
             layers: EncodedLayerInfo::default(),
             codec_specific: CodecSpecific::None,
-            metadata: FrameMetadata::default(),
         }
     }
 
@@ -326,7 +318,6 @@ impl<'a> EncodedAccessUnit<'a> {
             codec_specific: CodecSpecific::H264 {
                 packetization_mode: H264PacketizationMode::NonInterleaved,
             },
-            metadata: FrameMetadata::default(),
         })
     }
 
@@ -354,7 +345,6 @@ impl<'a> EncodedAccessUnit<'a> {
             height,
             layers: EncodedLayerInfo::default(),
             codec_specific: CodecSpecific::H265,
-            metadata: FrameMetadata::default(),
         })
     }
 }

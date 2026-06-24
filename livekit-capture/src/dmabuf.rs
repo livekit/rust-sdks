@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::metadata::FrameMetadata;
-
 /// DMA-BUF pixel format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DmaBufPixelFormat {
@@ -59,6 +57,6 @@ pub struct DmaBufFrame {
     pub modifier: Option<u64>,
     /// Capture timestamp in microseconds.
     pub timestamp_us: i64,
-    /// Optional packet-trailer metadata.
-    pub metadata: FrameMetadata,
+    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    pub sensor_timestamp_us: Option<u64>,
 }

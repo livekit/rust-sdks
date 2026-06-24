@@ -26,10 +26,7 @@ use crate::{
 };
 
 #[cfg(livekit_capture_argus)]
-use crate::{
-    dmabuf::{DmaBufPixelFormat, DmaBufPlane},
-    metadata::FrameMetadata,
-};
+use crate::dmabuf::{DmaBufPixelFormat, DmaBufPlane};
 #[cfg(livekit_capture_argus)]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(livekit_capture_argus)]
@@ -63,10 +60,6 @@ pub struct ArgusCaptureOptions {
     pub sensor_index: u32,
     /// Requested capture format.
     pub format: CaptureFormat,
-    /// Attach the Argus sensor timestamp as [`crate::FrameMetadata::user_timestamp`] when available.
-    pub attach_sensor_timestamp: bool,
-    /// Attach a monotonically increasing frame id as [`crate::FrameMetadata::frame_id`].
-    pub attach_frame_id: bool,
 }
 
 impl ArgusCaptureOptions {
@@ -75,8 +68,6 @@ impl ArgusCaptureOptions {
         Self {
             sensor_index,
             format: CaptureFormat::new(resolution, frame_rate, CaptureFrameFormat::Nv12),
-            attach_sensor_timestamp: false,
-            attach_frame_id: false,
         }
     }
 }
@@ -117,6 +108,8 @@ pub struct ArgusFrame {
     pub dmabuf: DmaBufFrame,
     /// Argus sensor start timestamp in nanoseconds, when available.
     pub sensor_timestamp_ns: Option<u64>,
+    /// Argus sensor start timestamp translated to UNIX-epoch microseconds, when available.
+    pub sensor_timestamp_us: Option<u64>,
     /// Time spent waiting for `FrameConsumer::acquireFrame` to return.
     pub acquire_wait_ns: u64,
     /// Time spent copying the acquired EGLStream frame into the DMA buffer.
@@ -138,8 +131,6 @@ pub struct ArgusCaptureSession {
     options: ArgusCaptureOptions,
     #[cfg(livekit_capture_argus)]
     started_at: Instant,
-    #[cfg(livekit_capture_argus)]
-    next_frame_id: u32,
 }
 
 // SAFETY: The C++ Argus session is driven by one mutable Rust owner at a time.
@@ -213,7 +204,7 @@ impl ArgusCaptureSession {
             return Err(ArgusError::CreateSessionFailed);
         }
 
-        Ok(Self { handle, options, started_at: Instant::now(), next_frame_id: 1 })
+        Ok(Self { handle, options, started_at: Instant::now() })
     }
 
     #[cfg(not(livekit_capture_argus))]
@@ -241,7 +232,7 @@ impl ArgusCaptureSession {
         }
 
         let sensor_timestamp_ns = (sensor_timestamp_ns > 0).then_some(sensor_timestamp_ns);
-        let metadata = self.frame_metadata(sensor_timestamp_ns);
+        let sensor_timestamp_us = sensor_timestamp_ns.and_then(sensor_wall_time_us);
         let resolution = self.options.format.resolution;
         let dmabuf = DmaBufFrame {
             width: resolution.width,
@@ -250,10 +241,16 @@ impl ArgusCaptureSession {
             planes: vec![DmaBufPlane { fd, offset: 0, stride: resolution.width }],
             modifier: None,
             timestamp_us: elapsed_us(self.started_at.elapsed()),
-            metadata,
+            sensor_timestamp_us,
         };
 
-        Ok(ArgusFrame { dmabuf, sensor_timestamp_ns, acquire_wait_ns, blit_ns })
+        Ok(ArgusFrame {
+            dmabuf,
+            sensor_timestamp_ns,
+            sensor_timestamp_us,
+            acquire_wait_ns,
+            blit_ns,
+        })
     }
 
     #[cfg(not(livekit_capture_argus))]
@@ -271,21 +268,6 @@ impl ArgusCaptureSession {
 
     #[cfg(not(livekit_capture_argus))]
     fn release_frame_inner(&mut self) {}
-
-    #[cfg(livekit_capture_argus)]
-    fn frame_metadata(&mut self, sensor_timestamp_ns: Option<u64>) -> FrameMetadata {
-        let user_timestamp = self
-            .options
-            .attach_sensor_timestamp
-            .then(|| sensor_timestamp_ns.and_then(sensor_wall_time_us).or_else(unix_time_us_now))
-            .flatten();
-        let frame_id = self.options.attach_frame_id.then(|| {
-            let frame_id = self.next_frame_id;
-            self.next_frame_id = self.next_frame_id.wrapping_add(1);
-            frame_id
-        });
-        FrameMetadata { user_timestamp, frame_id }
-    }
 }
 
 impl Drop for ArgusCaptureSession {

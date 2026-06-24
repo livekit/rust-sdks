@@ -60,13 +60,12 @@ impl VideoCaptureTrack {
     #[cfg(target_os = "linux")]
     pub fn capture_dmabuf(&self, frame: &DmaBufFrame) -> Result<(), CaptureError> {
         let plane = frame.planes.first().ok_or(CaptureError::MissingDmaBufPlane)?;
-        let ok = self.source.capture_dmabuf_frame_with_metadata(
+        let ok = self.source.capture_dmabuf_frame(
             plane.fd,
             frame.width,
             frame.height,
             frame.pixel_format.as_native(),
             frame.timestamp_us,
-            frame.metadata.into_rtc(),
         );
         ok.then_some(()).ok_or(CaptureError::CaptureFailed)
     }
@@ -91,7 +90,7 @@ impl VideoCaptureTrack {
             frame_type: access_unit.frame_type.into(),
             width: access_unit.width,
             height: access_unit.height,
-            frame_metadata: access_unit.metadata.into_rtc(),
+            frame_metadata: None,
         };
         self.source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
     }
