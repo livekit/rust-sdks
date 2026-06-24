@@ -33,6 +33,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
   - [x] H.264, H.265 on NVidia discrete GPUs (Linux)
   - [x] H.264, H.265 on AMD CPUs & GPUs (Linux)
   - [x] H.264, H.265, AV1 on NVidia Jetson (Linux)
+  - [x] H.264, H.265 on Rockchip SoCs (Linux)
 - Supported Platforms
   - [x] Windows
   - [x] MacOS
