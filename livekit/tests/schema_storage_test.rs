@@ -17,6 +17,7 @@ use {
     anyhow::{Ok, Result},
     common::test_rooms,
     livekit::data_track::{DataTrackSchemaEncoding, DataTrackSchemaId},
+    test_case::test_case
 };
 
 mod common;
@@ -24,14 +25,17 @@ mod common;
 const MAX_SCHEMA_DEFINITION_SIZE: usize = 60_000;
 
 #[cfg(feature = "__lk-e2e-test")]
+#[test_case(DataTrackSchemaEncoding::JsonSchema ; "json_schema")]
+#[test_case(DataTrackSchemaEncoding::Protobuf ; "protobuf")]
+#[test_case(DataTrackSchemaEncoding::Custom("a".to_string()) ; "custom")]
 #[test_log::test(tokio::test)]
-async fn test_define_schema() -> Result<()> {
+async fn test_define_schema(encoding: DataTrackSchemaEncoding) -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (pub_room, _) = rooms.pop().unwrap();
     let (sub_room, _) = rooms.pop().unwrap();
     let identity = pub_room.local_participant().identity();
 
-    let id = DataTrackSchemaId::new("some_schema", DataTrackSchemaEncoding::JsonSchema);
+    let id = DataTrackSchemaId::new("some_schema", encoding);
     let definition = "a".repeat(MAX_SCHEMA_DEFINITION_SIZE);
 
     pub_room.local_participant().define_schema(id.clone(), definition.clone()).await?;
