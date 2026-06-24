@@ -12940,18 +12940,18 @@ impl serde::Serialize for DataTrackFrameEncoding {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.encoding.is_some() {
+        if self.value.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackFrameEncoding", len)?;
-        if let Some(v) = self.encoding.as_ref() {
+        if let Some(v) = self.value.as_ref() {
             match v {
-                data_track_frame_encoding::Encoding::WellKnown(v) => {
+                data_track_frame_encoding::Value::WellKnown(v) => {
                     let v = data_track_frame_encoding::WellKnownFrameEncoding::try_from(*v)
                         .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
                     struct_ser.serialize_field("wellKnown", &v)?;
                 }
-                data_track_frame_encoding::Encoding::Custom(v) => {
+                data_track_frame_encoding::Value::Custom(v) => {
                     struct_ser.serialize_field("custom", v)?;
                 }
             }
@@ -13018,20 +13018,20 @@ impl<'de> serde::Deserialize<'de> for DataTrackFrameEncoding {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut encoding__ = None;
+                let mut value__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::WellKnown => {
-                            if encoding__.is_some() {
+                            if value__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("wellKnown"));
                             }
-                            encoding__ = map_.next_value::<::std::option::Option<data_track_frame_encoding::WellKnownFrameEncoding>>()?.map(|x| data_track_frame_encoding::Encoding::WellKnown(x as i32));
+                            value__ = map_.next_value::<::std::option::Option<data_track_frame_encoding::WellKnownFrameEncoding>>()?.map(|x| data_track_frame_encoding::Value::WellKnown(x as i32));
                         }
                         GeneratedField::Custom => {
-                            if encoding__.is_some() {
+                            if value__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("custom"));
                             }
-                            encoding__ = map_.next_value::<::std::option::Option<_>>()?.map(data_track_frame_encoding::Encoding::Custom);
+                            value__ = map_.next_value::<::std::option::Option<_>>()?.map(data_track_frame_encoding::Value::Custom);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -13039,7 +13039,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackFrameEncoding {
                     }
                 }
                 Ok(DataTrackFrameEncoding {
-                    encoding: encoding__,
+                    value: value__,
                 })
             }
         }
@@ -13329,18 +13329,18 @@ impl serde::Serialize for DataTrackSchemaEncoding {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.encoding.is_some() {
+        if self.value.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackSchemaEncoding", len)?;
-        if let Some(v) = self.encoding.as_ref() {
+        if let Some(v) = self.value.as_ref() {
             match v {
-                data_track_schema_encoding::Encoding::WellKnown(v) => {
+                data_track_schema_encoding::Value::WellKnown(v) => {
                     let v = data_track_schema_encoding::WellKnownSchemaEncoding::try_from(*v)
                         .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
                     struct_ser.serialize_field("wellKnown", &v)?;
                 }
-                data_track_schema_encoding::Encoding::Custom(v) => {
+                data_track_schema_encoding::Value::Custom(v) => {
                     struct_ser.serialize_field("custom", v)?;
                 }
             }
@@ -13407,20 +13407,20 @@ impl<'de> serde::Deserialize<'de> for DataTrackSchemaEncoding {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut encoding__ = None;
+                let mut value__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::WellKnown => {
-                            if encoding__.is_some() {
+                            if value__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("wellKnown"));
                             }
-                            encoding__ = map_.next_value::<::std::option::Option<data_track_schema_encoding::WellKnownSchemaEncoding>>()?.map(|x| data_track_schema_encoding::Encoding::WellKnown(x as i32));
+                            value__ = map_.next_value::<::std::option::Option<data_track_schema_encoding::WellKnownSchemaEncoding>>()?.map(|x| data_track_schema_encoding::Value::WellKnown(x as i32));
                         }
                         GeneratedField::Custom => {
-                            if encoding__.is_some() {
+                            if value__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("custom"));
                             }
-                            encoding__ = map_.next_value::<::std::option::Option<_>>()?.map(data_track_schema_encoding::Encoding::Custom);
+                            value__ = map_.next_value::<::std::option::Option<_>>()?.map(data_track_schema_encoding::Value::Custom);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -13428,7 +13428,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackSchemaEncoding {
                     }
                 }
                 Ok(DataTrackSchemaEncoding {
-                    encoding: encoding__,
+                    value: value__,
                 })
             }
         }
