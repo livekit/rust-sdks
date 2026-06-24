@@ -17,7 +17,11 @@ use {
     anyhow::{anyhow, Ok, Result},
     common::{test_rooms, test_rooms_with_options, TestRoomOptions},
     futures_util::StreamExt,
-    livekit::{prelude::*, SimulateScenario},
+    livekit::{
+        data_track::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSchemaId},
+        prelude::*,
+        SimulateScenario,
+    },
     livekit_api::access_token::VideoGrants,
     std::time::{Duration, Instant},
     test_case::test_case,
@@ -161,17 +165,18 @@ async fn test_publish_duplicate_name() -> Result<()> {
 }
 
 #[cfg(feature = "__lk-e2e-test")]
+#[test_case(DataTrackSchemaEncoding::JsonSchema, DataTrackFrameEncoding::Json ; "well_known")]
+#[test_case(DataTrackSchemaEncoding::Custom("a".to_string()), DataTrackFrameEncoding::Custom("b".to_string()) ; "custom")]
 #[test_log::test(tokio::test)]
-async fn test_publish_with_schema_and_frame_encoding() -> Result<()> {
-    use livekit::data_track::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSchemaId};
-
+async fn test_publish_with_schema_metadata(
+    schema_encoding: DataTrackSchemaEncoding,
+    frame_encoding: DataTrackFrameEncoding,
+) -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (pub_room, _) = rooms.pop().unwrap();
     let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
 
-    let schema_id = DataTrackSchemaId::new("my_schema", DataTrackSchemaEncoding::JsonSchema);
-    let frame_encoding = DataTrackFrameEncoding::Json;
-
+    let schema_id = DataTrackSchemaId::new("my_schema", schema_encoding);
     let options = DataTrackOptions::new("my_track")
         .with_schema(schema_id.clone())
         .with_frame_encoding(frame_encoding.clone());
