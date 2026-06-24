@@ -44,7 +44,7 @@ use v4l::video::Capture;
 #[cfg(target_os = "linux")]
 use v4l::{v4l2, FourCC};
 
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(lk_argus)]
 mod argus;
 mod codec_display;
 mod test_pattern;
@@ -1319,7 +1319,7 @@ enum VideoInput {
     },
     #[cfg(target_os = "linux")]
     V4l2(V4l2CaptureConfig),
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[cfg(lk_argus)]
     Argus(argus::ArgusCaptureSession),
 }
 
@@ -1493,7 +1493,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         }
         SourceKind::Argus => {
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            #[cfg(lk_argus)]
             {
                 if args.test_pattern {
                     anyhow::bail!("--test-pattern is not supported with --source argus");
@@ -1521,10 +1521,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 );
                 (session.width(), session.height(), VideoInput::Argus(session))
             }
-            #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+            #[cfg(not(lk_argus))]
             {
                 anyhow::bail!(
-                    "--source argus requires Linux aarch64 on NVIDIA Jetson; this binary was built for {}-{}",
+                    "--source argus requires NVIDIA Jetson Argus headers and libraries; this binary was built without lk_argus for {}-{}",
                     std::env::consts::OS,
                     std::env::consts::ARCH,
                 );
@@ -1791,7 +1791,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             let _ = publish_stats_task.await;
             capture_result?;
         }
-        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        #[cfg(lk_argus)]
         VideoInput::Argus(session) => {
             let capture_result = run_argus_capture_loop(
                 capture_config,
@@ -2102,7 +2102,7 @@ async fn run_capture_loop(
             VideoInput::V4l2(_) => {
                 unreachable!("direct V4L2 capture must be driven by run_v4l2_capture_loop")
             }
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            #[cfg(lk_argus)]
             VideoInput::Argus(_) => {
                 // The Argus source bypasses this loop entirely and is dispatched to
                 // `run_argus_capture_loop` from `run`. This arm exists only to satisfy
@@ -2875,7 +2875,7 @@ fn run_v4l2_convert_loop_mplane(
 /// dedicated OS thread and pushes NV12 DMA-buffer fds straight into `NativeVideoSource`
 /// via [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
 /// to the Jetson hardware encoder.
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(lk_argus)]
 async fn run_argus_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,
