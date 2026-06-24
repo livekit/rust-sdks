@@ -21,6 +21,7 @@
 #include <optional>
 
 #include "api/make_ref_counted.h"
+#include "livekit/packet_trailer_av1.h"
 #include "livekit/peer_connection_factory.h"
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
@@ -37,7 +38,96 @@ uint64_t CurrentUnixTimeMicros() {
       std::chrono::duration_cast<std::chrono::microseconds>(now).count());
 }
 
+std::vector<uint8_t> BuildTrailerPayload(uint64_t user_timestamp,
+                                         uint32_t frame_id) {
+  const bool has_frame_id = frame_id != 0;
+  const size_t trailer_len = kTimestampTlvSize +
+                             (has_frame_id ? kFrameIdTlvSize : 0) +
+                             kTrailerEnvelopeSize;
+  std::vector<uint8_t> trailer;
+  trailer.reserve(trailer_len);
+
+  // All TLV bytes are XORed with 0xFF to prevent H.264 NAL start code
+  // sequences (0x000001 / 0x00000001) from appearing inside the trailer.
+  trailer.push_back(kTagTimestampUs ^ 0xFF);
+  trailer.push_back(8 ^ 0xFF);
+  for (int i = 7; i >= 0; --i) {
+    trailer.push_back(
+        static_cast<uint8_t>(((user_timestamp >> (i * 8)) & 0xFF) ^ 0xFF));
+  }
+
+  if (has_frame_id) {
+    trailer.push_back(kTagFrameId ^ 0xFF);
+    trailer.push_back(4 ^ 0xFF);
+    for (int i = 3; i >= 0; --i) {
+      trailer.push_back(
+          static_cast<uint8_t>(((frame_id >> (i * 8)) & 0xFF) ^ 0xFF));
+    }
+  }
+
+  trailer.push_back(static_cast<uint8_t>(trailer_len ^ 0xFF));
+  trailer.insert(trailer.end(), std::begin(kPacketTrailerMagic),
+                 std::end(kPacketTrailerMagic));
+  return trailer;
+}
+
 }  // namespace
+
+std::optional<PacketTrailerMetadata> ParseTrailerPayload(
+    webrtc::ArrayView<const uint8_t> trailer) {
+  if (trailer.size() < kTrailerEnvelopeSize) {
+    return std::nullopt;
+  }
+
+  const uint8_t* magic_start = trailer.data() + trailer.size() - 4;
+  if (std::memcmp(magic_start, kPacketTrailerMagic, 4) != 0) {
+    return std::nullopt;
+  }
+
+  uint8_t trailer_len = trailer[trailer.size() - 5] ^ 0xFF;
+  if (trailer_len != trailer.size() || trailer_len < kTrailerEnvelopeSize) {
+    return std::nullopt;
+  }
+
+  size_t tlv_region_len = trailer_len - kTrailerEnvelopeSize;
+  PacketTrailerMetadata meta{0, 0, 0};
+  bool found_any = false;
+  size_t pos = 0;
+
+  while (pos + 2 <= tlv_region_len) {
+    uint8_t tag = trailer[pos] ^ 0xFF;
+    uint8_t len = trailer[pos + 1] ^ 0xFF;
+    pos += 2;
+
+    if (pos + len > tlv_region_len) {
+      break;
+    }
+
+    const uint8_t* val = trailer.data() + pos;
+    if (tag == kTagTimestampUs && len == 8) {
+      uint64_t ts = 0;
+      for (int i = 0; i < 8; ++i) {
+        ts = (ts << 8) | (val[i] ^ 0xFF);
+      }
+      meta.user_timestamp = ts;
+      found_any = true;
+    } else if (tag == kTagFrameId && len == 4) {
+      uint32_t fid = 0;
+      for (int i = 0; i < 4; ++i) {
+        fid = (fid << 8) | (val[i] ^ 0xFF);
+      }
+      meta.frame_id = fid;
+      found_any = true;
+    }
+
+    pos += len;
+  }
+
+  if (!found_any) {
+    return std::nullopt;
+  }
+  return meta;
+}
 
 // PacketTrailerTransformer implementation
 
@@ -87,6 +177,7 @@ void PacketTrailerTransformer::TransformSend(
   uint32_t ssrc = frame->GetSsrc();
 
   auto data = frame->GetData();
+  const bool is_av1 = av1::IsAv1Frame(*frame);
   PacketTrailerMetadata meta_to_embed =
       LookupSendMetadata(*frame, ssrc, rtp_timestamp);
   emit_publish_timing(VideoPublishTimingStage::EncoderOutput,
@@ -97,7 +188,7 @@ void PacketTrailerTransformer::TransformSend(
   std::vector<uint8_t> new_data;
   if (enabled_.load()) {
     new_data = AppendTrailer(data, meta_to_embed.user_timestamp,
-                             meta_to_embed.frame_id);
+                             meta_to_embed.frame_id, is_av1);
     frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
   }
 
@@ -158,9 +249,10 @@ void PacketTrailerTransformer::TransformReceive(
   uint32_t ssrc = frame->GetSsrc();
   uint32_t rtp_timestamp = frame->GetTimestamp();
   auto data = frame->GetData();
+  const bool is_av1 = av1::IsAv1Frame(*frame);
   std::vector<uint8_t> stripped_data;
 
-  auto meta = ExtractTrailer(data, stripped_data);
+  auto meta = ExtractTrailer(data, stripped_data, is_av1);
   PacketTrailerMetadata timing_meta{0, 0, ssrc};
 
   if (meta.has_value()) {
@@ -238,49 +330,29 @@ void PacketTrailerTransformer::TransformReceive(
 std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
     webrtc::ArrayView<const uint8_t> data,
     uint64_t user_timestamp,
-    uint32_t frame_id) {
-  const bool has_frame_id = frame_id != 0;
-  const size_t trailer_len = kTimestampTlvSize +
-                             (has_frame_id ? kFrameIdTlvSize : 0) +
-                             kTrailerEnvelopeSize;
+    uint32_t frame_id,
+    bool is_av1) {
+  std::vector<uint8_t> trailer = BuildTrailerPayload(user_timestamp, frame_id);
+
+  if (is_av1) {
+    return av1::InsertTrailerObu(data, trailer);
+  }
+
   std::vector<uint8_t> result;
-  result.reserve(data.size() + trailer_len);
-
-  // Copy original data
+  result.reserve(data.size() + trailer.size());
   result.insert(result.end(), data.begin(), data.end());
-
-  // All TLV bytes are XORed with 0xFF to prevent H.264 NAL start code
-  // sequences (0x000001 / 0x00000001) from appearing inside the trailer.
-
-  // TLV: timestamp_us (tag=0x01, len=8, 8 bytes big-endian)
-  result.push_back(kTagTimestampUs ^ 0xFF);
-  result.push_back(8 ^ 0xFF);
-  for (int i = 7; i >= 0; --i) {
-    result.push_back(
-        static_cast<uint8_t>(((user_timestamp >> (i * 8)) & 0xFF) ^ 0xFF));
-  }
-
-  if (has_frame_id) {
-    // TLV: frame_id (tag=0x02, len=4, 4 bytes big-endian)
-    result.push_back(kTagFrameId ^ 0xFF);
-    result.push_back(4 ^ 0xFF);
-    for (int i = 3; i >= 0; --i) {
-      result.push_back(
-          static_cast<uint8_t>(((frame_id >> (i * 8)) & 0xFF) ^ 0xFF));
-    }
-  }
-
-  // Envelope: trailer_len (1B, XORed) + magic (4B, NOT XORed)
-  result.push_back(static_cast<uint8_t>(trailer_len ^ 0xFF));
-  result.insert(result.end(), std::begin(kPacketTrailerMagic),
-                std::end(kPacketTrailerMagic));
-
+  result.insert(result.end(), trailer.begin(), trailer.end());
   return result;
 }
 
 std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
     webrtc::ArrayView<const uint8_t> data,
-    std::vector<uint8_t>& out_data) {
+    std::vector<uint8_t>& out_data,
+    bool is_av1) {
+  if (is_av1) {
+    return av1::ExtractTrailer(data, out_data);
+  }
+
   if (data.size() < kTrailerEnvelopeSize) {
     out_data.assign(data.begin(), data.end());
     return std::nullopt;
@@ -302,48 +374,14 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
 
   // Walk the TLV region: everything from trailer_start up to the envelope.
   const uint8_t* trailer_start = data.data() + data.size() - trailer_len;
-  size_t tlv_region_len = trailer_len - kTrailerEnvelopeSize;
-
-  PacketTrailerMetadata meta{0, 0, 0};
-  bool found_any = false;
-  size_t pos = 0;
-
-  while (pos + 2 <= tlv_region_len) {
-    uint8_t tag = trailer_start[pos] ^ 0xFF;
-    uint8_t len = trailer_start[pos + 1] ^ 0xFF;
-    pos += 2;
-
-    if (pos + len > tlv_region_len) {
-      break;
-    }
-
-    const uint8_t* val = trailer_start + pos;
-
-    if (tag == kTagTimestampUs && len == 8) {
-      uint64_t ts = 0;
-      for (int i = 0; i < 8; ++i) {
-        ts = (ts << 8) | (val[i] ^ 0xFF);
-      }
-      meta.user_timestamp = ts;
-      found_any = true;
-    } else if (tag == kTagFrameId && len == 4) {
-      uint32_t fid = 0;
-      for (int i = 0; i < 4; ++i) {
-        fid = (fid << 8) | (val[i] ^ 0xFF);
-      }
-      meta.frame_id = fid;
-      found_any = true;
-    }
-    // Unknown tags are silently skipped.
-
-    pos += len;
+  auto meta = ParseTrailerPayload(
+      webrtc::ArrayView<const uint8_t>(trailer_start, trailer_len));
+  if (!meta.has_value()) {
+    out_data.assign(data.begin(), data.end());
+    return std::nullopt;
   }
 
   out_data.assign(data.begin(), data.end() - trailer_len);
-
-  if (!found_any) {
-    return std::nullopt;
-  }
   return meta;
 }
 
