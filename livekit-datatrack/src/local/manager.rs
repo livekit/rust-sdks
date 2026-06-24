@@ -283,7 +283,7 @@ impl Manager {
                         name: info.name.clone(),
                         uses_e2ee: info.uses_e2ee,
                         schema: info.schema.clone(),
-                        frame_encoding: info.frame_encoding,
+                        frame_encoding: info.frame_encoding.clone(),
                     };
                     _ = state_tx.send(PublishState::Republishing);
                     _ = self.event_out_tx.send(event.into()).await;

@@ -112,8 +112,8 @@ impl DataTrackInfo {
     /// Returns `None` if the publisher did not specify a
     /// [`DataTrackFrameEncoding`] for the track.
     ///
-    pub fn frame_encoding(&self) -> Option<DataTrackFrameEncoding> {
-        self.frame_encoding
+    pub fn frame_encoding(&self) -> Option<&DataTrackFrameEncoding> {
+        self.frame_encoding.as_ref()
     }
 }
 
