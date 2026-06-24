@@ -197,7 +197,8 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
     return false;
   }
 
-  if (adapted_width != frame.width() || adapted_height != frame.height()) {
+  if ((adapted_width != frame.width() || adapted_height != frame.height()) &&
+      buffer->type() != webrtc::VideoFrameBuffer::Type::kNative) {
     buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
                                   adapted_width, adapted_height);
   }

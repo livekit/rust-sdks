@@ -1,0 +1,15 @@
+[package]
+name = "preencode_publish"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+env_logger = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-capture = { workspace = true, features = ["rtsp", "tcp-source"] }
+log = { workspace = true }
+tokio = { workspace = true, features = ["full"] }

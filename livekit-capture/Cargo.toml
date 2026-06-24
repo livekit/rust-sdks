@@ -8,9 +8,13 @@ edition.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 bytes = { workspace = true }
+gstreamer = { workspace = true, optional = true }
+gstreamer-app = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 livekit = { workspace = true }
+md-5 = { workspace = true }
 thiserror = { workspace = true }
 yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
@@ -51,7 +55,7 @@ avfoundation = [
     "objc2-foundation/NSString",
     "objc2-foundation/objc2-core-foundation",
 ]
-gstreamer = []
+gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 libargus = []
 rtsp = []
 tcp-source = []

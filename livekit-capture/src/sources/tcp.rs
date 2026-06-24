@@ -14,7 +14,7 @@
 
 use std::{
     io::{self, Read},
-    net::TcpStream,
+    net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
 };
 
 use thiserror::Error;
@@ -66,12 +66,19 @@ impl ByteStreamSourceConfig {
             read_chunk_size: DEFAULT_CHUNK_SIZE,
         }
     }
+
+    /// Sets the read chunk size used for Annex-B byte streams.
+    pub fn with_read_chunk_size(mut self, read_chunk_size: usize) -> Self {
+        self.read_chunk_size = read_chunk_size.max(1);
+        self
+    }
 }
 
 /// Encoded source backed by any blocking byte stream.
 #[derive(Debug)]
 pub struct ByteStreamEncodedSource<R> {
     reader: R,
+    config: ByteStreamSourceConfig,
     parser: ByteStreamParser,
     read_chunk: Vec<u8>,
     eof: bool,
@@ -127,7 +134,18 @@ where
             }
         };
 
-        Ok(Self { reader, parser, read_chunk: vec![0; config.read_chunk_size.max(1)], eof: false })
+        Ok(Self {
+            reader,
+            config,
+            parser,
+            read_chunk: vec![0; config.read_chunk_size.max(1)],
+            eof: false,
+        })
+    }
+
+    /// Returns the source configuration.
+    pub fn config(&self) -> ByteStreamSourceConfig {
+        self.config
     }
 
     /// Returns the wrapped reader.
@@ -200,6 +218,79 @@ where
     }
 }
 
+impl ByteStreamEncodedSource<TcpStream> {
+    /// Connects to a TCP producer and parses the declared encoded wire format.
+    pub fn connect<A: ToSocketAddrs>(
+        addr: A,
+        config: ByteStreamSourceConfig,
+    ) -> Result<Self, TcpSourceError> {
+        let stream = TcpStream::connect(addr).map_err(TcpSourceError::Io)?;
+        Self::new(stream, config)
+    }
+
+    /// Creates a TCP encoded source from an already connected stream.
+    pub fn from_tcp_stream(
+        stream: TcpStream,
+        config: ByteStreamSourceConfig,
+    ) -> Result<Self, TcpSourceError> {
+        Self::new(stream, config)
+    }
+}
+
+/// TCP listener for producer-initiated encoded byte streams.
+#[derive(Debug)]
+pub struct TcpEncodedListener {
+    listener: TcpListener,
+    config: ByteStreamSourceConfig,
+}
+
+impl TcpEncodedListener {
+    /// Binds a TCP listener for encoded byte-stream producers.
+    pub fn bind<A: ToSocketAddrs>(
+        addr: A,
+        config: ByteStreamSourceConfig,
+    ) -> Result<Self, TcpSourceError> {
+        let listener = TcpListener::bind(addr).map_err(TcpSourceError::Io)?;
+        Ok(Self { listener, config })
+    }
+
+    /// Creates an encoded listener from an existing [`TcpListener`].
+    pub fn from_listener(listener: TcpListener, config: ByteStreamSourceConfig) -> Self {
+        Self { listener, config }
+    }
+
+    /// Returns the listener configuration.
+    pub fn config(&self) -> ByteStreamSourceConfig {
+        self.config
+    }
+
+    /// Returns the bound local socket address.
+    pub fn local_addr(&self) -> Result<SocketAddr, TcpSourceError> {
+        self.listener.local_addr().map_err(TcpSourceError::Io)
+    }
+
+    /// Returns the wrapped TCP listener.
+    pub fn listener(&self) -> &TcpListener {
+        &self.listener
+    }
+
+    /// Returns the wrapped TCP listener mutably.
+    pub fn listener_mut(&mut self) -> &mut TcpListener {
+        &mut self.listener
+    }
+
+    /// Accepts one producer connection and returns it as a TCP encoded source.
+    pub fn accept(&self) -> Result<TcpEncodedSource, TcpSourceError> {
+        self.accept_with_peer().map(|(source, _peer)| source)
+    }
+
+    /// Accepts one producer connection and returns the source plus peer address.
+    pub fn accept_with_peer(&self) -> Result<(TcpEncodedSource, SocketAddr), TcpSourceError> {
+        let (stream, peer) = self.listener.accept().map_err(TcpSourceError::Io)?;
+        Ok((TcpEncodedSource::from_tcp_stream(stream, self.config)?, peer))
+    }
+}
+
 impl<R> EncodedAccessUnitSource for ByteStreamEncodedSource<R>
 where
     R: Read + Send + Sync + 'static,
@@ -249,7 +340,11 @@ fn read_exact_or_clean_eof(reader: &mut impl Read, buf: &mut [u8]) -> io::Result
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use std::{
+        io::{Cursor, Write},
+        net::{Shutdown, TcpListener as StdTcpListener, TcpStream as StdTcpStream},
+        thread,
+    };
 
     use super::*;
 
@@ -271,12 +366,18 @@ mod tests {
         bytes
     }
 
+    fn annex_b_stream() -> Vec<u8> {
+        vec![0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x65, 1, 2, 0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x41, 3]
+    }
+
+    fn annex_b_config() -> ByteStreamSourceConfig {
+        ByteStreamSourceConfig::new(EncodedWireFormat::H264AnnexB, 0, 33_333, 640, 480)
+    }
+
     #[test]
     fn reads_annex_b_access_units() {
-        let stream =
-            [0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x65, 1, 2, 0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x41, 3];
-        let config =
-            ByteStreamSourceConfig::new(EncodedWireFormat::H264AnnexB, 0, 33_333, 640, 480);
+        let stream = annex_b_stream();
+        let config = annex_b_config();
         let mut source = ByteStreamEncodedSource::new(Cursor::new(stream), config).unwrap();
 
         let first = source.next_access_unit().unwrap().unwrap();
@@ -284,6 +385,47 @@ mod tests {
         let second = source.next_access_unit().unwrap().unwrap();
         assert_eq!(second.payload.as_ref(), &[0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x41, 3]);
         assert!(source.next_access_unit().unwrap().is_none());
+    }
+
+    #[test]
+    fn tcp_connect_reads_annex_b_access_units() {
+        let listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(&annex_b_stream()).unwrap();
+            stream.shutdown(Shutdown::Write).unwrap();
+        });
+
+        let mut source = TcpEncodedSource::connect(addr, annex_b_config()).unwrap();
+        let first = source.next_access_unit().unwrap().unwrap();
+        assert_eq!(first.payload.as_ref(), &[0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x65, 1, 2]);
+        let second = source.next_access_unit().unwrap().unwrap();
+        assert_eq!(second.payload.as_ref(), &[0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x41, 3]);
+        assert!(source.next_access_unit().unwrap().is_none());
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn tcp_listener_accepts_annex_b_source() {
+        let listener = TcpEncodedListener::bind("127.0.0.1:0", annex_b_config()).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let writer = thread::spawn(move || {
+            let mut stream = StdTcpStream::connect(addr).unwrap();
+            stream.write_all(&annex_b_stream()).unwrap();
+            stream.shutdown(Shutdown::Write).unwrap();
+        });
+
+        let (mut source, peer) = listener.accept_with_peer().unwrap();
+        assert_eq!(peer.ip(), addr.ip());
+        assert_eq!(source.config(), annex_b_config());
+
+        let first = source.next_access_unit().unwrap().unwrap();
+        assert_eq!(first.payload.as_ref(), &[0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x65, 1, 2]);
+        let second = source.next_access_unit().unwrap().unwrap();
+        assert_eq!(second.payload.as_ref(), &[0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x41, 3]);
+        assert!(source.next_access_unit().unwrap().is_none());
+        writer.join().unwrap();
     }
 
     #[test]

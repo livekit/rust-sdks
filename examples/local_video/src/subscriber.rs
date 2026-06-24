@@ -693,6 +693,22 @@ fn log_video_decode_health(stats: &[livekit::webrtc::stats::RtcStats]) {
         inbound.inbound.total_decode_time,
         inbound.inbound.decoder_implementation,
     );
+    info!(
+        "RTP receive health: packets={}, lost={}, discarded={}, jitter={:.1}ms, nacks={}, plis={}, firs={}, rtx_packets={}, rtx_bytes={}, freezes={} ({:.3}s), pauses={} ({:.3}s)",
+        inbound.received.packets_received,
+        inbound.received.packets_lost,
+        inbound.inbound.packets_discarded,
+        inbound.received.jitter * 1000.0,
+        inbound.inbound.nack_count,
+        inbound.inbound.pli_count,
+        inbound.inbound.fir_count,
+        inbound.inbound.retransmitted_packets_received,
+        inbound.inbound.retransmitted_bytes_received,
+        inbound.inbound.freeze_count,
+        inbound.inbound.total_freeze_duration,
+        inbound.inbound.pause_count,
+        inbound.inbound.total_pause_duration,
+    );
 
     if inbound.inbound.frames_received > 0 && inbound.inbound.frames_decoded == 0 {
         log::warn!(
