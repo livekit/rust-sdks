@@ -91,7 +91,7 @@ pub struct RoomInner {
     url: String,
 }
 
-const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(1);
+const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct Handle {
     event_handle: JoinHandle<()>,
