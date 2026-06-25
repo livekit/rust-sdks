@@ -460,12 +460,13 @@ impl RemoteParticipant {
                         quality,
                         ..Default::default()
                     };
-
+                    /*
                     log::info!(
                         "subscriber: sending UpdateTrackSettings to SFU: track={}, quality={:?}",
                         tsid,
                         proto::VideoQuality::try_from(quality),
                     );
+                    */
                     rtc_engine
                         .send_request(proto::signal_request::Message::TrackSetting(
                             update_track_settings,

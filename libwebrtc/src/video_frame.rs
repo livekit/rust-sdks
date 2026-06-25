@@ -78,6 +78,9 @@ where
 {
     pub rotation: VideoRotation,
     pub timestamp_us: i64, // When the frame was captured in microseconds
+    /// RTP timestamp (90 kHz media clock). Set on frames received from a remote
+    /// track; `0` on locally-captured frames being sent to a video source.
+    pub rtp_timestamp: u32,
     /// Packet-trailer metadata, if any trailer features are active.
     pub frame_metadata: Option<FrameMetadata>,
     pub buffer: T,
@@ -85,7 +88,7 @@ where
 
 impl<T: AsRef<dyn VideoBuffer>> VideoFrame<T> {
     pub fn new(rotation: VideoRotation, buffer: T) -> Self {
-        Self { rotation, timestamp_us: 0, frame_metadata: None, buffer }
+        Self { rotation, timestamp_us: 0, rtp_timestamp: 0, frame_metadata: None, buffer }
     }
 }
 

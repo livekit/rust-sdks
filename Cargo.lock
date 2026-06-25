@@ -3816,6 +3816,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "live_streaming"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger 0.11.10",
+ "livekit",
+ "livekit-api",
+ "log",
+ "rand 0.9.3",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "livekit"
 version = "0.7.49"
 dependencies = [

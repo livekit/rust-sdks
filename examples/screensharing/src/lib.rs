@@ -186,6 +186,7 @@ mod test {
             let mut frame_buffer = VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
                 timestamp_us: 0,
+                rtp_timestamp: 0,
                 frame_metadata: None,
                 buffer: I420Buffer::new(1, 1),
             };
