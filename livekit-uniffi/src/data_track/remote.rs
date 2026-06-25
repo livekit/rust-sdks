@@ -31,7 +31,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 #[derive(uniffi::Object)]
 pub struct RemoteDataTrack(DataTrack<Remote>);
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl RemoteDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
@@ -67,7 +67,7 @@ impl RemoteDataTrack {
 #[derive(uniffi::Object)]
 pub struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl DataTrackStream {
     /// Returns the next received frame or `None` if the subscription has ended.
     pub async fn next(&self) -> Option<DataTrackFrame> {

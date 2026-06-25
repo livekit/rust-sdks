@@ -30,7 +30,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 #[derive(uniffi::Object)]
 pub struct LocalDataTrack(DataTrack<Local>);
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl LocalDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
@@ -97,7 +97,7 @@ pub trait LocalDataTrackManagerDelegate: Send + Sync {
     fn on_packets_available(&self, packets: Vec<Bytes>);
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl LocalDataTrackManager {
     #[uniffi::constructor]
     pub fn new(

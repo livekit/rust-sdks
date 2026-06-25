@@ -15,7 +15,7 @@ publish = false
 livekit-protocol = { workspace = true }
 livekit-api = { workspace = true }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
-uniffi = { workspace = true, features = ["cli", "scaffolding-ffi-buffer-fns"] }
+uniffi = { workspace = true, features = ["cli", "scaffolding-ffi-buffer-fns", "tokio"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
 tokio-util =  "0.7.18"
