@@ -300,7 +300,9 @@ SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { e
 [tasks.swift-xcframework]
 private = true
 install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "f94e76675b9524e71be028c4b03a51163d6a5c28"]
+# Multi-crate framework fix + uniffi_bindgen 0.31.2 bump, on the fork's
+# `fix/multi-crate-framework` branch (https://github.com/livekit/cargo-swift/tree/fix/multi-crate-framework).
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "b8e76790e43267616bc76f8a3a7f1e52934b30ea"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
@@ -322,8 +324,7 @@ $platform_flags \
 --lib-type dynamic \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 --exclude-arch x86_64-apple-tvos \
-${SWIFT_RELEASE_FLAG} \
-${SWIFT_DSYMS_FLAG}
+${SWIFT_RELEASE_FLAG}
 """
 
 # Print a size breakdown of the iPhone-arm64 framework binary (the slice that
@@ -451,6 +452,24 @@ mkdir -p "${out_dir}"
 mv "${SPM_NAME}" "${out_dir}"
 """
 
+# Post-generation Swift workarounds for issues cargo-swift / the templates don't handle.
+# Currently: the `Bytes` custom type is registered in both crates, so uniffi emits its
+# converter in both component Swift files, which collide in one module ("invalid
+# redeclaration of 'Bytes'"). Drop the duplicate from livekit_datatrack.swift.
+# Upstream: https://github.com/mozilla/uniffi-rs/issues/2933. Idempotent.
+[tasks.swift-workarounds]
+private = true
+script_runner = "@shell"
+script = '''
+file="${PACKAGES_DIR}/swift/${SPM_NAME}/Sources/${SPM_NAME}/livekit_datatrack.swift"
+if [ ! -f "$file" ]; then
+  echo "swift-workarounds: $file not found, skipping"
+  exit 0
+fi
+perl -0pi -e 's{public typealias Bytes = Data.*?public func FfiConverterTypeBytes_lower\(_ value: Bytes\) -> RustBuffer \{\n    return FfiConverterTypeBytes\.lower\(value\)\n\}}{// cargo-make swift-workarounds: duplicate Bytes converter removed (kept in livekit_uniffi.swift)}s' "$file"
+echo "swift-workarounds: ensured single Bytes converter in $file"
+'''
+
 [tasks.swift-package-flow]
 private = true
 dependencies = [
@@ -459,7 +478,8 @@ dependencies = [
     "swift-check-size",
     "swift-zip-xcframework",
     "swift-generate-manifest",
-    "swift-move-to-packages"
+    "swift-move-to-packages",
+    "swift-workarounds"
 ]
 
 [tasks.swift-package]
