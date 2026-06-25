@@ -172,6 +172,29 @@ match event {
 
 ## Building
 
+### Linux
+
+Building on Ubuntu 24 x86_64:
+
+```
+# install required libs
+sudo apt install -y \
+  libglib2.0-dev build-essential clang \
+  libclang-dev libc6-dev pkg-config libjpeg-turbo8-dev
+
+# install cuda-toolkit if you have an Nvidia GPU and want to use NVENC for video encoding
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+sudo apt install -y cuda-toolkit
+
+# ensure CUDA_HOME env var is set
+export CUDA_HOME="$(dirname "$(dirname "$(sudo find /usr/local /usr -path '*/include/cuda.h' -print 2>/dev/null | grep -v '/linux/' | sort -V | tail -1)")")"
+
+cargo build
+  
+```
+
 ### MacOS
 
 When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implementation make use of ObjectiveC libraries on the Mac. You may get the following error if the app isn't linked with ObjC:
