@@ -61,7 +61,7 @@ class NvidiaAV1EncoderImpl : public VideoEncoder {
   EncoderInfo GetEncoderInfo() const override;
 
  private:
-  int32_t ProcessEncodedFrame(std::vector<uint8_t>& packet,
+  int32_t ProcessEncodedFrame(const std::vector<uint8_t>& packet,
                               const ::webrtc::VideoFrame& input_frame,
                               bool is_keyframe);
 
@@ -69,10 +69,10 @@ class NvidiaAV1EncoderImpl : public VideoEncoder {
   EncodedImageCallback* encoded_image_callback_ = nullptr;
 
   std::unique_ptr<NvEncoder> encoder_;
-  CUcontext cu_context_;
-  CUmemorytype cu_memory_type_;
-  CUarray cu_scaled_array_;
-  NV_ENC_BUFFER_FORMAT nv_format_;
+  const CUcontext cu_context_;
+  const CUmemorytype cu_memory_type_;
+  CUarray cu_scaled_array_ = nullptr;
+  const NV_ENC_BUFFER_FORMAT nv_format_;
   NV_ENC_INITIALIZE_PARAMS nv_initialize_params_;
   NV_ENC_CONFIG nv_encode_config_;
 

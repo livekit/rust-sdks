@@ -1,6 +1,7 @@
 #include "av1_encoder_impl.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <utility>
 
@@ -166,8 +167,8 @@ int32_t NvidiaAV1EncoderImpl::InitEncode(
                                        presetGuid,
                                        NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY);
 
-  nv_initialize_params_.frameRateNum =
-      static_cast<uint32_t>(configuration_.max_frame_rate);
+  nv_initialize_params_.frameRateNum = std::max<uint32_t>(
+      1, static_cast<uint32_t>(std::round(configuration_.max_frame_rate)));
   nv_initialize_params_.frameRateDen = 1;
   nv_initialize_params_.bufferFormat = nv_format_;
 
@@ -370,7 +371,7 @@ int32_t NvidiaAV1EncoderImpl::Encode(
 }
 
 int32_t NvidiaAV1EncoderImpl::ProcessEncodedFrame(
-    std::vector<uint8_t>& packet,
+    const std::vector<uint8_t>& packet,
     const ::webrtc::VideoFrame& input_frame,
     bool is_keyframe) {
   encoded_image_._encodedWidth = encoder_->GetEncodeWidth();
