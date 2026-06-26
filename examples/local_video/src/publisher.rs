@@ -6,6 +6,8 @@ use livekit::options::{
     VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
+#[cfg(target_os = "linux")]
+use livekit::webrtc::video_frame::NV12Buffer;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -29,7 +31,20 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(target_os = "linux")]
+use v4l::buffer::Type as BufType;
+#[cfg(target_os = "linux")]
+use v4l::io::traits::CaptureStream;
+#[cfg(target_os = "linux")]
+use v4l::prelude::*;
+#[cfg(target_os = "linux")]
+use v4l::v4l_sys::*;
+#[cfg(target_os = "linux")]
+use v4l::video::Capture;
+#[cfg(target_os = "linux")]
+use v4l::{v4l2, FourCC};
+
+#[cfg(lk_argus)]
 mod argus;
 mod codec_display;
 mod test_pattern;
@@ -68,15 +83,19 @@ impl From<PublisherCodec> for VideoCodec {
 enum SourceKind {
     /// USB / V4L2 camera via the `nokhwa` crate (default).
     Uvc,
+    /// Direct Linux V4L2 mmap capture, including Rockchip ISP multiplanar NV12.
+    V4l2,
     /// NVIDIA Jetson MIPI CSI camera via libargus (Jetson-only).
     Argus,
 }
 
-/// Selects the UVC camera capture pixel format.
+/// Selects the camera capture pixel format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum CaptureFormat {
     /// Try YUYV first and fall back to MJPEG.
     Auto,
+    /// Request NV12 direct V4L2 capture.
+    Nv12,
     /// Request uncompressed YUYV capture.
     Yuv,
     /// Request compressed MJPEG capture.
@@ -87,6 +106,7 @@ impl CaptureFormat {
     fn frame_formats(self) -> &'static [FrameFormat] {
         match self {
             Self::Auto => &[FrameFormat::YUYV, FrameFormat::MJPEG],
+            Self::Nv12 => &[],
             Self::Yuv => &[FrameFormat::YUYV],
             Self::Mjpeg => &[FrameFormat::MJPEG],
         }
@@ -97,6 +117,7 @@ impl std::fmt::Display for CaptureFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Auto => write!(f, "auto"),
+            Self::Nv12 => write!(f, "nv12"),
             Self::Yuv => write!(f, "yuv"),
             Self::Mjpeg => write!(f, "mjpeg"),
         }
@@ -167,13 +188,17 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
 
-    /// Camera backend: `uvc` (default, V4L2/USB via nokhwa) or `argus` (Jetson MIPI CSI).
+    /// Camera backend: `uvc` (default, V4L2/USB via nokhwa), `v4l2` (direct Linux V4L2), or `argus` (Jetson MIPI CSI).
     #[arg(long, value_enum, default_value_t = SourceKind::Uvc)]
     source: SourceKind,
 
-    /// UVC camera capture format: `auto` tries YUYV then MJPEG; `mjpeg` uses less USB bandwidth.
+    /// Camera capture format: `auto` tries YUYV then MJPEG for UVC; direct V4L2 treats `auto` as NV12.
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
+
+    /// V4L2 device path for direct Linux capture, e.g. /dev/video-camera0.
+    #[arg(long)]
+    device: Option<String>,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
     #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
@@ -805,11 +830,484 @@ mod tests {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum V4l2CaptureFormat {
+    Nv12,
+    Yuyv,
+    Mjpeg,
+}
+
+#[cfg(target_os = "linux")]
+impl V4l2CaptureFormat {
+    fn from_capture_format(format: CaptureFormat) -> Self {
+        match format {
+            CaptureFormat::Auto | CaptureFormat::Nv12 => Self::Nv12,
+            CaptureFormat::Yuv => Self::Yuyv,
+            CaptureFormat::Mjpeg => Self::Mjpeg,
+        }
+    }
+
+    fn fourcc(self) -> FourCC {
+        match self {
+            Self::Nv12 => FourCC::new(b"NV12"),
+            Self::Yuyv => FourCC::new(b"YUYV"),
+            Self::Mjpeg => FourCC::new(b"MJPG"),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Clone)]
+struct V4l2CaptureConfig {
+    device_path: String,
+    format: V4l2CaptureFormat,
+    width: u32,
+    height: u32,
+    stride: u32,
+    use_mplane: bool,
+}
+
+/// Negotiated multiplanar format info returned by raw V4L2 helpers.
+#[cfg(target_os = "linux")]
+struct MplaneFormat {
+    width: u32,
+    height: u32,
+    fourcc: FourCC,
+    stride: u32,
+}
+
+/// Multiplanar mmap capture stream.
+///
+/// The v4l crate's mmap stream does not populate `v4l2_buffer.m.planes` for
+/// QUERYBUF/QBUF/DQBUF, which Rockchip ISP mplane devices require.
+#[cfg(target_os = "linux")]
+struct MplaneStream {
+    fd: std::os::unix::io::RawFd,
+    bufs: Vec<(*mut u8, usize)>,
+    buf_count: u32,
+    active: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl MplaneStream {
+    fn new(dev: &Device, buf_count: u32) -> std::io::Result<Self> {
+        let fd = dev.handle().fd();
+
+        unsafe {
+            let mut reqbufs: v4l2_requestbuffers = std::mem::zeroed();
+            reqbufs.count = buf_count;
+            reqbufs.type_ = BufType::VideoCaptureMplane as u32;
+            reqbufs.memory = v4l::memory::Memory::Mmap as u32;
+            v4l2::ioctl(
+                fd,
+                v4l2::vidioc::VIDIOC_REQBUFS,
+                &mut reqbufs as *mut _ as *mut std::os::raw::c_void,
+            )?;
+
+            let count = reqbufs.count;
+            let mut bufs = Vec::with_capacity(count as usize);
+            for i in 0..count {
+                let mut plane: v4l2_plane = std::mem::zeroed();
+                let mut buf: v4l2_buffer = std::mem::zeroed();
+                buf.type_ = BufType::VideoCaptureMplane as u32;
+                buf.memory = v4l::memory::Memory::Mmap as u32;
+                buf.index = i;
+                buf.length = 1;
+                buf.m.planes = &mut plane as *mut _;
+
+                v4l2::ioctl(
+                    fd,
+                    v4l2::vidioc::VIDIOC_QUERYBUF,
+                    &mut buf as *mut _ as *mut std::os::raw::c_void,
+                )?;
+
+                let len = plane.length as usize;
+                let offset = plane.m.mem_offset as libc::off_t;
+                let ptr = v4l2::mmap(
+                    std::ptr::null_mut(),
+                    len,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_SHARED,
+                    fd,
+                    offset,
+                )?;
+                bufs.push((ptr as *mut u8, len));
+            }
+
+            Ok(Self { fd, bufs, buf_count: count, active: false })
+        }
+    }
+
+    fn start(&mut self) -> std::io::Result<()> {
+        unsafe {
+            for i in 0..self.buf_count {
+                let mut plane: v4l2_plane = std::mem::zeroed();
+                let mut buf: v4l2_buffer = std::mem::zeroed();
+                buf.type_ = BufType::VideoCaptureMplane as u32;
+                buf.memory = v4l::memory::Memory::Mmap as u32;
+                buf.index = i;
+                buf.length = 1;
+                buf.m.planes = &mut plane as *mut _;
+                v4l2::ioctl(
+                    self.fd,
+                    v4l2::vidioc::VIDIOC_QBUF,
+                    &mut buf as *mut _ as *mut std::os::raw::c_void,
+                )?;
+            }
+            let mut typ = BufType::VideoCaptureMplane as u32;
+            v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_STREAMON,
+                &mut typ as *mut _ as *mut std::os::raw::c_void,
+            )?;
+        }
+        self.active = true;
+        Ok(())
+    }
+
+    fn next(&mut self) -> std::io::Result<Vec<u8>> {
+        if !self.active {
+            self.start()?;
+        }
+
+        unsafe {
+            let mut pfd = libc::pollfd { fd: self.fd, events: libc::POLLIN, revents: 0 };
+            let ret = libc::poll(&mut pfd, 1, 5_000);
+            if ret == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "VIDIOC_DQBUF poll timeout",
+                ));
+            }
+            if ret < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            let mut plane: v4l2_plane = std::mem::zeroed();
+            let mut buf: v4l2_buffer = std::mem::zeroed();
+            buf.type_ = BufType::VideoCaptureMplane as u32;
+            buf.memory = v4l::memory::Memory::Mmap as u32;
+            buf.length = 1;
+            buf.m.planes = &mut plane as *mut _;
+
+            v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_DQBUF,
+                &mut buf as *mut _ as *mut std::os::raw::c_void,
+            )?;
+
+            let idx = buf.index as usize;
+            let (ptr, _len) = self.bufs[idx];
+            let used = plane.bytesused as usize;
+            let frame = std::slice::from_raw_parts(ptr, used).to_vec();
+
+            let mut plane2: v4l2_plane = std::mem::zeroed();
+            let mut qbuf: v4l2_buffer = std::mem::zeroed();
+            qbuf.type_ = BufType::VideoCaptureMplane as u32;
+            qbuf.memory = v4l::memory::Memory::Mmap as u32;
+            qbuf.index = buf.index;
+            qbuf.length = 1;
+            qbuf.m.planes = &mut plane2 as *mut _;
+            v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_QBUF,
+                &mut qbuf as *mut _ as *mut std::os::raw::c_void,
+            )?;
+
+            Ok(frame)
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for MplaneStream {
+    fn drop(&mut self) {
+        unsafe {
+            if self.active {
+                let mut typ = BufType::VideoCaptureMplane as u32;
+                let _ = v4l2::ioctl(
+                    self.fd,
+                    v4l2::vidioc::VIDIOC_STREAMOFF,
+                    &mut typ as *mut _ as *mut std::os::raw::c_void,
+                );
+            }
+            for &(ptr, len) in &self.bufs {
+                let _ = v4l2::munmap(ptr as *mut std::ffi::c_void, len);
+            }
+            let mut reqbufs: v4l2_requestbuffers = std::mem::zeroed();
+            reqbufs.count = 0;
+            reqbufs.type_ = BufType::VideoCaptureMplane as u32;
+            reqbufs.memory = v4l::memory::Memory::Mmap as u32;
+            let _ = v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_REQBUFS,
+                &mut reqbufs as *mut _ as *mut std::os::raw::c_void,
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn v4l2_mplane_enum_formats(dev: &Device) -> std::io::Result<Vec<v4l::format::Description>> {
+    let mut formats = Vec::new();
+    let mut v4l2_fmt: v4l2_fmtdesc = unsafe { std::mem::zeroed() };
+    v4l2_fmt.type_ = BufType::VideoCaptureMplane as u32;
+
+    loop {
+        let ret = unsafe {
+            v4l2::ioctl(
+                dev.handle().fd(),
+                v4l2::vidioc::VIDIOC_ENUM_FMT,
+                &mut v4l2_fmt as *mut _ as *mut std::os::raw::c_void,
+            )
+        };
+        if ret.is_err() {
+            break;
+        }
+        formats.push(v4l::format::Description::from(v4l2_fmt));
+        v4l2_fmt.index += 1;
+        unsafe {
+            v4l2_fmt.description = std::mem::zeroed();
+        }
+    }
+    Ok(formats)
+}
+
+#[cfg(target_os = "linux")]
+fn v4l2_mplane_set_format(
+    dev: &Device,
+    width: u32,
+    height: u32,
+    fourcc: FourCC,
+) -> std::io::Result<MplaneFormat> {
+    unsafe {
+        let mut v4l2_fmt: v4l2_format = std::mem::zeroed();
+        v4l2_fmt.type_ = BufType::VideoCaptureMplane as u32;
+        let pix_mp = &mut v4l2_fmt.fmt.pix_mp;
+        pix_mp.width = width;
+        pix_mp.height = height;
+        pix_mp.pixelformat = fourcc.into();
+        pix_mp.num_planes = 1;
+
+        v4l2::ioctl(
+            dev.handle().fd(),
+            v4l2::vidioc::VIDIOC_S_FMT,
+            &mut v4l2_fmt as *mut _ as *mut std::os::raw::c_void,
+        )?;
+
+        let pix_mp = &v4l2_fmt.fmt.pix_mp;
+        Ok(MplaneFormat {
+            width: pix_mp.width,
+            height: pix_mp.height,
+            fourcc: FourCC::from(pix_mp.pixelformat),
+            stride: pix_mp.plane_fmt[0].bytesperline,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn v4l2_mplane_set_fps(dev: &Device, fps: u32) -> std::io::Result<(u32, u32)> {
+    let sparm_result = unsafe {
+        let mut v4l2_params: v4l2_streamparm = std::mem::zeroed();
+        v4l2_params.type_ = BufType::VideoCaptureMplane as u32;
+        v4l2_params.parm.capture.timeperframe.numerator = 1;
+        v4l2_params.parm.capture.timeperframe.denominator = fps;
+
+        v4l2::ioctl(
+            dev.handle().fd(),
+            v4l2::vidioc::VIDIOC_S_PARM,
+            &mut v4l2_params as *mut _ as *mut std::os::raw::c_void,
+        )
+        .map(|_| {
+            let tf = v4l2_params.parm.capture.timeperframe;
+            (tf.denominator, tf.numerator)
+        })
+    };
+
+    if let Ok(result) = sparm_result {
+        return Ok(result);
+    }
+
+    info!(
+        "VIDIOC_S_PARM not supported; attempting sensor subdevice frame interval for {} fps",
+        fps
+    );
+    set_sensor_subdev_fps(dev, fps)
+}
+
+#[cfg(target_os = "linux")]
+fn set_sensor_subdev_fps(dev: &Device, fps: u32) -> std::io::Result<(u32, u32)> {
+    use std::fs;
+    use std::path::Path;
+
+    #[repr(C)]
+    struct SubdevFrameInterval {
+        pad: u32,
+        numerator: u32,
+        denominator: u32,
+        reserved: [u32; 9],
+    }
+
+    const IOC_WRITE: u32 = 1;
+    const IOC_READ: u32 = 2;
+    fn iowr(ty: u8, nr: u8, size: usize) -> libc::c_ulong {
+        (((IOC_READ | IOC_WRITE) as libc::c_ulong) << 30)
+            | ((ty as libc::c_ulong) << 8)
+            | (nr as libc::c_ulong)
+            | ((size as libc::c_ulong) << 16)
+    }
+
+    let subdev_s_frame_interval = iowr(b'V', 22, std::mem::size_of::<SubdevFrameInterval>());
+    let fd_path = format!("/proc/self/fd/{}", dev.handle().fd());
+    let resolved = fs::read_link(&fd_path)?;
+    let canonical = fs::canonicalize(&resolved).unwrap_or(resolved);
+    let dev_name = canonical.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "cannot resolve video device name from fd",
+        )
+    })?;
+
+    let mut subdev_paths = Vec::new();
+    for suffix in ["", "/../"] {
+        let dir = format!("/sys/class/video4linux/{}/device{}", dev_name, suffix);
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.starts_with("v4l-subdev") {
+                    subdev_paths.push(format!("/dev/{}", name));
+                }
+            }
+        }
+    }
+
+    if subdev_paths.is_empty() {
+        for idx in 0..64 {
+            let path = format!("/dev/v4l-subdev{}", idx);
+            if Path::new(&path).exists() {
+                subdev_paths.push(path);
+            }
+        }
+    }
+    subdev_paths.sort();
+    subdev_paths.dedup();
+
+    for path in subdev_paths {
+        let fd = match v4l2::open(&path, libc::O_RDWR | libc::O_NONBLOCK) {
+            Ok(fd) => fd,
+            Err(_) => continue,
+        };
+
+        let mut interval =
+            SubdevFrameInterval { pad: 0, numerator: 1, denominator: fps, reserved: [0; 9] };
+        let result = unsafe {
+            v4l2::ioctl(
+                fd,
+                subdev_s_frame_interval,
+                &mut interval as *mut _ as *mut std::os::raw::c_void,
+            )
+        };
+        unsafe {
+            libc::close(fd);
+        }
+        if result.is_ok() {
+            info!("Set sensor frame interval on {}", path);
+            return Ok((interval.denominator, interval.numerator));
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        format!("no subdevice accepted VIDIOC_SUBDEV_S_FRAME_INTERVAL for {} fps", fps),
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn configure_v4l2_capture(args: &Args) -> Result<V4l2CaptureConfig> {
+    let device_path = args.device.clone().unwrap_or_else(|| "/dev/video-camera0".to_string());
+    let format = V4l2CaptureFormat::from_capture_format(args.format);
+    let fourcc = format.fourcc();
+    let dev = Device::with_path(&device_path)?;
+
+    let sp_formats = dev.enum_formats().unwrap_or_default();
+    let use_mplane = sp_formats.is_empty();
+
+    if use_mplane {
+        let mp_formats = v4l2_mplane_enum_formats(&dev)?;
+        info!(
+            "V4L2 device {} is multiplanar; supports {} format(s)",
+            device_path,
+            mp_formats.len()
+        );
+        for format in &mp_formats {
+            debug!("V4L2 mplane format: {:?}", format);
+        }
+        let mf = v4l2_mplane_set_format(&dev, args.width, args.height, fourcc)?;
+        match v4l2_mplane_set_fps(&dev, args.fps) {
+            Ok((fps_num, fps_den)) => info!("V4L2 framerate set: {}/{}", fps_num, fps_den),
+            Err(err) => {
+                log::warn!("Could not set V4L2 mplane framerate to {} fps: {}", args.fps, err)
+            }
+        }
+        info!(
+            "V4L2 negotiated (mplane): {}x{} fourcc={} stride={}",
+            mf.width, mf.height, mf.fourcc, mf.stride
+        );
+        Ok(V4l2CaptureConfig {
+            device_path,
+            format,
+            width: mf.width,
+            height: mf.height,
+            stride: mf.stride,
+            use_mplane,
+        })
+    } else {
+        info!("V4L2 device {} supports {} format(s)", device_path, sp_formats.len());
+        for format in &sp_formats {
+            debug!("V4L2 format: {:?}", format);
+        }
+        let mut fmt = dev.format()?;
+        fmt.width = args.width;
+        fmt.height = args.height;
+        fmt.fourcc = fourcc;
+        let fmt = dev.set_format(&fmt)?;
+        let params = v4l::video::capture::Parameters::with_fps(args.fps);
+        let params = dev.set_params(&params)?;
+        info!(
+            "V4L2 negotiated: {}x{} fourcc={} stride={}, framerate={}/{}",
+            fmt.width,
+            fmt.height,
+            fmt.fourcc,
+            fmt.stride,
+            params.interval.denominator,
+            params.interval.numerator
+        );
+        Ok(V4l2CaptureConfig {
+            device_path,
+            format,
+            width: fmt.width,
+            height: fmt.height,
+            stride: fmt.stride,
+            use_mplane,
+        })
+    }
+}
+
 fn list_cameras() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        println!("V4L2 devices:");
+        for dev in v4l::context::enum_devices() {
+            println!("  {} - {}", dev.path().display(), dev.name().unwrap_or_default());
+        }
+    }
+
     let cams = nokhwa::query(ApiBackend::Auto)?;
-    println!("Available cameras:");
+    println!("Nokhwa cameras:");
     for (i, cam) in cams.iter().enumerate() {
-        println!("{}. {}", i, cam.human_name());
+        println!("  {}. {}", i, cam.human_name());
     }
     Ok(())
 }
@@ -827,7 +1325,9 @@ enum VideoInput {
         camera: Camera,
         is_yuyv: bool,
     },
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[cfg(target_os = "linux")]
+    V4l2(V4l2CaptureConfig),
+    #[cfg(lk_argus)]
     Argus(argus::ArgusCaptureSession),
 }
 
@@ -885,14 +1385,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // LiveKit connection details
     let url = args
         .url
+        .clone()
         .or_else(|| env::var("LIVEKIT_URL").ok())
         .expect("LIVEKIT_URL must be provided via --url or env");
     let api_key = args
         .api_key
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_KEY").ok())
         .expect("LIVEKIT_API_KEY must be provided via --api-key or env");
     let api_secret = args
         .api_secret
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
@@ -973,8 +1476,32 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     }
 
     let (width, height, video_input) = match args.source {
+        SourceKind::V4l2 => {
+            #[cfg(target_os = "linux")]
+            {
+                if args.test_pattern {
+                    anyhow::bail!("--test-pattern is not supported with --source v4l2");
+                }
+                if args.display_video {
+                    anyhow::bail!("--display-video is not supported with --source v4l2");
+                }
+                if args.burn_timestamp {
+                    anyhow::bail!("--burn-timestamp is not supported with --source v4l2");
+                }
+                let capture = configure_v4l2_capture(&args)?;
+                (capture.width, capture.height, VideoInput::V4l2(capture))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                anyhow::bail!(
+                    "--source v4l2 requires Linux; this binary was built for {}-{}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                );
+            }
+        }
         SourceKind::Argus => {
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            #[cfg(lk_argus)]
             {
                 if args.test_pattern {
                     anyhow::bail!("--test-pattern is not supported with --source argus");
@@ -1002,10 +1529,34 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 );
                 (session.width(), session.height(), VideoInput::Argus(session))
             }
-            #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+            #[cfg(not(lk_argus))]
             {
                 anyhow::bail!(
-                    "--source argus requires Linux aarch64 on NVIDIA Jetson; this binary was built for {}-{}",
+                    "--source argus requires NVIDIA Jetson Argus headers and libraries; this binary was built without lk_argus for {}-{}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                );
+            }
+        }
+        SourceKind::Uvc if args.device.is_some() || matches!(args.format, CaptureFormat::Nv12) => {
+            #[cfg(target_os = "linux")]
+            {
+                if args.test_pattern {
+                    anyhow::bail!("--test-pattern is not supported with direct V4L2 capture");
+                }
+                if args.display_video {
+                    anyhow::bail!("--display-video is not supported with direct V4L2 capture");
+                }
+                if args.burn_timestamp {
+                    anyhow::bail!("--burn-timestamp is not supported with direct V4L2 capture");
+                }
+                let capture = configure_v4l2_capture(&args)?;
+                (capture.width, capture.height, VideoInput::V4l2(capture))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                anyhow::bail!(
+                    "--format nv12 and --device require Linux direct V4L2 capture; this binary was built for {}-{}",
                     std::env::consts::OS,
                     std::env::consts::ARCH,
                 );
@@ -1240,7 +1791,21 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         tokio::spawn(update_publisher_video_stats(track.clone(), ctrl_c_received.clone()));
 
     match video_input {
-        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        #[cfg(target_os = "linux")]
+        VideoInput::V4l2(capture) => {
+            let capture_result = run_v4l2_capture_loop(
+                capture_config,
+                ctrl_c_received,
+                rtc_source,
+                capture,
+                width,
+                height,
+            )
+            .await;
+            let _ = publish_stats_task.await;
+            capture_result?;
+        }
+        #[cfg(lk_argus)]
         VideoInput::Argus(session) => {
             let capture_result = run_argus_capture_loop(
                 capture_config,
@@ -1552,7 +2117,11 @@ async fn run_capture_loop(
                     true,
                 )
             }
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            #[cfg(target_os = "linux")]
+            VideoInput::V4l2(_) => {
+                unreachable!("direct V4L2 capture must be driven by run_v4l2_capture_loop")
+            }
+            #[cfg(lk_argus)]
             VideoInput::Argus(_) => {
                 // The Argus source bypasses this loop entirely and is dispatched to
                 // `run_argus_capture_loop` from `run`. This arm exists only to satisfy
@@ -1709,13 +2278,625 @@ async fn run_capture_loop(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+async fn run_v4l2_capture_loop(
+    config: CaptureConfig,
+    ctrl_c_received: Arc<AtomicBool>,
+    rtc_source: NativeVideoSource,
+    capture: V4l2CaptureConfig,
+    width: u32,
+    height: u32,
+) -> Result<()> {
+    let dev = Device::with_path(&capture.device_path)?;
+    let target = Duration::from_secs_f64(1.0 / config.fps as f64);
+    let start_ts = Instant::now();
+
+    if capture.use_mplane {
+        let negotiated =
+            v4l2_mplane_set_format(&dev, capture.width, capture.height, capture.format.fourcc())?;
+        if negotiated.width != width || negotiated.height != height {
+            anyhow::bail!(
+                "V4L2 mplane renegotiated {}x{} after publishing {}x{}",
+                negotiated.width,
+                negotiated.height,
+                width,
+                height
+            );
+        }
+        if let Err(err) = v4l2_mplane_set_fps(&dev, config.fps) {
+            log::warn!("Could not set V4L2 mplane framerate to {} fps: {}", config.fps, err);
+        }
+        let mut stream = MplaneStream::new(&dev, 4)?;
+        if capture.format == V4l2CaptureFormat::Nv12 {
+            info!("Direct V4L2 NV12 mplane capture started: camera -> NV12Buffer -> encoder");
+            run_v4l2_nv12_loop_mplane(
+                &rtc_source,
+                &mut stream,
+                negotiated.stride,
+                width,
+                height,
+                target,
+                start_ts,
+                &ctrl_c_received,
+                config,
+            )?;
+        } else {
+            info!("Direct V4L2 mplane capture started: camera -> I420Buffer -> encoder");
+            run_v4l2_convert_loop_mplane(
+                &rtc_source,
+                &mut stream,
+                capture.format,
+                width,
+                height,
+                target,
+                start_ts,
+                &ctrl_c_received,
+                config,
+            )?;
+        }
+    } else {
+        let mut fmt = dev.format()?;
+        fmt.width = capture.width;
+        fmt.height = capture.height;
+        fmt.fourcc = capture.format.fourcc();
+        let fmt = dev.set_format(&fmt)?;
+        if fmt.width != width || fmt.height != height {
+            anyhow::bail!(
+                "V4L2 renegotiated {}x{} after publishing {}x{}",
+                fmt.width,
+                fmt.height,
+                width,
+                height
+            );
+        }
+        let params = v4l::video::capture::Parameters::with_fps(config.fps);
+        if let Err(err) = dev.set_params(&params) {
+            log::warn!("Could not set V4L2 framerate to {} fps: {}", config.fps, err);
+        }
+        let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, BufType::VideoCapture, 4)?;
+        if capture.format == V4l2CaptureFormat::Nv12 {
+            info!("Direct V4L2 NV12 capture started: camera -> NV12Buffer -> encoder");
+            run_v4l2_nv12_loop(
+                &rtc_source,
+                &mut stream,
+                fmt.stride,
+                width,
+                height,
+                target,
+                start_ts,
+                &ctrl_c_received,
+                config,
+            )?;
+        } else {
+            info!("Direct V4L2 capture started: camera -> I420Buffer -> encoder");
+            run_v4l2_convert_loop(
+                &rtc_source,
+                &mut stream,
+                capture.format,
+                width,
+                height,
+                target,
+                start_ts,
+                &ctrl_c_received,
+                config,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn next_frame_metadata(
+    config: CaptureConfig,
+    capture_wall_time_us: u64,
+    frame_counter: &mut u32,
+) -> Option<FrameMetadata> {
+    let user_ts = config.attach_timestamp.then_some(capture_wall_time_us);
+    let fid = if config.attach_frame_id {
+        let id = *frame_counter;
+        *frame_counter = (*frame_counter).wrapping_add(1);
+        Some(id)
+    } else {
+        None
+    };
+
+    if user_ts.is_some() || fid.is_some() {
+        Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn copy_nv12_to_buffer(src: &[u8], dst: &mut NV12Buffer, stride: u32, height: u32) {
+    let src_stride_y = stride as usize;
+    let src_stride_uv = stride as usize;
+    let y_plane_size = src_stride_y * height as usize;
+    let uv_plane_size = src_stride_uv * ((height as usize + 1) / 2);
+    let (dst_y, dst_uv) = dst.data_mut();
+    let copy_y = y_plane_size.min(dst_y.len()).min(src.len());
+    dst_y[..copy_y].copy_from_slice(&src[..copy_y]);
+    let uv_start = y_plane_size;
+    let copy_uv = uv_plane_size.min(dst_uv.len()).min(src.len().saturating_sub(uv_start));
+    dst_uv[..copy_uv].copy_from_slice(&src[uv_start..uv_start + copy_uv]);
+}
+
+#[cfg(target_os = "linux")]
+fn run_v4l2_nv12_loop(
+    rtc_source: &NativeVideoSource,
+    stream: &mut v4l::io::mmap::Stream,
+    stride: u32,
+    width: u32,
+    height: u32,
+    target: Duration,
+    start_ts: Instant,
+    ctrl_c_received: &AtomicBool,
+    config: CaptureConfig,
+) -> Result<()> {
+    let mut nv12_buf = NV12Buffer::with_strides(width, height, stride, stride);
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        frame_metadata: None,
+        buffer: NV12Buffer::new(width, height),
+    };
+
+    let mut frames = 0_u64;
+    let mut last_fps_log = Instant::now();
+    let mut sum_get_ms = 0.0;
+    let mut sum_copy_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut consecutive_errors = 0_u32;
+    let mut frame_counter = 1_u32;
+    const MAX_ERRORS: u32 = 30;
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        let t0 = Instant::now();
+        let (buf, _meta) = match stream.next() {
+            Ok(item) => {
+                consecutive_errors = 0;
+                item
+            }
+            Err(err) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_ERRORS {
+                    anyhow::bail!(
+                        "V4L2 capture failed {} consecutive times: {}",
+                        consecutive_errors,
+                        err
+                    );
+                }
+                log::warn!("V4L2 error ({}/{}): {}", consecutive_errors, MAX_ERRORS, err);
+                continue;
+            }
+        };
+        let read_wall_time_us = unix_time_us_now();
+        let t1 = Instant::now();
+
+        copy_nv12_to_buffer(buf, &mut nv12_buf, stride, height);
+        let t2 = Instant::now();
+
+        std::mem::swap(&mut frame.buffer, &mut nv12_buf);
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+        frame.frame_metadata = next_frame_metadata(config, read_wall_time_us, &mut frame_counter);
+        rtc_source.capture_frame(&frame);
+        std::mem::swap(&mut frame.buffer, &mut nv12_buf);
+        let t3 = Instant::now();
+
+        frames += 1;
+        sum_get_ms += (t1 - t0).as_secs_f64() * 1000.0;
+        sum_copy_ms += (t2 - t1).as_secs_f64() * 1000.0;
+        sum_capture_ms += (t3 - t2).as_secs_f64() * 1000.0;
+
+        if last_fps_log.elapsed() >= Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "V4L2 NV12 publishing: {}x{}, ~{:.1} fps | avg ms: capture {:.2}, copy {:.2}, submit {:.2} | target {:.2}",
+                width,
+                height,
+                fps_est,
+                sum_get_ms / n,
+                sum_copy_ms / n,
+                sum_capture_ms / n,
+                target.as_secs_f64() * 1000.0,
+            );
+            frames = 0;
+            sum_get_ms = 0.0;
+            sum_copy_ms = 0.0;
+            sum_capture_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn run_v4l2_nv12_loop_mplane(
+    rtc_source: &NativeVideoSource,
+    stream: &mut MplaneStream,
+    stride: u32,
+    width: u32,
+    height: u32,
+    target: Duration,
+    start_ts: Instant,
+    ctrl_c_received: &AtomicBool,
+    config: CaptureConfig,
+) -> Result<()> {
+    let mut nv12_buf = NV12Buffer::with_strides(width, height, stride, stride);
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        frame_metadata: None,
+        buffer: NV12Buffer::new(width, height),
+    };
+
+    let mut frames = 0_u64;
+    let mut last_fps_log = Instant::now();
+    let mut sum_get_ms = 0.0;
+    let mut sum_copy_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut consecutive_errors = 0_u32;
+    let mut frame_counter = 1_u32;
+    const MAX_ERRORS: u32 = 30;
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        let t0 = Instant::now();
+        let buf = match stream.next() {
+            Ok(buf) => {
+                consecutive_errors = 0;
+                buf
+            }
+            Err(err) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_ERRORS {
+                    anyhow::bail!(
+                        "V4L2 mplane capture failed {} consecutive times: {}",
+                        consecutive_errors,
+                        err
+                    );
+                }
+                log::warn!("V4L2 mplane error ({}/{}): {}", consecutive_errors, MAX_ERRORS, err);
+                continue;
+            }
+        };
+        let read_wall_time_us = unix_time_us_now();
+        let t1 = Instant::now();
+
+        copy_nv12_to_buffer(&buf, &mut nv12_buf, stride, height);
+        let t2 = Instant::now();
+
+        std::mem::swap(&mut frame.buffer, &mut nv12_buf);
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+        frame.frame_metadata = next_frame_metadata(config, read_wall_time_us, &mut frame_counter);
+        rtc_source.capture_frame(&frame);
+        std::mem::swap(&mut frame.buffer, &mut nv12_buf);
+        let t3 = Instant::now();
+
+        frames += 1;
+        sum_get_ms += (t1 - t0).as_secs_f64() * 1000.0;
+        sum_copy_ms += (t2 - t1).as_secs_f64() * 1000.0;
+        sum_capture_ms += (t3 - t2).as_secs_f64() * 1000.0;
+
+        if last_fps_log.elapsed() >= Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "V4L2 NV12 mplane publishing: {}x{}, ~{:.1} fps | avg ms: capture {:.2}, copy {:.2}, submit {:.2} | target {:.2}",
+                width,
+                height,
+                fps_est,
+                sum_get_ms / n,
+                sum_copy_ms / n,
+                sum_capture_ms / n,
+                target.as_secs_f64() * 1000.0,
+            );
+            frames = 0;
+            sum_get_ms = 0.0;
+            sum_copy_ms = 0.0;
+            sum_capture_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn convert_v4l2_frame_to_i420(
+    format: V4l2CaptureFormat,
+    src: &[u8],
+    width: u32,
+    height: u32,
+    data_y: &mut [u8],
+    stride_y: i32,
+    data_u: &mut [u8],
+    stride_u: i32,
+    data_v: &mut [u8],
+    stride_v: i32,
+) -> bool {
+    match format {
+        V4l2CaptureFormat::Nv12 => unreachable!("NV12 is handled by the NV12 capture loop"),
+        V4l2CaptureFormat::Yuyv => {
+            unsafe {
+                yuv_sys::rs_YUY2ToI420(
+                    src.as_ptr(),
+                    (width * 2) as i32,
+                    data_y.as_mut_ptr(),
+                    stride_y,
+                    data_u.as_mut_ptr(),
+                    stride_u,
+                    data_v.as_mut_ptr(),
+                    stride_v,
+                    width as i32,
+                    height as i32,
+                );
+            }
+            true
+        }
+        V4l2CaptureFormat::Mjpeg => {
+            let ret = unsafe {
+                yuv_sys::rs_MJPGToI420(
+                    src.as_ptr(),
+                    src.len(),
+                    data_y.as_mut_ptr(),
+                    stride_y,
+                    data_u.as_mut_ptr(),
+                    stride_u,
+                    data_v.as_mut_ptr(),
+                    stride_v,
+                    width as i32,
+                    height as i32,
+                    width as i32,
+                    height as i32,
+                )
+            };
+            if ret != 0 {
+                log::warn!("MJPGToI420 failed (ret={}); skipping frame", ret);
+                return false;
+            }
+            true
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn run_v4l2_convert_loop(
+    rtc_source: &NativeVideoSource,
+    stream: &mut v4l::io::mmap::Stream,
+    format: V4l2CaptureFormat,
+    width: u32,
+    height: u32,
+    target: Duration,
+    start_ts: Instant,
+    ctrl_c_received: &AtomicBool,
+    config: CaptureConfig,
+) -> Result<()> {
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        frame_metadata: None,
+        buffer: I420Buffer::new(width, height),
+    };
+
+    let mut frames = 0_u64;
+    let mut last_fps_log = Instant::now();
+    let mut sum_get_ms = 0.0;
+    let mut sum_convert_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut consecutive_errors = 0_u32;
+    let mut frame_counter = 1_u32;
+    const MAX_ERRORS: u32 = 30;
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        let t0 = Instant::now();
+        let (buf, _meta) = match stream.next() {
+            Ok(item) => {
+                consecutive_errors = 0;
+                item
+            }
+            Err(err) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_ERRORS {
+                    anyhow::bail!(
+                        "V4L2 capture failed {} consecutive times: {}",
+                        consecutive_errors,
+                        err
+                    );
+                }
+                log::warn!("V4L2 error ({}/{}): {}", consecutive_errors, MAX_ERRORS, err);
+                continue;
+            }
+        };
+        let read_wall_time_us = unix_time_us_now();
+        let t1 = Instant::now();
+
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let (data_y, data_u, data_v) = frame.buffer.data_mut();
+        if !convert_v4l2_frame_to_i420(
+            format,
+            buf,
+            width,
+            height,
+            data_y,
+            stride_y as i32,
+            data_u,
+            stride_u as i32,
+            data_v,
+            stride_v as i32,
+        ) {
+            continue;
+        }
+        let t2 = Instant::now();
+
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+        frame.frame_metadata = next_frame_metadata(config, read_wall_time_us, &mut frame_counter);
+        rtc_source.capture_frame(&frame);
+        let t3 = Instant::now();
+
+        frames += 1;
+        sum_get_ms += (t1 - t0).as_secs_f64() * 1000.0;
+        sum_convert_ms += (t2 - t1).as_secs_f64() * 1000.0;
+        sum_capture_ms += (t3 - t2).as_secs_f64() * 1000.0;
+
+        if last_fps_log.elapsed() >= Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "V4L2 {:?} publishing: {}x{}, ~{:.1} fps | avg ms: capture {:.2}, convert {:.2}, submit {:.2} | target {:.2}",
+                format,
+                width,
+                height,
+                fps_est,
+                sum_get_ms / n,
+                sum_convert_ms / n,
+                sum_capture_ms / n,
+                target.as_secs_f64() * 1000.0,
+            );
+            frames = 0;
+            sum_get_ms = 0.0;
+            sum_convert_ms = 0.0;
+            sum_capture_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn run_v4l2_convert_loop_mplane(
+    rtc_source: &NativeVideoSource,
+    stream: &mut MplaneStream,
+    format: V4l2CaptureFormat,
+    width: u32,
+    height: u32,
+    target: Duration,
+    start_ts: Instant,
+    ctrl_c_received: &AtomicBool,
+    config: CaptureConfig,
+) -> Result<()> {
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        frame_metadata: None,
+        buffer: I420Buffer::new(width, height),
+    };
+
+    let mut frames = 0_u64;
+    let mut last_fps_log = Instant::now();
+    let mut sum_get_ms = 0.0;
+    let mut sum_convert_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut consecutive_errors = 0_u32;
+    let mut frame_counter = 1_u32;
+    const MAX_ERRORS: u32 = 30;
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        let t0 = Instant::now();
+        let buf = match stream.next() {
+            Ok(buf) => {
+                consecutive_errors = 0;
+                buf
+            }
+            Err(err) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_ERRORS {
+                    anyhow::bail!(
+                        "V4L2 mplane capture failed {} consecutive times: {}",
+                        consecutive_errors,
+                        err
+                    );
+                }
+                log::warn!("V4L2 mplane error ({}/{}): {}", consecutive_errors, MAX_ERRORS, err);
+                continue;
+            }
+        };
+        let read_wall_time_us = unix_time_us_now();
+        let t1 = Instant::now();
+
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let (data_y, data_u, data_v) = frame.buffer.data_mut();
+        if !convert_v4l2_frame_to_i420(
+            format,
+            &buf,
+            width,
+            height,
+            data_y,
+            stride_y as i32,
+            data_u,
+            stride_u as i32,
+            data_v,
+            stride_v as i32,
+        ) {
+            continue;
+        }
+        let t2 = Instant::now();
+
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+        frame.frame_metadata = next_frame_metadata(config, read_wall_time_us, &mut frame_counter);
+        rtc_source.capture_frame(&frame);
+        let t3 = Instant::now();
+
+        frames += 1;
+        sum_get_ms += (t1 - t0).as_secs_f64() * 1000.0;
+        sum_convert_ms += (t2 - t1).as_secs_f64() * 1000.0;
+        sum_capture_ms += (t3 - t2).as_secs_f64() * 1000.0;
+
+        if last_fps_log.elapsed() >= Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "V4L2 {:?} mplane publishing: {}x{}, ~{:.1} fps | avg ms: capture {:.2}, convert {:.2}, submit {:.2} | target {:.2}",
+                format,
+                width,
+                height,
+                fps_est,
+                sum_get_ms / n,
+                sum_convert_ms / n,
+                sum_capture_ms / n,
+                target.as_secs_f64() * 1000.0,
+            );
+            frames = 0;
+            sum_get_ms = 0.0;
+            sum_convert_ms = 0.0;
+            sum_capture_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
 /// Capture loop dedicated to Jetson MIPI capture via libargus.
 ///
 /// Argus blocks inside `acquireFrame`, pacing capture itself, so this loop runs in a
 /// dedicated OS thread and pushes NV12 DMA-buffer fds straight into `NativeVideoSource`
 /// via [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
 /// to the Jetson hardware encoder.
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(lk_argus)]
 async fn run_argus_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,
