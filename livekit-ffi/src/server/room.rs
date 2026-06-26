@@ -356,6 +356,10 @@ impl FfiRoom {
 
     /// Close the room and stop the tasks
     pub async fn close(&self, server: &'static FfiServer, reason: DisconnectReason) {
+        // Close the room first so local tracks are unpublished and WebRTC
+        // stops platform capture before FFI track handles are dropped.
+        let _ = self.inner.room.close_with_reason(reason.into()).await;
+
         // drop associated track handles
         for (_, &handle) in self.inner.track_handle_lookup.lock().iter() {
             if server.drop_handle(handle) {
@@ -363,8 +367,6 @@ impl FfiRoom {
                 server.store_handle(handle, ());
             }
         }
-
-        let _ = self.inner.room.close_with_reason(reason.into()).await;
 
         let handle = self.handle.lock().await.take();
         if let Some(handle) = handle {
