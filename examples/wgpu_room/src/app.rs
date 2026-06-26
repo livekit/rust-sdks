@@ -1,4 +1,5 @@
 use crate::{
+    data_streams_ui::DataStreamsUiState,
     data_track::{LocalDataTrackTile, RemoteDataTrackTile, MAX_VALUE, TIME_WINDOW},
     rpc_ui::RpcUiState,
     service::{AsyncCmd, LkService, UiCmd},
@@ -25,6 +26,7 @@ struct AppState {
 enum RightTab {
     Participants,
     Rpc,
+    DataStreams,
 }
 
 pub struct LkApp {
@@ -38,6 +40,7 @@ pub struct LkApp {
     render_state: egui_wgpu::RenderState,
     service: LkService,
     rpc_ui: RpcUiState,
+    data_streams_ui: DataStreamsUiState,
     right_tab: RightTab,
 }
 
@@ -74,6 +77,7 @@ impl LkApp {
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
             rpc_ui: RpcUiState::default(),
+            data_streams_ui: DataStreamsUiState::default(),
             right_tab: RightTab::Participants,
         }
     }
@@ -130,11 +134,28 @@ impl LkApp {
                         self.remote_data_tracks
                             .push(RemoteDataTrackTile::new(self.async_runtime.handle(), track));
                     }
+                    RoomEvent::TextStreamOpened { reader, topic, participant_identity } => {
+                        self.data_streams_ui.on_text_stream(
+                            reader,
+                            topic,
+                            participant_identity,
+                            &self.service,
+                        );
+                    }
+                    RoomEvent::ByteStreamOpened { reader, topic, participant_identity } => {
+                        self.data_streams_ui.on_byte_stream(
+                            reader,
+                            topic,
+                            participant_identity,
+                            &self.service,
+                        );
+                    }
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
                         self.local_data_tracks.clear();
                         self.remote_data_tracks.clear();
                         self.rpc_ui.on_disconnect();
+                        self.data_streams_ui.on_disconnect();
                     }
                     _ => {}
                 }
@@ -264,6 +285,7 @@ impl LkApp {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.right_tab, RightTab::Participants, "Participants");
             ui.selectable_value(&mut self.right_tab, RightTab::Rpc, "RPC");
+            ui.selectable_value(&mut self.right_tab, RightTab::DataStreams, "Data Streams");
         });
         ui.separator();
 
@@ -279,6 +301,13 @@ impl LkApp {
                 let rpc_ui = &mut self.rpc_ui;
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     rpc_ui.show(ui, service, &room);
+                });
+            }
+            RightTab::DataStreams => {
+                let service = &self.service;
+                let data_streams_ui = &mut self.data_streams_ui;
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    data_streams_ui.show(ui, service, &room);
                 });
             }
         }
