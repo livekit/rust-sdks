@@ -304,8 +304,9 @@ struct PlatformAdmHandle {
 impl Drop for PlatformAdmHandle {
     fn drop(&mut self) {
         log::debug!("PlatformAdmHandle dropped - releasing Platform ADM");
-        // Release Platform ADM reference
-        // When ref_count reaches 0, the Platform ADM is terminated
+        // Stop platform capture before releasing the ADM reference so the
+        // capture worker cannot deliver frames during teardown.
+        let _ = self.runtime.stop_recording();
         self.runtime.release_platform_adm();
         log::info!(
             "PlatformAdmHandle: released Platform ADM (ref_count now: {})",

@@ -70,6 +70,10 @@ class PeerConnectionFactory {
 
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
 
+  /// Stops platform/synthetic audio I/O and detaches callbacks on the worker
+  /// thread before peer connection factory teardown.
+  void shutdown_audio_io() const;
+
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
   std::shared_ptr<AudioDeviceController> audio_device() const;
   bool zero_playout_delay_enabled() const;

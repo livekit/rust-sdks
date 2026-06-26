@@ -318,6 +318,12 @@ impl LkRuntime {
     pub(crate) fn is_platform_adm_active(&self) -> bool {
         self.pc_factory.is_platform_adm_active()
     }
+
+    /// Stops platform/synthetic audio I/O before runtime teardown.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn shutdown_audio_io(&self) {
+        self.pc_factory.shutdown_audio_io();
+    }
 }
 
 #[cfg(test)]
@@ -348,5 +354,7 @@ mod tests {
 impl Drop for LkRuntime {
     fn drop(&mut self) {
         log::debug!("LkRuntime::drop()");
+        #[cfg(not(target_arch = "wasm32"))]
+        self.shutdown_audio_io();
     }
 }

@@ -177,6 +177,9 @@ pub mod native {
         fn release_platform_adm(&self);
         fn platform_adm_ref_count(&self) -> i32;
         fn is_platform_adm_active(&self) -> bool;
+
+        /// Stops platform/synthetic audio I/O before runtime teardown.
+        fn shutdown_audio_io(&self);
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
@@ -318,6 +321,10 @@ pub mod native {
 
         fn is_platform_adm_active(&self) -> bool {
             self.handle.is_platform_adm_active()
+        }
+
+        fn shutdown_audio_io(&self) {
+            self.handle.shutdown_audio_io();
         }
     }
 }

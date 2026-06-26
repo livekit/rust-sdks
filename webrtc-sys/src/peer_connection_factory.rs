@@ -93,6 +93,8 @@ pub mod ffi {
 
         fn zero_playout_delay_enabled(self: &PeerConnectionFactory) -> bool;
 
+        fn shutdown_audio_io(self: &PeerConnectionFactory);
+
         fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: RtcConfiguration,
