@@ -3889,6 +3889,7 @@ dependencies = [
  "bmrng",
  "bytes",
  "chrono",
+ "flate2",
  "futures-util",
  "http 1.4.2",
  "lazy_static",

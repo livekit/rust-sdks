@@ -55,14 +55,19 @@ const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
 /// Capabilities the Rust SDK advertises to the SFU at connect time.
-const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
-    &[proto::client_info::Capability::CapPacketTrailer];
+///
+/// `CapCompressionDeflateRaw` is always advertised because the SDK's deflate-raw codec
+/// (flate2/miniz_oxide) is pure-Rust and compiled in unconditionally.
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] = &[
+    proto::client_info::Capability::CapPacketTrailer,
+    proto::client_info::Capability::CapCompressionDeflateRaw,
+];
 
 pub use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.
-const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
+const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_V2;
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
