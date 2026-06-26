@@ -329,6 +329,15 @@ impl LkApp {
                 sorted_tracks.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
                 ui.monospace(&participant.identity().0);
+                ui.label(format!("Client protocol: {}", participant.client_protocol()));
+                let caps = participant.capabilities();
+                let caps_str = if caps.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    caps.iter().map(|c| format!("{:?}", c)).collect::<Vec<_>>().join(", ")
+                };
+                ui.label(format!("Capabilities: {}", caps_str));
+
                 for tsid in sorted_tracks {
                     let publication = tracks.get(&tsid).unwrap().clone();
 
