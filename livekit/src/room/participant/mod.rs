@@ -146,6 +146,7 @@ struct ParticipantInfo {
     pub joined_at: i64,
     pub permission: Option<proto::ParticipantPermission>,
     pub client_protocol: i32,
+    pub capabilities: Vec<ClientCapability>,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
@@ -197,6 +198,7 @@ pub(super) fn new_inner(
     joined_at: i64,
     permission: Option<proto::ParticipantPermission>,
     client_protocol: i32,
+    capabilities: Vec<ClientCapability>,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -216,6 +218,7 @@ pub(super) fn new_inner(
             joined_at,
             permission,
             client_protocol,
+            capabilities,
         }),
         track_publications: Default::default(),
         events: Default::default(),
@@ -269,6 +272,7 @@ pub(super) fn update_info(
     }
 
     info.client_protocol = new_info.client_protocol;
+    info.capabilities = new_info.capabilities.iter().map(|&c| ClientCapability::from(c)).collect();
 }
 
 pub(super) fn set_speaking(

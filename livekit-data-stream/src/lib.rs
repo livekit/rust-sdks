@@ -84,6 +84,12 @@ pub enum StreamError {
 
     #[error("encryption type mismatch")]
     EncryptionTypeMismatch,
+
+    #[error("stream header exceeds maximum size")]
+    HeaderTooLarge,
+
+    #[error("decompression failed")]
+    Decompression,
 }
 
 /// Progress of a data stream.
