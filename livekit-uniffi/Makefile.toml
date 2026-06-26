@@ -300,9 +300,9 @@ SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { e
 [tasks.swift-xcframework]
 private = true
 install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-# Multi-crate framework fix + uniffi_bindgen 0.31.2 bump, on the fork's
-# `fix/multi-crate-framework` branch (https://github.com/livekit/cargo-swift/tree/fix/multi-crate-framework).
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "b8e76790e43267616bc76f8a3a7f1e52934b30ea"]
+# Multi-crate framework fix, on the fork's `fix/multi-crate-framework` branch
+# (open upstream as antoniusnaumann/cargo-swift#101).
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "439269c4ff5097bcca7a0a7588f1adebd95edc06"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
