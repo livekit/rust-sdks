@@ -45,7 +45,7 @@ bool SupportsEncodeGuid(NV_ENCODE_API_FUNCTION_LIST& fnList,
   uint32_t written_guid_count = 0;
   nvStatus = fnList.nvEncGetEncodeGUIDs(hEncoder, guids.data(), guid_count,
                                         &written_guid_count);
-  if (nvStatus != NV_ENC_SUCCESS) {
+  if (nvStatus != NV_ENC_SUCCESS || written_guid_count == 0) {
     return false;
   }
 
@@ -71,7 +71,7 @@ bool SupportsInputFormat(NV_ENCODE_API_FUNCTION_LIST& fnList,
   uint32_t written_format_count = 0;
   nvStatus = fnList.nvEncGetInputFormats(
       hEncoder, encodeGuid, formats.data(), format_count, &written_format_count);
-  if (nvStatus != NV_ENC_SUCCESS) {
+  if (nvStatus != NV_ENC_SUCCESS || written_format_count == 0) {
     return false;
   }
 
