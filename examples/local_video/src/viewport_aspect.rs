@@ -6,6 +6,7 @@ const DEFAULT_ASPECT: f32 = 16.0 / 9.0;
 const DEFAULT_INITIAL_LONG_EDGE: f32 = 960.0;
 const MIN_LONG_EDGE: f32 = 320.0;
 /// Repaint cadence used while a local video window is visible.
+#[allow(dead_code)]
 pub(crate) const VIDEO_REPAINT_INTERVAL: Duration = Duration::from_millis(8);
 const ASPECT_EPSILON: f32 = 0.001;
 
@@ -48,16 +49,29 @@ impl AspectConstrainedViewport {
 }
 
 /// Returns native window options for a video display.
+#[allow(dead_code)]
 pub(crate) fn native_options(initial_aspect: Option<f32>) -> eframe::NativeOptions {
+    native_options_with_vsync(initial_aspect, false)
+}
+
+/// Returns native window options for a video display, optionally using vsync presentation.
+pub(crate) fn native_options_with_vsync(
+    initial_aspect: Option<f32>,
+    vsync: bool,
+) -> eframe::NativeOptions {
     let aspect = initial_aspect.filter(|aspect| valid_aspect(*aspect)).unwrap_or(DEFAULT_ASPECT);
     let mut wgpu_options = egui_wgpu_backend::WgpuConfiguration::default();
-    #[cfg(target_os = "macos")]
-    {
-        wgpu_options.present_mode = wgpu::PresentMode::Immediate;
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        wgpu_options.present_mode = wgpu::PresentMode::AutoNoVsync;
+    if vsync {
+        wgpu_options.present_mode = wgpu::PresentMode::AutoVsync;
+    } else {
+        #[cfg(target_os = "macos")]
+        {
+            wgpu_options.present_mode = wgpu::PresentMode::Immediate;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            wgpu_options.present_mode = wgpu::PresentMode::AutoNoVsync;
+        }
     }
     #[cfg(target_os = "linux")]
     if std::env::var_os("WGPU_BACKEND").is_none() {
@@ -72,7 +86,7 @@ pub(crate) fn native_options(initial_aspect: Option<f32>) -> eframe::NativeOptio
             .with_inner_size(initial_window_size(Some(aspect)))
             .with_min_inner_size(minimum_window_size(aspect)),
         persist_window: false,
-        vsync: false,
+        vsync,
         multisampling: 0,
         depth_buffer: 0,
         stencil_buffer: 0,

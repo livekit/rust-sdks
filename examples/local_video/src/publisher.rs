@@ -42,6 +42,9 @@ use test_pattern::TestPattern;
 use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
 
+const CAPTURE_SLEEP_SPIN_THRESHOLD: Duration = Duration::from_micros(500);
+const PUBLISHER_LOG_INTERVAL: Duration = Duration::from_secs(2);
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum PublisherCodec {
     H264,
@@ -140,6 +143,40 @@ impl From<PublisherEncoder> for VideoEncoderBackend {
     }
 }
 
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherDegradationPreference {
+    Disabled,
+    MaintainFramerate,
+    MaintainResolution,
+    Balanced,
+}
+
+impl From<PublisherDegradationPreference> for DegradationPreference {
+    fn from(preference: PublisherDegradationPreference) -> Self {
+        match preference {
+            PublisherDegradationPreference::Disabled => DegradationPreference::Disabled,
+            PublisherDegradationPreference::MaintainFramerate => {
+                DegradationPreference::MaintainFramerate
+            }
+            PublisherDegradationPreference::MaintainResolution => {
+                DegradationPreference::MaintainResolution
+            }
+            PublisherDegradationPreference::Balanced => DegradationPreference::Balanced,
+        }
+    }
+}
+
+impl PublisherDegradationPreference {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::MaintainFramerate => "maintain-framerate",
+            Self::MaintainResolution => "maintain-resolution",
+            Self::Balanced => "balanced",
+        }
+    }
+}
+
 fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
     match backend {
         VideoEncoderBackend::Auto => "auto",
@@ -175,7 +212,7 @@ struct Args {
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
 
-    /// Generate a standard SMPTE color-bar test pattern instead of using a camera
+    /// Generate a standard SMPTE color-bar test pattern instead of using a camera.
     #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
     test_pattern: bool,
 
@@ -195,6 +232,10 @@ struct Args {
     #[arg(long)]
     max_bitrate: Option<u64>,
 
+    /// Sender degradation preference under bandwidth or CPU pressure
+    #[arg(long, value_enum)]
+    degradation_preference: Option<PublisherDegradationPreference>,
+
     /// Enable simulcast publishing (low/medium/high layers as appropriate)
     #[arg(long, default_value_t = false)]
     simulcast: bool,
@@ -211,7 +252,7 @@ struct Args {
     #[arg(long)]
     min_playout_delay: Option<u32>,
 
-    /// Maximum subscriber playout delay in milliseconds; recreates the room when set
+    /// Maximum subscriber playout delay in milliseconds; 0 disables the room max.
     #[arg(long)]
     max_playout_delay: Option<u32>,
 
@@ -384,7 +425,7 @@ impl RollingMs {
     }
 
     fn average(&self) -> Option<f64> {
-        (self.samples > 0).then_some(self.total_ms / self.samples as f64)
+        (self.samples > 0).then(|| self.total_ms / self.samples as f64)
     }
 
     fn reset(&mut self) {
@@ -442,18 +483,80 @@ fn find_video_outbound_stats(
     fallback
 }
 
-fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
+#[derive(Clone, Copy, Debug)]
+struct PublisherOutboundSnapshot {
+    frames_encoded: u32,
+    total_encode_time_s: f64,
+    frames_sent: u32,
+    total_packet_send_delay_s: f64,
+}
+
+impl From<&livekit::webrtc::stats::OutboundRtpStats> for PublisherOutboundSnapshot {
+    fn from(outbound: &livekit::webrtc::stats::OutboundRtpStats) -> Self {
+        Self {
+            frames_encoded: outbound.outbound.frames_encoded,
+            total_encode_time_s: outbound.outbound.total_encode_time,
+            frames_sent: outbound.outbound.frames_sent,
+            total_packet_send_delay_s: outbound.outbound.total_packet_send_delay,
+        }
+    }
+}
+
+fn delta_avg_ms(
+    current_total_s: f64,
+    previous_total_s: f64,
+    current_count: u32,
+    previous_count: u32,
+) -> Option<f64> {
+    let count_delta = current_count.checked_sub(previous_count)?;
+    if count_delta == 0 {
+        return None;
+    }
+    let total_delta_s = current_total_s - previous_total_s;
+    (total_delta_s >= 0.0).then_some(total_delta_s * 1_000.0 / f64::from(count_delta))
+}
+
+fn optional_ms(value: Option<f64>) -> String {
+    value.map_or_else(|| "NA".to_string(), |value| format!("{value:.2}ms"))
+}
+
+fn log_publisher_outbound_health(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    last_snapshot: &mut Option<PublisherOutboundSnapshot>,
+) {
     let Some(outbound) = find_video_outbound_stats(stats) else {
         return;
     };
 
+    let snapshot = PublisherOutboundSnapshot::from(&outbound);
+    let (encode_avg_ms, packet_send_delay_avg_ms) =
+        last_snapshot.map_or((None, None), |previous| {
+            (
+                delta_avg_ms(
+                    snapshot.total_encode_time_s,
+                    previous.total_encode_time_s,
+                    snapshot.frames_encoded,
+                    previous.frames_encoded,
+                ),
+                delta_avg_ms(
+                    snapshot.total_packet_send_delay_s,
+                    previous.total_packet_send_delay_s,
+                    snapshot.frames_sent,
+                    previous.frames_sent,
+                ),
+            )
+        });
+    *last_snapshot = Some(snapshot);
+
     info!(
-        "Publish health: encoded={}, sent={}, keyframes={}, packets_sent={}, bytes_sent={}, pli={}, fir={}, encoder={}",
+        "Publish health: encoded={}, sent={}, keyframes={}, packets_sent={}, bytes_sent={}, encode_avg={}, packet_send_delay_avg={}, pli={}, fir={}, encoder={}",
         outbound.outbound.frames_encoded,
         outbound.outbound.frames_sent,
         outbound.outbound.key_frames_encoded,
         outbound.sent.packets_sent,
         outbound.sent.bytes_sent,
+        optional_ms(encode_avg_ms),
+        optional_ms(packet_send_delay_avg_ms),
         outbound.outbound.pli_count,
         outbound.outbound.fir_count,
         outbound.outbound.encoder_implementation,
@@ -474,7 +577,8 @@ fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
 
 async fn update_publisher_video_stats(track: LocalVideoTrack, ctrl_c_received: Arc<AtomicBool>) {
     let mut last_log =
-        Instant::now().checked_sub(Duration::from_secs(2)).unwrap_or_else(Instant::now);
+        Instant::now().checked_sub(PUBLISHER_LOG_INTERVAL).unwrap_or_else(Instant::now);
+    let mut outbound_snapshot = None;
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -484,8 +588,8 @@ async fn update_publisher_video_stats(track: LocalVideoTrack, ctrl_c_received: A
         }
 
         if let Ok(stats) = track.get_stats().await {
-            if last_log.elapsed() >= Duration::from_secs(2) {
-                log_publisher_outbound_health(&stats);
+            if last_log.elapsed() >= PUBLISHER_LOG_INTERVAL {
+                log_publisher_outbound_health(&stats, &mut outbound_snapshot);
                 last_log = Instant::now();
             }
         }
@@ -585,9 +689,16 @@ struct PublisherTimingState {
     samples: HashMap<u64, PublisherTimingSample>,
     order: VecDeque<u64>,
     latest_complete_sample: Option<PublisherTimingSample>,
+    latency_window: PublisherLatencyWindow,
+    last_latency_log: Option<Instant>,
+    log_latency: bool,
 }
 
 impl PublisherTimingState {
+    fn new(log_latency: bool) -> Self {
+        Self { log_latency, last_latency_log: log_latency.then(Instant::now), ..Default::default() }
+    }
+
     fn record_frame_buffer(
         &mut self,
         sensor_exposure_timestamp_us: u64,
@@ -622,6 +733,7 @@ impl PublisherTimingState {
 
         if updated_sample.is_complete() {
             self.latest_complete_sample = Some(updated_sample);
+            self.record_publish_latency(updated_sample);
             Some(updated_sample)
         } else {
             None
@@ -630,6 +742,26 @@ impl PublisherTimingState {
 
     fn display_sample(&self) -> Option<PublisherTimingSample> {
         self.latest_complete_sample
+    }
+
+    fn record_publish_latency(&mut self, sample: PublisherTimingSample) {
+        if !self.log_latency {
+            return;
+        }
+
+        self.latency_window.record(sample);
+        let now = Instant::now();
+        let should_log = self
+            .last_latency_log
+            .is_some_and(|last_log| now.duration_since(last_log) >= PUBLISHER_LOG_INTERVAL);
+        if should_log {
+            self.latency_window.log();
+            self.latency_window = PublisherLatencyWindow {
+                last_capture_timestamp_us: self.latency_window.last_capture_timestamp_us,
+                ..Default::default()
+            };
+            self.last_latency_log = Some(now);
+        }
     }
 
     fn get_or_insert_sample(
@@ -671,6 +803,113 @@ impl PublisherTimingState {
     }
 }
 
+#[derive(Default)]
+struct PublisherLatencyStats {
+    total_us: u128,
+    count: u64,
+    min_us: Option<u64>,
+    max_us: Option<u64>,
+}
+
+impl PublisherLatencyStats {
+    fn record_delta(&mut self, start_us: u64, end_us: u64) {
+        let Some(delta_us) = end_us.checked_sub(start_us) else {
+            return;
+        };
+        self.count += 1;
+        self.total_us += u128::from(delta_us);
+        self.min_us = Some(self.min_us.map_or(delta_us, |current| current.min(delta_us)));
+        self.max_us = Some(self.max_us.map_or(delta_us, |current| current.max(delta_us)));
+    }
+
+    fn avg_us(&self) -> Option<u64> {
+        (self.count > 0).then(|| (self.total_us / u128::from(self.count)) as u64)
+    }
+}
+
+#[derive(Default)]
+struct PublisherLatencyWindow {
+    capture_gap: PublisherLatencyStats,
+    capture_to_buffer: PublisherLatencyStats,
+    buffer_to_encoder_upload: PublisherLatencyStats,
+    encoder_upload_to_output: PublisherLatencyStats,
+    output_to_packetize: PublisherLatencyStats,
+    capture_to_packetize: PublisherLatencyStats,
+    last_capture_timestamp_us: Option<u64>,
+}
+
+impl PublisherLatencyWindow {
+    fn record(&mut self, sample: PublisherTimingSample) {
+        if let Some(last_capture_timestamp_us) = self.last_capture_timestamp_us {
+            self.capture_gap
+                .record_delta(last_capture_timestamp_us, sample.sensor_exposure_timestamp_us);
+        }
+        self.last_capture_timestamp_us = Some(sample.sensor_exposure_timestamp_us);
+
+        if let Some(got_frame_buffer) = sample.got_frame_buffer_timestamp_us {
+            self.capture_to_buffer
+                .record_delta(sample.sensor_exposure_timestamp_us, got_frame_buffer);
+        }
+
+        if let (Some(got_frame_buffer), Some(encoder_upload)) =
+            (sample.got_frame_buffer_timestamp_us, sample.encoder_upload_timestamp_us)
+        {
+            self.buffer_to_encoder_upload.record_delta(got_frame_buffer, encoder_upload);
+        }
+
+        if let (Some(encoder_upload), Some(encoder_output)) =
+            (sample.encoder_upload_timestamp_us, sample.encoder_output_timestamp_us)
+        {
+            self.encoder_upload_to_output.record_delta(encoder_upload, encoder_output);
+        }
+
+        if let (Some(encoder_output), Some(webrtc_packetize)) =
+            (sample.encoder_output_timestamp_us, sample.webrtc_packetize_timestamp_us)
+        {
+            self.output_to_packetize.record_delta(encoder_output, webrtc_packetize);
+        }
+
+        if let Some(webrtc_packetize) = sample.webrtc_packetize_timestamp_us {
+            self.capture_to_packetize
+                .record_delta(sample.sensor_exposure_timestamp_us, webrtc_packetize);
+        }
+    }
+
+    fn log(&self) {
+        if self.capture_to_packetize.count == 0 {
+            return;
+        }
+
+        info!(
+            "Publisher frame latency: frames={}, capture_gap avg={} min={} max={}, capture_to_buffer avg={} min={} max={}, buffer_to_encoder_upload avg={} min={} max={}, encoder_upload_to_output avg={} min={} max={}, output_to_packetize avg={} min={} max={}, capture_to_packetize avg={} min={} max={}",
+            self.capture_to_packetize.count,
+            latency_log_value(self.capture_gap.avg_us()),
+            latency_log_value(self.capture_gap.min_us),
+            latency_log_value(self.capture_gap.max_us),
+            latency_log_value(self.capture_to_buffer.avg_us()),
+            latency_log_value(self.capture_to_buffer.min_us),
+            latency_log_value(self.capture_to_buffer.max_us),
+            latency_log_value(self.buffer_to_encoder_upload.avg_us()),
+            latency_log_value(self.buffer_to_encoder_upload.min_us),
+            latency_log_value(self.buffer_to_encoder_upload.max_us),
+            latency_log_value(self.encoder_upload_to_output.avg_us()),
+            latency_log_value(self.encoder_upload_to_output.min_us),
+            latency_log_value(self.encoder_upload_to_output.max_us),
+            latency_log_value(self.output_to_packetize.avg_us()),
+            latency_log_value(self.output_to_packetize.min_us),
+            latency_log_value(self.output_to_packetize.max_us),
+            latency_log_value(self.capture_to_packetize.avg_us()),
+            latency_log_value(self.capture_to_packetize.min_us),
+            latency_log_value(self.capture_to_packetize.max_us),
+        );
+    }
+}
+
+fn latency_log_value(value_us: Option<u64>) -> String {
+    value_us
+        .map_or_else(|| "NA".to_string(), |value_us| format!("{:.1}ms", value_us as f64 / 1000.0))
+}
+
 fn update_shared_timing_sample(
     shared: Option<&Arc<Mutex<SharedYuv>>>,
     sample: PublisherTimingSample,
@@ -700,6 +939,12 @@ mod tests {
         assert_eq!(requested_playout_delay(Some(120), None), Some((120, 0)));
         assert_eq!(requested_playout_delay(None, Some(240)), Some((0, 240)));
         assert_eq!(requested_playout_delay(Some(120), Some(240)), Some((120, 240)));
+    }
+
+    #[test]
+    fn latency_stats_average_is_absent_without_samples() {
+        assert_eq!(RollingMs::default().average(), None);
+        assert_eq!(PublisherLatencyStats::default().avg_us(), None);
     }
 
     fn timing_event(
@@ -855,6 +1100,24 @@ fn create_i420_buffer(width: u32, height: u32, align_for_display: bool) -> I420B
     }
 }
 
+fn sleep_until_capture_deadline(deadline: Instant) {
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+
+        if remaining > CAPTURE_SLEEP_SPIN_THRESHOLD {
+            std::thread::sleep(remaining - CAPTURE_SLEEP_SPIN_THRESHOLD);
+            continue;
+        }
+
+        while deadline > Instant::now() {
+            std::hint::spin_loop();
+        }
+        break;
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -899,6 +1162,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if let Some((min_playout_delay, max_playout_delay)) =
         requested_playout_delay(args.min_playout_delay, args.max_playout_delay)
     {
+        if max_playout_delay == 0 {
+            log::warn!(
+                "--max-playout-delay 0 disables the room max playout delay; use 1 ms for the smallest active max delay"
+            );
+        }
         let twirp_host = normalize_twirp_host(&url);
         let room_client = RoomClient::with_api_key(&twirp_host, &api_key, &api_secret);
         info!(
@@ -972,56 +1240,53 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         });
     }
 
-    let (width, height, video_input) = match args.source {
-        SourceKind::Argus => {
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-            {
-                if args.test_pattern {
-                    anyhow::bail!("--test-pattern is not supported with --source argus");
-                }
-                if args.display_video {
-                    anyhow::bail!("--display-video is not supported with --source argus");
-                }
-                if args.burn_timestamp {
-                    log::warn!(
+    let (width, height, video_input) = if args.test_pattern {
+        let width = args.width;
+        let height = args.height;
+        let fps = args.fps;
+        info!(
+            "Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps; camera source/index/format ignored",
+            width, height, fps
+        );
+        (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
+    } else {
+        match args.source {
+            SourceKind::Argus => {
+                #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+                {
+                    if args.display_video {
+                        anyhow::bail!("--display-video is not supported with --source argus");
+                    }
+                    if args.burn_timestamp {
+                        log::warn!(
                         "--burn-timestamp is ignored with --source argus (DMA buffers are not CPU-mapped on the publish path)"
                     );
+                    }
+                    let session = argus::ArgusCaptureSession::new(
+                        args.camera_index as u32,
+                        args.width,
+                        args.height,
+                        args.fps,
+                    )?;
+                    info!(
+                        "Argus MIPI capture session opened: {}x{} @ {} fps (camera {})",
+                        session.width(),
+                        session.height(),
+                        args.fps,
+                        args.camera_index,
+                    );
+                    (session.width(), session.height(), VideoInput::Argus(session))
                 }
-                let session = argus::ArgusCaptureSession::new(
-                    args.camera_index as u32,
-                    args.width,
-                    args.height,
-                    args.fps,
-                )?;
-                info!(
-                    "Argus MIPI capture session opened: {}x{} @ {} fps (camera {})",
-                    session.width(),
-                    session.height(),
-                    args.fps,
-                    args.camera_index,
-                );
-                (session.width(), session.height(), VideoInput::Argus(session))
-            }
-            #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
-            {
-                anyhow::bail!(
+                #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+                {
+                    anyhow::bail!(
                     "--source argus requires Linux aarch64 on NVIDIA Jetson; this binary was built for {}-{}",
                     std::env::consts::OS,
                     std::env::consts::ARCH,
                 );
+                }
             }
-        }
-        SourceKind::Uvc => {
-            if args.test_pattern {
-                let width = args.width;
-                let height = args.height;
-                let fps = args.fps;
-                info!(
-                    "Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps",
-                    width, height, fps
-                );
-                (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
-            } else {
+            SourceKind::Uvc => {
                 // Setup camera
                 let index = CameraIndex::Index(args.camera_index as u32);
                 let requested = RequestedFormat::new::<RgbFormat>(
@@ -1109,8 +1374,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let track =
         LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
     let display_shared = args.display_video.then(|| Arc::new(Mutex::new(SharedYuv::default())));
-    let publish_timing_state =
-        args.display_timing.then(|| Arc::new(Mutex::new(PublisherTimingState::default())));
+    let publish_timing_state = (args.attach_timestamp || args.display_timing)
+        .then(|| Arc::new(Mutex::new(PublisherTimingState::new(args.attach_timestamp))));
 
     if let Some(timing_state) = publish_timing_state.as_ref() {
         let timing_state = timing_state.clone();
@@ -1222,6 +1487,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         info!("Published camera track");
         requested_codec
     };
+    if let Some(preference) = args.degradation_preference {
+        match track.set_degradation_preference(preference.into()) {
+            Ok(()) => info!("Set sender degradation preference: {}", preference.as_str()),
+            Err(err) => log::warn!(
+                "Failed to set sender degradation preference to {}: {}; continuing without that sender hint",
+                preference.as_str(),
+                err
+            ),
+        }
+    }
 
     let capture_config = CaptureConfig {
         fps: args.fps,
@@ -1249,6 +1524,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 session,
                 width,
                 height,
+                publish_timing_state.clone(),
                 user_data_channels.clone(),
             )
             .await;
@@ -1269,18 +1545,27 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     shared.clone(),
                     ctrl_c_received.clone(),
                 ));
-                let capture_task = tokio::spawn(run_capture_loop(
-                    capture_config,
-                    ctrl_c_received.clone(),
-                    track.clone(),
-                    rtc_source,
-                    video_input,
-                    width,
-                    height,
-                    Some(shared.clone()),
-                    publish_timing_state.clone(),
-                    user_data_channels.clone(),
-                ));
+                let capture_task = tokio::task::spawn_blocking({
+                    let ctrl_c_received = ctrl_c_received.clone();
+                    let track = track.clone();
+                    let shared_for_capture = shared.clone();
+                    let publish_timing_state = publish_timing_state.clone();
+                    let user_data_channels = user_data_channels.clone();
+                    move || {
+                        run_capture_loop(
+                            capture_config,
+                            ctrl_c_received,
+                            track,
+                            rtc_source,
+                            video_input,
+                            width,
+                            height,
+                            Some(shared_for_capture),
+                            publish_timing_state,
+                            user_data_channels,
+                        )
+                    }
+                });
 
                 let display_result = video_display::run_display(
                     "LiveKit Video Publisher",
@@ -1296,19 +1581,21 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 display_result?;
                 capture_result?;
             } else {
-                let capture_result = run_capture_loop(
-                    capture_config,
-                    ctrl_c_received,
-                    track,
-                    rtc_source,
-                    video_input,
-                    width,
-                    height,
-                    None,
-                    publish_timing_state.clone(),
-                    user_data_channels.clone(),
-                )
-                .await;
+                let capture_result = tokio::task::spawn_blocking(move || {
+                    run_capture_loop(
+                        capture_config,
+                        ctrl_c_received,
+                        track,
+                        rtc_source,
+                        video_input,
+                        width,
+                        height,
+                        None,
+                        publish_timing_state,
+                        user_data_channels,
+                    )
+                })
+                .await?;
                 let _ = publish_stats_task.await;
                 capture_result?;
             }
@@ -1318,7 +1605,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-async fn run_capture_loop(
+fn run_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,
     track: LocalVideoTrack,
@@ -1332,11 +1619,8 @@ async fn run_capture_loop(
 ) -> Result<()> {
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = config.fps as f64;
-    // Accurate pacing using absolute schedule (no drift)
-    let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    // Align the first tick to now
-    ticker.tick().await;
+    let target = Duration::from_secs_f64(1.0 / pace_fps);
+    let mut next_frame_at = Instant::now() + target;
     let start_ts = Instant::now();
 
     // Capture loop
@@ -1345,7 +1629,6 @@ async fn run_capture_loop(
     let mut fps_window_frames: u64 = 0;
     let mut fps_window_start = Instant::now();
     let mut fps_smoothed: f32 = 0.0;
-    let target = Duration::from_secs_f64(1.0 / pace_fps);
     info!("Target frame interval: {:.2} ms", target.as_secs_f64() * 1000.0);
 
     // Timing accumulators (ms) for rolling stats
@@ -1363,8 +1646,18 @@ async fn run_capture_loop(
         }
         // Wait until the scheduled next frame time
         let paced_wait_started_at = Instant::now();
-        ticker.tick().await;
+        if next_frame_at > paced_wait_started_at {
+            sleep_until_capture_deadline(next_frame_at);
+        }
         let paced_wait_finished_at = Instant::now();
+        if paced_wait_finished_at
+            .checked_duration_since(next_frame_at)
+            .is_some_and(|late| late > target)
+        {
+            next_frame_at = paced_wait_finished_at + target;
+        } else {
+            next_frame_at += target;
+        }
 
         // WebRTC may queue the frame and hardware encoders may upload it asynchronously.
         // Give each submitted frame unique backing storage so later captures cannot
@@ -1671,7 +1964,7 @@ async fn run_capture_loop(
             .capture_to_webrtc_total_ms
             .record((webrtc_capture_finished_at - source_frame_started_at).as_secs_f64() * 1000.0);
 
-        if last_fps_log.elapsed() >= std::time::Duration::from_secs(2) {
+        if last_fps_log.elapsed() >= PUBLISHER_LOG_INTERVAL {
             let secs = last_fps_log.elapsed().as_secs_f64();
             let fps_est = frames as f64 / secs;
             let layers = track.publishing_layers();
@@ -1723,6 +2016,7 @@ async fn run_argus_capture_loop(
     session: argus::ArgusCaptureSession,
     width: u32,
     height: u32,
+    publish_timing_state: Option<Arc<Mutex<PublisherTimingState>>>,
     user_data_channels: Option<Arc<Mutex<[f32; user_data::NUM_CHANNELS]>>>,
 ) -> Result<()> {
     let capture_handle = std::thread::Builder::new()
@@ -1847,6 +2141,13 @@ async fn run_argus_capture_loop(
                 } else {
                     None
                 };
+                if let Some(timing_state) = publish_timing_state.as_ref() {
+                    timing_state.lock().record_frame_buffer(
+                        capture_wall_time_us,
+                        fallback_wall_time_us,
+                        fid,
+                    );
+                }
 
                 rtc_source.capture_dmabuf_frame_with_metadata(
                     argus_frame.dmabuf_fd,
@@ -1866,7 +2167,7 @@ async fn run_argus_capture_loop(
                     (capture_finished_at - acquire_finished_at).as_secs_f64() * 1000.0;
                 sum_iter_ms += (Instant::now() - iter_start).as_secs_f64() * 1000.0;
 
-                if last_fps_log.elapsed() >= Duration::from_secs(2) {
+                if last_fps_log.elapsed() >= PUBLISHER_LOG_INTERVAL {
                     let secs = last_fps_log.elapsed().as_secs_f64();
                     let fps_est = frames as f64 / secs;
                     let n = frames.max(1) as f64;

@@ -16,6 +16,8 @@
 
 #include "livekit/video_decoder_factory.h"
 
+#include <cstdlib>
+
 #include <modules/video_coding/codecs/av1/av1_svc_config.h>
 #include "api/environment/environment.h"
 #include "api/video_codecs/av1_profile.h"
@@ -41,9 +43,25 @@
 
 namespace livekit_ffi {
 
+namespace {
+
+constexpr char kDisableVideoToolboxDecoderEnv[] =
+    "LK_DISABLE_VIDEOTOOLBOX_DECODER";
+
+bool IsVideoToolboxDecoderDisabledByEnv() {
+  return std::getenv(kDisableVideoToolboxDecoderEnv) != nullptr;
+}
+
+}  // namespace
+
 VideoDecoderFactory::VideoDecoderFactory() {
 #ifdef __APPLE__
-  factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
+  if (IsVideoToolboxDecoderDisabledByEnv()) {
+    RTC_LOG(LS_INFO) << "Apple VideoToolbox decoder disabled because "
+                     << kDisableVideoToolboxDecoderEnv << " is set.";
+  } else {
+    factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
+  }
 #endif
 
 #ifdef WEBRTC_ANDROID

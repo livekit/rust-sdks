@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
 use egui_wgpu as egui_wgpu_backend;
@@ -10,7 +10,7 @@ use livekit::prelude::*;
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
-use log::{debug, info};
+use log::{debug, info, warn};
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, VecDeque},
@@ -374,6 +374,31 @@ mod macos_native_video {
     }
 }
 
+#[cfg(target_os = "macos")]
+mod macos_thread_qos {
+    type QosClass = u32;
+
+    const QOS_CLASS_USER_INTERACTIVE: QosClass = 0x21;
+
+    #[link(name = "System")]
+    unsafe extern "C" {
+        fn pthread_set_qos_class_self_np(qos_class: QosClass, relative_priority: i32) -> i32;
+    }
+
+    pub(crate) fn promote_current_thread(label: &str) {
+        let result = unsafe {
+            // SAFETY: This changes only the current thread's scheduling QoS. The function does
+            // not retain pointers or require additional invariants beyond a valid QoS constant.
+            pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)
+        };
+        if result == 0 {
+            log::info!("Promoted subscriber {label} thread to macOS user-interactive QoS");
+        } else {
+            log::debug!("Unable to promote subscriber {label} thread QoS: {result}");
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -405,10 +430,56 @@ struct Args {
     #[arg(long)]
     display_timestamp: bool,
 
+    /// Hide subscriber HUD overlays while still logging render timing.
+    #[arg(long)]
+    no_overlay: bool,
+
+    /// Disable periodic WebRTC getStats polling.
+    #[arg(long)]
+    no_stats: bool,
+
+    /// Subscriber render path to use for decoded video frames.
+    #[arg(long, value_enum, default_value_t = RenderPath::Auto)]
+    render_path: RenderPath,
+
+    /// Consume decoded video without opening a render window.
+    #[arg(long)]
+    headless: bool,
+
+    /// Use vsync presentation for the subscriber render window.
+    #[arg(long)]
+    render_vsync: bool,
+
+    /// Focus the subscriber window and keep it above other windows.
+    #[arg(long)]
+    keep_window_front: bool,
+
+    /// Log subscriber render-loop scheduling diagnostics.
+    #[arg(long)]
+    render_loop_diagnostics: bool,
+
+    /// Drop decoded frames older than this before handing them to the render loop; 0 disables.
+    #[arg(long, default_value_t = 0)]
+    drop_late_frames_ms: u64,
+
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum RenderPath {
+    /// Use the lowest-copy native path when available.
+    Auto,
+    /// Convert frames to I420 and upload them through CPU-backed textures.
+    Cpu,
+}
+
+const SUBSCRIBER_STATS_INTERVAL: Duration = Duration::from_secs(5);
+const SUBSCRIBER_FRAME_LOG_INTERVAL: Duration = Duration::from_secs(2);
+const SUBSCRIBER_OVERLAY_REPAINT_INTERVAL: Duration = Duration::from_millis(100);
+const MIN_SUBSCRIBER_SINK_STUTTER_THRESHOLD_US: u64 = 50_000;
+const MAX_SUBSCRIBER_STUTTER_DETAIL_LOGS_PER_WINDOW: u64 = 3;
 
 struct SharedYuv {
     width: u32,
@@ -428,8 +499,12 @@ impl LatestRenderFrameSlot {
         Self { frame: Mutex::new(None) }
     }
 
-    fn store(&self, frame: BoxVideoFrame) {
-        *self.frame.lock() = Some(frame);
+    fn store(&self, frame: BoxVideoFrame) -> bool {
+        let previous_frame = {
+            let mut pending_frame = self.frame.lock();
+            pending_frame.replace(frame)
+        };
+        previous_frame.is_some()
     }
 
     fn take(&self) -> Option<BoxVideoFrame> {
@@ -438,6 +513,338 @@ impl LatestRenderFrameSlot {
 
     fn clear(&self) {
         self.frame.lock().take();
+    }
+}
+
+#[derive(Default)]
+struct DeliveryLatencyStats {
+    count: u64,
+    total_us: u128,
+    min_us: Option<u64>,
+    max_us: Option<u64>,
+}
+
+impl DeliveryLatencyStats {
+    fn record_value(&mut self, latency_us: u64) {
+        self.count += 1;
+        self.total_us += u128::from(latency_us);
+        self.min_us = Some(self.min_us.map_or(latency_us, |value| value.min(latency_us)));
+        self.max_us = Some(self.max_us.map_or(latency_us, |value| value.max(latency_us)));
+    }
+
+    fn record_delta(&mut self, start_us: u64, end_us: u64) {
+        let Some(delta_us) = end_us.checked_sub(start_us) else {
+            return;
+        };
+        self.record_value(delta_us);
+    }
+
+    fn avg_us(&self) -> Option<u64> {
+        (self.count > 0).then(|| (self.total_us / u128::from(self.count)) as u64)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RenderPreparePath {
+    NoDims,
+    NoFrame,
+    Native,
+    Cpu,
+}
+
+#[derive(Default)]
+struct RenderLoopDiagnosticsWindow {
+    enabled: bool,
+    updates: u64,
+    updates_with_frame: u64,
+    updates_without_frame: u64,
+    update_gap: DeliveryLatencyStats,
+    last_update: Option<Instant>,
+    prepares: u64,
+    prepares_no_dims: u64,
+    prepares_without_frame: u64,
+    prepares_native: u64,
+    prepares_cpu: u64,
+    prepare_duration: DeliveryLatencyStats,
+    paints: u64,
+    paints_with_sample: u64,
+    paints_without_sample: u64,
+    paint_gap: DeliveryLatencyStats,
+    paint_stutters: u64,
+    last_paint: Option<Instant>,
+    last_log: Option<Instant>,
+}
+
+impl RenderLoopDiagnosticsWindow {
+    fn new(enabled: bool) -> Self {
+        Self { enabled, ..Self::default() }
+    }
+
+    fn record_update(&mut self, has_frame: bool, now: Instant) {
+        if !self.enabled {
+            return;
+        }
+
+        self.updates += 1;
+        if has_frame {
+            self.updates_with_frame += 1;
+        } else {
+            self.updates_without_frame += 1;
+        }
+
+        if let Some(last_update) = self.last_update {
+            self.update_gap.record_value(duration_to_us(now.duration_since(last_update)));
+        }
+        self.last_update = Some(now);
+        self.maybe_log_and_reset(now);
+    }
+
+    fn record_prepare(&mut self, path: RenderPreparePath, duration: Duration, now: Instant) {
+        if !self.enabled {
+            return;
+        }
+
+        self.prepares += 1;
+        match path {
+            RenderPreparePath::NoDims => self.prepares_no_dims += 1,
+            RenderPreparePath::NoFrame => self.prepares_without_frame += 1,
+            RenderPreparePath::Native => self.prepares_native += 1,
+            RenderPreparePath::Cpu => self.prepares_cpu += 1,
+        }
+        self.prepare_duration.record_value(duration_to_us(duration));
+        self.maybe_log_and_reset(now);
+    }
+
+    fn record_paint(&mut self, has_sample: bool, now: Instant) {
+        if !self.enabled {
+            return;
+        }
+
+        self.paints += 1;
+        if has_sample {
+            self.paints_with_sample += 1;
+        } else {
+            self.paints_without_sample += 1;
+        }
+
+        if let Some(last_paint) = self.last_paint {
+            let gap_us = duration_to_us(now.duration_since(last_paint));
+            self.paint_gap.record_value(gap_us);
+            if gap_us > MIN_SUBSCRIBER_SINK_STUTTER_THRESHOLD_US {
+                self.paint_stutters += 1;
+            }
+        }
+        self.last_paint = Some(now);
+        self.maybe_log_and_reset(now);
+    }
+
+    fn maybe_log_and_reset(&mut self, now: Instant) {
+        if self
+            .last_log
+            .map_or(true, |last_log| now.duration_since(last_log) >= SUBSCRIBER_FRAME_LOG_INTERVAL)
+        {
+            self.log_and_reset(now);
+        }
+    }
+
+    fn log_and_reset(&mut self, now: Instant) {
+        if self.updates == 0 && self.prepares == 0 && self.paints == 0 {
+            self.last_log = Some(now);
+            return;
+        }
+
+        info!(
+            "Subscriber render loop: updates={}, updates_with_frame={}, updates_without_frame={}, update_gap avg={} min={} max={}, prepares={}, prepares_no_dims={}, prepares_without_frame={}, prepares_native={}, prepares_cpu={}, prepare_duration avg={} min={} max={}, paints={}, paints_with_sample={}, paints_without_sample={}, paint_gap avg={} min={} max={}, stutters_over_threshold={}",
+            self.updates,
+            self.updates_with_frame,
+            self.updates_without_frame,
+            latency_log_value(self.update_gap.avg_us()),
+            latency_log_value(self.update_gap.min_us),
+            latency_log_value(self.update_gap.max_us),
+            self.prepares,
+            self.prepares_no_dims,
+            self.prepares_without_frame,
+            self.prepares_native,
+            self.prepares_cpu,
+            latency_log_value(self.prepare_duration.avg_us()),
+            latency_log_value(self.prepare_duration.min_us),
+            latency_log_value(self.prepare_duration.max_us),
+            self.paints,
+            self.paints_with_sample,
+            self.paints_without_sample,
+            latency_log_value(self.paint_gap.avg_us()),
+            latency_log_value(self.paint_gap.min_us),
+            latency_log_value(self.paint_gap.max_us),
+            self.paint_stutters,
+        );
+
+        *self = Self {
+            enabled: true,
+            last_update: self.last_update,
+            last_paint: self.last_paint,
+            last_log: Some(now),
+            ..Self::default()
+        };
+    }
+}
+
+#[derive(Clone, Default)]
+struct RenderLoopDiagnostics {
+    inner: Arc<Mutex<RenderLoopDiagnosticsWindow>>,
+}
+
+impl RenderLoopDiagnostics {
+    fn new(enabled: bool) -> Self {
+        Self { inner: Arc::new(Mutex::new(RenderLoopDiagnosticsWindow::new(enabled))) }
+    }
+
+    fn record_update(&self, has_frame: bool, now: Instant) {
+        self.inner.lock().record_update(has_frame, now);
+    }
+
+    fn record_prepare(&self, path: RenderPreparePath, duration: Duration, now: Instant) {
+        self.inner.lock().record_prepare(path, duration, now);
+    }
+
+    fn record_paint(&self, has_sample: bool, now: Instant) {
+        self.inner.lock().record_paint(has_sample, now);
+    }
+}
+
+#[derive(Default)]
+struct SinkDeliveryWindow {
+    frames: u64,
+    dropped_before_store: u64,
+    replaced_before_render: u64,
+    dropped_late_before_render: u64,
+    sink_gap: DeliveryLatencyStats,
+    capture_gap: DeliveryLatencyStats,
+    sink_stutters: u64,
+    sink_stutter_detail_logs: u64,
+    late_drop_detail_logs: u64,
+    last_sink_timestamp_us: Option<u64>,
+    last_capture_timestamp_us: Option<u64>,
+    last_frame_id: Option<u32>,
+    last_log: Option<Instant>,
+}
+
+impl SinkDeliveryWindow {
+    fn record(
+        &mut self,
+        capture_timestamp_us: Option<u64>,
+        frame_id: Option<u32>,
+        sink_timestamp_us: u64,
+        drained_frames: u64,
+        replaced_before_render: bool,
+        dropped_late_before_render: bool,
+        frame_age_us: Option<u64>,
+        late_drop_threshold_us: Option<u64>,
+        now: Instant,
+    ) {
+        self.frames += 1;
+        self.dropped_before_store += drained_frames;
+        if replaced_before_render {
+            self.replaced_before_render += 1;
+        }
+        if dropped_late_before_render {
+            self.dropped_late_before_render += 1;
+        }
+
+        let capture_gap_us =
+            optional_delta_us(self.last_capture_timestamp_us, capture_timestamp_us);
+        let mut sink_gap_us = None;
+        if let Some(last_sink_timestamp_us) = self.last_sink_timestamp_us {
+            self.sink_gap.record_delta(last_sink_timestamp_us, sink_timestamp_us);
+            sink_gap_us = sink_timestamp_us.checked_sub(last_sink_timestamp_us);
+            if let Some(gap_us) = sink_gap_us {
+                let threshold_us = stutter_threshold_us(capture_gap_us);
+                let skipped_frames = skipped_frame_count(self.last_frame_id, frame_id);
+                let has_skipped_frames = skipped_frames.is_some_and(|count| count > 0);
+                if gap_us > threshold_us || has_skipped_frames {
+                    self.sink_stutters += 1;
+                    if self.sink_stutter_detail_logs < MAX_SUBSCRIBER_STUTTER_DETAIL_LOGS_PER_WINDOW
+                    {
+                        self.sink_stutter_detail_logs += 1;
+                        warn!(
+                            "Subscriber sink stutter: sink_gap={}, threshold={}, frame_id={}, previous_frame_id={}, skipped_frame_count={}, capture_gap={}, drained_before_store={}, replaced_before_render={}",
+                            latency_log_value(Some(gap_us)),
+                            latency_log_value(Some(threshold_us)),
+                            frame_id_log_value(frame_id),
+                            frame_id_log_value(self.last_frame_id),
+                            skipped_frame_count_log_value(skipped_frames),
+                            latency_log_value(capture_gap_us),
+                            drained_frames,
+                            u8::from(replaced_before_render),
+                        );
+                    }
+                }
+            }
+        }
+
+        if dropped_late_before_render
+            && self.late_drop_detail_logs < MAX_SUBSCRIBER_STUTTER_DETAIL_LOGS_PER_WINDOW
+        {
+            self.late_drop_detail_logs += 1;
+            warn!(
+                "Subscriber late frame drop: frame_age={}, threshold={}, frame_id={}, capture_gap={}, sink_gap={}, drained_before_store={}",
+                latency_log_value(frame_age_us),
+                latency_log_value(late_drop_threshold_us),
+                frame_id_log_value(frame_id),
+                latency_log_value(capture_gap_us),
+                latency_log_value(sink_gap_us),
+                drained_frames,
+            );
+        }
+
+        if let Some(capture_gap_us) = capture_gap_us {
+            self.capture_gap.record_value(capture_gap_us);
+        }
+
+        self.last_sink_timestamp_us = Some(sink_timestamp_us);
+        self.last_capture_timestamp_us = capture_timestamp_us.or(self.last_capture_timestamp_us);
+        self.last_frame_id = frame_id.or(self.last_frame_id);
+        self.maybe_log_and_reset(now);
+    }
+
+    fn maybe_log_and_reset(&mut self, now: Instant) {
+        if self
+            .last_log
+            .map_or(true, |last_log| now.duration_since(last_log) >= SUBSCRIBER_FRAME_LOG_INTERVAL)
+        {
+            self.log_and_reset(now);
+        }
+    }
+
+    fn log_and_reset(&mut self, now: Instant) {
+        if self.frames == 0 {
+            self.last_log = Some(now);
+            return;
+        }
+
+        info!(
+            "Subscriber sink delivery: frames={}, sink_gap avg={} min={} max={}, capture_gap avg={} min={} max={}, stutters_over_threshold={}, stutter_detail_logs_suppressed={}, dropped_before_store={}, replaced_before_render={}, dropped_late_before_render={}, late_drop_detail_logs_suppressed={}",
+            self.frames,
+            latency_log_value(self.sink_gap.avg_us()),
+            latency_log_value(self.sink_gap.min_us),
+            latency_log_value(self.sink_gap.max_us),
+            latency_log_value(self.capture_gap.avg_us()),
+            latency_log_value(self.capture_gap.min_us),
+            latency_log_value(self.capture_gap.max_us),
+            self.sink_stutters,
+            self.sink_stutters.saturating_sub(self.sink_stutter_detail_logs),
+            self.dropped_before_store,
+            self.replaced_before_render,
+            self.dropped_late_before_render,
+            self.dropped_late_before_render.saturating_sub(self.late_drop_detail_logs),
+        );
+
+        *self = Self {
+            last_sink_timestamp_us: self.last_sink_timestamp_us,
+            last_capture_timestamp_us: self.last_capture_timestamp_us,
+            last_frame_id: self.last_frame_id,
+            last_log: Some(now),
+            ..Self::default()
+        };
     }
 }
 
@@ -787,6 +1194,46 @@ fn current_timestamp_us() -> u64 {
     anchor.unix_timestamp_us.saturating_add(anchor.instant.elapsed().as_micros() as u64)
 }
 
+fn duration_to_us(duration: Duration) -> u64 {
+    duration.as_micros().min(u128::from(u64::MAX)) as u64
+}
+
+fn latency_log_value(latency_us: Option<u64>) -> String {
+    latency_us.map_or_else(
+        || "NA".to_string(),
+        |latency_us| format!("{:.1}ms", latency_us as f64 / 1_000.0),
+    )
+}
+
+fn frame_id_log_value(frame_id: Option<u32>) -> String {
+    frame_id.map_or_else(|| "NA".to_string(), |frame_id| frame_id.to_string())
+}
+
+fn optional_delta_us(start_us: Option<u64>, end_us: Option<u64>) -> Option<u64> {
+    match (start_us, end_us) {
+        (Some(start_us), Some(end_us)) => end_us.checked_sub(start_us),
+        _ => None,
+    }
+}
+
+fn stutter_threshold_us(expected_frame_gap_us: Option<u64>) -> u64 {
+    expected_frame_gap_us
+        .map(|gap_us| gap_us.saturating_mul(3) / 2)
+        .unwrap_or(MIN_SUBSCRIBER_SINK_STUTTER_THRESHOLD_US)
+        .max(MIN_SUBSCRIBER_SINK_STUTTER_THRESHOLD_US)
+}
+
+fn skipped_frame_count(previous: Option<u32>, current: Option<u32>) -> Option<u32> {
+    match (previous, current) {
+        (Some(previous), Some(current)) => Some(current.saturating_sub(previous).saturating_sub(1)),
+        _ => None,
+    }
+}
+
+fn skipped_frame_count_log_value(skipped_frames: Option<u32>) -> String {
+    skipped_frames.map_or_else(|| "NA".to_string(), |count| count.to_string())
+}
+
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
     let sc = state.lock();
     sc.full_dims
@@ -835,6 +1282,169 @@ mod tests {
     }
 }
 
+struct VideoSinkTask {
+    rtc_track: livekit::webrtc::video_track::RtcVideoTrack,
+    shared: Arc<Mutex<SharedYuv>>,
+    frame_slot: Arc<LatestRenderFrameSlot>,
+    video_size: Arc<AtomicVideoSize>,
+    active_sid: Arc<Mutex<Option<TrackSid>>>,
+    sid: TrackSid,
+    ctrl_c_received: Arc<AtomicBool>,
+    repaint_ctx: Arc<OnceLock<egui::Context>>,
+    subscriber_timing: SubscriberTimingHandle,
+    render_frames: bool,
+    late_drop_threshold_us: Option<u64>,
+}
+
+impl VideoSinkTask {
+    async fn run(self) {
+        let mut sink = NativeVideoStream::new(self.rtc_track);
+        let mut frames: u64 = 0;
+        let mut last_log = Instant::now();
+        let mut logged_first = false;
+        let mut fps_window_frames: u64 = 0;
+        let mut fps_window_start = Instant::now();
+        let mut fps_smoothed: f32 = 0.0;
+        let mut sink_delivery_window = SinkDeliveryWindow::default();
+
+        loop {
+            if self.ctrl_c_received.load(Ordering::Acquire) {
+                break;
+            }
+            let Some(mut frame) = sink.next().await else {
+                break;
+            };
+            let mut drained_frames = 0_u64;
+            while let Some(Some(newer_frame)) = sink.next().now_or_never() {
+                frame = newer_frame;
+                drained_frames += 1;
+            }
+            if drained_frames > 0 {
+                debug!("Dropped {drained_frames} stale decoded frames before render upload");
+            }
+            let sink_timestamp_us = current_timestamp_us();
+            let capture_timestamp_us =
+                frame.frame_metadata.as_ref().and_then(|metadata| metadata.user_timestamp);
+            let frame_id = frame.frame_metadata.as_ref().and_then(|metadata| metadata.frame_id);
+            if let Some(capture_timestamp_us) = capture_timestamp_us {
+                self.subscriber_timing.record_frame_received_by_sink(
+                    capture_timestamp_us,
+                    frame_id,
+                    sink_timestamp_us,
+                );
+            }
+            let frame_age_us = capture_timestamp_us.and_then(|capture_timestamp_us| {
+                sink_timestamp_us.checked_sub(capture_timestamp_us)
+            });
+            let dropped_late_before_render = self.render_frames
+                && self.late_drop_threshold_us.is_some_and(|threshold_us| {
+                    frame_age_us.is_some_and(|age_us| age_us > threshold_us)
+                });
+            if dropped_late_before_render {
+                sink_delivery_window.record(
+                    capture_timestamp_us,
+                    frame_id,
+                    sink_timestamp_us,
+                    drained_frames,
+                    false,
+                    true,
+                    frame_age_us,
+                    self.late_drop_threshold_us,
+                    Instant::now(),
+                );
+                continue;
+            }
+            let w = frame.buffer.width();
+            let h = frame.buffer.height();
+
+            if !logged_first {
+                debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
+                logged_first = true;
+            }
+
+            let mut fps_update = None;
+            fps_window_frames += 1;
+            let win_elapsed = fps_window_start.elapsed();
+            if win_elapsed >= Duration::from_millis(500) {
+                let inst_fps = (fps_window_frames as f32) / (win_elapsed.as_secs_f32().max(0.001));
+                fps_smoothed = if fps_smoothed <= 0.0 {
+                    inst_fps
+                } else {
+                    (fps_smoothed * 0.7) + (inst_fps * 0.3)
+                };
+                fps_update = Some(fps_smoothed);
+                fps_window_frames = 0;
+                fps_window_start = Instant::now();
+            }
+
+            {
+                let mut shared = self.shared.lock();
+                if let Some(fps) = fps_update {
+                    shared.fps = fps;
+                }
+                shared.width = w;
+                shared.height = h;
+            }
+            let replaced_before_render = if self.render_frames {
+                self.video_size.store(w, h);
+                self.frame_slot.store(frame)
+            } else {
+                false
+            };
+
+            sink_delivery_window.record(
+                capture_timestamp_us,
+                frame_id,
+                sink_timestamp_us,
+                drained_frames,
+                replaced_before_render,
+                false,
+                frame_age_us,
+                self.late_drop_threshold_us,
+                Instant::now(),
+            );
+
+            if self.render_frames {
+                if let Some(ctx) = self.repaint_ctx.get() {
+                    ctx.request_repaint();
+                }
+            }
+
+            frames += 1;
+            let elapsed = last_log.elapsed();
+            if elapsed >= SUBSCRIBER_FRAME_LOG_INTERVAL {
+                let fps = frames as f64 / elapsed.as_secs_f64();
+                info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
+                frames = 0;
+                last_log = Instant::now();
+            }
+        }
+
+        info!("Video stream ended for {}", self.sid);
+        let mut active = self.active_sid.lock();
+        if active.as_ref() == Some(&self.sid) {
+            *active = None;
+        }
+    }
+}
+
+fn spawn_video_sink_task(task: VideoSinkTask) {
+    tokio::task::spawn_blocking(move || {
+        #[cfg(target_os = "macos")]
+        macos_thread_qos::promote_current_thread("video sink");
+
+        let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                warn!("Unable to start subscriber video sink runtime: {error}");
+                return;
+            }
+        };
+
+        runtime.block_on(task.run());
+    });
+}
+
 async fn handle_track_subscribed(
     track: livekit::track::RemoteTrack,
     publication: RemoteTrackPublication,
@@ -848,6 +1458,9 @@ async fn handle_track_subscribed(
     simulcast: &Arc<Mutex<SimulcastState>>,
     repaint_ctx: &Arc<OnceLock<egui::Context>>,
     subscriber_timing: SubscriberTimingHandle,
+    enable_stats: bool,
+    render_frames: bool,
+    drop_late_frames_ms: u64,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -907,15 +1520,8 @@ async fn handle_track_subscribed(
     });
 
     // Start background sink task immediately so stats lookup cannot delay first-frame handling.
-    let rtc_track = video_track.rtc_track();
-    let shared2 = shared.clone();
-    let frame_slot_sink = frame_slot.clone();
-    let video_size_sink = video_size.clone();
-    let active_sid2 = active_sid.clone();
-    let my_sid = sid.clone();
-    let ctrl_c_sink = ctrl_c_received.clone();
-    let repaint_ctx_sink = repaint_ctx.clone();
-    let subscriber_timing_sink = subscriber_timing.clone();
+    let drop_late_frames_us = drop_late_frames_ms.saturating_mul(1_000);
+    let late_drop_threshold_us = (drop_late_frames_us > 0).then_some(drop_late_frames_us);
     // Initialize simulcast state for this publication
     {
         let mut sc = simulcast.lock();
@@ -926,90 +1532,24 @@ async fn handle_track_subscribed(
         sc.active_quality = None;
         sc.publication = Some(publication.clone());
     }
-    tokio::spawn(async move {
-        let mut sink = NativeVideoStream::new(rtc_track);
-        let mut frames: u64 = 0;
-        let mut last_log = Instant::now();
-        let mut logged_first = false;
-        let mut fps_window_frames: u64 = 0;
-        let mut fps_window_start = Instant::now();
-        let mut fps_smoothed: f32 = 0.0;
-        loop {
-            if ctrl_c_sink.load(Ordering::Acquire) {
-                break;
-            }
-            let Some(mut frame) = sink.next().await else { break };
-            let mut drained_frames = 0_u64;
-            while let Some(Some(newer_frame)) = sink.next().now_or_never() {
-                frame = newer_frame;
-                drained_frames += 1;
-            }
-            if drained_frames > 0 {
-                debug!("Dropped {drained_frames} stale decoded frames before render upload");
-            }
-            if let Some(metadata) = &frame.frame_metadata {
-                if let Some(capture_timestamp_us) = metadata.user_timestamp {
-                    subscriber_timing_sink.record_frame_received_by_sink(
-                        capture_timestamp_us,
-                        metadata.frame_id,
-                        current_timestamp_us(),
-                    );
-                }
-            }
-            let w = frame.buffer.width();
-            let h = frame.buffer.height();
 
-            if !logged_first {
-                debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
-                logged_first = true;
-            }
-
-            let mut fps_update = None;
-            // Update smoothed FPS (~500ms window)
-            fps_window_frames += 1;
-            let win_elapsed = fps_window_start.elapsed();
-            if win_elapsed >= Duration::from_millis(500) {
-                let inst_fps = (fps_window_frames as f32) / (win_elapsed.as_secs_f32().max(0.001));
-                fps_smoothed = if fps_smoothed <= 0.0 {
-                    inst_fps
-                } else {
-                    // light EMA smoothing to reduce jitter
-                    (fps_smoothed * 0.7) + (inst_fps * 0.3)
-                };
-                fps_update = Some(fps_smoothed);
-                fps_window_frames = 0;
-                fps_window_start = Instant::now();
-            }
-
-            let mut s = shared2.lock();
-            if let Some(fps) = fps_update {
-                s.fps = fps;
-            }
-            s.width = w;
-            s.height = h;
-            video_size_sink.store(w, h);
-            frame_slot_sink.store(frame);
-
-            if let Some(ctx) = repaint_ctx_sink.get() {
-                ctx.request_repaint();
-            }
-
-            frames += 1;
-            let elapsed = last_log.elapsed();
-            if elapsed >= Duration::from_secs(2) {
-                let fps = frames as f64 / elapsed.as_secs_f64();
-                info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
-                frames = 0;
-                last_log = Instant::now();
-            }
-        }
-        info!("Video stream ended for {}", my_sid);
-        // Clear active sid if still ours
-        let mut active = active_sid2.lock();
-        if active.as_ref() == Some(&my_sid) {
-            *active = None;
-        }
+    spawn_video_sink_task(VideoSinkTask {
+        rtc_track: video_track.rtc_track(),
+        shared: shared.clone(),
+        frame_slot: frame_slot.clone(),
+        video_size: video_size.clone(),
+        active_sid: active_sid.clone(),
+        sid: sid.clone(),
+        ctrl_c_received: ctrl_c_received.clone(),
+        repaint_ctx: repaint_ctx.clone(),
+        subscriber_timing: subscriber_timing.clone(),
+        render_frames,
+        late_drop_threshold_us,
     });
+
+    if !enable_stats {
+        return;
+    }
 
     let ctrl_c_stats = ctrl_c_received.clone();
     let active_sid_stats = active_sid.clone();
@@ -1022,10 +1562,12 @@ async fn handle_track_subscribed(
         let mut receive_bitrate_snapshot = None;
         let mut last_jitter_buffer_log =
             Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        let mut interval = tokio::time::interval(SUBSCRIBER_STATS_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
+            interval.tick().await;
+
             if ctrl_c_stats.load(Ordering::Acquire) {
                 break;
             }
@@ -1058,8 +1600,6 @@ async fn handle_track_subscribed(
                 }
                 Err(_) => {}
             }
-
-            interval.tick().await;
         }
     });
 }
@@ -1280,6 +1820,11 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     display_timestamp: bool,
+    no_overlay: bool,
+    render_path: RenderPath,
+    keep_window_front: bool,
+    window_front_requested: bool,
+    render_loop_diagnostics: RenderLoopDiagnostics,
     /// Rolling history of decoded channel values from the user_data trailer.
     channel_history: VecDeque<[f32; user_data::NUM_CHANNELS]>,
 }
@@ -1292,13 +1837,23 @@ impl eframe::App for VideoApp {
             return;
         }
 
+        if self.keep_window_front && !self.window_front_requested {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(
+                egui::WindowLevel::AlwaysOnTop,
+            ));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.window_front_requested = true;
+        }
+
         if let Some((width, height)) = self.video_size.load() {
             self.viewport.set_video_size(ctx, width, height);
         }
 
         let render_frame = self.frame_slot.take();
+        self.render_loop_diagnostics.record_update(render_frame.is_some(), Instant::now());
         if let Some(frame) = render_frame.as_ref() {
-            if let Some(metadata) = &frame.frame_metadata {
+            if let Some(metadata) = frame.frame_metadata.as_ref() {
                 if let Some(capture_timestamp_us) = metadata.user_timestamp {
                     self.subscriber_timing.record_frame_selected_for_render(
                         capture_timestamp_us,
@@ -1306,26 +1861,30 @@ impl eframe::App for VideoApp {
                         current_timestamp_us(),
                     );
                 }
-                // Decode the 6 user_data channel values for the live graph.
-                if let Some(values) = metadata.user_data.as_deref().and_then(user_data::decode) {
-                    if self.channel_history.len() >= CHANNEL_HISTORY_LEN {
-                        self.channel_history.pop_front();
+                if !self.no_overlay {
+                    if let Some(values) = metadata.user_data.as_deref().and_then(user_data::decode)
+                    {
+                        if self.channel_history.len() >= CHANNEL_HISTORY_LEN {
+                            self.channel_history.pop_front();
+                        }
+                        self.channel_history.push_back(values);
                     }
-                    self.channel_history.push_back(values);
                 }
             }
         }
 
-        let overlay_lines = subscriber_overlay_lines(
-            &self.shared,
-            &self.simulcast,
-            self.display_timestamp,
-            &self.subscriber_timing,
-        );
+        let overlay_lines = if self.no_overlay {
+            None
+        } else {
+            subscriber_overlay_lines(
+                &self.shared,
+                &self.simulcast,
+                self.display_timestamp,
+                &self.subscriber_timing,
+            )
+        };
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
-            ui.ctx().request_repaint();
-
             // Let the native window follow live resize, and letterbox the video instead of
             // programmatically resizing the window while the user is dragging it.
             let size =
@@ -1341,6 +1900,8 @@ impl eframe::App for VideoApp {
                             render_frame: Mutex::new(render_frame),
                             video_size: self.video_size.clone(),
                             subscriber_timing: self.subscriber_timing.clone(),
+                            force_cpu_render: self.render_path == RenderPath::Cpu,
+                            render_loop_diagnostics: self.render_loop_diagnostics.clone(),
                         },
                     );
                     ui.painter().add(cb);
@@ -1352,39 +1913,45 @@ impl eframe::App for VideoApp {
             paint_subscriber_overlay(ctx, lines);
         }
 
-        paint_channel_graph(ctx, &self.channel_history);
+        if !self.no_overlay {
+            paint_channel_graph(ctx, &self.channel_history);
+        }
 
         // Simulcast layer controls: bottom-left overlay
-        egui::Area::new("simulcast_controls".into())
-            .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
-            .interactable(true)
-            .show(ctx, |ui| {
-                let mut sc = self.simulcast.lock();
-                if !sc.available {
-                    return;
-                }
-                let selected = sc.requested_quality.or(sc.active_quality);
-                ui.horizontal(|ui| {
-                    let choices = [
-                        (livekit::track::VideoQuality::Low, "Low"),
-                        (livekit::track::VideoQuality::Medium, "Med"),
-                        (livekit::track::VideoQuality::High, "High"),
-                    ];
-                    for (q, label) in choices {
-                        let is_selected = selected.is_some_and(|s| s == q);
-                        let resp = ui.selectable_label(is_selected, label);
-                        if resp.clicked() {
-                            if let Some(ref pub_remote) = sc.publication {
-                                info!("Requesting layer: {:?}", q);
-                                pub_remote.set_video_quality(q);
-                                sc.requested_quality = Some(q);
+        if !self.no_overlay {
+            egui::Area::new("simulcast_controls".into())
+                .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
+                .interactable(true)
+                .show(ctx, |ui| {
+                    let mut sc = self.simulcast.lock();
+                    if !sc.available {
+                        return;
+                    }
+                    let selected = sc.requested_quality.or(sc.active_quality);
+                    ui.horizontal(|ui| {
+                        let choices = [
+                            (livekit::track::VideoQuality::Low, "Low"),
+                            (livekit::track::VideoQuality::Medium, "Med"),
+                            (livekit::track::VideoQuality::High, "High"),
+                        ];
+                        for (q, label) in choices {
+                            let is_selected = selected.is_some_and(|s| s == q);
+                            let resp = ui.selectable_label(is_selected, label);
+                            if resp.clicked() {
+                                if let Some(ref pub_remote) = sc.publication {
+                                    info!("Requesting layer: {:?}", q);
+                                    pub_remote.set_video_quality(q);
+                                    sc.requested_quality = Some(q);
+                                }
                             }
                         }
-                    }
+                    });
                 });
-            });
+        }
 
-        ctx.request_repaint_after(viewport_aspect::VIDEO_REPAINT_INTERVAL);
+        if !self.no_overlay {
+            ctx.request_repaint_after(SUBSCRIBER_OVERLAY_REPAINT_INTERVAL);
+        }
     }
 }
 
@@ -1470,6 +2037,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let frame_slot = Arc::new(LatestRenderFrameSlot::new());
     let video_size = Arc::new(AtomicVideoSize::default());
     let subscriber_timing = SubscriberTimingHandle::new();
+    let enable_stats = !args.no_stats;
+    let no_overlay = args.no_overlay;
+    let render_path = args.render_path;
+    let display_timestamp = args.display_timestamp;
+    let headless = args.headless;
+    let keep_window_front = args.keep_window_front;
+    let render_loop_diagnostics = RenderLoopDiagnostics::new(args.render_loop_diagnostics);
+    let drop_late_frames_ms = args.drop_late_frames_ms;
+    if drop_late_frames_ms > 0 {
+        info!("Dropping decoded frames older than {drop_late_frames_ms}ms before render");
+    }
 
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
@@ -1507,6 +2085,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &simulcast,
                         &repaint_ctx_events,
                         subscriber_timing_events.clone(),
+                        enable_stats,
+                        !headless,
+                        drop_late_frames_ms,
                     )
                     .await;
                 }
@@ -1537,6 +2118,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         }
     });
 
+    if headless {
+        info!("Running in headless subscriber mode; render latency windows are disabled");
+        while !ctrl_c_received.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    macos_thread_qos::promote_current_thread("render");
+
     let viewport = AspectConstrainedViewport::new(None);
     // Start UI
     let app = VideoApp {
@@ -1548,10 +2140,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
         viewport,
-        display_timestamp: args.display_timestamp,
+        display_timestamp,
+        no_overlay,
+        render_path,
+        keep_window_front,
+        window_front_requested: false,
+        render_loop_diagnostics,
         channel_history: VecDeque::with_capacity(CHANNEL_HISTORY_LEN),
     };
-    let native_options = viewport_aspect::native_options(None);
+    let native_options = viewport_aspect::native_options_with_vsync(None, args.render_vsync);
     eframe::run_native(
         "LiveKit Video Subscriber",
         native_options,
@@ -1570,6 +2167,8 @@ struct YuvPaintCallback {
     render_frame: Mutex<Option<BoxVideoFrame>>,
     video_size: Arc<AtomicVideoSize>,
     subscriber_timing: SubscriberTimingHandle,
+    force_cpu_render: bool,
+    render_loop_diagnostics: RenderLoopDiagnostics,
 }
 
 struct YuvGpuState {
@@ -1695,7 +2294,13 @@ impl CallbackTrait for YuvPaintCallback {
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu_backend::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
+        let prepare_start = Instant::now();
         let Some(dims) = self.video_size.load() else {
+            self.render_loop_diagnostics.record_prepare(
+                RenderPreparePath::NoDims,
+                prepare_start.elapsed(),
+                Instant::now(),
+            );
             return Vec::new();
         };
 
@@ -1925,10 +2530,16 @@ impl CallbackTrait for YuvPaintCallback {
         }
 
         let mut frame_for_cpu_upload = frame_for_upload;
+        let mut prepare_path = if frame_for_cpu_upload.is_some() {
+            RenderPreparePath::Cpu
+        } else {
+            RenderPreparePath::NoFrame
+        };
 
         #[cfg(target_os = "macos")]
         if let Some((frame, sample)) = frame_for_cpu_upload.take() {
-            if frame.buffer.as_native().is_some() {
+            if !self.force_cpu_render && frame.buffer.as_native().is_some() {
+                prepare_path = RenderPreparePath::Native;
                 if state.native_cache.is_none() {
                     match macos_native_video::CvMetalTextureCache::new(device) {
                         Ok(cache) => state.native_cache = Some(cache),
@@ -1993,14 +2604,17 @@ impl CallbackTrait for YuvPaintCallback {
                         }
                     }
                 } else {
+                    prepare_path = RenderPreparePath::Cpu;
                     frame_for_cpu_upload = Some((frame, sample));
                 }
             } else {
+                prepare_path = RenderPreparePath::Cpu;
                 frame_for_cpu_upload = Some((frame, sample));
             }
         }
 
         if let Some((frame, sample)) = frame_for_cpu_upload {
+            prepare_path = RenderPreparePath::Cpu;
             #[cfg(target_os = "macos")]
             {
                 state.native_resources = None;
@@ -2111,6 +2725,12 @@ impl CallbackTrait for YuvPaintCallback {
             }
         }
 
+        self.render_loop_diagnostics.record_prepare(
+            prepare_path,
+            prepare_start.elapsed(),
+            Instant::now(),
+        );
+
         Vec::new()
     }
 
@@ -2121,17 +2741,21 @@ impl CallbackTrait for YuvPaintCallback {
         resources: &egui_wgpu_backend::CallbackResources,
     ) {
         let Some(state) = resources.get::<YuvGpuState>() else {
+            self.render_loop_diagnostics.record_paint(false, Instant::now());
             return;
         };
         if state.dims == (0, 0) {
+            self.render_loop_diagnostics.record_paint(false, Instant::now());
             return;
         }
 
         let painted_sample = state.pending_paint_sample.take();
+        let has_painted_sample = painted_sample.is_some();
 
         render_pass.set_pipeline(&state.pipeline);
         render_pass.set_bind_group(0, &state.bind_group, &[]);
         render_pass.draw(0..3, 0..1);
+        self.render_loop_diagnostics.record_paint(has_painted_sample, Instant::now());
 
         if let Some(sample) = painted_sample {
             self.subscriber_timing.record_frame_painted(

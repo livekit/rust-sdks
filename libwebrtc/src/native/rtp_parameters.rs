@@ -28,6 +28,18 @@ impl From<sys_webrtc::ffi::Priority> for Priority {
     }
 }
 
+impl From<sys_rp::ffi::DegradationPreference> for DegradationPreference {
+    fn from(value: sys_rp::ffi::DegradationPreference) -> Self {
+        match value {
+            sys_rp::ffi::DegradationPreference::Disabled => Self::Disabled,
+            sys_rp::ffi::DegradationPreference::MaintainFramerate => Self::MaintainFramerate,
+            sys_rp::ffi::DegradationPreference::MaintainResolution => Self::MaintainResolution,
+            sys_rp::ffi::DegradationPreference::Balanced => Self::Balanced,
+            _ => panic!("unknown DegradationPreference"),
+        }
+    }
+}
+
 impl From<sys_rp::ffi::RtpExtension> for RtpHeaderExtensionParameters {
     fn from(value: sys_rp::ffi::RtpExtension) -> Self {
         Self { uri: value.uri, id: value.id, encrypted: value.encrypt }
@@ -43,8 +55,9 @@ impl From<sys_rp::ffi::RtpParameters> for RtpParameters {
             rtcp: value.rtcp.into(),
             transaction_id: value.transaction_id,
             mid: value.mid,
-            has_degradation_preference: value.has_degradation_preference,
-            degradation_preference: value.degradation_preference.repr,
+            degradation_preference: value
+                .has_degradation_preference
+                .then_some(value.degradation_preference.into()),
         }
     }
 }
@@ -161,6 +174,17 @@ impl From<Priority> for sys_webrtc::ffi::Priority {
     }
 }
 
+impl From<DegradationPreference> for sys_rp::ffi::DegradationPreference {
+    fn from(value: DegradationPreference) -> Self {
+        match value {
+            DegradationPreference::Disabled => Self::Disabled,
+            DegradationPreference::MaintainFramerate => Self::MaintainFramerate,
+            DegradationPreference::MaintainResolution => Self::MaintainResolution,
+            DegradationPreference::Balanced => Self::Balanced,
+        }
+    }
+}
+
 impl From<RtpHeaderExtensionParameters> for sys_rp::ffi::RtpExtension {
     fn from(value: RtpHeaderExtensionParameters) -> Self {
         Self { uri: value.uri, id: value.id, encrypt: value.encrypted }
@@ -169,8 +193,7 @@ impl From<RtpHeaderExtensionParameters> for sys_rp::ffi::RtpExtension {
 
 impl From<RtpParameters> for sys_rp::ffi::RtpParameters {
     fn from(value: RtpParameters) -> Self {
-        let degradation_preference =
-            sys_rp::ffi::DegradationPreference { repr: value.degradation_preference };
+        let degradation_preference = value.degradation_preference().map(Into::into);
         Self {
             codecs: value.codecs.into_iter().map(Into::into).collect(),
             header_extensions: value.header_extensions.into_iter().map(Into::into).collect(),
@@ -178,8 +201,9 @@ impl From<RtpParameters> for sys_rp::ffi::RtpParameters {
             rtcp: value.rtcp.into(),
             transaction_id: value.transaction_id,
             mid: value.mid,
-            has_degradation_preference: value.has_degradation_preference,
-            degradation_preference,
+            has_degradation_preference: degradation_preference.is_some(),
+            degradation_preference: degradation_preference
+                .unwrap_or(sys_rp::ffi::DegradationPreference::MaintainFramerate),
         }
     }
 }
@@ -308,5 +332,49 @@ impl From<RtpCodecCapability> for sys_rp::ffi::RtpCodecCapability {
             preferred_payload_type: 0,
             rtcp_feedback: Vec::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sys_rtp_parameters(
+        preference: sys_rp::ffi::DegradationPreference,
+    ) -> sys_rp::ffi::RtpParameters {
+        sys_rp::ffi::RtpParameters {
+            transaction_id: "tx".to_string(),
+            mid: "0".to_string(),
+            codecs: Vec::new(),
+            header_extensions: Vec::new(),
+            encodings: Vec::new(),
+            rtcp: sys_rp::ffi::RtcpParameters {
+                has_ssrc: false,
+                ssrc: 0,
+                cname: String::new(),
+                reduced_size: true,
+                mux: true,
+            },
+            has_degradation_preference: true,
+            degradation_preference: preference,
+        }
+    }
+
+    #[test]
+    fn degradation_preference_round_trips() {
+        let params: RtpParameters =
+            sys_rtp_parameters(sys_rp::ffi::DegradationPreference::MaintainResolution).into();
+
+        assert_eq!(
+            params.degradation_preference(),
+            Some(DegradationPreference::MaintainResolution)
+        );
+
+        let sys_params: sys_rp::ffi::RtpParameters = params.into();
+        assert!(sys_params.has_degradation_preference);
+        assert_eq!(
+            sys_params.degradation_preference,
+            sys_rp::ffi::DegradationPreference::MaintainResolution
+        );
     }
 }

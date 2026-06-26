@@ -1,0 +1,3 @@
+name,duration,warmup,width,height,fps,codec,encoder,decoder,test_pattern,headless,render_path,keep_window_front,render_vsync,require_benchmark_pass,wait_for_idle_host,idle_confirmation_samples,host_load_interval,min_frame_coverage_pct,min_time_coverage_pct,max_sink_gap_p95_ms,max_paint_gap_p95_ms,max_receive_to_paint_p95_ms,max_e2e_p95_ms,max_capture_to_packetize_p95_ms,max_encoder_upload_to_output_p95_ms
+local-h264-default-720p30-pattern-headless-soak,300,10,1280,720,30,h264,,default,true,true,auto,,,true,300,5,10,95,95,100,,,,25,25
+local-h264-default-720p30-pattern-visible-soak,300,10,1280,720,30,h264,,default,true,false,cpu,true,true,true,300,5,10,95,95,100,100,75,100,25,25

@@ -35,6 +35,7 @@ use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 
 pub use libwebrtc::native::packet_trailer::{PublishTimingEvent, PublishTimingStage};
+pub use libwebrtc::rtp_parameters::DegradationPreference;
 
 const PUBLISH_TIMING_BUFFER: usize = 256;
 
@@ -347,6 +348,23 @@ impl LocalVideoTrack {
                 PublishingLayer { rid: e.rid.clone(), quality: quality.into(), active: e.active }
             })
             .collect()
+    }
+
+    /// Sets the sender degradation preference for this video track.
+    ///
+    /// This controls whether WebRTC prefers reducing frame rate, resolution, or
+    /// both when it needs to adapt to bandwidth or CPU pressure.
+    pub fn set_degradation_preference(&self, preference: DegradationPreference) -> RoomResult<()> {
+        let transceiver = self.transceiver().ok_or_else(|| {
+            RoomError::Internal("cannot set degradation preference: no transceiver".into())
+        })?;
+
+        transceiver
+            .sender()
+            .set_degradation_preference(preference)
+            .map_err(|e| RoomError::Internal(format!("failed to set sender parameters: {}", e)))?;
+
+        Ok(())
     }
 
     /// Toggle simulcast encoding layers on/off based on subscriber demand.

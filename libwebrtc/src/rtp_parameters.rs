@@ -22,6 +22,19 @@ pub enum Priority {
     High,
 }
 
+/// Controls how WebRTC adapts video when bandwidth or CPU constraints require quality reduction.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DegradationPreference {
+    /// Disable automatic degradation.
+    Disabled,
+    /// Prefer preserving frame rate by allowing resolution to drop.
+    MaintainFramerate,
+    /// Prefer preserving resolution by allowing frame rate or quality to drop.
+    MaintainResolution,
+    /// Balance frame rate and resolution adaptation.
+    Balanced,
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtensionParameters {
     pub uri: String,
@@ -39,8 +52,14 @@ pub struct RtpParameters {
     /// Must be preserved when round-tripping through set_parameters().
     pub(crate) transaction_id: String,
     pub(crate) mid: String,
-    pub(crate) has_degradation_preference: bool,
-    pub(crate) degradation_preference: i32,
+    pub(crate) degradation_preference: Option<DegradationPreference>,
+}
+
+impl RtpParameters {
+    /// Returns the sender's current video degradation preference, if set.
+    pub fn degradation_preference(&self) -> Option<DegradationPreference> {
+        self.degradation_preference
+    }
 }
 
 /// Mirrors webrtc_sys RtcpFeedback for round-trip fidelity.

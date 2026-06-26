@@ -14,12 +14,17 @@
 
 use cxx::SharedPtr;
 use tokio::sync::oneshot;
-use webrtc_sys::{rtc_error as sys_err, rtp_sender as sys_rs, webrtc as sys_webrtc};
+use webrtc_sys::{
+    rtc_error as sys_err, rtp_parameters as sys_rp, rtp_sender as sys_rs, webrtc as sys_webrtc,
+};
 
 use super::media_stream_track::new_media_stream_track;
 use crate::{
-    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
-    rtp_sender::VideoEncoderBackend, stats::RtcStats, RtcError, RtcErrorType,
+    media_stream_track::MediaStreamTrack,
+    rtp_parameters::{DegradationPreference, RtpParameters},
+    rtp_sender::VideoEncoderBackend,
+    stats::RtcStats,
+    RtcError, RtcErrorType,
 };
 
 #[derive(Clone)]
@@ -78,6 +83,16 @@ impl RtpSender {
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         self.sys_handle
             .set_parameters(parameters.into())
+            .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
+    }
+
+    pub fn set_degradation_preference(
+        &self,
+        preference: DegradationPreference,
+    ) -> Result<(), RtcError> {
+        let preference: sys_rp::ffi::DegradationPreference = preference.into();
+        self.sys_handle
+            .set_degradation_preference(preference)
             .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
     }
 

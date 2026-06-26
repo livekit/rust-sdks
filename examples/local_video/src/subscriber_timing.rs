@@ -10,6 +10,9 @@ use parking_lot::Mutex;
 
 const MAX_SUBSCRIBER_TIMING_SAMPLES: usize = 300;
 const DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
+const RENDER_LATENCY_LOG_INTERVAL: Duration = Duration::from_secs(2);
+const MIN_RENDER_STUTTER_THRESHOLD_US: u64 = 50_000;
+const MAX_RENDER_STUTTER_DETAIL_LOGS_PER_WINDOW: u64 = 3;
 pub(crate) const TIMING_LINE_WIDTH: usize =
     TIMING_LABEL_WIDTH + 1 + TIMING_TIMESTAMP_WIDTH + 1 + TIMING_DELTA_WIDTH;
 
@@ -90,6 +93,7 @@ struct SubscriberTimingSample {
     decoder_upload_timestamp_us: Option<u64>,
     decoder_output_timestamp_us: Option<u64>,
     frame_sink_timestamp_us: Option<u64>,
+    frame_selected_timestamp_us: Option<u64>,
     frame_prepare_timestamp_us: Option<u64>,
     frame_painted_timestamp_us: Option<u64>,
 }
@@ -103,6 +107,7 @@ impl SubscriberTimingSample {
             decoder_upload_timestamp_us: None,
             decoder_output_timestamp_us: None,
             frame_sink_timestamp_us: None,
+            frame_selected_timestamp_us: None,
             frame_prepare_timestamp_us: None,
             frame_painted_timestamp_us: None,
         }
@@ -169,8 +174,7 @@ impl SubscriberTimingState {
         frame_selected_timestamp_us: u64,
     ) {
         let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
-        sample.frame_prepare_timestamp_us.get_or_insert(frame_selected_timestamp_us);
-        sample.frame_painted_timestamp_us.get_or_insert(frame_selected_timestamp_us);
+        sample.frame_selected_timestamp_us = Some(frame_selected_timestamp_us);
         self.latest_display_sample = Some(*sample);
     }
 
@@ -182,7 +186,7 @@ impl SubscriberTimingState {
         frame_painted_timestamp_us: u64,
     ) {
         let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
-        sample.frame_prepare_timestamp_us.get_or_insert(frame_prepare_timestamp_us);
+        sample.frame_prepare_timestamp_us = Some(frame_prepare_timestamp_us);
         sample.frame_painted_timestamp_us = Some(frame_painted_timestamp_us);
         let sample = *sample;
         self.latest_display_sample = Some(sample);
@@ -317,13 +321,21 @@ impl LatencyStats {
 
 #[derive(Default)]
 struct RenderLatencyWindow {
+    exposure_to_receive: LatencyStats,
     receive_to_decode: LatencyStats,
     decode_to_sink: LatencyStats,
+    sink_to_select: LatencyStats,
+    select_to_prepare: LatencyStats,
     sink_to_prepare: LatencyStats,
-    decode_to_prepare: LatencyStats,
     prepare_to_paint: LatencyStats,
     receive_to_paint: LatencyStats,
     e2e: LatencyStats,
+    paint_gap: LatencyStats,
+    paint_stutters: u64,
+    paint_stutter_detail_logs: u64,
+    last_paint_timestamp_us: Option<u64>,
+    last_paint_capture_timestamp_us: Option<u64>,
+    last_paint_frame_id: Option<u32>,
     last_log: Option<Instant>,
 }
 
@@ -339,22 +351,33 @@ impl RenderLatencyWindow {
             self.receive_to_decode.record_delta(webrtc_receive, decoder_output);
         }
 
+        if let Some(webrtc_receive) = sample.webrtc_receive_timestamp_us {
+            self.exposure_to_receive
+                .record_delta(sample.sensor_exposure_timestamp_us, webrtc_receive);
+        }
+
         if let (Some(decoder_output), Some(frame_sink)) =
             (sample.decoder_output_timestamp_us, sample.frame_sink_timestamp_us)
         {
             self.decode_to_sink.record_delta(decoder_output, frame_sink);
         }
 
+        if let (Some(frame_sink), Some(frame_selected)) =
+            (sample.frame_sink_timestamp_us, sample.frame_selected_timestamp_us)
+        {
+            self.sink_to_select.record_delta(frame_sink, frame_selected);
+        }
+
+        if let (Some(frame_selected), Some(frame_prepare)) =
+            (sample.frame_selected_timestamp_us, sample.frame_prepare_timestamp_us)
+        {
+            self.select_to_prepare.record_delta(frame_selected, frame_prepare);
+        }
+
         if let (Some(frame_sink), Some(frame_prepare)) =
             (sample.frame_sink_timestamp_us, sample.frame_prepare_timestamp_us)
         {
             self.sink_to_prepare.record_delta(frame_sink, frame_prepare);
-        }
-
-        if let (Some(decoder_output), Some(frame_prepare)) =
-            (sample.decoder_output_timestamp_us, sample.frame_prepare_timestamp_us)
-        {
-            self.decode_to_prepare.record_delta(decoder_output, frame_prepare);
         }
 
         if let Some(frame_prepare) = sample.frame_prepare_timestamp_us {
@@ -366,13 +389,101 @@ impl RenderLatencyWindow {
         }
 
         self.e2e.record_delta(sample.sensor_exposure_timestamp_us, frame_painted_timestamp_us);
+        if let Some(last_paint_timestamp_us) = self.last_paint_timestamp_us {
+            self.paint_gap.record_delta(last_paint_timestamp_us, frame_painted_timestamp_us);
+            if let Some(gap_us) = frame_painted_timestamp_us.checked_sub(last_paint_timestamp_us) {
+                let capture_gap_us = optional_delta_us(
+                    self.last_paint_capture_timestamp_us,
+                    Some(sample.sensor_exposure_timestamp_us),
+                );
+                let threshold_us = stutter_threshold_us(capture_gap_us);
+                let skipped_frames = skipped_frame_count(self.last_paint_frame_id, sample.frame_id);
+                let has_skipped_frames = skipped_frames.is_some_and(|count| count > 0);
+                if gap_us <= threshold_us && !has_skipped_frames {
+                    self.last_paint_timestamp_us = Some(frame_painted_timestamp_us);
+                    self.last_paint_capture_timestamp_us =
+                        Some(sample.sensor_exposure_timestamp_us);
+                    self.last_paint_frame_id = sample.frame_id;
+                    self.maybe_log_and_reset(now);
+                    return;
+                }
+                self.paint_stutters += 1;
+                if self.paint_stutter_detail_logs < MAX_RENDER_STUTTER_DETAIL_LOGS_PER_WINDOW {
+                    self.paint_stutter_detail_logs += 1;
+                    self.log_stutter(
+                        sample,
+                        frame_painted_timestamp_us,
+                        gap_us,
+                        threshold_us,
+                        capture_gap_us,
+                        skipped_frames,
+                    );
+                }
+            }
+        }
+        self.last_paint_timestamp_us = Some(frame_painted_timestamp_us);
+        self.last_paint_capture_timestamp_us = Some(sample.sensor_exposure_timestamp_us);
+        self.last_paint_frame_id = sample.frame_id;
 
+        self.maybe_log_and_reset(now);
+    }
+
+    fn maybe_log_and_reset(&mut self, now: Instant) {
         if self
             .last_log
-            .map_or(true, |last_log| now.duration_since(last_log) >= Duration::from_secs(2))
+            .map_or(true, |last_log| now.duration_since(last_log) >= RENDER_LATENCY_LOG_INTERVAL)
         {
             self.log_and_reset(now);
         }
+    }
+
+    fn log_stutter(
+        &self,
+        sample: SubscriberTimingSample,
+        frame_painted_timestamp_us: u64,
+        gap_us: u64,
+        threshold_us: u64,
+        capture_gap_us: Option<u64>,
+        skipped_frames: Option<u32>,
+    ) {
+        log::warn!(
+            "Subscriber render stutter: paint_gap={}, threshold={}, frame_id={}, previous_frame_id={}, skipped_frame_count={}, capture_gap={}, exposure_to_receive={}, receive_to_decode={}, decoder_to_sink={}, sink_to_select={}, select_to_prepare={}, sink_to_prepare={}, prepare_to_paint={}, receive_to_paint={}, e2e={}",
+            latency_log_value(Some(gap_us)),
+            latency_log_value(Some(threshold_us)),
+            frame_id_log_value(sample.frame_id),
+            frame_id_log_value(self.last_paint_frame_id),
+            skipped_frame_count_log_value(skipped_frames),
+            latency_log_value(capture_gap_us),
+            optional_delta_log_value(
+                Some(sample.sensor_exposure_timestamp_us),
+                sample.webrtc_receive_timestamp_us,
+            ),
+            optional_delta_log_value(
+                sample.webrtc_receive_timestamp_us,
+                sample.decoder_output_timestamp_us,
+            ),
+            optional_delta_log_value(
+                sample.decoder_output_timestamp_us,
+                sample.frame_sink_timestamp_us,
+            ),
+            optional_delta_log_value(sample.frame_sink_timestamp_us, sample.frame_selected_timestamp_us),
+            optional_delta_log_value(
+                sample.frame_selected_timestamp_us,
+                sample.frame_prepare_timestamp_us,
+            ),
+            optional_delta_log_value(sample.frame_sink_timestamp_us, sample.frame_prepare_timestamp_us),
+            optional_delta_log_value(
+                sample.frame_prepare_timestamp_us,
+                Some(frame_painted_timestamp_us),
+            ),
+            optional_delta_log_value(
+                sample.webrtc_receive_timestamp_us,
+                Some(frame_painted_timestamp_us),
+            ),
+            latency_log_value(
+                frame_painted_timestamp_us.checked_sub(sample.sensor_exposure_timestamp_us),
+            ),
+        );
     }
 
     fn log_and_reset(&mut self, now: Instant) {
@@ -382,20 +493,26 @@ impl RenderLatencyWindow {
         }
 
         info!(
-            "Subscriber render latency: frames={}, receive_to_decode avg={} min={} max={}, decoder_to_sink avg={} min={} max={}, sink_to_prepare avg={} min={} max={}, decoder_to_prepare avg={} min={} max={}, prepare_to_paint avg={} min={} max={}, receive_to_paint avg={} min={} max={}, e2e avg={} min={} max={}",
+            "Subscriber render latency: frames={}, exposure_to_receive avg={} min={} max={}, receive_to_decode avg={} min={} max={}, decoder_to_sink avg={} min={} max={}, sink_to_select avg={} min={} max={}, select_to_prepare avg={} min={} max={}, sink_to_prepare avg={} min={} max={}, prepare_to_paint avg={} min={} max={}, receive_to_paint avg={} min={} max={}, e2e avg={} min={} max={}, paint_gap avg={} min={} max={}, stutters_over_threshold={}, stutter_detail_logs_suppressed={}",
             self.e2e.count,
+            latency_log_value(self.exposure_to_receive.avg_us()),
+            latency_log_value(self.exposure_to_receive.min_us),
+            latency_log_value(self.exposure_to_receive.max_us),
             latency_log_value(self.receive_to_decode.avg_us()),
             latency_log_value(self.receive_to_decode.min_us),
             latency_log_value(self.receive_to_decode.max_us),
             latency_log_value(self.decode_to_sink.avg_us()),
             latency_log_value(self.decode_to_sink.min_us),
             latency_log_value(self.decode_to_sink.max_us),
+            latency_log_value(self.sink_to_select.avg_us()),
+            latency_log_value(self.sink_to_select.min_us),
+            latency_log_value(self.sink_to_select.max_us),
+            latency_log_value(self.select_to_prepare.avg_us()),
+            latency_log_value(self.select_to_prepare.min_us),
+            latency_log_value(self.select_to_prepare.max_us),
             latency_log_value(self.sink_to_prepare.avg_us()),
             latency_log_value(self.sink_to_prepare.min_us),
             latency_log_value(self.sink_to_prepare.max_us),
-            latency_log_value(self.decode_to_prepare.avg_us()),
-            latency_log_value(self.decode_to_prepare.min_us),
-            latency_log_value(self.decode_to_prepare.max_us),
             latency_log_value(self.prepare_to_paint.avg_us()),
             latency_log_value(self.prepare_to_paint.min_us),
             latency_log_value(self.prepare_to_paint.max_us),
@@ -405,10 +522,46 @@ impl RenderLatencyWindow {
             latency_log_value(self.e2e.avg_us()),
             latency_log_value(self.e2e.min_us),
             latency_log_value(self.e2e.max_us),
+            latency_log_value(self.paint_gap.avg_us()),
+            latency_log_value(self.paint_gap.min_us),
+            latency_log_value(self.paint_gap.max_us),
+            self.paint_stutters,
+            self.paint_stutters.saturating_sub(self.paint_stutter_detail_logs),
         );
 
-        *self = Self { last_log: Some(now), ..Self::default() };
+        *self = Self {
+            last_log: Some(now),
+            last_paint_timestamp_us: self.last_paint_timestamp_us,
+            last_paint_capture_timestamp_us: self.last_paint_capture_timestamp_us,
+            last_paint_frame_id: self.last_paint_frame_id,
+            ..Self::default()
+        };
     }
+}
+
+fn optional_delta_us(start_us: Option<u64>, end_us: Option<u64>) -> Option<u64> {
+    match (start_us, end_us) {
+        (Some(start_us), Some(end_us)) => end_us.checked_sub(start_us),
+        _ => None,
+    }
+}
+
+fn stutter_threshold_us(expected_frame_gap_us: Option<u64>) -> u64 {
+    expected_frame_gap_us
+        .map(|gap_us| gap_us.saturating_mul(3) / 2)
+        .unwrap_or(MIN_RENDER_STUTTER_THRESHOLD_US)
+        .max(MIN_RENDER_STUTTER_THRESHOLD_US)
+}
+
+fn skipped_frame_count(previous: Option<u32>, current: Option<u32>) -> Option<u32> {
+    match (previous, current) {
+        (Some(previous), Some(current)) => Some(current.saturating_sub(previous).saturating_sub(1)),
+        _ => None,
+    }
+}
+
+fn skipped_frame_count_log_value(skipped_frames: Option<u32>) -> String {
+    skipped_frames.map_or_else(|| "NA".to_string(), |count| count.to_string())
 }
 
 #[derive(Clone, Debug)]
@@ -417,6 +570,8 @@ struct SubscriberTimingDeltaValues {
     webrtc_receive: String,
     decoder_upload: String,
     decoder_output: String,
+    frame_selected: String,
+    frame_prepare: String,
     frame_painted: String,
 }
 
@@ -437,9 +592,17 @@ impl SubscriberTimingDeltaValues {
                 sample.decoder_output_timestamp_us,
                 sample.decoder_upload_timestamp_us,
             ),
+            frame_selected: format_optional_timing_delta_ms(
+                sample.frame_selected_timestamp_us,
+                sample.decoder_output_timestamp_us,
+            ),
+            frame_prepare: format_optional_timing_delta_ms(
+                sample.frame_prepare_timestamp_us,
+                sample.frame_selected_timestamp_us,
+            ),
             frame_painted: format_optional_timing_delta_ms(
                 sample.frame_painted_timestamp_us,
-                sample.decoder_output_timestamp_us,
+                sample.frame_prepare_timestamp_us,
             ),
         }
     }
@@ -493,6 +656,17 @@ fn latency_log_value(latency_us: Option<u64>) -> String {
         || "NA".to_string(),
         |latency_us| format!("{:.1}ms", latency_us as f64 / 1_000.0),
     )
+}
+
+fn optional_delta_log_value(start_us: Option<u64>, end_us: Option<u64>) -> String {
+    match (start_us, end_us) {
+        (Some(start_us), Some(end_us)) => latency_log_value(end_us.checked_sub(start_us)),
+        _ => "NA".to_string(),
+    }
+}
+
+fn frame_id_log_value(frame_id: Option<u32>) -> String {
+    frame_id.map_or_else(|| "NA".to_string(), |frame_id| frame_id.to_string())
 }
 
 fn timing_value_line(label: &str, value: &str) -> String {
@@ -549,6 +723,16 @@ fn build_timing_overlay_lines(
             "decoder output",
             sample.decoder_output_timestamp_us,
             &overlay_values.deltas.decoder_output,
+        ),
+        timing_line(
+            "frame selected",
+            sample.frame_selected_timestamp_us,
+            &overlay_values.deltas.frame_selected,
+        ),
+        timing_line(
+            "gpu prepare",
+            sample.frame_prepare_timestamp_us,
+            &overlay_values.deltas.frame_prepare,
         ),
         timing_line(
             "frame painted",
@@ -609,6 +793,7 @@ mod tests {
             decoder_upload_timestamp_us: Some(base + 35_500),
             decoder_output_timestamp_us: Some(base + 55_300),
             frame_sink_timestamp_us: Some(base + 55_900),
+            frame_selected_timestamp_us: Some(base + 56_000),
             frame_prepare_timestamp_us: Some(base + 56_100),
             frame_painted_timestamp_us: Some(base + 56_900),
         };
@@ -624,7 +809,9 @@ mod tests {
                 "webrtc receive:        01:02:03:488    +32.4ms",
                 "decoder upload:        01:02:03:491     +3.1ms",
                 "decoder output:        01:02:03:511    +19.8ms",
-                "frame painted:         01:02:03:512     +1.6ms",
+                "frame selected:        01:02:03:512     +0.7ms",
+                "gpu prepare:           01:02:03:512     +0.1ms",
+                "frame painted:         01:02:03:512     +0.8ms",
                 "Exposure to Receive:                    32.4ms",
                 "Receive to Render:                      24.5ms",
                 "e2e latency:                            56.9ms",
@@ -648,6 +835,8 @@ mod tests {
                 "webrtc receive:        --:--:--:---    +--.-ms",
                 "decoder upload:        --:--:--:---    +--.-ms",
                 "decoder output:        --:--:--:---    +--.-ms",
+                "frame selected:        --:--:--:---    +--.-ms",
+                "gpu prepare:           --:--:--:---    +--.-ms",
                 "frame painted:         --:--:--:---    +--.-ms",
                 "Exposure to Receive:                        NA",
                 "Receive to Render:                          NA",
@@ -662,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn subscriber_timing_state_uses_selection_timestamp_until_paint_callback() {
+    fn subscriber_timing_state_exposes_selected_frame_before_paint_callback() {
         let mut state = SubscriberTimingState::default();
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -685,11 +874,14 @@ mod tests {
         let sample = state.display_sample().expect("selected frame should be displayable");
         assert_eq!(sample.frame_id, Some(123));
         assert_eq!(sample.webrtc_receive_timestamp_us, Some(1_200));
-        assert_eq!(sample.frame_prepare_timestamp_us, Some(1_500));
-        assert_eq!(sample.frame_painted_timestamp_us, Some(1_500));
+        assert_eq!(sample.frame_selected_timestamp_us, Some(1_500));
+        assert_eq!(sample.frame_prepare_timestamp_us, None);
+        assert_eq!(sample.frame_painted_timestamp_us, None);
 
         let lines = state.display_overlay_lines(Instant::now()).expect("overlay should render");
-        assert_eq!(lines[5], "frame painted:         00:00:00:001     +0.1ms");
+        assert_eq!(lines[5], "frame selected:        00:00:00:001     +0.1ms");
+        assert_eq!(lines[6], "gpu prepare:           --:--:--:---    +--.-ms");
+        assert_eq!(lines[7], "frame painted:         --:--:--:---    +--.-ms");
     }
 
     #[test]
@@ -712,14 +904,17 @@ mod tests {
             1_000,
             56_300,
         ));
+        state.record_frame_selected_for_render(1_000, Some(1), 56_800);
         state.record_frame_painted(1_000, Some(1), 57_200, 57_900);
         let lines = state.display_overlay_lines(now).expect("overlay should render");
         assert_eq!(lines[3], "decoder upload:        00:00:00:036     +3.1ms");
         assert_eq!(lines[4], "decoder output:        00:00:00:056    +19.8ms");
-        assert_eq!(lines[5], "frame painted:         00:00:00:057     +1.6ms");
-        assert_eq!(lines[6], "Exposure to Receive:                    32.4ms");
-        assert_eq!(lines[7], "Receive to Render:                      24.5ms");
-        assert_eq!(lines[8], "e2e latency:                            56.9ms");
+        assert_eq!(lines[5], "frame selected:        00:00:00:056     +0.5ms");
+        assert_eq!(lines[6], "gpu prepare:           00:00:00:057     +0.4ms");
+        assert_eq!(lines[7], "frame painted:         00:00:00:057     +0.7ms");
+        assert_eq!(lines[8], "Exposure to Receive:                    32.4ms");
+        assert_eq!(lines[9], "Receive to Render:                      24.5ms");
+        assert_eq!(lines[10], "e2e latency:                            56.9ms");
 
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -736,25 +931,110 @@ mod tests {
             1_000_000,
             1_080_000,
         ));
+        state.record_frame_selected_for_render(1_000_000, Some(2), 1_085_000);
         state.record_frame_painted(1_000_000, Some(2), 1_090_000, 1_100_000);
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(99))
             .expect("overlay should render");
         assert_eq!(lines[3], "decoder upload:        00:00:01:060     +3.1ms");
         assert_eq!(lines[4], "decoder output:        00:00:01:080    +19.8ms");
-        assert_eq!(lines[5], "frame painted:         00:00:01:100     +1.6ms");
-        assert_eq!(lines[6], "Exposure to Receive:                    32.4ms");
-        assert_eq!(lines[7], "Receive to Render:                      24.5ms");
-        assert_eq!(lines[8], "e2e latency:                            56.9ms");
+        assert_eq!(lines[5], "frame selected:        00:00:01:085     +0.5ms");
+        assert_eq!(lines[6], "gpu prepare:           00:00:01:090     +0.4ms");
+        assert_eq!(lines[7], "frame painted:         00:00:01:100     +0.7ms");
+        assert_eq!(lines[8], "Exposure to Receive:                    32.4ms");
+        assert_eq!(lines[9], "Receive to Render:                      24.5ms");
+        assert_eq!(lines[10], "e2e latency:                            56.9ms");
 
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(100))
             .expect("overlay should render");
         assert_eq!(lines[3], "decoder upload:        00:00:01:060    +10.0ms");
         assert_eq!(lines[4], "decoder output:        00:00:01:080    +20.0ms");
-        assert_eq!(lines[5], "frame painted:         00:00:01:100    +20.0ms");
-        assert_eq!(lines[6], "Exposure to Receive:                    50.0ms");
-        assert_eq!(lines[7], "Receive to Render:                      50.0ms");
-        assert_eq!(lines[8], "e2e latency:                           100.0ms");
+        assert_eq!(lines[5], "frame selected:        00:00:01:085     +5.0ms");
+        assert_eq!(lines[6], "gpu prepare:           00:00:01:090     +5.0ms");
+        assert_eq!(lines[7], "frame painted:         00:00:01:100    +10.0ms");
+        assert_eq!(lines[8], "Exposure to Receive:                    50.0ms");
+        assert_eq!(lines[9], "Receive to Render:                      50.0ms");
+        assert_eq!(lines[10], "e2e latency:                           100.0ms");
+    }
+
+    #[test]
+    fn render_latency_window_counts_large_paint_gaps_as_stutters() {
+        let now = Instant::now();
+        let mut window = RenderLatencyWindow { last_log: Some(now), ..Default::default() };
+        let first = SubscriberTimingSample {
+            frame_id: Some(1),
+            sensor_exposure_timestamp_us: 1_000,
+            webrtc_receive_timestamp_us: Some(2_000),
+            decoder_upload_timestamp_us: Some(2_100),
+            decoder_output_timestamp_us: Some(2_200),
+            frame_sink_timestamp_us: Some(2_250),
+            frame_selected_timestamp_us: Some(2_260),
+            frame_prepare_timestamp_us: Some(2_300),
+            frame_painted_timestamp_us: Some(3_000),
+        };
+        let second = SubscriberTimingSample {
+            frame_id: Some(2),
+            sensor_exposure_timestamp_us: 34_000,
+            webrtc_receive_timestamp_us: Some(62_000),
+            decoder_upload_timestamp_us: Some(62_100),
+            decoder_output_timestamp_us: Some(62_200),
+            frame_sink_timestamp_us: Some(62_250),
+            frame_selected_timestamp_us: Some(62_260),
+            frame_prepare_timestamp_us: Some(62_300),
+            frame_painted_timestamp_us: Some(63_000),
+        };
+
+        window.record(first, now + Duration::from_millis(1));
+        window.record(second, now + Duration::from_millis(2));
+
+        assert_eq!(window.paint_gap.avg_us(), Some(60_000));
+        assert_eq!(window.paint_stutters, 1);
+        assert_eq!(window.last_paint_timestamp_us, Some(63_000));
+        assert_eq!(window.last_paint_capture_timestamp_us, Some(34_000));
+        assert_eq!(window.last_paint_frame_id, Some(2));
+    }
+
+    #[test]
+    fn render_latency_window_allows_slow_expected_frame_cadence() {
+        let now = Instant::now();
+        let mut window = RenderLatencyWindow { last_log: Some(now), ..Default::default() };
+        let first = SubscriberTimingSample {
+            frame_id: Some(1),
+            sensor_exposure_timestamp_us: 1_000,
+            webrtc_receive_timestamp_us: Some(2_000),
+            decoder_upload_timestamp_us: Some(2_100),
+            decoder_output_timestamp_us: Some(2_200),
+            frame_sink_timestamp_us: Some(2_250),
+            frame_selected_timestamp_us: Some(2_260),
+            frame_prepare_timestamp_us: Some(2_300),
+            frame_painted_timestamp_us: Some(3_000),
+        };
+        let second = SubscriberTimingSample {
+            frame_id: Some(2),
+            sensor_exposure_timestamp_us: 68_000,
+            webrtc_receive_timestamp_us: Some(69_000),
+            decoder_upload_timestamp_us: Some(69_100),
+            decoder_output_timestamp_us: Some(69_200),
+            frame_sink_timestamp_us: Some(69_250),
+            frame_selected_timestamp_us: Some(69_260),
+            frame_prepare_timestamp_us: Some(69_300),
+            frame_painted_timestamp_us: Some(70_000),
+        };
+
+        window.record(first, now + Duration::from_millis(1));
+        window.record(second, now + Duration::from_millis(2));
+
+        assert_eq!(window.paint_gap.avg_us(), Some(67_000));
+        assert_eq!(window.paint_stutters, 0);
+    }
+
+    #[test]
+    fn skipped_frame_count_reports_missing_frame_ids() {
+        assert_eq!(skipped_frame_count(Some(10), Some(13)), Some(2));
+        assert_eq!(skipped_frame_count(Some(10), Some(11)), Some(0));
+        assert_eq!(skipped_frame_count(None, Some(11)), None);
+        assert_eq!(skipped_frame_count_log_value(Some(2)), "2");
+        assert_eq!(skipped_frame_count_log_value(None), "NA");
     }
 }
