@@ -90,6 +90,8 @@ PeerConnectionFactory::PeerConnectionFactory(
 PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
 
+  shutdown_audio_io();
+
   peer_factory_ = nullptr;
   audio_device_ = nullptr;
   rtc_runtime_->worker_thread()->BlockingCall(
@@ -161,6 +163,14 @@ RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
 
 std::shared_ptr<AudioDeviceController> PeerConnectionFactory::audio_device() const {
   return audio_device_;
+}
+
+void PeerConnectionFactory::shutdown_audio_io() const {
+  rtc_runtime_->worker_thread()->BlockingCall([this] {
+    if (adm_proxy_) {
+      adm_proxy_->ShutdownAudioIO();
+    }
+  });
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
