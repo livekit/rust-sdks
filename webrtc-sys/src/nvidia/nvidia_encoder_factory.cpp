@@ -253,16 +253,27 @@ NvidiaVideoEncoderFactory::NvidiaVideoEncoderFactory() {
 
 NvidiaVideoEncoderFactory::~NvidiaVideoEncoderFactory() {}
 
+namespace {
+
+const NvencProbeResult& CachedNvencProbe() {
+  static const NvencProbeResult probe = [] {
+    NvencProbeResult result = ProbeNvencSupport();
+    RTC_LOG(LS_INFO) << "NVIDIA NVENC hardware encoder "
+                     << (result.encoder_supported ? "is available."
+                                                  : "is not available.");
+    return result;
+  }();
+  return probe;
+}
+
+}  // namespace
+
 bool NvidiaVideoEncoderFactory::IsSupported() {
-  const NvencProbeResult probe = ProbeNvencSupport();
-  if (probe.encoder_supported) {
-    RTC_LOG(LS_INFO) << "NVIDIA NVENC hardware encoder is available.";
-  }
-  return probe.encoder_supported;
+  return CachedNvencProbe().encoder_supported;
 }
 
 bool NvidiaVideoEncoderFactory::IsAv1Supported() {
-  return ProbeNvencSupport().av1_supported;
+  return CachedNvencProbe().av1_supported;
 }
 
 std::unique_ptr<VideoEncoder> NvidiaVideoEncoderFactory::Create(
