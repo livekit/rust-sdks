@@ -454,6 +454,8 @@ void NvidiaAV1EncoderImpl::SetRates(
   configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
   configuration_.max_frame_rate = parameters.framerate_fps;
 
+  encoder_->SetRates(codec_.maxFramerate, configuration_.target_bps);
+
   if (configuration_.target_bps) {
     configuration_.SetStreamState(true);
   } else {

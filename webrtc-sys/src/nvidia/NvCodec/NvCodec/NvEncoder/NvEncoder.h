@@ -115,6 +115,13 @@ class NvEncoder {
   bool Reconfigure(const NV_ENC_RECONFIGURE_PARAMS* pReconfigureParams);
 
   /**
+   *  @brief  Dynamically updates the encode bitrate and framerate on the live
+   *  session. Returns false if the encoder is not initialized or reconfigure
+   *  fails.
+   */
+  bool SetRates(uint32_t frameRate, uint32_t averageBitrate);
+
+  /**
    *  @brief  This function is used to get the next available input buffer.
    *  Applications must call this function to obtain a pointer to the next
    *  input buffer. The application must copy the uncompressed data to the
