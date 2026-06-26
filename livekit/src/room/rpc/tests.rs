@@ -18,6 +18,7 @@ use crate::data_stream::{
 };
 use crate::e2ee::EncryptionType;
 use crate::room::id::ParticipantIdentity;
+use crate::room::participant::ClientCapability;
 use crate::room::RoomError;
 use bytes::Bytes;
 use chrono::Utc;
@@ -135,12 +136,22 @@ impl RpcTransport for MockTransport {
         })
     }
 
+    fn server_version(&self) -> Option<String> {
+        self.server_ver.clone()
+    }
+}
+
+impl RemoteParticipantRegistry for MockTransport {
     fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
         self.remote_protocols.get(&identity.0).copied().unwrap_or(CLIENT_PROTOCOL_DEFAULT)
     }
 
-    fn server_version(&self) -> Option<String> {
-        self.server_ver.clone()
+    fn remote_capabilities(&self, _identity: &ParticipantIdentity) -> Vec<ClientCapability> {
+        Vec::new()
+    }
+
+    fn remote_identities(&self) -> Vec<ParticipantIdentity> {
+        self.remote_protocols.keys().map(|k| ParticipantIdentity(k.clone())).collect()
     }
 }
 

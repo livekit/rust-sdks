@@ -85,6 +85,44 @@ pub enum DisconnectReason {
     AgentError,
 }
 
+/// A capability a participant's client advertises (mirrors `ClientInfo.Capability`).
+///
+/// Stored typed rather than as the raw protobuf `i32` so the public accessor doesn't leak
+/// protobuf types, while `Unknown` preserves values this SDK build doesn't recognize.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ClientCapability {
+    PacketTrailer,
+    CompressionDeflateRaw,
+    Unknown(i32),
+}
+
+impl From<i32> for ClientCapability {
+    fn from(value: i32) -> Self {
+        match proto::client_info::Capability::try_from(value) {
+            Ok(proto::client_info::Capability::CapPacketTrailer) => Self::PacketTrailer,
+            Ok(proto::client_info::Capability::CapCompressionDeflateRaw) => {
+                Self::CompressionDeflateRaw
+            }
+            // `CapUnused` and any value not recognized by this build.
+            _ => Self::Unknown(value),
+        }
+    }
+}
+
+impl From<ClientCapability> for i32 {
+    fn from(value: ClientCapability) -> Self {
+        match value {
+            ClientCapability::PacketTrailer => {
+                proto::client_info::Capability::CapPacketTrailer as i32
+            }
+            ClientCapability::CompressionDeflateRaw => {
+                proto::client_info::Capability::CapCompressionDeflateRaw as i32
+            }
+            ClientCapability::Unknown(value) => value,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Participant {
     Local(LocalParticipant),
@@ -146,6 +184,7 @@ struct ParticipantInfo {
     pub joined_at: i64,
     pub permission: Option<proto::ParticipantPermission>,
     pub client_protocol: i32,
+    pub capabilities: Vec<ClientCapability>,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
@@ -197,6 +236,7 @@ pub(super) fn new_inner(
     joined_at: i64,
     permission: Option<proto::ParticipantPermission>,
     client_protocol: i32,
+    capabilities: Vec<ClientCapability>,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -216,6 +256,7 @@ pub(super) fn new_inner(
             joined_at,
             permission,
             client_protocol,
+            capabilities,
         }),
         track_publications: Default::default(),
         events: Default::default(),
@@ -269,6 +310,7 @@ pub(super) fn update_info(
     }
 
     info.client_protocol = new_info.client_protocol;
+    info.capabilities = new_info.capabilities.iter().map(|&c| ClientCapability::from(c)).collect();
 }
 
 pub(super) fn set_speaking(

@@ -23,8 +23,8 @@ use std::{
 };
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
-    ParticipantTrackPermission,
+    ClientCapability, ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
+    ParticipantState, ParticipantTrackPermission,
 };
 use crate::{
     data_stream::{
@@ -110,6 +110,7 @@ impl LocalParticipant {
         encryption_type: EncryptionType,
         permission: Option<proto::ParticipantPermission>,
         client_protocol: i32,
+        capabilities: Vec<ClientCapability>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -125,6 +126,7 @@ impl LocalParticipant {
                 joined_at,
                 permission,
                 client_protocol,
+                capabilities,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
@@ -910,7 +912,8 @@ impl LocalParticipant {
         text: &str,
         options: StreamTextOptions,
     ) -> StreamResult<TextStreamInfo> {
-        self.session().unwrap().outgoing_stream_manager.send_text(text, options).await
+        let session = self.session().unwrap();
+        session.outgoing_stream_manager.send_text(text, options, session.as_ref()).await
     }
 
     /// Send a file on disk to participants in the room.
@@ -930,7 +933,8 @@ impl LocalParticipant {
         path: impl AsRef<Path>,
         options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
-        self.session().unwrap().outgoing_stream_manager.send_file(path, options).await
+        let session = self.session().unwrap();
+        session.outgoing_stream_manager.send_file(path, options, session.as_ref()).await
     }
 
     /// Send an in-memory blob of bytes to participants in the room.
@@ -947,7 +951,8 @@ impl LocalParticipant {
         data: impl AsRef<[u8]>,
         options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
-        self.session().unwrap().outgoing_stream_manager.send_bytes(data, options).await
+        let session = self.session().unwrap();
+        session.outgoing_stream_manager.send_bytes(data, options, session.as_ref()).await
     }
 
     /// Stream text incrementally to participants in the room.
