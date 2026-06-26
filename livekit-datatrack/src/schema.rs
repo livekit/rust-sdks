@@ -33,7 +33,9 @@ use std::sync::Arc;
 /// ```
 ///
 #[derive(Clone, Hash, PartialEq, Eq)]
-pub struct DataTrackSchemaId(Arc<DataTrackSchemaIdInner>);
+pub struct DataTrackSchemaId {
+    inner: Arc<DataTrackSchemaIdInner>
+}
 
 #[derive(Hash, PartialEq, Eq)]
 struct DataTrackSchemaIdInner {
@@ -44,8 +46,8 @@ struct DataTrackSchemaIdInner {
 impl std::fmt::Debug for DataTrackSchemaId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DataTrackSchemaId")
-            .field("name", &self.0.name)
-            .field("encoding", &self.0.encoding)
+            .field("name", &self.inner.name)
+            .field("encoding", &self.inner.encoding)
             .finish()
     }
 }
@@ -53,18 +55,18 @@ impl std::fmt::Debug for DataTrackSchemaId {
 impl DataTrackSchemaId {
     /// Creates a new schema ID.
     pub fn new(name: impl Into<String>, encoding: DataTrackSchemaEncoding) -> Self {
-        let inner = DataTrackSchemaIdInner { name: name.into(), encoding };
-        Self(inner.into())
+        let inner = DataTrackSchemaIdInner { name: name.into(), encoding }.into();
+        Self { inner }
     }
 
     /// Returns the name component of the ID.
     pub fn name(&self) -> &str {
-        &self.0.name
+        &self.inner.name
     }
 
     /// Returns the encoding component of the ID.
     pub fn encoding(&self) -> &DataTrackSchemaEncoding {
-        &self.0.encoding
+        &self.inner.encoding
     }
 }
 
