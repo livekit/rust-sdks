@@ -360,7 +360,9 @@ void NvidiaH265EncoderImpl::SetRates(
   configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
   configuration_.max_frame_rate = parameters.framerate_fps;
 
-  encoder_->SetRates(codec_.maxFramerate, configuration_.target_bps);
+  if (!encoder_->SetRates(codec_.maxFramerate, configuration_.target_bps)) {
+    RTC_LOG(LS_WARNING) << "Failed to reconfigure NVENC rates.";
+  }
 
   if (configuration_.target_bps) {
     configuration_.SetStreamState(true);
