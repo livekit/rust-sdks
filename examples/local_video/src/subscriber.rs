@@ -38,7 +38,9 @@ mod macos_native_video {
 
     use anyhow::{anyhow, Result};
     use eframe::wgpu;
-    use metal::{foreign_types::ForeignType, MTLPixelFormat, MTLTextureType};
+    use metal::MTLPixelFormat;
+    use objc2::{rc::Retained, runtime::ProtocolObject};
+    use objc2_metal::{MTLTexture, MTLTextureType};
 
     use livekit::webrtc::video_frame::BoxVideoFrame;
 
@@ -117,8 +119,7 @@ mod macos_native_video {
                 let hal_device = device
                     .as_hal::<wgpu::hal::api::Metal>()
                     .ok_or_else(|| anyhow!("wgpu is not using the Metal backend"))?;
-                let raw_device = hal_device.raw_device().lock().as_ptr() as Id;
-                raw_device
+                Retained::as_ptr(hal_device.raw_device()).cast_mut().cast()
             };
 
             let mut cache = std::ptr::null_mut();
@@ -312,7 +313,9 @@ mod macos_native_video {
         Ok(CvMetalTexture { raw: texture })
     }
 
-    fn retained_metal_texture(cv_texture: CVMetalTextureRef) -> Result<metal::Texture> {
+    fn retained_metal_texture(
+        cv_texture: CVMetalTextureRef,
+    ) -> Result<Retained<ProtocolObject<dyn MTLTexture>>> {
         let raw_texture = unsafe {
             // SAFETY: `cv_texture` is a non-null CVMetalTexture returned by CoreVideo.
             CVMetalTextureGetTexture(cv_texture)
@@ -322,21 +325,22 @@ mod macos_native_video {
         }
         let retained = unsafe {
             // SAFETY: `raw_texture` is a live Objective-C object. Retaining transfers ownership
-            // to the `metal::Texture` wrapper below.
+            // to the retained protocol object passed to WGPU below.
             objc_retain(raw_texture)
         };
         if retained.is_null() {
             return Err(anyhow!("objc_retain returned null for MTLTexture"));
         }
-        Ok(unsafe {
+        unsafe {
             // SAFETY: The pointer was retained above and is an MTLTexture.
-            metal::Texture::from_ptr(retained.cast())
-        })
+            Retained::from_raw(retained.cast::<ProtocolObject<dyn MTLTexture>>())
+                .ok_or_else(|| anyhow!("objc_retain returned null for MTLTexture"))
+        }
     }
 
     fn create_wgpu_texture_from_metal(
         device: &wgpu::Device,
-        metal_texture: metal::Texture,
+        metal_texture: Retained<ProtocolObject<dyn MTLTexture>>,
         format: wgpu::TextureFormat,
         width: u32,
         height: u32,
@@ -359,7 +363,7 @@ mod macos_native_video {
             wgpu::hal::metal::Device::texture_from_raw(
                 metal_texture,
                 format,
-                MTLTextureType::D2,
+                MTLTextureType::Type2D,
                 1,
                 1,
                 wgpu::hal::CopyExtent { width, height, depth: 1 },
@@ -1285,7 +1289,8 @@ struct VideoApp {
 }
 
 impl eframe::App for VideoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = root_ui.ctx().clone();
         let _ = self.repaint_ctx.set(ctx.clone());
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1293,7 +1298,7 @@ impl eframe::App for VideoApp {
         }
 
         if let Some((width, height)) = self.video_size.load() {
-            self.viewport.set_video_size(ctx, width, height);
+            self.viewport.set_video_size(&ctx, width, height);
         }
 
         let render_frame = self.frame_slot.take();
@@ -1323,7 +1328,7 @@ impl eframe::App for VideoApp {
             &self.subscriber_timing,
         );
 
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
             ui.ctx().request_repaint();
 
             // Let the native window follow live resize, and letterbox the video instead of
@@ -1349,16 +1354,16 @@ impl eframe::App for VideoApp {
         });
 
         if let Some(lines) = overlay_lines.as_ref() {
-            paint_subscriber_overlay(ctx, lines);
+            paint_subscriber_overlay(&ctx, lines);
         }
 
-        paint_channel_graph(ctx, &self.channel_history);
+        paint_channel_graph(&ctx, &self.channel_history);
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
             .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
             .interactable(true)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 let mut sc = self.simulcast.lock();
                 if !sc.available {
                     return;
@@ -1767,8 +1772,8 @@ impl CallbackTrait for YuvPaintCallback {
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("yuv_pipeline_layout"),
-                bind_group_layouts: &[&bind_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_layout)],
+                immediate_size: 0,
             });
 
             let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1805,7 +1810,7 @@ impl CallbackTrait for YuvPaintCallback {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -1816,7 +1821,7 @@ impl CallbackTrait for YuvPaintCallback {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                 ..Default::default()
             });
 

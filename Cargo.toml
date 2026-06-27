@@ -82,12 +82,12 @@ tokio-stream = "0.1"
 hound = "3.5"
 
 # For examples
-eframe = { version = "0.33.3", default-features = false }
-egui = "0.33.3"
-egui-wgpu = "0.33.3"
+eframe = { version = "0.35.0", default-features = false }
+egui = "0.35.0"
+egui-wgpu = "0.35.0"
 image = "0.25"
-wgpu = "28.0"
-winit = "0.30.12"
+wgpu = "29.0"
+winit = "0.30.13"
 cc = { version = "1.0", features = ["parallel"] }
 
 [profile.release]
