@@ -87,6 +87,7 @@ const FrameMetadataFeature = /*@__PURE__*/ proto2.makeEnum(
   [
     {no: 0, name: "FMF_USER_TIMESTAMP"},
     {no: 1, name: "FMF_FRAME_ID"},
+    {no: 2, name: "FMF_USER_DATA"},
   ],
 );
 

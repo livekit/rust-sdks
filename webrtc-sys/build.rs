@@ -97,6 +97,7 @@ fn main() {
         "src/apm.cpp",
         "src/audio_mixer.cpp",
         "src/packet_trailer.cpp",
+        "src/packet_trailer_av1.cpp",
     ]);
 
     if is_desktop {

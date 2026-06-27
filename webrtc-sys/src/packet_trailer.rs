@@ -82,12 +82,17 @@ pub mod ffi {
         /// lookup_timestamp() call.
         fn last_lookup_frame_id(self: &PacketTrailerHandler) -> u32;
 
+        /// Returns the user_data from the most recent successful
+        /// lookup_timestamp() call. Empty if none.
+        fn last_lookup_user_data(self: &PacketTrailerHandler) -> Vec<u8>;
+
         /// Store frame metadata for a given capture timestamp (sender side).
         fn store_frame_metadata(
             self: &PacketTrailerHandler,
             capture_timestamp_us: i64,
             user_timestamp: u64,
             frame_id: u32,
+            user_data: &[u8],
         );
 
         /// Set a callback for sender-side publish timing events.

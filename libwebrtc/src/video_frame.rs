@@ -55,13 +55,20 @@ pub enum VideoBufferType {
 /// Metadata carried alongside a video frame via the packet trailer mechanism.
 ///
 /// Each field corresponds to an independently negotiable packet trailer feature
-/// (`PTF_USER_TIMESTAMP`, `PTF_FRAME_ID`), so individual fields are `Option`.
-#[derive(Debug, Clone, Copy)]
+/// (`PTF_USER_TIMESTAMP`, `PTF_FRAME_ID`, `PTF_USER_DATA`), so individual fields
+/// are `Option`.
+#[derive(Debug, Clone)]
 pub struct FrameMetadata {
     /// Wall-clock capture time in microseconds, when `PTF_USER_TIMESTAMP` is enabled.
     pub user_timestamp: Option<u64>,
     /// Monotonically increasing frame identifier, when `PTF_FRAME_ID` is enabled.
     pub frame_id: Option<u32>,
+    /// Arbitrary application-supplied bytes, when `PTF_USER_DATA` is enabled.
+    ///
+    /// Bounded by the packet trailer size budget (~232 bytes when the other
+    /// features are also active); oversize payloads are dropped on the send
+    /// side rather than truncated.
+    pub user_data: Option<Vec<u8>>,
 }
 
 /// Codec carried by a pre-encoded video access unit.

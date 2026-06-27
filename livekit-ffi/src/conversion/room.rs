@@ -44,6 +44,9 @@ fn frame_metadata_features_from_proto(features: Vec<i32>) -> FrameMetadataFeatur
             proto::FrameMetadataFeature::FmfFrameId => {
                 frame_metadata_features.frame_id = true;
             }
+            proto::FrameMetadataFeature::FmfUserData => {
+                frame_metadata_features.user_data = true;
+            }
         }
     }
 
@@ -542,6 +545,9 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
             attributes: msg.attributes,
             content_header,
             encryption_type: 0,
+            // Data streams v2 fields
+            inline_content: None,
+            compression: livekit_protocol::data_stream::CompressionType::None as i32,
         }
     }
 }

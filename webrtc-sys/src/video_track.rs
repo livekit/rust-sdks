@@ -47,6 +47,7 @@ pub mod ffi {
         pub has_packet_trailer: bool,
         pub user_timestamp: u64,
         pub frame_id: u32,
+        pub user_data: Vec<u8>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

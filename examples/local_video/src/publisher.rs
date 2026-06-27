@@ -37,6 +37,7 @@ mod argus;
 mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
+mod user_data;
 mod video_display;
 mod viewport_aspect;
 
@@ -254,6 +255,13 @@ struct Args {
     /// Attach a monotonically increasing frame ID to each published frame via the packet trailer
     #[arg(long, default_value_t = false)]
     attach_frame_id: bool,
+
+    /// Attach keyboard-controlled 6-channel data (6x int16 fixed-point, 12 bytes)
+    /// as the per-frame user_data trailer field. Control the channels from the
+    /// preview window: Q/A=CH1, W/S=CH2, E/D=CH3, R/F=CH4, T/G=CH5, Y/H=CH6.
+    /// Requires --display-video (the window provides keyboard focus).
+    #[arg(long, default_value_t = false, requires = "display_video")]
+    attach_user_data: bool,
 
     /// Open a window that displays the video frames being published
     #[arg(long, default_value_t = false)]
@@ -1144,6 +1152,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut frame_metadata_features = FrameMetadataFeatures::default();
     frame_metadata_features.user_timestamp = args.attach_timestamp;
     frame_metadata_features.frame_id = args.attach_frame_id;
+    frame_metadata_features.user_data = args.attach_user_data;
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
         source: TrackSource::Camera,
@@ -1185,6 +1194,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_timing: args.display_timing,
     };
 
+    // Shared keyboard-controlled channel values, written by the preview window
+    // and read by the capture loop to fill the user_data trailer.
+    let user_data_channels =
+        args.attach_user_data.then(|| Arc::new(Mutex::new([0.0f32; user_data::NUM_CHANNELS])));
+
     let publish_stats_task =
         tokio::spawn(update_publisher_video_stats(track.clone(), ctrl_c_received.clone()));
 
@@ -1198,6 +1212,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 session,
                 width,
                 height,
+                user_data_channels.clone(),
             )
             .await;
             let _ = publish_stats_task.await;
@@ -1227,6 +1242,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     height,
                     Some(shared.clone()),
                     publish_timing_state.clone(),
+                    user_data_channels.clone(),
                 ));
 
                 let display_result = video_display::run_display(
@@ -1234,6 +1250,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     shared,
                     ctrl_c_received.clone(),
                     Some(width as f32 / height as f32),
+                    user_data_channels.clone(),
                 );
 
                 let capture_result = capture_task.await?;
@@ -1252,6 +1269,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     height,
                     None,
                     publish_timing_state.clone(),
+                    user_data_channels.clone(),
                 )
                 .await;
                 let _ = publish_stats_task.await;
@@ -1273,6 +1291,7 @@ async fn run_capture_loop(
     height: u32,
     display_shared: Option<Arc<Mutex<SharedYuv>>>,
     publish_timing_state: Option<Arc<Mutex<PublisherTimingState>>>,
+    user_data_channels: Option<Arc<Mutex<[f32; user_data::NUM_CHANNELS]>>>,
 ) -> Result<()> {
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = config.fps as f64;
@@ -1411,8 +1430,10 @@ async fn run_capture_loop(
         if burned_timestamp_us.is_some() {
             debug_assert_eq!(burned_timestamp_us, Some(capture_wall_time_us));
         }
-        frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
-            Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+        let user_data =
+            user_data_channels.as_ref().map(|targets| user_data::encode(&targets.lock()));
+        frame.frame_metadata = if user_ts.is_some() || fid.is_some() || user_data.is_some() {
+            Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid, user_data })
         } else {
             None
         };
@@ -1540,6 +1561,7 @@ async fn run_argus_capture_loop(
     session: argus::ArgusCaptureSession,
     width: u32,
     height: u32,
+    user_data_channels: Option<Arc<Mutex<[f32; user_data::NUM_CHANNELS]>>>,
 ) -> Result<()> {
     let capture_handle = std::thread::Builder::new()
         .name("mipi-capture".into())
@@ -1656,8 +1678,10 @@ async fn run_argus_capture_loop(
                 } else {
                     None
                 };
-                let frame_metadata = if user_ts.is_some() || fid.is_some() {
-                    Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+                let user_data =
+                    user_data_channels.as_ref().map(|targets| user_data::encode(&targets.lock()));
+                let frame_metadata = if user_ts.is_some() || fid.is_some() || user_data.is_some() {
+                    Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid, user_data })
                 } else {
                     None
                 };

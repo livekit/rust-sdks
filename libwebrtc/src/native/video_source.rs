@@ -89,6 +89,7 @@ impl NativeVideoSource {
                             has_packet_trailer: false,
                             user_timestamp: 0,
                             frame_id: 0,
+                            user_data: Vec::new(),
                         },
                     );
                 }
@@ -115,9 +116,14 @@ impl NativeVideoSource {
         };
         builder.pin_mut().set_timestamp_us(capture_ts);
 
-        let (has_trailer, user_ts, fid) = match frame.frame_metadata {
-            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
-            None => (false, 0, 0),
+        let (has_trailer, user_ts, fid, user_data) = match &frame.frame_metadata {
+            Some(meta) => (
+                true,
+                meta.user_timestamp.unwrap_or(0),
+                meta.frame_id.unwrap_or(0),
+                meta.user_data.clone().unwrap_or_default(),
+            ),
+            None => (false, 0, 0, Vec::new()),
         };
 
         self.inner.lock().captured_frames += 1;
@@ -128,14 +134,20 @@ impl NativeVideoSource {
                 has_packet_trailer: has_trailer,
                 user_timestamp: user_ts,
                 frame_id: fid,
+                user_data,
             },
         );
     }
 
     pub fn capture_encoded_frame(&self, frame: &EncodedVideoFrame<'_>) -> bool {
-        let (has_trailer, user_ts, fid) = match frame.frame_metadata {
-            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
-            None => (false, 0, 0),
+        let (has_trailer, user_ts, fid, user_data) = match &frame.frame_metadata {
+            Some(meta) => (
+                true,
+                meta.user_timestamp.unwrap_or(0),
+                meta.frame_id.unwrap_or(0),
+                meta.user_data.clone().unwrap_or_default(),
+            ),
+            None => (false, 0, 0, Vec::new()),
         };
 
         let capture_ts = if frame.timestamp_us == 0 {
@@ -159,6 +171,7 @@ impl NativeVideoSource {
                 has_packet_trailer: has_trailer,
                 user_timestamp: user_ts,
                 frame_id: fid,
+                user_data,
             },
         )
     }
@@ -198,9 +211,14 @@ impl NativeVideoSource {
         timestamp_us: i64,
         frame_metadata: Option<FrameMetadata>,
     ) -> bool {
-        let (has_trailer, user_ts, fid) = match frame_metadata {
-            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
-            None => (false, 0, 0),
+        let (has_trailer, user_ts, fid, user_data) = match frame_metadata {
+            Some(meta) => (
+                true,
+                meta.user_timestamp.unwrap_or(0),
+                meta.frame_id.unwrap_or(0),
+                meta.user_data.unwrap_or_default(),
+            ),
+            None => (false, 0, 0, Vec::new()),
         };
 
         self.inner.lock().captured_frames += 1;
@@ -214,6 +232,7 @@ impl NativeVideoSource {
                 has_packet_trailer: has_trailer,
                 user_timestamp: user_ts,
                 frame_id: fid,
+                user_data,
             },
         )
     }

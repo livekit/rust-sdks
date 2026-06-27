@@ -164,4 +164,5 @@ enum AudioTrackFeature {
 enum FrameMetadataFeature {
   FMF_USER_TIMESTAMP = 0;
   FMF_FRAME_ID = 1;
+  FMF_USER_DATA = 2;
 }
