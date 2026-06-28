@@ -39,6 +39,7 @@ avfoundation = [
     "objc2-av-foundation/dispatch2",
     "objc2-av-foundation/objc2-core-media",
     "objc2-core-media/CMFormatDescription",
+    "objc2-core-media/CMSync",
     "objc2-core-media/CMTime",
     "objc2-core-media/CMSampleBuffer",
     "objc2-core-media/objc2-core-video",

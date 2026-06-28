@@ -14,7 +14,7 @@
 
 use std::{error::Error, fmt};
 
-use livekit::webrtc::video_frame::{I420Buffer, VideoFrame};
+use livekit::webrtc::video_frame::{native::NativeBuffer, I420Buffer, VideoFrame};
 use thiserror::Error;
 
 use crate::{
@@ -76,10 +76,34 @@ impl RawVideoFrame {
     }
 }
 
+/// Platform-native uncompressed video frame buffer produced by a capture source.
+#[derive(Debug)]
+pub struct NativeVideoFrame {
+    /// Native video frame suitable for [`VideoCaptureTrack::capture_frame`].
+    pub frame: VideoFrame<NativeBuffer>,
+    /// Source format delivered by the capture backend.
+    pub source_format: CaptureFrameFormat,
+    /// Wall-clock capture timestamp in microseconds.
+    pub capture_wall_time_us: u64,
+    /// Wall-clock timestamp recorded after the frame was read, in microseconds.
+    pub read_wall_time_us: u64,
+    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    pub sensor_timestamp_us: Option<u64>,
+}
+
+impl NativeVideoFrame {
+    /// Returns the native video frame.
+    pub fn video_frame(&self) -> &VideoFrame<NativeBuffer> {
+        &self.frame
+    }
+}
+
 /// Frame produced by a capture source.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum CaptureFrame {
+    /// Platform-native uncompressed frame.
+    Native(NativeVideoFrame),
     /// Uncompressed CPU-accessible frame.
     Raw(RawVideoFrame),
     /// Linux DMA-BUF backed frame.
@@ -92,6 +116,7 @@ impl CaptureFrame {
     /// Returns the capture path used by this frame.
     pub fn capture_path(&self) -> CapturePath {
         match self {
+            Self::Native(_) => CapturePath::Native,
             Self::Raw(_) => CapturePath::Raw,
             Self::DmaBuf(_) => CapturePath::DmaBuf,
             Self::Encoded(_) => CapturePath::Encoded,
@@ -101,6 +126,10 @@ impl CaptureFrame {
     /// Publishes this frame into a LiveKit capture track.
     pub fn publish_to(&self, track: &VideoCaptureTrack) -> Result<(), CaptureError> {
         match self {
+            Self::Native(frame) => {
+                track.capture_frame(&frame.frame);
+                Ok(())
+            }
             Self::Raw(frame) => {
                 track.capture_frame(&frame.frame);
                 Ok(())
@@ -344,7 +373,24 @@ impl CaptureFrameSource for crate::sources::avfoundation::AvFoundationCaptureSes
     }
 
     fn next_frame(&mut self) -> Result<CaptureFrame, Self::Error> {
-        self.capture_frame().map(|frame| CaptureFrame::Raw(frame.into()))
+        if self.native_capture_supported() {
+            self.capture_native_frame().map(|frame| CaptureFrame::Native(frame.into()))
+        } else {
+            self.capture_frame().map(|frame| CaptureFrame::Raw(frame.into()))
+        }
+    }
+}
+
+#[cfg(feature = "avfoundation")]
+impl From<crate::sources::avfoundation::AvFoundationNativeFrame> for NativeVideoFrame {
+    fn from(frame: crate::sources::avfoundation::AvFoundationNativeFrame) -> Self {
+        Self {
+            frame: frame.frame,
+            source_format: frame.source_format,
+            capture_wall_time_us: frame.capture_wall_time_us,
+            read_wall_time_us: frame.read_wall_time_us,
+            sensor_timestamp_us: frame.sensor_timestamp_us,
+        }
     }
 }
 

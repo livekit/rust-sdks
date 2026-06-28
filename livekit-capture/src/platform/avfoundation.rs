@@ -18,7 +18,7 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 
-use livekit::webrtc::video_frame::{I420Buffer, VideoBuffer, VideoFrame};
+use livekit::webrtc::video_frame::{native::NativeBuffer, I420Buffer, VideoBuffer, VideoFrame};
 use thiserror::Error;
 
 use crate::{
@@ -32,6 +32,8 @@ use crate::{
 
 #[cfg(target_os = "macos")]
 const FIRST_FRAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+#[cfg(target_os = "macos")]
+const MAX_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
 
 /// Options used to create an AVFoundation capture session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -78,11 +80,36 @@ impl AvFoundationFrame {
     }
 }
 
-/// AVFoundation decoded-frame capture session that emits I420 frames.
+/// One AVFoundation frame backed by a native IOSurface-backed `CVPixelBuffer`.
+#[derive(Debug)]
+pub struct AvFoundationNativeFrame {
+    /// Native frame suitable for [`crate::VideoCaptureTrack::capture_frame`].
+    pub frame: VideoFrame<NativeBuffer>,
+    /// Source frame format delivered by AVFoundation.
+    pub source_format: CaptureFrameFormat,
+    /// Wall-clock timestamp selected for metadata and timing correlation.
+    pub capture_wall_time_us: u64,
+    /// Wall-clock timestamp recorded after the frame was read from AVFoundation.
+    pub read_wall_time_us: u64,
+    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    pub sensor_timestamp_us: Option<u64>,
+}
+
+impl AvFoundationNativeFrame {
+    /// Returns the native video frame.
+    pub fn video_frame(&self) -> &VideoFrame<NativeBuffer> {
+        &self.frame
+    }
+}
+
+/// AVFoundation capture session that emits I420 frames or native `CVPixelBuffer`s.
 pub struct AvFoundationCaptureSession {
     format: CaptureFormat,
     options: AvFoundationCaptureOptions,
     target_resolution: Option<CaptureResolution>,
+    native_frame_supported: bool,
+    #[cfg(target_os = "macos")]
+    core_video_pixel_format: u32,
     #[cfg(target_os = "macos")]
     inner: macos::SessionInner,
 }
@@ -114,6 +141,11 @@ impl AvFoundationCaptureSession {
         self.capture_frame_inner()
     }
 
+    /// Captures the next frame as a native `CVPixelBuffer`.
+    pub fn capture_native_frame(&mut self) -> Result<AvFoundationNativeFrame, AvFoundationError> {
+        self.capture_native_frame_inner()
+    }
+
     /// Returns the negotiated capture format.
     pub fn format(&self) -> CaptureFormat {
         self.format
@@ -126,19 +158,44 @@ impl AvFoundationCaptureSession {
 
     /// Returns the capture path produced by this session.
     pub fn capture_path(&self) -> CapturePath {
-        CapturePath::Raw
+        if self.native_capture_supported() {
+            CapturePath::Native
+        } else {
+            CapturePath::Raw
+        }
+    }
+
+    /// Returns the CoreVideo pixel format type delivered by AVFoundation.
+    #[cfg(target_os = "macos")]
+    pub fn core_video_pixel_format(&self) -> u32 {
+        self.core_video_pixel_format
+    }
+
+    pub(crate) fn native_capture_supported(&self) -> bool {
+        self.native_frame_supported
+            && self.target_resolution.is_none()
+            && self.format.frame_format == CaptureFrameFormat::Nv12
     }
 
     #[cfg(target_os = "macos")]
     fn open(options: AvFoundationCaptureOptions) -> Result<Self, AvFoundationError> {
         let inner = macos::SessionInner::new(&options)?;
-        let mut format = inner.wait_for_format(FIRST_FRAME_TIMEOUT)?;
+        let initial_frame = inner.wait_for_format(FIRST_FRAME_TIMEOUT)?;
+        inner.discard_pending_frame();
+        let mut format = initial_frame.format;
         format.frame_rate = requested_frame_rate_hint(&options.format).unwrap_or(30);
         let target_resolution = requested_output_resolution(&options.format, format.resolution);
         if let Some(resolution) = target_resolution {
             format.resolution = resolution;
         }
-        Ok(Self { format, options, target_resolution, inner })
+        Ok(Self {
+            format,
+            options,
+            target_resolution,
+            native_frame_supported: initial_frame.native_frame_supported,
+            core_video_pixel_format: initial_frame.core_video_pixel_format,
+            inner,
+        })
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -165,6 +222,22 @@ impl AvFoundationCaptureSession {
 
     #[cfg(not(target_os = "macos"))]
     fn capture_frame_inner(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
+        Err(AvFoundationError::UnsupportedPlatform)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn capture_native_frame_inner(&mut self) -> Result<AvFoundationNativeFrame, AvFoundationError> {
+        if self.target_resolution.is_some() {
+            return Err(AvFoundationError::NativeCaptureUnavailable);
+        }
+        if self.format.frame_format != CaptureFrameFormat::Nv12 {
+            return Err(AvFoundationError::UnsupportedFrameFormat(self.format.frame_format));
+        }
+        self.inner.capture_native_frame()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn capture_native_frame_inner(&mut self) -> Result<AvFoundationNativeFrame, AvFoundationError> {
         Err(AvFoundationError::UnsupportedPlatform)
     }
 }
@@ -271,6 +344,9 @@ pub enum AvFoundationError {
     /// AVFoundation produced a pixel format this backend cannot convert yet.
     #[error("unsupported AVFoundation pixel format 0x{0:08x}")]
     UnsupportedCoreVideoPixelFormat(u32),
+    /// Native capture cannot be used for the negotiated session.
+    #[error("AVFoundation native capture requires NV12 without software scaling")]
+    NativeCaptureUnavailable,
     /// Pixel conversion failed.
     #[error("failed to convert AVFoundation frame to I420: {0}")]
     Convert(&'static str),
@@ -422,7 +498,7 @@ fn list_devices() -> Result<Vec<CaptureDeviceInfo>, AvFoundationError> {
             name,
             model_id,
             manufacturer,
-            paths: vec![CapturePath::Raw],
+            paths: vec![CapturePath::Native, CapturePath::Raw],
             formats: Vec::new(),
             formats_complete: false,
         });
@@ -449,15 +525,23 @@ fn start_capture(capture: &mut AvFoundationCapture) -> Result<(), AvFoundationEr
 
     let track = capture.track.clone();
     let mut session = AvFoundationCaptureSession::new(capture.options.clone())?;
+    let capture_native = session.native_capture_supported();
     let stop = Arc::new(AtomicBool::new(false));
     let stop_for_thread = stop.clone();
     let handle = std::thread::Builder::new()
         .name("avfoundation-capture".into())
         .spawn(move || {
             while !stop_for_thread.load(Ordering::Acquire) {
-                match session.capture_frame() {
-                    Ok(frame) => track.capture_frame(&frame.frame),
-                    Err(_) => break,
+                if capture_native {
+                    match session.capture_native_frame() {
+                        Ok(frame) => track.capture_frame(&frame.frame),
+                        Err(_) => break,
+                    }
+                } else {
+                    match session.capture_frame() {
+                        Ok(frame) => track.capture_frame(&frame.frame),
+                        Err(_) => break,
+                    }
                 }
             }
         })
@@ -492,22 +576,32 @@ fn stop_capture(_capture: &mut AvFoundationCapture) -> Result<(), AvFoundationEr
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::ffi::c_void;
+    use std::ops::Deref;
+    use std::ptr::NonNull;
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use dispatch2::{DispatchQueue, DispatchRetained};
-    use livekit::webrtc::video_frame::{I420Buffer, VideoBuffer, VideoFrame, VideoRotation};
+    use livekit::webrtc::video_frame::{
+        native::NativeBuffer, I420Buffer, VideoFrame, VideoRotation,
+    };
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, ProtocolObject};
     use objc2::{define_class, msg_send, AnyThread, DefinedClass, Message};
     use objc2_av_foundation::{
         AVCaptureDevice, AVCaptureDeviceFormat, AVCaptureDeviceInput, AVCaptureOutput,
         AVCaptureSession, AVCaptureSessionPreset1280x720, AVCaptureSessionPreset1920x1080,
-        AVCaptureSessionPreset640x480, AVCaptureSessionPresetHigh, AVCaptureSessionPresetMedium,
-        AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaTypeVideo,
+        AVCaptureSessionPreset640x480, AVCaptureSessionPresetHigh,
+        AVCaptureSessionPresetInputPriority, AVCaptureSessionPresetMedium,
+        AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate,
+        AVCaptureVideoStabilizationMode, AVMediaTypeVideo,
     };
-    use objc2_core_media::{CMSampleBuffer, CMTime, CMVideoFormatDescriptionGetDimensions};
+    use objc2_core_media::{
+        CMClock, CMSampleBuffer, CMTime, CMTimeFlags, CMVideoFormatDescriptionGetDimensions,
+    };
     use objc2_core_video::{
+        kCVPixelBufferIOSurfacePropertiesKey, kCVPixelBufferMetalCompatibilityKey,
         kCVPixelBufferPixelFormatTypeKey, kCVPixelFormatType_32BGRA,
         kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
         kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, kCVPixelFormatType_420YpCbCr8Planar,
@@ -522,11 +616,19 @@ mod macos {
     };
     use objc2_foundation::{NSDictionary, NSNumber, NSObject, NSObjectProtocol, NSString};
 
-    use super::{AvFoundationCaptureOptions, AvFoundationError, AvFoundationFrame};
+    use super::{
+        AvFoundationCaptureOptions, AvFoundationError, AvFoundationFrame, AvFoundationNativeFrame,
+        MAX_CAPTURE_TIMESTAMP_AGE_US,
+    };
     use crate::device::{
         CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest, CaptureFrameFormat,
         CaptureResolution,
     };
+
+    unsafe extern "C" {
+        fn CFRelease(cf: *const c_void);
+        fn CVPixelBufferGetIOSurface(pixel_buffer: *const CVPixelBuffer) -> *const c_void;
+    }
     pub(super) struct SessionInner {
         session: Retained<AVCaptureSession>,
         _input: Retained<AVCaptureDeviceInput>,
@@ -573,6 +675,7 @@ mod macos {
             // camera input and video data output only after canAdd* checks.
             unsafe {
                 session.beginConfiguration();
+                session.setAutomaticallyConfiguresCaptureDeviceForWideColor(false);
                 if active_format.is_none() {
                     if let Some(preset) = session_preset(&options.format) {
                         session.setSessionPreset(preset);
@@ -587,6 +690,12 @@ mod macos {
                     session.addInput(&input);
 
                     configure_device(&device, &options.format, active_format.as_deref())?;
+                    if active_format.is_some()
+                        && session.canSetSessionPreset(AVCaptureSessionPresetInputPriority)
+                    {
+                        session.setSessionPreset(AVCaptureSessionPresetInputPriority);
+                    }
+                    configure_input_frame_duration(&input, &device, &options.format);
 
                     if let Some(video_settings) = preferred_video_settings(&output) {
                         output.setVideoSettings(Some(&video_settings));
@@ -602,6 +711,7 @@ mod macos {
                         ));
                     }
                     session.addOutput(&output);
+                    configure_output_connection(&output)?;
                     Ok(())
                 })();
                 session.commitConfiguration();
@@ -620,35 +730,117 @@ mod macos {
         pub(super) fn wait_for_format(
             &self,
             timeout: Duration,
-        ) -> Result<CaptureFormat, AvFoundationError> {
+        ) -> Result<InitialFrameInfo, AvFoundationError> {
             self.shared.wait_for_format(timeout)
         }
 
         pub(super) fn capture_frame(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
             self.shared.take_frame()
         }
+
+        pub(super) fn capture_native_frame(
+            &mut self,
+        ) -> Result<AvFoundationNativeFrame, AvFoundationError> {
+            self.shared.take_native_frame()
+        }
+
+        pub(super) fn discard_pending_frame(&self) {
+            self.shared.discard_latest();
+        }
     }
 
     fn preferred_video_settings(
         output: &AVCaptureVideoDataOutput,
     ) -> Option<Retained<NSDictionary<NSString, AnyObject>>> {
-        let preferred = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+        let preferred = [
+            // WebRTC's VideoToolbox H.264 encoder allocates full-range NV12
+            // buffers for its CPU upload path. Prefer the same CoreVideo
+            // format for direct CVPixelBuffer input so the native path does
+            // not have to reset VideoToolbox into a separate video-range pool.
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        ];
         // SAFETY: `output` is a live AVCaptureVideoDataOutput owned by the session setup path, and
         // querying advertised CV pixel formats does not mutate Rust-managed memory.
-        let supported = unsafe { output.availableVideoCVPixelFormatTypes() }
-            .iter()
-            .any(|format| format.as_u32() == preferred);
-        if !supported {
-            return None;
+        let supported_formats = unsafe { output.availableVideoCVPixelFormatTypes() };
+        let pixel_format_type = preferred.into_iter().find(|preferred| {
+            supported_formats.iter().any(|format| format.as_u32() == *preferred)
+        })?;
+
+        let pixel_format = NSNumber::new_u32(pixel_format_type);
+        let metal_compatible = NSNumber::new_bool(true);
+        let iosurface_properties = NSDictionary::<NSString, AnyObject>::new();
+        // SAFETY: The CoreVideo constants are immutable CFString keys.
+        // `CFString` and `NSString` are toll-free bridged, which
+        // objc2-foundation exposes through `AsRef<NSString>`.
+        let pixel_format_key: &NSString = unsafe { kCVPixelBufferPixelFormatTypeKey }.as_ref();
+        // SAFETY: Same as above.
+        let iosurface_key: &NSString = unsafe { kCVPixelBufferIOSurfacePropertiesKey }.as_ref();
+        // SAFETY: Same as above.
+        let metal_key: &NSString = unsafe { kCVPixelBufferMetalCompatibilityKey }.as_ref();
+        Some(NSDictionary::from_slices(
+            &[pixel_format_key, iosurface_key, metal_key],
+            &[pixel_format.as_ref(), iosurface_properties.as_ref(), metal_compatible.as_ref()],
+        ))
+    }
+
+    fn configure_input_frame_duration(
+        input: &AVCaptureDeviceInput,
+        device: &AVCaptureDevice,
+        request: &CaptureFormatRequest,
+    ) {
+        let Some(frame_rate) = requested_frame_rate(request).filter(|frame_rate| *frame_rate > 0)
+        else {
+            return;
+        };
+        // SAFETY: `input` is the live input just added to the session. The
+        // support predicate is checked before setting the locked duration.
+        if !unsafe { input.isLockedVideoFrameDurationSupported() } {
+            return;
         }
 
-        let pixel_format = NSNumber::new_u32(preferred);
-        // SAFETY: `kCVPixelBufferPixelFormatTypeKey` is a CoreVideo-provided
-        // immutable CFString constant. `CFString` and `NSString` are toll-free
-        // bridged, which objc2-foundation exposes through `AsRef<NSString>`.
-        let key: &NSString = unsafe { kCVPixelBufferPixelFormatTypeKey }.as_ref();
-        let value: &AnyObject = pixel_format.as_ref();
-        Some(NSDictionary::from_slices(&[key], &[value]))
+        let duration = unsafe { CMTime::with_seconds(1.0 / frame_rate as f64, 600) };
+        // SAFETY: `device` and `input` belong to the same session setup path.
+        // The requested rate has already been checked against the active format
+        // before the device frame durations are set, and `input` reports locked
+        // frame duration support.
+        unsafe {
+            if device_format_supports_frame_rate(&device.activeFormat(), frame_rate) {
+                input.setActiveLockedVideoFrameDuration(duration);
+            }
+        }
+    }
+
+    fn configure_output_connection(
+        output: &AVCaptureVideoDataOutput,
+    ) -> Result<(), AvFoundationError> {
+        let media_type = unsafe { AVMediaTypeVideo }.ok_or(AvFoundationError::DeviceNotFound)?;
+        // SAFETY: `output` has just been added to a configured session. Querying
+        // its video connection does not mutate Rust-managed memory.
+        let Some(connection) = (unsafe { output.connectionWithMediaType(media_type) }) else {
+            return Err(AvFoundationError::SessionSetup(
+                "video data output connection was not created".to_string(),
+            ));
+        };
+
+        // Keep frame-duration control on the device/input path. The deprecated
+        // output connection frame-duration setters can change whether macOS
+        // delivers IOSurface-backed pixel buffers.
+        // SAFETY: The connection is the video data output connection. Each
+        // setter is guarded by the corresponding support/configuration checks
+        // required by AVFoundation's API contract.
+        unsafe {
+            if connection.isVideoStabilizationSupported() {
+                connection.setPreferredVideoStabilizationMode(AVCaptureVideoStabilizationMode::Off);
+            }
+            if connection.automaticallyAdjustsVideoMirroring() {
+                connection.setAutomaticallyAdjustsVideoMirroring(false);
+            }
+            if connection.isVideoMirroringSupported() && connection.isVideoMirrored() {
+                connection.setVideoMirrored(false);
+            }
+        }
+        Ok(())
     }
 
     #[derive(Debug)]
@@ -713,13 +905,20 @@ mod macos {
 
     #[derive(Debug, Default)]
     struct FrameQueueState {
-        latest: Option<AvFoundationFrame>,
+        latest: Option<QueuedAvFoundationFrame>,
         stopped: bool,
         error: Option<String>,
     }
 
+    #[derive(Debug)]
+    pub(super) struct InitialFrameInfo {
+        pub(super) format: CaptureFormat,
+        pub(super) native_frame_supported: bool,
+        pub(super) core_video_pixel_format: u32,
+    }
+
     impl FrameQueue {
-        fn push_frame(&self, frame: AvFoundationFrame) {
+        fn push_frame(&self, frame: QueuedAvFoundationFrame) {
             let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
             if state.stopped {
                 return;
@@ -740,16 +939,27 @@ mod macos {
             self.ready.notify_all();
         }
 
-        fn wait_for_format(&self, timeout: Duration) -> Result<CaptureFormat, AvFoundationError> {
+        fn discard_latest(&self) {
+            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
+            state.latest = None;
+        }
+
+        fn wait_for_format(
+            &self,
+            timeout: Duration,
+        ) -> Result<InitialFrameInfo, AvFoundationError> {
             let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
             loop {
                 if let Some(frame) = state.latest.as_ref() {
-                    let buffer = &frame.frame.buffer;
-                    return Ok(CaptureFormat::new(
-                        CaptureResolution::new(buffer.width(), buffer.height()),
-                        0,
-                        frame.source_format,
-                    ));
+                    return Ok(InitialFrameInfo {
+                        format: CaptureFormat::new(
+                            CaptureResolution::new(frame.width, frame.height),
+                            0,
+                            frame.source_format,
+                        ),
+                        native_frame_supported: frame.native_frame_supported(),
+                        core_video_pixel_format: frame.core_video_pixel_format,
+                    });
                 }
                 if let Some(error) = state.error.take() {
                     return Err(AvFoundationError::Runtime(error));
@@ -773,7 +983,23 @@ mod macos {
             let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
             loop {
                 if let Some(frame) = state.latest.take() {
-                    return Ok(frame);
+                    return frame.into_i420_frame();
+                }
+                if let Some(error) = state.error.take() {
+                    return Err(AvFoundationError::Runtime(error));
+                }
+                if state.stopped {
+                    return Err(AvFoundationError::NotRunning);
+                }
+                state = self.ready.wait(state).expect("AVFoundation frame queue poisoned");
+            }
+        }
+
+        fn take_native_frame(&self) -> Result<AvFoundationNativeFrame, AvFoundationError> {
+            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
+            loop {
+                if let Some(frame) = state.latest.take() {
+                    return frame.into_native_frame();
                 }
                 if let Some(error) = state.error.take() {
                     return Err(AvFoundationError::Runtime(error));
@@ -787,6 +1013,131 @@ mod macos {
 
         fn timestamp_us(&self) -> i64 {
             elapsed_us(self.started_at.elapsed())
+        }
+    }
+
+    #[derive(Debug)]
+    struct QueuedAvFoundationFrame {
+        pixel_buffer: RetainedPixelBuffer,
+        width: u32,
+        height: u32,
+        source_format: CaptureFrameFormat,
+        core_video_pixel_format: u32,
+        capture_wall_time_us: u64,
+        read_wall_time_us: u64,
+        sensor_timestamp_us: Option<u64>,
+        timestamp_us: i64,
+        is_iosurface_backed: bool,
+    }
+
+    impl QueuedAvFoundationFrame {
+        fn into_i420_frame(self) -> Result<AvFoundationFrame, AvFoundationError> {
+            let (buffer, source_format) = convert_pixel_buffer(self.pixel_buffer.as_ref())?;
+            let frame = VideoFrame {
+                rotation: VideoRotation::VideoRotation0,
+                timestamp_us: self.timestamp_us,
+                frame_metadata: None,
+                buffer,
+            };
+
+            Ok(AvFoundationFrame {
+                frame,
+                source_format,
+                capture_wall_time_us: self.capture_wall_time_us,
+                read_wall_time_us: self.read_wall_time_us,
+                sensor_timestamp_us: self.sensor_timestamp_us,
+                used_conversion: source_format != CaptureFrameFormat::I420,
+            })
+        }
+
+        fn into_native_frame(self) -> Result<AvFoundationNativeFrame, AvFoundationError> {
+            if self.source_format != CaptureFrameFormat::Nv12 {
+                return Err(AvFoundationError::UnsupportedFrameFormat(self.source_format));
+            }
+            if self.core_video_pixel_format != kCVPixelFormatType_420YpCbCr8BiPlanarFullRange {
+                return Err(AvFoundationError::NativeCaptureUnavailable);
+            }
+            if !self.is_iosurface_backed {
+                return Err(AvFoundationError::NativeCaptureUnavailable);
+            }
+
+            let buffer = self.pixel_buffer.into_native_buffer();
+            let frame = VideoFrame {
+                rotation: VideoRotation::VideoRotation0,
+                timestamp_us: self.timestamp_us,
+                frame_metadata: None,
+                buffer,
+            };
+
+            Ok(AvFoundationNativeFrame {
+                frame,
+                source_format: self.source_format,
+                capture_wall_time_us: self.capture_wall_time_us,
+                read_wall_time_us: self.read_wall_time_us,
+                sensor_timestamp_us: self.sensor_timestamp_us,
+            })
+        }
+
+        fn native_frame_supported(&self) -> bool {
+            self.source_format == CaptureFrameFormat::Nv12
+                && self.core_video_pixel_format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                && self.is_iosurface_backed
+        }
+    }
+
+    fn pixel_buffer_has_iosurface(pixel_buffer: &CVPixelBuffer) -> bool {
+        // SAFETY: `pixel_buffer` is a valid CVPixelBufferRef. CoreVideo returns
+        // an unretained IOSurfaceRef; this code only checks for null and does
+        // not store or release the returned pointer.
+        !unsafe { CVPixelBufferGetIOSurface(pixel_buffer) }.is_null()
+    }
+
+    #[derive(Debug)]
+    struct RetainedPixelBuffer {
+        ptr: NonNull<CVPixelBuffer>,
+    }
+
+    // SAFETY: `RetainedPixelBuffer` owns a +1 CoreFoundation reference to a
+    // CVPixelBuffer. CoreFoundation retain/release and CoreVideo pixel-buffer
+    // inspection are thread-safe for this usage, and mutable pixel access still
+    // goes through CoreVideo's lock/unlock API.
+    unsafe impl Send for RetainedPixelBuffer {}
+    // SAFETY: The wrapper exposes only shared access to the pixel buffer and
+    // releases its retained reference on drop.
+    unsafe impl Sync for RetainedPixelBuffer {}
+
+    impl RetainedPixelBuffer {
+        fn from_image_buffer<T>(image_buffer: T) -> Self
+        where
+            T: Deref<Target = CVImageBuffer>,
+        {
+            let ptr = NonNull::from(&*image_buffer).cast::<CVPixelBuffer>();
+            std::mem::forget(image_buffer);
+            Self { ptr }
+        }
+
+        fn as_ref(&self) -> &CVPixelBuffer {
+            // SAFETY: `ptr` was created from a retained CVImageBuffer returned
+            // by CMSampleBufferGetImageBuffer and remains valid until this
+            // wrapper drops or transfers that retain.
+            unsafe { self.ptr.as_ref() }
+        }
+
+        fn into_native_buffer(self) -> NativeBuffer {
+            let ptr = self.ptr.as_ptr().cast::<c_void>();
+            std::mem::forget(self);
+            // SAFETY: `ptr` is a valid retained CVPixelBufferRef. The WebRTC
+            // bridge wraps it in RTCCVPixelBuffer and then releases the +1
+            // retain we transfer here, so Rust must not release it afterwards.
+            unsafe { NativeBuffer::from_cv_pixel_buffer(ptr) }
+        }
+    }
+
+    impl Drop for RetainedPixelBuffer {
+        fn drop(&mut self) {
+            // SAFETY: `ptr` owns one CoreFoundation retain unless ownership was
+            // transferred by `into_native_buffer`, which forgets `self`.
+            unsafe { CFRelease(self.ptr.as_ptr().cast::<c_void>()) };
         }
     }
 
@@ -830,11 +1181,6 @@ mod macos {
                     SelectionMode::Exact,
                 );
                 selected.map(Some).ok_or(AvFoundationError::UnsupportedFormat(*format))
-            }
-            CaptureFormatRequest::Closest(format)
-                if exact_session_preset(format.resolution).is_some() =>
-            {
-                Ok(None)
             }
             CaptureFormatRequest::Closest(format) => Ok(best_device_format(
                 device,
@@ -1021,6 +1367,7 @@ mod macos {
                 device.setActiveFormat(active_format);
             }
         }
+        configure_low_latency_device_processing(device);
 
         let Some(frame_rate) = frame_rate.filter(|frame_rate| *frame_rate > 0) else {
             return Ok(());
@@ -1042,6 +1389,28 @@ mod macos {
             device.setActiveVideoMaxFrameDuration(duration);
         }
         Ok(())
+    }
+
+    fn configure_low_latency_device_processing(device: &AVCaptureDevice) {
+        // SAFETY: The caller holds the AVCaptureDevice configuration lock.
+        // Setters are guarded by their support/current-state predicates where
+        // AVFoundation requires that.
+        unsafe {
+            if device.automaticallyAdjustsVideoHDREnabled() {
+                device.setAutomaticallyAdjustsVideoHDREnabled(false);
+            }
+            if device.isVideoHDREnabled() {
+                device.setVideoHDREnabled(false);
+            }
+            if device.isLowLightBoostSupported()
+                && device.automaticallyEnablesLowLightBoostWhenAvailable()
+            {
+                device.setAutomaticallyEnablesLowLightBoostWhenAvailable(false);
+            }
+            if device.isSmoothAutoFocusSupported() && device.isSmoothAutoFocusEnabled() {
+                device.setSmoothAutoFocusEnabled(false);
+            }
+        }
     }
 
     fn requested_frame_rate(request: &CaptureFormatRequest) -> Option<u32> {
@@ -1087,33 +1456,96 @@ mod macos {
         shared: &FrameQueue,
     ) -> Result<(), AvFoundationError> {
         let read_wall_time_us = unix_time_us_now().unwrap_or_default();
+        let sensor_timestamp_us =
+            sample_buffer_capture_wall_time_us(sample_buffer, read_wall_time_us);
         let image_buffer = unsafe { sample_buffer.image_buffer() }
             .ok_or(AvFoundationError::InvalidFrame("sample buffer has no image buffer"))?;
-        let image_buffer_ref: &CVImageBuffer = &image_buffer;
-        // SAFETY: Video data output sample buffers deliver CVPixelBuffer-backed
-        // CVImageBuffer objects. The retained image buffer keeps the object alive
-        // for the duration of this conversion.
-        let pixel_buffer =
-            unsafe { &*(image_buffer_ref as *const CVImageBuffer as *const CVPixelBuffer) };
-        let (buffer, source_format) = convert_pixel_buffer(pixel_buffer)?;
+        let pixel_buffer = RetainedPixelBuffer::from_image_buffer(image_buffer);
+        let pixel_buffer_ref = pixel_buffer.as_ref();
+        let width = u32::try_from(CVPixelBufferGetWidth(pixel_buffer_ref))
+            .map_err(|_| AvFoundationError::InvalidFrame("width is out of range"))?;
+        let height = u32::try_from(CVPixelBufferGetHeight(pixel_buffer_ref))
+            .map_err(|_| AvFoundationError::InvalidFrame("height is out of range"))?;
+        let source_format = capture_frame_format_from_core_video(CVPixelBufferGetPixelFormatType(
+            pixel_buffer_ref,
+        ))?;
+        let core_video_pixel_format = CVPixelBufferGetPixelFormatType(pixel_buffer_ref);
+        let is_iosurface_backed = pixel_buffer_has_iosurface(pixel_buffer_ref);
 
-        let capture_wall_time_us = read_wall_time_us;
-        let frame = VideoFrame {
-            rotation: VideoRotation::VideoRotation0,
-            timestamp_us: shared.timestamp_us(),
-            frame_metadata: None,
-            buffer,
-        };
-
-        shared.push_frame(AvFoundationFrame {
-            frame,
+        let capture_wall_time_us = sensor_timestamp_us.unwrap_or(read_wall_time_us);
+        shared.push_frame(QueuedAvFoundationFrame {
+            pixel_buffer,
+            width,
+            height,
             source_format,
+            core_video_pixel_format,
             capture_wall_time_us,
             read_wall_time_us,
-            sensor_timestamp_us: None,
-            used_conversion: source_format != CaptureFrameFormat::I420,
+            sensor_timestamp_us,
+            timestamp_us: shared.timestamp_us(),
+            is_iosurface_backed,
         });
         Ok(())
+    }
+
+    fn sample_buffer_capture_wall_time_us(
+        sample_buffer: &CMSampleBuffer,
+        read_wall_time_us: u64,
+    ) -> Option<u64> {
+        let sample_time = unsafe { sample_buffer.presentation_time_stamp() };
+
+        let timestamp_us = cm_time_to_us(sample_time)?;
+        if validate_capture_timestamp_us(timestamp_us, read_wall_time_us).is_some() {
+            return Some(timestamp_us);
+        }
+
+        let host_now_us = current_host_time_us()?;
+        let age_us = host_now_us.checked_sub(timestamp_us)?;
+        if age_us > MAX_CAPTURE_TIMESTAMP_AGE_US {
+            return None;
+        }
+        read_wall_time_us.checked_sub(age_us)
+    }
+
+    fn current_host_time_us() -> Option<u64> {
+        // SAFETY: The CoreMedia host time clock is a process-wide singleton and
+        // reading it does not mutate Rust-managed memory.
+        let host_clock = unsafe { CMClock::host_time_clock() };
+        // SAFETY: `host_clock` is a valid retained CoreMedia clock.
+        let host_time = unsafe { host_clock.time() };
+        cm_time_to_us(host_time)
+    }
+
+    fn cm_time_to_us(time: CMTime) -> Option<u64> {
+        let flags = time.flags;
+        if !flags.contains(CMTimeFlags::Valid)
+            || flags.intersects(CMTimeFlags::ImpliedValueFlagsMask)
+        {
+            return None;
+        }
+
+        // SAFETY: `time` is a valid CMTime value returned by CoreMedia. Invalid
+        // and indefinite values were filtered above.
+        let seconds = unsafe { time.seconds() };
+        if !seconds.is_finite() || seconds < 0.0 {
+            return None;
+        }
+
+        let micros = seconds * 1_000_000.0;
+        (micros <= u64::MAX as f64).then_some(micros.round() as u64)
+    }
+
+    fn validate_capture_timestamp_us(
+        capture_timestamp_us: u64,
+        read_wall_time_us: u64,
+    ) -> Option<u64> {
+        if capture_timestamp_us == 0 || capture_timestamp_us > read_wall_time_us {
+            return None;
+        }
+        if read_wall_time_us - capture_timestamp_us > MAX_CAPTURE_TIMESTAMP_AGE_US {
+            return None;
+        }
+        Some(capture_timestamp_us)
     }
 
     fn convert_pixel_buffer(
@@ -1143,37 +1575,47 @@ mod macos {
             .map_err(|_| AvFoundationError::InvalidFrame("width is out of range"))?;
         let height = u32::try_from(CVPixelBufferGetHeight(pixel_buffer))
             .map_err(|_| AvFoundationError::InvalidFrame("height is out of range"))?;
-        let pixel_format = CVPixelBufferGetPixelFormatType(pixel_buffer);
+        let source_format =
+            capture_frame_format_from_core_video(CVPixelBufferGetPixelFormatType(pixel_buffer))?;
 
+        match source_format {
+            CaptureFrameFormat::Nv12 => convert_nv12(pixel_buffer, width, height)
+                .map(|buffer| (buffer, CaptureFrameFormat::Nv12)),
+            CaptureFrameFormat::Bgra => convert_bgra(pixel_buffer, width, height)
+                .map(|buffer| (buffer, CaptureFrameFormat::Bgra)),
+            CaptureFrameFormat::I420 => convert_i420(pixel_buffer, width, height)
+                .map(|buffer| (buffer, CaptureFrameFormat::I420)),
+            CaptureFrameFormat::Uyvy => convert_uyvy(pixel_buffer, width, height)
+                .map(|buffer| (buffer, CaptureFrameFormat::Uyvy)),
+            CaptureFrameFormat::Yuyv => convert_yuy2(pixel_buffer, width, height)
+                .map(|buffer| (buffer, CaptureFrameFormat::Yuyv)),
+            other => Err(AvFoundationError::UnsupportedFrameFormat(other)),
+        }
+    }
+
+    fn capture_frame_format_from_core_video(
+        pixel_format: u32,
+    ) -> Result<CaptureFrameFormat, AvFoundationError> {
         match pixel_format {
             format
                 if format == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
                     || format == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange =>
             {
-                convert_nv12(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CaptureFrameFormat::Nv12))
+                Ok(CaptureFrameFormat::Nv12)
             }
-            format if format == kCVPixelFormatType_32BGRA => {
-                convert_bgra(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CaptureFrameFormat::Bgra))
-            }
+            format if format == kCVPixelFormatType_32BGRA => Ok(CaptureFrameFormat::Bgra),
             format
                 if format == kCVPixelFormatType_420YpCbCr8Planar
                     || format == kCVPixelFormatType_420YpCbCr8PlanarFullRange =>
             {
-                convert_i420(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CaptureFrameFormat::I420))
+                Ok(CaptureFrameFormat::I420)
             }
-            format if format == kCVPixelFormatType_422YpCbCr8 => {
-                convert_uyvy(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CaptureFrameFormat::Uyvy))
-            }
+            format if format == kCVPixelFormatType_422YpCbCr8 => Ok(CaptureFrameFormat::Uyvy),
             format
                 if format == kCVPixelFormatType_422YpCbCr8_yuvs
                     || format == kCVPixelFormatType_422YpCbCr8FullRange =>
             {
-                convert_yuy2(pixel_buffer, width, height)
-                    .map(|buffer| (buffer, CaptureFrameFormat::Yuyv))
+                Ok(CaptureFrameFormat::Yuyv)
             }
             other => Err(AvFoundationError::UnsupportedCoreVideoPixelFormat(other)),
         }

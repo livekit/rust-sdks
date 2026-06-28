@@ -56,7 +56,7 @@ fn print_capabilities(formats: &[CaptureFormat]) {
     let mut formats = formats.to_vec();
     formats.sort_by_key(|format| {
         (
-            format!("{:?}", format.pixel_format),
+            format!("{:?}", format.frame_format),
             format.resolution.width,
             format.resolution.height,
             format.frame_rate,
@@ -67,7 +67,7 @@ fn print_capabilities(formats: &[CaptureFormat]) {
     for format in formats {
         println!(
             "   - {:?}: {}x{} @ {} fps",
-            format.pixel_format,
+            format.frame_format,
             format.resolution.width,
             format.resolution.height,
             format.frame_rate

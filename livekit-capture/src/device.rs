@@ -62,6 +62,8 @@ impl fmt::Display for CaptureBackend {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum CapturePath {
+    /// Platform-native uncompressed frame buffers.
+    Native,
     /// Uncompressed CPU-accessible frame buffers.
     Raw,
     /// Linux DMA-BUF backed frames.
@@ -296,14 +298,14 @@ mod tests {
             name: "Camera".to_string(),
             model_id: None,
             manufacturer: None,
-            paths: vec![CapturePath::Raw],
+            paths: vec![CapturePath::Native, CapturePath::Raw],
             formats: Vec::new(),
             formats_complete: false,
         };
 
         assert_eq!(info.backend, CaptureBackend::AvFoundation);
         assert_eq!(info.selector, CaptureDeviceSelector::Id("camera-0".to_string()));
-        assert_eq!(info.paths, vec![CapturePath::Raw]);
+        assert_eq!(info.paths, vec![CapturePath::Native, CapturePath::Raw]);
         assert!(!info.formats_complete);
     }
 }

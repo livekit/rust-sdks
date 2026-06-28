@@ -39,6 +39,7 @@ pub use encoded::{
 pub use error::CaptureError;
 pub use source::{
     CaptureFrame, CaptureFrameSource, CaptureSourceError, CaptureSourceOptions,
-    EncodedCaptureFrameSource, EncodedFrameSourceError, RawVideoFrame, VideoCaptureSource,
+    EncodedCaptureFrameSource, EncodedFrameSourceError, NativeVideoFrame, RawVideoFrame,
+    VideoCaptureSource,
 };
 pub use track::VideoCaptureTrack;
