@@ -83,7 +83,13 @@ Publisher usage:
 
  # publish a static SMPTE color-bar test pattern (no camera required)
  cargo run -p local_video -F desktop --bin publisher -- \
-   --test-pattern \
+   --test-pattern 0 \
+   --room-name demo \
+   --identity test-1
+
+ # publish an animated encoder exercise test pattern (no camera required)
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --test-pattern 1 \
    --room-name demo \
    --identity test-1
 
@@ -124,7 +130,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
 - `--source <uvc|argus>`: Camera backend to use (default: `uvc`). `argus` uses NVIDIA libargus for MIPI CSI cameras and is available only on Linux aarch64 Jetson builds.
 - `--format <auto|yuv|mjpeg>`: UVC camera capture format (default: `auto`). `auto` tries uncompressed YUYV first and falls back to MJPEG; `mjpeg` can reduce USB bandwidth when running multiple cameras.
-- `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
+- `--test-pattern [0|1]`: Generate a test pattern instead of capturing from a camera. `0` is a static SMPTE 75% color-bar pattern and `1` is an animated encoder exercise graphic. Omitting the value defaults to `0`. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
 - `--fps <n>`: Desired capture framerate (default: `30`).

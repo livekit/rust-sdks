@@ -41,7 +41,7 @@ mod user_data;
 mod video_display;
 mod viewport_aspect;
 
-use test_pattern::TestPattern;
+use test_pattern::{TestPattern, TestPatternKind};
 use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
 
@@ -180,9 +180,16 @@ struct Args {
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
 
-    /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
-    test_pattern: bool,
+    /// Generate a numeric test pattern instead of using a camera: 0 = static bars, 1 = animated
+    #[arg(
+        long,
+        value_name = "N",
+        num_args = 0..=1,
+        default_missing_value = "0",
+        value_parser = parse_test_pattern_kind,
+        conflicts_with_all = ["list_cameras", "list_encoders"]
+    )]
+    test_pattern: Option<TestPatternKind>,
 
     /// Desired width
     #[arg(long, default_value_t = 1280)]
@@ -298,6 +305,13 @@ fn requested_playout_delay(
             Some((min_playout_delay.unwrap_or_default(), max_playout_delay.unwrap_or_default()))
         }
     }
+}
+
+fn parse_test_pattern_kind(value: &str) -> Result<TestPatternKind, String> {
+    let numeric =
+        value.parse::<u8>().map_err(|_| format!("test pattern must be 0 or 1, got `{value}`"))?;
+    TestPatternKind::try_from(numeric)
+        .map_err(|_| format!("test pattern must be 0 or 1, got `{value}`"))
 }
 
 fn normalize_twirp_host(url: &str) -> String {
@@ -706,6 +720,46 @@ mod tests {
             current.sensor_exposure_timestamp_us
         );
     }
+
+    #[test]
+    fn test_pattern_is_absent_by_default() {
+        let args = Args::try_parse_from(["publisher"]).expect("default args should parse");
+
+        assert_eq!(args.test_pattern, None);
+    }
+
+    #[test]
+    fn test_pattern_without_value_defaults_to_static_bars() {
+        let args =
+            Args::try_parse_from(["publisher", "--test-pattern"]).expect("args should parse");
+
+        assert_eq!(args.test_pattern, Some(TestPatternKind::StaticColorBars));
+    }
+
+    #[test]
+    fn test_pattern_without_value_allows_following_option() {
+        let args = Args::try_parse_from(["publisher", "--test-pattern", "--room-name", "demo"])
+            .expect("args should parse");
+
+        assert_eq!(args.test_pattern, Some(TestPatternKind::StaticColorBars));
+        assert_eq!(args.room_name, "demo");
+    }
+
+    #[test]
+    fn test_pattern_accepts_numeric_mode() {
+        let args =
+            Args::try_parse_from(["publisher", "--test-pattern", "1"]).expect("args should parse");
+
+        assert_eq!(args.test_pattern, Some(TestPatternKind::AnimatedGraphic));
+    }
+
+    #[test]
+    fn test_pattern_rejects_unknown_numeric_mode() {
+        let err =
+            Args::try_parse_from(["publisher", "--test-pattern", "2"]).expect_err("2 is invalid");
+
+        assert!(err.to_string().contains("test pattern must be 0 or 1"));
+    }
 }
 
 fn list_cameras() -> Result<()> {
@@ -1017,7 +1071,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         SourceKind::Argus => {
             #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
             {
-                if args.test_pattern {
+                if args.test_pattern.is_some() {
                     anyhow::bail!("--test-pattern is not supported with --source argus");
                 }
                 if args.display_video {
@@ -1053,15 +1107,22 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         }
         SourceKind::Uvc => {
-            if args.test_pattern {
+            if let Some(test_pattern) = args.test_pattern {
                 let width = args.width;
                 let height = args.height;
                 let fps = args.fps;
                 info!(
-                    "Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps",
-                    width, height, fps
+                    "Test pattern enabled: {} at {}x{} @ {} fps",
+                    test_pattern.label(),
+                    width,
+                    height,
+                    fps
                 );
-                (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
+                (
+                    width,
+                    height,
+                    VideoInput::TestPattern(TestPattern::new(width, height, test_pattern)),
+                )
             } else {
                 open_platform_camera(&args)?
             }
@@ -1314,6 +1375,7 @@ async fn run_capture_loop(
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
     let mut frame_counter: u32 = 1;
+    let mut test_pattern_frame_index: u64 = 0;
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
     let align_buffers_for_display = display_shared.is_some();
@@ -1358,7 +1420,9 @@ async fn run_capture_loop(
                     stride_u as i32,
                     data_v,
                     stride_v as i32,
+                    test_pattern_frame_index,
                 );
+                test_pattern_frame_index = test_pattern_frame_index.wrapping_add(1);
                 let frame_acquired_at = Instant::now();
                 (
                     frame,
