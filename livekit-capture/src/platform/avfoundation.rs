@@ -18,7 +18,7 @@ use std::sync::{
 };
 use std::thread::JoinHandle;
 
-use livekit::webrtc::video_frame::{I420Buffer, VideoFrame};
+use livekit::webrtc::video_frame::{I420Buffer, VideoBuffer, VideoFrame};
 use thiserror::Error;
 
 use crate::{
@@ -82,6 +82,7 @@ impl AvFoundationFrame {
 pub struct AvFoundationCaptureSession {
     format: CaptureFormat,
     options: AvFoundationCaptureOptions,
+    target_resolution: Option<CaptureResolution>,
     #[cfg(target_os = "macos")]
     inner: macos::SessionInner,
 }
@@ -133,7 +134,11 @@ impl AvFoundationCaptureSession {
         let inner = macos::SessionInner::new(&options)?;
         let mut format = inner.wait_for_format(FIRST_FRAME_TIMEOUT)?;
         format.frame_rate = requested_frame_rate_hint(&options.format).unwrap_or(30);
-        Ok(Self { format, options, inner })
+        let target_resolution = requested_output_resolution(&options.format, format.resolution);
+        if let Some(resolution) = target_resolution {
+            format.resolution = resolution;
+        }
+        Ok(Self { format, options, target_resolution, inner })
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -143,7 +148,19 @@ impl AvFoundationCaptureSession {
 
     #[cfg(target_os = "macos")]
     fn capture_frame_inner(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
-        self.inner.capture_frame()
+        let mut frame = self.inner.capture_frame()?;
+        if let Some(resolution) = self.target_resolution {
+            if frame.frame.buffer.width() != resolution.width
+                || frame.frame.buffer.height() != resolution.height
+            {
+                let width = i32::try_from(resolution.width)
+                    .map_err(|_| AvFoundationError::InvalidFrame("scaled width exceeds i32"))?;
+                let height = i32::try_from(resolution.height)
+                    .map_err(|_| AvFoundationError::InvalidFrame("scaled height exceeds i32"))?;
+                frame.frame.buffer = frame.frame.buffer.scale(width, height);
+            }
+        }
+        Ok(frame)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -338,6 +355,23 @@ fn requested_frame_rate_hint(format: &CaptureFormatRequest) -> Option<u32> {
         CaptureFormatRequest::HighestFrameRate { .. } => None,
         CaptureFormatRequest::HighestResolution { frame_rate, .. } => *frame_rate,
     }
+}
+
+fn requested_output_resolution(
+    request: &CaptureFormatRequest,
+    delivered: CaptureResolution,
+) -> Option<CaptureResolution> {
+    let CaptureFormatRequest::Closest(format) = request else {
+        return None;
+    };
+    if format.resolution == delivered {
+        return None;
+    }
+    (resolution_area(format.resolution) <= resolution_area(delivered)).then_some(format.resolution)
+}
+
+fn resolution_area(resolution: CaptureResolution) -> u64 {
+    resolution.width as u64 * resolution.height as u64
 }
 
 fn validate_resolution(resolution: CaptureResolution) -> Result<(), AvFoundationError> {
@@ -797,6 +831,11 @@ mod macos {
                 );
                 selected.map(Some).ok_or(AvFoundationError::UnsupportedFormat(*format))
             }
+            CaptureFormatRequest::Closest(format)
+                if exact_session_preset(format.resolution).is_some() =>
+            {
+                Ok(None)
+            }
             CaptureFormatRequest::Closest(format) => Ok(best_device_format(
                 device,
                 Some(format.resolution),
@@ -1028,12 +1067,18 @@ mod macos {
             | CaptureFormatRequest::HighestResolution { frame_rate: _, frame_format: _ } => None,
         }?;
 
+        exact_session_preset(resolution).or(Some(unsafe { AVCaptureSessionPresetHigh }))
+    }
+
+    fn exact_session_preset(
+        resolution: CaptureResolution,
+    ) -> Option<&'static objc2_av_foundation::AVCaptureSessionPreset> {
         match (resolution.width, resolution.height) {
             (1920, 1080) => Some(unsafe { AVCaptureSessionPreset1920x1080 }),
             (1280, 720) => Some(unsafe { AVCaptureSessionPreset1280x720 }),
             (640, 480) => Some(unsafe { AVCaptureSessionPreset640x480 }),
             (w, h) if w <= 640 && h <= 480 => Some(unsafe { AVCaptureSessionPresetMedium }),
-            _ => Some(unsafe { AVCaptureSessionPresetHigh }),
+            _ => None,
         }
     }
 

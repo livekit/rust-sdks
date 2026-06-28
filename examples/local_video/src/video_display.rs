@@ -661,8 +661,6 @@ impl eframe::App for VideoApp {
         let channel_values = self.channels.as_ref().map(|targets| drive_channels(&ctx, targets));
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
-            ui.ctx().request_repaint();
-
             let size =
                 viewport_aspect::fitted_video_size(ui.available_size(), self.viewport.aspect());
 

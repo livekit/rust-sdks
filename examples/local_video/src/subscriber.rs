@@ -783,6 +783,10 @@ fn update_receive_bitrate_from_stats(
     }
 }
 
+fn stats_poll_interval() -> Duration {
+    Duration::from_secs(10)
+}
+
 struct TimestampAnchor {
     unix_timestamp_us: u64,
     instant: Instant,
@@ -1042,7 +1046,7 @@ async fn handle_track_subscribed(
         let mut receive_bitrate_snapshot = None;
         let mut last_jitter_buffer_log =
             Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        let mut interval = tokio::time::interval(stats_poll_interval());
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -1345,8 +1349,6 @@ impl eframe::App for VideoApp {
         );
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
-            ui.ctx().request_repaint();
-
             // Let the native window follow live resize, and letterbox the video instead of
             // programmatically resizing the window while the user is dragging it.
             let size =

@@ -53,7 +53,7 @@ pub(crate) fn native_options(initial_aspect: Option<f32>) -> eframe::NativeOptio
     let mut wgpu_options = egui_wgpu_backend::WgpuConfiguration::default();
     #[cfg(target_os = "macos")]
     {
-        wgpu_options.surface.present_mode = wgpu::PresentMode::Immediate;
+        wgpu_options.surface.present_mode = wgpu::PresentMode::AutoVsync;
     }
     #[cfg(not(target_os = "macos"))]
     {
