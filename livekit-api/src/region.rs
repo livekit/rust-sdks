@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Region-discovery primitives shared by the two `/settings/regions` consumers:
-//! the signaling region provider ([`crate::signal_client::region`]) and the API
+//! the signaling region provider ([`crate::signal_client::region_url_provider`]) and the API
 //! failover region cache ([`crate::services::failover`]).
 //!
 //! Only the feature-independent pieces live here. The caches themselves are
