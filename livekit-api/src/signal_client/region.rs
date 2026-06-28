@@ -21,10 +21,10 @@ use std::{
 
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION, CACHE_CONTROL};
 use parking_lot::Mutex;
-use serde::Deserialize;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::http_client;
+use crate::region::{is_cloud_host, parse_max_age, RegionsResponse};
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 
@@ -161,18 +161,6 @@ fn error_with_chain(err: &dyn StdError) -> String {
 
 pub struct RegionUrlProvider;
 
-#[derive(Deserialize)]
-pub struct RegionUrlResponse {
-    pub regions: Vec<RegionUrlInfo>,
-}
-
-#[derive(Deserialize)]
-pub struct RegionUrlInfo {
-    pub region: String,
-    pub url: String,
-    pub distance: String,
-}
-
 impl RegionUrlProvider {
     /// Fetch the ordered list of region signalling URLs for a LiveKit Cloud
     /// host. Non-cloud (direct / self-hosted) URLs have no regions, so this
@@ -184,11 +172,12 @@ impl RegionUrlProvider {
     /// de-duplicated: only one fetch runs at a time and the rest reuse its
     /// result.
     pub async fn fetch_region_urls(url: &str, token: &str) -> SignalResult<Vec<String>> {
-        if !is_cloud_url(url)? {
+        let host = region_host(url)?;
+        // Non-cloud (direct / self-hosted) hosts have no regions.
+        if !is_cloud_host(&host) {
             return Ok(vec![]);
         }
 
-        let host = region_host(url)?;
         let cache = RegionCache::shared();
 
         // Fast path: a fresh entry needs neither a fetch nor the fetch lock.
@@ -282,7 +271,7 @@ pub(crate) async fn fetch_from_endpoint(
             res.headers().get(CACHE_CONTROL).and_then(|v| v.to_str().ok()).and_then(parse_max_age);
 
         let res = res
-            .json::<RegionUrlResponse>()
+            .json::<RegionsResponse>()
             .await
             .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
         Ok((res.regions.into_iter().map(|i| i.url).collect(), max_age))
@@ -291,29 +280,6 @@ pub(crate) async fn fetch_from_endpoint(
     livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
         .await
         .map_err(|_| SignalError::RegionError("region fetch timed out".into()))?
-}
-
-/// Parses the `max-age` directive (in seconds) out of a `Cache-Control` header
-/// value, e.g. `"max-age=300, public"` -> `Some(300s)`. Returns `None` when the
-/// directive is absent or unparseable, leaving the caller on the default TTL.
-fn parse_max_age(cache_control: &str) -> Option<Duration> {
-    cache_control.split(',').find_map(|directive| {
-        let (name, value) = directive.split_once('=')?;
-        name.trim().eq_ignore_ascii_case("max-age").then_some(())?;
-        value.trim().parse::<u64>().ok().map(Duration::from_secs)
-    })
-}
-
-fn is_cloud_url(url: &str) -> SignalResult<bool> {
-    let url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
-    let host = match url.host() {
-        Some(host) => host.to_string(),
-        None => {
-            return Err(SignalError::UrlParse("invalid hostname".into()));
-        }
-    };
-
-    Ok(host.ends_with(".livekit.cloud") || host.ends_with(".livekit.run"))
 }
 
 fn region_endpoint(url: &str) -> SignalResult<String> {
@@ -477,17 +443,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_cloud_url() {
-        assert!(is_cloud_url("wss://myapp.livekit.cloud").unwrap());
-        assert!(is_cloud_url("wss://myapp.livekit.run").unwrap());
-        assert!(is_cloud_url("https://myapp.livekit.cloud").unwrap());
-
-        assert!(!is_cloud_url("wss://localhost:7880").unwrap());
-        assert!(!is_cloud_url("wss://example.com").unwrap());
-        assert!(!is_cloud_url("wss://livekit.cloud.example.com").unwrap());
-    }
-
-    #[test]
     fn test_region_host() {
         assert_eq!(region_host("wss://myapp.livekit.cloud").unwrap(), "myapp.livekit.cloud");
         assert_eq!(region_host("https://myapp.livekit.cloud/rtc").unwrap(), "myapp.livekit.cloud");
@@ -595,16 +550,6 @@ mod tests {
         let b = cache.fetch_lock("b.livekit.cloud");
         assert!(Arc::ptr_eq(&a1, &a2), "same host shares one fetch lock");
         assert!(!Arc::ptr_eq(&a1, &b), "different hosts get distinct fetch locks");
-    }
-
-    #[test]
-    fn test_parse_max_age() {
-        assert_eq!(parse_max_age("max-age=300"), Some(Duration::from_secs(300)));
-        assert_eq!(parse_max_age("public, max-age=300"), Some(Duration::from_secs(300)));
-        assert_eq!(parse_max_age("MAX-AGE=0, no-cache"), Some(Duration::ZERO));
-        assert_eq!(parse_max_age("no-store"), None);
-        assert_eq!(parse_max_age("max-age=notanumber"), None);
-        assert_eq!(parse_max_age(""), None);
     }
 
     #[test]

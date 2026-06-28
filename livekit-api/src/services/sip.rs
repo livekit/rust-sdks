@@ -169,6 +169,13 @@ impl SIPClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
     fn duration_to_proto(d: Option<Duration>) -> Option<ProtoDuration> {
         d.map(|d| ProtoDuration { seconds: d.as_secs() as i64, nanos: d.subsec_nanos() as i32 })
     }

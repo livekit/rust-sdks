@@ -41,6 +41,13 @@ impl AgentDispatchClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
     /// Creates an explicit dispatch for an agent to join a room.
     ///
     /// To use explicit dispatch, your agent must be registered with an `agent_name`.

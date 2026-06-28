@@ -28,7 +28,11 @@ pub mod ingress;
 pub mod room;
 pub mod sip;
 
+mod failover;
 mod twirp_client;
+
+#[cfg(all(test, feature = "services-tokio"))]
+mod api_test;
 
 pub const LIVEKIT_PACKAGE: &str = "livekit";
 

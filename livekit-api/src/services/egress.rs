@@ -121,6 +121,13 @@ impl EgressClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
     pub async fn start_room_composite_egress(
         &self,
         room: &str,

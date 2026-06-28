@@ -20,7 +20,9 @@ use http::{
 };
 use serde::Deserialize;
 use thiserror::Error;
+use url::Url;
 
+use super::failover::{self, FailoverConfig};
 use crate::http_client;
 
 pub const DEFAULT_PREFIX: &str = "/twirp";
@@ -82,6 +84,7 @@ pub struct TwirpClient {
     pkg: String,
     prefix: String,
     client: http_client::Client,
+    failover: FailoverConfig,
 }
 
 impl TwirpClient {
@@ -91,9 +94,30 @@ impl TwirpClient {
             pkg: pkg.to_owned(),
             prefix: prefix.unwrap_or(DEFAULT_PREFIX).to_owned(),
             client: http_client::Client::new(),
+            failover: FailoverConfig::default(),
         }
     }
 
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.failover.enabled = enabled;
+        self
+    }
+
+    /// Overrides the full failover configuration, including the internal
+    /// test-only `force` and `backoff_base` knobs.
+    #[cfg(test)]
+    pub(crate) fn with_failover_config(mut self, config: FailoverConfig) -> Self {
+        self.failover = config;
+        self
+    }
+
+    /// Issues a Twirp request, failing over to alternative regions on retryable
+    /// errors. On any transport error or HTTP 5xx it discovers regions via
+    /// `/settings/regions` and replays the request — body and headers intact —
+    /// against the next untried region, with exponential backoff. A 4xx is
+    /// returned immediately.
     pub async fn request<D: prost::Message, R: prost::Message + Default>(
         &self,
         service: &str,
@@ -101,19 +125,96 @@ impl TwirpClient {
         data: D,
         mut headers: HeaderMap,
     ) -> TwirpResult<R> {
-        let mut url = url::Url::parse(&self.host)?;
-
-        url.set_path(&format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method));
-
+        let original = Url::parse(&self.host)?;
+        let path = format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method);
+        let forward = headers.clone(); // headers for the discovery fetch (no content-type yet)
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/protobuf"));
+        let body = data.encode_to_vec();
 
-        let resp = self.client.post(url).headers(headers).body(data.encode_to_vec()).send().await?;
+        let max_attempts = self.failover.attempts(original.host_str());
+        let mut attempted = vec![failover::host_key(&original)];
+        let mut region_urls: Option<Vec<String>> = None;
+        let mut current = original.clone();
 
-        if resp.status() == StatusCode::OK {
-            Ok(R::decode(resp.bytes().await?)?)
-        } else {
-            let err: TwirpErrorCode = resp.json().await?;
-            Err(TwirpError::Twirp(err))
+        for attempt in 0..max_attempts {
+            let is_last = attempt + 1 >= max_attempts;
+            let mut url = current.clone();
+            url.set_path(&path);
+
+            let send =
+                self.client.post(url).headers(headers.clone()).body(body.clone()).send().await;
+            match send {
+                Ok(resp) => {
+                    let status = resp.status();
+                    if status == StatusCode::OK {
+                        return Ok(R::decode(resp.bytes().await?)?);
+                    }
+                    // 4xx is terminal; only 5xx is retryable.
+                    if is_last || status.as_u16() < 500 {
+                        let err: TwirpErrorCode = resp.json().await?;
+                        return Err(TwirpError::Twirp(err));
+                    }
+                    match self.next_region(&original, &forward, &mut region_urls, &attempted).await
+                    {
+                        Some(next) => {
+                            log::warn!(
+                                "livekit API request to {} failed with status {}, retrying with fallback url {}",
+                                current.host_str().unwrap_or_default(),
+                                status,
+                                next,
+                            );
+                            drop(resp);
+                            failover::backoff_sleep(self.backoff(attempt)).await;
+                            attempted.push(failover::host_key(&next));
+                            current = next;
+                        }
+                        None => {
+                            let err: TwirpErrorCode = resp.json().await?;
+                            return Err(TwirpError::Twirp(err));
+                        }
+                    }
+                }
+                Err(err) => {
+                    if is_last {
+                        return Err(err.into());
+                    }
+                    match self.next_region(&original, &forward, &mut region_urls, &attempted).await
+                    {
+                        Some(next) => {
+                            log::warn!(
+                                "livekit API request to {} failed ({}), retrying with fallback url {}",
+                                current.host_str().unwrap_or_default(),
+                                err,
+                                next,
+                            );
+                            failover::backoff_sleep(self.backoff(attempt)).await;
+                            attempted.push(failover::host_key(&next));
+                            current = next;
+                        }
+                        None => return Err(err.into()),
+                    }
+                }
+            }
         }
+        unreachable!("failover loop always returns within the attempt budget")
+    }
+
+    fn backoff(&self, attempt: u32) -> std::time::Duration {
+        self.failover.backoff_base * (1u32 << attempt)
+    }
+
+    /// Resolves the next untried region, fetching the region list lazily on the
+    /// first retryable failure and reusing it thereafter.
+    async fn next_region(
+        &self,
+        original: &Url,
+        forward: &HeaderMap,
+        region_urls: &mut Option<Vec<String>>,
+        attempted: &[String],
+    ) -> Option<Url> {
+        if region_urls.is_none() {
+            *region_urls = Some(failover::region_urls(original, forward).await);
+        }
+        failover::pick_next(region_urls.as_ref().unwrap(), attempted)
     }
 }
