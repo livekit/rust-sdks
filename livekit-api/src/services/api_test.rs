@@ -58,7 +58,8 @@ async fn call(
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer test-token"));
     // These tests exercise failover, not authz; skip the mock's permission check.
-    headers.insert(HeaderName::from_static("x-lk-mock-skip-auth"), HeaderValue::from_static("true"));
+    headers
+        .insert(HeaderName::from_static("x-lk-mock-skip-auth"), HeaderValue::from_static("true"));
     for (k, v) in directives {
         headers.insert(HeaderName::from_static(k), HeaderValue::from_str(v).unwrap());
     }
