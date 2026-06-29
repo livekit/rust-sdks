@@ -183,8 +183,11 @@ impl PeerTransport {
         if ultimate_kbps == 0 {
             return None;
         }
-        // JS / Flutter uses ~70% of ultimate; 100% is also reasonable per feedback.
-        let start_kbps = (ultimate_kbps as f64 * 0.7).round() as u32;
+        // Use 90% of target bitrate as start bitrate for all codecs.
+        // Why 90%: Gives ~10% headroom for bandwidth estimation while starting close to target.
+        // Why same for all codecs: Target bitrate already accounts for codec efficiency
+        // (e.g., users set lower targets for VP9/AV1 knowing they're more efficient).
+        let start_kbps = (ultimate_kbps as f64 * 0.9).round() as u32;
 
         // A low start-bitrate hint is more likely to hurt than help for VP9/AV1.
         // If the max is too low, don't inject a start-bitrate hint at all.
