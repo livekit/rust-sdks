@@ -1,0 +1,4 @@
+target/
+models/
+.DS_Store
+.env
