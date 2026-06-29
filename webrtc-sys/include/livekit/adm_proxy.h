@@ -25,6 +25,10 @@
 #include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/synchronization/mutex.h"
 
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+#include <CoreAudio/CoreAudio.h>
+#endif
+
 namespace webrtc {
 class Thread;
 }  // namespace webrtc
@@ -272,6 +276,45 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   uint16_t selected_recording_device_ = 0;
   std::string selected_playout_guid_;
   std::string selected_recording_guid_;
+
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+  // macOS only: the precompiled CoreAudio ADM does not re-read the output device's
+  // nominal sample rate when it changes underneath an active playout (e.g. a Bluetooth
+  // headset flipping HFP<->A2DP when the mic stream opens/closes). That leaves playout
+  // emitting samples at the old rate into a device now running at a new rate, which
+  // pitch-shifts remote audio ("squeaky"). We install a Core Audio property listener on
+  // the default output device's nominal sample rate (and on default-output-device
+  // changes) and re-init platform playout when the rate changes so the ADM rebuilds its
+  // resampler at the correct rate.
+
+  // Installs the output sample-rate / default-output-device listeners. Idempotent.
+  // Must be called with mutex_ held.
+  void InstallOutputRateListenerLocked();
+
+  // Removes the listeners installed by InstallOutputRateListenerLocked(). Idempotent.
+  // Must be called with mutex_ held.
+  void RemoveOutputRateListenerLocked();
+
+  // Re-initializes platform playout (StopPlayout -> InitPlayout -> StartPlayout) so the
+  // precompiled ADM re-reads the current output device rate. Runs on worker_thread_.
+  void RebouncePlayoutForRateChange();
+
+  // Core Audio property-listener trampoline. Fires on a Core Audio managed thread for
+  // default-output-device and nominal-sample-rate changes; posts the rebounce to
+  // worker_thread_. inClientData is the owning AdmProxy*.
+  static OSStatus OnOutputPropertyChanged(
+      AudioObjectID inObjectID,
+      UInt32 inNumberAddresses,
+      const AudioObjectPropertyAddress* inAddresses,
+      void* inClientData);
+
+  bool output_listener_installed_ = false;
+  // Device the nominal-rate listener is currently attached to (kAudioObjectUnknown when
+  // none). Tracked so we can re-point the listener when the default output device changes.
+  AudioObjectID listened_output_device_ = kAudioObjectUnknown;
+  // Guards against re-entrant rebounces triggered by our own StopPlayout/StartPlayout.
+  bool rebouncing_ = false;
+#endif  // defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
 };
 
 }  // namespace livekit_ffi

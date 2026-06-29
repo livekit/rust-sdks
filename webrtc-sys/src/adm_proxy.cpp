@@ -71,6 +71,16 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
 AdmProxy::~AdmProxy() {
   RTC_LOG(LS_VERBOSE) << "AdmProxy::~AdmProxy()";
 
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+  // Ensure no Core Audio callback can fire into a destroyed instance. Destruction runs
+  // on worker_thread_ (see PeerConnectionFactory), the same thread RebouncePlayout tasks
+  // run on, so a removal here serializes ahead of any later callback-posted task.
+  {
+    webrtc::MutexLock lock(&mutex_);
+    RemoveOutputRateListenerLocked();
+  }
+#endif
+
   if (synthetic_adm_) {
     synthetic_adm_->Terminate();
     synthetic_adm_ = nullptr;
@@ -246,8 +256,14 @@ void AdmProxy::SwitchPlayoutModeIfNeeded() {
       platform_adm_->InitPlayout();
       platform_adm_->StartPlayout();
     }
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+    InstallOutputRateListenerLocked();
+#endif
   } else {
     // Switch to synthetic mode - stop platform ADM, start synthetic ADM
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+    RemoveOutputRateListenerLocked();
+#endif
     if (platform_adm_) {
       platform_adm_->StopPlayout();
     }
@@ -272,6 +288,167 @@ void AdmProxy::SwitchRecordingAdmIfNeeded() {
     recording_ = false;
   }
 }
+
+// =============================================================================
+// macOS: Output Sample-Rate Change Handling
+// =============================================================================
+//
+// The precompiled CoreAudio ADM does not re-read the output device's nominal sample
+// rate when it changes underneath active playout. A Bluetooth headset flips HFP<->A2DP
+// when the microphone stream opens/closes (e.g. on mute, which stops recording),
+// changing the output rate. The ADM keeps emitting samples at the old rate into a
+// device now running at the new rate, pitch-shifting remote audio. We listen for the
+// rate change and re-init platform playout so the ADM rebuilds its resampler.
+
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+
+namespace {
+
+constexpr AudioObjectPropertyAddress kDefaultOutputDeviceAddress = {
+    kAudioHardwarePropertyDefaultOutputDevice,
+    kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyElementMain,
+};
+
+constexpr AudioObjectPropertyAddress kNominalSampleRateAddress = {
+    kAudioDevicePropertyNominalSampleRate,
+    kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyElementMain,
+};
+
+AudioObjectID CurrentDefaultOutputDevice() {
+  AudioObjectID device = kAudioObjectUnknown;
+  UInt32 size = sizeof(device);
+  OSStatus status =
+      AudioObjectGetPropertyData(kAudioObjectSystemObject, &kDefaultOutputDeviceAddress,
+                                 0, nullptr, &size, &device);
+  if (status != noErr) {
+    RTC_LOG(LS_WARNING) << "AdmProxy: failed to read default output device, status="
+                        << status;
+    return kAudioObjectUnknown;
+  }
+  return device;
+}
+
+double OutputNominalSampleRate(AudioObjectID device) {
+  if (device == kAudioObjectUnknown) return 0.0;
+  Float64 rate = 0.0;
+  UInt32 size = sizeof(rate);
+  OSStatus status = AudioObjectGetPropertyData(device, &kNominalSampleRateAddress, 0,
+                                               nullptr, &size, &rate);
+  if (status != noErr) return 0.0;
+  return static_cast<double>(rate);
+}
+
+}  // namespace
+
+OSStatus AdmProxy::OnOutputPropertyChanged(
+    AudioObjectID /*inObjectID*/,
+    UInt32 /*inNumberAddresses*/,
+    const AudioObjectPropertyAddress* /*inAddresses*/,
+    void* inClientData) {
+  auto* self = static_cast<AdmProxy*>(inClientData);
+  if (!self) return noErr;
+  // Core Audio invokes this on its own thread. Never touch the ADM or mutex_ here;
+  // hop to worker_thread_, which owns ADM playout lifecycle.
+  webrtc::Thread* worker = self->worker_thread_;
+  if (worker) {
+    worker->PostTask([self] { self->RebouncePlayoutForRateChange(); });
+  }
+  return noErr;
+}
+
+void AdmProxy::InstallOutputRateListenerLocked() {
+  if (output_listener_installed_) return;
+
+  // Default-output-device changes (headphones plug/unplug, Bluetooth connect) so we can
+  // re-point the per-device rate listener.
+  OSStatus status = AudioObjectAddPropertyListener(
+      kAudioObjectSystemObject, &kDefaultOutputDeviceAddress,
+      &AdmProxy::OnOutputPropertyChanged, this);
+  if (status != noErr) {
+    RTC_LOG(LS_WARNING)
+        << "AdmProxy: failed to add default-output-device listener, status=" << status;
+  }
+
+  // In-place nominal sample-rate changes on the current output device (the BT HFP<->A2DP
+  // flip is the motivating case).
+  listened_output_device_ = CurrentDefaultOutputDevice();
+  if (listened_output_device_ != kAudioObjectUnknown) {
+    status = AudioObjectAddPropertyListener(listened_output_device_,
+                                            &kNominalSampleRateAddress,
+                                            &AdmProxy::OnOutputPropertyChanged, this);
+    if (status != noErr) {
+      RTC_LOG(LS_WARNING)
+          << "AdmProxy: failed to add nominal-sample-rate listener, status=" << status;
+    }
+  }
+
+  output_listener_installed_ = true;
+  RTC_LOG(LS_INFO) << "AdmProxy: installed output rate listeners (device="
+                   << listened_output_device_
+                   << ", rate=" << OutputNominalSampleRate(listened_output_device_)
+                   << ")";
+}
+
+void AdmProxy::RemoveOutputRateListenerLocked() {
+  if (!output_listener_installed_) return;
+
+  AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &kDefaultOutputDeviceAddress,
+                                    &AdmProxy::OnOutputPropertyChanged, this);
+
+  if (listened_output_device_ != kAudioObjectUnknown) {
+    AudioObjectRemovePropertyListener(listened_output_device_, &kNominalSampleRateAddress,
+                                      &AdmProxy::OnOutputPropertyChanged, this);
+    listened_output_device_ = kAudioObjectUnknown;
+  }
+
+  output_listener_installed_ = false;
+  RTC_LOG(LS_INFO) << "AdmProxy: removed output rate listeners";
+}
+
+void AdmProxy::RebouncePlayoutForRateChange() {
+  webrtc::MutexLock lock(&mutex_);
+
+  // Ignore irrelevant or re-entrant notifications: our own StopPlayout/StartPlayout below
+  // can themselves emit property-change callbacks.
+  if (rebouncing_ || !playing_ || !is_platform_playout_active() || !platform_adm_) {
+    return;
+  }
+  rebouncing_ = true;
+
+  // If the default output device changed, move the nominal-rate listener to the new one.
+  if (output_listener_installed_) {
+    AudioObjectID current = CurrentDefaultOutputDevice();
+    if (current != listened_output_device_) {
+      if (listened_output_device_ != kAudioObjectUnknown) {
+        AudioObjectRemovePropertyListener(listened_output_device_,
+                                          &kNominalSampleRateAddress,
+                                          &AdmProxy::OnOutputPropertyChanged, this);
+      }
+      listened_output_device_ = current;
+      if (current != kAudioObjectUnknown) {
+        AudioObjectAddPropertyListener(current, &kNominalSampleRateAddress,
+                                       &AdmProxy::OnOutputPropertyChanged, this);
+      }
+    }
+  }
+
+  double rate = OutputNominalSampleRate(listened_output_device_);
+
+  // Re-init platform playout so the precompiled CoreAudio ADM re-queries the device's
+  // current nominal rate and rebuilds its playout resampler.
+  platform_adm_->StopPlayout();
+  platform_adm_->InitPlayout();
+  platform_adm_->StartPlayout();
+
+  RTC_LOG(LS_INFO) << "AdmProxy: rebounced platform playout after output rate change "
+                   << "(device=" << listened_output_device_ << ", rate=" << rate << ")";
+
+  rebouncing_ = false;
+}
+
+#endif  // defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
 
 // =============================================================================
 // AudioDeviceModule Interface Implementation
@@ -307,6 +484,10 @@ int32_t AdmProxy::Init() {
 
 int32_t AdmProxy::Terminate() {
   webrtc::MutexLock lock(&mutex_);
+
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+  RemoveOutputRateListenerLocked();
+#endif
 
   int32_t result = 0;
   if (synthetic_adm_) {
@@ -503,7 +684,11 @@ int32_t AdmProxy::StartPlayout() {
 
   if (is_platform_playout_active()) {
     if (platform_adm_) {
-      return platform_adm_->StartPlayout();
+      int32_t result = platform_adm_->StartPlayout();
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+      if (result == 0) InstallOutputRateListenerLocked();
+#endif
+      return result;
     }
     return -1;
   }
@@ -518,6 +703,10 @@ int32_t AdmProxy::StartPlayout() {
 int32_t AdmProxy::StopPlayout() {
   webrtc::MutexLock lock(&mutex_);
   playing_ = false;
+
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+  RemoveOutputRateListenerLocked();
+#endif
 
   // Stop both ADMs
   if (synthetic_adm_) {
