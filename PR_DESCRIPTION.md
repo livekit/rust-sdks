@@ -36,17 +36,17 @@ flowchart TD
     %% Audio Ingestion & VAD Flow
     Room -->|Incoming PCM| Actor
     Actor -->|Process Samples| VAD
-    VAD -->|Speech Detected (Interruption)| Turn
+    VAD -->|Speech Detected - Interruption| Turn
     Turn -->|Advance Turn ID| Actor
     Actor -->|Cancel Active Turn| Client
     Actor -->|Accumulated PCM| Client
 
     %% Audio Outflow & Playback Flow
-    Client <-->|POST /message:stream (SSE)| Agent
+    Client <-->|POST /message:stream - SSE| Agent
     Agent -->|Audio Chunks| Client
     Client -->|Filter by Turn ID| Actor
     Actor -->|Push Valid Frames| Jitter
-    Jitter -->|Pop (10ms ticks) + Comfort Noise| Actor
+    Jitter -->|Pop 10ms ticks + Comfort Noise| Actor
     Actor -->|Write Frame| Source
     Source -->|Publish Audio| Track
     Track --> Room
