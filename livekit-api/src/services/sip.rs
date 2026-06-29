@@ -204,6 +204,7 @@ impl SIPClient {
                         // TODO: support these attributes
                         include_headers: Default::default(),
                         media_encryption: Default::default(),
+                        media: Default::default(),
                         created_at: Default::default(),
                         updated_at: Default::default(),
                     }),
@@ -247,6 +248,7 @@ impl SIPClient {
                         // TODO: support these attributes
                         include_headers: Default::default(),
                         media_encryption: Default::default(),
+                        media: Default::default(),
                         destination_country: Default::default(),
                         created_at: Default::default(),
                         updated_at: Default::default(),
