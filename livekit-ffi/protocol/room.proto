@@ -323,6 +323,9 @@ message TrackPublishOptions {
   optional string scalability_mode = 11;
   // Preferred encoder backend to use when publishing a video track.
   optional VideoEncoderBackend video_encoder = 12;
+  // Controls how the encoder trades off between resolution and framerate
+  // when bandwidth is constrained. Default is MAINTAIN_RESOLUTION.
+  optional DegradationPreference degradation_preference = 13;
 }
 
 enum VideoEncoderBackend {
@@ -332,6 +335,18 @@ enum VideoEncoderBackend {
   ENCODER_BACKEND_NVENC = 3;
   ENCODER_BACKEND_VAAPI = 4;
   ENCODER_BACKEND_VIDEOTOOLBOX = 5;
+}
+
+// Controls how the encoder degrades quality when bandwidth is constrained.
+enum DegradationPreference {
+  // Balance between framerate and resolution degradation.
+  DEGRADATION_PREFERENCE_BALANCED = 0;
+  // Degrade framerate to maintain resolution.
+  DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE = 1;
+  // Degrade resolution to maintain framerate (drop frames to keep clarity).
+  DEGRADATION_PREFERENCE_MAINTAIN_RESOLUTION = 2;
+  // Disable degradation preference.
+  DEGRADATION_PREFERENCE_DISABLED = 3;
 }
 
 enum IceTransportType {
