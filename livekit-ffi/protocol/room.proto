@@ -84,10 +84,6 @@ enum SimulateScenarioKind {
   // Asks the server to send `LeaveRequest{Reconnect}`, forcing a full
   // reconnect (new RtcSession; SDK republishes existing local tracks).
   SIMULATE_FULL_RECONNECT = 7;
-  // Asks the server to drop the signalling connection during the next resume,
-  // then triggers a resume locally. The resume cannot complete, so the engine
-  // escalates to a full reconnect — exercising the resume→full escalation path.
-  SIMULATE_DISCONNECT_SIGNAL_ON_RESUME = 8;
 }
 message SimulateScenarioRequest {
   required uint64 room_handle = 1;
@@ -316,7 +312,7 @@ message TrackPublishOptions {
   optional TrackSource source = 7;
   optional string stream = 8;
   optional bool preconnect_buffer = 9;
-  repeated FrameMetadataFeature frame_metadata_features = 10;
+  repeated PacketTrailerFeature packet_trailer_features = 10;
   // RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
   // encoding is produced with this mode, enabling true SVC for codecs
   // that support it (VP9, AV1). Has no effect for VP8/H264.

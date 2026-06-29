@@ -65,9 +65,7 @@ pub struct RtpTransceiver {
 
 impl RtpTransceiver {
     pub fn mid(&self) -> Option<String> {
-        // The C++ shim returns "" when libwebrtc has no mid yet (instead of
-        // calling std::optional::value() which would abort under -fno-exceptions).
-        self.sys_handle.mid().ok().filter(|s| !s.is_empty())
+        self.sys_handle.mid().ok()
     }
 
     pub fn current_direction(&self) -> Option<RtpTransceiverDirection> {

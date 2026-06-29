@@ -10,7 +10,8 @@ tracing = ["console-subscriber", "tokio/tracing"]
 
 [dependencies]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
-livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"]}
+webrtc-sys = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "persistence"] }

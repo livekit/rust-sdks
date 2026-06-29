@@ -16,9 +16,7 @@
 
 #include "livekit/video_encoder_factory.h"
 
-#include <cstdlib>
 #include <optional>
-#include <string_view>
 #include <utility>
 
 #include "api/environment/environment_factory.h"
@@ -52,46 +50,11 @@
 #include "vaapi/vaapi_encoder_factory.h"
 #endif
 
-#if defined(USE_JETSON_VIDEO_CODEC)
-#include "jetson/jetson_encoder_factory.h"
-#endif
-
 namespace livekit_ffi {
 
 namespace {
 
 constexpr char kBackendParameter[] = "x-livekit-video-encoder-backend";
-constexpr char kPreferredHwEncoderEnv[] = "LIVEKIT_PREFERRED_HW_ENCODER";
-
-enum class PreferredHwEncoder {
-  kNvenc,
-  kVaapi,
-};
-
-struct PreferredHwEncoderConfig {
-  PreferredHwEncoder encoder = PreferredHwEncoder::kNvenc;
-  bool explicitly_set = false;
-};
-
-PreferredHwEncoderConfig GetPreferredHwEncoderConfig() {
-  const char* preferred_encoder = std::getenv(kPreferredHwEncoderEnv);
-  if (!preferred_encoder) {
-    return {};
-  }
-
-  std::string_view preferred_encoder_view(preferred_encoder);
-  if (preferred_encoder_view == "nvenc") {
-    return {PreferredHwEncoder::kNvenc, true};
-  }
-  if (preferred_encoder_view == "vaapi") {
-    return {PreferredHwEncoder::kVaapi, true};
-  }
-
-  RTC_LOG(LS_WARNING) << "Ignoring invalid LIVEKIT_PREFERRED_HW_ENCODER=\""
-                      << preferred_encoder
-                      << "\"; expected \"nvenc\" or \"vaapi\".";
-  return {};
-}
 
 const char* BackendName(VideoEncoderBackend backend) {
   switch (backend) {
@@ -171,24 +134,8 @@ void AddBackendFactory(
   factories.push_back(VideoEncoderBackendFactory{backend, std::move(factory)});
 }
 
-void AddJetsonFactory(
-    std::vector<VideoEncoderBackendFactory>& factories) {
-#if defined(USE_JETSON_VIDEO_CODEC)
-  if (webrtc::JetsonVideoEncoderFactory::IsSupported()) {
-    AddBackendFactory(
-        factories,
-        VideoEncoderBackend::Hardware,
-        std::make_unique<webrtc::JetsonVideoEncoderFactory>());
-    return;
-  }
-#else
-  (void)factories;
-#endif
-}
-
 void AddNvencFactory(
-    std::vector<VideoEncoderBackendFactory>& factories,
-    bool preferred) {
+    std::vector<VideoEncoderBackendFactory>& factories) {
 #if defined(USE_NVIDIA_VIDEO_CODEC)
   if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
     AddBackendFactory(
@@ -197,25 +144,13 @@ void AddNvencFactory(
         std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
     return;
   }
-
-  if (preferred) {
-    RTC_LOG(LS_WARNING)
-        << "LIVEKIT_PREFERRED_HW_ENCODER=nvenc requested, but NVENC "
-           "is unavailable; falling back to other encoders.";
-  }
 #else
   (void)factories;
-  if (preferred) {
-    RTC_LOG(LS_WARNING)
-        << "LIVEKIT_PREFERRED_HW_ENCODER=nvenc requested, but NVENC support "
-           "is not compiled in; falling back to other encoders.";
-  }
 #endif
 }
 
 void AddVaapiFactory(
-    std::vector<VideoEncoderBackendFactory>& factories,
-    bool preferred) {
+    std::vector<VideoEncoderBackendFactory>& factories) {
 #if defined(USE_VAAPI_VIDEO_CODEC)
   if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
     AddBackendFactory(
@@ -224,19 +159,8 @@ void AddVaapiFactory(
         std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
     return;
   }
-
-  if (preferred) {
-    RTC_LOG(LS_WARNING)
-        << "LIVEKIT_PREFERRED_HW_ENCODER=vaapi requested, but VAAPI "
-           "is unavailable; falling back to other encoders.";
-  }
 #else
   (void)factories;
-  if (preferred) {
-    RTC_LOG(LS_WARNING)
-        << "LIVEKIT_PREFERRED_HW_ENCODER=vaapi requested, but VAAPI support "
-           "is not compiled in; falling back to other encoders.";
-  }
 #endif
 }
 
@@ -269,12 +193,6 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
   backends.push_back(VideoEncoderBackend::Hardware);
   has_hardware_backend = true;
   hardware_backend_listed = true;
-#endif
-
-#if defined(USE_JETSON_VIDEO_CODEC)
-  if (webrtc::JetsonVideoEncoderFactory::IsSupported()) {
-    has_hardware_backend = true;
-  }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
@@ -313,17 +231,8 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
       CreateAndroidVideoEncoderFactory());
 #endif
 
-  AddJetsonFactory(factories_);
-
-  const PreferredHwEncoderConfig preferred_hw_encoder =
-      GetPreferredHwEncoderConfig();
-  if (preferred_hw_encoder.encoder == PreferredHwEncoder::kVaapi) {
-    AddVaapiFactory(factories_, preferred_hw_encoder.explicitly_set);
-    AddNvencFactory(factories_, false);
-  } else {
-    AddNvencFactory(factories_, preferred_hw_encoder.explicitly_set);
-    AddVaapiFactory(factories_, false);
-  }
+  AddNvencFactory(factories_);
+  AddVaapiFactory(factories_);
 }
 
 std::vector<webrtc::SdpVideoFormat>

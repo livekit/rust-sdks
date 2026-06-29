@@ -1,0 +1,30 @@
+[package]
+name = "livekit-a2a-relay"
+version = "0.1.0"
+edition = "2021"
+description = "Ultra-Low Latency Agent-to-Agent (A2A) Relay for LiveKit"
+license = "Apache-2.0"
+
+[dependencies]
+livekit = { path = "../livekit" }
+tokio = { version = "1", features = ["sync", "rt", "time"] }
+log = "0.4"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4"], optional = true }
+a2a-client = { version = "0.2.0", optional = true }
+a2a-slimrpc = { version = "0.1.13", optional = true }
+
+[features]
+default = []
+# Enables the OfficialA2aClient backed by the upstream a2a-client crate (HTTP/JSON-RPC).
+a2a-client = ["dep:a2a-client", "dep:uuid"]
+# Enables both a2a-client and the SLIM-RPC transport (work-in-progress).
+a2a-integration = ["a2a-client", "dep:a2a-slimrpc"]
+
+[dev-dependencies]
+# Used by integration tests to run an in-process mock A2A HTTP server.
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+serde_json = "1"

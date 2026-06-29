@@ -59,7 +59,6 @@ android {
 }
 
 dependencies {
-    implementation("androidx.annotation:annotation:1.9.0")
     implementation("net.java.dev.jna:jna:5.16.0@aar")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }

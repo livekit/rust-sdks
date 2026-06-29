@@ -29,16 +29,11 @@ impl FfiHandle for FfiVideoSource {}
 
 fn frame_metadata_from_proto(metadata: Option<proto::FrameMetadata>) -> Option<FrameMetadata> {
     let metadata = metadata?;
-    let frame_metadata = FrameMetadata {
-        user_timestamp: metadata.user_timestamp,
-        frame_id: metadata.frame_id,
-        user_data: metadata.user_data,
-    };
+    let frame_metadata =
+        FrameMetadata { user_timestamp: metadata.user_timestamp, frame_id: metadata.frame_id };
 
-    (frame_metadata.user_timestamp.is_some()
-        || frame_metadata.frame_id.is_some()
-        || frame_metadata.user_data.is_some())
-    .then_some(frame_metadata)
+    (frame_metadata.user_timestamp.is_some() || frame_metadata.frame_id.is_some())
+        .then_some(frame_metadata)
 }
 
 impl FfiVideoSource {
@@ -111,12 +106,10 @@ mod tests {
         let metadata = frame_metadata_from_proto(Some(proto::FrameMetadata {
             user_timestamp: Some(123),
             frame_id: Some(456),
-            user_data: Some(vec![7, 8, 9]),
         }))
         .unwrap();
 
         assert_eq!(metadata.user_timestamp, Some(123));
         assert_eq!(metadata.frame_id, Some(456));
-        assert_eq!(metadata.user_data, Some(vec![7, 8, 9]));
     }
 }

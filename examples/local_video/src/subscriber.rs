@@ -13,7 +13,7 @@ use livekit_api::access_token;
 use log::{debug, info};
 use parking_lot::Mutex;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     env,
     sync::OnceLock,
     sync::{
@@ -25,7 +25,6 @@ use std::{
 
 mod codec_display;
 mod subscriber_timing;
-mod user_data;
 mod viewport_aspect;
 
 use codec_display::{codec_from_mime, codec_with_implementation};
@@ -38,9 +37,7 @@ mod macos_native_video {
 
     use anyhow::{anyhow, Result};
     use eframe::wgpu;
-    use metal::MTLPixelFormat;
-    use objc2::{rc::Retained, runtime::ProtocolObject};
-    use objc2_metal::{MTLTexture, MTLTextureType};
+    use metal::{foreign_types::ForeignType, MTLPixelFormat, MTLTextureType};
 
     use livekit::webrtc::video_frame::BoxVideoFrame;
 
@@ -119,7 +116,8 @@ mod macos_native_video {
                 let hal_device = device
                     .as_hal::<wgpu::hal::api::Metal>()
                     .ok_or_else(|| anyhow!("wgpu is not using the Metal backend"))?;
-                Retained::as_ptr(hal_device.raw_device()).cast_mut().cast()
+                let raw_device = hal_device.raw_device().lock().as_ptr() as Id;
+                raw_device
             };
 
             let mut cache = std::ptr::null_mut();
@@ -313,9 +311,7 @@ mod macos_native_video {
         Ok(CvMetalTexture { raw: texture })
     }
 
-    fn retained_metal_texture(
-        cv_texture: CVMetalTextureRef,
-    ) -> Result<Retained<ProtocolObject<dyn MTLTexture>>> {
+    fn retained_metal_texture(cv_texture: CVMetalTextureRef) -> Result<metal::Texture> {
         let raw_texture = unsafe {
             // SAFETY: `cv_texture` is a non-null CVMetalTexture returned by CoreVideo.
             CVMetalTextureGetTexture(cv_texture)
@@ -325,22 +321,21 @@ mod macos_native_video {
         }
         let retained = unsafe {
             // SAFETY: `raw_texture` is a live Objective-C object. Retaining transfers ownership
-            // to the retained protocol object passed to WGPU below.
+            // to the `metal::Texture` wrapper below.
             objc_retain(raw_texture)
         };
         if retained.is_null() {
             return Err(anyhow!("objc_retain returned null for MTLTexture"));
         }
-        unsafe {
+        Ok(unsafe {
             // SAFETY: The pointer was retained above and is an MTLTexture.
-            Retained::from_raw(retained.cast::<ProtocolObject<dyn MTLTexture>>())
-                .ok_or_else(|| anyhow!("objc_retain returned null for MTLTexture"))
-        }
+            metal::Texture::from_ptr(retained.cast())
+        })
     }
 
     fn create_wgpu_texture_from_metal(
         device: &wgpu::Device,
-        metal_texture: Retained<ProtocolObject<dyn MTLTexture>>,
+        metal_texture: metal::Texture,
         format: wgpu::TextureFormat,
         width: u32,
         height: u32,
@@ -363,7 +358,7 @@ mod macos_native_video {
             wgpu::hal::metal::Device::texture_from_raw(
                 metal_texture,
                 format,
-                MTLTextureType::Type2D,
+                MTLTextureType::D2,
                 1,
                 1,
                 wgpu::hal::CopyExtent { width, height, depth: 1 },
@@ -682,30 +677,6 @@ fn log_video_inbound_stats(stats: &[livekit::webrtc::stats::RtcStats]) {
     }
 }
 
-fn log_video_decode_health(stats: &[livekit::webrtc::stats::RtcStats]) {
-    let Some(inbound) = find_video_inbound_stats(stats) else {
-        return;
-    };
-
-    info!(
-        "Decode health: received={}, decoded={}, keyframes_decoded={}, rendered={}, dropped={}, assembled_multi_packet={}, decode_time={:.3}s, decoder={}",
-        inbound.inbound.frames_received,
-        inbound.inbound.frames_decoded,
-        inbound.inbound.key_frames_decoded,
-        inbound.inbound.frames_rendered,
-        inbound.inbound.frames_dropped,
-        inbound.inbound.frames_assembled_from_multiple_packets,
-        inbound.inbound.total_decode_time,
-        inbound.inbound.decoder_implementation,
-    );
-
-    if inbound.inbound.frames_received > 0 && inbound.inbound.frames_decoded == 0 {
-        log::warn!(
-            "RTP video is arriving but the decoder has produced no frames; this usually points to a malformed or incomplete keyframe"
-        );
-    }
-}
-
 fn update_simulcast_quality_from_stats(
     stats: &[livekit::webrtc::stats::RtcStats],
     simulcast: &Arc<Mutex<SimulcastState>>,
@@ -835,7 +806,7 @@ mod tests {
         let lines = subscriber_overlay_lines(&shared, &simulcast, false, &subscriber_timing)
             .expect("overlay should render");
 
-        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC 1.2mbps Simulcast"]);
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC 1.2 mbps Simulcast"]);
     }
 }
 
@@ -886,7 +857,7 @@ async fn handle_track_subscribed(
     }
 
     info!(
-        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, frame_metadata_features: {:?}",
+        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, packet_trailer_features: {:?}",
         publication.name(),
         publication.sid(),
         participant.identity(),
@@ -894,7 +865,7 @@ async fn handle_track_subscribed(
         publication.simulcasted(),
         publication.dimension().0,
         publication.dimension().1,
-        publication.frame_metadata_features(),
+        publication.packet_trailer_features(),
     );
 
     {
@@ -951,7 +922,7 @@ async fn handle_track_subscribed(
             if drained_frames > 0 {
                 debug!("Dropped {drained_frames} stale decoded frames before render upload");
             }
-            if let Some(metadata) = &frame.frame_metadata {
+            if let Some(metadata) = frame.frame_metadata {
                 if let Some(capture_timestamp_us) = metadata.user_timestamp {
                     subscriber_timing_sink.record_frame_received_by_sink(
                         capture_timestamp_us,
@@ -1043,7 +1014,6 @@ async fn handle_track_subscribed(
                         log_video_inbound_stats(&stats);
                         logged_initial = true;
                     }
-                    log_video_decode_health(&stats);
                     if last_jitter_buffer_log.elapsed() >= Duration::from_secs(5) {
                         log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
                         last_jitter_buffer_log = Instant::now();
@@ -1125,80 +1095,6 @@ fn subscriber_overlay_lines(
     Some(lines)
 }
 
-/// Render a live line graph of the six decoded channel values (top-right overlay).
-/// Each trace is normalized so ±`VALUE_RANGE` spans the plot height.
-fn paint_channel_graph(ctx: &egui::Context, history: &VecDeque<[f32; user_data::NUM_CHANNELS]>) {
-    if history.is_empty() {
-        return;
-    }
-    let latest = *history.back().unwrap();
-
-    egui::Area::new("channel_graph".into())
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
-        .interactable(false)
-        .show(ctx, |ui| {
-            egui::Frame::NONE
-                .fill(egui::Color32::from_black_alpha(180))
-                .corner_radius(egui::CornerRadius::same(4))
-                .inner_margin(egui::Margin::same(8))
-                .show(ui, |ui| {
-                    let plot_size = egui::vec2(360.0, 160.0);
-                    // Pin the panel to the plot width so the legend wraps within it
-                    // instead of stretching the frame wider than the graph.
-                    ui.set_max_width(plot_size.x);
-
-                    ui.label(
-                        egui::RichText::new("user_data channels")
-                            .monospace()
-                            .size(12.0)
-                            .color(egui::Color32::WHITE),
-                    );
-
-                    let (rect, _) = ui.allocate_exact_size(plot_size, egui::Sense::hover());
-                    let painter = ui.painter_at(rect);
-
-                    // Zero axis.
-                    painter.hline(
-                        rect.x_range(),
-                        rect.center().y,
-                        egui::Stroke::new(1.0, egui::Color32::from_gray(90)),
-                    );
-
-                    let n = history.len();
-                    let denom = (n.saturating_sub(1)).max(1) as f32;
-                    let half_h = rect.height() / 2.0 - 2.0;
-                    for j in 0..user_data::NUM_CHANNELS {
-                        let points: Vec<egui::Pos2> = history
-                            .iter()
-                            .enumerate()
-                            .map(|(i, sample)| {
-                                let x = rect.left() + (i as f32 / denom) * rect.width();
-                                let norm = (sample[j] / user_data::VALUE_RANGE).clamp(-1.0, 1.0);
-                                let y = rect.center().y - norm * half_h;
-                                egui::pos2(x, y)
-                            })
-                            .collect();
-                        painter.add(egui::Shape::line(
-                            points,
-                            egui::Stroke::new(1.5, CHANNEL_COLORS[j]),
-                        ));
-                    }
-
-                    // Legend: current value per channel.
-                    ui.horizontal_wrapped(|ui| {
-                        for (j, value) in latest.iter().enumerate() {
-                            ui.label(
-                                egui::RichText::new(format!("CH{}: {:>+6.2}", j + 1, value))
-                                    .monospace()
-                                    .size(11.0)
-                                    .color(CHANNEL_COLORS[j]),
-                            );
-                        }
-                    });
-                });
-        });
-}
-
 fn paint_subscriber_overlay(ctx: &egui::Context, lines: &[String]) {
     egui::Area::new("subscriber_overlay".into())
         .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
@@ -1261,19 +1157,6 @@ fn handle_track_unpublished(
     clear_hud_and_simulcast(shared, frame_slot, video_size, simulcast, subscriber_timing);
 }
 
-/// Number of channel samples retained for the live graph (~10s at 30fps).
-const CHANNEL_HISTORY_LEN: usize = 300;
-
-/// Distinct colors for the six channel traces.
-const CHANNEL_COLORS: [egui::Color32; user_data::NUM_CHANNELS] = [
-    egui::Color32::from_rgb(0xef, 0x53, 0x50), // red
-    egui::Color32::from_rgb(0xff, 0xa7, 0x26), // orange
-    egui::Color32::from_rgb(0xff, 0xee, 0x58), // yellow
-    egui::Color32::from_rgb(0x66, 0xbb, 0x6a), // green
-    egui::Color32::from_rgb(0x42, 0xa5, 0xf5), // blue
-    egui::Color32::from_rgb(0xab, 0x47, 0xbc), // purple
-];
-
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     frame_slot: Arc<LatestRenderFrameSlot>,
@@ -1284,13 +1167,10 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     display_timestamp: bool,
-    /// Rolling history of decoded channel values from the user_data trailer.
-    channel_history: VecDeque<[f32; user_data::NUM_CHANNELS]>,
 }
 
 impl eframe::App for VideoApp {
-    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = root_ui.ctx().clone();
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let _ = self.repaint_ctx.set(ctx.clone());
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1298,25 +1178,18 @@ impl eframe::App for VideoApp {
         }
 
         if let Some((width, height)) = self.video_size.load() {
-            self.viewport.set_video_size(&ctx, width, height);
+            self.viewport.set_video_size(ctx, width, height);
         }
 
         let render_frame = self.frame_slot.take();
         if let Some(frame) = render_frame.as_ref() {
-            if let Some(metadata) = &frame.frame_metadata {
+            if let Some(metadata) = frame.frame_metadata {
                 if let Some(capture_timestamp_us) = metadata.user_timestamp {
                     self.subscriber_timing.record_frame_selected_for_render(
                         capture_timestamp_us,
                         metadata.frame_id,
                         current_timestamp_us(),
                     );
-                }
-                // Decode the 6 user_data channel values for the live graph.
-                if let Some(values) = metadata.user_data.as_deref().and_then(user_data::decode) {
-                    if self.channel_history.len() >= CHANNEL_HISTORY_LEN {
-                        self.channel_history.pop_front();
-                    }
-                    self.channel_history.push_back(values);
                 }
             }
         }
@@ -1328,7 +1201,7 @@ impl eframe::App for VideoApp {
             &self.subscriber_timing,
         );
 
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             ui.ctx().request_repaint();
 
             // Let the native window follow live resize, and letterbox the video instead of
@@ -1354,16 +1227,14 @@ impl eframe::App for VideoApp {
         });
 
         if let Some(lines) = overlay_lines.as_ref() {
-            paint_subscriber_overlay(&ctx, lines);
+            paint_subscriber_overlay(ctx, lines);
         }
-
-        paint_channel_graph(&ctx, &self.channel_history);
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
             .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
             .interactable(true)
-            .show(&ctx, |ui| {
+            .show(ctx, |ui| {
                 let mut sc = self.simulcast.lock();
                 if !sc.available {
                     return;
@@ -1380,7 +1251,6 @@ impl eframe::App for VideoApp {
                         let resp = ui.selectable_label(is_selected, label);
                         if resp.clicked() {
                             if let Some(ref pub_remote) = sc.publication {
-                                info!("Requesting layer: {:?}", q);
                                 pub_remote.set_video_quality(q);
                                 sc.requested_quality = Some(q);
                             }
@@ -1554,7 +1424,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ctrl_c_received: ctrl_c_received.clone(),
         viewport,
         display_timestamp: args.display_timestamp,
-        channel_history: VecDeque::with_capacity(CHANNEL_HISTORY_LEN),
     };
     let native_options = viewport_aspect::native_options(None);
     eframe::run_native(
@@ -1772,8 +1641,8 @@ impl CallbackTrait for YuvPaintCallback {
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("yuv_pipeline_layout"),
-                bind_group_layouts: &[Some(&bind_layout)],
-                immediate_size: 0,
+                bind_group_layouts: &[&bind_layout],
+                push_constant_ranges: &[],
             });
 
             let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1810,7 +1679,7 @@ impl CallbackTrait for YuvPaintCallback {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview_mask: None,
+                multiview: None,
                 cache: None,
             });
 
@@ -1821,7 +1690,7 @@ impl CallbackTrait for YuvPaintCallback {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Nearest,
                 ..Default::default()
             });
 
@@ -1902,8 +1771,8 @@ impl CallbackTrait for YuvPaintCallback {
 
         let frame_for_upload = self.render_frame.lock().take().map(|frame| {
             let prepare_timestamp_us = current_timestamp_us();
-            let frame_id = frame.frame_metadata.as_ref().and_then(|m| m.frame_id);
-            let sample = frame.frame_metadata.as_ref().and_then(|metadata| {
+            let frame_id = frame.frame_metadata.and_then(|m| m.frame_id);
+            let sample = frame.frame_metadata.and_then(|metadata| {
                 metadata.user_timestamp.map(|capture_timestamp_us| PendingPaintSample {
                     frame_id,
                     capture_timestamp_us,

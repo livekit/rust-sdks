@@ -316,50 +316,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
-## 0.12.67 (2026-06-24)
-
-### Fixes
-
-- Increase room event ready timeout
-- harden reconnect behaviour - #1148 (@lukasIO)
-
-## 0.12.66 (2026-06-23)
-
-### Features
-
-- Rename user facing APIs for Packet Trailer to Frame Metadata.
-
-### Fixes
-
-- Upgrade protocol to v1.48.0
-
-## 0.12.65 (2026-06-19)
-
-### Fixes
-
-- fix: escalate to full reconnect if connection failed during a resume - #1175 (@davidzhao)
-
-## 0.12.64 (2026-06-17)
-
-### Fixes
-
-- Add `LK_DISABLE_NVDEC` to bypass NVIDIA NVDEC decoder registration when the environment variable is set.
-- return DeviceNotFound when device is not there for set_recording_devi… - #1155 (@xianshijing-lk)
-
-#### Add dynacast support - #1003 (@chenosaurus, @stephen-derosa)
-
-This includes a minor breaking change for `libwebrtc`: `RtpParameters` now
-contains additional RTP sender state that must be preserved when round-tripping
-through `set_parameters()`.
-
-## 0.12.63 (2026-06-09)
-
-### Fixes
-
-- Reject oversized data messages before they break the data channel.
-- Upgrade dashmap to v6
-- Add per-publication video encoder backend selection. Add a video encoder backend availability query. Remove `LIVEKIT_PREFERRED_HW_ENCODER` in favor of per-publication backend selection.
-
 ## 0.12.62 (2026-06-03)
 
 ### Fixes

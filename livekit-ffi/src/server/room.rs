@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::{prelude::*, registered_audio_filter_plugins, PluginError};
+use livekit::{prelude::*, registered_audio_filter_plugins};
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
@@ -91,7 +91,7 @@ pub struct RoomInner {
     url: String,
 }
 
-const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(15);
+const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(1);
 
 struct Handle {
     event_handle: JoinHandle<()>,
@@ -153,27 +153,22 @@ impl FfiRoom {
                         .async_runtime
                         .spawn_blocking(move || {
                             for filter in registered_audio_filter_plugins().into_iter() {
-                                filter.on_load(&req.url, &req.token)?;
+                                filter.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
                             }
-                            Ok::<(), PluginError>(())
+                            Ok::<(), String>(())
                         })
-                        .await;
-
-                    // Filter failures are non-fatal: keep the RTC session alive, just
-                    // without the filter enabled.
+                        .await
+                        .map_err(|e| e.to_string());
                     match result {
-                        Ok(Ok(())) => (),
-                        Ok(Err(e)) => {
-                            let hint = match &e {
-                                PluginError::OnLoad(_) => " — ensure you are connecting to LiveKit Cloud and that the filter is configured correctly",
-                                PluginError::Library(_) => " — the filter dylib could not be loaded",
-                                PluginError::NotImplemented(_) => " — the filter dylib is missing a required entry point",
-                            };
-                            log::error!("audio filter disabled, continuing without it: {e}{hint}");
+                        Err(e) | Ok(Err(e)) => {
+                            log::warn!("error while initializing audio filter: {}", e);
+                            log::error!(
+                                "audio filter cannot be enabled: ensure you are connecting to LiveKit Cloud and that the filter is properly configured"
+                            );
+                            // Skip returning an error here to keep the rtc session alive
+                            // But in this case, the filter isn't enabled in the session.
                         }
-                        Err(join_err) => {
-                            log::error!("audio filter disabled, on_load task panicked: {join_err}");
-                        }
+                        Ok(Ok(_)) => (),
                     };
 
                     // Successfully connected to the room

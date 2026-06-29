@@ -257,59 +257,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
-## 0.7.49 (2026-06-24)
-
-### Fixes
-
-- harden reconnect behaviour - #1148 (@lukasIO)
-
-## 0.7.48 (2026-06-23)
-
-### Features
-
-- Rename user facing APIs for Packet Trailer to Frame Metadata.
-
-### Fixes
-
-- Upgrade protocol to v1.48.0
-
-## 0.7.47 (2026-06-19)
-
-### Fixes
-
-- fix: escalate to full reconnect if connection failed during a resume - #1175 (@davidzhao)
-
-## 0.7.46 (2026-06-17)
-
-### Features
-
-#### Make GLib an opt-in dependency
-
-`webrtc-sys` no longer links against `glib-2.0`/`gobject-2.0`/`gio-2.0` by default.
-
-Breaking: Wayland screen sharing now requires the `glib-main-loop` feature on `livekit` (or `libwebrtc`).
-
-### Fixes
-
-- Add track publishing doc example
-- Fix silent subscription failures in single-pc mode when the SFU reuses an existing empty transceiver for a new remote track. Also make `RtpTransceiver::mid()` safe to call on transceivers that haven't been negotiated yet — libwebrtc is built with `-fno-exceptions`, so `std::optional::value()` aborted the process instead of throwing.
-- Add `LK_DISABLE_NVDEC` to bypass NVIDIA NVDEC decoder registration when the environment variable is set.
-- return DeviceNotFound when device is not there for set_recording_devi… - #1155 (@xianshijing-lk)
-
-#### Add dynacast support - #1003 (@chenosaurus, @stephen-derosa)
-
-This includes a minor breaking change for `libwebrtc`: `RtpParameters` now
-contains additional RTP sender state that must be preserved when round-tripping
-through `set_parameters()`.
-
-## 0.7.45 (2026-06-09)
-
-### Fixes
-
-- Fix NVIDIA encoder I420 uploads to copy each plane using its actual source stride, avoiding chroma corruption when source frames use padded YUV planes. Also fix the `local_video` publisher reusing mutable I420 frame storage after handing frames to WebRTC.
-- Reject oversized data messages before they break the data channel.
-- Add per-publication video encoder backend selection. Add a video encoder backend availability query. Remove `LIVEKIT_PREFERRED_HW_ENCODER` in favor of per-publication backend selection.
-
 ## 0.7.44 (2026-06-03)
 
 ### Features

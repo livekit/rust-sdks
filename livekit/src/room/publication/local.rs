@@ -150,7 +150,7 @@ impl LocalTrackPublication {
         self.inner.info.read().audio_features.clone()
     }
 
-    pub fn frame_metadata_features(&self) -> Vec<PacketTrailerFeature> {
-        self.inner.info.read().frame_metadata_features.clone()
+    pub fn packet_trailer_features(&self) -> Vec<PacketTrailerFeature> {
+        self.inner.info.read().packet_trailer_features.clone()
     }
 }

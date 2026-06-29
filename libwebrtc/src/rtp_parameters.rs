@@ -33,22 +33,7 @@ pub struct RtpHeaderExtensionParameters {
 pub struct RtpParameters {
     pub codecs: Vec<RtpCodecParameters>,
     pub header_extensions: Vec<RtpHeaderExtensionParameters>,
-    pub encodings: Vec<RtpEncodingParameters>,
     pub rtcp: RtcpParameters,
-    /// Opaque token used by WebRTC to pair getParameters/setParameters calls.
-    /// Must be preserved when round-tripping through set_parameters().
-    pub(crate) transaction_id: String,
-    pub(crate) mid: String,
-    pub(crate) has_degradation_preference: bool,
-    pub(crate) degradation_preference: i32,
-}
-
-/// Mirrors webrtc_sys RtcpFeedback for round-trip fidelity.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct CodecFeedback {
-    pub feedback_type: i32,
-    pub has_message_type: bool,
-    pub message_type: i32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -57,23 +42,12 @@ pub struct RtpCodecParameters {
     pub mime_type: String, // read-only
     pub clock_rate: Option<u64>,
     pub channels: Option<u16>,
-    pub(crate) name: String,
-    pub(crate) kind: i32,
-    pub(crate) has_max_ptime: bool,
-    pub(crate) max_ptime: i32,
-    pub(crate) has_ptime: bool,
-    pub(crate) ptime: i32,
-    pub(crate) rtcp_feedback: Vec<CodecFeedback>,
-    pub(crate) parameters: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct RtcpParameters {
     pub cname: String,
     pub reduced_size: bool,
-    pub(crate) mux: bool,
-    pub(crate) has_ssrc: bool,
-    pub(crate) ssrc: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -87,9 +61,6 @@ pub struct RtpEncodingParameters {
     /// RTP scalability mode (e.g. "L3T3_KEY"). Required to enable true
     /// SVC for codecs that support it (VP9, AV1).
     pub scalability_mode: Option<String>,
-    /// Preserved for round-trip fidelity with WebRTC's getParameters/setParameters.
-    pub has_ssrc: bool,
-    pub ssrc: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -122,8 +93,6 @@ impl Default for RtpEncodingParameters {
             rid: String::default(),
             scale_resolution_down_by: None,
             scalability_mode: None,
-            has_ssrc: false,
-            ssrc: 0,
         }
     }
 }

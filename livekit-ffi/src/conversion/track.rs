@@ -39,10 +39,10 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
                 .into_iter()
                 .map(|i| proto::AudioTrackFeature::from(i).into())
                 .collect(),
-            frame_metadata_features: publication
-                .frame_metadata_features()
+            packet_trailer_features: publication
+                .packet_trailer_features()
                 .into_iter()
-                .map(|i| proto::FrameMetadataFeature::from(i).into())
+                .map(|i| proto::PacketTrailerFeature::from(i).into())
                 .collect(),
         }
     }
@@ -164,17 +164,14 @@ impl From<AudioTrackFeature> for proto::AudioTrackFeature {
     }
 }
 
-impl From<livekit_protocol::PacketTrailerFeature> for proto::FrameMetadataFeature {
+impl From<livekit_protocol::PacketTrailerFeature> for proto::PacketTrailerFeature {
     fn from(value: livekit_protocol::PacketTrailerFeature) -> Self {
         match value {
             livekit_protocol::PacketTrailerFeature::PtfUserTimestamp => {
-                proto::FrameMetadataFeature::FmfUserTimestamp
+                proto::PacketTrailerFeature::PtfUserTimestamp
             }
             livekit_protocol::PacketTrailerFeature::PtfFrameId => {
-                proto::FrameMetadataFeature::FmfFrameId
-            }
-            livekit_protocol::PacketTrailerFeature::PtfUserData => {
-                proto::FrameMetadataFeature::FmfUserData
+                proto::PacketTrailerFeature::PtfFrameId
             }
         }
     }

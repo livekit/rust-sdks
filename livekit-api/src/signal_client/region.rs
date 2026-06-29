@@ -12,152 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::HashMap,
-    error::Error as StdError,
-    sync::{Arc, OnceLock},
-    time::{Duration, Instant},
-};
-
-use http::header::{HeaderMap, HeaderValue, AUTHORIZATION, CACHE_CONTROL};
-use parking_lot::Mutex;
+use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use serde::Deserialize;
-use tokio::sync::Mutex as AsyncMutex;
 
 use crate::http_client;
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
-
-struct CachedRegions {
-    urls: Vec<String>,
-    fetched_at: Instant,
-    /// Effective lifetime of this entry: the server's `Cache-Control: max-age`
-    /// when present, otherwise [`RegionCache::default_ttl`].
-    ttl: Duration,
-}
-
-/// Outcome of a [`RegionCache::get`] lookup.
-enum Cached {
-    /// Entry exists and is within the TTL — safe to use without re-fetching.
-    Fresh(Vec<String>),
-    /// Entry exists but is older than the TTL — the caller should re-fetch, but
-    /// may fall back to these URLs if the re-fetch fails.
-    Stale(Vec<String>),
-    /// No entry for this host.
-    Miss,
-}
-
-/// Process-wide region-list cache keyed by host, mirroring client-sdk-js's
-/// static `RegionUrlProvider.cache`. Persisting it here (rather than on a
-/// per-connection object) means it survives across reconnect attempts — each of
-/// which rebuilds the SignalClient — so the reconnect loop does not re-pay the
-/// region fetch on every attempt.
-struct RegionCache {
-    entries: Mutex<HashMap<String, CachedRegions>>,
-    /// Per-host locks that serialise in-flight fetches, so concurrent cache
-    /// misses for the same host collapse into a single network request rather
-    /// than each issuing their own (single-flight).
-    fetch_locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
-    default_ttl: Duration,
-}
-
-impl RegionCache {
-    /// Fallback entry lifetime, used when the server's region response carries
-    /// no `Cache-Control: max-age`. Matches client-sdk-js's `DEFAULT_MAX_AGE_MS`.
-    const DEFAULT_TTL: Duration = Duration::from_secs(5);
-
-    fn shared() -> &'static RegionCache {
-        static CACHE: OnceLock<RegionCache> = OnceLock::new();
-        CACHE.get_or_init(|| Self::new(Self::DEFAULT_TTL))
-    }
-
-    fn new(default_ttl: Duration) -> Self {
-        Self {
-            entries: Mutex::new(HashMap::new()),
-            fetch_locks: Mutex::new(HashMap::new()),
-            default_ttl,
-        }
-    }
-
-    /// Returns the per-host fetch lock for `host`, creating it on first use.
-    /// Held across the network request so only one fetch per host runs at a
-    /// time; callers that wait on it then pick up the result from the cache.
-    fn fetch_lock(&self, host: &str) -> Arc<AsyncMutex<()>> {
-        self.fetch_locks
-            .lock()
-            .entry(host.to_string())
-            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-            .clone()
-    }
-
-    /// Looks up the cached region URLs for `host`, reporting whether the entry
-    /// is fresh (within its TTL), stale, or absent. A stale entry is retained so
-    /// callers can fall back to it when a re-fetch fails.
-    fn get(&self, host: &str) -> Cached {
-        let entries = self.entries.lock();
-        match entries.get(host) {
-            Some(e) if e.fetched_at.elapsed() < e.ttl => Cached::Fresh(e.urls.clone()),
-            Some(e) => Cached::Stale(e.urls.clone()),
-            None => Cached::Miss,
-        }
-    }
-
-    /// Stores `urls` for `host`, honouring the server's `Cache-Control: max-age`
-    /// (`max_age`) as the entry's TTL and falling back to [`Self::default_ttl`]
-    /// when the header is absent.
-    fn insert(&self, host: String, urls: Vec<String>, max_age: Option<Duration>) {
-        let ttl = max_age.unwrap_or(self.default_ttl);
-        self.entries.lock().insert(host, CachedRegions { urls, fetched_at: Instant::now(), ttl });
-    }
-
-    /// Removes `failed_url` from the cached list for `host` so it is not handed
-    /// out again. If that empties the list, the entry is dropped entirely,
-    /// forcing a re-fetch on the next lookup.
-    fn mark_failed(&self, host: &str, failed_url: &str) {
-        let mut entries = self.entries.lock();
-        if let Some(entry) = entries.get_mut(host) {
-            entry.urls.retain(|u| u != failed_url);
-            if entry.urls.is_empty() {
-                entries.remove(host);
-            }
-        }
-    }
-
-    /// Drops the cached entry for `host`, forcing a re-fetch on the next lookup.
-    fn invalidate(&self, host: &str) {
-        self.entries.lock().remove(host);
-    }
-
-    /// Drops every cached entry.
-    fn clear(&self) {
-        self.entries.lock().clear();
-    }
-}
-
-fn region_host(url: &str) -> SignalResult<String> {
-    let parsed = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
-    parsed
-        .host_str()
-        .map(|h| h.to_string())
-        .ok_or_else(|| SignalError::UrlParse("invalid hostname".into()))
-}
-
-/// Converts an error into a string that includes the full error chain.
-/// This is important for debugging TLS errors, where the root cause
-/// (e.g., "invalid peer certificate: UnknownIssuer") is often buried
-/// in the source chain.
-fn error_with_chain(err: &dyn StdError) -> String {
-    let mut source = err.source();
-
-    std::iter::once(err.to_string())
-        .chain(std::iter::from_fn(move || {
-            let err = source?;
-            source = err.source();
-            Some(err.to_string())
-        }))
-        .collect::<Vec<_>>()
-        .join(": ")
-}
 
 pub struct RegionUrlProvider;
 
@@ -174,94 +34,20 @@ pub struct RegionUrlInfo {
 }
 
 impl RegionUrlProvider {
-    /// Fetch the ordered list of region signalling URLs for a LiveKit Cloud
-    /// host. Non-cloud (direct / self-hosted) URLs have no regions, so this
-    /// returns an empty list. Successful results are cached per host for the
-    /// server's `Cache-Control: max-age` (or [`RegionCache::DEFAULT_TTL`] when
-    /// absent); failures are never cached. Once an entry goes stale a re-fetch
-    /// is attempted, but if it fails the stale entry is returned as a fallback
-    /// rather than surfacing the error. Concurrent calls for the same host are
-    /// de-duplicated: only one fetch runs at a time and the rest reuse its
-    /// result.
     pub async fn fetch_region_urls(url: &str, token: &str) -> SignalResult<Vec<String>> {
-        if !is_cloud_url(url)? {
-            return Ok(vec![]);
+        if is_cloud_url(url)? {
+            let endpoint = region_endpoint(url)?;
+            fetch_from_endpoint(&endpoint, token).await
+        } else {
+            Ok(vec![])
         }
-
-        let host = region_host(url)?;
-        let cache = RegionCache::shared();
-
-        // Fast path: a fresh entry needs neither a fetch nor the fetch lock.
-        let stale = match cache.get(&host) {
-            Cached::Fresh(urls) => return Ok(urls),
-            Cached::Stale(urls) => Some(urls),
-            Cached::Miss => None,
-        };
-
-        // Single-flight: serialise concurrent fetches for the same host so they
-        // collapse into one network request.
-        let fetch_lock = cache.fetch_lock(&host);
-        let _guard = fetch_lock.lock().await;
-
-        // Another caller may have refreshed the entry while we waited on the lock.
-        if let Cached::Fresh(urls) = cache.get(&host) {
-            return Ok(urls);
-        }
-
-        let endpoint = region_endpoint(url)?;
-        match fetch_from_endpoint(&endpoint, token).await {
-            Ok((urls, max_age)) => {
-                cache.insert(host, urls.clone(), max_age);
-                Ok(urls)
-            }
-            // The fresh fetch failed; fall back to the stale entry if we have
-            // one rather than failing outright.
-            Err(err) => match stale {
-                Some(urls) => {
-                    log::warn!(
-                        "region fetch failed ({err}); using stale cached regions for {host}"
-                    );
-                    Ok(urls)
-                }
-                None => Err(err),
-            },
-        }
-    }
-
-    /// Reports that `failed_url` (a region URL previously returned for `url`'s
-    /// host) could not be connected to, dropping it from the cache so it is not
-    /// handed out again. When the host's last region URL is dropped the whole
-    /// entry is invalidated, forcing a fresh fetch on the next attempt.
-    pub fn mark_failed(url: &str, failed_url: &str) {
-        if let Ok(host) = region_host(url) {
-            RegionCache::shared().mark_failed(&host, failed_url);
-        }
-    }
-
-    /// Invalidates the cached region list for `url`'s host, forcing a fresh
-    /// fetch on the next [`Self::fetch_region_urls`] call.
-    pub fn invalidate(url: &str) {
-        if let Ok(host) = region_host(url) {
-            RegionCache::shared().invalidate(&host);
-        }
-    }
-
-    /// Clears the entire region cache. Useful when external state that affects
-    /// geo routing changes (e.g. the device's network connectivity), since that
-    /// can invalidate every cached host at once.
-    #[allow(dead_code)]
-    pub fn clear() {
-        RegionCache::shared().clear();
     }
 }
 
-/// Fetches the region list from `endpoint_url`, returning the ordered URLs
-/// together with the server's `Cache-Control: max-age` (if any) so the caller
-/// can use it as the cache TTL.
 pub(crate) async fn fetch_from_endpoint(
     endpoint_url: &str,
     token: &str,
-) -> SignalResult<(Vec<String>, Option<Duration>)> {
+) -> SignalResult<Vec<String>> {
     let fetch_fut = async {
         let client = http_client::Client::new();
         let mut headers = HeaderMap::new();
@@ -271,37 +57,21 @@ pub(crate) async fn fetch_from_endpoint(
             .headers(headers)
             .send()
             .await
-            .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
+            .map_err(|e| SignalError::RegionError(e.to_string()))?;
 
         if !res.status().is_success() {
             return Err(SignalError::Client(res.status(), res.text().await.unwrap_or_default()));
         }
-
-        // Read the cache lifetime before `json()` consumes the response.
-        let max_age =
-            res.headers().get(CACHE_CONTROL).and_then(|v| v.to_str().ok()).and_then(parse_max_age);
-
         let res = res
             .json::<RegionUrlResponse>()
             .await
-            .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
-        Ok((res.regions.into_iter().map(|i| i.url).collect(), max_age))
+            .map_err(|e| SignalError::RegionError(e.to_string()))?;
+        Ok(res.regions.into_iter().map(|i| i.url).collect())
     };
 
     livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
         .await
         .map_err(|_| SignalError::RegionError("region fetch timed out".into()))?
-}
-
-/// Parses the `max-age` directive (in seconds) out of a `Cache-Control` header
-/// value, e.g. `"max-age=300, public"` -> `Some(300s)`. Returns `None` when the
-/// directive is absent or unparseable, leaving the caller on the default TTL.
-fn parse_max_age(cache_control: &str) -> Option<Duration> {
-    cache_control.split(',').find_map(|directive| {
-        let (name, value) = directive.split_once('=')?;
-        name.trim().eq_ignore_ascii_case("max-age").then_some(())?;
-        value.trim().parse::<u64>().ok().map(Duration::from_secs)
-    })
 }
 
 fn is_cloud_url(url: &str) -> SignalResult<bool> {
@@ -331,150 +101,6 @@ fn region_endpoint(url: &str) -> SignalResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt;
-    use std::io;
-
-    // Mock error types to test error chain preservation
-    #[derive(Debug)]
-    struct RootCauseError {
-        message: String,
-    }
-
-    impl fmt::Display for RootCauseError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "{}", self.message)
-        }
-    }
-
-    impl std::error::Error for RootCauseError {}
-
-    #[derive(Debug)]
-    struct MiddleError {
-        message: String,
-        source: RootCauseError,
-    }
-
-    impl fmt::Display for MiddleError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "{}", self.message)
-        }
-    }
-
-    impl std::error::Error for MiddleError {
-        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            Some(&self.source)
-        }
-    }
-
-    #[derive(Debug)]
-    struct OuterError {
-        message: String,
-        source: MiddleError,
-    }
-
-    impl fmt::Display for OuterError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "{}", self.message)
-        }
-    }
-
-    impl std::error::Error for OuterError {
-        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-            Some(&self.source)
-        }
-    }
-
-    #[test]
-    fn test_error_with_chain_single_error() {
-        let err = RootCauseError { message: "root cause".to_string() };
-        let result = error_with_chain(&err);
-        assert_eq!(result, "root cause");
-    }
-
-    #[test]
-    fn test_error_with_chain_two_level_chain() {
-        let root =
-            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
-        let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
-        let result = error_with_chain(&middle);
-        assert_eq!(result, "error trying to connect: invalid peer certificate: UnknownIssuer");
-    }
-
-    #[test]
-    fn test_error_with_chain_three_level_chain() {
-        // Simulates the actual error chain from reqwest -> hyper -> TLS
-        let root =
-            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
-        let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
-        let outer = OuterError {
-            message:
-                "error sending request for url (https://example.livekit.cloud/settings/regions)"
-                    .to_string(),
-            source: middle,
-        };
-        let result = error_with_chain(&outer);
-        assert_eq!(
-            result,
-            "error sending request for url (https://example.livekit.cloud/settings/regions): error trying to connect: invalid peer certificate: UnknownIssuer"
-        );
-    }
-
-    #[test]
-    fn test_error_with_chain_preserves_tls_error_info() {
-        // Verify that TLS-specific error messages are preserved in the chain
-        let root =
-            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
-        let outer = MiddleError { message: "TLS connection error".to_string(), source: root };
-        let result = error_with_chain(&outer);
-
-        // The error message should contain both the outer message and the root cause
-        assert!(result.contains("TLS connection error"));
-        assert!(result.contains("UnknownIssuer"));
-        assert!(result.contains("invalid peer certificate"));
-    }
-
-    #[test]
-    fn test_region_error_includes_full_chain() {
-        // Test that SignalError::RegionError properly includes the full error chain
-        let root =
-            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
-        let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
-        let outer = OuterError { message: "error sending request".to_string(), source: middle };
-
-        let signal_error = SignalError::RegionError(error_with_chain(&outer));
-        let error_string = signal_error.to_string();
-
-        // Verify the full chain is in the error message
-        assert!(
-            error_string.contains("UnknownIssuer"),
-            "Error should contain root cause 'UnknownIssuer', got: {}",
-            error_string
-        );
-        assert!(
-            error_string.contains("error trying to connect"),
-            "Error should contain middle error, got: {}",
-            error_string
-        );
-        assert!(
-            error_string.contains("error sending request"),
-            "Error should contain outer error, got: {}",
-            error_string
-        );
-    }
-
-    #[test]
-    fn test_error_with_chain_io_error() {
-        // Test with a real std::io::Error chain
-        let inner = io::Error::new(io::ErrorKind::ConnectionRefused, "connection refused");
-        let outer = io::Error::new(io::ErrorKind::Other, inner);
-
-        let result = error_with_chain(&outer);
-        assert!(
-            result.contains("connection refused"),
-            "Should contain the inner error message, got: {}",
-            result
-        );
-    }
 
     #[test]
     fn test_is_cloud_url() {
@@ -485,126 +111,6 @@ mod tests {
         assert!(!is_cloud_url("wss://localhost:7880").unwrap());
         assert!(!is_cloud_url("wss://example.com").unwrap());
         assert!(!is_cloud_url("wss://livekit.cloud.example.com").unwrap());
-    }
-
-    #[test]
-    fn test_region_host() {
-        assert_eq!(region_host("wss://myapp.livekit.cloud").unwrap(), "myapp.livekit.cloud");
-        assert_eq!(region_host("https://myapp.livekit.cloud/rtc").unwrap(), "myapp.livekit.cloud");
-        assert!(region_host("not a url").is_err());
-    }
-
-    #[test]
-    fn region_cache_reports_fresh_stale_and_miss() {
-        let cache = RegionCache::new(RegionCache::DEFAULT_TTL);
-
-        let host = "cache-fresh.livekit.cloud";
-        assert!(matches!(cache.get(host), Cached::Miss), "unknown host is a miss");
-
-        let urls = vec!["wss://r1.livekit.cloud".to_string(), "wss://r2.livekit.cloud".to_string()];
-        cache.insert(host.to_string(), urls.clone(), None);
-        assert!(
-            matches!(cache.get(host), Cached::Fresh(u) if u == urls),
-            "fresh entry is a fresh hit"
-        );
-
-        // An entry older than its TTL is reported as stale (retained for fallback).
-        let stale_host = "cache-stale.livekit.cloud";
-        let stale_urls = vec!["wss://old.livekit.cloud".to_string()];
-        if let Some(past) = Instant::now().checked_sub(RegionCache::DEFAULT_TTL * 2) {
-            cache.entries.lock().insert(
-                stale_host.to_string(),
-                CachedRegions {
-                    urls: stale_urls.clone(),
-                    fetched_at: past,
-                    ttl: RegionCache::DEFAULT_TTL,
-                },
-            );
-            assert!(
-                matches!(cache.get(stale_host), Cached::Stale(u) if u == stale_urls),
-                "expired entry is a stale hit"
-            );
-        }
-    }
-
-    #[test]
-    fn region_cache_honors_server_max_age() {
-        // A short max-age expires before the (longer) default TTL would, proving
-        // the server's Cache-Control wins over the default.
-        let cache = RegionCache::new(Duration::from_secs(3600));
-        let host = "max-age.livekit.cloud";
-        let urls = vec!["wss://r1.livekit.cloud".to_string()];
-
-        cache.insert(host.to_string(), urls.clone(), Some(Duration::ZERO));
-        assert!(
-            matches!(cache.get(host), Cached::Stale(u) if u == urls),
-            "max-age=0 entry is immediately stale despite the long default TTL"
-        );
-    }
-
-    #[test]
-    fn region_cache_mark_failed_prunes_then_drops() {
-        let cache = RegionCache::new(RegionCache::DEFAULT_TTL);
-        let host = "mark-failed.livekit.cloud";
-        let r1 = "wss://r1.livekit.cloud".to_string();
-        let r2 = "wss://r2.livekit.cloud".to_string();
-        cache.insert(host.to_string(), vec![r1.clone(), r2.clone()], None);
-
-        // Pruning one URL keeps the entry with the survivors.
-        cache.mark_failed(host, &r1);
-        assert!(
-            matches!(cache.get(host), Cached::Fresh(u) if u == vec![r2.clone()]),
-            "failed URL is pruned, the rest remain"
-        );
-
-        // Removing the last URL drops the entry entirely, forcing a re-fetch.
-        cache.mark_failed(host, &r2);
-        assert!(matches!(cache.get(host), Cached::Miss), "emptied entry is dropped");
-
-        // Marking an unknown host is a no-op.
-        cache.mark_failed("unknown.livekit.cloud", &r1);
-    }
-
-    #[test]
-    fn region_cache_invalidate_and_clear() {
-        let cache = RegionCache::new(RegionCache::DEFAULT_TTL);
-        let a = "a.livekit.cloud";
-        let b = "b.livekit.cloud";
-        let urls = vec!["wss://r.livekit.cloud".to_string()];
-        cache.insert(a.to_string(), urls.clone(), None);
-        cache.insert(b.to_string(), urls.clone(), None);
-
-        // invalidate drops only the targeted host.
-        cache.invalidate(a);
-        assert!(matches!(cache.get(a), Cached::Miss), "invalidated host is a miss");
-        assert!(matches!(cache.get(b), Cached::Fresh(_)), "other host is untouched");
-
-        // clear drops everything.
-        cache.clear();
-        assert!(matches!(cache.get(b), Cached::Miss), "clear removes all entries");
-    }
-
-    #[test]
-    fn fetch_lock_is_shared_per_host() {
-        let cache = RegionCache::new(RegionCache::DEFAULT_TTL);
-
-        // Same host hands back the same lock, so concurrent callers contend on a
-        // single fetch; distinct hosts get independent locks.
-        let a1 = cache.fetch_lock("a.livekit.cloud");
-        let a2 = cache.fetch_lock("a.livekit.cloud");
-        let b = cache.fetch_lock("b.livekit.cloud");
-        assert!(Arc::ptr_eq(&a1, &a2), "same host shares one fetch lock");
-        assert!(!Arc::ptr_eq(&a1, &b), "different hosts get distinct fetch locks");
-    }
-
-    #[test]
-    fn test_parse_max_age() {
-        assert_eq!(parse_max_age("max-age=300"), Some(Duration::from_secs(300)));
-        assert_eq!(parse_max_age("public, max-age=300"), Some(Duration::from_secs(300)));
-        assert_eq!(parse_max_age("MAX-AGE=0, no-cache"), Some(Duration::ZERO));
-        assert_eq!(parse_max_age("no-store"), None);
-        assert_eq!(parse_max_age("max-age=notanumber"), None);
-        assert_eq!(parse_max_age(""), None);
     }
 
     #[test]

@@ -71,7 +71,6 @@ pub struct RoomAgentDispatch {
     pub metadata: String,
     pub restart_policy: i32,
     pub deployment: String,
-    pub attributes: HashMap<String, String>,
 }
 
 /// Room configuration

@@ -281,7 +281,6 @@ const FrameMetadata = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "user_timestamp", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 2, name: "frame_id", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
-    { no: 3, name: "user_data", kind: "scalar", T: 12 /* ScalarType.BYTES */, opt: true },
   ],
 );
 

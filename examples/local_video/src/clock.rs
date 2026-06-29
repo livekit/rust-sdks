@@ -58,11 +58,10 @@ impl ClockUniform {
 struct ClockApp;
 
 impl eframe::App for ClockApp {
-    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let ctx = root_ui.ctx().clone();
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint();
 
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             ui.painter().rect_filled(ui.max_rect(), 0, egui::Color32::BLACK);
 
             let (rect, _) = ui.allocate_exact_size(ui.available_size(), egui::Sense::hover());
@@ -143,8 +142,8 @@ impl ClockGpuState {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("clock_pipeline_layout"),
-            bind_group_layouts: &[Some(&bind_layout)],
-            immediate_size: 0,
+            bind_group_layouts: &[&bind_layout],
+            push_constant_ranges: &[],
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -181,7 +180,7 @@ impl ClockGpuState {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview_mask: None,
+            multiview: None,
             cache: None,
         });
 
@@ -239,12 +238,13 @@ fn native_options(args: &Args) -> eframe::NativeOptions {
 
     let mut wgpu_options = egui_wgpu_backend::WgpuConfiguration::default();
     let vsync = !args.no_vsync;
-    wgpu_options.surface.present_mode =
+    wgpu_options.present_mode =
         if vsync { wgpu::PresentMode::AutoVsync } else { wgpu::PresentMode::AutoNoVsync };
-    wgpu_options.surface.desired_maximum_frame_latency = Some(1);
+    wgpu_options.desired_maximum_frame_latency = Some(1);
 
     eframe::NativeOptions {
         viewport,
+        vsync,
         multisampling: 0,
         depth_buffer: 0,
         stencil_buffer: 0,

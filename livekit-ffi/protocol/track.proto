@@ -91,7 +91,7 @@ message TrackPublicationInfo {
   required bool remote = 10;
   required EncryptionType encryption_type = 11;
   repeated AudioTrackFeature audio_features = 12;
-  repeated FrameMetadataFeature frame_metadata_features = 13;
+  repeated PacketTrailerFeature packet_trailer_features = 13;
 }
 
 message OwnedTrackPublication {
@@ -161,8 +161,7 @@ enum AudioTrackFeature {
   TF_PRECONNECT_BUFFER = 6; // client will buffer audio once available and send it to the server via bytes stream once connected
 }
 
-enum FrameMetadataFeature {
-  FMF_USER_TIMESTAMP = 0;
-  FMF_FRAME_ID = 1;
-  FMF_USER_DATA = 2;
+enum PacketTrailerFeature {
+  PTF_USER_TIMESTAMP = 0;
+  PTF_FRAME_ID = 1;
 }

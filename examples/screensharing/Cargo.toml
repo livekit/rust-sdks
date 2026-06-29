@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
 env_logger = { workspace = true }
-livekit = { workspace = true, features = ["glib-main-loop", "rustls-tls-native-roots"] }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true }
 log = { workspace = true }
 clap = { workspace = true, features = ["derive"] }

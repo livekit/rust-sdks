@@ -28,7 +28,11 @@ use super::{
     ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
     TrackKind,
 };
-use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
+use crate::{
+    prelude::*,
+    rtc_engine::RtcEngine,
+    track::{TrackError, VideoQuality},
+};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -454,18 +458,18 @@ impl RemoteParticipant {
                 let rtc_engine = rtc_engine.clone();
                 livekit_runtime::spawn(async move {
                     let tsid: String = publication.sid().into();
-                    let quality: i32 = proto::VideoQuality::from(quality).into();
+                    let quality = match quality {
+                        VideoQuality::Low => proto::VideoQuality::Low,
+                        VideoQuality::Medium => proto::VideoQuality::Medium,
+                        VideoQuality::High => proto::VideoQuality::High,
+                    }
+                    .into();
                     let update_track_settings = proto::UpdateTrackSettings {
                         track_sids: vec![tsid.clone()],
                         quality,
                         ..Default::default()
                     };
 
-                    log::info!(
-                        "subscriber: sending UpdateTrackSettings to SFU: track={}, quality={:?}",
-                        tsid,
-                        proto::VideoQuality::try_from(quality),
-                    );
                     rtc_engine
                         .send_request(proto::signal_request::Message::TrackSetting(
                             update_track_settings,

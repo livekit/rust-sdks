@@ -5,3 +5,5 @@ soxr-sys/test-output.wav
 .DS_Store
 .env
 .cursor
+models/
+local_links/

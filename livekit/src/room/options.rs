@@ -74,15 +74,14 @@ pub struct AudioPreset {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct FrameMetadataFeatures {
+pub struct PacketTrailerFeatures {
     pub user_timestamp: bool,
     pub frame_id: bool,
-    pub user_data: bool,
 }
 
-impl FrameMetadataFeatures {
+impl PacketTrailerFeatures {
     pub(crate) fn is_empty(&self) -> bool {
-        !self.user_timestamp && !self.frame_id && !self.user_data
+        !self.user_timestamp && !self.frame_id
     }
 
     pub(crate) fn to_proto(&self) -> Vec<proto::PacketTrailerFeature> {
@@ -94,10 +93,6 @@ impl FrameMetadataFeatures {
 
         if self.frame_id {
             features.push(proto::PacketTrailerFeature::PtfFrameId);
-        }
-
-        if self.user_data {
-            features.push(proto::PacketTrailerFeature::PtfUserData);
         }
 
         features
@@ -126,7 +121,7 @@ pub struct TrackPublishOptions {
     pub source: TrackSource,
     pub stream: String,
     pub preconnect_buffer: bool,
-    pub frame_metadata_features: FrameMetadataFeatures,
+    pub packet_trailer_features: PacketTrailerFeatures,
     /// Preferred encoder backend for video tracks published with these options.
     ///
     /// If the requested backend is unavailable, the SDK logs a warning and
@@ -151,7 +146,7 @@ impl Default for TrackPublishOptions {
             source: TrackSource::Unknown,
             stream: "".to_string(),
             preconnect_buffer: false,
-            frame_metadata_features: FrameMetadataFeatures::default(),
+            packet_trailer_features: PacketTrailerFeatures::default(),
             video_encoder: VideoEncoderBackend::Auto,
             scalability_mode: None,
         }
@@ -352,17 +347,6 @@ pub fn spatial_layers_from_scalability_mode(mode: &str) -> u32 {
     1
 }
 
-/// A single encoding, or one without a recognized RID, represents the full-quality layer.
-pub(crate) const DEFAULT_VIDEO_QUALITY: proto::VideoQuality = proto::VideoQuality::High;
-
-pub(crate) fn video_quality_for_rid_or_default(rid: &str) -> proto::VideoQuality {
-    video_quality_for_rid(rid).unwrap_or(DEFAULT_VIDEO_QUALITY)
-}
-
-pub(crate) fn video_quality_from_i32_or_default(quality: i32) -> proto::VideoQuality {
-    proto::VideoQuality::try_from(quality).unwrap_or(DEFAULT_VIDEO_QUALITY)
-}
-
 pub fn video_layers_from_encodings(
     width: u32,
     height: u32,
@@ -370,7 +354,7 @@ pub fn video_layers_from_encodings(
 ) -> Vec<proto::VideoLayer> {
     if encodings.is_empty() {
         return vec![proto::VideoLayer {
-            quality: DEFAULT_VIDEO_QUALITY as i32,
+            quality: proto::VideoQuality::High as i32,
             width,
             height,
             bitrate: 0,
@@ -415,7 +399,7 @@ pub fn video_layers_from_encodings(
     let mut layers = Vec::with_capacity(encodings.len());
     for encoding in encodings {
         let scale = encoding.scale_resolution_down_by.unwrap_or(1.0);
-        let quality = video_quality_for_rid_or_default(&encoding.rid);
+        let quality = video_quality_for_rid(&encoding.rid).unwrap_or(proto::VideoQuality::High);
 
         layers.push(proto::VideoLayer {
             quality: quality as i32,

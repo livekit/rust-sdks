@@ -32,9 +32,9 @@ use serde_json::json;
 pub enum PluginError {
     #[error("dylib error: {0}")]
     Library(#[from] libloading::Error),
-    #[error("unimplemented plugin function: {0}")]
+    #[error("dylib error: {0}")]
     NotImplemented(String),
-    #[error("on_load rejected by plugin (code {0})")]
+    #[error("on_load failed with error: {0}")]
     OnLoad(i32),
 }
 

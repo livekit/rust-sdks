@@ -17,7 +17,6 @@
 #include "livekit/video_track.h"
 
 #include <algorithm>
-#include <chrono>
 #include <iostream>
 #include <memory>
 
@@ -26,7 +25,6 @@
 #include "api/video/video_rotation.h"
 #include "audio/remix_resample.h"
 #include "common_audio/include/audio_util.h"
-#include "livekit/dmabuf_video_frame_buffer.h"
 #include "livekit/media_stream.h"
 #include "livekit/packet_trailer.h"
 #include "livekit/video_track.h"
@@ -151,9 +149,7 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   if (frame_metadata.has_packet_trailer && packet_trailer_handler_) {
     packet_trailer_handler_->store_frame_metadata(
         aligned_timestamp_us, frame_metadata.user_timestamp,
-        frame_metadata.frame_id,
-        rust::Slice<const uint8_t>(frame_metadata.user_data.data(),
-                                   frame_metadata.user_data.size()));
+        frame_metadata.frame_id);
   }
 
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
@@ -218,32 +214,6 @@ bool VideoTrackSource::on_captured_frame(
     const FrameMetadata& frame_metadata) const {
   auto rtc_frame = frame->get();
   return source_->on_captured_frame(rtc_frame, frame_metadata);
-}
-
-bool VideoTrackSource::capture_dmabuf_frame(int dmabuf_fd,
-                                            int width,
-                                            int height,
-                                            int pixel_format,
-                                            int64_t timestamp_us,
-                                            const FrameMetadata& frame_metadata) const {
-  auto dmabuf_pixel_format =
-      static_cast<livekit::DmaBufPixelFormat>(pixel_format);
-  auto buffer = webrtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
-      dmabuf_fd, width, height, dmabuf_pixel_format);
-
-  int64_t ts = timestamp_us;
-  if (ts == 0) {
-    auto now = std::chrono::system_clock::now().time_since_epoch();
-    ts = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
-  }
-
-  auto frame = webrtc::VideoFrame::Builder()
-                   .set_video_frame_buffer(std::move(buffer))
-                   .set_rotation(webrtc::kVideoRotation_0)
-                   .set_timestamp_us(ts)
-                   .build();
-
-  return source_->on_captured_frame(frame, frame_metadata);
 }
 
 void VideoTrackSource::set_packet_trailer_handler(

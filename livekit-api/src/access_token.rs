@@ -153,7 +153,6 @@ pub struct Claims {
 
 impl Claims {
     pub fn from_unverified(token: &str) -> Result<Self, AccessTokenError> {
-        crate::jwt_provider::ensure_installed();
         let token = jsonwebtoken::dangerous::insecure_decode::<Claims>(token)?;
         Ok(token.claims)
     }
@@ -262,7 +261,6 @@ impl AccessToken {
     }
 
     pub fn to_jwt(self) -> Result<String, AccessTokenError> {
-        crate::jwt_provider::ensure_installed();
         if self.api_key.is_empty() || self.api_secret.is_empty() {
             return Err(AccessTokenError::InvalidKeys);
         }
@@ -306,7 +304,6 @@ impl TokenVerifier {
     }
 
     pub fn verify(&self, token: &str) -> Result<Claims, AccessTokenError> {
-        crate::jwt_provider::ensure_installed();
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.validate_exp = true;
         validation.validate_nbf = true;

@@ -41,7 +41,6 @@ fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::Fra
     metadata.map(|metadata| proto::FrameMetadata {
         user_timestamp: metadata.user_timestamp,
         frame_id: metadata.frame_id,
-        user_data: metadata.user_data,
     })
 }
 
@@ -317,12 +316,10 @@ mod tests {
         let metadata = frame_metadata_to_proto(Some(FrameMetadata {
             user_timestamp: Some(123),
             frame_id: None,
-            user_data: Some(vec![1, 2, 3]),
         }))
         .unwrap();
 
         assert_eq!(metadata.user_timestamp, Some(123));
         assert_eq!(metadata.frame_id, None);
-        assert_eq!(metadata.user_data, Some(vec![1, 2, 3]));
     }
 }

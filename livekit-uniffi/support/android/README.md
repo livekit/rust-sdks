@@ -12,14 +12,10 @@ Gradle Android library module that packages UniFFI Kotlin bindings and native `l
 From the crate root:
 
 ```bash
-cargo make android-package                              # debug .so in release AAR
-cargo make --profile release android-package            # release .so (CI / publishing)
+cargo make android-package
 ```
 
-The built AAR is located at: `packages/android/livekit-uniffi-android-release.aar`
-
-In the default (development) profile, Rust builds are unoptimized debug artifacts;
-`--profile release` additionally applies release Rust flags and runs the size gate.
+The built AAR library is located at: `packages/android/livekit-uniffi-android-release.aar`
 
 ### Local Dev
 
@@ -27,8 +23,9 @@ In the default (development) profile, Rust builds are unoptimized debug artifact
 cargo make android-package-local
 ```
 
-Builds the release AAR (with debug or release `.so` files per profile above) and
-publishes it to the local Maven repo for app integration.
+Additionally publishes the package to the local maven repo for local dev use.
+AARs are not yet easily consumed directly by dev tooling, so consuming through 
+local maven is simplest.
 
 ## Kotlin sources
 

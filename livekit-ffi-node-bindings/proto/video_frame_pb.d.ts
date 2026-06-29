@@ -701,11 +701,6 @@ export declare class FrameMetadata extends Message<FrameMetadata> {
    */
   frameId?: number;
 
-  /**
-   * @generated from field: optional bytes user_data = 3;
-   */
-  userData?: Uint8Array;
-
   constructor(data?: PartialMessage<FrameMetadata>);
 
   static readonly runtime: typeof proto2;

@@ -206,7 +206,6 @@ impl SIPClient {
                         media_encryption: Default::default(),
                         created_at: Default::default(),
                         updated_at: Default::default(),
-                        media: Default::default(),
                     }),
                 },
                 self.base.auth_header(
@@ -252,7 +251,6 @@ impl SIPClient {
                         created_at: Default::default(),
                         updated_at: Default::default(),
                         from_host: Default::default(),
-                        media: Default::default(),
                     }),
                 },
                 self.base.auth_header(

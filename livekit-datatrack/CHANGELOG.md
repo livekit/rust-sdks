@@ -1,10 +1,4 @@
 # Changelog
-## 0.1.9 (2026-06-23)
-
-### Fixes
-
-- Upgrade protocol to v1.48.0
-
 ## 0.1.8 (2026-05-29)
 
 ### Fixes

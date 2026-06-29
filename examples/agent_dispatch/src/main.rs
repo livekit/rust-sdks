@@ -25,10 +25,6 @@ struct Args {
     /// Registered agent name to dispatch
     #[arg(long, default_value = "my-agent")]
     agent_name: String,
-
-    /// Optional deployment to target. Leave empty to target production deployment.
-    #[arg(long, default_value = "")]
-    deployment: String,
 }
 
 #[tokio::main]
@@ -40,13 +36,10 @@ async fn main() {
     // Instantiate the AgentDispatch service client
     let client = AgentDispatchClient::with_api_key(&host, &args.api_key, &args.api_secret);
 
-    // Create a dispatch for the given agent into the room.
-    // The `deployment` field can be used to target a specific agent deployment.
-    // Leave empty to target the production deployment.
+    // Create a dispatch for the given agent into the room
     let req = proto::CreateAgentDispatchRequest {
         agent_name: args.agent_name,
         room: args.room_name,
-        deployment: args.deployment,
         ..Default::default()
     };
 

@@ -159,15 +159,13 @@ impl PacketTrailerHandler {
     }
 
     /// Lookup the frame metadata for a given RTP timestamp (receiver side).
-    /// Returns `Some((user_timestamp, frame_id, user_data))` if found,
-    /// `None` otherwise. The entry is removed from the map after a
-    /// successful lookup.
-    pub fn lookup_frame_metadata(&self, rtp_timestamp: u32) -> Option<(u64, u32, Vec<u8>)> {
+    /// Returns `Some((user_timestamp, frame_id))` if found, `None` otherwise.
+    /// The entry is removed from the map after a successful lookup.
+    pub fn lookup_frame_metadata(&self, rtp_timestamp: u32) -> Option<(u64, u32)> {
         let ts = self.sys_handle.lookup_timestamp(rtp_timestamp);
         if ts != u64::MAX {
             let frame_id = self.sys_handle.last_lookup_frame_id();
-            let user_data = self.sys_handle.last_lookup_user_data();
-            Some((ts, frame_id, user_data))
+            Some((ts, frame_id))
         } else {
             None
         }
@@ -190,14 +188,8 @@ impl PacketTrailerHandler {
         capture_timestamp_us: i64,
         user_timestamp: u64,
         frame_id: u32,
-        user_data: &[u8],
     ) {
-        self.sys_handle.store_frame_metadata(
-            capture_timestamp_us,
-            user_timestamp,
-            frame_id,
-            user_data,
-        );
+        self.sys_handle.store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
     }
 
     pub(crate) fn sys_handle(&self) -> SharedPtr<sys_pt::PacketTrailerHandler> {

@@ -311,9 +311,6 @@ impl OutgoingStreamManager {
             content_header: Some(proto::data_stream::header::ContentHeader::TextHeader(
                 text_header.clone(),
             )),
-            // Data streams v2 fields
-            inline_content: None,
-            compression: proto::data_stream::CompressionType::None as i32,
         };
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
@@ -340,9 +337,6 @@ impl OutgoingStreamManager {
             content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
                 byte_header.clone(),
             )),
-            // Data streams v2 fields
-            inline_content: None,
-            compression: proto::data_stream::CompressionType::None as i32,
         };
 
         let open_options = RawStreamOpenOptions {
@@ -380,9 +374,6 @@ impl OutgoingStreamManager {
             content_header: Some(proto::data_stream::header::ContentHeader::TextHeader(
                 text_header.clone(),
             )),
-            // Data streams v2 fields
-            inline_content: None,
-            compression: proto::data_stream::CompressionType::None as i32,
         };
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
@@ -431,9 +422,6 @@ impl OutgoingStreamManager {
             content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
                 byte_header.clone(),
             )),
-            // Data streams v2 fields
-            inline_content: None,
-            compression: proto::data_stream::CompressionType::None as i32,
         };
 
         let open_options = RawStreamOpenOptions {
@@ -477,9 +465,6 @@ impl OutgoingStreamManager {
             content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
                 byte_header.clone(),
             )),
-            // Data streams v2 fields
-            inline_content: None,
-            compression: proto::data_stream::CompressionType::None as i32,
         };
 
         let open_options = RawStreamOpenOptions {
@@ -539,9 +524,6 @@ mod tests {
                 encryption_type: proto::encryption::Type::None.into(),
                 attributes: HashMap::new(),
                 content_header: None,
-                // Data streams v2 fields
-                inline_content: None,
-                compression: proto::data_stream::CompressionType::None as i32,
             };
 
             RawStream::open(RawStreamOpenOptions {

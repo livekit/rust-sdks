@@ -19,7 +19,7 @@ use livekit::{
         E2eeOptions, EncryptionType,
     },
     options::{
-        AudioEncoding, FrameMetadataFeatures, TrackPublishOptions, VideoEncoderBackend,
+        AudioEncoding, PacketTrailerFeatures, TrackPublishOptions, VideoEncoderBackend,
         VideoEncoding,
     },
     prelude::*,
@@ -31,26 +31,23 @@ use livekit::{
 };
 use std::time::Duration;
 
-fn frame_metadata_features_from_proto(features: Vec<i32>) -> FrameMetadataFeatures {
-    let mut frame_metadata_features = FrameMetadataFeatures::default();
+fn packet_trailer_features_from_proto(features: Vec<i32>) -> PacketTrailerFeatures {
+    let mut packet_trailer_features = PacketTrailerFeatures::default();
 
     for feature in
-        features.into_iter().filter_map(|value| proto::FrameMetadataFeature::try_from(value).ok())
+        features.into_iter().filter_map(|value| proto::PacketTrailerFeature::try_from(value).ok())
     {
         match feature {
-            proto::FrameMetadataFeature::FmfUserTimestamp => {
-                frame_metadata_features.user_timestamp = true;
+            proto::PacketTrailerFeature::PtfUserTimestamp => {
+                packet_trailer_features.user_timestamp = true;
             }
-            proto::FrameMetadataFeature::FmfFrameId => {
-                frame_metadata_features.frame_id = true;
-            }
-            proto::FrameMetadataFeature::FmfUserData => {
-                frame_metadata_features.user_data = true;
+            proto::PacketTrailerFeature::PtfFrameId => {
+                packet_trailer_features.frame_id = true;
             }
         }
     }
 
-    frame_metadata_features
+    packet_trailer_features
 }
 
 fn video_encoder_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend> {
@@ -332,8 +329,8 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             preconnect_buffer: opts
                 .preconnect_buffer
                 .unwrap_or(default_publish_options.preconnect_buffer),
-            frame_metadata_features: frame_metadata_features_from_proto(
-                opts.frame_metadata_features,
+            packet_trailer_features: packet_trailer_features_from_proto(
+                opts.packet_trailer_features,
             ),
             video_encoder: video_encoder_from_proto(opts.video_encoder)
                 .unwrap_or(default_publish_options.video_encoder),
@@ -358,22 +355,22 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 mod tests {
     use livekit::options::{TrackPublishOptions, VideoEncoderBackend};
 
-    use super::{frame_metadata_features_from_proto, video_encoder_from_proto};
+    use super::{packet_trailer_features_from_proto, video_encoder_from_proto};
     use crate::proto;
 
     #[test]
-    fn frame_metadata_features_default_to_empty() {
-        let features = frame_metadata_features_from_proto(Vec::new());
+    fn packet_trailer_features_default_to_empty() {
+        let features = packet_trailer_features_from_proto(Vec::new());
 
         assert!(!features.user_timestamp);
         assert!(!features.frame_id);
     }
 
     #[test]
-    fn frame_metadata_features_enable_known_flags() {
-        let features = frame_metadata_features_from_proto(vec![
-            proto::FrameMetadataFeature::FmfUserTimestamp.into(),
-            proto::FrameMetadataFeature::FmfFrameId.into(),
+    fn packet_trailer_features_enable_known_flags() {
+        let features = packet_trailer_features_from_proto(vec![
+            proto::PacketTrailerFeature::PtfUserTimestamp.into(),
+            proto::PacketTrailerFeature::PtfFrameId.into(),
         ]);
 
         assert!(features.user_timestamp);
@@ -545,9 +542,6 @@ impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header 
             attributes: msg.attributes,
             content_header,
             encryption_type: 0,
-            // Data streams v2 fields
-            inline_content: None,
-            compression: livekit_protocol::data_stream::CompressionType::None as i32,
         }
     }
 }

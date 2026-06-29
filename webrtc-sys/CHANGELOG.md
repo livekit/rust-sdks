@@ -165,27 +165,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
-## 0.3.35 (2026-06-17)
-
-### Fixes
-
-- Fix silent subscription failures in single-pc mode when the SFU reuses an existing empty transceiver for a new remote track. Also make `RtpTransceiver::mid()` safe to call on transceivers that haven't been negotiated yet — libwebrtc is built with `-fno-exceptions`, so `std::optional::value()` aborted the process instead of throwing.
-- Add `LK_DISABLE_NVDEC` to bypass NVIDIA NVDEC decoder registration when the environment variable is set.
-- Add Jetson DMA-buffer video publishing support for libargus MIPI capture and the Jetson hardware encoder, including AV1 hardware encoding on supported Jetson Orin devices.
-
-#### Make GLib an opt-in dependency
-
-`webrtc-sys` no longer links against `glib-2.0`/`gobject-2.0`/`gio-2.0` by default.
-
-Breaking: Wayland screen sharing now requires the `glib-main-loop` feature on `livekit` (or `libwebrtc`).
-
-## 0.3.34 (2026-06-09)
-
-### Fixes
-
-- Fix NVIDIA encoder I420 uploads to copy each plane using its actual source stride, avoiding chroma corruption when source frames use padded YUV planes. Also fix the `local_video` publisher reusing mutable I420 frame storage after handing frames to WebRTC.
-- Add per-publication video encoder backend selection. Add a video encoder backend availability query. Remove `LIVEKIT_PREFERRED_HW_ENCODER` in favor of per-publication backend selection.
-
 ## 0.3.33 (2026-05-29)
 
 ### Fixes

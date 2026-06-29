@@ -11,7 +11,7 @@ impl State {
     }
 
     pub fn store(self, ctx: &egui::Context, id: egui::Id) {
-        ctx.data_mut(|i| i.insert_temp(id, self));
+        ctx.data_mut(|i| i.insert_temp(id, self))
     }
 }
 
@@ -35,7 +35,7 @@ pub struct VideoGrid {
 }
 
 impl VideoGrid {
-    pub fn new(id_source: impl std::hash::Hash + std::fmt::Debug) -> Self {
+    pub fn new(id_source: impl std::hash::Hash) -> Self {
         Self {
             id: egui::Id::new(id_source),
             available_rect: egui::Rect::NAN,
@@ -63,10 +63,8 @@ impl VideoGrid {
 
         ui.ctx().check_for_id_clash(self.id, self.available_rect, "VideoGrid");
 
-        ui.scope_builder(egui::UiBuilder::new().max_rect(self.available_rect), |ui| {
-            if is_first_frame {
-                ui.set_invisible();
-            }
+        ui.allocate_ui_at_rect(self.available_rect, |ui| {
+            ui.set_visible(!is_first_frame);
 
             let mut ctx = VideoGridContext { layout: &mut self, ui };
             let res = grid(&mut ctx);
@@ -167,9 +165,7 @@ impl<'a> VideoGridContext<'a> {
         let frame_rect = self.layout.next_frame_rect();
 
         if self.ui.is_visible() {
-            let mut child_ui = self.ui.new_child(
-                egui::UiBuilder::new().max_rect(frame_rect).layout(egui::Layout::default()),
-            );
+            let mut child_ui = self.ui.child_ui(frame_rect, egui::Layout::default(), None);
             add_contents(&mut child_ui);
         }
 

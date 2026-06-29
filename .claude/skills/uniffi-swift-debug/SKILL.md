@@ -1,1 +1,0 @@
-../../../livekit-uniffi/support/swift/DEBUGGING.md

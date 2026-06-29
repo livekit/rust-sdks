@@ -1,0 +1,26 @@
+[package]
+name = "a2a_relay_example"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+env_logger = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-a2a-relay = { path = "../../livekit-a2a-relay", features = ["a2a-client"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+log = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+futures-util = { workspace = true }
+sherpa-onnx = "1.13.2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+
+[features]
+default = ["a2a-client"]
+a2a-client = []
+
