@@ -22,6 +22,20 @@ pub enum Priority {
     High,
 }
 
+/// Controls how the encoder degrades quality when bandwidth is constrained.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum DegradationPreference {
+    /// Degrade framerate to maintain resolution.
+    MaintainFramerate,
+    /// Degrade resolution to maintain framerate.
+    MaintainResolution,
+    /// Balance between framerate and resolution degradation.
+    #[default]
+    Balanced,
+    /// Disable degradation preference (not recommended).
+    Disabled,
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtensionParameters {
     pub uri: String,
@@ -41,6 +55,36 @@ pub struct RtpParameters {
     pub(crate) mid: String,
     pub(crate) has_degradation_preference: bool,
     pub(crate) degradation_preference: i32,
+}
+
+impl RtpParameters {
+    /// Sets the degradation preference for this RTP sender.
+    ///
+    /// This controls how the encoder trades off between resolution and framerate
+    /// when bandwidth is constrained.
+    pub fn set_degradation_preference(&mut self, preference: DegradationPreference) {
+        self.has_degradation_preference = true;
+        self.degradation_preference = match preference {
+            DegradationPreference::Disabled => 0,
+            DegradationPreference::MaintainFramerate => 1,
+            DegradationPreference::MaintainResolution => 2,
+            DegradationPreference::Balanced => 3,
+        };
+    }
+
+    /// Gets the current degradation preference, if set.
+    pub fn degradation_preference(&self) -> Option<DegradationPreference> {
+        if !self.has_degradation_preference {
+            return None;
+        }
+        Some(match self.degradation_preference {
+            0 => DegradationPreference::Disabled,
+            1 => DegradationPreference::MaintainFramerate,
+            2 => DegradationPreference::MaintainResolution,
+            3 => DegradationPreference::Balanced,
+            _ => DegradationPreference::Balanced,
+        })
+    }
 }
 
 /// Mirrors webrtc_sys RtcpFeedback for round-trip fidelity.
