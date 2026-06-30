@@ -714,7 +714,7 @@ pub mod data_track_frame_encoding {
         #[prost(enumeration="WellKnownFrameEncoding", tag="1")]
         WellKnown(i32),
         /// Identifier of a custom encoding not covered by the well-known cases.
-        /// This must be non-empty and no longer than 25 characters.
+        /// This must be non-empty and no longer than 32 characters.
         #[prost(string, tag="2")]
         Custom(::prost::alloc::string::String),
     }
@@ -790,7 +790,7 @@ pub mod data_track_schema_encoding {
         #[prost(enumeration="WellKnownSchemaEncoding", tag="1")]
         WellKnown(i32),
         /// Identifier of a custom encoding not covered by the well-known cases.
-        /// This must be non-empty and no longer than 25 characters.
+        /// This must be non-empty and no longer than 32 characters.
         #[prost(string, tag="2")]
         Custom(::prost::alloc::string::String),
     }
