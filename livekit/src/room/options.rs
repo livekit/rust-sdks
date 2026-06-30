@@ -573,14 +573,10 @@ mod tests {
     #[test]
     fn degradation_preference_defaults_to_maintain_resolution() {
         // All sources should default to MaintainResolution
-        let camera_options = TrackPublishOptions {
-            source: TrackSource::Camera,
-            ..Default::default()
-        };
-        let screenshare_options = TrackPublishOptions {
-            source: TrackSource::Screenshare,
-            ..Default::default()
-        };
+        let camera_options =
+            TrackPublishOptions { source: TrackSource::Camera, ..Default::default() };
+        let screenshare_options =
+            TrackPublishOptions { source: TrackSource::Screenshare, ..Default::default() };
         let default_options = TrackPublishOptions::default();
 
         assert_eq!(
