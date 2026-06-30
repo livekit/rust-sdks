@@ -22,6 +22,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
@@ -66,6 +67,26 @@ struct LkArgusSession {
 };
 
 static const uint64_t kAcquireTimeoutNs = 1000000000ULL; // 1 second
+
+static constexpr int kCopyI420InvalidArgument = -1;
+static constexpr int kCopyI420SurfaceNotFound = -2;
+static constexpr int kCopyI420InvalidSurface = -4;
+
+static int copy_i420_error_code(int ret) {
+    return ret < 0 ? -ret : ret;
+}
+
+static int copy_i420_map_error(int ret) {
+    return -1000 - copy_i420_error_code(ret);
+}
+
+static int copy_i420_sync_error(int ret) {
+    return -2000 - copy_i420_error_code(ret);
+}
+
+static int copy_i420_unmap_error(int ret) {
+    return -100 - copy_i420_error_code(ret);
+}
 
 enum class SensorTimestampStatus {
     Available,
@@ -581,6 +602,106 @@ int lk_argus_acquire_frame_with_metadata(
 
 int lk_argus_acquire_frame(void* handle) {
     return lk_argus_acquire_frame_with_metadata(handle, nullptr, nullptr, nullptr);
+}
+
+int lk_argus_copy_frame_to_i420(
+        void* handle,
+        int dmabuf_fd,
+        uint8_t* dst_y,
+        int dst_stride_y,
+        uint8_t* dst_u,
+        int dst_stride_u,
+        uint8_t* dst_v,
+        int dst_stride_v,
+        uint64_t* copy_to_i420_ns) {
+    using Clock = std::chrono::steady_clock;
+
+    auto* s = static_cast<LkArgusSession*>(handle);
+    if (!s || dmabuf_fd < 0 || !dst_y || !dst_u || !dst_v) {
+        return kCopyI420InvalidArgument;
+    }
+
+    const int width = s->width;
+    const int height = s->height;
+    const int chroma_width = (width + 1) / 2;
+    const int chroma_height = (height + 1) / 2;
+    if (width <= 0 || height <= 0 ||
+        dst_stride_y < width ||
+        dst_stride_u < chroma_width ||
+        dst_stride_v < chroma_width) {
+        return kCopyI420InvalidArgument;
+    }
+
+    NvBufSurface* surface = nullptr;
+    for (int i = 0; i < kNumDmaBufs; i++) {
+        if (s->dmabuf_fds[i] == dmabuf_fd) {
+            surface = s->dmabuf_surfaces[i];
+            break;
+        }
+    }
+    if (!surface || surface->batchSize < 1) {
+        return kCopyI420SurfaceNotFound;
+    }
+
+    auto t0 = Clock::now();
+    int ret = NvBufSurfaceMap(surface, 0, -1, NVBUF_MAP_READ);
+    if (ret != 0) {
+        return copy_i420_map_error(ret);
+    }
+
+    ret = NvBufSurfaceSyncForCpu(surface, 0, -1);
+    if (ret != 0) {
+        int unmap_ret = NvBufSurfaceUnMap(surface, 0, -1);
+        if (unmap_ret != 0) {
+            return copy_i420_unmap_error(unmap_ret);
+        }
+        return copy_i420_sync_error(ret);
+    }
+
+    const NvBufSurfaceParams& params = surface->surfaceList[0];
+    const uint8_t* src_y =
+        static_cast<const uint8_t*>(params.mappedAddr.addr[0]);
+    const uint8_t* src_uv =
+        static_cast<const uint8_t*>(params.mappedAddr.addr[1]);
+    const int src_stride_y = static_cast<int>(params.planeParams.pitch[0]);
+    const int src_stride_uv = static_cast<int>(params.planeParams.pitch[1]);
+
+    if (!src_y || !src_uv ||
+        src_stride_y < width ||
+        src_stride_uv < chroma_width * 2) {
+        ret = NvBufSurfaceUnMap(surface, 0, -1);
+        if (ret != 0) {
+            return copy_i420_unmap_error(ret);
+        }
+        return kCopyI420InvalidSurface;
+    }
+
+    for (int row = 0; row < height; row++) {
+        std::memcpy(dst_y + row * dst_stride_y,
+                    src_y + row * src_stride_y,
+                    static_cast<size_t>(width));
+    }
+
+    for (int row = 0; row < chroma_height; row++) {
+        const uint8_t* src_row = src_uv + row * src_stride_uv;
+        uint8_t* dst_u_row = dst_u + row * dst_stride_u;
+        uint8_t* dst_v_row = dst_v + row * dst_stride_v;
+        for (int col = 0; col < chroma_width; col++) {
+            dst_u_row[col] = src_row[col * 2];
+            dst_v_row[col] = src_row[col * 2 + 1];
+        }
+    }
+
+    ret = NvBufSurfaceUnMap(surface, 0, -1);
+    auto t1 = Clock::now();
+    if (copy_to_i420_ns) {
+        *copy_to_i420_ns = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+    }
+    if (ret != 0) {
+        return copy_i420_unmap_error(ret);
+    }
+    return 0;
 }
 
 void lk_argus_release_frame(void* handle) {

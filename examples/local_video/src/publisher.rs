@@ -19,6 +19,8 @@ use livekit_capture::device::{
     CaptureDeviceSelector, CaptureFormat as LkCaptureFormat, CaptureFormatRequest,
     CaptureFrameFormat, CapturePath as LkCapturePath, CaptureResolution,
 };
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+use livekit_capture::sources::argus::{self, ArgusCaptureOptions, ArgusCaptureSession};
 #[cfg(target_os = "macos")]
 use livekit_capture::sources::avfoundation::{
     self, AvFoundationCaptureOptions, AvFoundationCaptureSession,
@@ -35,8 +37,6 @@ use std::sync::{
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-mod argus;
 mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
@@ -884,7 +884,7 @@ enum VideoInput {
     TestPattern(TestPattern),
     Camera(PlatformCamera),
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    Argus(argus::ArgusCaptureSession),
+    Argus(ArgusCaptureSession),
 }
 
 enum PlatformCamera {
@@ -937,7 +937,13 @@ fn publisher_capture_path_label(video_input: &VideoInput, burn_timestamp: bool) 
             }
         },
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-        VideoInput::Argus(_) => "libargus NV12 DMA-BUF".to_string(),
+        VideoInput::Argus(_) => {
+            if burn_timestamp {
+                "libargus CPU I420 from NV12 DMA-BUF (timestamp burn)".to_string()
+            } else {
+                "libargus NV12 DMA-BUF".to_string()
+            }
+        }
     }
 }
 
@@ -1252,17 +1258,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 if args.display_video {
                     anyhow::bail!("--display-video is not supported with --source argus");
                 }
-                if args.burn_timestamp {
-                    log::warn!(
-                        "--burn-timestamp is ignored with --source argus (DMA buffers are not CPU-mapped on the publish path)"
-                    );
-                }
-                let session = argus::ArgusCaptureSession::new(
+                let session = ArgusCaptureSession::new(ArgusCaptureOptions::new(
                     args.camera_index as u32,
-                    args.width,
-                    args.height,
+                    CaptureResolution::new(args.width, args.height),
                     args.fps,
-                )?;
+                ))?;
                 info!(
                     "Argus MIPI capture session opened: {}x{} @ {} fps (camera {})",
                     session.width(),
@@ -1421,14 +1421,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         info!("Published camera track");
         requested_codec
     };
+    let burn_timestamp_enabled = args.attach_timestamp && args.burn_timestamp;
     info!(
         "Publisher media path: capture={}, encode=requested codec {} via {}",
-        publisher_capture_path_label(&video_input, args.burn_timestamp),
+        publisher_capture_path_label(&video_input, burn_timestamp_enabled),
         actual_codec.as_str(),
         video_encoder_backend_name(requested_encoder),
     );
     let native_capture_fallback =
-        publisher_uses_native_camera_capture(&video_input, args.burn_timestamp)
+        publisher_uses_native_camera_capture(&video_input, burn_timestamp_enabled)
             .then(|| Arc::new(AtomicBool::new(false)));
 
     let capture_config = CaptureConfig {
@@ -1568,6 +1569,7 @@ async fn run_capture_loop(
     let mut fps_window_start = Instant::now();
     let mut fps_smoothed: f32 = 0.0;
     let target = Duration::from_secs_f64(1.0 / pace_fps);
+    let burn_timestamp_enabled = config.attach_timestamp && config.burn_timestamp;
     info!("Target frame interval: {:.2} ms", target.as_secs_f64() * 1000.0);
     if camera_driven_pacing {
         info!("Capture pacing: camera frame-arrival driven");
@@ -1579,8 +1581,8 @@ async fn run_capture_loop(
     let mut timings = PublisherTimingSummary::default();
     let mut frame_counter: u32 = 1;
     let mut test_pattern_frame_index: u64 = 0;
-    let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
-        .then(|| TimestampOverlay::new(width, height));
+    let mut timestamp_overlay =
+        burn_timestamp_enabled.then(|| TimestampOverlay::new(width, height));
     let align_buffers_for_display = display_shared.is_some();
     let mut logged_camera_timestamp_source = false;
     let mut logged_camera_timestamp_fallback = false;
@@ -1656,7 +1658,7 @@ async fn run_capture_loop(
                     );
                     logged_native_capture_fallback = true;
                 }
-                let prefer_native = !config.burn_timestamp && !force_i420_after_native_failure;
+                let prefer_native = !burn_timestamp_enabled && !force_i420_after_native_failure;
                 let mut captured = camera.capture_frame(prefer_native)?;
                 let camera_frame_acquired_at = Instant::now();
                 match &mut captured.buffer {
@@ -1916,15 +1918,15 @@ async fn run_capture_loop(
 /// Capture loop dedicated to Jetson MIPI capture via libargus.
 ///
 /// Argus blocks inside `acquireFrame`, pacing capture itself, so this loop runs in a
-/// dedicated OS thread and pushes NV12 DMA-buffer fds straight into `NativeVideoSource`
-/// via [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
-/// to the Jetson hardware encoder.
+/// dedicated OS thread. The normal path pushes NV12 DMA-buffer fds straight into
+/// [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
+/// to the Jetson hardware encoder; timestamp burn explicitly copies to CPU I420.
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 async fn run_argus_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,
     rtc_source: NativeVideoSource,
-    session: argus::ArgusCaptureSession,
+    session: ArgusCaptureSession,
     width: u32,
     height: u32,
     user_data_channels: Option<Arc<Mutex<[f32; user_data::NUM_CHANNELS]>>>,
@@ -1932,13 +1934,22 @@ async fn run_argus_capture_loop(
     let capture_handle = std::thread::Builder::new()
         .name("mipi-capture".into())
         .spawn(move || -> Result<()> {
+            enum CapturedArgusFrame {
+                DmaBuf(argus::ArgusFrame),
+                I420(argus::ArgusI420Frame),
+            }
+
             let mut session = session;
-            let start_ts = Instant::now();
+            let burn_timestamp_enabled = config.attach_timestamp && config.burn_timestamp;
+            let mut timestamp_overlay =
+                burn_timestamp_enabled.then(|| TimestampOverlay::new(width, height));
             let mut frames: u64 = 0;
             let mut last_fps_log = Instant::now();
             let mut sum_acquire_ms = 0.0;
             let mut sum_argus_wait_ms = 0.0;
             let mut sum_argus_blit_ms = 0.0;
+            let mut sum_argus_i420_copy_ms = 0.0;
+            let mut sum_timestamp_burn_ms = 0.0;
             let mut sum_capture_ms = 0.0;
             let mut sum_iter_ms = 0.0;
             let mut consecutive_failures: u32 = 0;
@@ -1950,6 +1961,11 @@ async fn run_argus_capture_loop(
             let mut backup_timestamp_frames: u64 = 0;
             let mut sum_sensor_to_acquire_ms = 0.0;
             let mut sum_sensor_to_argus_acquire_ms = 0.0;
+            if burn_timestamp_enabled {
+                info!(
+                    "Argus timestamp burn enabled: copying NV12 DMA-BUF frames to CPU I420 before publish"
+                );
+            }
 
             loop {
                 if ctrl_c_received.load(Ordering::Acquire) {
@@ -1958,7 +1974,12 @@ async fn run_argus_capture_loop(
 
                 let iter_start = Instant::now();
                 let acquire_started_at = Instant::now();
-                let argus_frame = match session.acquire_frame() {
+                let capture_result = if burn_timestamp_enabled {
+                    session.capture_i420_frame().map(CapturedArgusFrame::I420)
+                } else {
+                    session.capture_frame().map(CapturedArgusFrame::DmaBuf)
+                };
+                let captured_frame = match capture_result {
                     Ok(frame) => {
                         consecutive_failures = 0;
                         frame
@@ -1979,6 +2000,12 @@ async fn run_argus_capture_loop(
                     }
                 };
                 let acquire_finished_at = Instant::now();
+                let argus_frame = match &captured_frame {
+                    CapturedArgusFrame::DmaBuf(frame) => frame,
+                    CapturedArgusFrame::I420(frame) => &frame.dmabuf,
+                };
+                let argus_wait_ms = argus_frame.acquire_wait_ns as f64 / 1_000_000.0;
+                let argus_blit_ms = argus_frame.blit_ns as f64 / 1_000_000.0;
                 let fallback_wall_time_us =
                     if config.attach_timestamp { unix_time_us_now() } else { 0 };
 
@@ -2023,14 +2050,12 @@ async fn run_argus_capture_loop(
                 if config.attach_timestamp {
                     if timestamp_from_sensor {
                         sensor_timestamp_frames += 1;
-                        let sensor_to_acquire_ms = fallback_wall_time_us
-                            .saturating_sub(capture_wall_time_us)
-                            as f64
-                            / 1_000.0;
-                        let blit_ms = argus_frame.blit_ns as f64 / 1_000_000.0;
+                        let sensor_to_acquire_ms =
+                            fallback_wall_time_us.saturating_sub(capture_wall_time_us) as f64
+                                / 1_000.0;
                         sum_sensor_to_acquire_ms += sensor_to_acquire_ms;
                         sum_sensor_to_argus_acquire_ms +=
-                            (sensor_to_acquire_ms - blit_ms).max(0.0);
+                            (sensor_to_acquire_ms - argus_blit_ms).max(0.0);
                     } else {
                         backup_timestamp_frames += 1;
                     }
@@ -2052,20 +2077,45 @@ async fn run_argus_capture_loop(
                     None
                 };
 
-                rtc_source.capture_dmabuf_frame_with_metadata(
-                    argus_frame.dmabuf_fd,
-                    width,
-                    height,
-                    0, // NV12
-                    start_ts.elapsed().as_micros() as i64,
-                    frame_metadata,
-                );
+                match captured_frame {
+                    CapturedArgusFrame::DmaBuf(argus_frame) => {
+                        let plane = argus_frame
+                            .dmabuf
+                            .planes
+                            .first()
+                            .ok_or_else(|| anyhow::anyhow!("Argus DMA-BUF frame missing plane"))?;
+                        rtc_source.capture_dmabuf_frame_with_metadata(
+                            plane.fd,
+                            argus_frame.dmabuf.width,
+                            argus_frame.dmabuf.height,
+                            0, // NV12
+                            argus_frame.dmabuf.timestamp_us,
+                            frame_metadata,
+                        );
+                    }
+                    CapturedArgusFrame::I420(mut argus_i420_frame) => {
+                        if let Some(overlay) = timestamp_overlay.as_mut() {
+                            let overlay_started_at = Instant::now();
+                            let (stride_y, _, _) = argus_i420_frame.frame.buffer.strides();
+                            let (data_y, _, _) = argus_i420_frame.frame.buffer.data_mut();
+                            overlay.draw(data_y, stride_y as usize, capture_wall_time_us, fid);
+                            sum_timestamp_burn_ms +=
+                                overlay_started_at.elapsed().as_secs_f64() * 1000.0;
+                        }
+                        sum_argus_i420_copy_ms +=
+                            argus_i420_frame.copy_to_i420_ns as f64 / 1_000_000.0;
+                        argus_i420_frame.frame.frame_metadata = frame_metadata;
+                        argus_i420_frame.frame.timestamp_us =
+                            argus_i420_frame.dmabuf.dmabuf.timestamp_us;
+                        rtc_source.capture_frame(&argus_i420_frame.frame);
+                    }
+                }
                 let capture_finished_at = Instant::now();
 
                 frames += 1;
                 sum_acquire_ms += (acquire_finished_at - acquire_started_at).as_secs_f64() * 1000.0;
-                sum_argus_wait_ms += argus_frame.acquire_wait_ns as f64 / 1_000_000.0;
-                sum_argus_blit_ms += argus_frame.blit_ns as f64 / 1_000_000.0;
+                sum_argus_wait_ms += argus_wait_ms;
+                sum_argus_blit_ms += argus_blit_ms;
                 sum_capture_ms +=
                     (capture_finished_at - acquire_finished_at).as_secs_f64() * 1000.0;
                 sum_iter_ms += (Instant::now() - iter_start).as_secs_f64() * 1000.0;
@@ -2085,21 +2135,41 @@ async fn run_argus_capture_loop(
                         } else {
                             0.0
                         };
-                        info!(
-                            "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_argus_acquire {:.2}, argus_wait {:.2}, argus_blit {:.2}, sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
-                            width,
-                            height,
-                            fps_est,
-                            sensor_timestamp_frames,
-                            backup_timestamp_frames,
-                            sensor_to_argus_acquire_ms,
-                            sum_argus_wait_ms / n,
-                            sum_argus_blit_ms / n,
-                            sensor_age_ms,
-                            sum_acquire_ms / n,
-                            sum_capture_ms / n,
-                            sum_iter_ms / n,
-                        );
+                        if burn_timestamp_enabled {
+                            info!(
+                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_argus_acquire {:.2}, argus_wait {:.2}, argus_blit {:.2}, argus_i420_copy {:.2}, timestamp_burn {:.2}, sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
+                                width,
+                                height,
+                                fps_est,
+                                sensor_timestamp_frames,
+                                backup_timestamp_frames,
+                                sensor_to_argus_acquire_ms,
+                                sum_argus_wait_ms / n,
+                                sum_argus_blit_ms / n,
+                                sum_argus_i420_copy_ms / n,
+                                sum_timestamp_burn_ms / n,
+                                sensor_age_ms,
+                                sum_acquire_ms / n,
+                                sum_capture_ms / n,
+                                sum_iter_ms / n,
+                            );
+                        } else {
+                            info!(
+                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_argus_acquire {:.2}, argus_wait {:.2}, argus_blit {:.2}, sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
+                                width,
+                                height,
+                                fps_est,
+                                sensor_timestamp_frames,
+                                backup_timestamp_frames,
+                                sensor_to_argus_acquire_ms,
+                                sum_argus_wait_ms / n,
+                                sum_argus_blit_ms / n,
+                                sensor_age_ms,
+                                sum_acquire_ms / n,
+                                sum_capture_ms / n,
+                                sum_iter_ms / n,
+                            );
+                        }
                     } else {
                         info!(
                             "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp: disabled | avg ms: argus_wait {:.2}, argus_blit {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
@@ -2119,6 +2189,8 @@ async fn run_argus_capture_loop(
                     sum_acquire_ms = 0.0;
                     sum_argus_wait_ms = 0.0;
                     sum_argus_blit_ms = 0.0;
+                    sum_argus_i420_copy_ms = 0.0;
+                    sum_timestamp_burn_ms = 0.0;
                     sum_capture_ms = 0.0;
                     sum_iter_ms = 0.0;
                     sum_sensor_to_acquire_ms = 0.0;

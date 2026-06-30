@@ -4158,7 +4158,6 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
- "cc",
  "chrono",
  "clap",
  "eframe",

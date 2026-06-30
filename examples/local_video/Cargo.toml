@@ -55,6 +55,3 @@ objc2-metal = "0.3.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 livekit-capture = { workspace = true, features = ["libargus", "v4l"] }
-
-[build-dependencies]
-cc = { workspace = true }

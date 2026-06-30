@@ -73,6 +73,15 @@ Publisher usage:
    --room-name demo \
    --identity jetson-cam-1
 
+ # publish from Argus with a visible burned timestamp (uses CPU I420 copy)
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --source argus \
+   --camera-index 0 \
+   --attach-timestamp \
+   --burn-timestamp \
+   --room-name demo \
+   --identity jetson-cam-1
+
  # publish AV1 through the Jetson hardware encoder (Orin only)
  cargo run -p local_video -F desktop --bin publisher -- \
    --source argus \
@@ -138,7 +147,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
-- `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
+- `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set. With `--source argus`, this maps the NV12 DMA-BUF and copies it to CPU I420 before publishing.
 - `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
 - `--display-video`: Open a window that displays the video frames being published.
 - `--display-timing`: Burn publisher timing metrics into the local preview window. Requires `--display-video`.
@@ -185,6 +194,6 @@ Notes:
 - If the active video track is unsubscribed or unpublished, the app clears its state and will automatically attach to the next matching video track when it appears.
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
 - The timestamp overlay updates at ~2 Hz so the latency value is readable rather than flickering every frame.
-- On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. It publishes NV12 DMA buffers through the Jetson hardware encoder; local publisher preview and burned timestamps are not supported on that path.
+- On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. By default it publishes NV12 DMA buffers through the Jetson hardware encoder. `--attach-timestamp --burn-timestamp` intentionally switches that source to a CPU I420 copy so the timestamp can be drawn into the frame.
 - Jetson AV1 hardware encoding requires an Orin-class device (e.g. Orin NX or AGX Orin on JetPack 5+); the encoder is probed at startup and on devices without AV1 support (e.g. Xavier) `--codec av1` automatically falls back to the software libaom encoder. The Jetson AV1 encoder produces a single L1T1 stream (no SVC).
 - On Linux, preview windows use the Vulkan `wgpu` backend by default to avoid GLES/EGL conflicts on Jetson desktops. Set `WGPU_BACKEND=gl` or another supported `wgpu` backend to override this.

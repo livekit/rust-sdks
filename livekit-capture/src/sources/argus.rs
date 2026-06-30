@@ -14,6 +14,7 @@
 
 //! NVIDIA Argus/libargus capture for Jetson MIPI CSI cameras.
 
+use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use thiserror::Error;
 
 #[cfg(livekit_capture_argus)]
@@ -48,6 +49,18 @@ extern "C" {
         sensor_timestamp_ns: *mut u64,
         acquire_wait_ns: *mut u64,
         blit_ns: *mut u64,
+    ) -> c_int;
+
+    fn lk_argus_copy_frame_to_i420(
+        session: *mut c_void,
+        dmabuf_fd: c_int,
+        dst_y: *mut u8,
+        dst_stride_y: c_int,
+        dst_u: *mut u8,
+        dst_stride_u: c_int,
+        dst_v: *mut u8,
+        dst_stride_v: c_int,
+        copy_to_i420_ns: *mut u64,
     ) -> c_int;
 
     fn lk_argus_release_frame(session: *mut c_void);
@@ -99,6 +112,53 @@ pub enum ArgusError {
     /// The C shim failed to acquire a frame.
     #[error("Argus frame acquisition failed")]
     AcquireFrameFailed,
+    /// The captured DMA-BUF frame did not include a plane descriptor.
+    #[error("Argus frame did not include a DMA-BUF plane")]
+    MissingDmaBufPlane,
+    /// The C shim failed to copy the captured frame to I420.
+    #[error("failed to copy Argus frame to I420: {0}")]
+    CopyToI420Failed(ArgusI420CopyError),
+}
+
+/// Error returned while copying an Argus DMA-BUF frame to CPU I420.
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
+pub enum ArgusI420CopyError {
+    /// The C shim received invalid arguments.
+    #[error("invalid argument")]
+    InvalidArgument,
+    /// The DMA-BUF fd was not found in the active Argus buffer ring.
+    #[error("DMA-BUF surface not found")]
+    SurfaceNotFound,
+    /// Mapping the DMA-BUF surface for CPU readback failed.
+    #[error("failed to map DMA-BUF surface for CPU readback: {0}")]
+    MapFailed(i32),
+    /// Synchronizing the DMA-BUF surface for CPU readback failed.
+    #[error("failed to synchronize DMA-BUF surface for CPU readback: {0}")]
+    SyncForCpuFailed(i32),
+    /// The mapped surface did not expose valid NV12 planes.
+    #[error("invalid mapped NV12 surface")]
+    InvalidSurface,
+    /// Unmapping the DMA-BUF surface failed.
+    #[error("failed to unmap DMA-BUF surface: {0}")]
+    UnmapFailed(i32),
+    /// The C shim returned an unknown error code.
+    #[error("unknown error code {0}")]
+    Unknown(i32),
+}
+
+#[cfg(livekit_capture_argus)]
+impl ArgusI420CopyError {
+    fn from_status(status: i32) -> Self {
+        match status {
+            -1 => Self::InvalidArgument,
+            -2 => Self::SurfaceNotFound,
+            -4 => Self::InvalidSurface,
+            code if code <= -2000 => Self::SyncForCpuFailed(-2000 - code),
+            code if code <= -1000 => Self::MapFailed(-1000 - code),
+            code if code <= -100 => Self::UnmapFailed(-100 - code),
+            code => Self::Unknown(code),
+        }
+    }
 }
 
 /// One Argus frame backed by an NV12 DMA-BUF.
@@ -121,6 +181,17 @@ impl ArgusFrame {
     pub fn dmabuf_frame(&self) -> &DmaBufFrame {
         &self.dmabuf
     }
+}
+
+/// One Argus frame copied to CPU-accessible I420.
+#[derive(Debug)]
+pub struct ArgusI420Frame {
+    /// I420 frame suitable for timestamp burning or other CPU-side mutation.
+    pub frame: VideoFrame<I420Buffer>,
+    /// Original Argus DMA-BUF frame descriptor.
+    pub dmabuf: ArgusFrame,
+    /// Time spent copying NV12 DMA-BUF data into the I420 frame.
+    pub copy_to_i420_ns: u64,
 }
 
 /// Jetson Argus capture session that emits NV12 DMA-BUF frames.
@@ -150,6 +221,22 @@ impl ArgusCaptureSession {
     /// callers should publish frames promptly so the ring can be reused.
     pub fn capture_frame(&mut self) -> Result<ArgusFrame, ArgusError> {
         self.acquire_frame_inner()
+    }
+
+    /// Captures the next frame and copies it to CPU-accessible I420.
+    ///
+    /// This intentionally maps the DMA-BUF for CPU readback and should be used
+    /// only when the caller needs to mutate pixels before publishing.
+    pub fn capture_i420_frame(&mut self) -> Result<ArgusI420Frame, ArgusError> {
+        let dmabuf = self.capture_frame()?;
+        let mut frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: dmabuf.dmabuf.timestamp_us,
+            frame_metadata: None,
+            buffer: I420Buffer::new(dmabuf.dmabuf.width, dmabuf.dmabuf.height),
+        };
+        let copy_to_i420_ns = self.copy_frame_to_i420(&dmabuf.dmabuf, &mut frame.buffer)?;
+        Ok(ArgusI420Frame { frame, dmabuf, copy_to_i420_ns })
     }
 
     /// Acquires the next captured frame as an NV12 DMA-BUF.
@@ -255,6 +342,47 @@ impl ArgusCaptureSession {
 
     #[cfg(not(livekit_capture_argus))]
     fn acquire_frame_inner(&mut self) -> Result<ArgusFrame, ArgusError> {
+        Err(ArgusError::Unsupported)
+    }
+
+    #[cfg(livekit_capture_argus)]
+    fn copy_frame_to_i420(
+        &self,
+        dmabuf: &DmaBufFrame,
+        destination: &mut I420Buffer,
+    ) -> Result<u64, ArgusError> {
+        let plane = dmabuf.planes.first().ok_or(ArgusError::MissingDmaBufPlane)?;
+        let (stride_y, stride_u, stride_v) = destination.strides();
+        let (dst_y, dst_u, dst_v) = destination.data_mut();
+        let mut copy_to_i420_ns = 0;
+        let status = unsafe {
+            // SAFETY: `self.handle` owns the Argus session; destination slices
+            // come from a mutable I420 buffer and remain valid for this call.
+            lk_argus_copy_frame_to_i420(
+                self.handle,
+                plane.fd,
+                dst_y.as_mut_ptr(),
+                c_int_from_u32(stride_y, "stride_y")?,
+                dst_u.as_mut_ptr(),
+                c_int_from_u32(stride_u, "stride_u")?,
+                dst_v.as_mut_ptr(),
+                c_int_from_u32(stride_v, "stride_v")?,
+                &mut copy_to_i420_ns,
+            )
+        };
+        if status == 0 {
+            Ok(copy_to_i420_ns)
+        } else {
+            Err(ArgusError::CopyToI420Failed(ArgusI420CopyError::from_status(status)))
+        }
+    }
+
+    #[cfg(not(livekit_capture_argus))]
+    fn copy_frame_to_i420(
+        &self,
+        _dmabuf: &DmaBufFrame,
+        _destination: &mut I420Buffer,
+    ) -> Result<u64, ArgusError> {
         Err(ArgusError::Unsupported)
     }
 
