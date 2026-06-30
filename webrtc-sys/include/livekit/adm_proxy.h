@@ -98,7 +98,7 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   ///
   /// Call before tearing down the peer connection factory so capture worker
   /// threads cannot deliver frames into transports that are being destroyed.
-  void ShutdownAudioIO();
+  void StopAudioIO();
 
   // ===========================================================================
   // Recording/Playout Control
@@ -234,13 +234,9 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Must be called with mutex_ held.
   void SwitchRecordingAdmIfNeeded();
 
-  // Stops active capture/playout and detaches audio callbacks from both ADMs.
-  // Must be called with mutex_ held.
-  void StopAudioIOLocked();
-
   // Stops platform capture/playout and detaches its callback without touching
   // synthetic mode. Must be called with mutex_ held.
-  void StopPlatformAudioIOLocked();
+  void StopPlatformAudioIO();
 
 #if defined(__ANDROID__)
   // Lazily creates the Platform ADM on Android.
