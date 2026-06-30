@@ -9,8 +9,18 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use clap::{Parser, ValueEnum};
+#[cfg(feature = "gstreamer")]
+use gstreamer as gst;
+#[cfg(feature = "gstreamer")]
+use gstreamer::prelude::*;
+#[cfg(feature = "gstreamer")]
+use gstreamer_app as gst_app;
 use livekit::{prelude::*, webrtc::video_source::VideoResolution};
 use livekit_api::access_token;
+#[cfg(feature = "gstreamer")]
+use livekit_capture::sources::gstreamer::{
+    GStreamerAppSinkConfig, GStreamerAppSinkEncodedSource, GStreamerSampleFormat,
+};
 use livekit_capture::{
     encoded::h26x::annex_b_nal_ranges,
     sources::{
@@ -25,6 +35,8 @@ const DIAGNOSTIC_REPORT_INTERVAL: Duration = Duration::from_secs(1);
 const SOURCE_STALL_THRESHOLD: Duration = Duration::from_millis(250);
 const BURST_WALL_DELTA_THRESHOLD: Duration = Duration::from_millis(5);
 const KEYFRAME_GAP_THRESHOLD: Duration = Duration::from_secs(5);
+#[cfg(feature = "gstreamer")]
+const GSTREAMER_APPSINK_NAME: &str = "lk_appsink";
 
 /// Publish a pre-encoded video stream into a LiveKit room.
 #[derive(Parser, Debug)]
@@ -35,6 +47,8 @@ struct Args {
     source: SourceKind,
 
     /// Encoded video codec. Required with --source tcp; optional validation with --source rtsp.
+    /// Optional with --source gstappsink; omitted custom GStreamer pipelines infer H.264/H.265
+    /// from their unlinked encoded output when possible.
     #[arg(long, value_enum)]
     codec: Option<CodecArg>,
 
@@ -74,22 +88,31 @@ struct Args {
     #[arg(long, default_value_t = 1080)]
     height: u32,
 
-    /// Frame rate used to timestamp TCP Annex-B access units.
+    /// Frame rate used for generated video and fallback timestamps.
     #[arg(long, default_value_t = 30)]
     fps: u32,
 
     /// Log access-unit timing, keyframe, and H26x NAL diagnostics.
     #[arg(long)]
     diagnostics: bool,
+
+    /// GStreamer launch pipeline used with --source gstappsink. If the pipeline does not include
+    /// appsink name=lk_appsink, an H.264/H.265 parser and appsink are attached to its unlinked
+    /// output.
+    #[cfg(feature = "gstreamer")]
+    #[arg(last = true, value_name = "PIPELINE")]
+    gstreamer_pipeline: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum SourceKind {
     Tcp,
     Rtsp,
+    #[cfg(feature = "gstreamer")]
+    Gstappsink,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum CodecArg {
     H264,
     H265,
@@ -119,6 +142,8 @@ async fn main() -> Result<()> {
 
 async fn run(args: Args) -> Result<()> {
     validate_dimensions(args.width, args.height)?;
+    #[cfg(feature = "gstreamer")]
+    validate_gstreamer_args(&args)?;
 
     match args.source {
         SourceKind::Tcp => {
@@ -126,7 +151,20 @@ async fn run(args: Args) -> Result<()> {
             run_tcp_source(args, frame_interval_us).await
         }
         SourceKind::Rtsp => run_rtsp_source(args).await,
+        #[cfg(feature = "gstreamer")]
+        SourceKind::Gstappsink => {
+            let frame_interval_us = frame_interval_us(args.fps)?;
+            run_gstreamer_source(args, frame_interval_us).await
+        }
     }
+}
+
+#[cfg(feature = "gstreamer")]
+fn validate_gstreamer_args(args: &Args) -> Result<()> {
+    if args.source != SourceKind::Gstappsink && !args.gstreamer_pipeline.is_empty() {
+        bail!("trailing GStreamer pipeline arguments are only valid with --source gstappsink");
+    }
+    Ok(())
 }
 
 async fn run_tcp_source(args: Args, frame_interval_us: i64) -> Result<()> {
@@ -147,8 +185,17 @@ async fn run_tcp_source(args: Args, frame_interval_us: i64) -> Result<()> {
     let shutdown_stream = stream.try_clone().context("failed to clone TCP stream")?;
     let source = TcpEncodedSource::from_tcp_stream(stream, config)?;
 
-    publish_encoded_source(args, codec, "TCP", source, shutdown_stream, Some(frame_interval_us))
-        .await
+    publish_encoded_source(
+        args,
+        codec,
+        "TCP",
+        source,
+        move || {
+            let _ = shutdown_stream.shutdown(Shutdown::Both);
+        },
+        Some(frame_interval_us),
+    )
+    .await
 }
 
 async fn run_rtsp_source(args: Args) -> Result<()> {
@@ -171,19 +218,337 @@ async fn run_rtsp_source(args: Args) -> Result<()> {
         source.session_info().video_channel
     );
 
-    publish_encoded_source(args, codec, "RTSP", source, shutdown_stream, None).await
+    publish_encoded_source(
+        args,
+        codec,
+        "RTSP",
+        source,
+        move || {
+            let _ = shutdown_stream.shutdown(Shutdown::Both);
+        },
+        None,
+    )
+    .await
 }
 
-async fn publish_encoded_source<S>(
+#[cfg(feature = "gstreamer")]
+async fn run_gstreamer_source(args: Args, frame_interval_us: i64) -> Result<()> {
+    let source = GStreamerTestSource::start(
+        args.width,
+        args.height,
+        args.fps,
+        current_time_us(),
+        frame_interval_us,
+        args.codec.map(CodecArg::encoded_codec),
+        &args.gstreamer_pipeline,
+    )?;
+    let codec = source.codec();
+    let shutdown_pipeline = source.shutdown_pipeline();
+    log::info!("Started GStreamer {:?} pipeline: {}", codec, source.pipeline_description());
+
+    publish_encoded_source(
+        args,
+        codec,
+        "GStreamer",
+        source,
+        move || {
+            let _ = shutdown_pipeline.set_state(gst::State::Null);
+        },
+        Some(frame_interval_us),
+    )
+    .await
+}
+
+#[cfg(feature = "gstreamer")]
+#[derive(Debug)]
+struct GStreamerTestSource {
+    pipeline: gst::Pipeline,
+    source: GStreamerAppSinkEncodedSource,
+    pipeline_description: String,
+}
+
+#[cfg(feature = "gstreamer")]
+impl GStreamerTestSource {
+    fn start(
+        width: u32,
+        height: u32,
+        fps: u32,
+        start_timestamp_us: i64,
+        frame_interval_us: i64,
+        requested_codec: Option<EncodedVideoCodec>,
+        pipeline_args: &[String],
+    ) -> Result<Self> {
+        gst::init().context("failed to initialize GStreamer")?;
+
+        let generated_codec = requested_codec.unwrap_or(EncodedVideoCodec::H264);
+        let pipeline_description =
+            gstreamer_pipeline_description(width, height, fps, generated_codec, pipeline_args);
+        let element = gst::parse::launch(&pipeline_description).with_context(|| {
+            format!("failed to create GStreamer pipeline: {pipeline_description}")
+        })?;
+        let Ok(pipeline) = element.downcast::<gst::Pipeline>() else {
+            bail!("GStreamer description did not create a pipeline");
+        };
+        let requested_codec =
+            if pipeline_args.is_empty() { Some(generated_codec) } else { requested_codec };
+        let (appsink, sample_format) = ensure_encoded_appsink(&pipeline, requested_codec)?;
+        let Ok(appsink) = appsink.downcast::<gst_app::AppSink>() else {
+            bail!("GStreamer element {GSTREAMER_APPSINK_NAME} was not an appsink");
+        };
+
+        let config = GStreamerAppSinkConfig::new(
+            sample_format,
+            start_timestamp_us,
+            frame_interval_us,
+            width,
+            height,
+        );
+        pipeline
+            .set_state(gst::State::Playing)
+            .context("failed to start GStreamer test pipeline")?;
+
+        Ok(Self {
+            pipeline,
+            source: GStreamerAppSinkEncodedSource::new(appsink, config),
+            pipeline_description,
+        })
+    }
+
+    fn pipeline_description(&self) -> &str {
+        &self.pipeline_description
+    }
+
+    fn codec(&self) -> EncodedVideoCodec {
+        self.source.config().sample_format.codec()
+    }
+
+    fn shutdown_pipeline(&self) -> gst::Pipeline {
+        self.pipeline.clone()
+    }
+}
+
+#[cfg(feature = "gstreamer")]
+impl EncodedAccessUnitSource for GStreamerTestSource {
+    type Error = <GStreamerAppSinkEncodedSource as EncodedAccessUnitSource>::Error;
+
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
+        self.source.next_access_unit()
+    }
+}
+
+#[cfg(feature = "gstreamer")]
+impl Drop for GStreamerTestSource {
+    fn drop(&mut self) {
+        let _ = self.pipeline.set_state(gst::State::Null);
+    }
+}
+
+#[cfg(feature = "gstreamer")]
+fn gstreamer_pipeline_description(
+    width: u32,
+    height: u32,
+    fps: u32,
+    codec: EncodedVideoCodec,
+    pipeline_args: &[String],
+) -> String {
+    if pipeline_args.is_empty() {
+        return gstreamer_test_pipeline_description(width, height, fps, codec);
+    }
+
+    pipeline_args.join(" ")
+}
+
+#[cfg(feature = "gstreamer")]
+fn gstreamer_test_pipeline_description(
+    width: u32,
+    height: u32,
+    fps: u32,
+    codec: EncodedVideoCodec,
+) -> String {
+    let key_int_max = fps.max(1);
+    let (encoder, parser, caps) = match codec {
+        EncodedVideoCodec::H264 => (
+            format!(
+                "x264enc tune=zerolatency speed-preset=ultrafast key-int-max={key_int_max} \
+                 bitrate=2500 byte-stream=true aud=true"
+            ),
+            "h264parse config-interval=-1",
+            "video/x-h264,stream-format=byte-stream,alignment=au",
+        ),
+        EncodedVideoCodec::H265 => (
+            format!(
+                "x265enc tune=zerolatency speed-preset=ultrafast key-int-max={key_int_max} \
+                 bitrate=2500"
+            ),
+            "h265parse config-interval=-1",
+            "video/x-h265,stream-format=byte-stream,alignment=au",
+        ),
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+            unreachable!("GStreamer generated test pipeline only supports H.264/H.265")
+        }
+        _ => unreachable!("unknown generated GStreamer codec"),
+    };
+
+    format!(
+        "videotestsrc is-live=true do-timestamp=true pattern=smpte ! \
+         video/x-raw,width={width},height={height},framerate={fps}/1 ! \
+         timeoverlay halignment=right valignment=bottom shaded-background=true ! \
+         videoconvert ! \
+         {encoder} ! \
+         {parser} ! \
+         {caps} ! \
+         appsink name={GSTREAMER_APPSINK_NAME} sync=false max-buffers=8 drop=true"
+    )
+}
+
+#[cfg(feature = "gstreamer")]
+fn ensure_encoded_appsink(
+    pipeline: &gst::Pipeline,
+    requested_codec: Option<EncodedVideoCodec>,
+) -> Result<(gst::Element, GStreamerSampleFormat)> {
+    if let Some(appsink) = pipeline.by_name(GSTREAMER_APPSINK_NAME) {
+        let codec = requested_codec
+            .or_else(|| codec_from_element_sink_caps(&appsink))
+            .unwrap_or(EncodedVideoCodec::H264);
+        let sample_format = h26x_sample_format(codec)?;
+        return Ok((appsink, sample_format));
+    }
+
+    let src_pad = pipeline.find_unlinked_pad(gst::PadDirection::Src).with_context(|| {
+        format!("GStreamer pipeline must include appsink name={GSTREAMER_APPSINK_NAME} or leave one H.264/H.265 source pad unlinked")
+    })?;
+    let inferred_codec = codec_from_pad_caps(&src_pad).with_context(|| {
+        format!(
+            "unlinked GStreamer pad '{}' does not advertise video/x-h264 or video/x-h265 caps",
+            src_pad.name()
+        )
+    })?;
+    let codec = match requested_codec {
+        Some(requested_codec) if requested_codec != inferred_codec => bail!(
+            "GStreamer codec mismatch: --codec requested {:?}, but unlinked pad '{}' advertises {:?}",
+            requested_codec,
+            src_pad.name(),
+            inferred_codec
+        ),
+        Some(requested_codec) => requested_codec,
+        None => inferred_codec,
+    };
+    let sample_format = h26x_sample_format(codec)?;
+    let Some(src_element) = src_pad.parent_element() else {
+        bail!("unlinked GStreamer encoded pad has no parent element");
+    };
+
+    let parser = gst::ElementFactory::make(h26x_parser_name(codec)?)
+        .property("config-interval", -1i32)
+        .build()
+        .with_context(|| format!("failed to create {}", h26x_parser_name(codec).unwrap()))?;
+    let codec_caps = h26x_appsink_caps(codec)?;
+    let capsfilter = gst::ElementFactory::make("capsfilter")
+        .property("caps", codec_caps)
+        .build()
+        .with_context(|| format!("failed to create {:?} capsfilter", codec))?;
+    let appsink = gst::ElementFactory::make("appsink")
+        .name(GSTREAMER_APPSINK_NAME)
+        .property("sync", false)
+        .property("max-buffers", 8u32)
+        .property("drop", true)
+        .build()
+        .context("failed to create appsink")?;
+
+    pipeline
+        .add(&parser)
+        .with_context(|| format!("failed to add {} to GStreamer pipeline", parser.name()))?;
+    pipeline.add(&capsfilter).context("failed to add capsfilter to GStreamer pipeline")?;
+    pipeline.add(&appsink).context("failed to add appsink to GStreamer pipeline")?;
+    gst::Element::link_many([&parser, &capsfilter, &appsink])
+        .with_context(|| format!("failed to link {} to appsink", parser.name()))?;
+    let sink_pad = parser
+        .static_pad("sink")
+        .with_context(|| format!("{} did not expose a sink pad", parser.name()))?;
+    src_pad
+        .link(&sink_pad)
+        .with_context(|| format!("failed to link '{}' to {}", src_element.name(), parser.name()))?;
+
+    Ok((appsink, sample_format))
+}
+
+#[cfg(feature = "gstreamer")]
+fn h26x_sample_format(codec: EncodedVideoCodec) -> Result<GStreamerSampleFormat> {
+    match codec {
+        EncodedVideoCodec::H264 => Ok(GStreamerSampleFormat::H264AnnexB),
+        EncodedVideoCodec::H265 => Ok(GStreamerSampleFormat::H265AnnexB),
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => bail!(
+            "GStreamer passthrough currently supports H.264/H.265 Annex-B; {:?} needs an explicit access-unit source path",
+            codec
+        ),
+        _ => bail!("unsupported GStreamer codec: {:?}", codec),
+    }
+}
+
+#[cfg(feature = "gstreamer")]
+fn h26x_parser_name(codec: EncodedVideoCodec) -> Result<&'static str> {
+    match codec {
+        EncodedVideoCodec::H264 => Ok("h264parse"),
+        EncodedVideoCodec::H265 => Ok("h265parse"),
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+            bail!("no H26x parser for {:?}", codec)
+        }
+        _ => bail!("unsupported GStreamer codec: {:?}", codec),
+    }
+}
+
+#[cfg(feature = "gstreamer")]
+fn h26x_caps_name(codec: EncodedVideoCodec) -> Result<&'static str> {
+    match codec {
+        EncodedVideoCodec::H264 => Ok("video/x-h264"),
+        EncodedVideoCodec::H265 => Ok("video/x-h265"),
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+            bail!("GStreamer passthrough currently supports H.264/H.265 Annex-B")
+        }
+        _ => bail!("unsupported GStreamer codec: {:?}", codec),
+    }
+}
+
+#[cfg(feature = "gstreamer")]
+fn h26x_appsink_caps(codec: EncodedVideoCodec) -> Result<gst::Caps> {
+    Ok(gst::Caps::builder(h26x_caps_name(codec)?)
+        .field("stream-format", "byte-stream")
+        .field("alignment", "au")
+        .build())
+}
+
+#[cfg(feature = "gstreamer")]
+fn codec_from_element_sink_caps(element: &gst::Element) -> Option<EncodedVideoCodec> {
+    let sink_pad = element.static_pad("sink")?;
+    codec_from_pad_caps(&sink_pad)
+}
+
+#[cfg(feature = "gstreamer")]
+fn codec_from_pad_caps(pad: &gst::Pad) -> Option<EncodedVideoCodec> {
+    let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
+    caps.iter().find_map(|structure| codec_from_caps_name(structure.name()))
+}
+
+#[cfg(feature = "gstreamer")]
+fn codec_from_caps_name(name: &str) -> Option<EncodedVideoCodec> {
+    match name {
+        "video/x-h264" => Some(EncodedVideoCodec::H264),
+        "video/x-h265" => Some(EncodedVideoCodec::H265),
+        _ => None,
+    }
+}
+
+async fn publish_encoded_source<S, ShutdownSource>(
     args: Args,
     codec: EncodedVideoCodec,
     source_label: &'static str,
     source: S,
-    shutdown_stream: TcpStream,
+    shutdown_source: ShutdownSource,
     expected_frame_interval_us: Option<i64>,
 ) -> Result<()>
 where
     S: EncodedAccessUnitSource + Send + 'static,
+    ShutdownSource: FnOnce() + Send + 'static,
 {
     let diagnostics_enabled = args.diagnostics;
     let token = access_token::AccessToken::with_api_key(&args.api_key, &args.api_secret)
@@ -229,7 +594,7 @@ where
         async move {
             let _ = tokio::signal::ctrl_c().await;
             stop.store(true, Ordering::Release);
-            let _ = shutdown_stream.shutdown(Shutdown::Both);
+            shutdown_source();
         }
     });
 
@@ -684,4 +1049,206 @@ fn current_time_us() -> i64 {
         return 0;
     };
     duration.as_micros().min(i64::MAX as u128) as i64
+}
+
+#[cfg(all(test, feature = "gstreamer"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gstreamer_pipeline_description_routes_test_source_to_h264_appsink() {
+        let description =
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::H264);
+
+        assert!(description.contains("videotestsrc is-live=true do-timestamp=true"));
+        assert!(description.contains("timeoverlay"));
+        assert!(description.contains("x264enc"));
+        assert!(description.contains("video/x-h264,stream-format=byte-stream,alignment=au"));
+        assert!(description.contains(&format!("appsink name={GSTREAMER_APPSINK_NAME}")));
+    }
+
+    #[test]
+    fn gstreamer_pipeline_description_routes_test_source_to_h265_appsink() {
+        let description =
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::H265);
+
+        assert!(description.contains("videotestsrc is-live=true do-timestamp=true"));
+        assert!(description.contains("timeoverlay"));
+        assert!(description.contains("x265enc"));
+        assert!(description.contains("h265parse config-interval=-1"));
+        assert!(description.contains("video/x-h265,stream-format=byte-stream,alignment=au"));
+        assert!(description.contains(&format!("appsink name={GSTREAMER_APPSINK_NAME}")));
+    }
+
+    #[test]
+    fn gstreamer_pipeline_description_uses_trailing_pipeline_args() {
+        let pipeline = [
+            "videotestsrc".to_string(),
+            "is-live=true".to_string(),
+            "!".to_string(),
+            "x264enc".to_string(),
+        ];
+
+        assert_eq!(
+            gstreamer_pipeline_description(320, 180, 30, EncodedVideoCodec::H265, &pipeline),
+            "videotestsrc is-live=true ! x264enc"
+        );
+    }
+
+    #[test]
+    fn gstreamer_test_source_pulls_h264_access_units_when_plugins_are_available() {
+        let frame_interval_us = frame_interval_us(30).unwrap();
+        let mut source = match GStreamerTestSource::start(
+            320,
+            180,
+            30,
+            10_000,
+            frame_interval_us,
+            Some(EncodedVideoCodec::H264),
+            &[],
+        ) {
+            Ok(source) => source,
+            Err(err) => {
+                eprintln!("skipping GStreamer appsink smoke test: {err:#}");
+                return;
+            }
+        };
+
+        assert_h264_access_units(&mut source);
+    }
+
+    #[test]
+    fn gstreamer_test_source_pulls_h265_access_units_when_plugins_are_available() {
+        let frame_interval_us = frame_interval_us(30).unwrap();
+        let mut source = match GStreamerTestSource::start(
+            320,
+            180,
+            30,
+            10_000,
+            frame_interval_us,
+            Some(EncodedVideoCodec::H265),
+            &[],
+        ) {
+            Ok(source) => source,
+            Err(err) => {
+                eprintln!("skipping GStreamer H.265 appsink smoke test: {err:#}");
+                return;
+            }
+        };
+
+        assert_h265_access_units(&mut source);
+    }
+
+    #[test]
+    fn gstreamer_test_source_attaches_appsink_to_trailing_h264_pipeline() {
+        let frame_interval_us = frame_interval_us(30).unwrap();
+        let pipeline = [
+            "videotestsrc".to_string(),
+            "is-live=true".to_string(),
+            "do-timestamp=true".to_string(),
+            "pattern=smpte".to_string(),
+            "!".to_string(),
+            "video/x-raw,width=320,height=180,framerate=30/1".to_string(),
+            "!".to_string(),
+            "videoconvert".to_string(),
+            "!".to_string(),
+            "x264enc".to_string(),
+            "tune=zerolatency".to_string(),
+            "speed-preset=ultrafast".to_string(),
+            "key-int-max=30".to_string(),
+            "byte-stream=true".to_string(),
+            "aud=true".to_string(),
+        ];
+        let mut source = match GStreamerTestSource::start(
+            320,
+            180,
+            30,
+            10_000,
+            frame_interval_us,
+            None,
+            &pipeline,
+        ) {
+            Ok(source) => source,
+            Err(err) => {
+                eprintln!("skipping custom GStreamer pipeline smoke test: {err:#}");
+                return;
+            }
+        };
+
+        assert_h264_access_units(&mut source);
+    }
+
+    #[test]
+    fn gstreamer_test_source_attaches_appsink_to_trailing_h265_pipeline() {
+        let frame_interval_us = frame_interval_us(30).unwrap();
+        let pipeline = [
+            "videotestsrc".to_string(),
+            "is-live=true".to_string(),
+            "do-timestamp=true".to_string(),
+            "pattern=smpte".to_string(),
+            "!".to_string(),
+            "video/x-raw,width=320,height=180,framerate=30/1".to_string(),
+            "!".to_string(),
+            "videoconvert".to_string(),
+            "!".to_string(),
+            "x265enc".to_string(),
+            "tune=zerolatency".to_string(),
+            "speed-preset=ultrafast".to_string(),
+            "key-int-max=30".to_string(),
+            "bitrate=2500".to_string(),
+        ];
+        let mut source = match GStreamerTestSource::start(
+            320,
+            180,
+            30,
+            10_000,
+            frame_interval_us,
+            None,
+            &pipeline,
+        ) {
+            Ok(source) => source,
+            Err(err) => {
+                eprintln!("skipping custom GStreamer H.265 pipeline smoke test: {err:#}");
+                return;
+            }
+        };
+
+        assert_h265_access_units(&mut source);
+    }
+
+    fn assert_h264_access_units(source: &mut GStreamerTestSource) {
+        let first = source
+            .next_access_unit()
+            .expect("GStreamer appsink source should read the first sample")
+            .expect("GStreamer appsink should produce a first access unit");
+        let second = source
+            .next_access_unit()
+            .expect("GStreamer appsink source should read the second sample")
+            .expect("GStreamer appsink should produce a second access unit");
+
+        assert_eq!(first.codec, EncodedVideoCodec::H264);
+        assert_eq!(first.width, 320);
+        assert_eq!(first.height, 180);
+        assert!(!first.payload.is_empty());
+        assert!(first.timestamp_us >= 10_000);
+        assert!(second.timestamp_us > first.timestamp_us);
+    }
+
+    fn assert_h265_access_units(source: &mut GStreamerTestSource) {
+        let first = source
+            .next_access_unit()
+            .expect("GStreamer appsink source should read the first sample")
+            .expect("GStreamer appsink should produce a first access unit");
+        let second = source
+            .next_access_unit()
+            .expect("GStreamer appsink source should read the second sample")
+            .expect("GStreamer appsink should produce a second access unit");
+
+        assert_eq!(first.codec, EncodedVideoCodec::H265);
+        assert_eq!(first.width, 320);
+        assert_eq!(first.height, 180);
+        assert!(!first.payload.is_empty());
+        assert!(first.timestamp_us >= 10_000);
+        assert!(second.timestamp_us > first.timestamp_us);
+    }
 }
