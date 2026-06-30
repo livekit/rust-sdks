@@ -25,6 +25,9 @@ pub enum Priority {
 /// Controls how the encoder degrades quality when bandwidth is constrained.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum DegradationPreference {
+    /// Maintain both framerate and resolution. Frames may be dropped before encoding
+    /// if necessary to avoid overusing network and encoder resources.
+    MaintainFramerateAndResolution,
     /// Degrade framerate to maintain resolution.
     MaintainFramerate,
     /// Degrade resolution to maintain framerate.
@@ -32,8 +35,13 @@ pub enum DegradationPreference {
     /// Balance between framerate and resolution degradation.
     #[default]
     Balanced,
-    /// Disable degradation preference (not recommended).
-    Disabled,
+}
+
+impl DegradationPreference {
+    /// Deprecated: Use `MaintainFramerateAndResolution` instead.
+    #[deprecated(since = "0.8.0", note = "Use MaintainFramerateAndResolution instead")]
+    #[allow(non_upper_case_globals)]
+    pub const Disabled: Self = Self::MaintainFramerateAndResolution;
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +73,7 @@ impl RtpParameters {
     pub fn set_degradation_preference(&mut self, preference: DegradationPreference) {
         self.has_degradation_preference = true;
         self.degradation_preference = match preference {
-            DegradationPreference::Disabled => 0,
+            DegradationPreference::MaintainFramerateAndResolution => 0,
             DegradationPreference::MaintainFramerate => 1,
             DegradationPreference::MaintainResolution => 2,
             DegradationPreference::Balanced => 3,
@@ -78,7 +86,7 @@ impl RtpParameters {
             return None;
         }
         Some(match self.degradation_preference {
-            0 => DegradationPreference::Disabled,
+            0 => DegradationPreference::MaintainFramerateAndResolution,
             1 => DegradationPreference::MaintainFramerate,
             2 => DegradationPreference::MaintainResolution,
             3 => DegradationPreference::Balanced,

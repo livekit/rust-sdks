@@ -619,14 +619,14 @@ mod tests {
             DegradationPreference::Balanced
         );
 
-        // User explicitly sets Disabled
+        // User explicitly sets MaintainFramerateAndResolution
         let options = TrackPublishOptions {
-            degradation_preference: Some(DegradationPreference::Disabled),
+            degradation_preference: Some(DegradationPreference::MaintainFramerateAndResolution),
             ..Default::default()
         };
         assert_eq!(
             get_default_degradation_preference(&options, 1080),
-            DegradationPreference::Disabled
+            DegradationPreference::MaintainFramerateAndResolution
         );
     }
 }
