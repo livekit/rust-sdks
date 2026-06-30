@@ -133,12 +133,16 @@ impl LocalDataTrackManager {
         self.input.publish_track(options.into()).await.map(LocalDataTrack)
     }
 
-    /// Get information about all currently published tracks.
+    /// Get serialized publish responses for all currently published tracks to support sync state.
     ///
-    /// This does not include publications that are still pending.
+    /// Returns a vector of serialized [`proto::PublishDataTrackResponse`].
     ///
-    pub async fn query_tracks(&self) -> Vec<DataTrackInfo> {
-        self.input.query_tracks().await.into_iter().map(|info| info.as_ref().into()).collect()
+    pub async fn publish_responses_for_sync_state(&self) -> Vec<Bytes> {
+        let published_tracks = self.input.query_tracks().await;
+        local::publish_responses_for_sync_state(published_tracks)
+            .into_iter()
+            .map(|res| Bytes::from(res.encode_to_vec()))
+            .collect()
     }
 
     /// Republish all tracks.
