@@ -81,21 +81,26 @@ enum SourceKind {
 /// Selects the UVC camera capture frame format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum CaptureFormat {
-    /// Try YUYV first and fall back to MJPEG.
+    /// Try YUYV first, then MJPEG, then GREY.
     Auto,
     /// Request uncompressed YUYV capture.
     Yuv,
     /// Request compressed MJPEG capture.
     Mjpeg,
+    /// Request uncompressed GREY capture.
+    Grey,
 }
 
 impl CaptureFormat {
     #[cfg(target_os = "linux")]
     fn frame_formats(self) -> &'static [CaptureFrameFormat] {
         match self {
-            Self::Auto => &[CaptureFrameFormat::Yuyv, CaptureFrameFormat::Mjpeg],
+            Self::Auto => {
+                &[CaptureFrameFormat::Yuyv, CaptureFrameFormat::Mjpeg, CaptureFrameFormat::Grey]
+            }
             Self::Yuv => &[CaptureFrameFormat::Yuyv],
             Self::Mjpeg => &[CaptureFrameFormat::Mjpeg],
+            Self::Grey => &[CaptureFrameFormat::Grey],
         }
     }
 }
@@ -106,6 +111,7 @@ impl std::fmt::Display for CaptureFormat {
             Self::Auto => write!(f, "auto"),
             Self::Yuv => write!(f, "yuv"),
             Self::Mjpeg => write!(f, "mjpeg"),
+            Self::Grey => write!(f, "grey"),
         }
     }
 }
@@ -179,7 +185,7 @@ struct Args {
     #[arg(long, value_enum, default_value_t = SourceKind::Uvc)]
     source: SourceKind,
 
-    /// UVC camera capture format: `auto` tries YUYV then MJPEG; `mjpeg` uses less USB bandwidth.
+    /// UVC camera capture format: `auto` tries YUYV, MJPEG, then GREY.
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
 
@@ -821,6 +827,14 @@ mod tests {
             Args::try_parse_from(["publisher", "--test-pattern", "1"]).expect("args should parse");
 
         assert_eq!(args.test_pattern, Some(TestPatternKind::AnimatedGraphic));
+    }
+
+    #[test]
+    fn capture_format_accepts_grey() {
+        let args =
+            Args::try_parse_from(["publisher", "--format", "grey"]).expect("args should parse");
+
+        assert_eq!(args.format, CaptureFormat::Grey);
     }
 
     #[test]
