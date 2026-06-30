@@ -92,6 +92,14 @@ struct Args {
     #[arg(long, default_value_t = 30)]
     fps: u32,
 
+    /// H.264 TCP byte-stream format.
+    #[arg(long, value_enum, default_value_t = H264FormatArg::AnnexB)]
+    h264_format: H264FormatArg,
+
+    /// Length-prefix size in bytes for --h264-format avc.
+    #[arg(long, default_value_t = 4)]
+    avc_nal_length_size: u8,
+
     /// Log access-unit timing, keyframe, and H26x NAL diagnostics.
     #[arg(long)]
     diagnostics: bool,
@@ -118,6 +126,12 @@ enum CodecArg {
     H265,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum H264FormatArg {
+    AnnexB,
+    Avc,
+}
+
 impl CodecArg {
     fn encoded_codec(self) -> EncodedVideoCodec {
         match self {
@@ -126,9 +140,14 @@ impl CodecArg {
         }
     }
 
-    fn wire_format(self) -> EncodedWireFormat {
+    fn wire_format(self, h264_format: H264FormatArg, avc_nal_length_size: u8) -> EncodedWireFormat {
         match self {
-            Self::H264 => EncodedWireFormat::H264AnnexB,
+            Self::H264 => match h264_format {
+                H264FormatArg::AnnexB => EncodedWireFormat::H264AnnexB,
+                H264FormatArg::Avc => {
+                    EncodedWireFormat::H264Avc { nal_length_size: avc_nal_length_size }
+                }
+            },
             Self::H265 => EncodedWireFormat::H265AnnexB,
         }
     }
@@ -142,6 +161,7 @@ async fn main() -> Result<()> {
 
 async fn run(args: Args) -> Result<()> {
     validate_dimensions(args.width, args.height)?;
+    validate_h264_format_args(&args)?;
     #[cfg(feature = "gstreamer")]
     validate_gstreamer_args(&args)?;
 
@@ -167,19 +187,35 @@ fn validate_gstreamer_args(args: &Args) -> Result<()> {
     Ok(())
 }
 
+fn validate_h264_format_args(args: &Args) -> Result<()> {
+    if !(1..=4).contains(&args.avc_nal_length_size) {
+        bail!("--avc-nal-length-size must be between 1 and 4 bytes");
+    }
+    if args.h264_format == H264FormatArg::Avc {
+        if args.source != SourceKind::Tcp {
+            bail!("--h264-format avc is only valid with --source tcp");
+        }
+        if args.codec != Some(CodecArg::H264) {
+            bail!("--h264-format avc requires --codec h264");
+        }
+    }
+    Ok(())
+}
+
 async fn run_tcp_source(args: Args, frame_interval_us: i64) -> Result<()> {
     let codec_arg = args.codec.context("--codec is required with --source tcp")?;
     let codec = codec_arg.encoded_codec();
     let host = args.host.clone().context("--host is required with --source tcp")?;
+    let wire_format = codec_arg.wire_format(args.h264_format, args.avc_nal_length_size);
     let config = ByteStreamSourceConfig::new(
-        codec_arg.wire_format(),
+        wire_format,
         current_time_us(),
         frame_interval_us,
         args.width,
         args.height,
     );
 
-    log::info!("Connecting to TCP encoded stream at {host}");
+    log::info!("Connecting to TCP {wire_format:?} encoded stream at {host}");
     let stream = TcpStream::connect(&host)
         .with_context(|| format!("failed to connect to TCP source at {host}"))?;
     let shutdown_stream = stream.try_clone().context("failed to clone TCP stream")?;
@@ -407,10 +443,22 @@ fn ensure_encoded_appsink(
     requested_codec: Option<EncodedVideoCodec>,
 ) -> Result<(gst::Element, GStreamerSampleFormat)> {
     if let Some(appsink) = pipeline.by_name(GSTREAMER_APPSINK_NAME) {
-        let codec = requested_codec
-            .or_else(|| codec_from_element_sink_caps(&appsink))
-            .unwrap_or(EncodedVideoCodec::H264);
-        let sample_format = h26x_sample_format(codec)?;
+        let sample_format = match sample_format_from_element_sink_caps(&appsink)? {
+            Some(sample_format) => {
+                if let Some(requested_codec) = requested_codec {
+                    if requested_codec != sample_format.codec() {
+                        bail!(
+                            "GStreamer codec mismatch: --codec requested {:?}, but appsink '{}' advertises {:?}",
+                            requested_codec,
+                            GSTREAMER_APPSINK_NAME,
+                            sample_format.codec()
+                        );
+                    }
+                }
+                sample_format
+            }
+            None => h26x_sample_format(requested_codec.unwrap_or(EncodedVideoCodec::H264))?,
+        };
         return Ok((appsink, sample_format));
     }
 
@@ -478,7 +526,7 @@ fn h26x_sample_format(codec: EncodedVideoCodec) -> Result<GStreamerSampleFormat>
         EncodedVideoCodec::H264 => Ok(GStreamerSampleFormat::H264AnnexB),
         EncodedVideoCodec::H265 => Ok(GStreamerSampleFormat::H265AnnexB),
         EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => bail!(
-            "GStreamer passthrough currently supports H.264/H.265 Annex-B; {:?} needs an explicit access-unit source path",
+            "GStreamer passthrough currently supports H.264/H.265 access units; {:?} needs an explicit access-unit source path",
             codec
         ),
         _ => bail!("unsupported GStreamer codec: {:?}", codec),
@@ -518,9 +566,68 @@ fn h26x_appsink_caps(codec: EncodedVideoCodec) -> Result<gst::Caps> {
 }
 
 #[cfg(feature = "gstreamer")]
-fn codec_from_element_sink_caps(element: &gst::Element) -> Option<EncodedVideoCodec> {
-    let sink_pad = element.static_pad("sink")?;
-    codec_from_pad_caps(&sink_pad)
+fn sample_format_from_element_sink_caps(
+    element: &gst::Element,
+) -> Result<Option<GStreamerSampleFormat>> {
+    let Some(sink_pad) = element.static_pad("sink") else {
+        return Ok(None);
+    };
+    sample_format_from_pad_caps(&sink_pad)
+}
+
+#[cfg(feature = "gstreamer")]
+fn sample_format_from_pad_caps(pad: &gst::Pad) -> Result<Option<GStreamerSampleFormat>> {
+    let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
+    for structure in caps.iter() {
+        if let Some(sample_format) = sample_format_from_caps_structure(structure)? {
+            return Ok(Some(sample_format));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(feature = "gstreamer")]
+fn sample_format_from_caps_structure(
+    structure: &gst::StructureRef,
+) -> Result<Option<GStreamerSampleFormat>> {
+    let Some(codec) = codec_from_caps_name(structure.name()) else {
+        return Ok(None);
+    };
+
+    match codec {
+        EncodedVideoCodec::H264 => {
+            let stream_format = structure.get::<String>("stream-format").ok();
+            match stream_format.as_deref() {
+                Some("avc") | Some("avc3") => Ok(Some(GStreamerSampleFormat::H264Avc {
+                    nal_length_size: h264_avc_nal_length_size_from_caps(structure),
+                })),
+                Some("byte-stream") | None => Ok(Some(GStreamerSampleFormat::H264AnnexB)),
+                Some(stream_format) => bail!(
+                    "unsupported GStreamer H.264 stream-format '{stream_format}'; expected byte-stream or avc"
+                ),
+            }
+        }
+        EncodedVideoCodec::H265 => Ok(Some(GStreamerSampleFormat::H265AnnexB)),
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => Ok(None),
+        _ => Ok(None),
+    }
+}
+
+#[cfg(feature = "gstreamer")]
+fn h264_avc_nal_length_size_from_caps(structure: &gst::StructureRef) -> u8 {
+    let Ok(codec_data) = structure.get::<gst::Buffer>("codec_data") else {
+        return 4;
+    };
+    let Ok(codec_data) = codec_data.map_readable() else {
+        return 4;
+    };
+    h264_avc_nal_length_size_from_codec_data(codec_data.as_ref()).unwrap_or(4)
+}
+
+#[cfg(feature = "gstreamer")]
+fn h264_avc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
+    let length_size = (codec_data.get(4)? & 0x03) + 1;
+    (1..=4).contains(&length_size).then_some(length_size)
 }
 
 #[cfg(feature = "gstreamer")]
@@ -1093,6 +1200,27 @@ mod tests {
             gstreamer_pipeline_description(320, 180, 30, EncodedVideoCodec::H265, &pipeline),
             "videotestsrc is-live=true ! x264enc"
         );
+    }
+
+    #[test]
+    fn gstreamer_caps_detect_h264_avc_sample_format() {
+        let caps = gst::Caps::builder("video/x-h264")
+            .field("stream-format", "avc")
+            .field("alignment", "au")
+            .build();
+        let structure = caps.iter().next().unwrap();
+
+        assert_eq!(
+            sample_format_from_caps_structure(structure).unwrap(),
+            Some(GStreamerSampleFormat::H264Avc { nal_length_size: 4 })
+        );
+    }
+
+    #[test]
+    fn gstreamer_avc_codec_data_sets_nal_length_size() {
+        assert_eq!(h264_avc_nal_length_size_from_codec_data(&[1, 0, 0, 0, 0xfc]), Some(1));
+        assert_eq!(h264_avc_nal_length_size_from_codec_data(&[1, 0, 0, 0, 0xfd]), Some(2));
+        assert_eq!(h264_avc_nal_length_size_from_codec_data(&[1, 0, 0, 0, 0xff]), Some(4));
     }
 
     #[test]

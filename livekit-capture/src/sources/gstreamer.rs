@@ -22,8 +22,10 @@ use ::gstreamer_app as gst_app;
 
 use crate::{
     encoded::{
-        h26x::access_unit_from_annex_b, ingress::EncodedAccessUnitSource, CodecSpecific,
-        EncodedFrameType, EncodedVideoCodec, H264PacketizationMode, OwnedEncodedAccessUnit,
+        h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
+        ingress::EncodedAccessUnitSource,
+        CodecSpecific, EncodedFrameType, EncodedVideoCodec, H264PacketizationMode,
+        OwnedEncodedAccessUnit,
     },
     error::CaptureError,
 };
@@ -34,6 +36,11 @@ use crate::{
 pub enum GStreamerSampleFormat {
     /// H.264 Annex-B access units, usually from `h264parse` with byte-stream caps.
     H264AnnexB,
+    /// H.264 access units with AVC length-prefixed NAL units.
+    H264Avc {
+        /// Length-prefix size in bytes.
+        nal_length_size: u8,
+    },
     /// H.265 Annex-B access units, usually from `h265parse` with byte-stream caps.
     H265AnnexB,
     /// One already-delimited encoded access unit per appsink sample.
@@ -48,6 +55,7 @@ impl GStreamerSampleFormat {
     pub fn codec(self) -> EncodedVideoCodec {
         match self {
             Self::H264AnnexB => EncodedVideoCodec::H264,
+            Self::H264Avc { .. } => EncodedVideoCodec::H264,
             Self::H265AnnexB => EncodedVideoCodec::H265,
             Self::AccessUnit { codec } => codec,
         }
@@ -239,6 +247,9 @@ fn access_unit_from_sample_payload(
             width,
             height,
         ),
+        GStreamerSampleFormat::H264Avc { nal_length_size } => {
+            access_unit_from_h264_avc(payload, nal_length_size, timestamp_us, width, height)
+        }
         GStreamerSampleFormat::H265AnnexB => access_unit_from_annex_b(
             EncodedVideoCodec::H265,
             Bytes::copy_from_slice(payload),
@@ -306,6 +317,23 @@ mod tests {
         assert_eq!(access_unit.codec, EncodedVideoCodec::H264);
         assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
         assert_eq!(access_unit.timestamp_us, 1_000);
+    }
+
+    #[test]
+    fn sample_payload_h264_avc_converts_to_annex_b_and_detects_keyframe() {
+        let access_unit = access_unit_from_sample_payload(
+            GStreamerSampleFormat::H264Avc { nal_length_size: 4 },
+            &[0, 0, 0, 3, 0x65, 1, 2],
+            1_000,
+            EncodedFrameType::Delta,
+            640,
+            480,
+        )
+        .unwrap();
+
+        assert_eq!(access_unit.codec, EncodedVideoCodec::H264);
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 1, 2]);
     }
 
     #[test]

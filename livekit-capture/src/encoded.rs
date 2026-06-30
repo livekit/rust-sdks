@@ -34,6 +34,14 @@ const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 pub enum EncodedWireFormat {
     /// H.264 Annex-B byte stream.
     H264AnnexB,
+    /// H.264/AVC byte stream with length-prefixed NAL units.
+    ///
+    /// `nal_length_size` is the number of big-endian length bytes before each NAL unit. Values
+    /// from 1 through 4 are accepted; 4 is the common AVC configuration.
+    H264Avc {
+        /// Length-prefix size in bytes.
+        nal_length_size: u8,
+    },
     /// H.265 Annex-B byte stream.
     H265AnnexB,
     /// RTP packets for the supplied codec and RTP clock rate.

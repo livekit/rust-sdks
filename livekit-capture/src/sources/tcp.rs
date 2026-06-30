@@ -21,7 +21,7 @@ use thiserror::Error;
 
 use crate::{
     encoded::{
-        h26x::AnnexBAccessUnitParser,
+        h26x::{AnnexBAccessUnitParser, AvcAccessUnitParser},
         ingress::EncodedAccessUnitSource,
         rtp::{RtpAccessUnitAssembler, RtpDepacketizerError},
         EncodedVideoCodec, EncodedWireFormat, OwnedEncodedAccessUnit,
@@ -90,6 +90,7 @@ pub type TcpEncodedSource = ByteStreamEncodedSource<TcpStream>;
 #[derive(Debug)]
 enum ByteStreamParser {
     H26x(AnnexBAccessUnitParser),
+    H264Avc(AvcAccessUnitParser),
     Rtp(RtpAccessUnitAssembler),
 }
 
@@ -103,6 +104,16 @@ where
             EncodedWireFormat::H264AnnexB => ByteStreamParser::H26x(
                 AnnexBAccessUnitParser::new(
                     EncodedVideoCodec::H264,
+                    config.start_timestamp_us,
+                    config.frame_interval_us,
+                    config.width,
+                    config.height,
+                )
+                .map_err(TcpSourceError::Capture)?,
+            ),
+            EncodedWireFormat::H264Avc { nal_length_size } => ByteStreamParser::H264Avc(
+                AvcAccessUnitParser::new(
+                    nal_length_size,
                     config.start_timestamp_us,
                     config.frame_interval_us,
                     config.width,
@@ -167,6 +178,33 @@ where
         reader: &mut R,
         read_chunk: &mut [u8],
         parser: &mut AnnexBAccessUnitParser,
+        eof: &mut bool,
+    ) -> Result<Option<OwnedEncodedAccessUnit>, TcpSourceError> {
+        loop {
+            if let Some(access_unit) = parser.push(&[]).map_err(TcpSourceError::Capture)? {
+                return Ok(Some(access_unit));
+            }
+            if *eof {
+                return parser.flush().map_err(TcpSourceError::Capture);
+            }
+
+            let read = reader.read(read_chunk).map_err(TcpSourceError::Io)?;
+            if read == 0 {
+                *eof = true;
+                continue;
+            }
+            if let Some(access_unit) =
+                parser.push(&read_chunk[..read]).map_err(TcpSourceError::Capture)?
+            {
+                return Ok(Some(access_unit));
+            }
+        }
+    }
+
+    fn next_avc(
+        reader: &mut R,
+        read_chunk: &mut [u8],
+        parser: &mut AvcAccessUnitParser,
         eof: &mut bool,
     ) -> Result<Option<OwnedEncodedAccessUnit>, TcpSourceError> {
         loop {
@@ -302,6 +340,9 @@ where
             ByteStreamParser::H26x(parser) => {
                 Self::next_annex_b(&mut self.reader, &mut self.read_chunk, parser, &mut self.eof)
             }
+            ByteStreamParser::H264Avc(parser) => {
+                Self::next_avc(&mut self.reader, &mut self.read_chunk, parser, &mut self.eof)
+            }
             ByteStreamParser::Rtp(assembler) => {
                 Self::next_rtp(&mut self.reader, assembler, &mut self.eof)
             }
@@ -374,6 +415,23 @@ mod tests {
         ByteStreamSourceConfig::new(EncodedWireFormat::H264AnnexB, 0, 33_333, 640, 480)
     }
 
+    fn avc_stream() -> Vec<u8> {
+        vec![
+            0, 0, 0, 2, 0x09, 0x10, 0, 0, 0, 3, 0x65, 1, 2, 0, 0, 0, 2, 0x09, 0x10, 0, 0, 0, 2,
+            0x41, 3,
+        ]
+    }
+
+    fn avc_config() -> ByteStreamSourceConfig {
+        ByteStreamSourceConfig::new(
+            EncodedWireFormat::H264Avc { nal_length_size: 4 },
+            0,
+            33_333,
+            640,
+            480,
+        )
+    }
+
     #[test]
     fn reads_annex_b_access_units() {
         let stream = annex_b_stream();
@@ -384,6 +442,19 @@ mod tests {
         assert_eq!(first.payload.as_ref(), &[0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x65, 1, 2]);
         let second = source.next_access_unit().unwrap().unwrap();
         assert_eq!(second.payload.as_ref(), &[0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x41, 3]);
+        assert!(source.next_access_unit().unwrap().is_none());
+    }
+
+    #[test]
+    fn reads_h264_avc_access_units_as_annex_b() {
+        let stream = avc_stream();
+        let config = avc_config();
+        let mut source = ByteStreamEncodedSource::new(Cursor::new(stream), config).unwrap();
+
+        let first = source.next_access_unit().unwrap().unwrap();
+        assert_eq!(first.payload.as_ref(), &[0, 0, 0, 1, 0x09, 0x10, 0, 0, 0, 1, 0x65, 1, 2]);
+        let second = source.next_access_unit().unwrap().unwrap();
+        assert_eq!(second.payload.as_ref(), &[0, 0, 0, 1, 0x09, 0x10, 0, 0, 0, 1, 0x41, 3]);
         assert!(source.next_access_unit().unwrap().is_none());
     }
 
