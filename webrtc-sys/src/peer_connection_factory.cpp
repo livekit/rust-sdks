@@ -168,7 +168,7 @@ std::shared_ptr<AudioDeviceController> PeerConnectionFactory::audio_device() con
 void PeerConnectionFactory::shutdown_audio_io() const {
   rtc_runtime_->worker_thread()->BlockingCall([this] {
     if (adm_proxy_) {
-      adm_proxy_->ShutdownAudioIO();
+      adm_proxy_->StopAudioIO();
     }
   });
 }

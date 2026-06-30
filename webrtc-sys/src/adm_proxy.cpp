@@ -71,18 +71,17 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
 AdmProxy::~AdmProxy() {
   RTC_LOG(LS_VERBOSE) << "AdmProxy::~AdmProxy()";
 
-  {
-    webrtc::MutexLock lock(&mutex_);
-    StopAudioIOLocked();
-    if (synthetic_adm_) {
-      synthetic_adm_->Terminate();
-      synthetic_adm_ = nullptr;
-    }
+  StopAudioIO();
 
-    if (platform_adm_) {
-      platform_adm_->Terminate();
-      platform_adm_ = nullptr;
-    }
+  webrtc::MutexLock lock(&mutex_);
+  if (synthetic_adm_) {
+    synthetic_adm_->Terminate();
+    synthetic_adm_ = nullptr;
+  }
+
+  if (platform_adm_) {
+    platform_adm_->Terminate();
+    platform_adm_ = nullptr;
   }
 }
 
@@ -184,7 +183,7 @@ void AdmProxy::ReleasePlatformAdm() {
   // Note: We do NOT terminate the Platform ADM - it stays alive until destructor.
   // This avoids iOS KVO race conditions from re-creating the ADM.
   if (platform_adm_ref_count_ == 0) {
-    StopPlatformAudioIOLocked();
+    StopPlatformAudioIO();
     SwitchPlayoutModeIfNeeded();
     SwitchRecordingAdmIfNeeded();
   }
@@ -278,17 +277,21 @@ void AdmProxy::SwitchRecordingAdmIfNeeded() {
   }
 }
 
-void AdmProxy::StopPlatformAudioIOLocked() {
+void AdmProxy::StopPlatformAudioIO() {
   recording_ = false;
 
   if (platform_adm_) {
     platform_adm_->RegisterAudioCallback(nullptr);
     platform_adm_->StopRecording();
     platform_adm_->StopPlayout();
+    // platform_adm_ is kept alive for re-acquire and iOS compatibility; see
+    // ReleasePlatformAdm().
   }
 }
 
-void AdmProxy::StopAudioIOLocked() {
+void AdmProxy::StopAudioIO() {
+  webrtc::MutexLock lock(&mutex_);
+
   recording_ = false;
   playing_ = false;
   recording_initialized_ = false;
@@ -304,14 +307,10 @@ void AdmProxy::StopAudioIOLocked() {
     synthetic_adm_->RegisterAudioCallback(nullptr);
     synthetic_adm_->StopRecording();
     synthetic_adm_->StopPlayout();
+    // synthetic_adm_ is kept alive until ~AdmProxy() / Terminate().
   }
 
   audio_transport_ = nullptr;
-}
-
-void AdmProxy::ShutdownAudioIO() {
-  webrtc::MutexLock lock(&mutex_);
-  StopAudioIOLocked();
 }
 
 // =============================================================================
@@ -347,9 +346,9 @@ int32_t AdmProxy::Init() {
 }
 
 int32_t AdmProxy::Terminate() {
-  webrtc::MutexLock lock(&mutex_);
-  StopAudioIOLocked();
+  StopAudioIO();
 
+  webrtc::MutexLock lock(&mutex_);
   int32_t result = 0;
   if (synthetic_adm_) {
     result = synthetic_adm_->Terminate();
