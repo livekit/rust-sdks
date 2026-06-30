@@ -345,9 +345,6 @@ enum DegradationPreference {
   DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE = 1;
   // Degrade resolution to maintain framerate (drop frames to keep clarity).
   DEGRADATION_PREFERENCE_MAINTAIN_RESOLUTION = 2;
-  // Deprecated: Use MAINTAIN_FRAMERATE_AND_RESOLUTION instead.
-  // Maintained for backwards compatibility, maps to MAINTAIN_FRAMERATE_AND_RESOLUTION.
-  DEGRADATION_PREFERENCE_DISABLED = 3;
   // Maintain both framerate and resolution. Frames may be dropped before encoding
   // if necessary to avoid overusing network and encoder resources.
   DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE_AND_RESOLUTION = 4;
