@@ -10,7 +10,7 @@ license = "Apache-2.0"
 # Once upstream has merged the protocol fix PR, this can be changed to point to the upstream repo:
 # livekit = { git = "https://github.com/livekit/rust-sdks.git" }
 # Or to the crates.io release once version 0.7.45+ is published.
-livekit = { git = "https://github.com/mjpvl-ai/rust-sdks.git", branch = "feature/a2a-relay" }
+livekit = { path = "../livekit" }
 
 tokio = { version = "1", features = ["sync", "rt", "time"] }
 log = "0.4"

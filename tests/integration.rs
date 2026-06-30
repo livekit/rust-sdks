@@ -306,7 +306,9 @@ mod official_client_tests {
         // Pass the base_url as state
         Router::new()
             .route("/.well-known/agent.json", get(test_agent_card))
+            .route("/.well-known/agent-card.json", get(test_agent_card))
             .route("/message:stream", post(test_stream_msg))
+            .fallback(|| async { axum::http::StatusCode::NOT_FOUND })
             .with_state(base_url)
     }
 

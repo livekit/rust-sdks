@@ -53,7 +53,7 @@ const MIME_AUDIO_PCM: &str = "audio/pcm;rate=16000";
 /// ```no_run
 /// use livekit_a2a_relay::official_client::OfficialA2aClient;
 ///
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// let client = OfficialA2aClient::from_agent_url("https://my-agent.example.com").await?;
 /// # Ok(())
 /// # }

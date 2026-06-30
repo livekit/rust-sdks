@@ -24,6 +24,16 @@ livekit-a2a-relay = { version = "0.1.0", features = ["a2a-client"] }
 ### Feature Flags
 - `a2a-client`: Enables the `OfficialA2aClient`, providing a production-ready HTTP/SSE client for interacting with A2A agents. Requires `reqwest` and cryptographic dependencies.
 
+## Build Requirements
+
+Because `webrtc-sys` compiles native WebRTC C++ code and relies on code-generation via `bindgen`, the following system dependencies are required:
+
+1. **`cmake`**: Must be installed and accessible in the system `PATH`.
+2. **Clang / LLVM Headers**: Ensure Clang has access to system C headers. If compilation of cryptographic or WebRTC sys-crates (such as `aws-lc-sys`) fails due to missing `stddef.h`, set the `BINDGEN_EXTRA_CLANG_ARGS` environment variable to point to the Clang include directory. For example, on Linux systems with LLVM-20:
+   ```bash
+   export BINDGEN_EXTRA_CLANG_ARGS="-I/usr/lib/llvm-20/lib/clang/20/include"
+   ```
+
 ## Architecture
 
 The system operates via four primary components:
