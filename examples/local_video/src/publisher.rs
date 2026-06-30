@@ -189,6 +189,10 @@ struct Args {
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
 
+    /// Use zero-copy platform camera buffers when available.
+    #[arg(long, default_value_t = false)]
+    zero_copy: bool,
+
     /// Generate a numeric test pattern instead of using a camera: 0 = static bars, 1 = animated
     #[arg(
         long,
@@ -446,12 +450,12 @@ fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
     }
 }
 
-fn maybe_request_native_capture_fallback(
+fn maybe_request_zero_copy_fallback(
     outbound: &livekit::webrtc::stats::OutboundRtpStats,
     first_starved_at: &mut Option<Instant>,
-    native_capture_fallback: &AtomicBool,
+    zero_copy_fallback: &AtomicBool,
 ) {
-    if native_capture_fallback.load(Ordering::Acquire) {
+    if zero_copy_fallback.load(Ordering::Acquire) {
         return;
     }
     if outbound.outbound.frames_encoded > 0 || outbound.outbound.key_frames_encoded > 0 {
@@ -470,21 +474,21 @@ fn maybe_request_native_capture_fallback(
         return;
     }
 
-    native_capture_fallback.store(true, Ordering::Release);
+    zero_copy_fallback.store(true, Ordering::Release);
     log::warn!(
-        "Native AVFoundation CVPixelBuffer publish produced no encoded frames; falling back to CPU I420 capture"
+        "Zero-copy AVFoundation CVPixelBuffer publish produced no encoded frames; falling back to CPU I420 capture"
     );
 }
 
 async fn update_publisher_video_stats(
     track: LocalVideoTrack,
     ctrl_c_received: Arc<AtomicBool>,
-    native_capture_fallback: Option<Arc<AtomicBool>>,
+    zero_copy_fallback: Option<Arc<AtomicBool>>,
 ) {
     let mut last_log =
         Instant::now().checked_sub(Duration::from_secs(2)).unwrap_or_else(Instant::now);
     let mut last_encoder_implementation = String::new();
-    let mut native_capture_starved_at = None;
+    let mut zero_copy_starved_at = None;
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -501,13 +505,9 @@ async fn update_publisher_video_stats(
                 }
             }
             if let (Some(outbound), Some(fallback)) =
-                (find_video_outbound_stats(&stats), native_capture_fallback.as_ref())
+                (find_video_outbound_stats(&stats), zero_copy_fallback.as_ref())
             {
-                maybe_request_native_capture_fallback(
-                    &outbound,
-                    &mut native_capture_starved_at,
-                    fallback,
-                );
+                maybe_request_zero_copy_fallback(&outbound, &mut zero_copy_starved_at, fallback);
             }
             if last_log.elapsed() >= Duration::from_secs(2) {
                 log_publisher_outbound_health(&stats);
@@ -805,6 +805,20 @@ mod tests {
     }
 
     #[test]
+    fn zero_copy_is_disabled_by_default() {
+        let args = Args::try_parse_from(["publisher"]).expect("default args should parse");
+
+        assert!(!args.zero_copy);
+    }
+
+    #[test]
+    fn zero_copy_flag_enables_zero_copy() {
+        let args = Args::try_parse_from(["publisher", "--zero-copy"]).expect("args should parse");
+
+        assert!(args.zero_copy);
+    }
+
+    #[test]
     fn test_pattern_without_value_defaults_to_static_bars() {
         let args =
             Args::try_parse_from(["publisher", "--test-pattern"]).expect("args should parse");
@@ -894,7 +908,11 @@ enum PlatformCamera {
     V4l(V4lCaptureSession),
 }
 
-fn publisher_capture_path_label(video_input: &VideoInput, burn_timestamp: bool) -> String {
+fn publisher_capture_path_label(
+    video_input: &VideoInput,
+    burn_timestamp: bool,
+    zero_copy: bool,
+) -> String {
     match video_input {
         VideoInput::TestPattern(_) => "test-pattern CPU I420".to_string(),
         VideoInput::Camera(camera) => match camera {
@@ -902,22 +920,36 @@ fn publisher_capture_path_label(video_input: &VideoInput, burn_timestamp: bool) 
             PlatformCamera::AvFoundation(session) => {
                 let source_format = session.format().frame_format;
                 let core_video_format = core_video_fourcc(session.core_video_pixel_format());
-                if burn_timestamp {
-                    format!(
-                        "AVFoundation CPU I420 fallback from {source_format}/{core_video_format} (timestamp burn)"
-                    )
-                } else {
+                if zero_copy {
                     match session.capture_path() {
-                        LkCapturePath::Native => {
+                        LkCapturePath::Native if burn_timestamp => {
                             format!(
-                                "AVFoundation native IOSurface CVPixelBuffer {core_video_format} from {source_format}"
+                                "AVFoundation zero-copy IOSurface CVPixelBuffer {core_video_format} from {source_format} (timestamp burn disabled)"
                             )
                         }
-                        path => format!(
-                            "AVFoundation {} fallback from {source_format}/{core_video_format}",
-                            capture_path_name(path),
-                        ),
+                        LkCapturePath::Native => {
+                            format!(
+                                "AVFoundation zero-copy IOSurface CVPixelBuffer {core_video_format} from {source_format}"
+                            )
+                        }
+                        path => {
+                            let suffix = if burn_timestamp {
+                                "zero-copy unsupported, timestamp burn"
+                            } else {
+                                "zero-copy unsupported"
+                            };
+                            format!(
+                                "AVFoundation {} fallback from {source_format}/{core_video_format} ({suffix})",
+                                capture_path_name(path),
+                            )
+                        }
                     }
+                } else if burn_timestamp {
+                    format!(
+                        "AVFoundation CPU I420 from {source_format}/{core_video_format} (timestamp burn)"
+                    )
+                } else {
+                    format!("AVFoundation CPU I420 from {source_format}/{core_video_format}")
                 }
             }
             #[cfg(target_os = "linux")]
@@ -928,20 +960,38 @@ fn publisher_capture_path_label(video_input: &VideoInput, burn_timestamp: bool) 
                 } else {
                     ""
                 };
-                format!(
-                    "V4L2 {} from {}{}",
-                    capture_path_name(session.capture_path()),
-                    format.frame_format,
-                    decode_suffix
-                )
+                if zero_copy {
+                    let suffix = if burn_timestamp {
+                        "zero-copy unsupported, timestamp burn"
+                    } else {
+                        "zero-copy unsupported"
+                    };
+                    format!(
+                        "V4L2 {} fallback from {}{} ({suffix})",
+                        capture_path_name(session.capture_path()),
+                        format.frame_format,
+                        decode_suffix
+                    )
+                } else {
+                    format!(
+                        "V4L2 {} from {}{}",
+                        capture_path_name(session.capture_path()),
+                        format.frame_format,
+                        decode_suffix
+                    )
+                }
             }
         },
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
         VideoInput::Argus(_) => {
-            if burn_timestamp {
+            if zero_copy && burn_timestamp {
+                "libargus NV12 DMA-BUF zero-copy (timestamp burn disabled)".to_string()
+            } else if zero_copy {
+                "libargus NV12 DMA-BUF zero-copy".to_string()
+            } else if burn_timestamp {
                 "libargus CPU I420 from NV12 DMA-BUF (timestamp burn)".to_string()
             } else {
-                "libargus NV12 DMA-BUF".to_string()
+                "libargus CPU I420 from NV12 DMA-BUF".to_string()
             }
         }
     }
@@ -957,8 +1007,34 @@ fn core_video_fourcc(pixel_format: u32) -> String {
     }
 }
 
-fn publisher_uses_native_camera_capture(video_input: &VideoInput, burn_timestamp: bool) -> bool {
-    if burn_timestamp {
+fn publisher_zero_copy_unsupported_reason(video_input: &VideoInput) -> Option<&'static str> {
+    match video_input {
+        VideoInput::TestPattern(_) => Some("test pattern frames are generated in CPU I420 memory"),
+        VideoInput::Camera(camera) => match camera {
+            #[cfg(target_os = "macos")]
+            PlatformCamera::AvFoundation(session) => {
+                if session.capture_path() == LkCapturePath::Native {
+                    None
+                } else {
+                    Some("the selected AVFoundation format is not IOSurface-backed NV12")
+                }
+            }
+            #[cfg(target_os = "linux")]
+            PlatformCamera::V4l(_) => {
+                Some("V4L2 UVC capture does not expose a zero-copy capture/encode path here")
+            }
+        },
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        VideoInput::Argus(_) => None,
+    }
+}
+
+fn publisher_zero_copy_supported(video_input: &VideoInput) -> bool {
+    publisher_zero_copy_unsupported_reason(video_input).is_none()
+}
+
+fn publisher_uses_zero_copy_camera_capture(video_input: &VideoInput, zero_copy: bool) -> bool {
+    if !zero_copy {
         return false;
     }
 
@@ -1028,6 +1104,7 @@ impl PlatformCamera {
 #[derive(Clone, Copy)]
 struct CaptureConfig {
     fps: u32,
+    zero_copy: bool,
     attach_timestamp: bool,
     burn_timestamp: bool,
     attach_frame_id: bool,
@@ -1421,19 +1498,32 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         info!("Published camera track");
         requested_codec
     };
-    let burn_timestamp_enabled = args.attach_timestamp && args.burn_timestamp;
+    let burn_timestamp_requested = args.attach_timestamp && args.burn_timestamp;
+    let zero_copy_supported = publisher_zero_copy_supported(&video_input);
+    let zero_copy_active = args.zero_copy && zero_copy_supported;
+    if args.zero_copy {
+        if let Some(reason) = publisher_zero_copy_unsupported_reason(&video_input) {
+            log::warn!("--zero-copy requested, but {reason}; using CPU I420 capture");
+        }
+    }
+    if zero_copy_active && burn_timestamp_requested {
+        log::warn!(
+            "--zero-copy keeps frames out of CPU memory; --burn-timestamp will not draw an overlay"
+        );
+    }
     info!(
         "Publisher media path: capture={}, encode=requested codec {} via {}",
-        publisher_capture_path_label(&video_input, burn_timestamp_enabled),
+        publisher_capture_path_label(&video_input, burn_timestamp_requested, args.zero_copy),
         actual_codec.as_str(),
         video_encoder_backend_name(requested_encoder),
     );
-    let native_capture_fallback =
-        publisher_uses_native_camera_capture(&video_input, burn_timestamp_enabled)
+    let zero_copy_fallback =
+        publisher_uses_zero_copy_camera_capture(&video_input, zero_copy_active)
             .then(|| Arc::new(AtomicBool::new(false)));
 
     let capture_config = CaptureConfig {
         fps: args.fps,
+        zero_copy: zero_copy_active,
         attach_timestamp: args.attach_timestamp,
         burn_timestamp: args.burn_timestamp,
         attach_frame_id: args.attach_frame_id,
@@ -1448,7 +1538,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let publish_stats_task = tokio::spawn(update_publisher_video_stats(
         track.clone(),
         ctrl_c_received.clone(),
-        native_capture_fallback.clone(),
+        zero_copy_fallback.clone(),
     ));
 
     match video_input {
@@ -1492,7 +1582,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     Some(shared.clone()),
                     publish_timing_state.clone(),
                     user_data_channels.clone(),
-                    native_capture_fallback.clone(),
+                    zero_copy_fallback.clone(),
                 ));
 
                 let display_result = video_display::run_display(
@@ -1520,7 +1610,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     None,
                     publish_timing_state.clone(),
                     user_data_channels.clone(),
-                    native_capture_fallback.clone(),
+                    zero_copy_fallback.clone(),
                 )
                 .await;
                 let _ = publish_stats_task.await;
@@ -1543,7 +1633,7 @@ async fn run_capture_loop(
     display_shared: Option<Arc<Mutex<SharedYuv>>>,
     publish_timing_state: Option<Arc<Mutex<PublisherTimingState>>>,
     user_data_channels: Option<Arc<Mutex<[f32; user_data::NUM_CHANNELS]>>>,
-    native_capture_fallback: Option<Arc<AtomicBool>>,
+    zero_copy_fallback: Option<Arc<AtomicBool>>,
 ) -> Result<()> {
     let pace_fps = config.fps as f64;
     #[cfg(target_os = "macos")]
@@ -1569,7 +1659,7 @@ async fn run_capture_loop(
     let mut fps_window_start = Instant::now();
     let mut fps_smoothed: f32 = 0.0;
     let target = Duration::from_secs_f64(1.0 / pace_fps);
-    let burn_timestamp_enabled = config.attach_timestamp && config.burn_timestamp;
+    let burn_timestamp_requested = config.attach_timestamp && config.burn_timestamp;
     info!("Target frame interval: {:.2} ms", target.as_secs_f64() * 1000.0);
     if camera_driven_pacing {
         info!("Capture pacing: camera frame-arrival driven");
@@ -1582,11 +1672,11 @@ async fn run_capture_loop(
     let mut frame_counter: u32 = 1;
     let mut test_pattern_frame_index: u64 = 0;
     let mut timestamp_overlay =
-        burn_timestamp_enabled.then(|| TimestampOverlay::new(width, height));
+        burn_timestamp_requested.then(|| TimestampOverlay::new(width, height));
     let align_buffers_for_display = display_shared.is_some();
     let mut logged_camera_timestamp_source = false;
     let mut logged_camera_timestamp_fallback = false;
-    let mut logged_native_capture_fallback = false;
+    let mut logged_zero_copy_fallback = false;
 
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
@@ -1649,16 +1739,16 @@ async fn run_capture_loop(
                 )
             }
             VideoInput::Camera(camera) => {
-                let force_i420_after_native_failure = native_capture_fallback
+                let force_i420_after_zero_copy_failure = zero_copy_fallback
                     .as_ref()
                     .is_some_and(|fallback| fallback.load(Ordering::Acquire));
-                if force_i420_after_native_failure && !logged_native_capture_fallback {
+                if force_i420_after_zero_copy_failure && !logged_zero_copy_fallback {
                     log::warn!(
-                        "Publisher media path changed: capture=AVFoundation CPU I420 fallback after native encode starvation"
+                        "Publisher media path changed: capture=AVFoundation CPU I420 fallback after zero-copy encode starvation"
                     );
-                    logged_native_capture_fallback = true;
+                    logged_zero_copy_fallback = true;
                 }
-                let prefer_native = !burn_timestamp_enabled && !force_i420_after_native_failure;
+                let prefer_native = config.zero_copy && !force_i420_after_zero_copy_failure;
                 let mut captured = camera.capture_frame(prefer_native)?;
                 let camera_frame_acquired_at = Instant::now();
                 match &mut captured.buffer {
@@ -1725,23 +1815,31 @@ async fn run_capture_loop(
         let mut buffer_ready_at = convert_finished_at;
         let mut frame_draw_ms = None;
         let mut burned_timestamp_us = None;
-        if let Some(overlay) = timestamp_overlay.as_mut() {
-            let overlay_started_at = Instant::now();
-            match &mut captured_frame {
-                CapturedFrameBuffer::I420(frame) => {
-                    let (stride_y, _, _) = frame.buffer.strides();
-                    let (data_y, _, _) = frame.buffer.data_mut();
-                    overlay.draw(data_y, stride_y as usize, capture_wall_time_us, fid);
+        let frame_uses_zero_copy = match &captured_frame {
+            #[cfg(target_os = "macos")]
+            CapturedFrameBuffer::Native(_) => true,
+            _ => false,
+        };
+        if !frame_uses_zero_copy {
+            if let Some(overlay) = timestamp_overlay.as_mut() {
+                let overlay_started_at = Instant::now();
+                match &mut captured_frame {
+                    CapturedFrameBuffer::I420(frame) => {
+                        let (stride_y, _, _) = frame.buffer.strides();
+                        let (data_y, _, _) = frame.buffer.data_mut();
+                        overlay.draw(data_y, stride_y as usize, capture_wall_time_us, fid);
+                    }
+                    #[cfg(target_os = "macos")]
+                    CapturedFrameBuffer::Native(_) => {
+                        unreachable!("native frame was classified as zero-copy");
+                    }
                 }
-                #[cfg(target_os = "macos")]
-                CapturedFrameBuffer::Native(_) => {
-                    anyhow::bail!("timestamp burning requires an I420 capture frame");
-                }
+                burned_timestamp_us = Some(capture_wall_time_us);
+                let overlay_finished_at = Instant::now();
+                frame_draw_ms =
+                    Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);
+                buffer_ready_at = overlay_finished_at;
             }
-            burned_timestamp_us = Some(capture_wall_time_us);
-            let overlay_finished_at = Instant::now();
-            frame_draw_ms = Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);
-            buffer_ready_at = overlay_finished_at;
         }
 
         // Build frame metadata from enabled packet trailer features and local timing correlation.
@@ -1918,9 +2016,9 @@ async fn run_capture_loop(
 /// Capture loop dedicated to Jetson MIPI capture via libargus.
 ///
 /// Argus blocks inside `acquireFrame`, pacing capture itself, so this loop runs in a
-/// dedicated OS thread. The normal path pushes NV12 DMA-buffer fds straight into
-/// [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
-/// to the Jetson hardware encoder; timestamp burn explicitly copies to CPU I420.
+/// dedicated OS thread. With `--zero-copy`, the path pushes NV12 DMA-buffer fds
+/// straight into [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for
+/// hand-off to the Jetson hardware encoder; otherwise it copies to CPU I420.
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 async fn run_argus_capture_loop(
     config: CaptureConfig,
@@ -1940,9 +2038,10 @@ async fn run_argus_capture_loop(
             }
 
             let mut session = session;
-            let burn_timestamp_enabled = config.attach_timestamp && config.burn_timestamp;
+            let burn_timestamp_requested = config.attach_timestamp && config.burn_timestamp;
+            let burn_timestamp_active = burn_timestamp_requested && !config.zero_copy;
             let mut timestamp_overlay =
-                burn_timestamp_enabled.then(|| TimestampOverlay::new(width, height));
+                burn_timestamp_active.then(|| TimestampOverlay::new(width, height));
             let mut frames: u64 = 0;
             let mut last_fps_log = Instant::now();
             let mut sum_acquire_ms = 0.0;
@@ -1961,7 +2060,7 @@ async fn run_argus_capture_loop(
             let mut backup_timestamp_frames: u64 = 0;
             let mut sum_sensor_to_acquire_ms = 0.0;
             let mut sum_sensor_to_argus_acquire_ms = 0.0;
-            if burn_timestamp_enabled {
+            if burn_timestamp_active {
                 info!(
                     "Argus timestamp burn enabled: copying NV12 DMA-BUF frames to CPU I420 before publish"
                 );
@@ -1974,10 +2073,10 @@ async fn run_argus_capture_loop(
 
                 let iter_start = Instant::now();
                 let acquire_started_at = Instant::now();
-                let capture_result = if burn_timestamp_enabled {
-                    session.capture_i420_frame().map(CapturedArgusFrame::I420)
-                } else {
+                let capture_result = if config.zero_copy {
                     session.capture_frame().map(CapturedArgusFrame::DmaBuf)
+                } else {
+                    session.capture_i420_frame().map(CapturedArgusFrame::I420)
                 };
                 let captured_frame = match capture_result {
                     Ok(frame) => {
@@ -2135,7 +2234,7 @@ async fn run_argus_capture_loop(
                         } else {
                             0.0
                         };
-                        if burn_timestamp_enabled {
+                        if burn_timestamp_active {
                             info!(
                                 "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_argus_acquire {:.2}, argus_wait {:.2}, argus_blit {:.2}, argus_i420_copy {:.2}, timestamp_burn {:.2}, sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
                                 width,
