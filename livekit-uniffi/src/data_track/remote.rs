@@ -139,7 +139,28 @@ impl RemoteDataTrackManager {
         _ = self.input.send(remote::InputEvent::ResendSubscriptionUpdates);
     }
 
+    /// Handles a serialized `JoinResponse` signal response from the SFU.
+    ///
+    /// Invoke once after initial join. This is used to detect pre-existing
+    /// track publications by remote participants.
+    ///
+    pub fn handle_sfu_join_response(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
+        let proto::signal_response::Message::Join(mut msg) = deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
+        };
+
+        let event = remote::event_from_join(&mut msg)
+            .map_err(|err| HandleSignalResponseError::Internal(err))?;
+        _ = self.input.send(event.into());
+
+        Ok(())
+    }
+
     /// Handles a serialized `ParticipantUpdate` signal response from the SFU.
+    ///
+    /// Invoke every time a participant update is received. This is used to detect changes
+    /// to track publication by remote participants.
     ///
     /// Note: the local participant identity is required to exclude data tracks published by the
     /// local participant from being treated as remote tracks.
