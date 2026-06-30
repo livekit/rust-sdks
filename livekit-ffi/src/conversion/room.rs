@@ -75,7 +75,12 @@ fn degradation_preference_from_proto(pref: Option<i32>) -> Option<DegradationPre
         proto::DegradationPreference::MaintainResolution => {
             Some(DegradationPreference::MaintainResolution)
         }
-        proto::DegradationPreference::Disabled => Some(DegradationPreference::Disabled),
+        // Both Disabled and MaintainFramerateAndResolution map to the same value
+        // Disabled is deprecated, use MaintainFramerateAndResolution instead
+        proto::DegradationPreference::Disabled
+        | proto::DegradationPreference::MaintainFramerateAndResolution => {
+            Some(DegradationPreference::MaintainFramerateAndResolution)
+        }
     }
 }
 
