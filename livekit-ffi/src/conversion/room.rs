@@ -19,8 +19,8 @@ use livekit::{
         E2eeOptions, EncryptionType,
     },
     options::{
-        AudioEncoding, FrameMetadataFeatures, TrackPublishOptions, VideoEncoderBackend,
-        VideoEncoding,
+        AudioEncoding, DegradationPreference, FrameMetadataFeatures, TrackPublishOptions,
+        VideoEncoderBackend, VideoEncoding,
     },
     prelude::*,
     webrtc::{
@@ -63,6 +63,19 @@ fn video_encoder_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend>
         proto::VideoEncoderBackend::EncoderBackendVideotoolbox => {
             Some(VideoEncoderBackend::VideoToolbox)
         }
+    }
+}
+
+fn degradation_preference_from_proto(pref: Option<i32>) -> Option<DegradationPreference> {
+    match pref.and_then(|value| proto::DegradationPreference::try_from(value).ok())? {
+        proto::DegradationPreference::Balanced => Some(DegradationPreference::Balanced),
+        proto::DegradationPreference::MaintainFramerate => {
+            Some(DegradationPreference::MaintainFramerate)
+        }
+        proto::DegradationPreference::MaintainResolution => {
+            Some(DegradationPreference::MaintainResolution)
+        }
+        proto::DegradationPreference::Disabled => Some(DegradationPreference::Disabled),
     }
 }
 
@@ -338,6 +351,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             video_encoder: video_encoder_from_proto(opts.video_encoder)
                 .unwrap_or(default_publish_options.video_encoder),
             scalability_mode: opts.scalability_mode,
+            degradation_preference: degradation_preference_from_proto(opts.degradation_preference),
         }
     }
 }

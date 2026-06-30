@@ -183,8 +183,11 @@ impl PeerTransport {
         if ultimate_kbps == 0 {
             return None;
         }
-        // JS / Flutter uses ~70% of ultimate; 100% is also reasonable per feedback.
-        let start_kbps = (ultimate_kbps as f64 * 0.7).round() as u32;
+        // Use 90% of target bitrate as start bitrate for all codecs.
+        // Why 90%: Gives ~10% headroom for bandwidth estimation while starting close to target.
+        // Why same for all codecs: Target bitrate already accounts for codec efficiency
+        // (e.g., users set lower targets for VP9/AV1 knowing they're more efficient).
+        let start_kbps = (ultimate_kbps as f64 * 0.9).round() as u32;
 
         // A low start-bitrate hint is more likely to hurt than help for VP9/AV1.
         // If the max is too low, don't inject a start-bitrate hint at all.
@@ -299,6 +302,15 @@ impl PeerTransport {
         munged
     }
 
+    /// Check if a codec string represents a video codec that should get start bitrate hint.
+    fn is_video_codec(codec: &str) -> bool {
+        codec.starts_with("VP8/90000")
+            || codec.starts_with("VP9/90000")
+            || codec.starts_with("AV1/90000")
+            || codec.starts_with("H264/90000")
+            || codec.starts_with("H265/90000")
+    }
+
     fn munge_x_google_start_bitrate(sdp: &str, start_bitrate_kbps: u32) -> String {
         // Detect what line ending the original SDP uses
         let uses_crlf = sdp.contains("\r\n");
@@ -308,7 +320,7 @@ impl PeerTransport {
         let lines: Vec<&str> =
             if uses_crlf { sdp.split("\r\n").collect() } else { sdp.split('\n').collect() };
 
-        // 1) Find VP9/AV1 payload types
+        // 1) Find all video codec payload types (VP8, VP9, AV1, H264, H265)
         let mut target_pts: Vec<&str> = Vec::new();
         for line in &lines {
             let l = line.trim();
@@ -316,9 +328,7 @@ impl PeerTransport {
                 let mut it = rest.split_whitespace();
                 let pt = it.next().unwrap_or("");
                 let codec = it.next().unwrap_or("");
-                if (codec.starts_with("VP9/90000") || codec.starts_with("AV1/90000"))
-                    && !pt.is_empty()
-                {
+                if Self::is_video_codec(codec) && !pt.is_empty() {
                     target_pts.push(pt);
                 }
             }
@@ -426,9 +436,13 @@ impl PeerTransport {
             }
         }
 
-        let is_vp9 = sdp.contains(" VP9/90000");
-        let is_av1 = sdp.contains(" AV1/90000");
-        if is_vp9 || is_av1 {
+        // Apply x-google-start-bitrate for all video codecs to improve initial quality
+        let has_video = sdp.contains(" VP8/90000")
+            || sdp.contains(" VP9/90000")
+            || sdp.contains(" AV1/90000")
+            || sdp.contains(" H264/90000")
+            || sdp.contains(" H265/90000");
+        if has_video {
             if let Some(start_kbps) = Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps) {
                 log::info!(
                     "Applying x-google-start-bitrate={} kbps (ultimate_bps={:?})",
@@ -438,7 +452,7 @@ impl PeerTransport {
 
                 let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
                 if munged != sdp {
-                    log::info!("SDP munged successfully (VP9/AV1)");
+                    log::info!("SDP munged successfully for video codec");
                     match SessionDescription::parse(&munged, offer.sdp_type()) {
                         Ok(parsed) => offer = parsed,
                         Err(e) => log::warn!(
@@ -466,7 +480,21 @@ mod tests {
     use super::PeerTransport;
 
     #[test]
-    fn no_vp9_or_av1_is_noop() {
+    fn no_video_codec_is_noop() {
+        // Audio-only SDP should not be modified
+        let sdp = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
+a=rtpmap:111 opus/48000/2\n\
+a=fmtp:111 minptime=10;useinbandfec=1\n";
+        let out = PeerTransport::munge_x_google_start_bitrate(sdp, 3200);
+        assert_eq!(out, sdp, "should not change SDP if no video codec present");
+    }
+
+    #[test]
+    fn vp8_with_fmtp_appends_start_bitrate() {
         let sdp = "v=0\n\
 o=- 0 0 IN IP4 127.0.0.1\n\
 s=-\n\
@@ -475,7 +503,26 @@ m=video 9 UDP/TLS/RTP/SAVPF 96\n\
 a=rtpmap:96 VP8/90000\n\
 a=fmtp:96 some=param\n";
         let out = PeerTransport::munge_x_google_start_bitrate(sdp, 3200);
-        assert_eq!(out, sdp, "should not change SDP if no VP9/AV1 present");
+        assert!(
+            out.contains("a=fmtp:96 some=param;x-google-start-bitrate=3200\n"),
+            "VP8 fmtp should get x-google-start-bitrate appended"
+        );
+    }
+
+    #[test]
+    fn h264_with_fmtp_appends_start_bitrate() {
+        let sdp = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=video 9 UDP/TLS/RTP/SAVPF 102\n\
+a=rtpmap:102 H264/90000\n\
+a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f\n";
+        let out = PeerTransport::munge_x_google_start_bitrate(sdp, 4000);
+        assert!(
+            out.contains("a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f;x-google-start-bitrate=4000\n"),
+            "H264 fmtp should get x-google-start-bitrate appended"
+        );
     }
 
     #[test]
@@ -546,7 +593,7 @@ a=fmtp:98 profile-id=0"; // <- no final \r\n
     }
 
     #[test]
-    fn multiple_pts_vp9_and_av1_only_mutate_matching_fmtp_lines() {
+    fn multiple_video_codecs_all_get_munged() {
         let sdp = "v=0\n\
 o=- 0 0 IN IP4 127.0.0.1\n\
 s=-\n\
@@ -559,8 +606,8 @@ a=fmtp:96 foo=bar\n\
 a=fmtp:98 profile-id=0\n\
 a=fmtp:104 x-google-start-bitrate=1111;baz=qux\n";
         let out = PeerTransport::munge_x_google_start_bitrate(sdp, 2222);
-        // VP8 fmtp should be unchanged
-        assert!(out.contains("a=fmtp:96 foo=bar\n"));
+        // VP8 fmtp should get appended
+        assert!(out.contains("a=fmtp:96 foo=bar;x-google-start-bitrate=2222\n"));
         // VP9 fmtp should get appended
         assert!(out.contains("a=fmtp:98 profile-id=0;x-google-start-bitrate=2222\n"));
         // AV1 fmtp should get replaced
