@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Display;
+use std::{fmt::Display, time::Duration};
 
 use http::{
     header::{HeaderMap, HeaderValue, CONTENT_TYPE},
@@ -85,6 +85,7 @@ pub struct TwirpClient {
     prefix: String,
     client: http_client::Client,
     failover: FailoverConfig,
+    request_timeout: Duration,
 }
 
 impl TwirpClient {
@@ -95,6 +96,7 @@ impl TwirpClient {
             prefix: prefix.unwrap_or(DEFAULT_PREFIX).to_owned(),
             client: http_client::Client::new(),
             failover: FailoverConfig::default(),
+            request_timeout: failover::DEFAULT_REQUEST_TIMEOUT,
         }
     }
 
@@ -102,6 +104,13 @@ impl TwirpClient {
     /// engages for LiveKit Cloud hosts.
     pub fn with_failover(mut self, enabled: bool) -> Self {
         self.failover.enabled = enabled;
+        self
+    }
+
+    /// Overrides the default per-attempt request timeout (10s) applied to calls
+    /// that don't pass their own. Each failover attempt gets the full budget.
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = timeout;
         self
     }
 
@@ -123,7 +132,20 @@ impl TwirpClient {
         service: &str,
         method: &str,
         data: D,
+        headers: HeaderMap,
+    ) -> TwirpResult<R> {
+        self.request_with_timeout(service, method, data, headers, self.request_timeout).await
+    }
+
+    /// Like [`request`](Self::request) but with an explicit per-attempt timeout,
+    /// for calls (e.g. SIP dialing) that need a longer budget than the default.
+    pub async fn request_with_timeout<D: prost::Message, R: prost::Message + Default>(
+        &self,
+        service: &str,
+        method: &str,
+        data: D,
         mut headers: HeaderMap,
+        timeout: Duration,
     ) -> TwirpResult<R> {
         let original = Url::parse(&self.host)?;
         let path = format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method);
@@ -131,7 +153,7 @@ impl TwirpClient {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/protobuf"));
         let body = data.encode_to_vec();
 
-        let max_attempts = self.failover.attempts(original.host_str());
+        let max_attempts = self.failover.attempts(original.host_str(), timeout);
         let mut attempted = vec![failover::host_key(&original)];
         let mut region_urls: Option<Vec<String>> = None;
         let mut current = original.clone();
@@ -141,8 +163,14 @@ impl TwirpClient {
             let mut url = current.clone();
             url.set_path(&path);
 
-            let send =
-                self.client.post(url).headers(headers.clone()).body(body.clone()).send().await;
+            let send = self
+                .client
+                .post(url)
+                .headers(headers.clone())
+                .body(body.clone())
+                .timeout(timeout)
+                .send()
+                .await;
             match send {
                 Ok(resp) => {
                     let status = resp.status();

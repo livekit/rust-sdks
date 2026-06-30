@@ -79,6 +79,12 @@ impl IngressClient {
         self
     }
 
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
+        self
+    }
+
     pub async fn create_ingress(
         &self,
         input_type: proto::IngressInput,

@@ -36,6 +36,15 @@ use crate::region::{is_cloud_host, parse_max_age, RegionsResponse};
 pub(crate) const MAX_ATTEMPTS: u32 = 3;
 pub(crate) const BACKOFF_BASE: Duration = Duration::from_millis(200);
 
+/// Default per-request timeout, applied to each attempt. Calls that dial a
+/// phone (see [`crate::services::sip`]) override it with a longer budget.
+pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Below this per-request timeout a retry is unlikely to help, and many clients
+/// would retry in lockstep across regions, so a short request gets a single
+/// attempt (thundering-herd guard).
+pub(crate) const MIN_FAILOVER_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// Internal region-failover configuration. The public API exposes only the
 /// `enabled` toggle (default true); `force` and `backoff_base` are test-only.
 #[derive(Debug, Clone, Copy)]
@@ -55,14 +64,17 @@ impl Default for FailoverConfig {
 
 impl FailoverConfig {
     /// Total request attempts for a host; 1 means no failover. Failover only
-    /// engages when enabled and the host is a LiveKit Cloud domain. `force`
+    /// engages when enabled, the host is a LiveKit Cloud domain, and the
+    /// per-attempt `timeout` is long enough that retrying is worthwhile. `force`
     /// bypasses the cloud-host check and is for internal testing only.
-    pub(crate) fn attempts(&self, host: Option<&str>) -> u32 {
-        if self.enabled && (self.force || host.map(is_cloud_host).unwrap_or(false)) {
-            MAX_ATTEMPTS
-        } else {
-            1
+    pub(crate) fn attempts(&self, host: Option<&str>, timeout: Duration) -> u32 {
+        if !(self.enabled && (self.force || host.map(is_cloud_host).unwrap_or(false))) {
+            return 1;
         }
+        if timeout < MIN_FAILOVER_TIMEOUT {
+            return 1;
+        }
+        MAX_ATTEMPTS
     }
 }
 

@@ -24,6 +24,26 @@ use pbjson_types::Duration as ProtoDuration;
 
 const SVC: &str = "SIP";
 
+/// CreateSIPParticipant with `wait_until_answered` dials a phone and waits for
+/// the answer, which takes longer than a normal request.
+const SIP_DIAL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// A dialing request must outlast the ringing window, or it would abort before
+/// the call can be answered. Keep the request timeout at least this far above
+/// the ringing timeout.
+const RINGING_TIMEOUT_MARGIN: Duration = Duration::from_secs(2);
+
+/// Request timeout for a phone-dialing call: the caller's `timeout` (or the dial
+/// default) raised, when needed, to stay at least [`RINGING_TIMEOUT_MARGIN`]
+/// above the ringing timeout.
+fn sip_dial_timeout(timeout: Option<Duration>, ringing_timeout: Option<Duration>) -> Duration {
+    let mut effective = timeout.unwrap_or(SIP_DIAL_TIMEOUT);
+    if let Some(ringing) = ringing_timeout {
+        effective = effective.max(ringing + RINGING_TIMEOUT_MARGIN);
+    }
+    effective
+}
+
 #[derive(Debug)]
 pub struct SIPClient {
     base: ServiceBase,
@@ -154,6 +174,17 @@ pub struct CreateSIPParticipantOptions {
     pub ringing_timeout: Option<Duration>,
     pub max_call_duration: Option<Duration>,
     pub enable_krisp: Option<bool>,
+    /// SIP headers sent as-is on the INVITE; may help the SIP endpoint identify
+    /// the call as coming from LiveKit.
+    pub headers: Option<HashMap<String, String>>,
+    /// Which SIP response headers to map to `sip.h.*` participant attributes.
+    pub include_headers: Option<proto::SipHeaderOptions>,
+    /// Media encryption policy for the call.
+    pub media_encryption: Option<proto::SipMediaEncryption>,
+    /// Per-request timeout override. Defaults to a longer value when
+    /// `wait_until_answered` is set (dialing takes time), otherwise the client
+    /// default. Raised, if needed, to stay above `ringing_timeout`.
+    pub timeout: Option<Duration>,
 }
 
 impl SIPClient {
@@ -173,6 +204,14 @@ impl SIPClient {
     /// engages for LiveKit Cloud hosts.
     pub fn with_failover(mut self, enabled: bool) -> Self {
         self.client = self.client.with_failover(enabled);
+        self
+    }
+
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    /// `create_sip_participant` can still override it per call via
+    /// [`CreateSIPParticipantOptions::timeout`].
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
         self
     }
 
@@ -442,49 +481,61 @@ impl SIPClient {
         options: CreateSIPParticipantOptions,
         outbound_trunk_config: Option<proto::SipOutboundConfig>,
     ) -> ServiceResult<proto::SipParticipantInfo> {
-        self.client
-            .request(
-                SVC,
-                "CreateSIPParticipant",
-                proto::CreateSipParticipantRequest {
-                    sip_trunk_id: sip_trunk_id.to_owned(),
-                    trunk: outbound_trunk_config,
-                    sip_call_to: call_to.to_owned(),
-                    sip_number: options.sip_number.to_owned().unwrap_or_default(),
-                    room_name: room_name.to_owned(),
-                    participant_identity: options.participant_identity.to_owned(),
-                    participant_name: options.participant_name.to_owned().unwrap_or_default(),
-                    participant_metadata: options
-                        .participant_metadata
-                        .to_owned()
-                        .unwrap_or_default(),
-                    participant_attributes: options
-                        .participant_attributes
-                        .to_owned()
-                        .unwrap_or_default(),
-                    dtmf: options.dtmf.to_owned().unwrap_or_default(),
-                    wait_until_answered: options.wait_until_answered.unwrap_or(false),
-                    play_ringtone: options.play_dialtone.unwrap_or(false),
-                    play_dialtone: options.play_dialtone.unwrap_or(false),
-                    hide_phone_number: options.hide_phone_number.unwrap_or(false),
-                    max_call_duration: Self::duration_to_proto(options.max_call_duration),
-                    ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
+        let wait_until_answered = options.wait_until_answered.unwrap_or(false);
+        let user_timeout = options.timeout;
+        let ringing_timeout = options.ringing_timeout;
+        let request = proto::CreateSipParticipantRequest {
+            sip_trunk_id: sip_trunk_id.to_owned(),
+            trunk: outbound_trunk_config,
+            sip_call_to: call_to.to_owned(),
+            sip_number: options.sip_number.to_owned().unwrap_or_default(),
+            room_name: room_name.to_owned(),
+            participant_identity: options.participant_identity.to_owned(),
+            participant_name: options.participant_name.to_owned().unwrap_or_default(),
+            participant_metadata: options.participant_metadata.to_owned().unwrap_or_default(),
+            participant_attributes: options.participant_attributes.to_owned().unwrap_or_default(),
+            dtmf: options.dtmf.to_owned().unwrap_or_default(),
+            wait_until_answered,
+            play_ringtone: options.play_dialtone.unwrap_or(false),
+            play_dialtone: options.play_dialtone.unwrap_or(false),
+            hide_phone_number: options.hide_phone_number.unwrap_or(false),
+            max_call_duration: Self::duration_to_proto(options.max_call_duration),
+            ringing_timeout: Self::duration_to_proto(ringing_timeout),
+            krisp_enabled: options.enable_krisp.unwrap_or(false),
+            headers: options.headers.unwrap_or_default(),
+            include_headers: options.include_headers.map(|h| h as i32).unwrap_or_default(),
+            media_encryption: options.media_encryption.map(|e| e as i32).unwrap_or_default(),
+            ..Default::default()
+        };
+        let headers = self.base.auth_header(
+            Default::default(),
+            Some(SIPGrants { call: true, ..Default::default() }),
+        )?;
 
-                    // TODO: rename local proto as well
-                    krisp_enabled: options.enable_krisp.unwrap_or(false),
-
-                    // TODO: support these attributes
-                    headers: Default::default(),
-                    include_headers: Default::default(),
-                    media_encryption: Default::default(),
-                    ..Default::default()
-                },
-                self.base.auth_header(
-                    Default::default(),
-                    Some(SIPGrants { call: true, ..Default::default() }),
-                )?,
-            )
-            .await
-            .map_err(Into::into)
+        // A user-specified timeout wins; otherwise waiting for an answer dials a
+        // phone, which takes longer and must outlast ringing. Without waiting the
+        // request returns immediately, so the client default applies.
+        if wait_until_answered {
+            self.client
+                .request_with_timeout(
+                    SVC,
+                    "CreateSIPParticipant",
+                    request,
+                    headers,
+                    sip_dial_timeout(user_timeout, ringing_timeout),
+                )
+                .await
+                .map_err(Into::into)
+        } else if let Some(timeout) = user_timeout {
+            self.client
+                .request_with_timeout(SVC, "CreateSIPParticipant", request, headers, timeout)
+                .await
+                .map_err(Into::into)
+        } else {
+            self.client
+                .request(SVC, "CreateSIPParticipant", request, headers)
+                .await
+                .map_err(Into::into)
+        }
     }
 }

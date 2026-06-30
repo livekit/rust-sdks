@@ -178,3 +178,34 @@ async fn disabled() {
         .await
         .expect_err("disabled failover should not retry");
 }
+
+// Pure unit test (no mock server): cloud-gating and the thundering-herd guard.
+#[test]
+fn attempts_gating_and_timeout_guard() {
+    use super::failover::{DEFAULT_REQUEST_TIMEOUT, MAX_ATTEMPTS, MIN_FAILOVER_TIMEOUT};
+
+    let cloud = "myproject.livekit.cloud";
+    let ok = DEFAULT_REQUEST_TIMEOUT; // comfortably above the guard threshold
+
+    // Enabled (the default): only *.livekit.cloud project domains fail over.
+    assert_eq!(config(true, false).attempts(Some(cloud), ok), MAX_ATTEMPTS);
+    assert_eq!(
+        config(true, false).attempts(Some("myproject.region.livekit.cloud"), ok),
+        MAX_ATTEMPTS
+    );
+    assert_eq!(config(true, false).attempts(Some("myproject.livekit.io"), ok), 1);
+    assert_eq!(config(true, false).attempts(Some("example.com"), ok), 1);
+    assert_eq!(config(true, false).attempts(Some("127.0.0.1"), ok), 1);
+    assert_eq!(config(true, false).attempts(Some("notlivekit.cloud"), ok), 1);
+
+    // force bypasses the cloud-host check; disabled never fails over.
+    assert_eq!(config(true, true).attempts(Some("127.0.0.1"), ok), MAX_ATTEMPTS);
+    assert_eq!(config(false, true).attempts(Some(cloud), ok), 1);
+    assert_eq!(config(false, false).attempts(Some(cloud), ok), 1);
+
+    // Thundering-herd guard: a sub-threshold per-attempt timeout collapses to a
+    // single attempt even on a cloud host; exactly the threshold still fails over.
+    let below = MIN_FAILOVER_TIMEOUT - Duration::from_millis(1);
+    assert_eq!(config(true, true).attempts(Some(cloud), below), 1);
+    assert_eq!(config(true, true).attempts(Some(cloud), MIN_FAILOVER_TIMEOUT), MAX_ATTEMPTS);
+}

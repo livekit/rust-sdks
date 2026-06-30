@@ -48,6 +48,12 @@ impl AgentDispatchClient {
         self
     }
 
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
+        self
+    }
+
     /// Creates an explicit dispatch for an agent to join a room.
     ///
     /// To use explicit dispatch, your agent must be registered with an `agent_name`.
