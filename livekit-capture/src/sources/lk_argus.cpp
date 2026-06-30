@@ -481,6 +481,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
             delete s;
             return nullptr;
         }
+        surface->numFilled = 1;
         s->dmabuf_fds[i] = surface->surfaceList[0].bufferDesc;
         s->dmabuf_surfaces[i] = surface;
     }
