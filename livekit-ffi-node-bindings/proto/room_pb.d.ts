@@ -155,14 +155,6 @@ export declare enum DegradationPreference {
   MAINTAIN_RESOLUTION = 2,
 
   /**
-   * Deprecated: Use MAINTAIN_FRAMERATE_AND_RESOLUTION instead.
-   * Maintained for backwards compatibility, maps to MAINTAIN_FRAMERATE_AND_RESOLUTION.
-   *
-   * @generated from enum value: DEGRADATION_PREFERENCE_DISABLED = 3;
-   */
-  DISABLED = 3,
-
-  /**
    * Maintain both framerate and resolution. Frames may be dropped before encoding
    * if necessary to avoid overusing network and encoder resources.
    *
