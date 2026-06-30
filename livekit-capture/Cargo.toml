@@ -60,7 +60,7 @@ gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 libargus = []
 rtsp = []
 tcp-source = []
-v4l = ["dep:image", "dep:nokhwa", "dep:yuv-sys"]
+v4l = ["dep:image", "dep:libc", "dep:v4l", "dep:yuv-sys"]
 
 [build-dependencies]
 cc = { workspace = true }
@@ -74,4 +74,5 @@ objc2-core-video = { version = "0.3.2", default-features = false, optional = tru
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-v4l"], optional = true }
+libc = { version = "0.2", optional = true }
+v4l = { version = "0.14", default-features = false, features = ["v4l2"], optional = true }

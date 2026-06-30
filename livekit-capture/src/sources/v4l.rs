@@ -12,25 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Linux V4L2 capture using Nokhwa's V4L backend.
+//! Linux V4L2 capture using direct V4L2 access.
 
 use std::time::Duration;
 #[cfg(target_os = "linux")]
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::{
+    path::Path,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 #[cfg(target_os = "linux")]
 use livekit::webrtc::video_frame::VideoRotation;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame};
-#[cfg(target_os = "linux")]
-use nokhwa::{
-    pixel_format::RgbFormat,
-    utils::{
-        ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
-        Resolution,
-    },
-    Camera,
-};
 use thiserror::Error;
+#[cfg(target_os = "linux")]
+use v4l::{
+    buffer::Type as V4lBufferType,
+    capability::Flags as V4lCapabilityFlags,
+    context,
+    format::{Format as V4lFormat, FourCC},
+    frameinterval::FrameIntervalEnum,
+    framesize::FrameSizeEnum,
+    io::{mmap::Stream as MmapStream, traits::CaptureStream},
+    video::{capture::Parameters as V4lCaptureParameters, Capture},
+    Device,
+};
 
 #[cfg(target_os = "linux")]
 use crate::device::CaptureBackend;
@@ -54,7 +60,7 @@ pub struct V4lCaptureOptions {
 }
 
 impl V4lCaptureOptions {
-    /// Creates options that try YUYV, MJPEG, grayscale, RGB24, and NV12 at the requested format.
+    /// Creates options that try YUYV, MJPEG, greyscale, RGB24, and NV12 at the requested format.
     pub fn new(
         device: CaptureDeviceSelector,
         resolution: CaptureResolution,
@@ -90,7 +96,7 @@ pub enum V4lError {
     /// The requested option is invalid.
     #[error("invalid V4L capture option: {0}")]
     InvalidOption(&'static str),
-    /// A numeric option could not be represented by Nokhwa.
+    /// A numeric option could not be represented by the V4L backend.
     #[error("V4L capture option is out of range: {0}")]
     OptionOutOfRange(&'static str),
     /// The camera backend returned an error.
@@ -138,7 +144,7 @@ impl V4lFrame {
 /// Linux V4L2 capture session that emits decoded I420 frames.
 pub struct V4lCaptureSession {
     #[cfg(target_os = "linux")]
-    camera: Camera,
+    stream: MmapStream<'static>,
     format: CaptureFormat,
     options: V4lCaptureOptions,
     #[cfg(target_os = "linux")]
@@ -184,19 +190,12 @@ impl V4lCaptureSession {
     #[cfg(target_os = "linux")]
     fn open(options: V4lCaptureOptions) -> Result<Self, V4lError> {
         let frame_formats = frame_formats_for_request(&options)?;
-        let requested = RequestedFormat::with_formats(RequestedFormatType::None, &frame_formats);
-        let mut camera = Camera::with_backend(
-            camera_index(&options.device)?,
-            requested,
-            ApiBackend::Video4Linux,
-        )
-        .map_err(nokhwa_error)?;
-
-        apply_format_request(&mut camera, &options, &frame_formats)?;
-
-        camera.open_stream().map_err(nokhwa_error)?;
-        let format = capture_format_from_nokhwa(camera.camera_format())?;
-        Ok(Self { camera, format, options, started_at: Instant::now() })
+        let device = open_device(&options.device)?;
+        let all_formats = enumerate_device_formats(&device)?;
+        let format = apply_format_request(&device, &options, &frame_formats, &all_formats)?;
+        let stream =
+            MmapStream::with_buffers(&device, V4lBufferType::VideoCapture, 4).map_err(v4l_error)?;
+        Ok(Self { stream, format, options, started_at: Instant::now() })
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -207,41 +206,36 @@ impl V4lCaptureSession {
     #[cfg(target_os = "linux")]
     fn capture_frame_inner(&mut self) -> Result<V4lFrame, V4lError> {
         let fallback_wall_time_us = unix_time_us_now().unwrap_or_default();
-        let buffer = self.camera.frame().map_err(nokhwa_error)?;
+        let format = self.format;
+        let (buffer, metadata) = self.stream.next().map_err(v4l_error)?;
         let read_wall_time_us = unix_time_us_now().unwrap_or(fallback_wall_time_us);
-        let backend_capture_timestamp = buffer.capture_timestamp();
+        let backend_capture_timestamp = monotonic_to_wallclock(metadata.timestamp);
         let capture_wall_time_us = select_capture_wall_time_us(
             backend_capture_timestamp,
             fallback_wall_time_us,
             read_wall_time_us,
         );
 
-        let format = self.camera.camera_format();
-        let width = format.width();
-        let height = format.height();
+        let width = format.resolution.width;
+        let height = format.resolution.height;
         let mut frame = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: elapsed_us(self.started_at.elapsed()),
             frame_metadata: None,
             buffer: I420Buffer::new(width, height),
         };
-        let used_decode_path = convert_to_i420(
-            buffer.source_frame_format(),
-            buffer.buffer(),
-            width,
-            height,
-            &mut frame.buffer,
-        )?;
-        let source_format = capture_frame_format_from_nokhwa(buffer.source_frame_format())?;
+        let source = frame_bytes(buffer, metadata.bytesused);
+        let used_decode_path =
+            convert_to_i420(format.frame_format, source, width, height, &mut frame.buffer)?;
 
         Ok(V4lFrame {
             frame,
-            source_format,
+            source_format: format.frame_format,
             backend_capture_timestamp,
             capture_wall_time_us,
             read_wall_time_us,
             sensor_timestamp_us: None,
-            used_conversion: source_format != CaptureFrameFormat::I420,
+            used_conversion: format.frame_format != CaptureFrameFormat::I420,
             used_decode_path,
         })
     }
@@ -255,27 +249,47 @@ impl V4lCaptureSession {
 /// Returns Linux V4L2 capture devices.
 #[cfg(target_os = "linux")]
 pub fn devices() -> Result<Vec<CaptureDeviceInfo>, V4lError> {
-    nokhwa::query(ApiBackend::Video4Linux)
-        .map_err(nokhwa_error)?
+    context::enum_devices()
         .into_iter()
-        .map(|info| {
-            let formats = enumerate_formats(&info);
-            let (formats, formats_complete) = match formats {
-                Ok(formats) => (formats, true),
-                Err(_) => (Vec::new(), false),
+        .filter_map(|node| {
+            let id = node.index().to_string();
+            let fallback_name =
+                node.name().unwrap_or_else(|| node.path().to_string_lossy().into_owned());
+            let mut name = fallback_name;
+            let mut model_id = None;
+            let mut manufacturer = None;
+            let mut formats = Vec::new();
+            let mut formats_complete = false;
+
+            if let Ok(device) = Device::with_path(node.path()) {
+                if let Ok(capabilities) = device.query_caps() {
+                    if !capabilities.capabilities.contains(V4lCapabilityFlags::VIDEO_CAPTURE) {
+                        return None;
+                    }
+                    if !capabilities.card.is_empty() {
+                        name = capabilities.card;
+                    }
+                    model_id = Some(capabilities.bus).filter(|value| !value.is_empty());
+                    manufacturer = Some(capabilities.driver).filter(|value| !value.is_empty());
+                }
+
+                if let Ok(device_formats) = enumerate_device_formats(&device) {
+                    formats = device_formats;
+                    formats_complete = true;
+                }
             };
-            let id = info.index().as_string();
-            Ok(CaptureDeviceInfo {
+
+            Some(Ok(CaptureDeviceInfo {
                 backend: CaptureBackend::V4l2,
                 id: id.clone(),
                 selector: CaptureDeviceSelector::Id(id),
-                name: info.human_name(),
-                model_id: Some(info.description().to_string()).filter(|value| !value.is_empty()),
-                manufacturer: None,
+                name,
+                model_id,
+                manufacturer,
                 paths: vec![CapturePath::Raw],
                 formats,
                 formats_complete,
-            })
+            }))
         })
         .collect()
 }
@@ -291,7 +305,7 @@ pub fn default_frame_formats() -> Vec<CaptureFrameFormat> {
     vec![
         CaptureFrameFormat::Yuyv,
         CaptureFrameFormat::Mjpeg,
-        CaptureFrameFormat::Gray,
+        CaptureFrameFormat::Grey,
         CaptureFrameFormat::Rgb24,
         CaptureFrameFormat::Nv12,
     ]
@@ -319,7 +333,7 @@ fn validate_options(options: &V4lCaptureOptions) -> Result<(), V4lError> {
         return Err(V4lError::InvalidOption("frame_formats must include at least one format"));
     }
     for frame_format in &options.frame_formats {
-        if nokhwa_frame_format(*frame_format).is_none() {
+        if !is_supported_source_format(*frame_format) {
             return Err(V4lError::UnsupportedFrameFormat(*frame_format));
         }
     }
@@ -338,7 +352,7 @@ fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), V4lError
         if format.frame_rate == 0 {
             return Err(V4lError::InvalidOption("frame_rate must be non-zero"));
         }
-        if nokhwa_frame_format(format.frame_format).is_none() {
+        if !is_supported_source_format(format.frame_format) {
             return Err(V4lError::UnsupportedFrameFormat(format.frame_format));
         }
         Ok(())
@@ -354,7 +368,7 @@ fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), V4lError
                 validate_resolution(*resolution)?;
             }
             if let Some(frame_format) = frame_format {
-                if nokhwa_frame_format(*frame_format).is_none() {
+                if !is_supported_source_format(*frame_format) {
                     return Err(V4lError::UnsupportedFrameFormat(*frame_format));
                 }
             }
@@ -365,7 +379,7 @@ fn validate_format_request(format: &CaptureFormatRequest) -> Result<(), V4lError
                 return Err(V4lError::InvalidOption("frame_rate must be non-zero"));
             }
             if let Some(frame_format) = frame_format {
-                if nokhwa_frame_format(*frame_format).is_none() {
+                if !is_supported_source_format(*frame_format) {
                     return Err(V4lError::UnsupportedFrameFormat(*frame_format));
                 }
             }
@@ -385,18 +399,27 @@ fn validate_resolution(resolution: CaptureResolution) -> Result<(), V4lError> {
 }
 
 #[cfg(target_os = "linux")]
-fn camera_index(selector: &CaptureDeviceSelector) -> Result<CameraIndex, V4lError> {
+fn open_device(selector: &CaptureDeviceSelector) -> Result<Device, V4lError> {
     match selector {
-        CaptureDeviceSelector::Default => Ok(CameraIndex::Index(0)),
-        CaptureDeviceSelector::Index(index) => Ok(CameraIndex::Index(
-            u32::try_from(*index).map_err(|_| V4lError::OptionOutOfRange("device index"))?,
-        )),
-        CaptureDeviceSelector::Id(id) => Ok(CameraIndex::String(id.clone())),
+        CaptureDeviceSelector::Default => Device::new(0).map_err(v4l_error),
+        CaptureDeviceSelector::Index(index) => Device::new(*index).map_err(v4l_error),
+        CaptureDeviceSelector::Id(id) => open_device_id(id),
     }
 }
 
 #[cfg(target_os = "linux")]
-fn frame_formats_for_request(options: &V4lCaptureOptions) -> Result<Vec<FrameFormat>, V4lError> {
+fn open_device_id(id: &str) -> Result<Device, V4lError> {
+    if let Ok(index) = id.parse::<usize>() {
+        return Device::new(index).map_err(v4l_error);
+    }
+
+    Device::with_path(Path::new(id)).map_err(v4l_error)
+}
+
+#[cfg(target_os = "linux")]
+fn frame_formats_for_request(
+    options: &V4lCaptureOptions,
+) -> Result<Vec<CaptureFrameFormat>, V4lError> {
     let mut formats = match &options.format {
         CaptureFormatRequest::Exact(format) | CaptureFormatRequest::Closest(format) => {
             ordered_formats_with_first(&options.frame_formats, format.frame_format)
@@ -412,10 +435,12 @@ fn frame_formats_for_request(options: &V4lCaptureOptions) -> Result<Vec<FrameFor
         }
     };
     formats.dedup();
-    formats
-        .into_iter()
-        .map(|format| nokhwa_frame_format(format).ok_or(V4lError::UnsupportedFrameFormat(format)))
-        .collect()
+    for format in &formats {
+        if !is_supported_source_format(*format) {
+            return Err(V4lError::UnsupportedFrameFormat(*format));
+        }
+    }
+    Ok(formats)
 }
 
 fn ordered_formats_with_first(
@@ -428,132 +453,229 @@ fn ordered_formats_with_first(
 }
 
 #[cfg(target_os = "linux")]
-fn requested_format<'a>(
-    request: &CaptureFormatRequest,
-    frame_formats: &'a [FrameFormat],
-    override_format: Option<FrameFormat>,
-) -> Result<RequestedFormat<'a>, V4lError> {
-    let request_type = match request {
-        CaptureFormatRequest::Default => RequestedFormatType::None,
-        CaptureFormatRequest::Exact(format) => {
-            RequestedFormatType::Exact(nokhwa_camera_format(*format, override_format)?)
-        }
-        CaptureFormatRequest::Closest(format) => {
-            RequestedFormatType::Closest(nokhwa_camera_format(*format, override_format)?)
-        }
-        CaptureFormatRequest::HighestFrameRate { resolution: Some(resolution), .. } => {
-            RequestedFormatType::HighestResolution(nokhwa_resolution(*resolution))
-        }
-        CaptureFormatRequest::HighestFrameRate { resolution: None, .. } => {
-            RequestedFormatType::AbsoluteHighestFrameRate
-        }
-        CaptureFormatRequest::HighestResolution { frame_rate: Some(frame_rate), .. } => {
-            RequestedFormatType::HighestFrameRate(*frame_rate)
-        }
-        CaptureFormatRequest::HighestResolution { frame_rate: None, .. } => {
-            RequestedFormatType::AbsoluteHighestResolution
-        }
-    };
-    Ok(RequestedFormat::with_formats(request_type, frame_formats))
-}
-
-#[cfg(target_os = "linux")]
 fn apply_format_request(
-    camera: &mut Camera,
+    device: &Device,
     options: &V4lCaptureOptions,
-    frame_formats: &[FrameFormat],
-) -> Result<(), V4lError> {
+    frame_formats: &[CaptureFrameFormat],
+    all_formats: &[CaptureFormat],
+) -> Result<CaptureFormat, V4lError> {
     match options.format {
-        CaptureFormatRequest::Default => Ok(()),
+        CaptureFormatRequest::Default => {
+            let selected = select_format_for_request(&options.format, frame_formats, all_formats)?;
+            set_device_format(device, selected)
+        }
         CaptureFormatRequest::Exact(_) | CaptureFormatRequest::Closest(_) => {
-            apply_ordered_format_request(camera, options, frame_formats)
+            apply_ordered_format_request(device, options, frame_formats, all_formats)
         }
         CaptureFormatRequest::HighestFrameRate { .. }
         | CaptureFormatRequest::HighestResolution { .. } => {
-            let selected = select_highest_format(
-                &options.format,
-                frame_formats,
-                &camera.compatible_camera_formats().map_err(nokhwa_error)?,
-            )?;
-            camera
-                .set_camera_requset(RequestedFormat::with_formats(
-                    RequestedFormatType::Exact(selected),
-                    &[selected.format()],
-                ))
-                .map(|_| ())
-                .map_err(nokhwa_error)
+            let selected = select_format_for_request(&options.format, frame_formats, all_formats)?;
+            set_device_format(device, selected)
         }
     }
 }
 
 #[cfg(target_os = "linux")]
 fn apply_ordered_format_request(
-    camera: &mut Camera,
+    device: &Device,
     options: &V4lCaptureOptions,
-    frame_formats: &[FrameFormat],
-) -> Result<(), V4lError> {
+    frame_formats: &[CaptureFrameFormat],
+    all_formats: &[CaptureFormat],
+) -> Result<CaptureFormat, V4lError> {
     let mut last_error = None;
     for frame_format in frame_formats {
-        let requested = requested_format(&options.format, frame_formats, Some(*frame_format))?;
-        match camera.set_camera_requset(requested) {
-            Ok(_) => return Ok(()),
+        let request = format_request_with_frame_format(&options.format, *frame_format);
+        let selected = match select_format_for_request(&request, &[*frame_format], all_formats) {
+            Ok(selected) => selected,
+            Err(error) => {
+                last_error = Some(error);
+                continue;
+            }
+        };
+
+        match set_device_format(device, selected) {
+            Ok(format) => return Ok(format),
             Err(error) => last_error = Some(error),
         }
     }
 
-    Err(last_error
-        .map(nokhwa_error)
-        .unwrap_or(V4lError::InvalidOption("no V4L frame formats were requested")))
+    Err(last_error.unwrap_or(V4lError::InvalidOption("no V4L frame formats were requested")))
 }
 
 #[cfg(target_os = "linux")]
-fn select_highest_format(
+fn format_request_with_frame_format(
     request: &CaptureFormatRequest,
-    frame_formats: &[FrameFormat],
-    all_formats: &[CameraFormat],
-) -> Result<CameraFormat, V4lError> {
-    let candidates = all_formats
-        .iter()
-        .copied()
-        .filter(|format| frame_formats.contains(&format.format()))
-        .filter(|format| match request {
-            CaptureFormatRequest::HighestFrameRate { resolution, .. } => resolution
-                .map(|resolution| format.resolution() == nokhwa_resolution(resolution))
-                .unwrap_or(true),
-            CaptureFormatRequest::HighestResolution { frame_rate, .. } => {
-                frame_rate.map(|frame_rate| format.frame_rate() == frame_rate).unwrap_or(true)
+    frame_format: CaptureFrameFormat,
+) -> CaptureFormatRequest {
+    match request {
+        CaptureFormatRequest::Exact(format) => CaptureFormatRequest::Exact(CaptureFormat::new(
+            format.resolution,
+            format.frame_rate,
+            frame_format,
+        )),
+        CaptureFormatRequest::Closest(format) => CaptureFormatRequest::Closest(CaptureFormat::new(
+            format.resolution,
+            format.frame_rate,
+            frame_format,
+        )),
+        CaptureFormatRequest::Default => CaptureFormatRequest::Default,
+        CaptureFormatRequest::HighestFrameRate { resolution, .. } => {
+            CaptureFormatRequest::HighestFrameRate {
+                resolution: *resolution,
+                frame_format: Some(frame_format),
             }
-            CaptureFormatRequest::Default
-            | CaptureFormatRequest::Exact(_)
-            | CaptureFormatRequest::Closest(_) => false,
-        });
+        }
+        CaptureFormatRequest::HighestResolution { frame_rate, .. } => {
+            CaptureFormatRequest::HighestResolution {
+                frame_rate: *frame_rate,
+                frame_format: Some(frame_format),
+            }
+        }
+    }
+}
 
+#[cfg(target_os = "linux")]
+fn select_format_for_request(
+    request: &CaptureFormatRequest,
+    frame_formats: &[CaptureFrameFormat],
+    all_formats: &[CaptureFormat],
+) -> Result<CaptureFormat, V4lError> {
     let selected = match request {
-        CaptureFormatRequest::HighestFrameRate { .. } => candidates.max_by(|a, b| {
-            a.frame_rate()
-                .cmp(&b.frame_rate())
-                .then_with(|| a.resolution().cmp(&b.resolution()))
-                .then_with(|| compare_format_preference(a.format(), b.format(), frame_formats))
-        }),
-        CaptureFormatRequest::HighestResolution { .. } => candidates.max_by(|a, b| {
-            a.resolution()
-                .cmp(&b.resolution())
-                .then_with(|| a.frame_rate().cmp(&b.frame_rate()))
-                .then_with(|| compare_format_preference(a.format(), b.format(), frame_formats))
-        }),
-        CaptureFormatRequest::Default
-        | CaptureFormatRequest::Exact(_)
-        | CaptureFormatRequest::Closest(_) => None,
+        CaptureFormatRequest::Default => {
+            all_formats.iter().find(|format| frame_formats.contains(&format.frame_format)).copied()
+        }
+        CaptureFormatRequest::Exact(format) => {
+            if frame_formats.contains(&format.frame_format) {
+                Some(*format)
+            } else {
+                None
+            }
+        }
+        CaptureFormatRequest::Closest(format) => {
+            select_closest_format(*format, frame_formats, all_formats)
+        }
+        CaptureFormatRequest::HighestFrameRate { .. } => {
+            select_highest_frame_rate_format(request, frame_formats, all_formats)
+        }
+        CaptureFormatRequest::HighestResolution { .. } => {
+            select_highest_resolution_format(request, frame_formats, all_formats)
+        }
     };
 
     selected.ok_or_else(|| V4lError::Camera("CameraFormat: Failed to Fufill".to_string()))
 }
 
 #[cfg(target_os = "linux")]
+fn select_closest_format(
+    requested: CaptureFormat,
+    frame_formats: &[CaptureFrameFormat],
+    all_formats: &[CaptureFormat],
+) -> Option<CaptureFormat> {
+    if !frame_formats.contains(&requested.frame_format) {
+        return None;
+    }
+
+    let resolution = all_formats
+        .iter()
+        .copied()
+        .filter(|format| format.frame_format == requested.frame_format)
+        .min_by_key(|format| resolution_distance(format.resolution, requested.resolution))?
+        .resolution;
+
+    let frame_rate = all_formats
+        .iter()
+        .copied()
+        .filter(|format| {
+            format.frame_format == requested.frame_format && format.resolution == resolution
+        })
+        .min_by_key(|format| format.frame_rate.abs_diff(requested.frame_rate))?
+        .frame_rate;
+
+    Some(CaptureFormat::new(resolution, frame_rate, requested.frame_format))
+}
+
+#[cfg(target_os = "linux")]
+fn select_highest_frame_rate_format(
+    request: &CaptureFormatRequest,
+    frame_formats: &[CaptureFrameFormat],
+    all_formats: &[CaptureFormat],
+) -> Option<CaptureFormat> {
+    all_formats
+        .iter()
+        .copied()
+        .filter(|format| frame_formats.contains(&format.frame_format))
+        .filter(|format| match request {
+            CaptureFormatRequest::HighestFrameRate { resolution, frame_format } => {
+                resolution.map(|resolution| format.resolution == resolution).unwrap_or(true)
+                    && frame_format
+                        .map(|frame_format| format.frame_format == frame_format)
+                        .unwrap_or(true)
+            }
+            _ => false,
+        })
+        .max_by(|left, right| {
+            left.frame_rate
+                .cmp(&right.frame_rate)
+                .then_with(|| compare_resolution(left.resolution, right.resolution))
+                .then_with(|| {
+                    compare_format_preference(left.frame_format, right.frame_format, frame_formats)
+                })
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn select_highest_resolution_format(
+    request: &CaptureFormatRequest,
+    frame_formats: &[CaptureFrameFormat],
+    all_formats: &[CaptureFormat],
+) -> Option<CaptureFormat> {
+    all_formats
+        .iter()
+        .copied()
+        .filter(|format| frame_formats.contains(&format.frame_format))
+        .filter(|format| match request {
+            CaptureFormatRequest::HighestResolution { frame_rate, frame_format } => {
+                frame_rate.map(|frame_rate| format.frame_rate == frame_rate).unwrap_or(true)
+                    && frame_format
+                        .map(|frame_format| format.frame_format == frame_format)
+                        .unwrap_or(true)
+            }
+            _ => false,
+        })
+        .max_by(|left, right| {
+            compare_resolution(left.resolution, right.resolution)
+                .then_with(|| left.frame_rate.cmp(&right.frame_rate))
+                .then_with(|| {
+                    compare_format_preference(left.frame_format, right.frame_format, frame_formats)
+                })
+        })
+}
+
+#[cfg(target_os = "linux")]
+fn compare_resolution(left: CaptureResolution, right: CaptureResolution) -> std::cmp::Ordering {
+    frame_area(left)
+        .cmp(&frame_area(right))
+        .then_with(|| left.width.cmp(&right.width))
+        .then_with(|| left.height.cmp(&right.height))
+}
+
+#[cfg(target_os = "linux")]
+fn resolution_distance(left: CaptureResolution, right: CaptureResolution) -> u64 {
+    let width = i64::from(left.width) - i64::from(right.width);
+    let height = i64::from(left.height) - i64::from(right.height);
+    width.unsigned_abs().pow(2) + height.unsigned_abs().pow(2)
+}
+
+#[cfg(target_os = "linux")]
+fn frame_area(resolution: CaptureResolution) -> u64 {
+    u64::from(resolution.width) * u64::from(resolution.height)
+}
+
+#[cfg(target_os = "linux")]
 fn compare_format_preference(
-    left: FrameFormat,
-    right: FrameFormat,
-    frame_formats: &[FrameFormat],
+    left: CaptureFrameFormat,
+    right: CaptureFrameFormat,
+    frame_formats: &[CaptureFrameFormat],
 ) -> std::cmp::Ordering {
     let left_index = frame_formats.iter().position(|format| *format == left).unwrap_or(usize::MAX);
     let right_index =
@@ -562,87 +684,203 @@ fn compare_format_preference(
 }
 
 #[cfg(target_os = "linux")]
-fn nokhwa_camera_format(
-    format: CaptureFormat,
-    override_format: Option<FrameFormat>,
-) -> Result<CameraFormat, V4lError> {
-    let frame_format = match override_format {
-        Some(format) => format,
-        None => nokhwa_frame_format(format.frame_format)
-            .ok_or(V4lError::UnsupportedFrameFormat(format.frame_format))?,
-    };
-    Ok(CameraFormat::new(nokhwa_resolution(format.resolution), frame_format, format.frame_rate))
-}
-
-#[cfg(target_os = "linux")]
-fn nokhwa_resolution(resolution: CaptureResolution) -> Resolution {
-    Resolution::new(resolution.width, resolution.height)
-}
-
-#[cfg(target_os = "linux")]
-fn nokhwa_frame_format(pixel_format: CaptureFrameFormat) -> Option<FrameFormat> {
-    match pixel_format {
-        CaptureFrameFormat::Nv12 => Some(FrameFormat::NV12),
-        CaptureFrameFormat::Rgb24 => Some(FrameFormat::RAWRGB),
-        CaptureFrameFormat::Bgr24 => Some(FrameFormat::RAWBGR),
-        CaptureFrameFormat::Yuyv => Some(FrameFormat::YUYV),
-        CaptureFrameFormat::Gray => Some(FrameFormat::GRAY),
-        CaptureFrameFormat::Mjpeg => Some(FrameFormat::MJPEG),
-        CaptureFrameFormat::I420 | CaptureFrameFormat::Bgra | CaptureFrameFormat::Uyvy => None,
+fn set_device_format(device: &Device, selected: CaptureFormat) -> Result<CaptureFormat, V4lError> {
+    let current = device_capture_format(device)?;
+    let format_changed =
+        current.resolution != selected.resolution || current.frame_format != selected.frame_format;
+    if format_changed {
+        device
+            .set_format(&V4lFormat::new(
+                selected.resolution.width,
+                selected.resolution.height,
+                fourcc_for_frame_format(selected.frame_format)
+                    .ok_or(V4lError::UnsupportedFrameFormat(selected.frame_format))?,
+            ))
+            .map_err(v4l_error)?;
     }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn nokhwa_frame_format(pixel_format: CaptureFrameFormat) -> Option<()> {
-    match pixel_format {
-        CaptureFrameFormat::Nv12
-        | CaptureFrameFormat::Rgb24
-        | CaptureFrameFormat::Bgr24
-        | CaptureFrameFormat::Yuyv
-        | CaptureFrameFormat::Gray
-        | CaptureFrameFormat::Mjpeg => Some(()),
-        CaptureFrameFormat::I420 | CaptureFrameFormat::Bgra | CaptureFrameFormat::Uyvy => None,
+    if format_changed || current.frame_rate != selected.frame_rate {
+        device
+            .set_params(&V4lCaptureParameters::with_fps(selected.frame_rate))
+            .map_err(v4l_error)?;
     }
+
+    let actual = device_capture_format(device)?;
+    if actual != selected {
+        return Err(V4lError::Camera(format!(
+            "CameraFormat rejected: requested {:?}, got {:?}",
+            selected, actual
+        )));
+    }
+    Ok(actual)
 }
 
 #[cfg(target_os = "linux")]
-fn capture_format_from_nokhwa(format: CameraFormat) -> Result<CaptureFormat, V4lError> {
+fn device_capture_format(device: &Device) -> Result<CaptureFormat, V4lError> {
+    let format = device.format().map_err(v4l_error)?;
+    let params = device.params().map_err(v4l_error)?;
+    let frame_rate = frame_rate_from_fraction(params.interval)
+        .ok_or(V4lError::InvalidOption("V4L frame interval must be a whole frame rate"))?;
     Ok(CaptureFormat::new(
-        CaptureResolution::new(format.width(), format.height()),
-        format.frame_rate(),
-        capture_frame_format_from_nokhwa(format.format())?,
+        CaptureResolution::new(format.width, format.height),
+        frame_rate,
+        capture_frame_format_from_fourcc(format.fourcc)
+            .ok_or_else(|| V4lError::Camera(format!("unsupported V4L fourcc {}", format.fourcc)))?,
     ))
 }
 
 #[cfg(target_os = "linux")]
-fn capture_frame_format_from_nokhwa(format: FrameFormat) -> Result<CaptureFrameFormat, V4lError> {
-    match format {
-        FrameFormat::MJPEG => Ok(CaptureFrameFormat::Mjpeg),
-        FrameFormat::YUYV => Ok(CaptureFrameFormat::Yuyv),
-        FrameFormat::NV12 => Ok(CaptureFrameFormat::Nv12),
-        FrameFormat::GRAY => Ok(CaptureFrameFormat::Gray),
-        FrameFormat::RAWRGB => Ok(CaptureFrameFormat::Rgb24),
-        FrameFormat::RAWBGR => Ok(CaptureFrameFormat::Bgr24),
+fn enumerate_device_formats(device: &Device) -> Result<Vec<CaptureFormat>, V4lError> {
+    let mut formats = Vec::new();
+    let fourccs = device
+        .enum_formats()
+        .map_err(v4l_error)?
+        .into_iter()
+        .filter_map(|format| capture_frame_format_from_fourcc(format.fourcc).map(|_| format.fourcc))
+        .collect::<Vec<_>>();
+
+    for fourcc in dedup_fourccs(fourccs) {
+        let Some(frame_format) = capture_frame_format_from_fourcc(fourcc) else {
+            continue;
+        };
+        let frame_sizes = device.enum_framesizes(fourcc).map_err(v4l_error)?;
+        for resolution in frame_sizes.into_iter().flat_map(resolutions_from_frame_size) {
+            let intervals = device
+                .enum_frameintervals(fourcc, resolution.width, resolution.height)
+                .unwrap_or_default();
+            for frame_rate in intervals.into_iter().flat_map(frame_rates_from_interval) {
+                formats.push(CaptureFormat::new(resolution, frame_rate, frame_format));
+            }
+        }
+    }
+
+    Ok(formats)
+}
+
+fn is_supported_source_format(frame_format: CaptureFrameFormat) -> bool {
+    matches!(
+        frame_format,
+        CaptureFrameFormat::Nv12
+            | CaptureFrameFormat::Rgb24
+            | CaptureFrameFormat::Bgr24
+            | CaptureFrameFormat::Yuyv
+            | CaptureFrameFormat::Grey
+            | CaptureFrameFormat::Mjpeg
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn fourcc_for_frame_format(frame_format: CaptureFrameFormat) -> Option<FourCC> {
+    match frame_format {
+        CaptureFrameFormat::Nv12 => Some(FourCC::new(b"NV12")),
+        CaptureFrameFormat::Rgb24 => Some(FourCC::new(b"RGB3")),
+        CaptureFrameFormat::Bgr24 => Some(FourCC::new(b"BGR3")),
+        CaptureFrameFormat::Yuyv => Some(FourCC::new(b"YUYV")),
+        CaptureFrameFormat::Grey => Some(FourCC::new(b"GREY")),
+        CaptureFrameFormat::Mjpeg => Some(FourCC::new(b"MJPG")),
+        CaptureFrameFormat::I420 | CaptureFrameFormat::Bgra | CaptureFrameFormat::Uyvy => None,
     }
 }
 
 #[cfg(target_os = "linux")]
-fn enumerate_formats(info: &nokhwa::utils::CameraInfo) -> Result<Vec<CaptureFormat>, V4lError> {
-    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
-    let mut camera = Camera::with_backend(info.index().clone(), requested, ApiBackend::Video4Linux)
-        .map_err(nokhwa_error)?;
+fn capture_frame_format_from_fourcc(fourcc: FourCC) -> Option<CaptureFrameFormat> {
+    match fourcc.str().ok()? {
+        "NV12" => Some(CaptureFrameFormat::Nv12),
+        "RGB3" => Some(CaptureFrameFormat::Rgb24),
+        "BGR3" => Some(CaptureFrameFormat::Bgr24),
+        "YUYV" | "YUY2" => Some(CaptureFrameFormat::Yuyv),
+        "GREY" => Some(CaptureFrameFormat::Grey),
+        "MJPG" | "JPEG" => Some(CaptureFrameFormat::Mjpeg),
+        _ => None,
+    }
+}
 
-    Ok(camera
-        .compatible_camera_formats()
-        .map_err(nokhwa_error)?
-        .into_iter()
-        .filter_map(|format| capture_format_from_nokhwa(format).ok())
-        .collect())
+#[cfg(target_os = "linux")]
+fn dedup_fourccs(fourccs: Vec<FourCC>) -> Vec<FourCC> {
+    let mut deduped = Vec::new();
+    for fourcc in fourccs {
+        if !deduped.contains(&fourcc) {
+            deduped.push(fourcc);
+        }
+    }
+    deduped
+}
+
+#[cfg(target_os = "linux")]
+fn resolutions_from_frame_size(size: v4l::FrameSize) -> Vec<CaptureResolution> {
+    match size.size {
+        FrameSizeEnum::Discrete(discrete) => {
+            vec![CaptureResolution::new(discrete.width, discrete.height)]
+        }
+        FrameSizeEnum::Stepwise(stepwise) => {
+            let mut resolutions = Vec::new();
+            push_stepwise_resolution(
+                &mut resolutions,
+                CaptureResolution::new(stepwise.min_width, stepwise.min_height),
+            );
+            push_stepwise_resolution(
+                &mut resolutions,
+                CaptureResolution::new(stepwise.max_width, stepwise.max_height),
+            );
+            resolutions
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn push_stepwise_resolution(
+    resolutions: &mut Vec<CaptureResolution>,
+    resolution: CaptureResolution,
+) {
+    if resolution.width != 0 && resolution.height != 0 && !resolutions.contains(&resolution) {
+        resolutions.push(resolution);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn frame_rates_from_interval(interval: v4l::FrameInterval) -> Vec<u32> {
+    match interval.interval {
+        FrameIntervalEnum::Discrete(fraction) => {
+            frame_rate_from_fraction(fraction).into_iter().collect()
+        }
+        FrameIntervalEnum::Stepwise(stepwise) => {
+            let mut frame_rates = Vec::new();
+            if let Some(frame_rate) = frame_rate_from_fraction(stepwise.min) {
+                frame_rates.push(frame_rate);
+            }
+            if let Some(frame_rate) = frame_rate_from_fraction(stepwise.max) {
+                if !frame_rates.contains(&frame_rate) {
+                    frame_rates.push(frame_rate);
+                }
+            }
+            frame_rates
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn frame_rate_from_fraction(fraction: v4l::Fraction) -> Option<u32> {
+    if fraction.numerator == 0 || fraction.denominator == 0 {
+        return None;
+    }
+    if fraction.denominator % fraction.numerator != 0 {
+        return None;
+    }
+    Some(fraction.denominator / fraction.numerator)
+}
+
+#[cfg(target_os = "linux")]
+fn frame_bytes(buffer: &[u8], bytes_used: u32) -> &[u8] {
+    let bytes_used = usize::try_from(bytes_used).unwrap_or(buffer.len()).min(buffer.len());
+    if bytes_used == 0 {
+        buffer
+    } else {
+        &buffer[..bytes_used]
+    }
 }
 
 #[cfg(target_os = "linux")]
 fn convert_to_i420(
-    source_format: FrameFormat,
+    source_format: CaptureFrameFormat,
     source: &[u8],
     width: u32,
     height: u32,
@@ -654,7 +892,7 @@ fn convert_to_i420(
     let height_i32 = i32_from_u32(height, "height")?;
 
     let ret = match source_format {
-        FrameFormat::YUYV => {
+        CaptureFrameFormat::Yuyv => {
             validate_len(source, width as usize * height as usize * 2, "YUYV frame")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
@@ -672,7 +910,7 @@ fn convert_to_i420(
                 )
             }
         }
-        FrameFormat::RAWRGB => {
+        CaptureFrameFormat::Rgb24 => {
             validate_len(source, width as usize * height as usize * 3, "RGB24 frame")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
@@ -690,7 +928,7 @@ fn convert_to_i420(
                 )
             }
         }
-        FrameFormat::RAWBGR => {
+        CaptureFrameFormat::Bgr24 => {
             validate_len(source, width as usize * height as usize * 3, "BGR24 frame")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
@@ -708,8 +946,8 @@ fn convert_to_i420(
                 )
             }
         }
-        FrameFormat::GRAY => {
-            validate_len(source, width as usize * height as usize, "GRAY frame")?;
+        CaptureFrameFormat::Grey => {
+            validate_len(source, width as usize * height as usize, "GREY frame")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
                 yuv_sys::rs_I400ToI420(
@@ -726,7 +964,7 @@ fn convert_to_i420(
                 )
             }
         }
-        FrameFormat::NV12 => {
+        CaptureFrameFormat::Nv12 => {
             let y_size = width as usize * height as usize;
             validate_len(source, y_size + y_size / 2, "NV12 frame")?;
             unsafe {
@@ -747,8 +985,11 @@ fn convert_to_i420(
                 )
             }
         }
-        FrameFormat::MJPEG => {
+        CaptureFrameFormat::Mjpeg => {
             return convert_mjpeg_to_i420(source, width, height, destination).map(|()| true);
+        }
+        CaptureFrameFormat::I420 | CaptureFrameFormat::Bgra | CaptureFrameFormat::Uyvy => {
+            return Err(V4lError::UnsupportedFrameFormat(source_format));
         }
     };
 
@@ -871,8 +1112,35 @@ fn i32_from_u32(value: u32, field: &'static str) -> Result<i32, V4lError> {
 }
 
 #[cfg(target_os = "linux")]
-fn nokhwa_error(error: nokhwa::NokhwaError) -> V4lError {
+fn v4l_error(error: std::io::Error) -> V4lError {
     V4lError::Camera(error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn monotonic_to_wallclock(timestamp: v4l::Timestamp) -> Option<Duration> {
+    let frame_monotonic = Duration::from(timestamp);
+    if frame_monotonic.is_zero() {
+        return None;
+    }
+
+    let monotonic_now = clock_time(libc::CLOCK_MONOTONIC)?;
+    let wall_now = clock_time(libc::CLOCK_REALTIME)?;
+    let frame_age = monotonic_now.checked_sub(frame_monotonic)?;
+    wall_now.checked_sub(frame_age)
+}
+
+#[cfg(target_os = "linux")]
+fn clock_time(clock_id: libc::clockid_t) -> Option<Duration> {
+    let mut time = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    let ret = unsafe {
+        // SAFETY: `time` is a valid out pointer and `clock_id` is supplied by libc constants.
+        libc::clock_gettime(clock_id, &mut time)
+    };
+    if ret != 0 || time.tv_sec < 0 || time.tv_nsec < 0 {
+        return None;
+    }
+
+    Some(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
 }
 
 #[cfg(test)]

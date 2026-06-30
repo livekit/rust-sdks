@@ -143,7 +143,7 @@ pub enum CaptureFrameFormat {
     /// Packed UYVY.
     Uyvy,
     /// Single-plane 8-bit luma.
-    Gray,
+    Grey,
     /// Encoded MJPEG frames.
     Mjpeg,
 }
@@ -159,7 +159,7 @@ impl CaptureFrameFormat {
             Self::Bgr24 => "bgr24",
             Self::Yuyv => "yuyv",
             Self::Uyvy => "uyvy",
-            Self::Gray => "gray",
+            Self::Grey => "grey",
             Self::Mjpeg => "mjpeg",
         }
     }
@@ -183,7 +183,7 @@ impl std::str::FromStr for CaptureFrameFormat {
             "bgr24" | "bgr" => Ok(Self::Bgr24),
             "yuyv" | "yuy2" => Ok(Self::Yuyv),
             "uyvy" => Ok(Self::Uyvy),
-            "gray" | "grey" | "greyscale" | "grayscale" => Ok(Self::Gray),
+            "grey" | "greyscale" => Ok(Self::Grey),
             "mjpeg" | "mjpg" => Ok(Self::Mjpeg),
             _ => Err(CaptureFrameFormatParseError),
         }
@@ -278,15 +278,15 @@ mod tests {
     fn capture_frame_format_parses_common_names() {
         assert_eq!(CaptureFrameFormat::from_str("MJPEG"), Ok(CaptureFrameFormat::Mjpeg));
         assert_eq!(CaptureFrameFormat::from_str("mjpg"), Ok(CaptureFrameFormat::Mjpeg));
-        assert_eq!(CaptureFrameFormat::from_str("gray"), Ok(CaptureFrameFormat::Gray));
-        assert_eq!(CaptureFrameFormat::from_str("GREY"), Ok(CaptureFrameFormat::Gray));
+        assert_eq!(CaptureFrameFormat::from_str("grey"), Ok(CaptureFrameFormat::Grey));
+        assert_eq!(CaptureFrameFormat::from_str("GREY"), Ok(CaptureFrameFormat::Grey));
         assert_eq!(CaptureFrameFormat::from_str("yuy2"), Ok(CaptureFrameFormat::Yuyv));
     }
 
     #[test]
     fn capture_frame_format_displays_canonical_names() {
         assert_eq!(CaptureFrameFormat::Mjpeg.to_string(), "mjpeg");
-        assert_eq!(CaptureFrameFormat::Gray.to_string(), "gray");
+        assert_eq!(CaptureFrameFormat::Grey.to_string(), "grey");
     }
 
     #[test]
