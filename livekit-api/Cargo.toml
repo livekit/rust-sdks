@@ -45,7 +45,7 @@ __signal-client-async-compatible = [
 ]
 
 
-services-tokio = ["dep:reqwest"]
+services-tokio = ["dep:reqwest", "dep:tokio", "tokio/time"]
 services-async = ["dep:isahc"]
 access-token = ["dep:jsonwebtoken", "dep:hmac", "dep:signature"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
