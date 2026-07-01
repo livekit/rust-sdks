@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-#ifndef WEBRTC_JETSON_AV1_BITSTREAM_H_
-#define WEBRTC_JETSON_AV1_BITSTREAM_H_
+#ifndef WEBRTC_AV1_BITSTREAM_H_
+#define WEBRTC_AV1_BITSTREAM_H_
 
 #include <cstddef>
 #include <cstdint>
@@ -61,4 +61,4 @@ bool IsWebRtcParseable(const uint8_t* data, size_t len);
 }  // namespace av1
 }  // namespace livekit
 
-#endif  // WEBRTC_JETSON_AV1_BITSTREAM_H_
+#endif  // WEBRTC_AV1_BITSTREAM_H_

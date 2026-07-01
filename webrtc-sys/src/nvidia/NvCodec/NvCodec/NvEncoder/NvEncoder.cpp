@@ -683,6 +683,38 @@ bool NvEncoder::Reconfigure(
   return true;
 }
 
+bool NvEncoder::SetRates(uint32_t frameRate, uint32_t averageBitrate) {
+  if (!IsHWEncoderInitialized()) {
+    return false;
+  }
+  if (frameRate == 0) {
+    frameRate = 1;
+  }
+
+  NV_ENC_RECONFIGURE_PARAMS reconfigureParams = {};
+  reconfigureParams.version = NV_ENC_RECONFIGURE_PARAMS_VER;
+
+  NV_ENC_CONFIG encodeConfig = {};
+  encodeConfig.version = NV_ENC_CONFIG_VER;
+  reconfigureParams.reInitEncodeParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
+  reconfigureParams.reInitEncodeParams.encodeConfig = &encodeConfig;
+
+  GetInitializeParams(&reconfigureParams.reInitEncodeParams);
+
+  reconfigureParams.reInitEncodeParams.frameRateNum = frameRate;
+  reconfigureParams.reInitEncodeParams.frameRateDen = 1;
+
+  encodeConfig.rcParams.averageBitRate = averageBitrate;
+  encodeConfig.rcParams.vbvBufferSize = (averageBitrate / frameRate) * 5;
+  encodeConfig.rcParams.vbvInitialDelay = encodeConfig.rcParams.vbvBufferSize;
+
+  try {
+    return Reconfigure(&reconfigureParams);
+  } catch (const NVENCException&) {
+    return false;
+  }
+}
+
 NV_ENC_REGISTERED_PTR NvEncoder::RegisterResource(
     void* pBuffer,
     NV_ENC_INPUT_RESOURCE_TYPE eResourceType,
