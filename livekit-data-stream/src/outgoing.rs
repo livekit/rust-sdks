@@ -700,8 +700,8 @@ static BYTE_DEFAULT_NAME: &str = "unknown";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
     use livekit_api::signal_client::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
+    use std::sync::Mutex as StdMutex;
 
     // --- Fake recipient registry ---------------------------------------------------------
 
@@ -741,7 +741,11 @@ mod tests {
 
     fn all_v2_room() -> FakeRegistry {
         FakeRegistry::new()
-            .add("alice", CLIENT_PROTOCOL_DATA_STREAM_V2, &[ClientCapability::CompressionDeflateRaw])
+            .add(
+                "alice",
+                CLIENT_PROTOCOL_DATA_STREAM_V2,
+                &[ClientCapability::CompressionDeflateRaw],
+            )
             .add("bob", CLIENT_PROTOCOL_DATA_STREAM_V2, &[ClientCapability::CompressionDeflateRaw])
             .add("noCompression", CLIENT_PROTOCOL_DATA_STREAM_V2, &[])
     }
