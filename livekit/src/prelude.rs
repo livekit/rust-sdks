@@ -22,7 +22,7 @@ pub use crate::{
     },
     id::*,
     participant::{
-        ClientCapability, ConnectionQuality, DisconnectReason, LocalParticipant, Participant,
+        ConnectionQuality, DisconnectReason, LocalParticipant, Participant,
         PerformRpcData, RemoteParticipant, RpcError, RpcErrorCode, RpcInvocationData,
     },
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
