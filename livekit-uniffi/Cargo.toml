@@ -14,13 +14,13 @@ publish = false
 [dependencies]
 livekit-protocol = { workspace = true }
 livekit-api = { workspace = true }
-uniffi = { version = "0.30.0", features = ["cli", "scaffolding-ffi-buffer-fns"] }
+uniffi = { version = "0.31.0", features = ["cli", "scaffolding-ffi-buffer-fns"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 once_cell = "1.21.3"
 
 [build-dependencies]
-uniffi = { version = "0.30.0", features = ["build", "scaffolding-ffi-buffer-fns"] }
+uniffi = { version = "0.31.0", features = ["build", "scaffolding-ffi-buffer-fns"] }
 
 [[bin]]
 name = "uniffi-bindgen"
