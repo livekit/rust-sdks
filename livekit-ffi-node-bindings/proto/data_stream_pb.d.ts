@@ -1841,6 +1841,11 @@ export declare class StreamTextOptions extends Message<StreamTextOptions> {
    */
   generated?: boolean;
 
+  /**
+   * @generated from field: optional bool compress = 10;
+   */
+  compress?: boolean;
+
   constructor(data?: PartialMessage<StreamTextOptions>);
 
   static readonly runtime: typeof proto2;
@@ -1894,6 +1899,11 @@ export declare class StreamByteOptions extends Message<StreamByteOptions> {
    * @generated from field: optional uint64 total_length = 7;
    */
   totalLength?: bigint;
+
+  /**
+   * @generated from field: optional bool compress = 8;
+   */
+  compress?: boolean;
 
   constructor(data?: PartialMessage<StreamByteOptions>);
 
