@@ -702,9 +702,7 @@ static BYTE_DEFAULT_NAME: &str = "unknown";
 mod tests {
     use super::*;
     use std::sync::Mutex as StdMutex;
-
-    const V2: i32 = CLIENT_PROTOCOL_DATA_STREAM_V2;
-    const DEFLATE: ClientCapability = ClientCapability::CompressionDeflateRaw;
+    use livekit_api::signal_client::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 
     // --- Fake recipient registry ---------------------------------------------------------
 
@@ -736,24 +734,26 @@ mod tests {
     }
 
     fn pre_v2_room() -> FakeRegistry {
-        FakeRegistry::new().add("alice", 0, &[]).add("bob", 0, &[]).add("jim", 1, &[])
+        FakeRegistry::new()
+            .add("alice", CLIENT_PROTOCOL_DEFAULT, &[])
+            .add("bob", CLIENT_PROTOCOL_DEFAULT, &[])
+            .add("jim", CLIENT_PROTOCOL_DATA_STREAM_RPC, &[])
     }
 
     fn all_v2_room() -> FakeRegistry {
-        FakeRegistry::new().add("alice", V2, &[DEFLATE]).add("bob", V2, &[DEFLATE]).add(
-            "noCompression",
-            V2,
-            &[],
-        )
+        FakeRegistry::new()
+            .add("alice", CLIENT_PROTOCOL_DATA_STREAM_V2, &[ClientCapability::CompressionDeflateRaw])
+            .add("bob", CLIENT_PROTOCOL_DATA_STREAM_V2, &[ClientCapability::CompressionDeflateRaw])
+            .add("noCompression", CLIENT_PROTOCOL_DATA_STREAM_V2, &[])
     }
 
     fn mixed_room() -> FakeRegistry {
         FakeRegistry::new()
-            .add("alice", 0, &[])
-            .add("bob", V2, &[DEFLATE])
-            .add("jim", V2, &[DEFLATE])
-            .add("mallory", 1, &[])
-            .add("noCompression", V2, &[])
+            .add("alice", CLIENT_PROTOCOL_DEFAULT, &[])
+            .add("bob", CLIENT_PROTOCOL_DATA_STREAM_V2, &[ClientCapability::CompressionDeflateRaw])
+            .add("jim", CLIENT_PROTOCOL_DATA_STREAM_V2, &[ClientCapability::CompressionDeflateRaw])
+            .add("mallory", CLIENT_PROTOCOL_DEFAULT, &[])
+            .add("noCompression", CLIENT_PROTOCOL_DATA_STREAM_V2, &[])
     }
 
     // --- Capture harness -----------------------------------------------------------------
