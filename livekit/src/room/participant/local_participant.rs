@@ -31,15 +31,16 @@ use crate::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
-    data_track::{self, DataTrack, DataTrackOptions, Local},
+    data_track::{self, DataTrack, DataTrackOptions, DataTrackSchemaId, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     room::rpc::{RpcError, RpcErrorCode, RpcInvocationData},
     rtc_engine::lk_runtime::LkRuntime,
-    rtc_engine::{EngineError, RtcEngine},
+    rtc_engine::{EngineError, EngineResult, RtcEngine},
     ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
 };
+use bytes::Bytes;
 use chrono::Utc;
 use libwebrtc::{
     native::{create_random_uuid, packet_trailer},
@@ -1007,6 +1008,144 @@ impl LocalParticipant {
     #[doc(hidden)]
     pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
         // Local participants don't receive data messages, so this is a no-op
+    }
+
+    /// Stores the definition of a data track schema.
+    ///
+    /// Called by a publisher to make a schema available to subscribers, who can
+    /// later look up its definition via [`get_schema`](Self::get_schema). Define a
+    /// schema before publishing any data track that references it, so that
+    /// subscribers can resolve the schema by its ID.
+    ///
+    /// A schema can only be defined once. Attempting to redefine an existing
+    /// schema returns an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Identifies the schema; the same ID is provided when publishing a
+    ///   data track that uses it.
+    /// * `definition` - The schema definition, stored as-is. It is neither parsed
+    ///   nor validated against its [encoding](DataTrackSchemaId::encoding), so
+    ///   the caller is responsible for ensuring it is well-formed.
+    ///
+    pub async fn define_schema(&self, id: DataTrackSchemaId, definition: String) -> RoomResult<()> {
+        self.store_data_blob(id.into(), definition.into()).await?;
+        Ok(())
+    }
+
+    /// Retrieves the definition for a data track schema.
+    ///
+    /// Called by a subscriber that wants to inspect the schema a participant
+    /// [defined](Self::define_schema) for a data track it is publishing. Returns
+    /// an error if the participant has not defined a schema with this ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Identifies the schema to retrieve.
+    /// * `participant` - Identity of the participant that defined the schema.
+    ///
+    pub async fn get_schema(
+        &self,
+        id: DataTrackSchemaId,
+        participant: ParticipantIdentity,
+    ) -> RoomResult<String> {
+        let contents = self
+            .get_data_blob(id.into(), participant)
+            .await
+            .map_err(|err| RoomError::Internal(format!("failed to fetch schema: {err}")))?;
+
+        let definition = String::from_utf8(contents.to_vec()).map_err(|err| {
+            RoomError::Internal(format!("schema definition is not valid UTF-8: {err}"))
+        })?;
+        Ok(definition)
+    }
+
+    // TODO: unify request/response logic, timeout behavior across SDK.
+    const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+    /// Stores an arbitrary blob of data on the server, keyed by `key`.
+    async fn store_data_blob(&self, key: proto::DataBlobKey, contents: Bytes) -> EngineResult<()> {
+        let blob = proto::DataBlob { key: Some(key), contents: contents.into() };
+
+        let session = self.inner.rtc_engine.session();
+        let request_id = session.signal_client().next_request_id();
+
+        // Success is reported via `StoreDataBlobResponse` and error via `RequestResponse`;
+        // both carry the request id, so both paths are correlated by it.
+        let store_ok_response = session.store_data_blob_response(request_id);
+        let store_error_response = session.get_response(request_id);
+
+        let request = proto::StoreDataBlobRequest { blob: Some(blob), request_id };
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::StoreDataBlobRequest(request))
+            .await;
+
+        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
+            tokio::select! {
+                _ = store_ok_response => Ok(()),
+                error = store_error_response => Err(error),
+            }
+        })
+        .await
+        .map_err(|_| {
+            EngineError::Signal(SignalError::Timeout("store data blob timed out".into()))
+        })?;
+
+        match response {
+            Ok(()) => Ok(()),
+            Err(error) => Err(EngineError::Internal(
+                format!("store data blob request failed ({:?}): {}", error.reason(), error.message)
+                    .into(),
+            )),
+        }
+    }
+
+    /// Retrieves a blob of data previously stored by `participant` under `key`.
+    async fn get_data_blob(
+        &self,
+        key: proto::DataBlobKey,
+        participant: ParticipantIdentity,
+    ) -> EngineResult<Bytes> {
+        let session = self.inner.rtc_engine.session();
+        let request_id = session.signal_client().next_request_id();
+
+        // Success is reported via `GetDataBlobResponse` and error via `RequestResponse`;
+        // both carry the request id, so both paths are correlated by it.
+        let get_ok_response = session.get_data_blob_response(request_id);
+        let get_error_response = session.get_response(request_id);
+
+        let request = proto::GetDataBlobRequest {
+            key: Some(key),
+            participant_identity: participant.0,
+            request_id,
+        };
+        self.inner
+            .rtc_engine
+            .send_request(proto::signal_request::Message::GetDataBlobRequest(request))
+            .await;
+
+        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
+            tokio::select! {
+                response = get_ok_response => Ok(response),
+                error = get_error_response => Err(error),
+            }
+        })
+        .await
+        .map_err(|_| EngineError::Signal(SignalError::Timeout("get data blob timed out".into())))?;
+
+        match response {
+            Ok(response) => {
+                let blob = response.blob.ok_or_else(|| {
+                    EngineError::Internal("get data blob response is malformed".into())
+                })?;
+                Ok(blob.contents.into())
+            }
+            Err(error) => Err(EngineError::Internal(
+                format!("get data blob request failed ({:?}): {}", error.reason(), error.message)
+                    .into(),
+            )),
+        }
     }
 }
 

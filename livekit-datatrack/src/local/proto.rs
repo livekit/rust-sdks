@@ -33,7 +33,15 @@ impl From<SfuPublishRequest> for proto::PublishDataTrackRequest {
     fn from(event: SfuPublishRequest) -> Self {
         use proto::encryption::Type;
         let encryption = if event.uses_e2ee { Type::Gcm } else { Type::None }.into();
-        Self { pub_handle: event.handle.into(), name: event.name, encryption }
+        let schema = event.schema.map(|schema| schema.into());
+        let frame_encoding = event.frame_encoding.map(Into::into);
+        Self {
+            pub_handle: event.handle.into(),
+            name: event.name,
+            encryption,
+            schema,
+            frame_encoding,
+        }
     }
 }
 
@@ -74,8 +82,18 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             proto::encryption::Type::Gcm => true,
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
+        let frame_encoding = msg.frame_encoding.map(Into::into);
         let sid: DataTrackSid = msg.sid.try_into().map_err(anyhow::Error::from)?;
-        Ok(Self { pub_handle: handle, sid: RwLock::new(sid).into(), name: msg.name, uses_e2ee })
+        let schema = msg.schema.map(|schema| schema.into());
+
+        Ok(Self {
+            pub_handle: handle,
+            sid: RwLock::new(sid).into(),
+            name: msg.name,
+            uses_e2ee,
+            schema,
+            frame_encoding,
+        })
     }
 }
 
@@ -106,12 +124,17 @@ impl From<DataTrackInfo> for proto::DataTrackInfo {
             proto::encryption::Type::Gcm
         } else {
             proto::encryption::Type::None
-        };
+        } as i32;
+        let sid = info.sid().to_string();
+        let schema = info.schema.map(|schema| schema.into());
+        let frame_encoding = info.frame_encoding.map(Into::into);
         Self {
             pub_handle: info.pub_handle.into(),
-            sid: info.sid().to_string(),
+            sid,
             name: info.name,
-            encryption: encryption as i32,
+            encryption,
+            schema,
+            frame_encoding,
         }
     }
 }
@@ -128,6 +151,8 @@ pub fn publish_responses_for_sync_state(
 
 #[cfg(test)]
 mod tests {
+    use crate::schema::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSchemaId};
+
     use super::*;
     use fake::{Fake, Faker};
 
@@ -137,6 +162,8 @@ mod tests {
             handle: 1u32.try_into().unwrap(),
             name: "track".into(),
             uses_e2ee: true,
+            schema: None,
+            frame_encoding: None,
         };
         let request: proto::PublishDataTrackRequest = event.into();
         assert_eq!(request.pub_handle, 1);
@@ -159,6 +186,12 @@ mod tests {
                 sid: "DTR_1234".into(),
                 name: "track".into(),
                 encryption: proto::encryption::Type::Gcm.into(),
+                schema: proto::DataTrackSchemaId {
+                    name: "schema".into(),
+                    encoding: Some(DataTrackSchemaEncoding::JsonSchema.into()),
+                }
+                .into(),
+                frame_encoding: Some(DataTrackFrameEncoding::Json.into()),
             }
             .into(),
         };
@@ -169,7 +202,41 @@ mod tests {
         assert_eq!(info.pub_handle, 1u32.try_into().unwrap());
         assert_eq!(*info.sid.read().unwrap(), "DTR_1234".to_string().try_into().unwrap());
         assert_eq!(info.name, "track");
+        assert_eq!(
+            info.schema,
+            Some(DataTrackSchemaId::new("schema", DataTrackSchemaEncoding::JsonSchema))
+        );
+        assert_eq!(info.frame_encoding, Some(DataTrackFrameEncoding::Json));
         assert!(info.uses_e2ee);
+    }
+
+    #[test]
+    fn test_frame_encoding_mapping() {
+        let base = proto::DataTrackInfo {
+            pub_handle: 1,
+            sid: "DTR_1234".into(),
+            name: "track".into(),
+            encryption: proto::encryption::Type::None.into(),
+            schema: None,
+            frame_encoding: None,
+        };
+
+        let info: DataTrackInfo = base.clone().try_into().unwrap();
+        assert_eq!(info.frame_encoding, None);
+
+        let unspecified = proto::DataTrackInfo {
+            frame_encoding: Some(DataTrackFrameEncoding::Other.into()),
+            ..base.clone()
+        };
+        let info: DataTrackInfo = unspecified.try_into().unwrap();
+        assert_eq!(info.frame_encoding, Some(DataTrackFrameEncoding::Other));
+
+        let custom = proto::DataTrackInfo {
+            frame_encoding: Some(DataTrackFrameEncoding::Custom("my_encoding".into()).into()),
+            ..base
+        };
+        let info: DataTrackInfo = custom.try_into().unwrap();
+        assert_eq!(info.frame_encoding, Some(DataTrackFrameEncoding::Custom("my_encoding".into())));
     }
 
     #[test]

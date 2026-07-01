@@ -27,7 +27,7 @@ import type { E2eeRequest, E2eeResponse } from "./e2ee_pb.js";
 import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } from "./rpc_pb.js";
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
-import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
+import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -543,6 +543,20 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: RemoteDataTrackSetPipelineOptionsRequest;
     case: "remoteDataTrackSetPipelineOptions";
+  } | {
+    /**
+     * Data Track (schemas)
+     *
+     * @generated from field: livekit.proto.DefineSchemaRequest define_schema = 85;
+     */
+    value: DefineSchemaRequest;
+    case: "defineSchema";
+  } | {
+    /**
+     * @generated from field: livekit.proto.GetSchemaRequest get_schema = 86;
+     */
+    value: GetSchemaRequest;
+    case: "getSchema";
   } | {
     /**
      * Reconnection / chaos testing
@@ -1093,6 +1107,20 @@ export declare class FfiResponse extends Message<FfiResponse> {
     case: "remoteDataTrackSetPipelineOptions";
   } | {
     /**
+     * Data Track (schemas)
+     *
+     * @generated from field: livekit.proto.DefineSchemaResponse define_schema = 85;
+     */
+    value: DefineSchemaResponse;
+    case: "defineSchema";
+  } | {
+    /**
+     * @generated from field: livekit.proto.GetSchemaResponse get_schema = 86;
+     */
+    value: GetSchemaResponse;
+    case: "getSchema";
+  } | {
+    /**
      * Reconnection / chaos testing
      *
      * @generated from field: livekit.proto.SimulateScenarioResponse simulate_scenario = 75;
@@ -1439,6 +1467,20 @@ export declare class FfiEvent extends Message<FfiEvent> {
      */
     value: SimulateScenarioCallback;
     case: "simulateScenario";
+  } | {
+    /**
+     * Data Track (schemas)
+     *
+     * @generated from field: livekit.proto.DefineSchemaCallback define_schema = 45;
+     */
+    value: DefineSchemaCallback;
+    case: "defineSchema";
+  } | {
+    /**
+     * @generated from field: livekit.proto.GetSchemaCallback get_schema = 46;
+     */
+    value: GetSchemaCallback;
+    case: "getSchema";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);
