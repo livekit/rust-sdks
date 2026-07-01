@@ -72,8 +72,7 @@ impl From<proto::StreamTextOptions> for StreamTextOptions {
             reply_to_stream_id: options.reply_to_stream_id,
             attached_stream_ids: options.attached_stream_ids,
             generated: options.generated,
-            // Compression opt-out is not yet exposed over FFI; default to on.
-            compress: None,
+            compress: options.compress,
         }
     }
 }
@@ -92,8 +91,7 @@ impl From<proto::StreamByteOptions> for StreamByteOptions {
             name: options.name,
             mime_type: options.mime_type,
             total_length: options.total_length,
-            // Compression opt-out is not yet exposed over FFI; default to on.
-            compress: None,
+            compress: options.compress,
         }
     }
 }

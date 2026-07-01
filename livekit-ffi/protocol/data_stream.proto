@@ -371,7 +371,7 @@ message StreamTextOptions {
     optional string reply_to_stream_id = 7;
     repeated string attached_stream_ids = 8;
     optional bool generated = 9;
-
+    optional bool compress = 10;
 }
 message StreamByteOptions {
     required string topic = 1;
@@ -381,6 +381,7 @@ message StreamByteOptions {
     optional string name = 5;
     optional string mime_type = 6;
     optional uint64 total_length = 7;
+    optional bool compress = 8;
 }
 
 // Error pertaining to a stream.
