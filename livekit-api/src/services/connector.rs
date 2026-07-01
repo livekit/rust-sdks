@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::services::dial_timeout::{dial_timeout, DEFAULT_RINGING_TIMEOUT};
+use crate::services::dial_timeout::DEFAULT_RINGING_TIMEOUT;
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 const SVC: &str = "Connector";
@@ -249,11 +249,6 @@ impl ConnectorClient {
         options: AcceptWhatsAppCallOptions,
     ) -> ServiceResult<proto::AcceptWhatsAppCallResponse> {
         let wait_until_answered = options.wait_until_answered.unwrap_or(false);
-        let user_timeout = options.timeout;
-        // When waiting for an answer, pin the ring window explicitly so our request
-        // timeout doesn't depend on the server's default (which could change).
-        let ringing_timeout =
-            options.ringing_timeout.or(wait_until_answered.then_some(DEFAULT_RINGING_TIMEOUT));
         let request = proto::AcceptWhatsAppCallRequest {
             whatsapp_phone_number_id: phone_number_id.into(),
             whatsapp_api_key: api_key.into(),
@@ -268,7 +263,7 @@ impl ConnectorClient {
             participant_metadata: options.participant_metadata.unwrap_or_default(),
             participant_attributes: options.participant_attributes.unwrap_or_default(),
             destination_country: options.destination_country.unwrap_or_default(),
-            ringing_timeout: ringing_timeout.map(|d| ProtoDuration {
+            ringing_timeout: options.ringing_timeout.map(|d| ProtoDuration {
                 seconds: d.as_secs() as i64,
                 nanos: d.subsec_nanos() as i32,
             }),
@@ -277,30 +272,27 @@ impl ConnectorClient {
         let headers =
             self.base.auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?;
 
-        // Waiting for the call to be answered dials a phone, which takes longer
-        // than a normal request and must outlast ringing. Without waiting the
-        // request returns promptly, so the client default applies.
-        if wait_until_answered {
-            self.client
-                .request_with_timeout(
-                    SVC,
-                    "AcceptWhatsAppCall",
-                    request,
-                    headers,
-                    dial_timeout(user_timeout, ringing_timeout),
-                )
-                .await
-                .map_err(Into::into)
-        } else if let Some(timeout) = user_timeout {
-            self.client
+        // Accept can block until the call is answered, so default the request
+        // timeout to the standard ring window; the caller overrides via
+        // `options.timeout` and should set it above the ringing_timeout passed to
+        // `dial_whatsapp_call`. Without waiting, the request returns promptly and
+        // the client default applies.
+        let timeout = if wait_until_answered {
+            Some(options.timeout.unwrap_or(DEFAULT_RINGING_TIMEOUT))
+        } else {
+            options.timeout
+        };
+        match timeout {
+            Some(timeout) => self
+                .client
                 .request_with_timeout(SVC, "AcceptWhatsAppCall", request, headers, timeout)
                 .await
-                .map_err(Into::into)
-        } else {
-            self.client
+                .map_err(Into::into),
+            None => self
+                .client
                 .request(SVC, "AcceptWhatsAppCall", request, headers)
                 .await
-                .map_err(Into::into)
+                .map_err(Into::into),
         }
     }
 
