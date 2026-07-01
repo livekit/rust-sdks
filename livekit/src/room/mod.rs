@@ -434,7 +434,7 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
-            single_peer_connection: false,
+            single_peer_connection: true,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
         }
     }
