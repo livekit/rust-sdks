@@ -28,6 +28,7 @@ pub mod ingress;
 pub mod room;
 pub mod sip;
 
+mod dial_timeout;
 mod failover;
 mod twirp_client;
 

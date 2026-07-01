@@ -18,31 +18,12 @@ use std::time::Duration;
 
 use crate::access_token::SIPGrants;
 use crate::get_env_keys;
+use crate::services::dial_timeout::dial_timeout;
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use pbjson_types::Duration as ProtoDuration;
 
 const SVC: &str = "SIP";
-
-/// CreateSIPParticipant with `wait_until_answered` dials a phone and waits for
-/// the answer, which takes longer than a normal request.
-const SIP_DIAL_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// A dialing request must outlast the ringing window, or it would abort before
-/// the call can be answered. Keep the request timeout at least this far above
-/// the ringing timeout.
-const RINGING_TIMEOUT_MARGIN: Duration = Duration::from_secs(2);
-
-/// Request timeout for a phone-dialing call: the caller's `timeout` (or the dial
-/// default) raised, when needed, to stay at least [`RINGING_TIMEOUT_MARGIN`]
-/// above the ringing timeout.
-fn sip_dial_timeout(timeout: Option<Duration>, ringing_timeout: Option<Duration>) -> Duration {
-    let mut effective = timeout.unwrap_or(SIP_DIAL_TIMEOUT);
-    if let Some(ringing) = ringing_timeout {
-        effective = effective.max(ringing + RINGING_TIMEOUT_MARGIN);
-    }
-    effective
-}
 
 #[derive(Debug)]
 pub struct SIPClient {
@@ -522,7 +503,7 @@ impl SIPClient {
                     "CreateSIPParticipant",
                     request,
                     headers,
-                    sip_dial_timeout(user_timeout, ringing_timeout),
+                    dial_timeout(user_timeout, ringing_timeout),
                 )
                 .await
                 .map_err(Into::into)
