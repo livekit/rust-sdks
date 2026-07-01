@@ -89,6 +89,8 @@ pub mod ffi {
 
         fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
 
+        fn shutdown_audio_io(self: &PeerConnectionFactory);
+
         fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: RtcConfiguration,

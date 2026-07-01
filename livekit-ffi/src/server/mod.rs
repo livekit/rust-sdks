@@ -176,8 +176,9 @@ impl FfiServer {
 
         self.logger.set_capture_logs(false);
 
-        // Drop all handles
         *self.config.lock() = None; // Invalidate the config
+        self.ffi_handles.clear();
+        self.handle_dropped_txs.clear();
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {

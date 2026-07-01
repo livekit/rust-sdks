@@ -93,6 +93,13 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   /// Returns true if Platform ADM is currently active (ref_count > 0).
   bool is_platform_adm_active() const;
 
+  /// Stops platform and synthetic audio I/O and detaches the WebRTC
+  /// AudioTransport callback.
+  ///
+  /// Call before tearing down the peer connection factory so capture worker
+  /// threads cannot deliver frames into transports that are being destroyed.
+  void StopAudioIO();
+
   // ===========================================================================
   // Recording/Playout Control
   // ===========================================================================
@@ -226,6 +233,10 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // If recording is active, stops the old ADM and starts the new one.
   // Must be called with mutex_ held.
   void SwitchRecordingAdmIfNeeded();
+
+  // Stops platform capture/playout and detaches its callback without touching
+  // synthetic mode. Must be called with mutex_ held.
+  void StopPlatformAudioIO();
 
 #if defined(__ANDROID__)
   // Lazily creates the Platform ADM on Android.
