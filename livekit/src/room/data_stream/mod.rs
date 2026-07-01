@@ -14,6 +14,7 @@
 
 use chrono::{DateTime, Utc};
 use libwebrtc::enum_dispatch;
+use libwebrtc::native::create_random_uuid;
 use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 use thiserror::Error;
