@@ -61,6 +61,26 @@ impl RemoteDataTrack {
     pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
         self.0.subscribe().await.map(|stream| DataTrackStream(Mutex::new(stream)))
     }
+
+    /// Subscribes to the data track with custom options.
+    pub async fn subscribe_with_options(
+        &self,
+        options: DataTrackSubscribeOptions,
+    ) -> Result<DataTrackStream, DataTrackSubscribeError> {
+        self.0.subscribe_with_options(options.into()).await.map(|stream| DataTrackStream(Mutex::new(stream)))
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct DataTrackSubscribeOptions {
+    pub buffer_size: u32,
+}
+
+impl From<DataTrackSubscribeOptions> for livekit_datatrack::api::DataTrackSubscribeOptions {
+    fn from(options: DataTrackSubscribeOptions) -> Self {
+        livekit_datatrack::api::DataTrackSubscribeOptions::default()
+            .with_buffer_size(options.buffer_size as usize)
+    }
 }
 
 /// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
