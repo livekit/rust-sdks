@@ -291,25 +291,10 @@ fn inflate_raw(data: &[u8]) -> StreamResult<Vec<u8>> {
     Ok(out)
 }
 
-/// Metadata about a data stream which has just been opened
-pub(crate) struct DataStreamOpenInfo {
-    pub(crate) reader: AnyStreamReader,
-    pub(crate) identity: String,
-
-    /// Whether the payload was deflate-raw compressed (data streams v2).
-    #[allow(unused)]
-    pub(crate) is_compressed: bool,
-
-    /// Whether the whole payload was sent inline in the header as a single packet
-    /// (data streams v2), rather than as separate chunk packets.
-    #[allow(unused)]
-    pub(crate) is_inline: bool,
-}
-
 #[derive(Clone)]
 pub struct IncomingStreamManager {
     inner: Arc<Mutex<ManagerInner>>,
-    open_tx: UnboundedSender<DataStreamOpenInfo>,
+    open_tx: UnboundedSender<(AnyStreamReader, String)>,
     /// Topics whose streams are handled internally by the SDK (e.g. RPC) and never surfaced as
     /// application events. Supplied by the host crate so this crate stays decoupled from RPC.
     reserved_topics: Arc<[String]>,
@@ -323,7 +308,7 @@ struct ManagerInner {
 impl IncomingStreamManager {
     pub fn new(
         reserved_topics: Vec<String>,
-    ) -> (Self, UnboundedReceiver<DataStreamOpenInfo>) {
+    ) -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
         let (open_tx, open_rx) = mpsc::unbounded_channel();
         (
             Self {
@@ -365,12 +350,7 @@ impl IncomingStreamManager {
         }
 
         let (reader, chunk_tx) = AnyStreamReader::from(info);
-        let _ = self.open_tx.send(DataStreamOpenInfo {
-            reader,
-            identity,
-            is_compressed,
-            is_inline: inline_content.is_some(),
-        });
+        let _ = self.open_tx.send((reader, identity));
 
         // Inline single-packet stream: synthesize the complete content now; no chunk/trailer
         // packets will follow, so we never register an open descriptor.
@@ -650,7 +630,9 @@ mod tests {
         proto::Trailer { stream_id: id.to_string(), reason: String::new(), attributes }
     }
 
-    async fn recv_reader(rx: &mut UnboundedReceiver<DataStreamOpenInfo>) -> DataStreamOpenInfo {
+    async fn recv_reader(
+        rx: &mut UnboundedReceiver<(AnyStreamReader, String)>,
+    ) -> (AnyStreamReader, String) {
         rx.recv().await.expect("a reader should be dispatched")
     }
 
@@ -692,11 +674,8 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, identity, is_compressed, is_inline } =
-            recv_reader(&mut rx).await;
+        let (reader, identity) = recv_reader(&mut rx).await;
         assert_eq!(identity, SENDER);
-        assert_eq!(compressed, false);
-        assert_eq!(inline, false);
         assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
         mgr.handle_chunk(chunk("s1", 0, text.as_bytes().to_vec()), EncType::None);
         mgr.handle_trailer(trailer("s1"));
@@ -711,7 +690,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         mgr.handle_chunk(chunk("s1", 0, vec![1, 2, 3, 4]), EncType::None);
         mgr.handle_trailer(trailer("s1"));
         assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3, 4]));
@@ -732,7 +711,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         mgr.handle_chunk(chunk("s1", 0, text.as_bytes().to_vec()), EncType::None);
         mgr.handle_trailer(trailer_with_attrs(
             "s1",
@@ -753,7 +732,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         mgr.handle_chunk(chunk("s1", 0, vec![b'x']), EncType::None);
         mgr.handle_trailer(trailer("s1"));
         assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
@@ -767,7 +746,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         mgr.handle_chunk(chunk("s1", 0, vec![1, 2, 3, 4, 5]), EncType::None);
         mgr.handle_trailer(trailer("s1"));
         assert!(matches!(read_bytes(reader).await, Err(StreamError::LengthExceeded)));
@@ -781,7 +760,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         mgr.handle_chunk(chunk("s1", 0, vec![b'h', b'i']), EncType::Gcm);
         assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
     }
@@ -803,7 +782,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
         // No chunk/trailer packets are fed.
         assert_eq!(read_text(reader).await.unwrap(), text);
@@ -817,7 +796,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3]));
     }
 
@@ -837,7 +816,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
         assert_eq!(read_text(reader).await.unwrap(), text);
     }
@@ -857,7 +836,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(payload));
     }
 
@@ -883,7 +862,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         for (i, piece) in chunk_pieces.iter().enumerate() {
             mgr.handle_chunk(chunk("s1", i as u64, piece.to_vec()), EncType::None);
         }
@@ -909,7 +888,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let DataStreamOpenInfo { reader, .. } = recv_reader(&mut rx).await;
+        let (reader, _) = recv_reader(&mut rx).await;
         mgr.handle_chunk(chunk("s1", 0, pieces[0].to_vec()), EncType::None);
         // Skip index 1 -> feed index 2: a gap is a hard error.
         mgr.handle_chunk(chunk("s1", 2, pieces[1].to_vec()), EncType::None);
