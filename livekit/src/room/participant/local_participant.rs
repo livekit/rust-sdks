@@ -434,6 +434,26 @@ impl LocalParticipant {
 
         track.set_transceiver(Some(transceiver));
 
+        // Set degradation preference for video tracks
+        if let LocalTrack::Video(video_track) = &track {
+            let resolution = video_track.rtc_source().video_resolution();
+            let degradation_pref =
+                options::get_default_degradation_preference(&options, resolution.height);
+            if let Some(sender) = track.transceiver().map(|t| t.sender()) {
+                let mut params = sender.parameters();
+                params.set_degradation_preference(degradation_pref);
+                if let Err(e) = sender.set_parameters(params) {
+                    log::warn!("Failed to set degradation preference: {:?}", e);
+                } else {
+                    log::debug!(
+                        "Set degradation preference to {:?} for video track (height={})",
+                        degradation_pref,
+                        resolution.height
+                    );
+                }
+            }
+        }
+
         if let LocalTrack::Video(video_track) = &track {
             let has_timing_subscribers = video_track.has_publish_timing_subscribers();
             if needs_video_sender_transformer(&options, has_timing_subscribers) {
@@ -1150,6 +1170,7 @@ mod tests {
             frame_metadata_features: FrameMetadataFeatures {
                 user_timestamp: true,
                 frame_id: false,
+                user_data: false,
             },
             ..Default::default()
         };

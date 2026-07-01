@@ -143,7 +143,7 @@ impl LkApp {
     }
 
     fn top_panel(&mut self, ui: &mut egui::Ui) {
-        egui::menu::bar(ui, |ui| {
+        egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("Simulate", |ui| {
                 let scenarios = [
                     SimulateScenario::SignalReconnect,
@@ -415,7 +415,7 @@ impl LkApp {
                 } else {
                     for _ in 0..5 {
                         ui.video_frame(|ui| {
-                            egui::Frame::none().fill(ui.style().visuals.code_bg_color).show(
+                            egui::Frame::NONE.fill(ui.style().visuals.code_bg_color).show(
                                 ui,
                                 |ui| {
                                     ui.allocate_space(ui.available_size());
@@ -434,17 +434,17 @@ impl eframe::App for LkApp {
         eframe::set_value(storage, eframe::APP_KEY, &self.state);
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if let Some(event) = self.service.try_recv() {
             self.event(event);
         }
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+        egui::Panel::top("top_panel").show(root_ui, |ui| {
             self.top_panel(ui);
         });
 
-        egui::SidePanel::left("left_panel").resizable(true).width_range(20.0..=360.0).show(
-            ctx,
+        egui::Panel::left("left_panel").resizable(true).min_size(20.0).max_size(360.0).show(
+            root_ui,
             |ui| {
                 self.left_panel(ui);
             },
@@ -457,18 +457,18 @@ impl eframe::App for LkApp {
             self.bottom_panel(ui);
         });*/
 
-        egui::SidePanel::right("right_panel").resizable(true).width_range(20.0..=360.0).show(
-            ctx,
+        egui::Panel::right("right_panel").resizable(true).min_size(20.0).max_size(360.0).show(
+            root_ui,
             |ui| {
                 self.right_panel(ui);
             },
         );
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(root_ui, |ui| {
             self.central_panel(ui);
         });
 
-        ctx.request_repaint();
+        root_ui.ctx().request_repaint();
     }
 }
 

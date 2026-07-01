@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.5.4 (2026-06-24)
+
+### Fixes
+
+- harden reconnect behaviour - #1148 (@lukasIO)
+
+## 0.5.3 (2026-06-23)
+
+### Fixes
+
+- Upgrade protocol to v1.48.0
+
 ## 0.5.2 (2026-06-17)
 
 ### Fixes
