@@ -584,11 +584,6 @@ impl RemoteParticipant {
         self.inner.info.read().capabilities.clone()
     }
 
-    /// Whether this remote participant can decompress deflate-raw data streams.
-    pub(crate) fn supports_compression(&self) -> bool {
-        self.inner.info.read().capabilities.contains(&ClientCapability::CompressionDeflateRaw)
-    }
-
     pub fn is_encrypted(&self) -> bool {
         *self.inner.is_encrypted.read()
     }
