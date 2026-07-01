@@ -122,11 +122,11 @@ pub struct ByteStreamInfo {
     /// The encryption used
     pub encryption_type: EncryptionType,
     /// Test-only: expose whether the byte stream was compressed or not.
-    // #[cfg(feature = "__lk-e2e-test")]
-    is_compressed: bool,
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_compressed: bool,
     /// Test-only: expose whether the byte stream was sent inline on the header packet
-    // #[cfg(feature = "__lk-e2e-test")]
-    is_inline: bool,
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_inline: bool,
 }
 
 /// Information about a text data stream.
@@ -152,11 +152,11 @@ pub struct TextStreamInfo {
     /// The encryption used
     pub encryption_type: EncryptionType,
     /// Test-only: expose whether the byte stream was compressed or not.
-    // #[cfg(feature = "__lk-e2e-test")]
-    is_compressed: bool,
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_compressed: bool,
     /// Test-only: expose whether the byte stream was sent inline on the header packet
-    // #[cfg(feature = "__lk-e2e-test")]
-    is_inline: bool,
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_inline: bool,
 }
 
 /// Operation type for text streams.
@@ -209,9 +209,12 @@ impl ByteStreamInfo {
         byte_header: proto::ByteHeader,
         encryption_type: EncryptionType,
     ) -> Self {
-        let is_compressed = header.compression() != proto::CompressionType::None;
-        let is_inline = !header.inline_content().is_empty();
         Self {
+            #[cfg(feature = "__lk-e2e-test")]
+            is_compressed: header.compression() != proto::CompressionType::None,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_inline: !header.inline_content().is_empty(),
+
             id: header.stream_id,
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
@@ -221,8 +224,6 @@ impl ByteStreamInfo {
             mime_type: header.mime_type,
             name: byte_header.name,
             encryption_type,
-            is_compressed,
-            is_inline,
         }
     }
 }
@@ -237,9 +238,12 @@ impl TextStreamInfo {
         text_header: proto::TextHeader,
         encryption_type: EncryptionType,
     ) -> Self {
-        let was_compressed = header.compression() != proto::CompressionType::None;
-        let was_inline = !header.inline_content().is_empty();
         Self {
+            #[cfg(feature = "__lk-e2e-test")]
+            is_compressed: header.compression() != proto::CompressionType::None,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_inline: !header.inline_content().is_empty(),
+
             id: header.stream_id,
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
@@ -254,8 +258,6 @@ impl TextStreamInfo {
             attached_stream_ids: text_header.attached_stream_ids,
             generated: text_header.generated,
             encryption_type,
-            is_compressed: was_compressed,
-            is_inline: was_inline,
         }
     }
 }

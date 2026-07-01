@@ -133,6 +133,10 @@ impl RpcTransport for MockTransport {
             attached_stream_ids: vec![],
             generated: false,
             encryption_type: EncryptionType::None,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_compressed: false,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_inline: false,
         })
     }
 
@@ -181,6 +185,10 @@ fn make_text_reader(
             attached_stream_ids: vec![],
             generated: false,
             encryption_type: EncryptionType::None,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_compressed: false,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_inline: false,
         },
         rx,
     )
