@@ -90,21 +90,24 @@ pub enum DisconnectReason {
 /// Stored typed rather than as the raw protobuf `i32` so the public accessor doesn't leak
 /// protobuf types, while `Unknown` preserves values this SDK build doesn't recognize.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum ClientCapability {
+    Unused,
     PacketTrailer,
     CompressionDeflateRaw,
-    Unknown(i32),
 }
 
-impl From<i32> for ClientCapability {
-    fn from(value: i32) -> Self {
+impl TryFrom<i32> for ClientCapability {
+    type Error = &'static str;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
         match proto::client_info::Capability::try_from(value) {
-            Ok(proto::client_info::Capability::CapPacketTrailer) => Self::PacketTrailer,
+            Ok(proto::client_info::Capability::CapPacketTrailer) => Ok(Self::PacketTrailer),
             Ok(proto::client_info::Capability::CapCompressionDeflateRaw) => {
-                Self::CompressionDeflateRaw
+                Ok(Self::CompressionDeflateRaw)
             }
-            // `CapUnused` and any value not recognized by this build.
-            _ => Self::Unknown(value),
+            Ok(proto::client_info::Capability::CapUnused) => Ok(Self::Unused),
+            Err(_) => Err("unknown client capability"),
         }
     }
 }
@@ -112,13 +115,13 @@ impl From<i32> for ClientCapability {
 impl From<ClientCapability> for i32 {
     fn from(value: ClientCapability) -> Self {
         match value {
+            ClientCapability::Unused => proto::client_info::Capability::CapUnused as i32,
             ClientCapability::PacketTrailer => {
                 proto::client_info::Capability::CapPacketTrailer as i32
             }
             ClientCapability::CompressionDeflateRaw => {
                 proto::client_info::Capability::CapCompressionDeflateRaw as i32
             }
-            ClientCapability::Unknown(value) => value,
         }
     }
 }
@@ -310,7 +313,8 @@ pub(super) fn update_info(
     }
 
     info.client_protocol = new_info.client_protocol;
-    info.capabilities = new_info.capabilities.iter().map(|&c| ClientCapability::from(c)).collect();
+    info.capabilities =
+        new_info.capabilities.iter().filter_map(|&c| ClientCapability::try_from(c).ok()).collect();
 }
 
 pub(super) fn set_speaking(
