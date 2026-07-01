@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use crate::access_token::SIPGrants;
 use crate::get_env_keys;
-use crate::services::dial_timeout::dial_timeout;
+use crate::services::dial_timeout::{dial_timeout, DEFAULT_RINGING_TIMEOUT};
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use pbjson_types::Duration as ProtoDuration;
@@ -464,7 +464,10 @@ impl SIPClient {
     ) -> ServiceResult<proto::SipParticipantInfo> {
         let wait_until_answered = options.wait_until_answered.unwrap_or(false);
         let user_timeout = options.timeout;
-        let ringing_timeout = options.ringing_timeout;
+        // When waiting for an answer, pin the ring window explicitly so our request
+        // timeout doesn't depend on the server's default (which could change).
+        let ringing_timeout =
+            options.ringing_timeout.or(wait_until_answered.then_some(DEFAULT_RINGING_TIMEOUT));
         let request = proto::CreateSipParticipantRequest {
             sip_trunk_id: sip_trunk_id.to_owned(),
             trunk: outbound_trunk_config,

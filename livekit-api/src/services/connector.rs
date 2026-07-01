@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::services::dial_timeout::dial_timeout;
+use crate::services::dial_timeout::{dial_timeout, DEFAULT_RINGING_TIMEOUT};
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 const SVC: &str = "Connector";
@@ -250,7 +250,10 @@ impl ConnectorClient {
     ) -> ServiceResult<proto::AcceptWhatsAppCallResponse> {
         let wait_until_answered = options.wait_until_answered.unwrap_or(false);
         let user_timeout = options.timeout;
-        let ringing_timeout = options.ringing_timeout;
+        // When waiting for an answer, pin the ring window explicitly so our request
+        // timeout doesn't depend on the server's default (which could change).
+        let ringing_timeout =
+            options.ringing_timeout.or(wait_until_answered.then_some(DEFAULT_RINGING_TIMEOUT));
         let request = proto::AcceptWhatsAppCallRequest {
             whatsapp_phone_number_id: phone_number_id.into(),
             whatsapp_api_key: api_key.into(),

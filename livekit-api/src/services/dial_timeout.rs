@@ -19,24 +19,24 @@
 
 use std::time::Duration;
 
-/// Default per-request timeout for a call that dials a phone and waits.
-pub(crate) const DIAL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Ring window assumed when a request doesn't set a ringing timeout; matches the
+/// server default. A dialing request must outlast it.
+pub(crate) const DEFAULT_RINGING_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A dialing request must outlast the ringing window, or it would abort before
 /// the call can be answered. Keep the request timeout at least this far above
 /// the ringing timeout.
 pub(crate) const RINGING_TIMEOUT_MARGIN: Duration = Duration::from_secs(2);
 
-/// Request timeout for a phone-dialing call: the caller's `timeout` (or the dial
-/// default) raised, when needed, to stay at least [`RINGING_TIMEOUT_MARGIN`]
-/// above the ringing timeout.
+/// Request timeout for a phone-dialing call: the ring window plus a margin, so
+/// the request doesn't abort before the call can be answered. The ring window is
+/// `ringing_timeout` when set, else [`DEFAULT_RINGING_TIMEOUT`]. A longer caller
+/// `timeout` is honored; a shorter one is raised to the floor.
 pub(crate) fn dial_timeout(
     timeout: Option<Duration>,
     ringing_timeout: Option<Duration>,
 ) -> Duration {
-    let mut effective = timeout.unwrap_or(DIAL_TIMEOUT);
-    if let Some(ringing) = ringing_timeout {
-        effective = effective.max(ringing + RINGING_TIMEOUT_MARGIN);
-    }
-    effective
+    let ring = ringing_timeout.unwrap_or(DEFAULT_RINGING_TIMEOUT);
+    let floor = ring + RINGING_TIMEOUT_MARGIN;
+    timeout.unwrap_or(floor).max(floor)
 }
