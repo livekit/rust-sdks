@@ -417,7 +417,7 @@ impl IncomingStreamManager {
             return;
         }
 
-        if descriptor.decompressor.is_some() {
+        if let Some(decompressor) = &mut descriptor.decompressor {
             // --- Compressed stream: feed chunks through one stateful decompressor. ---
             // Duplicate index (reconnect replay): drop with a warning.
             if let Some(last) = descriptor.last_chunk_index {
@@ -441,12 +441,11 @@ impl IncomingStreamManager {
             let is_text = descriptor.is_text;
             // Confine the decompressor borrow so we can re-borrow `inner` afterwards.
             let result: StreamResult<(u64, Bytes)> = {
-                let state = descriptor.decompressor.as_mut().unwrap();
-                match state.run(&chunk.content) {
+                match decompressor.run(&chunk.content) {
                     Ok(decompressed) => {
                         let produced = decompressed.len() as u64;
                         let yielded = if is_text {
-                            state.reframe_text(decompressed)
+                            decompressor.reframe_text(decompressed)
                         } else {
                             Bytes::from(decompressed)
                         };
