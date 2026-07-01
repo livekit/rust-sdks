@@ -17,6 +17,7 @@ use {
     crate::common::test_rooms,
     anyhow::{anyhow, Ok, Result},
     chrono::{TimeDelta, Utc},
+    libwebrtc::native::create_random_uuid,
     livekit::{RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions},
     std::time::Duration,
     tokio::{time::timeout, try_join},
@@ -46,6 +47,8 @@ async fn test_send_bytes() -> Result<()> {
         assert!(stream_info.total_length.is_some());
         assert_eq!(stream_info.mime_type, "application/octet-stream");
         assert_eq!(stream_info.topic, "some-topic");
+        assert_eq!(stream_info.is_compressed, false);
+        assert_eq!(stream_info.is_inline, true);
 
         Ok(())
     };
@@ -92,12 +95,49 @@ async fn test_send_large_compressible_text() -> Result<()> {
 
     let send = async move {
         let options = StreamTextOptions { topic: "some-topic".into(), ..Default::default() };
-        sending_room.local_participant().send_text(&text, options).await?;
+        let stream_info = sending_room.local_participant().send_text(&text, options).await?;
+        assert_eq!(stream_info.is_compressed, true);
+        assert_eq!(stream_info.is_inline, false);
         Ok(())
     };
     let receive = async move {
         while let Some(event) = receiving_event_rx.recv().await {
             let RoomEvent::TextStreamOpened { reader, topic, .. } = event else {
+                continue;
+            };
+            assert_eq!(topic, "some-topic");
+            let reader = reader.take().ok_or_else(|| anyhow!("Failed to take reader"))?;
+            assert_eq!(reader.read_all().await?, expected);
+            break;
+        }
+        Ok(())
+    };
+
+    timeout(Duration::from_secs(10), async { try_join!(send, receive) }).await??;
+    Ok(())
+}
+
+/// End-to-end round-trip of a large in-memory byte payload, validating the v2 byte-stream path.
+#[cfg(feature = "__lk-e2e-test")]
+#[tokio::test]
+async fn test_send_large_incompressible_random_bytes() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (sending_room, _) = rooms.pop().unwrap();
+    let (_, mut receiving_event_rx) = rooms.pop().unwrap();
+
+    let payload: Vec<u8> = (0..50_000).flat_map(|_| create_random_uuid().into_bytes()).collect();
+    let expected = payload.clone();
+
+    let send = async move {
+        let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
+        let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
+        assert_eq!(stream_info.is_compressed, false);
+        assert_eq!(stream_info.is_inline, false);
+        Ok(())
+    };
+    let receive = async move {
+        while let Some(event) = receiving_event_rx.recv().await {
+            let RoomEvent::ByteStreamOpened { reader, topic, .. } = event else {
                 continue;
             };
             assert_eq!(topic, "some-topic");
@@ -125,7 +165,9 @@ async fn test_send_large_bytes() -> Result<()> {
 
     let send = async move {
         let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
-        sending_room.local_participant().send_bytes(&payload, options).await?;
+        let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
+        assert_eq!(stream_info.is_compressed, true);
+        assert_eq!(stream_info.is_inline, false);
         Ok(())
     };
     let receive = async move {
