@@ -219,12 +219,6 @@ pub enum RoomEvent {
         reader: TakeCell<ByteStreamReader>,
         topic: String,
         participant_identity: ParticipantIdentity,
-        /// Test-only: expose whether the byte stream is being compressed or not.
-        #[cfg(feature = "__lk-e2e-test")]
-        is_compressed: bool,
-        /// Test-only: expose whether the byte stream has been sent inline on the header packet
-        #[cfg(feature = "__lk-e2e-test")]
-        is_inline: bool,
     },
     TextStreamOpened {
         reader: TakeCell<TextStreamReader>,
@@ -2269,26 +2263,22 @@ impl rpc::RemoteParticipantRegistry for RoomSession {
 /// Intercepts text streams on RPC topics (`lk.rpc_request`, `lk.rpc_response`)
 /// and routes them to the RPC managers instead of emitting them as room events.
 async fn incoming_data_stream_task(
-    mut open_rx: UnboundedReceiver<DataStreamOpenInfo>,
+    mut open_rx: UnboundedReceiver<(AnyStreamReader, String)>,
     dispatcher: Dispatcher<RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,
     session: Arc<RoomSession>,
 ) {
     loop {
         tokio::select! {
-            Some(open_info) = open_rx.recv() => {
-                match open_info.reader {
+            Some((reader, identity)) = open_rx.recv() => {
+                match reader {
                     AnyStreamReader::Byte(reader) => {
                         let topic = reader.info().topic.clone();
                         if !data_stream::is_internal_topic(&topic) {
                             dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
                                 topic,
                                 reader: TakeCell::new(reader),
-                                participant_identity: ParticipantIdentity(open_info.identity),
-                                #[cfg(feature = "__lk-e2e-test")]
-                                is_compressed: open_info.is_compressed,
-                                #[cfg(feature = "__lk-e2e-test")]
-                                is_inline: open_info.is_inline,
+                                participant_identity: ParticipantIdentity(identity)
                             });
                         }
                     }
@@ -2296,7 +2286,7 @@ async fn incoming_data_stream_task(
                         let topic = reader.info().topic.clone();
                         match topic.as_str() {
                             rpc::RPC_REQUEST_TOPIC => {
-                                let caller_identity = ParticipantIdentity(open_info.identity);
+                                let caller_identity = ParticipantIdentity(identity);
                                 let session = session.clone();
                                 livekit_runtime::spawn(async move {
                                     let transport = rpc::SessionTransport(session.clone());
@@ -2318,7 +2308,7 @@ async fn incoming_data_stream_task(
                                     dispatcher.dispatch(&RoomEvent::TextStreamOpened {
                                         topic,
                                         reader: TakeCell::new(reader),
-                                        participant_identity: ParticipantIdentity(open_info.identity)
+                                        participant_identity: ParticipantIdentity(identity)
                                     });
                                 }
                             }
