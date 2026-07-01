@@ -1,14 +1,12 @@
 # livekit-capture
 
 Capture helpers for publishing decoded, native platform, DMA-BUF, and
-pre-encoded video frames with the LiveKit Rust SDK.
-
-Optional source features include `avfoundation`, `libargus`, `v4l`,
-`tcpsink`, `rtsp`, and `gstreamer`.
+pre-encoded video frames with the LiveKit Rust SDK. Optional source features
+include `avfoundation`, `libargus`, `v4l`, `tcpsink`, `rtsp`, and `gstreamer`.
 
 ## Pre-encoded source modes
 
-The `preencode_publish` example can publish H.264, H.265, VP8, VP9, and AV1
+The `preencode_publish` example publishes H.264, H.265, VP8, VP9, and AV1
 access units from these sources:
 
 | Source | Feature | Input shape |
@@ -18,19 +16,18 @@ access units from these sources:
 | `shmsink` | `gstreamer` | GStreamer `shmsink` producer read through `shmsrc` |
 | `rtsp` | `rtsp` | RTSP over TCP with interleaved RTP video |
 
-H.264/H.265 TCP defaults remain Annex-B byte streams. VP8, VP9, and AV1 use RTP
-framing over TCP because those codecs need explicit frame boundaries.
+H.264/H.265 TCP defaults to Annex-B byte streams, while VP8, VP9, and AV1 use
+RTP framing over TCP because those codecs need explicit frame boundaries.
 
 ## Pre-encoded test sources
 
-The `preencode_publish` example includes GStreamer fixture scripts for testing
-the H.264, H.265, VP8, VP9, and AV1 pre-encoded capture paths with an animated
-`videotestsrc` source at `1280x720@30fps`.
-The generated encoder pipelines force 8-bit I420 input; VP9 fixture caps are
-pinned to profile 0 to match the WebRTC passthrough profile.
+The example ships GStreamer fixture scripts that exercise the H.264, H.265,
+VP8, VP9, and AV1 capture paths with an animated `videotestsrc` at
+`1280x720@30fps`. Generated encoder pipelines force 8-bit I420 input, and VP9
+fixture caps are pinned to profile 0 to match the WebRTC passthrough profile.
 
-Before running a publisher command, provide LiveKit credentials through the
-environment or command-line flags:
+Before running a publisher, provide LiveKit credentials through the environment
+or command-line flags:
 
 ```sh
 export LIVEKIT_URL=wss://example.livekit.cloud
@@ -38,32 +35,18 @@ export LIVEKIT_API_KEY=devkey
 export LIVEKIT_API_SECRET=secret
 ```
 
-All scripts require `--codec h264|h265|vp8|vp9|av1`. They also accept `--width`,
+All scripts require `--codec h264|h265|vp8|vp9|av1` and also accept `--width`,
 `--height`, `--fps`, `--bitrate-kbps`, and `--print`; the defaults match the
 test profile above.
 
-### Runtime status
+### Local SFU example
 
-The unit and fixture coverage exercises H.264, H.265, VP8, VP9, and AV1 ingest
-through GStreamer appsink, TCP RTP, shared-memory shmsink, and RTSP RTP.
-H.264/H.265 TCP byte-stream ingest remains the compatibility default.
-
-Local-SFU smoke testing has verified subscriber decode for H.264, H.265, VP8,
-VP9, and AV1 through GStreamer appsink, TCP RTP, shared-memory shmsink, and
-RTSP RTP sources. The generated fixture uses a low-motion animated test pattern
-so the encoded source stays near the advertised publish cap; high-entropy custom
-pipelines may need an explicit `--max-bitrate` large enough for the frames they
-produce.
-
-### Local SFU smoke
-
-With a local LiveKit server running in dev mode:
+Run a local LiveKit server in dev mode and use its dev credentials in the
+publisher examples:
 
 ```sh
-livekit-server --dev --bind 127.0.0.1
+livekit-server --dev --bind 0.0.0.0
 ```
-
-Use the dev credentials in the publisher examples:
 
 ```sh
 export LIVEKIT_URL=ws://127.0.0.1:7880
@@ -71,7 +54,7 @@ export LIVEKIT_API_KEY=devkey
 export LIVEKIT_API_SECRET=secret
 ```
 
-Run a subscriber in another terminal to verify negotiated codec and decoder
+Run a subscriber in another terminal to verify the negotiated codec and decoder
 health:
 
 ```sh
@@ -104,17 +87,14 @@ cargo run -p preencode_publish --features gstreamer -- \
 
 Expected publisher signs are a successful room connection, a
 `Published pre-encoded ... track at 1280x720` log line, and diagnostics near
-30 access units per second. Expected subscriber signs for healthy codecs are a
-matching `Subscribed to video track` codec and rising decoded-frame counts with
-low loss and no repeated PLI loop.
+30 access units per second. A healthy subscriber shows a matching
+`Subscribed to video track` codec and rising decoded-frame counts with low loss
+and no repeated PLI loop.
 
-### GStreamer `gstappsink` Source
+### GStreamer `gstappsink` source
 
-This exercises:
-
-`GStreamer videotestsrc -> encoder -> appsink -> GStreamerAppSinkEncodedSource -> VideoCaptureTrack`
-
-Publish the generated GStreamer source:
+Exercises
+`GStreamer videotestsrc -> encoder -> appsink -> GStreamerAppSinkEncodedSource -> VideoCaptureTrack`.
 
 ```sh
 cargo run -p preencode_publish --features gstreamer -- \
@@ -128,9 +108,7 @@ cargo run -p preencode_publish --features gstreamer -- \
   --diagnostics
 ```
 
-For H.265, VP8, VP9, or AV1, change `--codec` to `h265`, `vp8`, `vp9`, or
-`av1`. The generated AV1 path inserts `av1parse` and requests
-`stream-format=obu-stream,alignment=tu` before appsink.
+For H.265, VP8, VP9, or AV1, change `--codec` accordingly.
 
 Custom GStreamer launch fragments can be passed after `--`. If the pipeline
 does not include `appsink name=lk_appsink`, it must leave exactly one encoded
@@ -151,22 +129,18 @@ cargo run -p preencode_publish --features gstreamer -- \
   'videotestsrc is-live=true do-timestamp=true ! video/x-raw,width=1280,height=720,framerate=30/1 ! videoconvert ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 byte-stream=true aud=true'
 ```
 
-### TCP `tcpsink` Source
+### TCP `tcpsink` source
 
-This exercises:
+Exercises
+`GStreamer videotestsrc -> encoder -> tcpserversink -> TcpEncodedSource -> VideoCaptureTrack`.
+The `tcpsink` source connects to a TCP producer such as the fixture script's
+GStreamer `tcpserversink`.
 
-`GStreamer videotestsrc -> encoder -> tcpserversink -> TcpEncodedSource -> VideoCaptureTrack`
-
-The `preencode_publish` CLI source is `tcpsink`; it connects to a TCP producer
-such as the fixture script's GStreamer `tcpserversink`.
-
-Start the producer:
+Start the producer, then publish:
 
 ```sh
 examples/preencode_publish/scripts/run-tcp-test-source.sh --codec h264 --port 5000
 ```
-
-Publish the TCP source:
 
 ```sh
 cargo run -p preencode_publish -- \
@@ -181,10 +155,9 @@ cargo run -p preencode_publish -- \
   --diagnostics
 ```
 
-For H.265, use `--codec h265` in both commands.
-
-For VP8, VP9, or AV1, use the same script with `--codec vp8`, `--codec vp9`, or
-`--codec av1`; `preencode_publish --tcp-format auto` selects RTP automatically:
+For H.265, use `--codec h265` in both commands. For VP8, VP9, or AV1, use the
+same script with the matching `--codec` and add `--tcp-format auto` to the
+publisher, which selects RTP automatically:
 
 ```sh
 cargo run -p preencode_publish -- \
@@ -200,21 +173,19 @@ cargo run -p preencode_publish -- \
   --diagnostics
 ```
 
-### Shared-Memory `shmsink` Source
+### Shared-memory `shmsink` source
 
-This exercises:
+Exercises
+`GStreamer videotestsrc -> encoder -> shmsink -> shmsrc -> GStreamerAppSinkEncodedSource -> VideoCaptureTrack`.
 
-`GStreamer videotestsrc -> encoder -> shmsink -> shmsrc -> GStreamerAppSinkEncodedSource -> VideoCaptureTrack`
-
-Start the producer:
+Start the producer, then publish by connecting the `shmsink` source to that
+socket:
 
 ```sh
 examples/preencode_publish/scripts/run-shm-test-source.sh \
   --codec h264 \
   --socket-path /tmp/livekit-preencode-h264.shm
 ```
-
-Publish by connecting the first-class `shmsink` source to that socket:
 
 ```sh
 cargo run -p preencode_publish --features gstreamer -- \
@@ -229,12 +200,8 @@ cargo run -p preencode_publish --features gstreamer -- \
   --diagnostics
 ```
 
-For H.265, use `--codec h265`, a different socket path if desired, and
-the same `--source shmsink` command shape.
-
-For VP8/VP9, use `--codec vp8` or `--codec vp9`. For AV1, the producer script
-parses to low-overhead temporal units before `shmsink`, and the `shmsink`
-source adds the matching AV1 appsink caps:
+For H.265, VP8, or VP9, use the same command shape with the matching `--codec`
+(and a different socket path if desired). 
 
 ```sh
 cargo run -p preencode_publish --features gstreamer -- \
@@ -251,18 +218,15 @@ cargo run -p preencode_publish --features gstreamer -- \
 
 ### RTSP source
 
-This exercises:
+Exercises
+`GStreamer videotestsrc -> encoder -> RTP payloader -> gst-rtsp-server -> RtspEncodedSource -> VideoCaptureTrack`.
 
-`GStreamer videotestsrc -> encoder -> RTP payloader -> gst-rtsp-server -> RtspEncodedSource -> VideoCaptureTrack`
-
-Start the RTSP server. The script uses the `test-launch` tool from
-`gst-rtsp-server` and serves `/test`:
+Start the RTSP server (the script uses the `test-launch` tool from
+`gst-rtsp-server` and serves `/test`), then publish:
 
 ```sh
 examples/preencode_publish/scripts/run-rtsp-test-source.sh --codec h264 --port 8555
 ```
-
-Publish the RTSP source:
 
 ```sh
 cargo run -p preencode_publish -- \
@@ -277,11 +241,9 @@ cargo run -p preencode_publish -- \
   --diagnostics
 ```
 
-For H.265, use `--codec h265` in both commands.
-
-For VP8, VP9, or AV1, use `--codec vp8`, `--codec vp9`, or `--codec av1` in
-both commands. The RTSP fixture switches to `rtpvp8pay`, `rtpvp9pay`, or
-`rtpav1pay` automatically.
+For H.265, use `--codec h265` in both commands. For VP8, VP9, or AV1, use the
+matching `--codec` in both commands; the RTSP fixture switches to `rtpvp8pay`,
+`rtpvp9pay`, or `rtpav1pay` automatically.
 
 Publisher-side success signs are a successful room connection, a
 `Published pre-encoded ... track at 1280x720` log line, and diagnostics near
