@@ -272,7 +272,8 @@ pub(super) fn update_info(
     }
 
     info.client_protocol = new_info.client_protocol;
-    info.capabilities = new_info.capabilities.iter().map(|&c| ClientCapability::from(c)).collect();
+    info.capabilities =
+        new_info.capabilities.iter().filter_map(|&c| ClientCapability::try_from(c).ok()).collect();
 }
 
 pub(super) fn set_speaking(

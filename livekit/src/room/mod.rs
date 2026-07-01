@@ -577,7 +577,7 @@ impl Room {
             e2ee_manager.encryption_type(),
             pi.permission,
             pi.client_protocol,
-            pi.capabilities.iter().map(|&c| ClientCapability::from(c)).collect(),
+            pi.capabilities.iter().filter_map(|&c| ClientCapability::try_from(c).ok()).collect(),
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
@@ -762,7 +762,10 @@ impl Room {
                     pi.joined_at_ms,
                     pi.permission,
                     pi.client_protocol,
-                    pi.capabilities.iter().map(|&c| ClientCapability::from(c)).collect(),
+                    pi.capabilities
+                        .iter()
+                        .filter_map(|&c| ClientCapability::try_from(c).ok())
+                        .collect(),
                 )
             };
             participant.update_info(pi.clone());
@@ -1199,7 +1202,10 @@ impl RoomSession {
                         pi.joined_at_ms,
                         pi.permission,
                         pi.client_protocol,
-                        pi.capabilities.iter().map(|&c| ClientCapability::from(c)).collect(),
+                        pi.capabilities
+                            .iter()
+                            .filter_map(|&c| ClientCapability::try_from(c).ok())
+                            .collect(),
                     )
                 };
 
