@@ -76,3 +76,13 @@ jobs:
       tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
+
+  # Raw cdylibs for the Dart package's build-hook download (build-<triple>.zip).
+  cdylib:
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.tag_name != ''
+    uses: ./.github/workflows/uniffi-cdylib.yml
+    with:
+      version: ${{ needs.resolve-tag.outputs.version }}
+      tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
+      dry_run: ${{ inputs.dry_run || false }}

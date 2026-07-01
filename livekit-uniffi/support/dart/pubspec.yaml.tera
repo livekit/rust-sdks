@@ -1,0 +1,20 @@
+name: {{ DART_PACKAGE_NAME }}
+description: Dart bindings for the LiveKit UniFFI interface.
+version: {{ CARGO_MAKE_CRATE_VERSION }}
+publish_to: none
+
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  ffi: ^2.1.0
+
+dev_dependencies:
+  # Native Assets build-hook support. `any` tracks the SDK-bundled versions.
+  code_assets: any
+  hooks: any
+  # Used by hook/build.dart to download and verify prebuilt libraries.
+  archive: ^4.0.0
+  crypto: ^3.0.0
+  http: ^1.2.0
+  test: ^1.25.0
