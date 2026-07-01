@@ -653,6 +653,36 @@ pub struct DataTrackSubscriptionOptions {
     #[prost(uint32, optional, tag="1")]
     pub target_fps: ::core::option::Option<u32>,
 }
+/// Key used to uniquely identify a data blob for storage and retrieval.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataBlobKey {
+    #[prost(oneof="data_blob_key::Key", tags="1")]
+    pub key: ::core::option::Option<data_blob_key::Key>,
+}
+/// Nested message and enum types in `DataBlobKey`.
+pub mod data_blob_key {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Key {
+        /// Generic string key, blob contains arbitrary data.
+        ///
+        /// Add additional key types here for storing specific types of blobs.
+        #[prost(string, tag="1")]
+        Generic(::prost::alloc::string::String),
+    }
+}
+/// A blob of data stored in a room identified by a unique key.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataBlob {
+    /// Unique key the data blob is identified by.
+    #[prost(message, optional, tag="1")]
+    pub key: ::core::option::Option<DataBlobKey>,
+    /// Contents of the data blob. This must not exceed 50 KB.
+    #[prost(bytes="vec", tag="2")]
+    pub contents: ::prost::alloc::vec::Vec<u8>,
+}
 /// provide information about available spatial layers
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3551,7 +3581,7 @@ impl AudioMixing {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalRequest {
-    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
+    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
     pub message: ::core::option::Option<signal_request::Message>,
 }
 /// Nested message and enum types in `SignalRequest`.
@@ -3619,12 +3649,18 @@ pub mod signal_request {
         /// Update subscription state for one or more data tracks
         #[prost(message, tag="21")]
         UpdateDataSubscription(super::UpdateDataSubscription),
+        /// Store a data blob.
+        #[prost(message, tag="22")]
+        StoreDataBlobRequest(super::StoreDataBlobRequest),
+        /// Retrieve a stored data blob.
+        #[prost(message, tag="23")]
+        GetDataBlobRequest(super::GetDataBlobRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
+    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3719,6 +3755,12 @@ pub mod signal_response {
         /// Sent to data track subscribers to provide mapping from track SIDs to handles.
         #[prost(message, tag="29")]
         DataTrackSubscriberHandles(super::DataTrackSubscriberHandles),
+        /// Sent in response to `StoreDataBlobRequest`.
+        #[prost(message, tag="30")]
+        StoreDataBlobResponse(super::StoreDataBlobResponse),
+        /// Sent in response to `GetDataBlobRequest`.
+        #[prost(message, tag="31")]
+        GetDataBlobResponse(super::GetDataBlobResponse),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3976,6 +4018,43 @@ pub mod update_data_subscription {
         #[prost(message, optional, tag="3")]
         pub options: ::core::option::Option<super::DataTrackSubscriptionOptions>,
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StoreDataBlobRequest {
+    #[prost(uint32, tag="1")]
+    pub request_id: u32,
+    #[prost(message, optional, tag="2")]
+    pub blob: ::core::option::Option<DataBlob>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StoreDataBlobResponse {
+    #[prost(uint32, tag="1")]
+    pub request_id: u32,
+    /// Unique key the data blob was stored under.
+    #[prost(message, optional, tag="2")]
+    pub key: ::core::option::Option<DataBlobKey>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataBlobRequest {
+    #[prost(uint32, tag="1")]
+    pub request_id: u32,
+    /// Identity of the participant who owns the blob.
+    #[prost(string, tag="2")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Unique key of the data blob to retrieve.
+    #[prost(message, optional, tag="3")]
+    pub key: ::core::option::Option<DataBlobKey>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetDataBlobResponse {
+    #[prost(uint32, tag="1")]
+    pub request_id: u32,
+    #[prost(message, optional, tag="2")]
+    pub blob: ::core::option::Option<DataBlob>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4387,6 +4466,7 @@ pub mod request_response {
         InvalidName = 8,
         DuplicateHandle = 9,
         DuplicateName = 10,
+        InvalidRequest = 11,
     }
     impl Reason {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -4406,6 +4486,7 @@ pub mod request_response {
                 Reason::InvalidName => "INVALID_NAME",
                 Reason::DuplicateHandle => "DUPLICATE_HANDLE",
                 Reason::DuplicateName => "DUPLICATE_NAME",
+                Reason::InvalidRequest => "INVALID_REQUEST",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -4422,6 +4503,7 @@ pub mod request_response {
                 "INVALID_NAME" => Some(Self::InvalidName),
                 "DUPLICATE_HANDLE" => Some(Self::DuplicateHandle),
                 "DUPLICATE_NAME" => Some(Self::DuplicateName),
+                "INVALID_REQUEST" => Some(Self::InvalidRequest),
                 _ => None,
             }
         }

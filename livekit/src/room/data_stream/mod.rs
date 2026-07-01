@@ -14,6 +14,7 @@
 
 use chrono::{DateTime, Utc};
 use libwebrtc::enum_dispatch;
+use libwebrtc::native::create_random_uuid;
 use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -75,6 +76,12 @@ pub enum StreamError {
 
     #[error("encryption type mismatch")]
     EncryptionTypeMismatch,
+
+    #[error("stream header exceeds maximum size")]
+    HeaderTooLarge,
+
+    #[error("decompression failed")]
+    Decompression,
 }
 
 /// Progress of a data stream.
@@ -114,6 +121,12 @@ pub struct ByteStreamInfo {
     pub name: String,
     /// The encryption used
     pub encryption_type: EncryptionType,
+    /// Test-only: expose whether the byte stream was compressed or not.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_compressed: bool,
+    /// Test-only: expose whether the byte stream was sent inline on the header packet
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_inline: bool,
 }
 
 /// Information about a text data stream.
@@ -138,6 +151,12 @@ pub struct TextStreamInfo {
     pub generated: bool,
     /// The encryption used
     pub encryption_type: EncryptionType,
+    /// Test-only: expose whether the byte stream was compressed or not.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_compressed: bool,
+    /// Test-only: expose whether the byte stream was sent inline on the header packet
+    #[cfg(feature = "__lk-e2e-test")]
+    pub is_inline: bool,
 }
 
 /// Operation type for text streams.
@@ -191,6 +210,11 @@ impl ByteStreamInfo {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
+            #[cfg(feature = "__lk-e2e-test")]
+            is_compressed: header.compression() != proto::CompressionType::None,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_inline: !header.inline_content().is_empty(),
+
             id: header.stream_id,
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
@@ -215,6 +239,11 @@ impl TextStreamInfo {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
+            #[cfg(feature = "__lk-e2e-test")]
+            is_compressed: header.compression() != proto::CompressionType::None,
+            #[cfg(feature = "__lk-e2e-test")]
+            is_inline: !header.inline_content().is_empty(),
+
             id: header.stream_id,
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)

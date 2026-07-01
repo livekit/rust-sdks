@@ -57,18 +57,26 @@ const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
 /// Capabilities the Rust SDK advertises to the SFU at connect time.
-const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
-    &[proto::client_info::Capability::CapPacketTrailer];
+///
+/// `CapCompressionDeflateRaw` is always advertised because the SDK's deflate-raw codec
+/// (flate2/miniz_oxide) is pure-Rust and compiled in unconditionally.
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] = &[
+    proto::client_info::Capability::CapPacketTrailer,
+    proto::client_info::Capability::CapCompressionDeflateRaw,
+];
 
 /// Default value for `ClientInfo.client_protocol` when a participant has not
 /// advertised one (treat as v1-only / no data-stream RPC support).
 pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
 /// `ClientInfo.client_protocol` value indicating support for RPC v2 over data streams.
 pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
+/// `ClientInfo.client_protocol` value indicating support for data streams v2
+/// (inline single-packet sends; compression is gated separately via capabilities).
+pub const CLIENT_PROTOCOL_DATA_STREAM_V2: i32 = 2;
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.
-const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
+const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_V2;
 
 #[derive(Error, Debug)]
 pub enum SignalError {

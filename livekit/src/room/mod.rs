@@ -48,7 +48,7 @@ use tokio::sync::{
 pub use self::{
     data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
-    participant::{ParticipantKind, ParticipantKindDetail, ParticipantState},
+    participant::{ClientCapability, ParticipantKind, ParticipantKindDetail, ParticipantState},
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
@@ -577,6 +577,7 @@ impl Room {
             e2ee_manager.encryption_type(),
             pi.permission,
             pi.client_protocol,
+            pi.capabilities.iter().filter_map(|&c| ClientCapability::try_from(c).ok()).collect(),
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
@@ -759,6 +760,10 @@ impl Room {
                     pi.joined_at_ms,
                     pi.permission,
                     pi.client_protocol,
+                    pi.capabilities
+                        .iter()
+                        .filter_map(|&c| ClientCapability::try_from(c).ok())
+                        .collect(),
                 )
             };
             participant.update_info(pi.clone());
@@ -1195,6 +1200,10 @@ impl RoomSession {
                         pi.joined_at_ms,
                         pi.permission,
                         pi.client_protocol,
+                        pi.capabilities
+                            .iter()
+                            .filter_map(|&c| ClientCapability::try_from(c).ok())
+                            .collect(),
                     )
                 };
 
@@ -2000,6 +2009,7 @@ impl RoomSession {
         joined_at: i64,
         permission: Option<proto::ParticipantPermission>,
         client_protocol: i32,
+        capabilities: Vec<ClientCapability>,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
@@ -2015,6 +2025,7 @@ impl RoomSession {
             self.options.auto_subscribe,
             permission,
             client_protocol,
+            capabilities,
         );
 
         participant.on_track_published({
@@ -2230,6 +2241,20 @@ impl RoomSession {
                 },
             }
         }
+    }
+}
+
+impl rpc::RemoteParticipantRegistry for RoomSession {
+    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
+        self.get_remote_client_protocol(identity)
+    }
+
+    fn remote_capabilities(&self, identity: &ParticipantIdentity) -> Vec<ClientCapability> {
+        self.remote_participants.read().get(identity).map(|p| p.capabilities()).unwrap_or_default()
+    }
+
+    fn remote_identities(&self) -> Vec<ParticipantIdentity> {
+        self.remote_participants.read().keys().cloned().collect()
     }
 }
 
