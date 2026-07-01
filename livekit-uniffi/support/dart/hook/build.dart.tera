@@ -90,13 +90,19 @@ Future<Uri> _resolveLibrary(
   return libFile.uri;
 }
 
+// `http.get` has no default timeout, so a hung release host would stall the
+// build hook indefinitely; cap each request instead.
+const _httpTimeout = Duration(seconds: 60);
+
 Future<List<int>> _downloadAndVerify(Uri zipUrl) async {
-  final zipResp = await http.get(zipUrl);
-  if (zipResp.statusCode != 200) {
+  final zipResp = await http.get(zipUrl).timeout(_httpTimeout);
+  if (!_isSuccess(zipResp.statusCode)) {
     throw Exception('Failed to download $zipUrl: HTTP ${zipResp.statusCode}');
   }
-  final shaResp = await http.get(Uri.parse('$zipUrl.sha256'));
-  if (shaResp.statusCode != 200) {
+  final shaResp = await http
+      .get(Uri.parse('$zipUrl.sha256'))
+      .timeout(_httpTimeout);
+  if (!_isSuccess(shaResp.statusCode)) {
     throw Exception(
       'Failed to download checksum for $zipUrl: HTTP ${shaResp.statusCode}',
     );
@@ -111,6 +117,9 @@ Future<List<int>> _downloadAndVerify(Uri zipUrl) async {
   }
   return zipResp.bodyBytes;
 }
+
+// Accept any 2xx so redirect-normalized or CDN responses aren't rejected.
+bool _isSuccess(int statusCode) => statusCode >= 200 && statusCode < 300;
 
 String _libFileName(OS os) {
   if (os == OS.windows) return '$_cdylibName.dll';
