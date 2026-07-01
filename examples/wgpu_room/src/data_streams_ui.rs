@@ -120,8 +120,8 @@ impl DataStreamsUiState {
             return;
         };
         service.runtime().spawn(async move {
-            let compressed = reader.info().compressed;
-            let inline = reader.info().inline;
+            let compressed = false; // FIXME: remove this   reader.info().compressed;
+            let inline = false; // FIXME: remove this   reader.info().inline;
             let (size, preview) = match reader.read_all().await {
                 Ok(text) => (text.as_bytes().len(), truncate_chars(&text, PREVIEW_CHARS)),
                 Err(e) => (0, format!("<error: {}>", e)),
@@ -145,8 +145,8 @@ impl DataStreamsUiState {
             return;
         };
         service.runtime().spawn(async move {
-            let compressed = reader.info().compressed;
-            let inline = reader.info().inline;
+            let compressed = false; // FIXME: remove this   reader.info().compressed;
+            let inline = false; // FIXME: remove this   reader.info().inline;
             let (size, preview) = match reader.read_all().await {
                 Ok(data) => (data.len(), bytes_preview(data.as_ref())),
                 Err(e) => (0, format!("<error: {}>", e)),
