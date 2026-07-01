@@ -27129,6 +27129,9 @@ impl serde::Serialize for MetricsRecordingHeader {
         if self.room_start_time.is_some() {
             len += 1;
         }
+        if !self.job_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.MetricsRecordingHeader", len)?;
         if !self.room_id.is_empty() {
             struct_ser.serialize_field("roomId", &self.room_id)?;
@@ -27149,6 +27152,9 @@ impl serde::Serialize for MetricsRecordingHeader {
         }
         if let Some(v) = self.room_start_time.as_ref() {
             struct_ser.serialize_field("roomStartTime", v)?;
+        }
+        if !self.job_id.is_empty() {
+            struct_ser.serialize_field("jobId", &self.job_id)?;
         }
         struct_ser.end()
     }
@@ -27171,6 +27177,8 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
             "roomName",
             "room_start_time",
             "roomStartTime",
+            "job_id",
+            "jobId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -27181,6 +27189,7 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
             RoomTags,
             RoomName,
             RoomStartTime,
+            JobId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -27209,6 +27218,7 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                             "roomTags" | "room_tags" => Ok(GeneratedField::RoomTags),
                             "roomName" | "room_name" => Ok(GeneratedField::RoomName),
                             "roomStartTime" | "room_start_time" => Ok(GeneratedField::RoomStartTime),
+                            "jobId" | "job_id" => Ok(GeneratedField::JobId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -27234,6 +27244,7 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                 let mut room_tags__ = None;
                 let mut room_name__ = None;
                 let mut room_start_time__ = None;
+                let mut job_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RoomId => {
@@ -27276,6 +27287,12 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                             }
                             room_start_time__ = map_.next_value()?;
                         }
+                        GeneratedField::JobId => {
+                            if job_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("jobId"));
+                            }
+                            job_id__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -27288,6 +27305,7 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                     room_tags: room_tags__.unwrap_or_default(),
                     room_name: room_name__.unwrap_or_default(),
                     room_start_time: room_start_time__,
+                    job_id: job_id__.unwrap_or_default(),
                 })
             }
         }

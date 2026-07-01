@@ -94,6 +94,8 @@ pub struct MetricsRecordingHeader {
     pub room_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="7")]
     pub room_start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(string, tag="8")]
+    pub job_id: ::prost::alloc::string::String,
 }
 //
 // Protocol used to record metrics for a specific session.
