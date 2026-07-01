@@ -406,7 +406,7 @@ impl OutgoingStreamManager {
 
         // 1. Inline single-packet attempt (no attachments; all recipients are v2).
         if eligibility.inline && options.attached_stream_ids.is_empty() {
-            let (content, compression) = maybe_compress_inline(payload, compress_ok);
+            let (content, compression) = maybe_compress(payload, compress_ok);
             let (header, text_header) = build_text_header(
                 &options,
                 stream_id.clone(),
@@ -476,7 +476,7 @@ impl OutgoingStreamManager {
 
         // 1. Inline single-packet attempt (all recipients are v2).
         if eligibility.inline {
-            let (content, compression) = maybe_compress_inline(bytes, compress_ok);
+            let (content, compression) = maybe_compress(bytes, compress_ok);
             let (header, byte_header) = build_byte_header(
                 &options,
                 stream_id.clone(),
@@ -492,9 +492,9 @@ impl OutgoingStreamManager {
             }
         }
 
-        // 2/3. Chunked, compressed when eligible else uncompressed.
-        let compression =
-            if compress_ok { CompressionType::DeflateRaw } else { CompressionType::None };
+        // 2/3. Chunked. Compress only when eligible AND it actually shrinks the payload.
+        // Decide compression before building the header so its flag matches what is written.
+        let (payload, compression) = maybe_compress(bytes, compress_ok);
         let (header, byte_header) =
             build_byte_header(&options, stream_id, name, Some(total_length), None, compression);
         enforce_header_size(&header, &dests)?;
@@ -506,11 +506,7 @@ impl OutgoingStreamManager {
         };
         let info = ByteStreamInfo::from_headers(header, byte_header);
         let mut stream = RawStream::open(open_options).await?;
-        if compress_ok {
-            stream.write_raw_chunks(&deflate_raw(bytes)).await?;
-        } else {
-            stream.write_raw_chunks(bytes).await?;
-        }
+        stream.write_raw_chunks(&payload).await?;
         stream.close(None).await?;
         Ok(info)
     }
@@ -585,9 +581,9 @@ fn evaluate_eligibility(
     SendEligibility { inline, compression }
 }
 
-/// Returns the inline payload and its compression flag: deflate-raw compressed when
+/// Returns the payload and its compression flag: deflate-raw compressed when
 /// `compress` is set AND the compressed form is actually smaller, else the raw bytes.
-fn maybe_compress_inline(payload: &[u8], compress: bool) -> (Vec<u8>, CompressionType) {
+fn maybe_compress(payload: &[u8], compress: bool) -> (Vec<u8>, CompressionType) {
     if compress {
         let compressed = deflate_raw(payload);
         if compressed.len() < payload.len() {

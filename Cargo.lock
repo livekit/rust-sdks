@@ -3837,6 +3837,7 @@ dependencies = [
  "log",
  "parking_lot",
  "prost 0.12.6",
+ "rand 0.9.3",
  "semver",
  "serde",
  "serde_json",
