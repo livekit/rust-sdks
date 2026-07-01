@@ -17,8 +17,8 @@ use {
     crate::common::test_rooms,
     anyhow::{anyhow, Ok, Result},
     chrono::{TimeDelta, Utc},
-    libwebrtc::native::create_random_uuid,
     livekit::{RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions},
+    rand::{rngs::StdRng, RngCore, SeedableRng},
     std::time::Duration,
     tokio::{time::timeout, try_join},
 };
@@ -47,7 +47,7 @@ async fn test_send_bytes() -> Result<()> {
         assert!(stream_info.total_length.is_some());
         assert_eq!(stream_info.mime_type, "application/octet-stream");
         assert_eq!(stream_info.topic, "some-topic");
-        assert_eq!(stream_info.is_compressed, false);
+        assert_eq!(stream_info.is_compressed, true);
         assert_eq!(stream_info.is_inline, true);
 
         Ok(())
@@ -125,7 +125,11 @@ async fn test_send_large_incompressible_random_bytes() -> Result<()> {
     let (sending_room, _) = rooms.pop().unwrap();
     let (_, mut receiving_event_rx) = rooms.pop().unwrap();
 
-    let payload: Vec<u8> = (0..50_000).flat_map(|_| create_random_uuid().into_bytes()).collect();
+    // Uniform random bytes are genuinely incompressible: deflate cannot shrink them, so the
+    // send path must choose CompressionType::None. Seeded for a deterministic, reproducible test.
+    let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+    let mut payload = vec![0u8; 1_800_000];
+    rng.fill_bytes(&mut payload);
     let expected = payload.clone();
 
     let send = async move {
@@ -167,7 +171,7 @@ async fn test_send_large_bytes() -> Result<()> {
         let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, true);
-        assert_eq!(stream_info.is_inline, false);
+        assert_eq!(stream_info.is_inline, true);
         Ok(())
     };
     let receive = async move {
