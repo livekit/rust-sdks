@@ -16,6 +16,6 @@ gstreamer = { workspace = true, optional = true }
 gstreamer-app = { workspace = true, optional = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-livekit-capture = { workspace = true, features = ["rtsp", "tcp-source"] }
+livekit-capture = { workspace = true, features = ["rtsp", "tcpsink"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

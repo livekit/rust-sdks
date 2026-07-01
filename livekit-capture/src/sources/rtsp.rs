@@ -383,7 +383,7 @@ pub enum RtspSourceError {
     #[error("unsupported RTSP authentication scheme: {0}")]
     UnsupportedAuthScheme(String),
     /// SDP was missing a supported video track.
-    #[error("RTSP SDP does not contain a supported H264/H265 video track")]
+    #[error("RTSP SDP does not contain a supported video track")]
     MissingVideoTrack,
     /// SDP selected a codec different from the requested codec.
     #[error("RTSP SDP codec mismatch: expected {expected:?}, got {actual:?}")]
@@ -1016,6 +1016,12 @@ fn parse_sdp_codec(codec_name: &str) -> Option<EncodedVideoCodec> {
         Some(EncodedVideoCodec::H264)
     } else if codec_name.eq_ignore_ascii_case("H265") || codec_name.eq_ignore_ascii_case("HEVC") {
         Some(EncodedVideoCodec::H265)
+    } else if codec_name.eq_ignore_ascii_case("VP8") {
+        Some(EncodedVideoCodec::VP8)
+    } else if codec_name.eq_ignore_ascii_case("VP9") {
+        Some(EncodedVideoCodec::VP9)
+    } else if codec_name.eq_ignore_ascii_case("AV1") {
+        Some(EncodedVideoCodec::AV1)
     } else {
         None
     }
@@ -1157,6 +1163,51 @@ a=rtpmap:96 H264/90000\r\n";
         assert_eq!(track.payload_type, 96);
         assert_eq!(track.clock_rate, 90_000);
         assert_eq!(track.control_url, "rtsp://camera.example/live/trackID=1");
+    }
+
+    #[test]
+    fn parses_vp8_vp9_and_av1_sdp_video_tracks() {
+        let base_url = RtspUrl::parse("rtsp://camera.example/live").unwrap();
+
+        for (rtpmap, codec) in [
+            ("VP8/90000", EncodedVideoCodec::VP8),
+            ("VP9/90000", EncodedVideoCodec::VP9),
+            ("AV1/90000", EncodedVideoCodec::AV1),
+        ] {
+            let sdp = format!(
+                "\
+v=0\r\n\
+m=video 0 RTP/AVP 96\r\n\
+a=control:trackID=1\r\n\
+a=rtpmap:96 {rtpmap}\r\n"
+            );
+
+            let track = parse_sdp_video_track(&base_url, &sdp, Some(codec)).unwrap();
+
+            assert_eq!(track.codec, codec);
+            assert_eq!(track.payload_type, 96);
+            assert_eq!(track.clock_rate, 90_000);
+        }
+    }
+
+    #[test]
+    fn rejects_sdp_codec_mismatch_for_vpx_av1() {
+        let base_url = RtspUrl::parse("rtsp://camera.example/live").unwrap();
+        let sdp = "\
+v=0\r\n\
+m=video 0 RTP/AVP 96\r\n\
+a=control:trackID=1\r\n\
+a=rtpmap:96 VP9/90000\r\n";
+
+        let err = parse_sdp_video_track(&base_url, sdp, Some(EncodedVideoCodec::AV1)).unwrap_err();
+
+        assert!(matches!(
+            err,
+            RtspSourceError::CodecMismatch {
+                expected: EncodedVideoCodec::AV1,
+                actual: EncodedVideoCodec::VP9
+            }
+        ));
     }
 
     #[test]

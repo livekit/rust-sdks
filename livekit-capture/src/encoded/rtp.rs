@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bytes::Bytes;
 use thiserror::Error;
 
 use crate::{
-    encoded::{h26x::access_unit_from_nalus, EncodedVideoCodec, OwnedEncodedAccessUnit},
+    encoded::{
+        h26x::access_unit_from_nalus, CodecSpecific, EncodedFrameType, EncodedVideoCodec,
+        OwnedEncodedAccessUnit,
+    },
     error::CaptureError,
 };
 
@@ -143,6 +147,9 @@ pub enum RtpDepacketizerError {
     /// RTP fragmentation state was invalid.
     #[error("invalid RTP fragmentation sequence")]
     InvalidFragment,
+    /// The payload descriptor is unsupported by the single-layer depacketizer.
+    #[error("unsupported RTP payload descriptor")]
+    UnsupportedPayloadDescriptor,
     /// Codec is not supported by this RTP assembler.
     #[error("RTP assembler does not support {0:?}")]
     UnsupportedCodec(EncodedVideoCodec),
@@ -161,6 +168,8 @@ pub struct RtpAccessUnitAssembler {
     expected_sequence_number: Option<u16>,
     current: Option<PartialAccessUnit>,
     fragment: Option<FragmentState>,
+    current_frame: Option<PartialFrame>,
+    av1_fragment: Option<Av1FragmentState>,
 }
 
 #[derive(Debug, Clone)]
@@ -176,8 +185,22 @@ struct FragmentState {
     nal_unit: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
+struct PartialFrame {
+    rtp_timestamp: u32,
+    timestamp_us: i64,
+    payload: Vec<u8>,
+    frame_type: Option<EncodedFrameType>,
+}
+
+#[derive(Debug, Clone)]
+struct Av1FragmentState {
+    rtp_timestamp: u32,
+    obu: Vec<u8>,
+}
+
 impl RtpAccessUnitAssembler {
-    /// Creates an RTP access-unit assembler for H.264 or H.265 payloads.
+    /// Creates an RTP access-unit assembler for supported video payloads.
     pub fn new(
         codec: EncodedVideoCodec,
         clock_rate: u32,
@@ -185,12 +208,6 @@ impl RtpAccessUnitAssembler {
         width: u32,
         height: u32,
     ) -> Result<Self, RtpDepacketizerError> {
-        match codec {
-            EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => {}
-            EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-                return Err(RtpDepacketizerError::UnsupportedCodec(codec));
-            }
-        }
         if clock_rate == 0 {
             return Err(RtpDepacketizerError::InvalidClockRate);
         }
@@ -203,6 +220,8 @@ impl RtpAccessUnitAssembler {
             expected_sequence_number: None,
             current: None,
             fragment: None,
+            current_frame: None,
+            av1_fragment: None,
         })
     }
 
@@ -225,12 +244,23 @@ impl RtpAccessUnitAssembler {
         match self.codec {
             EncodedVideoCodec::H264 => self.push_h264_payload(&packet)?,
             EncodedVideoCodec::H265 => self.push_h265_payload(&packet)?,
-            EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-                return Err(RtpDepacketizerError::UnsupportedCodec(self.codec));
-            }
+            EncodedVideoCodec::VP8 => self.push_vp8_payload(&packet)?,
+            EncodedVideoCodec::VP9 => self.push_vp9_payload(&packet)?,
+            EncodedVideoCodec::AV1 => self.push_av1_payload(&packet)?,
         }
 
         if packet.marker {
+            if self.codec == EncodedVideoCodec::AV1 && self.av1_fragment.is_some() {
+                self.current_frame = None;
+                self.av1_fragment = None;
+                return Err(RtpDepacketizerError::InvalidFragment);
+            }
+            if matches!(
+                self.codec,
+                EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1
+            ) {
+                return self.finish_current_frame();
+            }
             return self.finish_current();
         }
         Ok(None)
@@ -247,6 +277,8 @@ impl RtpAccessUnitAssembler {
 
         self.current = None;
         self.fragment = None;
+        self.current_frame = None;
+        self.av1_fragment = None;
         Err(RtpDepacketizerError::SequenceGap { expected, actual: sequence_number })
     }
 
@@ -266,6 +298,29 @@ impl RtpAccessUnitAssembler {
         }
 
         self.current.as_mut().ok_or(RtpDepacketizerError::InvalidFragment)
+    }
+
+    fn current_frame_mut(
+        &mut self,
+        rtp_timestamp: u32,
+    ) -> Result<&mut PartialFrame, RtpDepacketizerError> {
+        if self.current_frame.as_ref().is_some_and(|current| current.rtp_timestamp != rtp_timestamp)
+        {
+            self.current_frame = None;
+            self.av1_fragment = None;
+        }
+
+        if self.current_frame.is_none() {
+            let timestamp_us = self.timestamp_mapper.map(rtp_timestamp)?;
+            self.current_frame = Some(PartialFrame {
+                rtp_timestamp,
+                timestamp_us,
+                payload: Vec::new(),
+                frame_type: None,
+            });
+        }
+
+        self.current_frame.as_mut().ok_or(RtpDepacketizerError::InvalidFragment)
     }
 
     fn push_h264_payload(&mut self, packet: &RtpPacket<'_>) -> Result<(), RtpDepacketizerError> {
@@ -426,6 +481,107 @@ impl RtpAccessUnitAssembler {
         Ok(())
     }
 
+    fn push_vp8_payload(&mut self, packet: &RtpPacket<'_>) -> Result<(), RtpDepacketizerError> {
+        let descriptor = parse_vp8_payload_descriptor(packet.payload)?;
+        if descriptor.payload.is_empty() {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        }
+
+        let frame = self.current_frame_mut(packet.timestamp)?;
+        if frame.payload.is_empty() {
+            if !descriptor.start_of_partition || descriptor.partition_id != 0 {
+                self.current_frame = None;
+                return Err(RtpDepacketizerError::InvalidFragment);
+            }
+            frame.frame_type = Some(if is_vp8_keyframe(descriptor.payload) {
+                EncodedFrameType::Key
+            } else {
+                EncodedFrameType::Delta
+            });
+        }
+        frame.payload.extend_from_slice(descriptor.payload);
+        Ok(())
+    }
+
+    fn push_vp9_payload(&mut self, packet: &RtpPacket<'_>) -> Result<(), RtpDepacketizerError> {
+        let descriptor = parse_vp9_payload_descriptor(packet.payload)?;
+        if descriptor.payload.is_empty() {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        }
+        if descriptor.spatial_id.unwrap_or(0) != 0
+            || descriptor.inter_layer_predicted.unwrap_or(false)
+        {
+            return Err(RtpDepacketizerError::UnsupportedPayloadDescriptor);
+        }
+
+        let frame = self.current_frame_mut(packet.timestamp)?;
+        if frame.payload.is_empty() {
+            if !descriptor.beginning_of_frame {
+                self.current_frame = None;
+                return Err(RtpDepacketizerError::InvalidFragment);
+            }
+            frame.frame_type = Some(
+                if !descriptor.inter_picture_predicted || is_vp9_keyframe(descriptor.payload) {
+                    EncodedFrameType::Key
+                } else {
+                    EncodedFrameType::Delta
+                },
+            );
+        }
+        frame.payload.extend_from_slice(descriptor.payload);
+        Ok(())
+    }
+
+    fn push_av1_payload(&mut self, packet: &RtpPacket<'_>) -> Result<(), RtpDepacketizerError> {
+        let descriptor = parse_av1_payload_descriptor(packet.payload)?;
+        if descriptor.elements.is_empty() {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        }
+
+        let mut saw_sequence_header = descriptor.new_sequence;
+        let last_index = descriptor.elements.len() - 1;
+        for (index, element) in descriptor.elements.iter().enumerate() {
+            if element.is_empty() {
+                return Err(RtpDepacketizerError::UnsupportedPayload);
+            }
+
+            let obu = if index == 0 && descriptor.starts_fragment {
+                let mut fragment = self
+                    .av1_fragment
+                    .take()
+                    .filter(|fragment| fragment.rtp_timestamp == packet.timestamp)
+                    .ok_or(RtpDepacketizerError::InvalidFragment)?
+                    .obu;
+                fragment.extend_from_slice(element);
+                fragment
+            } else {
+                if index == 0 && self.av1_fragment.is_some() {
+                    return Err(RtpDepacketizerError::InvalidFragment);
+                }
+                element.to_vec()
+            };
+
+            if index == last_index && descriptor.ends_fragment {
+                self.av1_fragment = Some(Av1FragmentState { rtp_timestamp: packet.timestamp, obu });
+                return Ok(());
+            }
+
+            let mut obu = av1_obu_from_rtp_element(&obu)?;
+            saw_sequence_header |= av1_obu_type(&obu) == Some(1);
+            let frame = self.current_frame_mut(packet.timestamp)?;
+            if frame.payload.is_empty() || saw_sequence_header {
+                frame.frame_type = Some(if saw_sequence_header {
+                    EncodedFrameType::Key
+                } else {
+                    EncodedFrameType::Delta
+                });
+            }
+            frame.payload.append(&mut obu);
+        }
+
+        Ok(())
+    }
+
     fn finish_current(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, RtpDepacketizerError> {
         let Some(current) = self.current.take() else {
             return Ok(None);
@@ -443,6 +599,347 @@ impl RtpAccessUnitAssembler {
             self.height,
         )?))
     }
+
+    fn finish_current_frame(
+        &mut self,
+    ) -> Result<Option<OwnedEncodedAccessUnit>, RtpDepacketizerError> {
+        let Some(current) = self.current_frame.take() else {
+            return Ok(None);
+        };
+        if current.payload.is_empty() {
+            return Ok(None);
+        }
+
+        let mut access_unit = OwnedEncodedAccessUnit::new(
+            self.codec,
+            Bytes::from(current.payload),
+            current.timestamp_us,
+            current.frame_type.unwrap_or(EncodedFrameType::Delta),
+            self.width,
+            self.height,
+        );
+        access_unit.codec_specific = match self.codec {
+            EncodedVideoCodec::VP8 => CodecSpecific::VP8 { temporal_id: None, layer_sync: false },
+            EncodedVideoCodec::VP9 => CodecSpecific::VP9 {
+                temporal_id: None,
+                spatial_id: None,
+                inter_layer_predicted: None,
+            },
+            EncodedVideoCodec::AV1 => CodecSpecific::AV1 {
+                scalability_mode: Some("L1T1".to_string()),
+                dependency_descriptor: None,
+            },
+            EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => CodecSpecific::None,
+        };
+        Ok(Some(access_unit))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Vp8PayloadDescriptor<'a> {
+    start_of_partition: bool,
+    partition_id: u8,
+    payload: &'a [u8],
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Vp9PayloadDescriptor<'a> {
+    beginning_of_frame: bool,
+    inter_picture_predicted: bool,
+    spatial_id: Option<u8>,
+    inter_layer_predicted: Option<bool>,
+    payload: &'a [u8],
+}
+
+#[derive(Debug, Clone)]
+struct Av1PayloadDescriptor<'a> {
+    starts_fragment: bool,
+    ends_fragment: bool,
+    new_sequence: bool,
+    elements: Vec<&'a [u8]>,
+}
+
+fn parse_vp8_payload_descriptor(
+    payload: &[u8],
+) -> Result<Vp8PayloadDescriptor<'_>, RtpDepacketizerError> {
+    let Some(&descriptor) = payload.first() else {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    };
+    let start_of_partition = descriptor & 0x10 != 0;
+    let partition_id = descriptor & 0x0f;
+    let mut cursor = 1;
+    if descriptor & 0x80 != 0 {
+        let Some(&extension) = payload.get(cursor) else {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        };
+        cursor += 1;
+        if extension & 0x80 != 0 {
+            let Some(&picture_id) = payload.get(cursor) else {
+                return Err(RtpDepacketizerError::UnsupportedPayload);
+            };
+            cursor += if picture_id & 0x80 != 0 { 2 } else { 1 };
+        }
+        if extension & 0x40 != 0 {
+            cursor += 1;
+        }
+        if extension & 0x20 != 0 || extension & 0x10 != 0 {
+            cursor += 1;
+        }
+    }
+    if cursor > payload.len() {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+    Ok(Vp8PayloadDescriptor { start_of_partition, partition_id, payload: &payload[cursor..] })
+}
+
+fn parse_vp9_payload_descriptor(
+    payload: &[u8],
+) -> Result<Vp9PayloadDescriptor<'_>, RtpDepacketizerError> {
+    let Some(&descriptor) = payload.first() else {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    };
+    if descriptor & 0x10 != 0 {
+        return Err(RtpDepacketizerError::UnsupportedPayloadDescriptor);
+    }
+
+    let beginning_of_frame = descriptor & 0x08 != 0;
+    let inter_picture_predicted = descriptor & 0x40 != 0;
+    let mut cursor = 1;
+    if descriptor & 0x80 != 0 {
+        let Some(&picture_id) = payload.get(cursor) else {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        };
+        cursor += if picture_id & 0x80 != 0 { 2 } else { 1 };
+    }
+
+    let mut spatial_id = None;
+    let mut inter_layer_predicted = None;
+    if descriptor & 0x20 != 0 {
+        let Some(&layer_info) = payload.get(cursor) else {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        };
+        cursor += 1;
+        spatial_id = Some((layer_info >> 1) & 0x07);
+        inter_layer_predicted = Some(layer_info & 0x01 != 0);
+        cursor += 1; // TL0PICIDX is present in non-flexible mode.
+    }
+
+    if descriptor & 0x02 != 0 {
+        skip_vp9_scalability_structure(payload, &mut cursor)?;
+    }
+
+    if cursor > payload.len() {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+    Ok(Vp9PayloadDescriptor {
+        beginning_of_frame,
+        inter_picture_predicted,
+        spatial_id,
+        inter_layer_predicted,
+        payload: &payload[cursor..],
+    })
+}
+
+fn skip_vp9_scalability_structure(
+    payload: &[u8],
+    cursor: &mut usize,
+) -> Result<(), RtpDepacketizerError> {
+    let Some(&structure) = payload.get(*cursor) else {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    };
+    *cursor += 1;
+
+    let spatial_layers = ((structure >> 5) & 0x07) + 1;
+    if spatial_layers != 1 {
+        return Err(RtpDepacketizerError::UnsupportedPayloadDescriptor);
+    }
+
+    if structure & 0x10 != 0 {
+        let bytes = usize::from(spatial_layers) * 4;
+        skip_bytes(payload, cursor, bytes)?;
+    }
+
+    if structure & 0x08 != 0 {
+        let Some(&group_count) = payload.get(*cursor) else {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        };
+        *cursor += 1;
+        for _ in 0..group_count {
+            let Some(&group) = payload.get(*cursor) else {
+                return Err(RtpDepacketizerError::UnsupportedPayload);
+            };
+            *cursor += 1;
+            skip_bytes(payload, cursor, usize::from((group >> 2) & 0x03))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn skip_bytes(
+    payload: &[u8],
+    cursor: &mut usize,
+    bytes: usize,
+) -> Result<(), RtpDepacketizerError> {
+    let Some(next) = cursor.checked_add(bytes) else {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    };
+    if next > payload.len() {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+    *cursor = next;
+    Ok(())
+}
+
+fn parse_av1_payload_descriptor(
+    payload: &[u8],
+) -> Result<Av1PayloadDescriptor<'_>, RtpDepacketizerError> {
+    let Some(&header) = payload.first() else {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    };
+    let starts_fragment = header & 0x80 != 0;
+    let ends_fragment = header & 0x40 != 0;
+    let element_count = (header >> 4) & 0x03;
+    let new_sequence = header & 0x08 != 0;
+
+    let mut cursor = 1;
+    let mut elements = Vec::new();
+    if element_count == 0 {
+        while cursor < payload.len() {
+            let len = read_leb128(payload, &mut cursor)?;
+            let Some(end) = cursor.checked_add(len) else {
+                return Err(RtpDepacketizerError::UnsupportedPayload);
+            };
+            if end > payload.len() {
+                return Err(RtpDepacketizerError::UnsupportedPayload);
+            }
+            elements.push(&payload[cursor..end]);
+            cursor = end;
+        }
+    } else {
+        for index in 0..usize::from(element_count) {
+            let len = if index + 1 == usize::from(element_count) {
+                payload.len().saturating_sub(cursor)
+            } else {
+                read_leb128(payload, &mut cursor)?
+            };
+            let Some(end) = cursor.checked_add(len) else {
+                return Err(RtpDepacketizerError::UnsupportedPayload);
+            };
+            if end > payload.len() {
+                return Err(RtpDepacketizerError::UnsupportedPayload);
+            }
+            elements.push(&payload[cursor..end]);
+            cursor = end;
+        }
+    }
+
+    Ok(Av1PayloadDescriptor { starts_fragment, ends_fragment, new_sequence, elements })
+}
+
+fn read_leb128(bytes: &[u8], cursor: &mut usize) -> Result<usize, RtpDepacketizerError> {
+    let mut value = 0usize;
+    let mut shift = 0usize;
+    loop {
+        let Some(&byte) = bytes.get(*cursor) else {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        };
+        *cursor += 1;
+        value |= usize::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Ok(value);
+        }
+        shift += 7;
+        if shift >= usize::BITS as usize {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        }
+    }
+}
+
+fn write_leb128(mut value: usize, out: &mut Vec<u8>) {
+    loop {
+        let mut byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if value == 0 {
+            break;
+        }
+    }
+}
+
+fn av1_obu_from_rtp_element(element: &[u8]) -> Result<Vec<u8>, RtpDepacketizerError> {
+    let Some(&header) = element.first() else {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    };
+    if header & 0x80 != 0 {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+
+    if header & 0x02 != 0 {
+        let mut cursor = if header & 0x04 != 0 { 2 } else { 1 };
+        if cursor > element.len() {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        }
+        let payload_size = read_leb128(element, &mut cursor)?;
+        if payload_size != element.len().saturating_sub(cursor) {
+            return Err(RtpDepacketizerError::UnsupportedPayload);
+        }
+        return Ok(element.to_vec());
+    }
+
+    let payload_offset = if header & 0x04 != 0 { 2 } else { 1 };
+    if payload_offset > element.len() {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+
+    let payload_size = element.len() - payload_offset;
+    let mut obu = Vec::with_capacity(element.len() + 8);
+    obu.push(header | 0x02);
+    if header & 0x04 != 0 {
+        obu.push(element[1]);
+    }
+    write_leb128(payload_size, &mut obu);
+    obu.extend_from_slice(&element[payload_offset..]);
+    Ok(obu)
+}
+
+fn is_vp8_keyframe(payload: &[u8]) -> bool {
+    payload.first().is_some_and(|header| header & 0x01 == 0)
+}
+
+fn is_vp9_keyframe(payload: &[u8]) -> bool {
+    let Some(&first_byte) = payload.first() else {
+        return false;
+    };
+    if first_byte & 0x03 != 0x02 {
+        return false;
+    }
+
+    let mut bit_offset = 2usize;
+    let profile_low = read_bit(first_byte, bit_offset);
+    bit_offset += 1;
+    let profile_high = read_bit(first_byte, bit_offset);
+    bit_offset += 1;
+    let profile = profile_low | (profile_high << 1);
+    if profile == 3 {
+        bit_offset += 1;
+    }
+    if read_bit(first_byte, bit_offset) != 0 {
+        return false;
+    }
+    bit_offset += 1;
+    read_bit(first_byte, bit_offset) == 0
+}
+
+fn read_bit(byte: u8, bit_offset: usize) -> u8 {
+    (byte >> bit_offset) & 0x01
+}
+
+fn av1_obu_type(obu: &[u8]) -> Option<u8> {
+    obu.first().map(|header| (header & 0x78) >> 3)
 }
 
 #[cfg(test)]
@@ -496,6 +993,191 @@ mod tests {
             RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x7c, 0x85, 1, 2]);
         let end = rtp_packet(12, 12_000, true, &[0x7c, 0x45, 3, 4]);
+
+        assert!(assembler.push(&start).unwrap().is_none());
+        let err = assembler.push(&end).unwrap_err();
+        assert_eq!(err, RtpDepacketizerError::SequenceGap { expected: 11, actual: 12 });
+    }
+
+    #[test]
+    fn assembles_vp8_fragments() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
+        let start = rtp_packet(10, 12_000, false, &[0x10, 0x00, 1, 2]);
+        let end = rtp_packet(11, 12_000, true, &[0x00, 3, 4]);
+
+        assert!(assembler.push(&start).unwrap().is_none());
+        let access_unit = assembler.push(&end).unwrap().unwrap();
+        assert_eq!(access_unit.codec, EncodedVideoCodec::VP8);
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x00, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn rejects_vp8_mid_frame_start() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x00, 1, 2]);
+
+        let err = assembler.push(&packet).unwrap_err();
+        assert_eq!(err, RtpDepacketizerError::InvalidFragment);
+    }
+
+    #[test]
+    fn assembles_vp9_single_layer_frame() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x0c, 0x82, 1, 2]);
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.codec, EncodedVideoCodec::VP9);
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x82, 1, 2]);
+    }
+
+    #[test]
+    fn assembles_vp9_non_flexible_layer_descriptor() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x2c, 0x10, 7, 0x82, 1, 2]);
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.codec, EncodedVideoCodec::VP9);
+        assert_eq!(access_unit.payload.as_ref(), &[0x82, 1, 2]);
+    }
+
+    #[test]
+    fn assembles_vp9_single_layer_scalability_structure() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(
+            10,
+            12_000,
+            true,
+            &[
+                0x0e, // B, E, V
+                0x18, // one spatial layer, resolution present, picture group present
+                0x01, 0x40, 0x00, 0xb4, // 320x180
+                0x01, // one picture group
+                0x04, // one reference index
+                0x01, // P_DIFF
+                0x82, 1, 2,
+            ],
+        );
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.codec, EncodedVideoCodec::VP9);
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x82, 1, 2]);
+    }
+
+    #[test]
+    fn assembles_vp9_descriptor_keyframe_from_prediction_bit() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(
+            10,
+            12_000,
+            true,
+            &[
+                0x0e, // B, E, V; P is clear, so this is not inter-picture predicted.
+                0x18, // one spatial layer, resolution present, picture group present
+                0x02, 0x80, 0x01, 0x68, // 640x360
+                0x01, // one picture group
+                0x04, // one reference index
+                0x01, // P_DIFF
+                0xb1, 1, 2,
+            ],
+        );
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0xb1, 1, 2]);
+    }
+
+    #[test]
+    fn assembles_vp9_predicted_frame_as_delta() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x4c, 0x83, 1, 2]);
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
+        assert_eq!(access_unit.payload.as_ref(), &[0x83, 1, 2]);
+    }
+
+    #[test]
+    fn rejects_vp9_multi_layer_scalability_structure() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x0e, 0x20, 0x82, 1, 2]);
+
+        let err = assembler.push(&packet).unwrap_err();
+        assert_eq!(err, RtpDepacketizerError::UnsupportedPayloadDescriptor);
+    }
+
+    #[test]
+    fn rejects_vp9_mid_frame_start() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x04, 0x82, 1, 2]);
+
+        let err = assembler.push(&packet).unwrap_err();
+        assert_eq!(err, RtpDepacketizerError::InvalidFragment);
+    }
+
+    #[test]
+    fn rejects_vp9_flexible_mode() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x1c, 0xa2, 1, 2]);
+
+        let err = assembler.push(&packet).unwrap_err();
+        assert_eq!(err, RtpDepacketizerError::UnsupportedPayloadDescriptor);
+    }
+
+    #[test]
+    fn assembles_av1_temporal_unit() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x18, 0x08]);
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.codec, EncodedVideoCodec::AV1);
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x00]);
+    }
+
+    #[test]
+    fn assembles_fragmented_av1_obu() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let start = rtp_packet(10, 12_000, false, &[0x50, 0x30, 1]);
+        let end = rtp_packet(11, 12_000, true, &[0x90, 2, 3]);
+
+        assert!(assembler.push(&start).unwrap().is_none());
+        let access_unit = assembler.push(&end).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
+        assert_eq!(access_unit.payload.as_ref(), &[0x32, 0x03, 1, 2, 3]);
+    }
+
+    #[test]
+    fn assembles_av1_obu_payload_with_size_field() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &[0x10, 0x30, 1, 2, 3]);
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
+        assert_eq!(access_unit.payload.as_ref(), &[0x32, 0x03, 1, 2, 3]);
+    }
+
+    #[test]
+    fn sequence_gap_clears_vp8_frame() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
+        let start = rtp_packet(10, 12_000, false, &[0x10, 0x00, 1, 2]);
+        let end = rtp_packet(12, 12_000, true, &[0x00, 3, 4]);
 
         assert!(assembler.push(&start).unwrap().is_none());
         let err = assembler.push(&end).unwrap_err();

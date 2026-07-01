@@ -23,14 +23,19 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/inlined_vector.h"
 #include "api/video/encoded_image.h"
 #include "api/video/video_frame.h"
+#include "api/video/video_codec_constants.h"
+#include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/video_encoder.h"
 #include "common_video/h264/h264_common.h"
+#include "jetson/jetson_av1_bitstream.h"
 #include "livekit/encoded_video_frame_buffer.h"
 #include "media/base/media_constants.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
+#include "modules/video_coding/svc/scalable_video_controller_no_layering.h"
 #include "rtc_base/logging.h"
 
 namespace livekit_ffi {
@@ -43,6 +48,9 @@ using webrtc::EncodedImageBuffer;
 using webrtc::EncodedImageCallback;
 using webrtc::Environment;
 using webrtc::H264PacketizationMode;
+using webrtc::ScalabilityMode;
+using webrtc::ScalableVideoController;
+using webrtc::ScalableVideoControllerNoLayering;
 using webrtc::SdpVideoFormat;
 using webrtc::VideoCodec;
 using webrtc::VideoCodecType;
@@ -57,6 +65,15 @@ VideoCodecType CodecTypeFromFormat(const SdpVideoFormat& format) {
   }
   if (format.name == "H265" || format.name == "HEVC") {
     return webrtc::kVideoCodecH265;
+  }
+  if (format.name == "VP8") {
+    return webrtc::kVideoCodecVP8;
+  }
+  if (format.name == "VP9") {
+    return webrtc::kVideoCodecVP9;
+  }
+  if (format.name == "AV1") {
+    return webrtc::kVideoCodecAV1;
   }
   return webrtc::kVideoCodecGeneric;
 }
@@ -85,6 +102,86 @@ VideoFrameType FrameTypeFromBuffer(livekit::EncodedFrameType frame_type) {
   }
 }
 
+bool IsAv1Codec(VideoCodecType codec_type) {
+  return codec_type == webrtc::kVideoCodecAV1;
+}
+
+bool IsKeyframe(livekit::EncodedFrameType frame_type) {
+  return frame_type == livekit::EncodedFrameType::kKey;
+}
+
+std::vector<uint8_t> NormalizedPayloadForEncode(
+    const livekit::EncodedVideoFrameBuffer& encoded_buffer) {
+  std::vector<uint8_t> payload = encoded_buffer.payload();
+  if (encoded_buffer.codec() == livekit::EncodedVideoCodec::kAV1) {
+    livekit::av1::StripIvfFrameHeaderIfPresent(&payload);
+    livekit::av1::ConvertAnnexBToLowOverheadIfPresent(&payload);
+    livekit::av1::StripNonTransferObusIfPresent(&payload);
+  }
+  return payload;
+}
+
+void FillSingleLayerCodecSpecific(
+    CodecSpecificInfo* codec_info,
+    VideoCodecType codec_type,
+    int width,
+    int height,
+    bool keyframe,
+    ScalableVideoControllerNoLayering* av1_svc_controller) {
+  codec_info->codecType = codec_type;
+  codec_info->end_of_picture = true;
+
+  switch (codec_type) {
+    case webrtc::kVideoCodecH264:
+      codec_info->codecSpecific.H264.packetization_mode =
+          H264PacketizationMode::NonInterleaved;
+      break;
+    case webrtc::kVideoCodecVP8:
+      codec_info->codecSpecific.VP8.nonReference = false;
+      codec_info->codecSpecific.VP8.temporalIdx = 0;
+      codec_info->codecSpecific.VP8.layerSync = false;
+      codec_info->codecSpecific.VP8.keyIdx = -1;
+      break;
+    case webrtc::kVideoCodecVP9:
+      codec_info->codecSpecific.VP9.first_frame_in_picture = true;
+      codec_info->codecSpecific.VP9.inter_pic_predicted = !keyframe;
+      codec_info->codecSpecific.VP9.flexible_mode = false;
+      codec_info->codecSpecific.VP9.ss_data_available = keyframe;
+      codec_info->codecSpecific.VP9.temporal_idx = 0;
+      codec_info->codecSpecific.VP9.temporal_up_switch = true;
+      codec_info->codecSpecific.VP9.inter_layer_predicted = false;
+      codec_info->codecSpecific.VP9.gof_idx = 0;
+      codec_info->codecSpecific.VP9.num_spatial_layers = 1;
+      codec_info->codecSpecific.VP9.first_active_layer = 0;
+      codec_info->codecSpecific.VP9.spatial_layer_resolution_present = keyframe;
+      codec_info->codecSpecific.VP9.width[0] = width;
+      codec_info->codecSpecific.VP9.height[0] = height;
+      codec_info->codecSpecific.VP9.gof.SetGofInfoVP9(
+          webrtc::kTemporalStructureMode1);
+      codec_info->codecSpecific.VP9.num_ref_pics = keyframe ? 0 : 1;
+      codec_info->codecSpecific.VP9.p_diff[0] = 1;
+      break;
+    case webrtc::kVideoCodecAV1: {
+      codec_info->scalability_mode = ScalabilityMode::kL1T1;
+      std::vector<ScalableVideoController::LayerFrameConfig> layer_frames =
+          av1_svc_controller->NextFrameConfig(/*restart=*/keyframe);
+      if (!layer_frames.empty()) {
+        const ScalableVideoController::LayerFrameConfig& layer_frame =
+            layer_frames.front();
+        codec_info->generic_frame_info =
+            av1_svc_controller->OnEncodeDone(layer_frame);
+        if (layer_frame.IsKeyframe()) {
+          codec_info->template_structure =
+              av1_svc_controller->DependencyStructure();
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 class PassthroughVideoEncoder final : public VideoEncoder {
  public:
   PassthroughVideoEncoder(const Environment& env, const SdpVideoFormat& format)
@@ -96,6 +193,11 @@ class PassthroughVideoEncoder final : public VideoEncoder {
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
     codec_ = *codec_settings;
+    cached_sequence_header_obu_.clear();
+    av1_svc_controller_ = ScalableVideoControllerNoLayering();
+    if (IsAv1Codec(codec_type_) && !codec_.GetScalabilityMode().has_value()) {
+      codec_.SetScalabilityMode(ScalabilityMode::kL1T1);
+    }
     return WEBRTC_VIDEO_CODEC_OK;
   }
 
@@ -134,10 +236,27 @@ class PassthroughVideoEncoder final : public VideoEncoder {
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
 
-    const std::vector<uint8_t>& payload = encoded_buffer->payload();
+    std::vector<uint8_t> payload = NormalizedPayloadForEncode(*encoded_buffer);
     if (payload.empty()) {
       RTC_LOG(LS_ERROR) << "PassthroughVideoEncoder received an empty frame";
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+    }
+    const bool is_keyframe = IsKeyframe(encoded_buffer->frame_type());
+    if (IsAv1Codec(codec_type_)) {
+      std::vector<uint8_t> sequence_header;
+      if (livekit::av1::ExtractSequenceHeaderObu(
+              payload.data(), payload.size(), &sequence_header)) {
+        cached_sequence_header_obu_ = std::move(sequence_header);
+      } else if (is_keyframe && !cached_sequence_header_obu_.empty()) {
+        livekit::av1::EnsureSequenceHeaderOnKeyframe(
+            &payload, cached_sequence_header_obu_);
+      }
+      if (!livekit::av1::IsWebRtcParseable(payload.data(), payload.size())) {
+        RTC_LOG(LS_ERROR)
+            << "PassthroughVideoEncoder received an AV1 frame that WebRTC "
+               "cannot packetize";
+        return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+      }
     }
 
     EncodedImage encoded_image;
@@ -158,11 +277,10 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     encoded_image.qp_ = -1;
 
     CodecSpecificInfo codec_info;
-    codec_info.codecType = codec_type_;
-    if (codec_type_ == webrtc::kVideoCodecH264) {
-      codec_info.codecSpecific.H264.packetization_mode =
-          H264PacketizationMode::NonInterleaved;
-    }
+    codec_info.codecSpecific = {};
+    FillSingleLayerCodecSpecific(&codec_info, codec_type_, encoded_buffer->width(),
+                                 encoded_buffer->height(), is_keyframe,
+                                 &av1_svc_controller_);
 
     const auto result =
         encoded_image_callback_->OnEncodedImage(encoded_image, &codec_info);
@@ -193,6 +311,8 @@ class PassthroughVideoEncoder final : public VideoEncoder {
   VideoCodecType codec_type_;
   VideoCodec codec_;
   EncodedImageCallback* encoded_image_callback_ = nullptr;
+  ScalableVideoControllerNoLayering av1_svc_controller_;
+  std::vector<uint8_t> cached_sequence_header_obu_;
 };
 
 }  // namespace
@@ -203,6 +323,13 @@ PassthroughVideoEncoderFactory::PassthroughVideoEncoderFactory() {
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };
+  absl::InlinedVector<ScalabilityMode, webrtc::kScalabilityModeCount>
+      scalability_modes;
+  scalability_modes.push_back(ScalabilityMode::kL1T1);
+  supported_formats_.push_back(SdpVideoFormat::VP8());
+  supported_formats_.push_back(SdpVideoFormat::VP9Profile0());
+  supported_formats_.push_back(
+      SdpVideoFormat(SdpVideoFormat::AV1Profile0(), scalability_modes));
   supported_formats_.push_back(SdpVideoFormat("H264", h264_parameters));
   supported_formats_.push_back(SdpVideoFormat("H265"));
   supported_formats_.push_back(SdpVideoFormat("HEVC"));
@@ -221,9 +348,13 @@ PassthroughVideoEncoderFactory::GetImplementations() const {
 PassthroughVideoEncoderFactory::CodecSupport
 PassthroughVideoEncoderFactory::QueryCodecSupport(
     const SdpVideoFormat& format,
-    std::optional<std::string> /* scalability_mode */) const {
+    std::optional<std::string> scalability_mode) const {
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
+      if (format.name == "AV1" && scalability_mode.has_value() &&
+          *scalability_mode != "L1T1") {
+        return {.is_supported = false, .is_power_efficient = false};
+      }
       return {.is_supported = true, .is_power_efficient = true};
     }
   }

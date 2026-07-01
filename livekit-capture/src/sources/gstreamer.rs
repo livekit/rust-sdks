@@ -357,6 +357,31 @@ mod tests {
     }
 
     #[test]
+    fn sample_payload_access_unit_sets_vp9_and_av1_specifics() {
+        let vp9 = access_unit_from_sample_payload(
+            GStreamerSampleFormat::AccessUnit { codec: EncodedVideoCodec::VP9 },
+            &[1, 2, 3],
+            2_000,
+            EncodedFrameType::Key,
+            640,
+            480,
+        )
+        .unwrap();
+        assert_eq!(vp9.codec_specific, codec_specific_for(EncodedVideoCodec::VP9));
+
+        let av1 = access_unit_from_sample_payload(
+            GStreamerSampleFormat::AccessUnit { codec: EncodedVideoCodec::AV1 },
+            &[1, 2, 3],
+            2_000,
+            EncodedFrameType::Key,
+            640,
+            480,
+        )
+        .unwrap();
+        assert_eq!(av1.codec_specific, codec_specific_for(EncodedVideoCodec::AV1));
+    }
+
+    #[test]
     fn clock_time_is_offset_from_start_timestamp() {
         let timestamp = clock_time_to_timestamp_us(10_000, gst::ClockTime::from_useconds(1_234));
         assert_eq!(timestamp, 11_234);

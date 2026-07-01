@@ -59,7 +59,7 @@ avfoundation = [
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 libargus = []
 rtsp = []
-tcp-source = []
+tcpsink = []
 v4l = ["dep:image", "dep:libc", "dep:v4l", "dep:yuv-sys"]
 
 [build-dependencies]

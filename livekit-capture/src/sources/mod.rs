@@ -26,7 +26,7 @@ pub mod argus;
 pub mod gstreamer;
 #[cfg(feature = "rtsp")]
 pub mod rtsp;
-#[cfg(feature = "tcp-source")]
+#[cfg(feature = "tcpsink")]
 pub mod tcp;
 #[cfg(feature = "v4l")]
 pub mod v4l;

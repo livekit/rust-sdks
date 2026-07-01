@@ -290,6 +290,7 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
   livekit::av1::ConvertAnnexBToLowOverheadIfPresent(&packet);
+  livekit::av1::StripNonTransferObusIfPresent(&packet);
 
   std::vector<uint8_t> sequence_header;
   if (livekit::av1::ExtractSequenceHeaderObu(packet.data(), packet.size(),
@@ -353,6 +354,7 @@ int32_t JetsonAV1EncoderImpl::ProcessEncodedFrame(
   encoded_image_.qp_ = -1;
 
   CodecSpecificInfo codecInfo;
+  codecInfo.codecSpecific = {};
   codecInfo.codecType = kVideoCodecAV1;
   codecInfo.end_of_picture = true;
   codecInfo.scalability_mode = ScalabilityMode::kL1T1;

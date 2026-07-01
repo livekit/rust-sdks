@@ -72,15 +72,7 @@ impl VideoCaptureTrack {
 
     /// Captures one encoded video access unit.
     pub fn capture_encoded(&self, access_unit: &EncodedAccessUnit<'_>) -> Result<(), CaptureError> {
-        match access_unit.codec {
-            EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => {}
-            EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-                return Err(CaptureError::UnsupportedCodec(access_unit.codec));
-            }
-        }
-        if access_unit.payload.is_empty() {
-            return Err(CaptureError::EmptyPayload);
-        }
+        validate_encoded_access_unit(access_unit)?;
 
         let payload = access_unit.payload.to_vec();
         let frame = EncodedVideoFrame {
@@ -103,5 +95,48 @@ impl VideoCaptureTrack {
             simulcast: false,
             ..Default::default()
         }
+    }
+}
+
+fn validate_encoded_access_unit(access_unit: &EncodedAccessUnit<'_>) -> Result<(), CaptureError> {
+    if access_unit.payload.is_empty() {
+        return Err(CaptureError::EmptyPayload);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encoded::EncodedFrameType;
+
+    #[test]
+    fn accepts_vp8_vp9_and_av1_access_units() {
+        for codec in [EncodedVideoCodec::VP8, EncodedVideoCodec::VP9, EncodedVideoCodec::AV1] {
+            let access_unit = EncodedAccessUnit::contiguous(
+                codec,
+                &[1, 2, 3],
+                0,
+                EncodedFrameType::Key,
+                640,
+                480,
+            );
+
+            assert!(validate_encoded_access_unit(&access_unit).is_ok());
+        }
+    }
+
+    #[test]
+    fn rejects_empty_encoded_access_units() {
+        let access_unit = EncodedAccessUnit::contiguous(
+            EncodedVideoCodec::VP8,
+            &[],
+            0,
+            EncodedFrameType::Key,
+            640,
+            480,
+        );
+
+        assert_eq!(validate_encoded_access_unit(&access_unit), Err(CaptureError::EmptyPayload));
     }
 }

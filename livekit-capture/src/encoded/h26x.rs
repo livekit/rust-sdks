@@ -36,7 +36,7 @@ pub struct AnnexBAccessUnitParser {
 }
 
 /// H.264/AVC length-prefixed parser state.
-#[cfg(any(feature = "tcp-source", test))]
+#[cfg(any(feature = "tcpsink", test))]
 #[derive(Debug, Clone)]
 pub(crate) struct AvcAccessUnitParser {
     pending: Vec<u8>,
@@ -123,7 +123,7 @@ impl AnnexBAccessUnitParser {
     }
 }
 
-#[cfg(any(feature = "tcp-source", test))]
+#[cfg(any(feature = "tcpsink", test))]
 impl AvcAccessUnitParser {
     /// Creates a parser for H.264/AVC length-prefixed byte streams.
     pub(crate) fn new(
@@ -329,7 +329,7 @@ fn access_unit_split_index(
     Ok(None)
 }
 
-#[cfg(any(feature = "tcp-source", test))]
+#[cfg(any(feature = "tcpsink", test))]
 fn avc_access_unit_split_index(
     bytes: &[u8],
     ranges: &[Range<usize>],

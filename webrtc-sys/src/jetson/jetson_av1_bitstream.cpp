@@ -200,6 +200,39 @@ bool ConvertAnnexBToLowOverhead(std::vector<uint8_t>* packet) {
   return true;
 }
 
+bool StripNonTransferObus(std::vector<uint8_t>* packet) {
+  if (!packet || packet->empty()) {
+    return false;
+  }
+
+  const std::vector<ObuSpan> obus = ParseObus(packet->data(), packet->size());
+  if (obus.empty()) {
+    return false;
+  }
+
+  size_t transfer_size = 0;
+  bool already_contiguous = true;
+  size_t next_offset = 0;
+  for (const ObuSpan& obu : obus) {
+    transfer_size += obu.total_size;
+    already_contiguous = already_contiguous && obu.offset == next_offset;
+    next_offset = obu.offset + obu.total_size;
+  }
+
+  if (transfer_size == packet->size() && already_contiguous) {
+    return false;
+  }
+
+  std::vector<uint8_t> filtered;
+  filtered.reserve(transfer_size);
+  for (const ObuSpan& obu : obus) {
+    filtered.insert(filtered.end(), packet->begin() + obu.offset,
+                    packet->begin() + obu.offset + obu.total_size);
+  }
+  packet->swap(filtered);
+  return true;
+}
+
 }  // namespace
 
 std::vector<ObuSpan> ParseObus(const uint8_t* data, size_t len) {
@@ -306,6 +339,10 @@ void StripIvfFrameHeaderIfPresent(std::vector<uint8_t>* packet) {
 
 void ConvertAnnexBToLowOverheadIfPresent(std::vector<uint8_t>* packet) {
   ConvertAnnexBToLowOverhead(packet);
+}
+
+void StripNonTransferObusIfPresent(std::vector<uint8_t>* packet) {
+  StripNonTransferObus(packet);
 }
 
 bool IsWebRtcParseable(const uint8_t* data, size_t len) {

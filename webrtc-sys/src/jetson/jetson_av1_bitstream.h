@@ -55,6 +55,9 @@ void StripIvfFrameHeaderIfPresent(std::vector<uint8_t>* packet);
 /// present.
 void ConvertAnnexBToLowOverheadIfPresent(std::vector<uint8_t>* packet);
 
+/// Strip OBUs that should not be transferred in WebRTC RTP payloads when present.
+void StripNonTransferObusIfPresent(std::vector<uint8_t>* packet);
+
 /// Basic validation that WebRTC's AV1 packetizer can parse the bitstream.
 bool IsWebRtcParseable(const uint8_t* data, size_t len);
 
