@@ -8,6 +8,7 @@ members = [
     "livekit-uniffi",
     "livekit-datatrack",
     "livekit-ffi-node-bindings",
+    "livekit-net",
     "livekit-runtime",
     "livekit-wakeword",
     "libwebrtc",
@@ -51,6 +52,7 @@ livekit = { version = "0.7.50", path = "livekit" }
 livekit-api = { version = "0.5.4", path = "livekit-api" }
 livekit-ffi = { version = "0.12.68", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.9", path = "livekit-datatrack" }
+livekit-net = { version = "0.1.0", path = "livekit-net" }
 livekit-protocol = { version = "0.7.10", path = "livekit-protocol" }
 # default-features off so each consumer selects its runtime explicitly
 # (livekit-runtime/tokio | /async | /dispatcher); otherwise the default `tokio`

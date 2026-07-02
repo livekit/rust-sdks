@@ -1,0 +1,79 @@
+[package]
+name = "livekit-net"
+version = "0.1.0"
+license.workspace = true
+description = "Pluggable, host-providable network transport for LiveKit signalling"
+edition.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+
+# ── transport backend ─────────────────────────────────────────────
+foreign = ["dep:uniffi"]
+
+# Native backend bundles — each pairs the net libraries with a runtime.
+native-tokio      = ["__native", "__native-tokio", "tokio"]
+native-async      = ["__native", "__native-async", "async"]
+native-dispatcher = ["__native", "__native-async", "dispatcher"]
+
+# ── runtime pass-through to livekit-runtime (blind consumers rely on this) ──
+tokio      = ["dep:livekit-runtime", "livekit-runtime/tokio"]
+async      = ["dep:livekit-runtime", "livekit-runtime/async"]
+dispatcher = ["dep:livekit-runtime", "livekit-runtime/dispatcher"]
+
+# ── TLS (only meaningful with a native backend) ───────────────────
+native-tls = [
+    "tokio-tungstenite?/native-tls",
+    "async-tungstenite?/async-native-tls",
+    "reqwest?/native-tls",
+]
+native-tls-vendored = [
+    "tokio-tungstenite?/native-tls-vendored",
+    "reqwest?/native-tls-vendored",
+]
+rustls-tls-native-roots = [
+    "tokio-tungstenite?/rustls-tls-native-roots",
+    "reqwest?/rustls-tls-native-roots",
+    "tokio-tungstenite?/__rustls-tls",
+    "dep:tokio-rustls",
+    "dep:rustls-native-certs",
+]
+rustls-tls-webpki-roots = [
+    "tokio-tungstenite?/rustls-tls-webpki-roots",
+    "reqwest?/rustls-tls-webpki-roots",
+]
+__rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
+
+# ── internal markers ──────────────────────────────────────────────
+__native = []
+__native-tokio = ["dep:tokio-tungstenite", "dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:base64"]
+__native-async = ["dep:async-tungstenite", "dep:isahc", "dep:tokio", "dep:futures-util", "dep:bytes"]
+
+[dependencies]
+async-trait = "0.1"
+uniffi = { version = "0.31", optional = true }
+
+# Direct path dep (not workspace inheritance) so default-features = false is
+# honored: cargo ignores a member's default-features override on an inherited dep,
+# which would drag in livekit-runtime's default `tokio` and trip its one-runtime
+# guard when a non-tokio flavor is selected.
+livekit-runtime = { path = "../livekit-runtime", version = "0.4.0", optional = true, default-features = false }
+url = "2.3"
+http = "1.1"
+log = { workspace = true }
+tokio-tungstenite = { version = "0.29", features = ["url"], optional = true }
+async-tungstenite = { version = "0.29", features = ["async-std-runtime", "async-native-tls", "url"], optional = true }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "io-util", "net"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "ring"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+futures-util = { workspace = true, default-features = false, features = ["sink"], optional = true }
+bytes = { workspace = true, optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
+isahc = { version = "1.7.2", default-features = false, features = ["json", "text-decoding"], optional = true }
+base64 = { version = "0.21", optional = true, features = ["std"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
+tokio-tungstenite = { version = "0.29", features = ["url"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
