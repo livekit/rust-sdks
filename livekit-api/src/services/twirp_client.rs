@@ -171,58 +171,50 @@ impl TwirpClient {
                 .timeout(timeout)
                 .send()
                 .await;
-            match send {
+            // The next untried region to fail over to, and a description of the
+            // failure for logging. `None` next means give up and surface the error.
+            let (next, reason) = match send {
                 Ok(resp) => {
                     let status = resp.status();
                     if status == StatusCode::OK {
                         return Ok(R::decode(resp.bytes().await?)?);
                     }
                     // 4xx is terminal; only 5xx is retryable.
-                    if is_last || status.as_u16() < 500 {
+                    let next = if is_last || status.as_u16() < 500 {
+                        None
+                    } else {
+                        self.next_region(&original, &forward, &mut region_urls, &attempted).await
+                    };
+                    // No fallback: surface the server's error (needs the body).
+                    let Some(next) = next else {
                         let err: TwirpErrorCode = resp.json().await?;
                         return Err(TwirpError::Twirp(err));
-                    }
-                    match self.next_region(&original, &forward, &mut region_urls, &attempted).await
-                    {
-                        Some(next) => {
-                            log::warn!(
-                                "livekit API request to {} failed with status {}, retrying with fallback url {}",
-                                current.host_str().unwrap_or_default(),
-                                status,
-                                next,
-                            );
-                            drop(resp);
-                            failover::backoff_sleep(self.backoff(attempt)).await;
-                            attempted.push(failover::host_key(&next));
-                            current = next;
-                        }
-                        None => {
-                            let err: TwirpErrorCode = resp.json().await?;
-                            return Err(TwirpError::Twirp(err));
-                        }
-                    }
+                    };
+                    drop(resp); // release the connection before backing off
+                    (next, format!("status {status}"))
                 }
                 Err(err) => {
-                    if is_last {
-                        return Err(err.into());
-                    }
-                    match self.next_region(&original, &forward, &mut region_urls, &attempted).await
-                    {
-                        Some(next) => {
-                            log::warn!(
-                                "livekit API request to {} failed ({}), retrying with fallback url {}",
-                                current.host_str().unwrap_or_default(),
-                                err,
-                                next,
-                            );
-                            failover::backoff_sleep(self.backoff(attempt)).await;
-                            attempted.push(failover::host_key(&next));
-                            current = next;
-                        }
+                    let next = if is_last {
+                        None
+                    } else {
+                        self.next_region(&original, &forward, &mut region_urls, &attempted).await
+                    };
+                    match next {
+                        Some(next) => (next, err.to_string()),
                         None => return Err(err.into()),
                     }
                 }
-            }
+            };
+
+            log::warn!(
+                "livekit API request to {} failed ({}), retrying with fallback url {}",
+                current.host_str().unwrap_or_default(),
+                reason,
+                next,
+            );
+            failover::backoff_sleep(self.backoff(attempt)).await;
+            attempted.push(failover::host_key(&next));
+            current = next;
         }
         unreachable!("failover loop always returns within the attempt budget")
     }
