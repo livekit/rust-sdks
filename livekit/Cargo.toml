@@ -14,6 +14,10 @@ default = ["tokio"]
 async = ["livekit-api/signal-client-async", "livekit-runtime/async"]
 tokio = ["livekit-api/signal-client-tokio", "livekit-runtime/tokio"]
 dispatcher = ["livekit-api/signal-client-dispatcher", "livekit-runtime/dispatcher"]
+# Foreign (host-provided) transport backend. The runtime is tokio in practice
+# (libwebrtc pins it), so this pairs the foreign transport with the existing
+# tokio runtime; consumers needing a different runtime combine with livekit-net/<rt>.
+foreign = ["dep:livekit-net", "livekit-api/signal-client", "livekit-net/foreign"]
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
 # GDBus requires a GLib event loop to be running. Enable this feature if you
@@ -21,8 +25,8 @@ dispatcher = ["livekit-api/signal-client-dispatcher", "livekit-runtime/dispatche
 # running in your application.
 glib-main-loop = [ "libwebrtc/glib-main-loop" ]
 
-# Note that the following features only change the behavior of tokio-tungstenite.
-# It doesn't change the behavior of libwebrtc/webrtc-sys
+# TLS features delegate to livekit-api and from there to livekit-net (tokio-tungstenite / reqwest / rustls).
+# They do not change the behavior of libwebrtc/webrtc-sys.
 native-tls = ["livekit-api/native-tls"]
 native-tls-vendored = ["livekit-api/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
@@ -34,6 +38,7 @@ __lk-e2e-test = [] # end-to-end testing with a LiveKit server
 [dependencies]
 livekit-runtime = { workspace = true, features = ["tokio"] }
 livekit-api = { workspace = true }
+livekit-net = { workspace = true, optional = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
 livekit-datatrack = { workspace = true }
