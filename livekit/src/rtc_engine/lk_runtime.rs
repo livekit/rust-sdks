@@ -14,7 +14,8 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::{Arc, Weak},
+    sync::{Arc, Condvar, Mutex as StdMutex, Weak},
+    time::{Duration, Instant},
 };
 
 use lazy_static::lazy_static;
@@ -26,6 +27,67 @@ use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
+    static ref LK_RUNTIME_TEARDOWN: RuntimeTeardownCompletion =
+        RuntimeTeardownCompletion::default();
+}
+
+const RUNTIME_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Default)]
+struct RuntimeTeardownCompletion {
+    state: StdMutex<RuntimeTeardownState>,
+    cv: Condvar,
+}
+
+#[derive(Default)]
+struct RuntimeTeardownState {
+    active_runtimes: usize,
+}
+
+impl RuntimeTeardownCompletion {
+    fn runtime_created(&self) {
+        let mut state = self.state.lock().expect("LkRuntime teardown state poisoned");
+        state.active_runtimes += 1;
+    }
+
+    fn runtime_dropped(&self) {
+        let mut state = self.state.lock().expect("LkRuntime teardown state poisoned");
+        state.active_runtimes = state.active_runtimes.saturating_sub(1);
+        self.cv.notify_all();
+    }
+
+    fn wait_for_teardown(&self, timeout: Duration) -> bool {
+        let start = Instant::now();
+        let mut state = self.state.lock().expect("LkRuntime teardown state poisoned");
+
+        while state.active_runtimes != 0 {
+            let elapsed = start.elapsed();
+            if elapsed >= timeout {
+                log::warn!(
+                    "timed out after {:?} waiting for LkRuntime teardown to finish",
+                    timeout
+                );
+                return false;
+            }
+
+            let remaining = timeout.saturating_sub(elapsed);
+            let (next_state, timeout_result) = self
+                .cv
+                .wait_timeout(state, remaining)
+                .expect("LkRuntime teardown state poisoned while waiting");
+            state = next_state;
+
+            if timeout_result.timed_out() && state.active_runtimes != 0 {
+                log::warn!(
+                    "timed out after {:?} waiting for LkRuntime teardown to finish",
+                    timeout
+                );
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 pub struct LkRuntime {
@@ -44,11 +106,19 @@ impl LkRuntime {
         if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
             lk_runtime
         } else {
+            Self::wait_for_teardown();
             log::debug!("LkRuntime::new()");
             let new_runtime = Arc::new(Self { pc_factory: PeerConnectionFactory::default() });
+            LK_RUNTIME_TEARDOWN.runtime_created();
             *lk_runtime_ref = Arc::downgrade(&new_runtime);
             new_runtime
         }
+    }
+
+    /// Wait briefly for native runtime teardown to finish.
+    #[doc(hidden)]
+    pub fn wait_for_teardown() -> bool {
+        LK_RUNTIME_TEARDOWN.wait_for_teardown(RUNTIME_TEARDOWN_TIMEOUT)
     }
 
     pub fn pc_factory(&self) -> &PeerConnectionFactory {
@@ -288,5 +358,6 @@ impl Drop for LkRuntime {
         log::debug!("LkRuntime::drop()");
         #[cfg(not(target_arch = "wasm32"))]
         self.shutdown_audio_io();
+        LK_RUNTIME_TEARDOWN.runtime_dropped();
     }
 }

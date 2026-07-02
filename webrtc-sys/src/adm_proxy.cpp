@@ -281,9 +281,9 @@ void AdmProxy::StopPlatformAudioIO() {
   recording_ = false;
 
   if (platform_adm_) {
-    platform_adm_->RegisterAudioCallback(nullptr);
     platform_adm_->StopRecording();
     platform_adm_->StopPlayout();
+    platform_adm_->RegisterAudioCallback(nullptr);
     // platform_adm_ is kept alive for re-acquire and iOS compatibility; see
     // ReleasePlatformAdm().
   }
@@ -298,15 +298,15 @@ void AdmProxy::StopAudioIO() {
   playout_initialized_ = false;
 
   if (platform_adm_) {
-    platform_adm_->RegisterAudioCallback(nullptr);
     platform_adm_->StopRecording();
     platform_adm_->StopPlayout();
+    platform_adm_->RegisterAudioCallback(nullptr);
   }
 
   if (synthetic_adm_) {
-    synthetic_adm_->RegisterAudioCallback(nullptr);
     synthetic_adm_->StopRecording();
     synthetic_adm_->StopPlayout();
+    synthetic_adm_->RegisterAudioCallback(nullptr);
     // synthetic_adm_ is kept alive until ~AdmProxy() / Terminate().
   }
 
