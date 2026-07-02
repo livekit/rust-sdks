@@ -23,7 +23,7 @@ pub use server::{HandleRequestOptions, RpcServerManager};
 
 use crate::data_stream::{StreamResult, StreamTextOptions, TextStreamInfo};
 use crate::room::id::ParticipantIdentity;
-use crate::room::participant::ClientCapability;
+use crate::room::participant::{ClientCapability, RemoteParticipantRegistry};
 use livekit_protocol::RpcError as RpcError_Proto;
 use std::{error::Error, fmt::Display, future::Future, time::Duration};
 
@@ -41,22 +41,6 @@ pub(crate) const ATTR_REQUEST_ID: &str = "lk.rpc_request_id";
 pub(crate) const ATTR_METHOD: &str = "lk.rpc_request_method";
 pub(crate) const ATTR_RESPONSE_TIMEOUT_MS: &str = "lk.rpc_request_response_timeout_ms";
 pub(crate) const ATTR_VERSION: &str = "lk.rpc_request_version";
-
-/// Read access to remote participants' advertised protocol and capabilities.
-///
-/// Shared by the RPC transport (v1/v2 transport selection) and the data-stream send
-/// path (inline / compression eligibility), so both consult a single abstraction over
-/// the room's remote participants and both are unit-testable with a fake.
-pub(crate) trait RemoteParticipantRegistry: Send + Sync {
-    /// A remote participant's `client_protocol`, or `CLIENT_PROTOCOL_DEFAULT` (0) if unknown.
-    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32;
-
-    /// A remote participant's advertised capabilities, or empty if unknown.
-    fn remote_capabilities(&self, identity: &ParticipantIdentity) -> Vec<ClientCapability>;
-
-    /// The identities of every remote participant, used to resolve a broadcast send.
-    fn remote_identities(&self) -> Vec<ParticipantIdentity>;
-}
 
 /// Transport abstraction for RPC operations.
 ///
