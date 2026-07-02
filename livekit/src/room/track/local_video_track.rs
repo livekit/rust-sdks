@@ -407,4 +407,21 @@ impl LocalVideoTrack {
 
         Ok(())
     }
+
+    /// Applies publishing-layer quality state for end-to-end tests.
+    #[doc(hidden)]
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn set_publishing_layers_for_test(
+        &self,
+        qualities: &[(PublishingLayerQuality, bool)],
+    ) -> RoomResult<()> {
+        let qualities: Vec<proto::SubscribedQuality> = qualities
+            .iter()
+            .map(|(quality, enabled)| proto::SubscribedQuality {
+                quality: proto::VideoQuality::from(*quality) as i32,
+                enabled: *enabled,
+            })
+            .collect();
+        self.set_publishing_layers(&qualities)
+    }
 }

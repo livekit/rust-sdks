@@ -334,9 +334,9 @@ async fn test_dynacast() -> Result<()> {
 
 /// Verifies dynacast with a publisher that does not provide RTP send encodings.
 ///
-/// WebRTC creates a single default encoding without a RID in this case. The
-/// publisher should still be able to pause and resume that layer from SFU
-/// `SubscribedQualityUpdate` messages.
+/// WebRTC creates a single default encoding without a RID in this case. The SFU
+/// addresses that layer as low quality, so the publisher should still be able
+/// to pause and resume it from low-quality `SubscribedQualityUpdate` messages.
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_dynacast_without_video_send_encodings() -> Result<()> {
@@ -382,35 +382,59 @@ async fn test_dynacast_without_video_send_encodings() -> Result<()> {
         layers
     );
 
-    log::info!("dynacast no-encodings test: unsubscribing");
-    sub_publication.set_subscribed(false);
+    drop(sub_publication);
 
-    let layers = wait_for_layers(
-        &pub_video_track,
-        "no encodings after unsubscribe",
-        Duration::from_secs(30),
-        |layers| layers.len() == 1 && layers[0].rid.is_empty() && !layers[0].active,
-    )
-    .await?;
+    log::info!("dynacast no-encodings test: applying LOW=false quality update");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, false)])
+        .map_err(|e| anyhow!("failed to disable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
     assert!(
-        !layers[0].active,
-        "expected default layer to be inactive after unsubscribe, got {:?}",
+        layers.len() == 1 && layers[0].rid.is_empty() && !layers[0].active,
+        "expected default layer to be inactive after LOW=false update, got {:?}",
         layers
     );
 
-    log::info!("dynacast no-encodings test: resubscribing");
-    sub_publication.set_subscribed(true);
-
-    let layers = wait_for_layers(
-        &pub_video_track,
-        "no encodings after resubscribe",
-        Duration::from_secs(30),
-        |layers| layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
-    )
-    .await?;
+    log::info!("dynacast no-encodings test: applying LOW=true quality update");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, true)])
+        .map_err(|e| anyhow!("failed to enable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
     assert!(
-        layers[0].active,
-        "expected default layer to be active after resubscribe, got {:?}",
+        layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+        "expected default layer to be active after LOW=true update, got {:?}",
+        layers
+    );
+
+    log::info!("dynacast no-encodings test: applying HIGH=false quality update");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::High, false)])
+        .map_err(|e| anyhow!("failed to apply unrelated high quality update: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+        "expected default layer to ignore HIGH-only update, got {:?}",
+        layers
+    );
+
+    log::info!("dynacast no-encodings test: applying LOW=false quality update again");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, false)])
+        .map_err(|e| anyhow!("failed to disable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && !layers[0].active,
+        "expected default layer to be inactive after second LOW=false update, got {:?}",
+        layers
+    );
+
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, true)])
+        .map_err(|e| anyhow!("failed to re-enable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+        "expected default layer to be active before cleanup, got {:?}",
         layers
     );
 
