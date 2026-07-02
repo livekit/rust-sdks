@@ -21,15 +21,12 @@ use parking_lot::{Mutex, RwLock};
 use crate::{prelude::*, rtc_engine::RtcEngine};
 
 mod local_participant;
-mod registry;
 mod remote_participant;
 mod rpc;
 
 pub use local_participant::*;
 pub use remote_participant::*;
 pub use rpc::*;
-
-pub(crate) use registry::RemoteParticipantRegistry;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionQuality {
