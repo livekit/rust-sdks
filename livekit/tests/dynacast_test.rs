@@ -332,6 +332,93 @@ async fn test_dynacast() -> Result<()> {
     Ok(())
 }
 
+/// Verifies dynacast with a publisher that does not provide RTP send encodings.
+///
+/// WebRTC creates a single default encoding without a RID in this case. The
+/// publisher should still be able to pause and resume that layer from SFU
+/// `SubscribedQualityUpdate` messages.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_dynacast_without_video_send_encodings() -> Result<()> {
+    let mut pub_room_opts = RoomOptions::default();
+    pub_room_opts.dynacast = true;
+    let pub_options = TestRoomOptions { room: pub_room_opts, ..Default::default() };
+    let sub_options = TestRoomOptions::default();
+
+    let mut rooms = test_rooms_with_options([pub_options, sub_options]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let (_sub_room, mut sub_events) = rooms.remove(0);
+
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    solid_track.publish_without_video_send_encodings(VideoCodec::VP8).await?;
+
+    let sub_publication: RemoteTrackPublication = timeout(Duration::from_secs(15), async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Event channel closed before TrackSubscribed"));
+            };
+            if let RoomEvent::TrackSubscribed { publication, .. } = event {
+                return Ok(publication);
+            }
+        }
+    })
+    .await??;
+
+    let pub_video_track = publisher_video_track(&pub_room)?;
+
+    let layers = wait_for_layers(
+        &pub_video_track,
+        "no encodings baseline",
+        Duration::from_secs(15),
+        |layers| layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+    )
+    .await?;
+    assert_eq!(layers.len(), 1, "expected one default layer, got {:?}", layers);
+    assert!(
+        layers[0].rid.is_empty(),
+        "expected WebRTC-created default encoding to have no RID, got {:?}",
+        layers
+    );
+
+    log::info!("dynacast no-encodings test: unsubscribing");
+    sub_publication.set_subscribed(false);
+
+    let layers = wait_for_layers(
+        &pub_video_track,
+        "no encodings after unsubscribe",
+        Duration::from_secs(30),
+        |layers| layers.len() == 1 && layers[0].rid.is_empty() && !layers[0].active,
+    )
+    .await?;
+    assert!(
+        !layers[0].active,
+        "expected default layer to be inactive after unsubscribe, got {:?}",
+        layers
+    );
+
+    log::info!("dynacast no-encodings test: resubscribing");
+    sub_publication.set_subscribed(true);
+
+    let layers = wait_for_layers(
+        &pub_video_track,
+        "no encodings after resubscribe",
+        Duration::from_secs(30),
+        |layers| layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+    )
+    .await?;
+    assert!(
+        layers[0].active,
+        "expected default layer to be active after resubscribe, got {:?}",
+        layers
+    );
+
+    solid_track.unpublish().await?;
+
+    Ok(())
+}
+
 /// Verifies that dynacast only publishes video tracks requested by subscribers.
 ///
 /// A single publisher publishes three simulcast VP8 video tracks while two subscribers manually
