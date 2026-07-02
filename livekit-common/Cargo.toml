@@ -9,4 +9,3 @@ repository.workspace = true
 
 [dependencies]
 livekit-protocol = { workspace = true }
-serde = { workspace = true, features = ["derive"] }

@@ -19,7 +19,6 @@
 use std::fmt::Display;
 
 use livekit_protocol as proto;
-use serde::{Deserialize, Serialize};
 
 // -------------------------------------------------------------------------------------------------
 // Client protocol
@@ -38,7 +37,7 @@ pub const CLIENT_PROTOCOL_DATA_STREAM_V2: i32 = 2;
 // ParticipantIdentity
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ParticipantIdentity(pub String);
 
 impl From<String> for ParticipantIdentity {
@@ -75,7 +74,7 @@ impl ParticipantIdentity {
 // EncryptionType
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionType {
     #[default]
     None,
@@ -120,7 +119,7 @@ impl From<EncryptionType> for i32 {
 /// A capability a participant's client advertises (mirrors `ClientInfo.Capability`).
 ///
 /// Stored typed rather than as the raw protobuf `i32` so accessors don't leak protobuf types.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ClientCapability {
     Unused,
