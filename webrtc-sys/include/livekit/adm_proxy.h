@@ -16,7 +16,6 @@
 
 #pragma once
 
-#include <string>
 #include <utility>
 
 #include "api/environment/environment.h"
@@ -303,14 +302,11 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // When false (default), playout uses synthetic mode (internal task pumps audio)
   bool playout_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 
-  // Selected device information. We store both index and GUID so a selection
-  // made before the Platform ADM exists (Android lazy creation) can be
-  // re-applied once it is created. GUID is preferred as it is stable across
-  // device hot-plug events.
+  // Selected device indices, stored so a selection made before the Platform
+  // ADM exists (Android lazy creation) can be re-applied once it is created.
+  // Index 0 (the default device) is treated as never explicitly selected.
   uint16_t selected_playout_device_ RTC_GUARDED_BY(worker_thread_) = 0;
   uint16_t selected_recording_device_ RTC_GUARDED_BY(worker_thread_) = 0;
-  std::string selected_playout_guid_ RTC_GUARDED_BY(worker_thread_);
-  std::string selected_recording_guid_ RTC_GUARDED_BY(worker_thread_);
 };
 
 }  // namespace livekit_ffi

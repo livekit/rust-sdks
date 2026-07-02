@@ -402,14 +402,7 @@ int32_t AdmProxy::SetPlayoutDevice(uint16_t index) {
   return RunOnWorker([this, index] {
     RTC_DCHECK_RUN_ON(worker_thread_);
     selected_playout_device_ = index;
-
-    // Also store the GUID for this device for robust restoration
     if (platform_adm_) {
-      char name[webrtc::kAdmMaxDeviceNameSize] = {0};
-      char guid[webrtc::kAdmMaxGuidSize] = {0};
-      if (platform_adm_->PlayoutDeviceName(index, name, guid) == 0) {
-        selected_playout_guid_ = guid;
-      }
       return platform_adm_->SetPlayoutDevice(index);
     }
     return 0;
@@ -419,8 +412,6 @@ int32_t AdmProxy::SetPlayoutDevice(uint16_t index) {
 int32_t AdmProxy::SetPlayoutDevice(WindowsDeviceType device) {
   return RunOnWorker([this, device] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    // When using WindowsDeviceType, we can't easily get the GUID
-    selected_playout_guid_.clear();
     if (platform_adm_) {
       return platform_adm_->SetPlayoutDevice(device);
     }
@@ -432,14 +423,7 @@ int32_t AdmProxy::SetRecordingDevice(uint16_t index) {
   return RunOnWorker([this, index] {
     RTC_DCHECK_RUN_ON(worker_thread_);
     selected_recording_device_ = index;
-
-    // Also store the GUID for this device for robust restoration
     if (platform_adm_) {
-      char name[webrtc::kAdmMaxDeviceNameSize] = {0};
-      char guid[webrtc::kAdmMaxGuidSize] = {0};
-      if (platform_adm_->RecordingDeviceName(index, name, guid) == 0) {
-        selected_recording_guid_ = guid;
-      }
       return platform_adm_->SetRecordingDevice(index);
     }
     return 0;
@@ -449,8 +433,6 @@ int32_t AdmProxy::SetRecordingDevice(uint16_t index) {
 int32_t AdmProxy::SetRecordingDevice(WindowsDeviceType device) {
   return RunOnWorker([this, device] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    // When using WindowsDeviceType, we can't easily get the GUID
-    selected_recording_guid_.clear();
     if (platform_adm_) {
       return platform_adm_->SetRecordingDevice(device);
     }
