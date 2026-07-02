@@ -1928,10 +1928,17 @@ impl RoomSession {
             }
         };
 
+        let video_codec = publication.publish_options().video_codec;
+        // SVC codecs carry all spatial layers in one encoded stream.
+        let is_svc = matches!(
+            video_codec,
+            crate::options::VideoCodec::VP9 | crate::options::VideoCodec::AV1
+        );
+
         let qualities: Vec<proto::SubscribedQuality> = if !update.subscribed_codecs.is_empty() {
             // This is the requested codec, which we also advertise in simulcast_codecs and use
             // for sender codec preferences, so it should match the SFU's subscribed codec key.
-            let codec = publication.publish_options().video_codec.as_str().to_lowercase();
+            let codec = video_codec.as_str().to_lowercase();
             log::info!(
                 "dynacast: SFU quality update for {}: subscribed_codecs={:?}, looking for codec '{}'",
                 track_sid,
@@ -1980,7 +1987,7 @@ impl RoomSession {
             update.subscribed_qualities.clone()
         };
 
-        if let Err(e) = video_track.set_publishing_layers(&qualities) {
+        if let Err(e) = video_track.set_publishing_layers(&qualities, is_svc) {
             log::error!("dynacast: failed to set publishing layers for {}: {}", track_sid, e);
         }
     }

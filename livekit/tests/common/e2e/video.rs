@@ -63,6 +63,15 @@ impl SolidColorTrack {
     }
 
     pub async fn publish(&mut self, codec: VideoCodec, simulcast: bool) -> RoomResult<()> {
+        self.publish_with_options(TrackPublishOptions {
+            video_codec: codec,
+            simulcast,
+            ..Default::default()
+        })
+        .await
+    }
+
+    pub async fn publish_with_options(&mut self, options: TrackPublishOptions) -> RoomResult<()> {
         let (close_tx, close_rx) = oneshot::channel();
         let track = LocalVideoTrack::create_video_track(
             "solid-color-track",
@@ -72,10 +81,7 @@ impl SolidColorTrack {
             tokio::spawn(Self::track_task(close_rx, self.rtc_source.clone(), self.params.clone()));
         self.room
             .local_participant()
-            .publish_track(
-                LocalTrack::Video(track.clone()),
-                TrackPublishOptions { video_codec: codec, simulcast, ..Default::default() },
-            )
+            .publish_track(LocalTrack::Video(track.clone()), options)
             .await?;
         let handle = TrackHandle { close_tx, track, task };
         self.handle = Some(handle);

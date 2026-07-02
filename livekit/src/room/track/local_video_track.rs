@@ -355,6 +355,7 @@ impl LocalVideoTrack {
     pub(crate) fn set_publishing_layers(
         &self,
         qualities: &[proto::SubscribedQuality],
+        is_svc: bool,
     ) -> RoomResult<()> {
         let transceiver = self.transceiver().ok_or_else(|| {
             RoomError::Internal("cannot set publishing layers: no transceiver".into())
@@ -367,6 +368,19 @@ impl LocalVideoTrack {
             log::debug!("dynacast: no sender encodings available, ignoring quality update");
             return Ok(());
         }
+
+        // For SVC codecs all spatial layers ride in a single encoded stream
+        // and the SFU selects layers server-side, so any enabled quality
+        // keeps the whole encoding active.
+        let qualities: Vec<proto::SubscribedQuality> =
+            if is_svc && qualities.iter().any(|q| q.enabled) {
+                qualities
+                    .iter()
+                    .map(|q| proto::SubscribedQuality { enabled: true, ..q.clone() })
+                    .collect()
+            } else {
+                qualities.to_vec()
+            };
 
         let mut changed = false;
         for encoding in &mut params.encodings {

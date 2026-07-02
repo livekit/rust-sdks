@@ -21,7 +21,7 @@ use {
         TestRoomOptions,
     },
     livekit::{
-        options::VideoCodec,
+        options::{TrackPublishOptions, VideoCodec},
         prelude::*,
         track::{PublishingLayerQuality, VideoQuality},
     },
@@ -425,6 +425,113 @@ async fn test_dynacast_multiple_subscribers_only_publish_requested_tracks() -> R
     for solid_track in &mut solid_tracks {
         solid_track.unpublish().await?;
     }
+
+    Ok(())
+}
+
+/// Verifies dynacast behavior for an SVC track (VP9, L3T3_KEY).
+///
+/// SVC tracks carry all spatial layers in a single encoded stream and the SFU
+/// selects layers server-side, so:
+/// 1. Subscriber quality requests must never deactivate the encoding while at
+///    least one quality is subscribed (any-enabled rule).
+/// 2. Unsubscribing the last subscriber deactivates the encoding.
+/// 3. Resubscribing reactivates it.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_dynacast_svc() -> Result<()> {
+    let mut pub_room_opts = RoomOptions::default();
+    pub_room_opts.dynacast = true;
+    let pub_options = TestRoomOptions { room: pub_room_opts, ..Default::default() };
+    let sub_options = TestRoomOptions::default();
+
+    let mut rooms = test_rooms_with_options([pub_options, sub_options]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let (_sub_room, mut sub_events) = rooms.remove(0);
+
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    solid_track
+        .publish_with_options(TrackPublishOptions {
+            video_codec: VideoCodec::VP9,
+            simulcast: false,
+            scalability_mode: Some("L3T3_KEY".to_string()),
+            ..Default::default()
+        })
+        .await?;
+
+    let sub_publication: RemoteTrackPublication = timeout(Duration::from_secs(15), async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Event channel closed before TrackSubscribed"));
+            };
+            if let RoomEvent::TrackSubscribed { publication, .. } = event {
+                return Ok(publication);
+            }
+        }
+    })
+    .await??;
+
+    let pub_video_track = publisher_video_track(&pub_room)?;
+
+    // --- Baseline: the single SVC encoding is active ---
+    let layers =
+        wait_for_layers(&pub_video_track, "svc baseline", Duration::from_secs(15), |layers| {
+            layers.len() == 1 && layers[0].active
+        })
+        .await?;
+    log::info!("dynacast svc baseline layers: {:?}", layers);
+
+    // --- Request LOW quality: the SVC encoding must stay active ---
+    log::info!("dynacast svc test: requesting LOW quality");
+    sub_publication.set_video_quality(VideoQuality::Low);
+
+    // The resulting quality update arrives asynchronously; poll to make sure
+    // the encoding never gets deactivated by it.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while tokio::time::Instant::now() < deadline {
+        let layers = pub_video_track.publishing_layers();
+        assert!(
+            !layers.is_empty() && layers.iter().all(|layer| layer.active),
+            "SVC encoding must stay active after LOW request, got {:?}",
+            layers
+        );
+        time::sleep(Duration::from_millis(250)).await;
+    }
+
+    // --- Request HIGH quality again: still active ---
+    log::info!("dynacast svc test: requesting HIGH quality");
+    sub_publication.set_video_quality(VideoQuality::High);
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while tokio::time::Instant::now() < deadline {
+        let layers = pub_video_track.publishing_layers();
+        assert!(
+            !layers.is_empty() && layers.iter().all(|layer| layer.active),
+            "SVC encoding must stay active after HIGH request, got {:?}",
+            layers
+        );
+        time::sleep(Duration::from_millis(250)).await;
+    }
+
+    // --- Unsubscribe: with no subscribers left the encoding is deactivated ---
+    log::info!("dynacast svc test: unsubscribing");
+    sub_publication.set_subscribed(false);
+
+    wait_for_layers(&pub_video_track, "svc unsubscribed", Duration::from_secs(30), |layers| {
+        !layers.is_empty() && layers.iter().all(|layer| !layer.active)
+    })
+    .await?;
+
+    // --- Resubscribe: the encoding comes back ---
+    log::info!("dynacast svc test: resubscribing");
+    sub_publication.set_subscribed(true);
+
+    wait_for_layers(&pub_video_track, "svc resubscribed", Duration::from_secs(30), |layers| {
+        !layers.is_empty() && layers.iter().all(|layer| layer.active)
+    })
+    .await?;
 
     Ok(())
 }
