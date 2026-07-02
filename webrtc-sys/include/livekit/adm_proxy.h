@@ -17,17 +17,16 @@
 #pragma once
 
 #include <string>
+#include <utility>
 
 #include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
+#include "api/sequence_checker.h"
 #include "livekit/synthetic_audio_device.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_device/include/audio_device_defines.h"
-#include "rtc_base/synchronization/mutex.h"
-
-namespace webrtc {
-class Thread;
-}  // namespace webrtc
+#include "rtc_base/thread.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace livekit_ffi {
 
@@ -40,6 +39,25 @@ namespace livekit_ffi {
 /// 2. **Platform mode**: Real audio I/O through the Platform ADM with microphone
 ///    capture and speaker playout. Used when PlatformAudio is active for VoIP
 ///    with AEC.
+///
+/// ## Threading Model
+///
+/// The proxy is worker-thread-affine. Every public method marshals once at the
+/// boundary onto the WebRTC worker thread via `RunOnWorker` and runs inline
+/// when the caller is already on the worker, which is the case for all calls
+/// originating from WebRTC internals (AudioState, the voice engine). All
+/// mutable state, including both sub ADMs, is owned by the worker thread, so
+/// no locks are needed and mode transitions execute as plain sequential code.
+///
+/// This also satisfies the platform ADM threading contract: platform
+/// implementations bind a sequence checker to their construction thread and
+/// expect every control call on it. The proxy must therefore be constructed
+/// on the worker thread, so the eagerly created platform ADM binds to it.
+/// Destruction may happen on any thread, teardown hops to the worker.
+///
+/// Note for future extensions: platform ADM observer callbacks must not call
+/// synchronously back into AudioDeviceController, as that would block the
+/// observer thread on the worker while the worker may be waiting on it.
 ///
 /// ## Mode Selection
 ///
@@ -65,6 +83,7 @@ namespace livekit_ffi {
 ///
 class AdmProxy : public webrtc::AudioDeviceModule {
  public:
+  /// Must be constructed on the worker thread.
   explicit AdmProxy(const webrtc::Environment& env,
                     webrtc::Thread* worker_thread);
   ~AdmProxy() override;
@@ -83,8 +102,8 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
   /// Releases a reference to the Platform ADM.
   ///
-  /// When the reference count reaches zero, the Platform ADM is terminated
-  /// and the proxy returns to synthetic mode.
+  /// When the reference count reaches zero, the proxy returns to synthetic
+  /// mode. The Platform ADM instance stays alive until destruction.
   void ReleasePlatformAdm();
 
   /// Returns the current reference count for the Platform ADM.
@@ -206,72 +225,92 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t SetObserver(webrtc::AudioDeviceObserver* observer) override;
 
  private:
+  // Runs fn on the worker thread, inline when already on it.
+  template <typename Fn>
+  auto RunOnWorker(Fn&& fn) const {
+    if (worker_thread_->IsCurrent()) {
+      return fn();
+    }
+    return worker_thread_->BlockingCall(std::forward<Fn>(fn));
+  }
+
+  // Forwards a call to the platform ADM on the worker thread.
+  // Returns default_value when no platform ADM is available.
+  template <typename R, typename Fn>
+  R WithPlatformAdm(R default_value, Fn&& fn) const {
+    return RunOnWorker([&]() -> R {
+      RTC_DCHECK_RUN_ON(worker_thread_);
+      if (!platform_adm_) {
+        return default_value;
+      }
+      return fn(*platform_adm_);
+    });
+  }
+
   // Returns true if platform mode is active for playout
   // (ref_count > 0 && playout_enabled)
-  bool is_platform_playout_active() const;
+  bool IsPlatformPlayoutActive() const RTC_RUN_ON(worker_thread_);
 
-  // Returns the ADM to use for recording operations
-  // - Platform ADM when recording is enabled (ref_count > 0 && recording_enabled)
-  // - nullptr otherwise (recording not available in synthetic mode)
-  webrtc::AudioDeviceModule* recording_adm() const;
+  // Returns the ADM to use for recording operations.
+  // Platform ADM when recording is enabled (ref_count > 0 && recording_enabled),
+  // nullptr otherwise (recording not available in synthetic mode).
+  webrtc::AudioDeviceModule* RecordingAdm() const RTC_RUN_ON(worker_thread_);
 
-  // Switches playout mode based on current state.
-  // Called when ref_count or playout_enabled changes.
+  // Switches playout between synthetic and platform mode based on current
+  // state. Called when ref_count or playout_enabled changes.
   // If playout is active, stops the old mode and starts the new one.
-  // Must be called with mutex_ held.
-  void SwitchPlayoutModeIfNeeded();
+  void SwitchPlayoutMode() RTC_RUN_ON(worker_thread_);
 
-  // Switches recording to the correct ADM based on current mode.
+  // Switches recording to the correct ADM based on current state.
   // Called when ref_count or recording_enabled changes.
   // If recording is active, stops the old ADM and starts the new one.
-  // Must be called with mutex_ held.
-  void SwitchRecordingAdmIfNeeded();
+  void SwitchRecordingAdm() RTC_RUN_ON(worker_thread_);
 
 #if defined(__ANDROID__)
-  // Lazily creates the Platform ADM on Android.
-  // Must be called with mutex_ held.
+  // Lazily creates and initializes the Platform ADM on Android.
   // Returns true if ADM is available after the call.
-  bool EnsurePlatformAdmCreated();
+  bool EnsurePlatformAdmCreated() RTC_RUN_ON(worker_thread_);
 #endif
 
   const webrtc::Environment env_;
-  webrtc::Thread* worker_thread_;
+  webrtc::Thread* const worker_thread_;
 
-  // Mutex for thread-safe access to mutable state
-  mutable webrtc::Mutex mutex_;
+  // All mutable state below is owned by the worker thread.
 
   // Synthetic ADM for synthetic mode - pumps the WebRTC audio pipeline without
   // platform audio via SyntheticAudioDevice's internal task.
-  webrtc::scoped_refptr<SyntheticAudioDevice> synthetic_adm_;
+  webrtc::scoped_refptr<SyntheticAudioDevice> synthetic_adm_
+      RTC_GUARDED_BY(worker_thread_);
 
   // Platform ADM for real audio I/O (microphone capture, speaker playout with AEC)
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_
+      RTC_GUARDED_BY(worker_thread_);
 
   // Reference count for Platform ADM users (PlatformAudio instances)
-  int platform_adm_ref_count_ = 0;
+  int platform_adm_ref_count_ RTC_GUARDED_BY(worker_thread_) = 0;
 
   // Audio transport callback (registered by WebRTC)
-  webrtc::AudioTransport* audio_transport_ = nullptr;
+  webrtc::AudioTransport* audio_transport_ RTC_GUARDED_BY(worker_thread_) =
+      nullptr;
 
   // State tracking
-  bool playout_initialized_ = false;
-  bool recording_initialized_ = false;
-  bool playing_ = false;
-  bool recording_ = false;
+  bool playing_ RTC_GUARDED_BY(worker_thread_) = false;
+  bool recording_ RTC_GUARDED_BY(worker_thread_) = false;
 
   // Control flags
   // When false (default), recording operations are no-ops (NativeAudioSource mode)
-  bool recording_enabled_ = false;
+  bool recording_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
   // When false (default), playout uses synthetic mode (internal task pumps audio)
-  bool playout_enabled_ = false;
+  bool playout_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 
-  // Selected device information (for re-initialization after ADM restart)
-  // We store both index and GUID. GUID is preferred for restoration as it's
-  // stable across device hot-plug events.
-  uint16_t selected_playout_device_ = 0;
-  uint16_t selected_recording_device_ = 0;
-  std::string selected_playout_guid_;
-  std::string selected_recording_guid_;
+  // Selected device information. We store both index and GUID so a selection
+  // made before the Platform ADM exists (Android lazy creation) can be
+  // re-applied once it is created. GUID is preferred as it is stable across
+  // device hot-plug events.
+  uint16_t selected_playout_device_ RTC_GUARDED_BY(worker_thread_) = 0;
+  uint16_t selected_recording_device_ RTC_GUARDED_BY(worker_thread_) = 0;
+  std::string selected_playout_guid_ RTC_GUARDED_BY(worker_thread_);
+  std::string selected_recording_guid_ RTC_GUARDED_BY(worker_thread_);
 };
 
 }  // namespace livekit_ffi
