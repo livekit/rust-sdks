@@ -138,6 +138,20 @@ bool AdmProxy::EnsurePlatformAdmCreated() {
     return false;
   }
 
+  // WebRTC registered its audio transport before the ADM existed,
+  // pass it along so recorded audio actually reaches the pipeline
+  if (audio_transport_) {
+    platform_adm_->RegisterAudioCallback(audio_transport_);
+  }
+
+  // Re-apply any device selection made before the ADM existed
+  if (selected_playout_device_ != 0) {
+    platform_adm_->SetPlayoutDevice(selected_playout_device_);
+  }
+  if (selected_recording_device_ != 0) {
+    platform_adm_->SetRecordingDevice(selected_recording_device_);
+  }
+
   return true;
 }
 #endif
