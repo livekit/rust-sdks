@@ -135,8 +135,8 @@ async fn test_send_large_incompressible_random_bytes() -> Result<()> {
     let send = async move {
         let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
-        assert_eq!(stream_info.is_compressed, false);
-        assert_eq!(stream_info.is_inline, false);
+        assert_eq!(stream_info.is_compressed, false, "is_compressed was not false");
+        assert_eq!(stream_info.is_inline, false, "is_inline was not false");
         Ok(())
     };
     let receive = async move {
@@ -170,8 +170,8 @@ async fn test_send_large_bytes() -> Result<()> {
     let send = async move {
         let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
-        assert_eq!(stream_info.is_compressed, true);
-        assert_eq!(stream_info.is_inline, true);
+        assert_eq!(stream_info.is_compressed, true, "is_compressed was not true");
+        assert_eq!(stream_info.is_inline, true, "is_inline was not true");
         Ok(())
     };
     let receive = async move {
@@ -210,8 +210,8 @@ async fn test_data_stream_compress_false() -> Result<()> {
             ..Default::default()
         };
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
-        assert_eq!(stream_info.is_compressed, false);
-        assert_eq!(stream_info.is_inline, false);
+        assert_eq!(stream_info.is_compressed, false, "is_compressed was not false");
+        assert_eq!(stream_info.is_inline, false, "is_inline was not false");
         Ok(())
     };
     let receive = async move {
