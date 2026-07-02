@@ -18,7 +18,7 @@ use crate::data_stream::{
 };
 use crate::e2ee::EncryptionType;
 use crate::room::id::ParticipantIdentity;
-use crate::room::participant::ClientCapability;
+use crate::room::participant::{ClientCapability, RemoteParticipantRegistry};
 use crate::room::RoomError;
 use bytes::Bytes;
 use chrono::Utc;
