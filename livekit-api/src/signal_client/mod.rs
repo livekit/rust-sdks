@@ -68,6 +68,7 @@ pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
 const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum SignalError {
     #[error("failed to parse the url: {0}")]
     UrlParse(String),
@@ -83,6 +84,10 @@ pub enum SignalError {
     Timeout(String),
     #[error("failed to send message to the server")]
     SendError,
+    #[error("transport connection error: {0}")]
+    Connection(String),
+    #[error("transport closed")]
+    Closed,
     /// Failed to retrieve region information from LiveKit Cloud.
     ///
     /// This error occurs when the SDK cannot fetch the `/settings/regions` endpoint
@@ -928,8 +933,10 @@ pub(super) fn bearer_headers(token: &str) -> Vec<livekit_net::Header> {
 /// - `Timeout` → `SignalError::Timeout` (timed out at transport layer)
 /// - `Http { status }` → `Client` for 4xx, `Server` for 5xx (empty body — caller
 ///   may have already read the body separately)
-/// - `Closed` / `Connection` / `Other` → `SignalError::Timeout` (drives the
-///   reconnect path; no dedicated closed/connection variant exists on `SignalError`)
+/// - `Connection` / `Other` → `SignalError::Connection` (network/TLS/transport failure)
+/// - `Closed` → `SignalError::Closed` (peer/transport closed)
+///
+/// Every variant except `LeaveRequest` drives the engine's full-reconnect path.
 pub(super) fn map_transport_err(e: livekit_net::TransportError) -> SignalError {
     use livekit_net::TransportError as TE;
     match e {
@@ -943,9 +950,9 @@ pub(super) fn map_transport_err(e: livekit_net::TransportError) -> SignalError {
                 SignalError::Server(code, String::new())
             }
         }
-        TE::Closed => SignalError::Timeout("transport closed".into()),
-        TE::Connection(m) => SignalError::Timeout(m),
-        TE::Other(m) => SignalError::Timeout(m),
+        TE::Closed => SignalError::Closed,
+        TE::Connection(m) => SignalError::Connection(m),
+        TE::Other(m) => SignalError::Connection(m),
     }
 }
 
@@ -1271,24 +1278,36 @@ mod tests {
     }
 
     #[test]
-    fn map_transport_err_connection_yields_timeout() {
+    fn map_transport_err_connection_yields_connection() {
         use livekit_net::TransportError;
         let err = map_transport_err(TransportError::Connection("conn failed".into()));
-        assert!(matches!(err, SignalError::Timeout(_)), "expected Timeout, got {:?}", err);
+        assert!(
+            matches!(&err, SignalError::Connection(m) if m == "conn failed"),
+            "expected Connection, got {:?}",
+            err
+        );
     }
 
     #[test]
-    fn map_transport_err_other_yields_timeout() {
+    fn map_transport_err_other_yields_connection() {
         use livekit_net::TransportError;
         let err = map_transport_err(TransportError::Other("something went wrong".into()));
-        assert!(matches!(err, SignalError::Timeout(_)), "expected Timeout, got {:?}", err);
+        assert!(
+            matches!(&err, SignalError::Connection(m) if m == "something went wrong"),
+            "expected Connection, got {:?}",
+            err
+        );
     }
 
     #[test]
-    fn map_transport_err_closed_yields_timeout() {
+    fn map_transport_err_closed_yields_closed() {
         use livekit_net::TransportError;
         let err = map_transport_err(TransportError::Closed);
-        assert!(matches!(err, SignalError::Timeout(_)), "expected Timeout, got {:?}", err);
+        assert!(
+            matches!(err, SignalError::Closed),
+            "expected Closed, got {:?}",
+            err
+        );
     }
 
     // Region + validate + stream behaviour, driven by the shared mock transport.
