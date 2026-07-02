@@ -401,45 +401,43 @@ impl OutgoingStreamManager {
 
         let eligibility =
             evaluate_eligibility(remote_participant_registry, &options.destination_identities);
-        let should_compress = options.compress.unwrap_or(true) && eligibility.compression;
+        let can_compress = options.compress.unwrap_or(true) && eligibility.compression;
 
-        // 1. Inline single-packet attempt (no attachments; all recipients are v2).
-        if eligibility.inline && options.attached_stream_ids.is_empty() {
-            let (header, text_header) =
-                if should_compress && payload.as_compressed()?.len() < payload.uncompressed.len() {
-                    build_text_header(
-                        &options,
-                        stream_id.clone(),
-                        Some(total_length),
-                        Some(payload.as_compressed()?.to_vec()),
-                        CompressionType::DeflateRaw,
-                    )
-                } else {
-                    build_text_header(
-                        &options,
-                        stream_id.clone(),
-                        Some(total_length),
-                        Some(payload.uncompressed.to_vec()),
-                        CompressionType::None,
-                    )
-                };
-
-            if header_packet_fits(&header, &options.destination_identities) {
-                let packet =
-                    RawStream::create_header_packet(header.clone(), options.destination_identities);
-                RawStream::send_packet(&self.packet_tx, packet).await?;
-                return Ok(TextStreamInfo::from_headers(header, text_header));
-            }
-            // Otherwise (large payload), fall through to the chunked path.
+        // 1. Inline single-packet attempt (no attachments; all recipients are >= v2).
+        let (mut header, text_header) =
+            if can_compress && payload.as_compressed()?.len() < payload.uncompressed.len() {
+                build_text_header(
+                    &options,
+                    stream_id.clone(),
+                    Some(total_length),
+                    Some(payload.as_compressed()?.to_vec()),
+                    CompressionType::DeflateRaw,
+                )
+            } else {
+                build_text_header(
+                    &options,
+                    stream_id.clone(),
+                    Some(total_length),
+                    Some(payload.uncompressed.to_vec()),
+                    CompressionType::None,
+                )
+            };
+        if eligibility.inline
+            && options.attached_stream_ids.is_empty()
+            && header_packet_fits(&header, &options.destination_identities)
+        {
+            let packet =
+                RawStream::create_header_packet(header.clone(), options.destination_identities);
+            RawStream::send_packet(&self.packet_tx, packet).await?;
+            return Ok(TextStreamInfo::from_headers(header, text_header));
         }
 
         // 2/3. Chunked, compressed when eligible else uncompressed.
-        let compression =
-            if should_compress { CompressionType::DeflateRaw } else { CompressionType::None };
-        let (header, text_header) =
-            build_text_header(&options, stream_id, Some(total_length), None, compression);
+        header.inline_content = None;
         enforce_header_size(&header, &options.destination_identities)?;
 
+        let should_compress =
+            header.compression() == proto::data_stream::CompressionType::DeflateRaw;
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: options.destination_identities,
@@ -480,51 +478,49 @@ impl OutgoingStreamManager {
         let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
         let name = options.name.clone().unwrap_or_else(|| BYTE_DEFAULT_NAME.to_owned());
         let total_length = bytes.len() as u64;
-        let dests = options.destination_identities.clone();
         let mut payload = MaybeCompressed::new(bytes);
 
-        let eligibility = evaluate_eligibility(remote_participant_registry, &dests);
-        let should_compress = options.compress.unwrap_or(true) && eligibility.compression;
+        let eligibility =
+            evaluate_eligibility(remote_participant_registry, &options.destination_identities);
+        let can_compress = options.compress.unwrap_or(true) && eligibility.compression;
 
-        // 1. Inline single-packet attempt (all recipients are v2).
-        if eligibility.inline {
-            let (header, byte_header) =
-                if should_compress && payload.as_compressed()?.len() < payload.uncompressed.len() {
-                    build_byte_header(
-                        &options,
-                        stream_id.clone(),
-                        name.clone(),
-                        Some(total_length),
-                        Some(payload.as_compressed()?.to_vec()),
-                        CompressionType::DeflateRaw,
-                    )
-                } else {
-                    build_byte_header(
-                        &options,
-                        stream_id.clone(),
-                        name.clone(),
-                        Some(total_length),
-                        Some(payload.uncompressed.to_vec()),
-                        CompressionType::None,
-                    )
-                };
-            if header_packet_fits(&header, &dests) {
-                let packet = RawStream::create_header_packet(header.clone(), dests);
-                RawStream::send_packet(&self.packet_tx, packet).await?;
-                return Ok(ByteStreamInfo::from_headers(header, byte_header));
-            }
+        // 1. Inline single-packet attempt (if all recipients are >= v2).
+        let (mut header, byte_header) =
+            if can_compress && payload.as_compressed()?.len() < payload.uncompressed.len() {
+                build_byte_header(
+                    &options,
+                    stream_id.clone(),
+                    name.clone(),
+                    Some(total_length), // NOTE: this is purposely always uncompressed length
+                    Some(payload.as_compressed()?.to_vec()),
+                    CompressionType::DeflateRaw,
+                )
+            } else {
+                build_byte_header(
+                    &options,
+                    stream_id.clone(),
+                    name.clone(),
+                    Some(total_length), // NOTE: this is purposely always uncompressed length
+                    Some(payload.uncompressed.to_vec()),
+                    CompressionType::None,
+                )
+            };
+        if eligibility.inline && header_packet_fits(&header, &options.destination_identities) {
+            let packet =
+                RawStream::create_header_packet(header.clone(), options.destination_identities);
+            RawStream::send_packet(&self.packet_tx, packet).await?;
+            return Ok(ByteStreamInfo::from_headers(header, byte_header));
         }
 
         // 2/3. Chunked, compressed when eligible else uncompressed.
-        let compression =
-            if should_compress { CompressionType::DeflateRaw } else { CompressionType::None };
-        let (header, byte_header) =
-            build_byte_header(&options, stream_id, name, Some(total_length), None, compression);
-        enforce_header_size(&header, &dests)?;
+        header.inline_content = None;
+        enforce_header_size(&header, &options.destination_identities)?;
 
+        let should_compress =
+            header.compression() == proto::data_stream::CompressionType::DeflateRaw;
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
-            destination_identities: dests,
+            destination_identities: options.destination_identities,
             packet_tx: self.packet_tx.clone(),
         };
         let info = ByteStreamInfo::from_headers(header, byte_header);
@@ -636,15 +632,6 @@ impl<'a> MaybeCompressed<'a> {
             }
         }
     }
-
-    // /// Consumes and converts into compressed bytes
-    // fn into_compressed(mut self) -> Result<Vec<u8>, std::io::Error> {
-    //     self.as_compressed()?;
-    //     let Some(data) = self.compressed else {
-    //         unreachable!("compressed data should be set in .as_compressed()");
-    //     };
-    //     Ok(data)
-    // }
 }
 
 /// Whether the serialized header `DataPacket` fits within the MTU budget.
