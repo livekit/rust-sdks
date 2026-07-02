@@ -192,6 +192,25 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
                                   static_cast<uint32_t>(buffer->height())};
   }
 
+  // Pre-encoded access units bypass the adapter entirely: frame-rate and
+  // resolution adaptation operate on raw frames, and dropping or scaling an
+  // encoded delta frame would corrupt the bitstream for every receiver.
+  if (livekit::EncodedVideoFrameBuffer::FromNative(buffer.get())) {
+    if (packet_trailer_handler_) {
+      packet_trailer_handler_->emit_publish_timing(
+          VideoPublishTimingStage::EncoderUpload,
+          frame_metadata.has_packet_trailer ? frame_metadata.user_timestamp
+                                            : 0,
+          frame_metadata.has_packet_trailer ? frame_metadata.frame_id : 0);
+    }
+    OnFrame(webrtc::VideoFrame::Builder()
+                .set_video_frame_buffer(buffer)
+                .set_rotation(frame.rotation())
+                .set_timestamp_us(aligned_timestamp_us)
+                .build());
+    return true;
+  }
+
   int adapted_width, adapted_height, crop_width, crop_height, crop_x, crop_y;
   if (!AdaptFrame(buffer->width(), buffer->height(), aligned_timestamp_us,
                   &adapted_width, &adapted_height, &crop_width, &crop_height,
@@ -199,8 +218,7 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
     return false;
   }
 
-  if ((adapted_width != frame.width() || adapted_height != frame.height()) &&
-      buffer->type() != webrtc::VideoFrameBuffer::Type::kNative) {
+  if (adapted_width != frame.width() || adapted_height != frame.height()) {
     buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
                                   adapted_width, adapted_height);
   }
@@ -279,12 +297,16 @@ bool VideoTrackSource::capture_encoded_frame(
     int width,
     int height,
     const EncodedVideoFrameData& encoded_frame,
+    rust::Slice<const uint8_t> payload,
     const FrameMetadata& frame_metadata) const {
+  // The single unavoidable copy on this path: the Rust payload only lives
+  // for the duration of this call, while the EncodedImageBuffer is shared
+  // (uncopied) with the pass-through encoder downstream.
   auto buffer = webrtc::make_ref_counted<livekit::EncodedVideoFrameBuffer>(
       width, height, ToNativeEncodedCodec(encoded_frame.codec),
       ToNativeEncodedFrameType(encoded_frame.frame_type),
-      std::vector<uint8_t>(encoded_frame.payload.begin(),
-                           encoded_frame.payload.end()));
+      webrtc::EncodedImageBuffer::Create(payload.data(), payload.size()),
+      source_->keyframe_request_flag());
 
   auto frame = webrtc::VideoFrame::Builder()
                    .set_video_frame_buffer(std::move(buffer))
@@ -293,6 +315,11 @@ bool VideoTrackSource::capture_encoded_frame(
                    .build();
 
   return source_->on_captured_frame(frame, frame_metadata);
+}
+
+bool VideoTrackSource::take_keyframe_request() const {
+  return source_->keyframe_request_flag()->exchange(false,
+                                                    std::memory_order_relaxed);
 }
 
 void VideoTrackSource::set_packet_trailer_handler(

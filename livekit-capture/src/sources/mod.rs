@@ -14,16 +14,14 @@
 
 //! Optional capture sources that feed the shared capture paths.
 
-#[cfg(feature = "avfoundation")]
-pub mod avfoundation {
-    //! macOS AVFoundation decoded-frame capture.
-
-    pub use crate::platform::avfoundation::*;
-}
 #[cfg(feature = "libargus")]
 pub mod argus;
+#[cfg(feature = "avfoundation")]
+pub mod avfoundation;
 #[cfg(feature = "gstreamer")]
 pub mod gstreamer;
+#[cfg(feature = "tcpsink")]
+pub(crate) mod io;
 #[cfg(feature = "rtsp")]
 pub mod rtsp;
 #[cfg(feature = "tcpsink")]

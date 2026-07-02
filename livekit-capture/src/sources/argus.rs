@@ -29,7 +29,9 @@ use crate::{
 #[cfg(livekit_capture_argus)]
 use crate::dmabuf::{DmaBufPixelFormat, DmaBufPlane};
 #[cfg(livekit_capture_argus)]
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use crate::time::{elapsed_us, unix_time_us_now};
+#[cfg(livekit_capture_argus)]
+use std::time::Instant;
 #[cfg(livekit_capture_argus)]
 use std::{ffi::c_int, ffi::c_void};
 
@@ -455,11 +457,6 @@ fn c_int_from_u32(value: u32, field: &'static str) -> Result<c_int, ArgusError> 
 }
 
 #[cfg(livekit_capture_argus)]
-fn elapsed_us(duration: Duration) -> i64 {
-    i64::try_from(duration.as_micros()).unwrap_or(i64::MAX)
-}
-
-#[cfg(livekit_capture_argus)]
 fn sensor_wall_time_us(sensor_timestamp_ns: u64) -> Option<u64> {
     let wall_time_us = unix_time_us_now()?;
     sensor_monotonic_ns_to_unix_us(sensor_timestamp_ns, wall_time_us)
@@ -474,12 +471,6 @@ pub fn sensor_monotonic_ns_to_unix_us(sensor_timestamp_ns: u64, wall_time_us: u6
     } else {
         Some(wall_time_us.saturating_add(monotonic_delta_us))
     }
-}
-
-#[cfg(livekit_capture_argus)]
-fn unix_time_us_now() -> Option<u64> {
-    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    u64::try_from(elapsed.as_micros()).ok()
 }
 
 #[cfg(target_os = "linux")]

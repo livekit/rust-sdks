@@ -28,6 +28,12 @@ pub enum CaptureError {
     /// DMA-BUF frame did not include any planes.
     #[error("DMA-BUF frame did not include any planes")]
     MissingDmaBufPlane,
+    /// DMA-BUF frame layout cannot be represented by the native capture path.
+    #[error("unsupported DMA-BUF layout: {0}")]
+    UnsupportedDmaBufLayout(&'static str),
+    /// Access unit carries layering metadata the passthrough cannot forward.
+    #[error("unsupported layered encoding: {0}")]
+    UnsupportedLayeredEncoding(&'static str),
     /// Codec is represented by the API but not yet supported by native passthrough.
     #[error("encoded passthrough does not support {0:?} yet")]
     UnsupportedCodec(EncodedVideoCodec),

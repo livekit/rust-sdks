@@ -5706,7 +5706,6 @@ dependencies = [
  "clap",
  "env_logger 0.11.10",
  "gstreamer",
- "gstreamer-app",
  "livekit",
  "livekit-api",
  "livekit-capture",

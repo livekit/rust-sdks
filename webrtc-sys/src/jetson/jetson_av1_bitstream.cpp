@@ -345,6 +345,12 @@ void StripNonTransferObusIfPresent(std::vector<uint8_t>* packet) {
   StripNonTransferObus(packet);
 }
 
+void NormalizeForRtp(std::vector<uint8_t>* packet) {
+  StripIvfFrameHeaderIfPresent(packet);
+  ConvertAnnexBToLowOverheadIfPresent(packet);
+  StripNonTransferObusIfPresent(packet);
+}
+
 bool IsWebRtcParseable(const uint8_t* data, size_t len) {
   if (!data || len == 0) {
     return false;

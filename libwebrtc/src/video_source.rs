@@ -75,6 +75,12 @@ pub mod native {
             Self { handle: vs_imp::NativeVideoSource::new(resolution, is_screencast) }
         }
 
+        /// Creates a source for pre-encoded access units: no raw black-frame
+        /// keepalive is injected before the first capture.
+        pub fn new_encoded(resolution: VideoResolution) -> Self {
+            Self { handle: vs_imp::NativeVideoSource::new_encoded(resolution) }
+        }
+
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
         }
@@ -82,6 +88,12 @@ pub mod native {
         /// Captures one pre-encoded video access unit.
         pub fn capture_encoded_frame(&self, frame: &EncodedVideoFrame<'_>) -> bool {
             self.handle.capture_encoded_frame(frame)
+        }
+
+        /// Returns and clears the pending keyframe request raised by the
+        /// pass-through encoder (PLI/FIR or reconfiguration).
+        pub fn take_keyframe_request(&self) -> bool {
+            self.handle.take_keyframe_request()
         }
 
         /// Captures a Jetson DMA-buffer backed video frame.

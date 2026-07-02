@@ -22,7 +22,9 @@ use livekit::{
 };
 
 use crate::{
-    encoded::{EncodedAccessUnit, EncodedVideoCodec},
+    encoded::{
+        CodecSpecific, EncodedAccessUnit, EncodedLayerInfo, EncodedPayload, EncodedVideoCodec,
+    },
     error::CaptureError,
 };
 
@@ -46,6 +48,18 @@ impl VideoCaptureTrack {
         Self { source, track }
     }
 
+    /// Creates a capture track for pre-encoded access units.
+    ///
+    /// Unlike [`VideoCaptureTrack::new`], no raw keepalive frames are
+    /// injected before the first capture, so the sender starts directly on
+    /// the passthrough encoder instead of briefly encoding black frames.
+    pub fn new_encoded(name: &str, resolution: VideoResolution) -> Self {
+        let source = NativeVideoSource::new_encoded(resolution);
+        let track =
+            LocalVideoTrack::create_video_track(name, RtcVideoSource::Native(source.clone()));
+        Self { source, track }
+    }
+
     /// Returns the publishable local video track.
     pub fn track(&self) -> LocalVideoTrack {
         self.track.clone()
@@ -57,9 +71,26 @@ impl VideoCaptureTrack {
     }
 
     /// Captures one DMA-BUF backed frame.
+    ///
+    /// The native capture path hands a single file descriptor to the driver
+    /// and derives the plane layout from the underlying buffer itself
+    /// (NvBufSurface); per-plane offsets, strides, and DRM modifiers in
+    /// [`DmaBufFrame`] are informational and must describe that derived
+    /// layout. Frames whose planes span multiple file descriptors or start
+    /// at a nonzero offset are rejected rather than silently truncated.
     #[cfg(target_os = "linux")]
     pub fn capture_dmabuf(&self, frame: &DmaBufFrame) -> Result<(), CaptureError> {
         let plane = frame.planes.first().ok_or(CaptureError::MissingDmaBufPlane)?;
+        if frame.planes.iter().any(|other| other.fd != plane.fd) {
+            return Err(CaptureError::UnsupportedDmaBufLayout(
+                "planes must share one DMA-BUF file descriptor",
+            ));
+        }
+        if plane.offset != 0 {
+            return Err(CaptureError::UnsupportedDmaBufLayout(
+                "first plane must start at offset 0",
+            ));
+        }
         let ok = self.source.capture_dmabuf_frame(
             plane.fd,
             frame.width,
@@ -71,13 +102,26 @@ impl VideoCaptureTrack {
     }
 
     /// Captures one encoded video access unit.
+    ///
+    /// The passthrough path forwards single-layer streams: access units
+    /// carrying temporal/spatial layer ids, an AV1 dependency descriptor, or
+    /// a non-`L1T1` scalability mode are rejected so callers are not misled
+    /// into thinking that metadata reaches the wire.
     pub fn capture_encoded(&self, access_unit: &EncodedAccessUnit<'_>) -> Result<(), CaptureError> {
         validate_encoded_access_unit(access_unit)?;
 
-        let payload = access_unit.payload.to_vec();
+        let mut scratch = Vec::new();
+        let payload: &[u8] = match &access_unit.payload {
+            EncodedPayload::Contiguous(bytes) => bytes,
+            EncodedPayload::Owned(bytes) => bytes,
+            EncodedPayload::Fragments(_) => {
+                scratch = access_unit.payload.to_vec();
+                &scratch
+            }
+        };
         let frame = EncodedVideoFrame {
             codec: access_unit.codec.into(),
-            payload: &payload,
+            payload,
             timestamp_us: access_unit.timestamp_us,
             frame_type: access_unit.frame_type.into(),
             width: access_unit.width,
@@ -85,6 +129,17 @@ impl VideoCaptureTrack {
             frame_metadata: None,
         };
         self.source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
+    }
+
+    /// Returns and clears the pending keyframe request raised by the
+    /// passthrough encoder (PLI/FIR from the SFU, late subscriber join, or
+    /// sender reconfiguration).
+    ///
+    /// Poll this from the capture loop and forward the request to the
+    /// upstream encoder so it produces an IDR; until one arrives, new
+    /// subscribers cannot render the track.
+    pub fn take_keyframe_request(&self) -> bool {
+        self.source.take_keyframe_request()
     }
 
     /// Returns publish options appropriate for encoded passthrough.
@@ -101,6 +156,19 @@ impl VideoCaptureTrack {
 fn validate_encoded_access_unit(access_unit: &EncodedAccessUnit<'_>) -> Result<(), CaptureError> {
     if access_unit.payload.is_empty() {
         return Err(CaptureError::EmptyPayload);
+    }
+    if access_unit.layers != EncodedLayerInfo::default() {
+        return Err(CaptureError::UnsupportedLayeredEncoding(
+            "temporal/spatial layer ids are not forwarded by the passthrough encoder",
+        ));
+    }
+    let default_specific = CodecSpecific::default_for(access_unit.codec);
+    if access_unit.codec_specific != CodecSpecific::None
+        && access_unit.codec_specific != default_specific
+    {
+        return Err(CaptureError::UnsupportedLayeredEncoding(
+            "codec-specific layering metadata is not forwarded by the passthrough encoder",
+        ));
     }
     Ok(())
 }
@@ -138,5 +206,56 @@ mod tests {
         );
 
         assert_eq!(validate_encoded_access_unit(&access_unit), Err(CaptureError::EmptyPayload));
+    }
+
+    #[test]
+    fn accepts_default_codec_specific_metadata() {
+        let mut access_unit = EncodedAccessUnit::contiguous(
+            EncodedVideoCodec::AV1,
+            &[1, 2, 3],
+            0,
+            EncodedFrameType::Key,
+            640,
+            480,
+        );
+        access_unit.codec_specific = CodecSpecific::default_for(EncodedVideoCodec::AV1);
+
+        assert!(validate_encoded_access_unit(&access_unit).is_ok());
+    }
+
+    #[test]
+    fn rejects_layered_access_units() {
+        let mut access_unit = EncodedAccessUnit::contiguous(
+            EncodedVideoCodec::VP9,
+            &[1, 2, 3],
+            0,
+            EncodedFrameType::Key,
+            640,
+            480,
+        );
+        access_unit.layers = EncodedLayerInfo { spatial_id: None, temporal_id: Some(1) };
+
+        assert!(matches!(
+            validate_encoded_access_unit(&access_unit),
+            Err(CaptureError::UnsupportedLayeredEncoding(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_non_default_codec_specific_metadata() {
+        let mut access_unit = EncodedAccessUnit::contiguous(
+            EncodedVideoCodec::VP8,
+            &[1, 2, 3],
+            0,
+            EncodedFrameType::Key,
+            640,
+            480,
+        );
+        access_unit.codec_specific = CodecSpecific::VP8 { temporal_id: Some(1), layer_sync: true };
+
+        assert!(matches!(
+            validate_encoded_access_unit(&access_unit),
+            Err(CaptureError::UnsupportedLayeredEncoding(_))
+        ));
     }
 }

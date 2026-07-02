@@ -4,6 +4,29 @@ Capture helpers for publishing decoded, native platform, DMA-BUF, and
 pre-encoded video frames with the LiveKit Rust SDK. Optional source features
 include `avfoundation`, `libargus`, `v4l`, `tcpsink`, `rtsp`, and `gstreamer`.
 
+## Library entry points
+
+- `VideoCaptureSource::open(CaptureSourceOptions)` — one facade over every
+  backend. Camera backends (`AvFoundation`, `V4l2`, `LibArgus`, `Auto`) are
+  selected with device/format options; the encoded ingest backends (`Rtsp`,
+  `Tcp`, `Gstreamer`) take an `EncodedEndpoint` describing the URL, socket, or
+  `gst-launch` description. `publish_next(&track)` pumps one frame and returns
+  `Ok(false)` at end of stream; `stop()` interrupts a blocked capture.
+- `VideoCaptureTrack::new` for decoded/native/DMA-BUF publishing and
+  `VideoCaptureTrack::new_encoded` for pre-encoded passthrough (no raw
+  keepalive frames, so the sender starts directly on the passthrough encoder).
+- `EncodedIngress` — the lower-level pre-encoded pump used when the caller
+  manages its own source: `capture_next()` reports each published access unit,
+  `stop_handle()` cancels from any thread, and downstream keyframe requests
+  (PLI/FIR) are forwarded to the source automatically. The GStreamer source
+  answers them with a `GstForceKeyUnit` upstream event; passthrough is
+  single-layer (`L1T1`), and access units carrying other layering metadata are
+  rejected.
+- `sources::gstreamer::ensure_encoded_appsink` and friends turn an arbitrary
+  pipeline (containing `appsink name=lk_appsink` or one unlinked encoded pad)
+  into an encoded source; `encoded_caps_string` is the single per-codec caps
+  table.
+
 ## Pre-encoded source modes
 
 The `preencode_publish` example publishes H.264, H.265, VP8, VP9, and AV1

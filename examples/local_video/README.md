@@ -2,7 +2,8 @@
 
 Examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, subscribing to render video in a window, and showing a low-latency clock for measurement.
 
-**Note:** These examples are intended for **desktop platforms only** (macOS, Linux, Windows).
+**Note:** These examples are intended for **macOS and Linux** (including NVIDIA Jetson).
+Windows camera capture is not currently supported; the test-pattern publisher (`--test-pattern`), subscriber, and clock still work there.
 You must enable the `desktop` feature when building or running them.
 For smoother local rendering, especially above 720p, run the publisher/subscriber with `cargo run --release`.
 
@@ -139,7 +140,7 @@ The clock draws a 3x9 grid below the time. The top row fills from `0` to `9` for
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
 - `--source <uvc|argus>`: Camera backend to use (default: `uvc`). `argus` uses NVIDIA libargus for MIPI CSI cameras and is available only on Linux aarch64 Jetson builds.
-- `--format <auto|yuv|mjpeg>`: UVC camera capture format (default: `auto`). `auto` tries uncompressed YUYV first and falls back to MJPEG; `mjpeg` can reduce USB bandwidth when running multiple cameras.
+- `--format <auto|yuv|mjpeg|grey>`: UVC camera capture format (default: `auto`). `auto` prefers uncompressed YUYV and falls back to the camera's other supported formats; `mjpeg` can reduce USB bandwidth when running multiple cameras. If an explicitly requested format is unavailable, the publisher logs a warning and continues with the negotiated format.
 - `--zero-copy`: Use a platform zero-copy capture/encode path when available, such as AVFoundation IOSurface-backed CVPixelBuffers on macOS or Argus DMA-BUF frames on Jetson. If the selected source does not support zero-copy, the publisher logs a warning and uses CPU I420 capture.
 - `--test-pattern [0|1]`: Generate a test pattern instead of capturing from a camera. `0` is a static SMPTE 75% color-bar pattern and `1` is an animated encoder exercise graphic. Omitting the value defaults to `0`. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).

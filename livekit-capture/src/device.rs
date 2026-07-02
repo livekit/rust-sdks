@@ -195,10 +195,6 @@ impl std::str::FromStr for CaptureFrameFormat {
 #[error("unknown capture frame format")]
 pub struct CaptureFrameFormatParseError;
 
-/// Deprecated alias for [`CaptureFrameFormat`].
-#[deprecated(note = "use CaptureFrameFormat")]
-pub type CapturePixelFormat = CaptureFrameFormat;
-
 /// Pixel dimensions for a capture format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CaptureResolution {

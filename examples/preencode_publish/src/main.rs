@@ -1,7 +1,17 @@
+//! Publish a pre-encoded video stream into a LiveKit room.
+//!
+//! Encoded access units are pulled from a TCP, RTSP, or GStreamer source and
+//! pumped into a passthrough `VideoCaptureTrack` by
+//! `livekit_capture::EncodedIngress`, which also forwards downstream keyframe
+//! requests (PLI/FIR from the SFU) back to the source. The higher-level
+//! `livekit_capture::VideoCaptureSource` facade covers the same encoded
+//! endpoints via `CaptureSourceOptions::encoded`; this example drives
+//! `EncodedIngress` directly to keep its per-access-unit diagnostics.
+
 use std::{
     net::{Shutdown, TcpStream},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -13,8 +23,6 @@ use clap::{Parser, ValueEnum};
 use gstreamer as gst;
 #[cfg(feature = "gstreamer")]
 use gstreamer::prelude::*;
-#[cfg(feature = "gstreamer")]
-use gstreamer_app as gst_app;
 use livekit::{
     options::{self, VideoEncoding},
     prelude::*,
@@ -23,24 +31,23 @@ use livekit::{
 use livekit_api::access_token;
 #[cfg(feature = "gstreamer")]
 use livekit_capture::sources::gstreamer::{
-    GStreamerAppSinkConfig, GStreamerAppSinkEncodedSource, GStreamerSampleFormat,
+    encoded_caps_string, ensure_encoded_appsink, GStreamerAppSinkConfig,
+    GStreamerAppSinkEncodedSource, ENCODED_APPSINK_NAME,
 };
 use livekit_capture::{
-    encoded::h26x::annex_b_nal_ranges,
     sources::{
         rtsp::{RtspEncodedSource, RtspSourceOptions},
         tcp::{ByteStreamSourceConfig, TcpEncodedSource},
     },
-    CaptureError, EncodedAccessUnitSource, EncodedFrameType, EncodedVideoCodec, EncodedWireFormat,
-    OwnedEncodedAccessUnit, VideoCaptureTrack,
+    CaptureError, EncodedAccessUnitSource, EncodedFrameType, EncodedIngress, EncodedIngressCapture,
+    EncodedIngressError, EncodedVideoCodec, EncodedWireFormat, OwnedEncodedAccessUnit,
+    VideoCaptureTrack,
 };
 
 const DIAGNOSTIC_REPORT_INTERVAL: Duration = Duration::from_secs(1);
 const SOURCE_STALL_THRESHOLD: Duration = Duration::from_millis(250);
 const BURST_WALL_DELTA_THRESHOLD: Duration = Duration::from_millis(5);
 const KEYFRAME_GAP_THRESHOLD: Duration = Duration::from_secs(5);
-#[cfg(feature = "gstreamer")]
-const GSTREAMER_APPSINK_NAME: &str = "lk_appsink";
 
 /// Publish a pre-encoded video stream into a LiveKit room.
 #[derive(Parser, Debug)]
@@ -118,7 +125,7 @@ struct Args {
     #[arg(long, default_value_t = 90_000)]
     rtp_clock_rate: u32,
 
-    /// Log access-unit timing, keyframe, and H26x NAL diagnostics.
+    /// Log access-unit timing, keyframe, and keyframe-request diagnostics.
     #[arg(long)]
     diagnostics: bool,
 
@@ -400,7 +407,7 @@ async fn run_shmsink_source(args: Args, frame_interval_us: i64) -> Result<()> {
     let codec_arg = args.codec.context("--codec is required with --source shmsink")?;
     let codec = codec_arg.encoded_codec();
     let socket_path = args.shmsink_socket_path.clone();
-    let pipeline_args = vec![gstreamer_shmsink_pipeline_description(&socket_path, codec)?];
+    let pipeline_args = vec![gstreamer_shmsink_pipeline_description(&socket_path, codec)];
     let source = GStreamerTestSource::start(
         args.width,
         args.height,
@@ -471,10 +478,8 @@ impl GStreamerTestSource {
         };
         let requested_codec =
             if pipeline_args.is_empty() { Some(generated_codec) } else { requested_codec };
-        let (appsink, sample_format) = ensure_encoded_appsink(&pipeline, requested_codec)?;
-        let Ok(appsink) = appsink.downcast::<gst_app::AppSink>() else {
-            bail!("GStreamer element {GSTREAMER_APPSINK_NAME} was not an appsink");
-        };
+        let (appsink, sample_format) = ensure_encoded_appsink(&pipeline, requested_codec)
+            .context("failed to prepare GStreamer encoded appsink")?;
 
         let config = GStreamerAppSinkConfig::new(
             sample_format,
@@ -513,6 +518,12 @@ impl EncodedAccessUnitSource for GStreamerTestSource {
 
     fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
         self.source.next_access_unit()
+    }
+
+    fn request_keyframe(&mut self) {
+        // Forward downstream PLI/FIR to the appsink source, which raises a
+        // GstForceKeyUnit event so the upstream encoder emits an IDR.
+        self.source.request_keyframe();
     }
 }
 
@@ -557,7 +568,7 @@ fn gstreamer_test_pipeline_description(
          videoconvert ! \
          video/x-raw,format=I420 ! \
          {codec_pipeline} ! \
-         appsink name={GSTREAMER_APPSINK_NAME} sync=false max-buffers=8 drop=true"
+         appsink name={ENCODED_APPSINK_NAME} sync=false max-buffers=8 drop=true"
     )
 }
 
@@ -565,57 +576,44 @@ fn gstreamer_test_pipeline_description(
 fn gstreamer_test_encode_pipeline(fps: u32, codec: EncodedVideoCodec, bitrate: u64) -> String {
     let key_int_max = fps.max(1);
     let bitrate_kbps = u64::max(1, bitrate / 1000);
+    // The trailing capsfilter is the appsink contract, so it comes from the
+    // crate's caps table; encoder-specific settings before the parser stay
+    // inline because they configure the encoder, not the appsink.
+    let caps = encoded_caps_string(codec);
     match codec {
         EncodedVideoCodec::H264 => format!(
             "x264enc tune=zerolatency speed-preset=ultrafast key-int-max={key_int_max} \
              bitrate={bitrate_kbps} byte-stream=true aud=true ! h264parse config-interval=-1 ! \
-             video/x-h264,stream-format=byte-stream,alignment=au"
+             {caps}"
         ),
         EncodedVideoCodec::H265 => format!(
             "x265enc tune=zerolatency speed-preset=ultrafast key-int-max={key_int_max} \
-             bitrate={bitrate_kbps} ! h265parse config-interval=-1 ! \
-             video/x-h265,stream-format=byte-stream,alignment=au"
+             bitrate={bitrate_kbps} ! h265parse config-interval=-1 ! {caps}"
         ),
         EncodedVideoCodec::VP8 => format!(
             "vp8enc deadline=1 cpu-used=8 keyframe-max-dist={key_int_max} lag-in-frames=0 \
-             target-bitrate={bitrate} ! video/x-vp8"
+             target-bitrate={bitrate} ! {caps}"
         ),
         EncodedVideoCodec::VP9 => format!(
             "vp9enc deadline=1 cpu-used=8 keyframe-max-dist={key_int_max} lag-in-frames=0 \
-             target-bitrate={bitrate} ! video/x-vp9,profile=(string)0"
+             target-bitrate={bitrate} ! {caps}"
         ),
         EncodedVideoCodec::AV1 => format!(
             "av1enc cpu-used=8 usage-profile=realtime keyframe-max-dist={key_int_max} \
-             lag-in-frames=0 target-bitrate={bitrate_kbps} ! av1parse ! \
-             video/x-av1,stream-format=obu-stream,alignment=tu"
+             lag-in-frames=0 target-bitrate={bitrate_kbps} ! av1parse ! {caps}"
         ),
         _ => unreachable!("unknown generated GStreamer codec"),
     }
 }
 
 #[cfg(feature = "gstreamer")]
-fn gstreamer_shmsink_pipeline_description(
-    socket_path: &str,
-    codec: EncodedVideoCodec,
-) -> Result<String> {
+fn gstreamer_shmsink_pipeline_description(socket_path: &str, codec: EncodedVideoCodec) -> String {
     let socket_path = gstreamer_launch_string_value(socket_path);
-    let caps = gstreamer_launch_caps(codec)?;
+    let caps = encoded_caps_string(codec);
 
-    Ok(format!(
+    format!(
         "shmsrc socket-path={socket_path} is-live=true do-timestamp=true ! capsfilter caps={caps}"
-    ))
-}
-
-#[cfg(feature = "gstreamer")]
-fn gstreamer_launch_caps(codec: EncodedVideoCodec) -> Result<&'static str> {
-    match codec {
-        EncodedVideoCodec::H264 => Ok("video/x-h264,stream-format=byte-stream,alignment=au"),
-        EncodedVideoCodec::H265 => Ok("video/x-h265,stream-format=byte-stream,alignment=au"),
-        EncodedVideoCodec::VP8 => Ok("video/x-vp8"),
-        EncodedVideoCodec::VP9 => Ok("video/x-vp9,profile=(string)0"),
-        EncodedVideoCodec::AV1 => Ok("video/x-av1,stream-format=obu-stream,alignment=tu"),
-        _ => bail!("unsupported GStreamer codec: {:?}", codec),
-    }
+    )
 }
 
 #[cfg(feature = "gstreamer")]
@@ -626,254 +624,6 @@ fn gstreamer_launch_string_value(value: &str) -> String {
     }
 
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
-#[cfg(feature = "gstreamer")]
-fn ensure_encoded_appsink(
-    pipeline: &gst::Pipeline,
-    requested_codec: Option<EncodedVideoCodec>,
-) -> Result<(gst::Element, GStreamerSampleFormat)> {
-    if let Some(appsink) = pipeline.by_name(GSTREAMER_APPSINK_NAME) {
-        let sample_format = match sample_format_from_element_sink_caps(&appsink)? {
-            Some(sample_format) => {
-                if let Some(requested_codec) = requested_codec {
-                    if requested_codec != sample_format.codec() {
-                        bail!(
-                            "GStreamer codec mismatch: --codec requested {:?}, but appsink '{}' advertises {:?}",
-                            requested_codec,
-                            GSTREAMER_APPSINK_NAME,
-                            sample_format.codec()
-                        );
-                    }
-                }
-                sample_format
-            }
-            None => sample_format_for_codec(requested_codec.unwrap_or(EncodedVideoCodec::H264))?,
-        };
-        return Ok((appsink, sample_format));
-    }
-
-    let src_pad = pipeline.find_unlinked_pad(gst::PadDirection::Src).with_context(|| {
-        format!("GStreamer pipeline must include appsink name={GSTREAMER_APPSINK_NAME} or leave one encoded video source pad unlinked")
-    })?;
-    let inferred_codec = codec_from_pad_caps(&src_pad).with_context(|| {
-        format!(
-            "unlinked GStreamer pad '{}' does not advertise supported encoded video caps",
-            src_pad.name()
-        )
-    })?;
-    let codec = match requested_codec {
-        Some(requested_codec) if requested_codec != inferred_codec => bail!(
-            "GStreamer codec mismatch: --codec requested {:?}, but unlinked pad '{}' advertises {:?}",
-            requested_codec,
-            src_pad.name(),
-            inferred_codec
-        ),
-        Some(requested_codec) => requested_codec,
-        None => inferred_codec,
-    };
-    let sample_format = sample_format_for_codec(codec)?;
-    let Some(src_element) = src_pad.parent_element() else {
-        bail!("unlinked GStreamer encoded pad has no parent element");
-    };
-
-    let parser = parser_element_for_codec(codec)?;
-    let codec_caps = appsink_caps(codec)?;
-    let capsfilter = gst::ElementFactory::make("capsfilter")
-        .property("caps", codec_caps)
-        .build()
-        .with_context(|| format!("failed to create {:?} capsfilter", codec))?;
-    let appsink = gst::ElementFactory::make("appsink")
-        .name(GSTREAMER_APPSINK_NAME)
-        .property("sync", false)
-        .property("max-buffers", 8u32)
-        .property("drop", true)
-        .build()
-        .context("failed to create appsink")?;
-
-    if let Some(parser) = &parser {
-        pipeline
-            .add(parser)
-            .with_context(|| format!("failed to add {} to GStreamer pipeline", parser.name()))?;
-    }
-    pipeline.add(&capsfilter).context("failed to add capsfilter to GStreamer pipeline")?;
-    pipeline.add(&appsink).context("failed to add appsink to GStreamer pipeline")?;
-    if let Some(parser) = &parser {
-        gst::Element::link_many([parser, &capsfilter, &appsink])
-            .with_context(|| format!("failed to link {} to appsink", parser.name()))?;
-    } else {
-        gst::Element::link_many([&capsfilter, &appsink])
-            .context("failed to link capsfilter to appsink")?;
-    }
-    let link_target = parser.as_ref().unwrap_or(&capsfilter);
-    let sink_pad = link_target
-        .static_pad("sink")
-        .with_context(|| format!("{} did not expose a sink pad", link_target.name()))?;
-    src_pad.link(&sink_pad).with_context(|| {
-        format!("failed to link '{}' to {}", src_element.name(), link_target.name())
-    })?;
-
-    Ok((appsink, sample_format))
-}
-
-#[cfg(feature = "gstreamer")]
-fn sample_format_for_codec(codec: EncodedVideoCodec) -> Result<GStreamerSampleFormat> {
-    match codec {
-        EncodedVideoCodec::H264 => Ok(GStreamerSampleFormat::H264AnnexB),
-        EncodedVideoCodec::H265 => Ok(GStreamerSampleFormat::H265AnnexB),
-        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-            Ok(GStreamerSampleFormat::AccessUnit { codec })
-        }
-        _ => bail!("unsupported GStreamer codec: {:?}", codec),
-    }
-}
-
-#[cfg(feature = "gstreamer")]
-fn parser_element_for_codec(codec: EncodedVideoCodec) -> Result<Option<gst::Element>> {
-    let Some(name) = parser_name(codec)? else {
-        return Ok(None);
-    };
-    let mut builder = gst::ElementFactory::make(name);
-    if matches!(codec, EncodedVideoCodec::H264 | EncodedVideoCodec::H265) {
-        builder = builder.property("config-interval", -1i32);
-    }
-    builder.build().map(Some).with_context(|| format!("failed to create {name}"))
-}
-
-#[cfg(feature = "gstreamer")]
-fn parser_name(codec: EncodedVideoCodec) -> Result<Option<&'static str>> {
-    match codec {
-        EncodedVideoCodec::H264 => Ok(Some("h264parse")),
-        EncodedVideoCodec::H265 => Ok(Some("h265parse")),
-        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 => Ok(None),
-        EncodedVideoCodec::AV1 => Ok(Some("av1parse")),
-        _ => bail!("unsupported GStreamer codec: {:?}", codec),
-    }
-}
-
-#[cfg(feature = "gstreamer")]
-fn appsink_caps(codec: EncodedVideoCodec) -> Result<gst::Caps> {
-    match codec {
-        EncodedVideoCodec::H264 => Ok(gst::Caps::builder("video/x-h264")
-            .field("stream-format", "byte-stream")
-            .field("alignment", "au")
-            .build()),
-        EncodedVideoCodec::H265 => Ok(gst::Caps::builder("video/x-h265")
-            .field("stream-format", "byte-stream")
-            .field("alignment", "au")
-            .build()),
-        EncodedVideoCodec::VP8 => Ok(gst::Caps::builder("video/x-vp8").build()),
-        EncodedVideoCodec::VP9 => {
-            Ok(gst::Caps::builder("video/x-vp9").field("profile", "0").build())
-        }
-        EncodedVideoCodec::AV1 => Ok(gst::Caps::builder("video/x-av1")
-            .field("parsed", true)
-            .field("stream-format", "obu-stream")
-            .field("alignment", "tu")
-            .build()),
-        _ => bail!("unsupported GStreamer codec: {:?}", codec),
-    }
-}
-
-#[cfg(feature = "gstreamer")]
-fn sample_format_from_element_sink_caps(
-    element: &gst::Element,
-) -> Result<Option<GStreamerSampleFormat>> {
-    let Some(sink_pad) = element.static_pad("sink") else {
-        return Ok(None);
-    };
-    sample_format_from_pad_caps(&sink_pad)
-}
-
-#[cfg(feature = "gstreamer")]
-fn sample_format_from_pad_caps(pad: &gst::Pad) -> Result<Option<GStreamerSampleFormat>> {
-    let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
-    for structure in caps.iter() {
-        if let Some(sample_format) = sample_format_from_caps_structure(structure)? {
-            return Ok(Some(sample_format));
-        }
-    }
-    Ok(None)
-}
-
-#[cfg(feature = "gstreamer")]
-fn sample_format_from_caps_structure(
-    structure: &gst::StructureRef,
-) -> Result<Option<GStreamerSampleFormat>> {
-    let Some(codec) = codec_from_caps_name(structure.name()) else {
-        return Ok(None);
-    };
-
-    match codec {
-        EncodedVideoCodec::H264 => {
-            let stream_format = structure.get::<String>("stream-format").ok();
-            match stream_format.as_deref() {
-                Some("avc") | Some("avc3") => Ok(Some(GStreamerSampleFormat::H264Avc {
-                    nal_length_size: h264_avc_nal_length_size_from_caps(structure),
-                })),
-                Some("byte-stream") | None => Ok(Some(GStreamerSampleFormat::H264AnnexB)),
-                Some(stream_format) => bail!(
-                    "unsupported GStreamer H.264 stream-format '{stream_format}'; expected byte-stream or avc"
-                ),
-            }
-        }
-        EncodedVideoCodec::H265 => Ok(Some(GStreamerSampleFormat::H265AnnexB)),
-        EncodedVideoCodec::VP8 => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
-        EncodedVideoCodec::VP9 => {
-            let profile = structure.get::<String>("profile").ok();
-            match profile.as_deref() {
-                Some("0") | None => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
-                Some(profile) => {
-                    bail!("unsupported GStreamer VP9 profile '{profile}'; expected profile 0")
-                }
-            }
-        }
-        EncodedVideoCodec::AV1 => {
-            let stream_format = structure.get::<String>("stream-format").ok();
-            match stream_format.as_deref() {
-                Some("obu-stream") | None => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
-                Some(stream_format) => bail!(
-                    "unsupported GStreamer AV1 stream-format '{stream_format}'; expected obu-stream"
-                ),
-            }
-        }
-        _ => Ok(None),
-    }
-}
-
-#[cfg(feature = "gstreamer")]
-fn h264_avc_nal_length_size_from_caps(structure: &gst::StructureRef) -> u8 {
-    let Ok(codec_data) = structure.get::<gst::Buffer>("codec_data") else {
-        return 4;
-    };
-    let Ok(codec_data) = codec_data.map_readable() else {
-        return 4;
-    };
-    h264_avc_nal_length_size_from_codec_data(codec_data.as_ref()).unwrap_or(4)
-}
-
-#[cfg(feature = "gstreamer")]
-fn h264_avc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
-    let length_size = (codec_data.get(4)? & 0x03) + 1;
-    (1..=4).contains(&length_size).then_some(length_size)
-}
-
-#[cfg(feature = "gstreamer")]
-fn codec_from_pad_caps(pad: &gst::Pad) -> Option<EncodedVideoCodec> {
-    let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
-    caps.iter().find_map(|structure| codec_from_caps_name(structure.name()))
-}
-
-#[cfg(feature = "gstreamer")]
-fn codec_from_caps_name(name: &str) -> Option<EncodedVideoCodec> {
-    match name {
-        "video/x-h264" => Some(EncodedVideoCodec::H264),
-        "video/x-h265" => Some(EncodedVideoCodec::H265),
-        "video/x-vp8" => Some(EncodedVideoCodec::VP8),
-        "video/x-vp9" => Some(EncodedVideoCodec::VP9),
-        "video/x-av1" => Some(EncodedVideoCodec::AV1),
-        _ => None,
-    }
 }
 
 async fn publish_encoded_source<S, ShutdownSource>(
@@ -906,10 +656,9 @@ where
         .await
         .context("failed to connect to LiveKit room")?;
 
-    let capture_track = VideoCaptureTrack::new(
+    let capture_track = VideoCaptureTrack::new_encoded(
         "preencoded",
         VideoResolution { width: args.width, height: args.height },
-        false,
     );
     let mut publish_options = VideoCaptureTrack::encoded_publish_options(codec);
     let video_encoding =
@@ -931,26 +680,26 @@ where
         source_label
     );
 
-    let stop = Arc::new(AtomicBool::new(false));
-    let signal_task = tokio::spawn({
-        let stop = stop.clone();
-        async move {
-            let _ = tokio::signal::ctrl_c().await;
-            stop.store(true, Ordering::Release);
-            shutdown_source();
-        }
+    let keyframe_requests_forwarded = Arc::new(AtomicU64::new(0));
+    let ingress = EncodedIngress::new(
+        capture_track,
+        KeyframeRequestLogger::new(source, source_label, keyframe_requests_forwarded.clone()),
+    );
+    let stop = ingress.stop_handle();
+    let signal_task = tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        stop.stop();
+        shutdown_source();
     });
 
-    let capture_task = tokio::task::spawn_blocking({
-        let stop = stop.clone();
-        move || {
-            let diagnostics = AccessUnitDiagnostics::new(
-                diagnostics_enabled,
-                source_label,
-                expected_frame_interval_us,
-            );
-            forward_access_units(source, capture_track, stop, diagnostics)
-        }
+    let capture_task = tokio::task::spawn_blocking(move || {
+        let diagnostics = AccessUnitDiagnostics::new(
+            diagnostics_enabled,
+            source_label,
+            expected_frame_interval_us,
+            keyframe_requests_forwarded,
+        );
+        forward_access_units(ingress, diagnostics)
     });
     let captured = capture_task.await.context("capture task failed to join")??;
     signal_task.abort();
@@ -960,42 +709,38 @@ where
     Ok(())
 }
 
+/// Drives [`EncodedIngress::capture_next`] until EOF or shutdown, feeding the
+/// example's per-access-unit diagnostics from each capture.
 fn forward_access_units<S>(
-    mut source: S,
-    track: VideoCaptureTrack,
-    stop: Arc<AtomicBool>,
+    mut ingress: EncodedIngress<S>,
     mut diagnostics: AccessUnitDiagnostics,
 ) -> Result<u64>
 where
     S: EncodedAccessUnitSource,
 {
+    let stop = ingress.stop_handle();
     let mut captured = 0;
     let mut dropped = 0;
-    while !stop.load(Ordering::Acquire) {
+    while !stop.is_stopped() {
         let read_started = Instant::now();
-        let access_unit = match source.next_access_unit() {
-            Ok(Some(access_unit)) => access_unit,
+        let capture = match ingress.capture_next() {
+            Ok(Some(capture)) => capture,
             Ok(None) => break,
-            Err(err) if stop.load(Ordering::Acquire) => {
-                log::debug!("encoded source stopped after shutdown: {err}");
-                break;
-            }
-            Err(err) => return Err(err.into()),
-        };
-        diagnostics.observe_source_wait(read_started.elapsed());
-        diagnostics.observe_access_unit(&access_unit);
-
-        match track.capture_encoded(&access_unit.as_access_unit()) {
-            Ok(()) => {}
-            Err(CaptureError::CaptureFailed) => {
+            Err(EncodedIngressError::Capture(CaptureError::CaptureFailed)) => {
                 dropped += 1;
                 if dropped == 1 || dropped % 300 == 0 {
                     log::info!("Dropped {dropped} encoded access units before capture");
                 }
                 continue;
             }
+            Err(EncodedIngressError::Source(err)) if stop.is_stopped() => {
+                log::debug!("encoded source stopped after shutdown: {err}");
+                break;
+            }
             Err(err) => return Err(err.into()),
-        }
+        };
+        diagnostics.observe_source_wait(read_started.elapsed());
+        diagnostics.observe_capture(&capture);
         captured += 1;
         if captured % 300 == 0 {
             log::info!("Published {captured} encoded access units");
@@ -1006,11 +751,46 @@ where
     Ok(captured)
 }
 
+/// Wraps an encoded source to count and log the downstream keyframe requests
+/// (PLI/FIR polled by [`EncodedIngress::capture_next`]) forwarded to it.
+struct KeyframeRequestLogger<S> {
+    source: S,
+    source_label: &'static str,
+    forwarded: Arc<AtomicU64>,
+}
+
+impl<S> KeyframeRequestLogger<S> {
+    fn new(source: S, source_label: &'static str, forwarded: Arc<AtomicU64>) -> Self {
+        Self { source, source_label, forwarded }
+    }
+}
+
+impl<S> EncodedAccessUnitSource for KeyframeRequestLogger<S>
+where
+    S: EncodedAccessUnitSource,
+{
+    type Error = S::Error;
+
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
+        self.source.next_access_unit()
+    }
+
+    fn request_keyframe(&mut self) {
+        let forwarded = self.forwarded.fetch_add(1, Ordering::Relaxed) + 1;
+        log::info!(
+            "{} forwarding downstream keyframe request {forwarded} to the encoded source",
+            self.source_label
+        );
+        self.source.request_keyframe();
+    }
+}
+
 #[derive(Debug)]
 struct AccessUnitDiagnostics {
     enabled: bool,
     source_label: &'static str,
     expected_frame_interval_us: Option<i64>,
+    keyframe_requests_forwarded: Arc<AtomicU64>,
     last_report: Instant,
     last_wall_time: Option<Instant>,
     last_timestamp_us: Option<i64>,
@@ -1027,7 +807,6 @@ struct AccessUnitDiagnostics {
     report_max_timestamp_gap_us: i64,
     report_stalls: u64,
     report_bursts: u64,
-    report_missing_parameter_keyframes: u64,
 }
 
 impl AccessUnitDiagnostics {
@@ -1035,6 +814,7 @@ impl AccessUnitDiagnostics {
         enabled: bool,
         source_label: &'static str,
         expected_frame_interval_us: Option<i64>,
+        keyframe_requests_forwarded: Arc<AtomicU64>,
     ) -> Self {
         let now = Instant::now();
         if enabled {
@@ -1051,6 +831,7 @@ impl AccessUnitDiagnostics {
             enabled,
             source_label,
             expected_frame_interval_us,
+            keyframe_requests_forwarded,
             last_report: now,
             last_wall_time: None,
             last_timestamp_us: None,
@@ -1067,7 +848,6 @@ impl AccessUnitDiagnostics {
             report_max_timestamp_gap_us: 0,
             report_stalls: 0,
             report_bursts: 0,
-            report_missing_parameter_keyframes: 0,
         }
     }
 
@@ -1087,18 +867,16 @@ impl AccessUnitDiagnostics {
         }
     }
 
-    fn observe_access_unit(&mut self, access_unit: &OwnedEncodedAccessUnit) {
+    fn observe_capture(&mut self, capture: &EncodedIngressCapture) {
         if !self.enabled {
             return;
         }
 
         let now = Instant::now();
-        let payload = access_unit.payload.as_ref();
-        let payload_len = payload.len();
-        let nal_summary = NalSummary::from_annex_b(access_unit.codec, payload);
-        let is_keyframe = access_unit.frame_type == EncodedFrameType::Key;
+        let payload_len = capture.payload_len;
+        let is_keyframe = capture.frame_type == EncodedFrameType::Key;
         let timestamp_gap_us =
-            self.last_timestamp_us.map(|last| access_unit.timestamp_us.saturating_sub(last));
+            self.last_timestamp_us.map(|last| capture.timestamp_us.saturating_sub(last));
 
         self.total_frames += 1;
         self.report_frames += 1;
@@ -1139,38 +917,18 @@ impl AccessUnitDiagnostics {
         }
 
         if is_keyframe {
-            if matches!(access_unit.codec, EncodedVideoCodec::H264 | EncodedVideoCodec::H265)
-                && nal_summary.missing_recovery_parameter_set()
-            {
-                self.report_missing_parameter_keyframes += 1;
-                log::warn!(
-                    "{} keyframe {} missing recovery parameter sets: {}",
-                    self.source_label,
-                    self.total_frames,
-                    nal_summary.describe(access_unit.codec)
-                );
-            } else {
-                log::info!(
-                    "{} keyframe {} ts={} size={} {}",
-                    self.source_label,
-                    self.total_frames,
-                    access_unit.timestamp_us,
-                    payload_len,
-                    nal_summary.describe(access_unit.codec)
-                );
-            }
-        } else if nal_summary.contains_key_picture {
-            log::warn!(
-                "{} access unit {} contains a key picture but is marked delta: {}",
+            log::info!(
+                "{} keyframe {} ts={} size={}",
                 self.source_label,
                 self.total_frames,
-                nal_summary.describe(access_unit.codec)
+                capture.timestamp_us,
+                payload_len
             );
         }
 
         self.warn_if_keyframe_gap(now);
         self.last_wall_time = Some(now);
-        self.last_timestamp_us = Some(access_unit.timestamp_us);
+        self.last_timestamp_us = Some(capture.timestamp_us);
         self.report_if_due(now);
     }
 
@@ -1215,9 +973,11 @@ impl AccessUnitDiagnostics {
         {
             self.last_keyframe_warning = Some(now);
             log::warn!(
-                "{} no keyframe for {:.1}s; passthrough cannot satisfy PLI without upstream IDR",
+                "{} no keyframe for {:.1}s; {} downstream keyframe request(s) forwarded to the \
+                 source so far",
                 self.source_label,
-                keyframe_gap.as_secs_f64()
+                keyframe_gap.as_secs_f64(),
+                self.keyframe_requests_forwarded.load(Ordering::Relaxed)
             );
         }
     }
@@ -1234,7 +994,7 @@ impl AccessUnitDiagnostics {
         log::info!(
             "{} diagnostics: frames={} fps={:.1} keys={} avg_size={} max_size={} \
              max_source_wait={:.1}ms max_publish_gap={:.1}ms max_ts_gap={:.1}ms stalls={} \
-             bursts={} missing_param_keys={}",
+             bursts={} keyframe_requests={}",
             self.source_label,
             self.report_frames,
             fps,
@@ -1246,7 +1006,7 @@ impl AccessUnitDiagnostics {
             self.report_max_timestamp_gap_us as f64 / 1000.0,
             self.report_stalls,
             self.report_bursts,
-            self.report_missing_parameter_keyframes
+            self.keyframe_requests_forwarded.load(Ordering::Relaxed)
         );
         self.reset_report(now);
     }
@@ -1262,7 +1022,6 @@ impl AccessUnitDiagnostics {
         self.report_max_timestamp_gap_us = 0;
         self.report_stalls = 0;
         self.report_bursts = 0;
-        self.report_missing_parameter_keyframes = 0;
     }
 
     fn finish(&mut self) {
@@ -1276,102 +1035,6 @@ impl AccessUnitDiagnostics {
             self.total_frames,
             self.total_keyframes
         );
-    }
-}
-
-#[derive(Debug, Default)]
-struct NalSummary {
-    nal_count: usize,
-    vcl_count: usize,
-    aud_count: usize,
-    vps_count: usize,
-    sps_count: usize,
-    pps_count: usize,
-    contains_key_picture: bool,
-}
-
-impl NalSummary {
-    fn from_annex_b(codec: EncodedVideoCodec, payload: &[u8]) -> Self {
-        let mut summary = Self::default();
-        for range in annex_b_nal_ranges(payload) {
-            let nal = &payload[range];
-            if nal.is_empty() {
-                continue;
-            }
-
-            match codec {
-                EncodedVideoCodec::H264 => summary.observe_h264(nal[0] & 0x1f),
-                EncodedVideoCodec::H265 => {
-                    if nal.len() >= 2 {
-                        summary.observe_h265((nal[0] >> 1) & 0x3f);
-                    }
-                }
-                EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {}
-                _ => {}
-            }
-        }
-        summary
-    }
-
-    fn observe_h264(&mut self, nal_type: u8) {
-        self.nal_count += 1;
-        if (1..=5).contains(&nal_type) {
-            self.vcl_count += 1;
-        }
-        match nal_type {
-            5 => self.contains_key_picture = true,
-            7 => self.sps_count += 1,
-            8 => self.pps_count += 1,
-            9 => self.aud_count += 1,
-            _ => {}
-        }
-    }
-
-    fn observe_h265(&mut self, nal_type: u8) {
-        self.nal_count += 1;
-        if nal_type <= 31 {
-            self.vcl_count += 1;
-        }
-        match nal_type {
-            16..=21 => self.contains_key_picture = true,
-            32 => self.vps_count += 1,
-            33 => self.sps_count += 1,
-            34 => self.pps_count += 1,
-            35 => self.aud_count += 1,
-            _ => {}
-        }
-    }
-
-    fn missing_recovery_parameter_set(&self) -> bool {
-        self.sps_count == 0 || self.pps_count == 0
-    }
-
-    fn describe(&self, codec: EncodedVideoCodec) -> String {
-        match codec {
-            EncodedVideoCodec::H264 => format!(
-                "nals={} vcl={} aud={} sps={} pps={} key_picture={}",
-                self.nal_count,
-                self.vcl_count,
-                self.aud_count,
-                self.sps_count,
-                self.pps_count,
-                self.contains_key_picture
-            ),
-            EncodedVideoCodec::H265 => format!(
-                "nals={} vcl={} aud={} vps={} sps={} pps={} key_picture={}",
-                self.nal_count,
-                self.vcl_count,
-                self.aud_count,
-                self.vps_count,
-                self.sps_count,
-                self.pps_count,
-                self.contains_key_picture
-            ),
-            EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-                "non-H26x payload".to_string()
-            }
-            _ => "unknown encoded payload".to_string(),
-        }
     }
 }
 
@@ -1422,10 +1085,6 @@ fn current_time_us() -> i64 {
 mod tests {
     use super::*;
 
-    fn init_gstreamer_for_test() {
-        gst::init().expect("failed to initialize GStreamer");
-    }
-
     #[test]
     fn gstreamer_pipeline_description_routes_test_source_to_h264_appsink() {
         let description =
@@ -1437,7 +1096,7 @@ mod tests {
         assert!(description.contains("video/x-raw,format=I420"));
         assert!(description.contains("x264enc"));
         assert!(description.contains("video/x-h264,stream-format=byte-stream,alignment=au"));
-        assert!(description.contains(&format!("appsink name={GSTREAMER_APPSINK_NAME}")));
+        assert!(description.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
     }
 
     #[test]
@@ -1451,7 +1110,7 @@ mod tests {
         assert!(description.contains("x265enc"));
         assert!(description.contains("h265parse config-interval=-1"));
         assert!(description.contains("video/x-h265,stream-format=byte-stream,alignment=au"));
-        assert!(description.contains(&format!("appsink name={GSTREAMER_APPSINK_NAME}")));
+        assert!(description.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
     }
 
     #[test]
@@ -1460,20 +1119,20 @@ mod tests {
         assert!(vp8.contains("video/x-raw,format=I420"));
         assert!(vp8.contains("vp8enc"));
         assert!(vp8.contains("video/x-vp8"));
-        assert!(vp8.contains(&format!("appsink name={GSTREAMER_APPSINK_NAME}")));
+        assert!(vp8.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
 
         let vp9 = gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::VP9, None);
         assert!(vp9.contains("video/x-raw,format=I420"));
         assert!(vp9.contains("vp9enc"));
         assert!(vp9.contains("video/x-vp9,profile=(string)0"));
-        assert!(vp9.contains(&format!("appsink name={GSTREAMER_APPSINK_NAME}")));
+        assert!(vp9.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
 
         let av1 = gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::AV1, None);
         assert!(av1.contains("video/x-raw,format=I420"));
         assert!(av1.contains("av1enc"));
         assert!(av1.contains("av1parse"));
         assert!(av1.contains("video/x-av1,stream-format=obu-stream,alignment=tu"));
-        assert!(av1.contains(&format!("appsink name={GSTREAMER_APPSINK_NAME}")));
+        assert!(av1.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
     }
 
     #[test]
@@ -1496,92 +1155,24 @@ mod tests {
         let h264 = gstreamer_shmsink_pipeline_description(
             "/tmp/livekit h264.shm",
             EncodedVideoCodec::H264,
-        )
-        .unwrap();
+        );
         assert!(h264.contains("shmsrc socket-path=\"/tmp/livekit h264.shm\""));
         assert!(h264.contains("is-live=true do-timestamp=true"));
         assert!(h264.contains("capsfilter caps="));
         assert!(h264.contains("video/x-h264,stream-format=byte-stream,alignment=au"));
 
         let vp8 =
-            gstreamer_shmsink_pipeline_description("/tmp/livekit-vp8.shm", EncodedVideoCodec::VP8)
-                .unwrap();
+            gstreamer_shmsink_pipeline_description("/tmp/livekit-vp8.shm", EncodedVideoCodec::VP8);
         assert!(vp8.contains("shmsrc socket-path=/tmp/livekit-vp8.shm"));
         assert!(vp8.contains("video/x-vp8"));
 
         let vp9 =
-            gstreamer_shmsink_pipeline_description("/tmp/livekit-vp9.shm", EncodedVideoCodec::VP9)
-                .unwrap();
+            gstreamer_shmsink_pipeline_description("/tmp/livekit-vp9.shm", EncodedVideoCodec::VP9);
         assert!(vp9.contains("video/x-vp9,profile=(string)0"));
 
         let av1 =
-            gstreamer_shmsink_pipeline_description("/tmp/livekit-av1.shm", EncodedVideoCodec::AV1)
-                .unwrap();
+            gstreamer_shmsink_pipeline_description("/tmp/livekit-av1.shm", EncodedVideoCodec::AV1);
         assert!(av1.contains("video/x-av1,stream-format=obu-stream,alignment=tu"));
-    }
-
-    #[test]
-    fn gstreamer_caps_detect_h264_avc_sample_format() {
-        init_gstreamer_for_test();
-        let caps = gst::Caps::builder("video/x-h264")
-            .field("stream-format", "avc")
-            .field("alignment", "au")
-            .build();
-        let structure = caps.iter().next().unwrap();
-
-        assert_eq!(
-            sample_format_from_caps_structure(structure).unwrap(),
-            Some(GStreamerSampleFormat::H264Avc { nal_length_size: 4 })
-        );
-    }
-
-    #[test]
-    fn gstreamer_caps_detect_vp8_vp9_and_av1_sample_formats() {
-        init_gstreamer_for_test();
-        for (caps_name, codec) in [
-            ("video/x-vp8", EncodedVideoCodec::VP8),
-            ("video/x-vp9", EncodedVideoCodec::VP9),
-            ("video/x-av1", EncodedVideoCodec::AV1),
-        ] {
-            let caps = if codec == EncodedVideoCodec::AV1 {
-                gst::Caps::builder(caps_name).field("stream-format", "obu-stream").build()
-            } else {
-                gst::Caps::builder(caps_name).build()
-            };
-            let structure = caps.iter().next().unwrap();
-
-            assert_eq!(
-                sample_format_from_caps_structure(structure).unwrap(),
-                Some(GStreamerSampleFormat::AccessUnit { codec })
-            );
-        }
-    }
-
-    #[test]
-    fn gstreamer_caps_reject_av1_annexb_for_appsink_passthrough() {
-        init_gstreamer_for_test();
-        let caps = gst::Caps::builder("video/x-av1").field("stream-format", "annexb").build();
-        let structure = caps.iter().next().unwrap();
-
-        let err = sample_format_from_caps_structure(structure).unwrap_err();
-        assert!(err.to_string().contains("unsupported GStreamer AV1 stream-format"));
-    }
-
-    #[test]
-    fn gstreamer_caps_reject_nonzero_vp9_profile_for_appsink_passthrough() {
-        init_gstreamer_for_test();
-        let caps = gst::Caps::builder("video/x-vp9").field("profile", "1").build();
-        let structure = caps.iter().next().unwrap();
-
-        let err = sample_format_from_caps_structure(structure).unwrap_err();
-        assert!(err.to_string().contains("unsupported GStreamer VP9 profile"));
-    }
-
-    #[test]
-    fn gstreamer_avc_codec_data_sets_nal_length_size() {
-        assert_eq!(h264_avc_nal_length_size_from_codec_data(&[1, 0, 0, 0, 0xfc]), Some(1));
-        assert_eq!(h264_avc_nal_length_size_from_codec_data(&[1, 0, 0, 0, 0xfd]), Some(2));
-        assert_eq!(h264_avc_nal_length_size_from_codec_data(&[1, 0, 0, 0, 0xff]), Some(4));
     }
 
     #[test]

@@ -15,6 +15,7 @@
 use std::{
     io::{self, Read, Write},
     net::TcpStream,
+    ops::Range,
     str,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -31,6 +32,9 @@ use crate::encoded::{
 
 const DEFAULT_RTSP_CLOCK_RATE: u32 = 90_000;
 const MAX_RTSP_HEADER_BYTES: usize = 64 * 1024;
+const RTSP_STREAM_READ_CHUNK_BYTES: usize = 8 * 1024;
+const DEFAULT_RTSP_READ_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_RTSP_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Options used to open an RTSP encoded video source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,12 +47,28 @@ pub struct RtspSourceOptions {
     pub width: u32,
     /// Encoded frame height in pixels.
     pub height: u32,
+    /// Non-zero socket read timeout applied to the RTSP TCP stream (default 10s).
+    ///
+    /// Handshake reads that exceed it fail with [`RtspSourceError::Timeout`].
+    /// Streaming reads treat it as the retry granularity instead, so session
+    /// keepalives keep flowing while the stream is silent.
+    pub read_timeout: Duration,
+    /// Maximum stream silence tolerated before [`RtspSourceError::Timeout`]
+    /// (default 30s). Receiving any interleaved bytes resets the limit.
+    pub idle_timeout: Duration,
 }
 
 impl RtspSourceOptions {
     /// Creates RTSP source options for encoded frames with the supplied dimensions.
     pub fn new(width: u32, height: u32) -> Self {
-        Self { expected_codec: None, start_timestamp_us: 0, width, height }
+        Self {
+            expected_codec: None,
+            start_timestamp_us: 0,
+            width,
+            height,
+            read_timeout: DEFAULT_RTSP_READ_TIMEOUT,
+            idle_timeout: DEFAULT_RTSP_IDLE_TIMEOUT,
+        }
     }
 
     /// Requires the SDP video track to use the supplied codec.
@@ -60,6 +80,18 @@ impl RtspSourceOptions {
     /// Sets the timestamp assigned to the first emitted access unit.
     pub fn with_start_timestamp_us(mut self, start_timestamp_us: i64) -> Self {
         self.start_timestamp_us = start_timestamp_us;
+        self
+    }
+
+    /// Sets the socket read timeout.
+    pub fn with_read_timeout(mut self, read_timeout: Duration) -> Self {
+        self.read_timeout = read_timeout;
+        self
+    }
+
+    /// Sets the maximum stream silence tolerated before a timeout error.
+    pub fn with_idle_timeout(mut self, idle_timeout: Duration) -> Self {
+        self.idle_timeout = idle_timeout;
         self
     }
 }
@@ -96,6 +128,7 @@ impl RtspEncodedSource {
         let mut stream = TcpStream::connect((rtsp_url.connect_host.as_str(), rtsp_url.port))
             .map_err(RtspSourceError::Io)?;
         let _ = stream.set_nodelay(true);
+        stream.set_read_timeout(Some(options.read_timeout)).map_err(RtspSourceError::Io)?;
         let mut auth = RtspAuthContext::new(rtsp_url.credentials.clone());
         let mut cseq = 1;
 
@@ -155,6 +188,7 @@ impl RtspEncodedSource {
             start_timestamp_us: options.start_timestamp_us,
             width: options.width,
             height: options.height,
+            idle_timeout: options.idle_timeout,
         };
         let source = RtspInterleavedRtpSource::new(stream, config)?;
         let keepalive = RtspKeepalive::new(
@@ -184,8 +218,16 @@ impl EncodedAccessUnitSource for RtspEncodedSource {
     type Error = RtspSourceError;
 
     fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
-        self.keepalive.maybe_send(self.source.reader_mut())?;
-        self.source.next_access_unit()
+        loop {
+            self.keepalive.maybe_send(self.source.reader_mut())?;
+            match self.source.poll_access_unit()? {
+                AccessUnitPoll::AccessUnit(access_unit) => return Ok(Some(access_unit)),
+                AccessUnitPoll::EndOfStream => return Ok(None),
+                // A stream read timed out; loop so a due keepalive can be
+                // sent even while the interleaved stream is silent.
+                AccessUnitPoll::TimedOut => {}
+            }
+        }
     }
 }
 
@@ -256,6 +298,9 @@ pub struct RtspInterleavedSourceConfig {
     pub width: u32,
     /// Encoded frame height in pixels.
     pub height: u32,
+    /// Maximum stream silence tolerated before timed-out reads become a hard
+    /// [`RtspSourceError::Timeout`]. Receiving any bytes resets the limit.
+    pub idle_timeout: Duration,
 }
 
 /// Encoded source for RTSP interleaved RTP streams.
@@ -264,7 +309,33 @@ pub struct RtspInterleavedRtpSource<R> {
     reader: R,
     config: RtspInterleavedSourceConfig,
     assembler: RtpAccessUnitAssembler,
+    /// Unconsumed stream bytes; may end with a partial unit that is kept
+    /// across timed-out reads so framing survives read timeouts.
+    stream_buf: Vec<u8>,
+    /// Consumed prefix of `stream_buf`, compacted before each fill.
+    stream_pos: usize,
+    /// When the last stream bytes were received, for the idle limit.
+    last_read_at: Instant,
     eof: bool,
+}
+
+/// Progress from polling the interleaved stream for one access unit.
+#[derive(Debug)]
+enum AccessUnitPoll {
+    /// A complete access unit was assembled.
+    AccessUnit(OwnedEncodedAccessUnit),
+    /// The stream ended cleanly at a unit boundary.
+    EndOfStream,
+    /// A read timed out mid-stream; retry after running periodic work.
+    TimedOut,
+}
+
+/// Result of one attempt to read more interleaved stream bytes.
+#[derive(Debug)]
+enum StreamFill {
+    Filled,
+    Eof,
+    TimedOut,
 }
 
 impl<R> RtspInterleavedRtpSource<R>
@@ -280,7 +351,15 @@ where
             config.width,
             config.height,
         )?;
-        Ok(Self { reader, config, assembler, eof: false })
+        Ok(Self {
+            reader,
+            config,
+            assembler,
+            stream_buf: Vec::new(),
+            stream_pos: 0,
+            last_read_at: Instant::now(),
+            eof: false,
+        })
     }
 
     /// Returns the wrapped reader.
@@ -298,34 +377,86 @@ where
         self.reader
     }
 
-    fn read_next_interleaved_frame(&mut self) -> Result<Option<(u8, Vec<u8>)>, RtspSourceError> {
-        while !self.eof {
-            let mut magic = [0u8; 1];
-            if !read_exact_or_clean_eof(&mut self.reader, &mut magic)
-                .map_err(RtspSourceError::Io)?
-            {
-                self.eof = true;
-                return Ok(None);
+    /// Advances the stream until an access unit completes, the stream ends,
+    /// or a read times out with framing state preserved for the next poll.
+    fn poll_access_unit(&mut self) -> Result<AccessUnitPoll, RtspSourceError> {
+        loop {
+            if self.eof {
+                return Ok(AccessUnitPoll::EndOfStream);
             }
 
-            if magic[0] == b'R' {
-                let _ = read_rtsp_response_with_initial_byte(&mut self.reader, magic[0])?;
-                continue;
-            }
-            if magic[0] != b'$' {
-                return Err(RtspSourceError::UnexpectedData);
+            while let Some(unit) = parse_interleaved_unit(&self.stream_buf[self.stream_pos..])? {
+                let unit_start = self.stream_pos;
+                match unit {
+                    ParsedInterleavedUnit::Frame { channel, payload, len } => {
+                        self.stream_pos = unit_start + len;
+                        if channel != self.config.video_channel {
+                            continue;
+                        }
+                        let payload =
+                            &self.stream_buf[unit_start + payload.start..unit_start + payload.end];
+                        if let Some(access_unit) = self.assembler.push(payload)? {
+                            return Ok(AccessUnitPoll::AccessUnit(access_unit));
+                        }
+                    }
+                    ParsedInterleavedUnit::RtspResponse { len } => {
+                        self.stream_pos = unit_start + len;
+                    }
+                }
             }
 
-            let mut header = [0u8; 3];
-            self.reader.read_exact(&mut header).map_err(RtspSourceError::Io)?;
-            let channel = header[0];
-            let len = u16::from_be_bytes([header[1], header[2]]) as usize;
-            let mut payload = vec![0; len];
-            self.reader.read_exact(&mut payload).map_err(RtspSourceError::Io)?;
-            return Ok(Some((channel, payload)));
+            match self.fill_stream_buf()? {
+                StreamFill::Filled => {}
+                StreamFill::Eof => {
+                    self.eof = true;
+                    return Ok(AccessUnitPoll::EndOfStream);
+                }
+                StreamFill::TimedOut => return Ok(AccessUnitPoll::TimedOut),
+            }
         }
+    }
 
-        Ok(None)
+    /// Reads more stream bytes into `stream_buf`, compacting consumed data first.
+    fn fill_stream_buf(&mut self) -> Result<StreamFill, RtspSourceError> {
+        if self.stream_pos > 0 {
+            self.stream_buf.drain(..self.stream_pos);
+            self.stream_pos = 0;
+        }
+        let filled = self.stream_buf.len();
+        self.stream_buf.resize(filled + RTSP_STREAM_READ_CHUNK_BYTES, 0);
+        loop {
+            match self.reader.read(&mut self.stream_buf[filled..]) {
+                Ok(0) => {
+                    self.stream_buf.truncate(filled);
+                    return if filled == 0 {
+                        Ok(StreamFill::Eof)
+                    } else {
+                        // The stream ended inside an interleaved unit.
+                        Err(RtspSourceError::Io(io::Error::from(io::ErrorKind::UnexpectedEof)))
+                    };
+                }
+                Ok(read) => {
+                    self.stream_buf.truncate(filled + read);
+                    self.last_read_at = Instant::now();
+                    return Ok(StreamFill::Filled);
+                }
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) if is_timeout_io_error(&err) => {
+                    self.stream_buf.truncate(filled);
+                    return if self.last_read_at.elapsed() >= self.config.idle_timeout {
+                        Err(RtspSourceError::Timeout {
+                            phase: "interleaved stream data".to_owned(),
+                        })
+                    } else {
+                        Ok(StreamFill::TimedOut)
+                    };
+                }
+                Err(err) => {
+                    self.stream_buf.truncate(filled);
+                    return Err(RtspSourceError::Io(err));
+                }
+            }
+        }
     }
 }
 
@@ -337,16 +468,57 @@ where
 
     fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
         loop {
-            let Some((channel, payload)) = self.read_next_interleaved_frame()? else {
-                return Ok(None);
-            };
-            if channel != self.config.video_channel {
-                continue;
-            }
-            if let Some(access_unit) = self.assembler.push(&payload)? {
-                return Ok(Some(access_unit));
+            match self.poll_access_unit()? {
+                AccessUnitPoll::AccessUnit(access_unit) => return Ok(Some(access_unit)),
+                AccessUnitPoll::EndOfStream => return Ok(None),
+                // Keep waiting until the configured idle limit turns
+                // timed-out reads into a hard error.
+                AccessUnitPoll::TimedOut => {}
             }
         }
+    }
+}
+
+/// One unit parsed from the front of the interleaved stream buffer.
+#[derive(Debug)]
+enum ParsedInterleavedUnit {
+    /// Interleaved binary frame with its payload range and total length.
+    Frame { channel: u8, payload: Range<usize>, len: usize },
+    /// In-stream RTSP response (for example a keepalive reply) to skip.
+    RtspResponse { len: usize },
+}
+
+/// Parses one interleaved unit from the front of `buf`, returning `Ok(None)`
+/// when more bytes are needed.
+fn parse_interleaved_unit(buf: &[u8]) -> Result<Option<ParsedInterleavedUnit>, RtspSourceError> {
+    let Some(&magic) = buf.first() else {
+        return Ok(None);
+    };
+    match magic {
+        b'$' => {
+            if buf.len() < 4 {
+                return Ok(None);
+            }
+            let channel = buf[1];
+            let len = 4 + u16::from_be_bytes([buf[2], buf[3]]) as usize;
+            if buf.len() < len {
+                return Ok(None);
+            }
+            Ok(Some(ParsedInterleavedUnit::Frame { channel, payload: 4..len, len }))
+        }
+        b'R' => {
+            let mut remaining = buf;
+            match read_rtsp_response(&mut remaining) {
+                Ok(_response) => Ok(Some(ParsedInterleavedUnit::RtspResponse {
+                    len: buf.len() - remaining.len(),
+                })),
+                Err(RtspSourceError::Io(err)) if err.kind() == io::ErrorKind::UnexpectedEof => {
+                    Ok(None)
+                }
+                Err(err) => Err(err),
+            }
+        }
+        _ => Err(RtspSourceError::UnexpectedData),
     }
 }
 
@@ -356,6 +528,12 @@ pub enum RtspSourceError {
     /// I/O failed while reading RTSP interleaved data.
     #[error("RTSP I/O failed: {0}")]
     Io(io::Error),
+    /// An RTSP read exceeded the configured timeout.
+    #[error("RTSP timed out waiting for {phase}")]
+    Timeout {
+        /// Protocol phase or data the client was waiting for.
+        phase: String,
+    },
     /// RTSP URL was invalid or unsupported.
     #[error("invalid RTSP URL: {0}")]
     InvalidUrl(&'static str),
@@ -385,13 +563,13 @@ pub enum RtspSourceError {
     /// SDP was missing a supported video track.
     #[error("RTSP SDP does not contain a supported video track")]
     MissingVideoTrack,
-    /// SDP selected a codec different from the requested codec.
-    #[error("RTSP SDP codec mismatch: expected {expected:?}, got {actual:?}")]
+    /// SDP did not offer the requested codec on any video track.
+    #[error("RTSP SDP codec mismatch: expected {expected:?}, offered {actual:?}")]
     CodecMismatch {
         /// Codec requested by the caller.
         expected: EncodedVideoCodec,
-        /// Codec selected from SDP.
-        actual: EncodedVideoCodec,
+        /// Supported codecs offered by the SDP video tracks.
+        actual: Vec<EncodedVideoCodec>,
     },
     /// SDP body was malformed or not valid UTF-8.
     #[error("invalid RTSP SDP")]
@@ -404,16 +582,8 @@ pub enum RtspSourceError {
     Rtp(#[from] RtpDepacketizerError),
 }
 
-fn read_exact_or_clean_eof(reader: &mut impl Read, buf: &mut [u8]) -> io::Result<bool> {
-    let mut offset = 0;
-    while offset < buf.len() {
-        match reader.read(&mut buf[offset..])? {
-            0 if offset == 0 => return Ok(false),
-            0 => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
-            read => offset += read,
-        }
-    }
-    Ok(true)
+fn is_timeout_io_error(err: &io::Error) -> bool {
+    matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -576,7 +746,13 @@ fn send_rtsp_request(
     authorization: Option<String>,
 ) -> Result<RtspResponse, RtspSourceError> {
     write_rtsp_request(stream, method, uri, cseq, headers, authorization)?;
-    read_rtsp_response(stream)
+    read_rtsp_response(stream).map_err(|err| match err {
+        // Handshake reads must complete within the socket read timeout.
+        RtspSourceError::Io(io_err) if is_timeout_io_error(&io_err) => {
+            RtspSourceError::Timeout { phase: format!("{method} response") }
+        }
+        err => err,
+    })
 }
 
 fn write_rtsp_request(
@@ -844,20 +1020,7 @@ fn make_cnonce() -> String {
 }
 
 fn read_rtsp_response(reader: &mut impl Read) -> Result<RtspResponse, RtspSourceError> {
-    read_rtsp_response_with_header_prefix(reader, Vec::new())
-}
-
-fn read_rtsp_response_with_initial_byte(
-    reader: &mut impl Read,
-    initial_byte: u8,
-) -> Result<RtspResponse, RtspSourceError> {
-    read_rtsp_response_with_header_prefix(reader, vec![initial_byte])
-}
-
-fn read_rtsp_response_with_header_prefix(
-    reader: &mut impl Read,
-    mut header: Vec<u8>,
-) -> Result<RtspResponse, RtspSourceError> {
+    let mut header = Vec::new();
     let mut byte = [0u8; 1];
     loop {
         reader.read_exact(&mut byte).map_err(RtspSourceError::Io)?;
@@ -965,6 +1128,7 @@ fn parse_sdp_video_track(
         tracks.push(track);
     }
 
+    let mut offered = Vec::new();
     for track in tracks {
         for payload_type in &track.payload_types {
             let Some(rtp_map) = track.rtp_maps.iter().find(|map| map.payload_type == *payload_type)
@@ -973,7 +1137,10 @@ fn parse_sdp_video_track(
             };
             if let Some(expected) = expected_codec {
                 if rtp_map.codec != expected {
-                    return Err(RtspSourceError::CodecMismatch { expected, actual: rtp_map.codec });
+                    if !offered.contains(&rtp_map.codec) {
+                        offered.push(rtp_map.codec);
+                    }
+                    continue;
                 }
             }
 
@@ -986,7 +1153,12 @@ fn parse_sdp_video_track(
         }
     }
 
-    Err(RtspSourceError::MissingVideoTrack)
+    match expected_codec {
+        Some(expected) if !offered.is_empty() => {
+            Err(RtspSourceError::CodecMismatch { expected, actual: offered })
+        }
+        _ => Err(RtspSourceError::MissingVideoTrack),
+    }
 }
 
 fn parse_video_media(media: &str) -> PartialSdpVideoTrack {
@@ -1107,19 +1279,24 @@ mod tests {
         frame
     }
 
+    fn interleaved_config(video_channel: u8) -> RtspInterleavedSourceConfig {
+        RtspInterleavedSourceConfig {
+            codec: EncodedVideoCodec::H264,
+            clock_rate: 90_000,
+            video_channel,
+            start_timestamp_us: 0,
+            width: 640,
+            height: 480,
+            idle_timeout: Duration::from_secs(30),
+        }
+    }
+
     #[test]
     fn reads_rtsp_interleaved_rtp_access_unit() {
         let packet = rtp_packet(10, 12_000, true, &[0x65, 1, 2]);
         let stream = interleaved(0, &packet);
-        let config = RtspInterleavedSourceConfig {
-            codec: EncodedVideoCodec::H264,
-            clock_rate: 90_000,
-            video_channel: 0,
-            start_timestamp_us: 0,
-            width: 640,
-            height: 480,
-        };
-        let mut source = RtspInterleavedRtpSource::new(Cursor::new(stream), config).unwrap();
+        let mut source =
+            RtspInterleavedRtpSource::new(Cursor::new(stream), interleaved_config(0)).unwrap();
 
         let access_unit = source.next_access_unit().unwrap().unwrap();
         assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 1, 2]);
@@ -1132,20 +1309,66 @@ mod tests {
         let mut stream = Vec::new();
         write_status_response(&mut stream, 4, &[], &[], 200, "OK");
         stream.extend_from_slice(&interleaved(0, &packet));
-        let config = RtspInterleavedSourceConfig {
-            codec: EncodedVideoCodec::H264,
-            clock_rate: 90_000,
-            video_channel: 0,
-            start_timestamp_us: 0,
-            width: 640,
-            height: 480,
-        };
-        let mut source = RtspInterleavedRtpSource::new(Cursor::new(stream), config).unwrap();
+        let mut source =
+            RtspInterleavedRtpSource::new(Cursor::new(stream), interleaved_config(0)).unwrap();
 
         let access_unit = source.next_access_unit().unwrap().unwrap();
 
         assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 1, 2]);
         assert!(source.next_access_unit().unwrap().is_none());
+    }
+
+    #[test]
+    fn recovers_interleaved_framing_across_read_timeouts() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let packet = rtp_packet(10, 12_000, true, &[0x65, 1, 2]);
+            let frame = interleaved(0, &packet);
+            // Split inside the 4-byte interleaved header and pause long
+            // enough for several client read timeouts in between.
+            let (head, tail) = frame.split_at(2);
+            stream.write_all(head).unwrap();
+            stream.flush().unwrap();
+            thread::sleep(Duration::from_millis(150));
+            stream.write_all(tail).unwrap();
+            stream.flush().unwrap();
+        });
+
+        let client = std::net::TcpStream::connect(addr).unwrap();
+        client.set_read_timeout(Some(Duration::from_millis(25))).unwrap();
+        let mut source = RtspInterleavedRtpSource::new(client, interleaved_config(0)).unwrap();
+
+        let access_unit = source.next_access_unit().unwrap().unwrap();
+
+        assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 1, 2]);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn interleaved_stream_times_out_after_idle_limit() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            // Stay silent past the client's idle limit before closing.
+            thread::sleep(Duration::from_millis(500));
+            drop(stream);
+        });
+
+        let client = std::net::TcpStream::connect(addr).unwrap();
+        client.set_read_timeout(Some(Duration::from_millis(20))).unwrap();
+        let config = RtspInterleavedSourceConfig {
+            idle_timeout: Duration::from_millis(80),
+            ..interleaved_config(0)
+        };
+        let mut source = RtspInterleavedRtpSource::new(client, config).unwrap();
+
+        let err = source.next_access_unit().unwrap_err();
+
+        assert!(matches!(err, RtspSourceError::Timeout { .. }));
+        server.join().unwrap();
     }
 
     #[test]
@@ -1201,13 +1424,71 @@ a=rtpmap:96 VP9/90000\r\n";
 
         let err = parse_sdp_video_track(&base_url, sdp, Some(EncodedVideoCodec::AV1)).unwrap_err();
 
-        assert!(matches!(
-            err,
-            RtspSourceError::CodecMismatch {
-                expected: EncodedVideoCodec::AV1,
-                actual: EncodedVideoCodec::VP9
+        match err {
+            RtspSourceError::CodecMismatch { expected, actual } => {
+                assert_eq!(expected, EncodedVideoCodec::AV1);
+                assert_eq!(actual, vec![EncodedVideoCodec::VP9]);
             }
-        ));
+            other => panic!("expected codec mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn selects_expected_codec_among_multiple_payload_types() {
+        let base_url = RtspUrl::parse("rtsp://camera.example/live").unwrap();
+        let sdp = "\
+v=0\r\n\
+m=video 0 RTP/AVP 98 96\r\n\
+a=control:trackID=1\r\n\
+a=rtpmap:98 H265/90000\r\n\
+a=rtpmap:96 H264/90000\r\n";
+
+        let track = parse_sdp_video_track(&base_url, sdp, Some(EncodedVideoCodec::H264)).unwrap();
+
+        assert_eq!(track.codec, EncodedVideoCodec::H264);
+        assert_eq!(track.payload_type, 96);
+        assert_eq!(track.clock_rate, 90_000);
+        assert_eq!(track.control_url, "rtsp://camera.example/live/trackID=1");
+    }
+
+    #[test]
+    fn selects_expected_codec_from_later_video_section() {
+        let base_url = RtspUrl::parse("rtsp://camera.example/live").unwrap();
+        let sdp = "\
+v=0\r\n\
+m=video 0 RTP/AVP 98\r\n\
+a=control:trackID=1\r\n\
+a=rtpmap:98 H265/90000\r\n\
+m=video 0 RTP/AVP 96\r\n\
+a=control:trackID=2\r\n\
+a=rtpmap:96 H264/90000\r\n";
+
+        let track = parse_sdp_video_track(&base_url, sdp, Some(EncodedVideoCodec::H264)).unwrap();
+
+        assert_eq!(track.codec, EncodedVideoCodec::H264);
+        assert_eq!(track.payload_type, 96);
+        assert_eq!(track.control_url, "rtsp://camera.example/live/trackID=2");
+    }
+
+    #[test]
+    fn rejects_sdp_listing_all_offered_codecs_when_none_match() {
+        let base_url = RtspUrl::parse("rtsp://camera.example/live").unwrap();
+        let sdp = "\
+v=0\r\n\
+m=video 0 RTP/AVP 98 96\r\n\
+a=control:trackID=1\r\n\
+a=rtpmap:98 H265/90000\r\n\
+a=rtpmap:96 H264/90000\r\n";
+
+        let err = parse_sdp_video_track(&base_url, sdp, Some(EncodedVideoCodec::VP8)).unwrap_err();
+
+        match err {
+            RtspSourceError::CodecMismatch { expected, actual } => {
+                assert_eq!(expected, EncodedVideoCodec::VP8);
+                assert_eq!(actual, vec![EncodedVideoCodec::H265, EncodedVideoCodec::H264]);
+            }
+            other => panic!("expected codec mismatch, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1417,6 +1698,84 @@ a=rtpmap:96 H264/90000\r\n";
 
         let access_unit = source.next_access_unit().unwrap().unwrap();
         assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 1, 2]);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn sends_keepalive_during_stream_silence() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _describe = read_request(&mut stream);
+            let sdp = "\
+v=0\r\n\
+m=video 0 RTP/AVP 96\r\n\
+a=control:trackID=0\r\n\
+a=rtpmap:96 H264/90000\r\n";
+            write_response(
+                &mut stream,
+                1,
+                &[("Content-Type", "application/sdp"), ("Content-Length", &sdp.len().to_string())],
+                sdp.as_bytes(),
+            );
+            let _setup = read_request(&mut stream);
+            write_response(
+                &mut stream,
+                2,
+                &[
+                    ("Session", "abc123;timeout=60"),
+                    ("Transport", "RTP/AVP/TCP;unicast;interleaved=0-1"),
+                ],
+                &[],
+            );
+            let _play = read_request(&mut stream);
+            write_response(&mut stream, 3, &[], &[]);
+
+            // Send no interleaved data; the keepalive must arrive during the
+            // silence. Only then reply and send the first video frame.
+            let keepalive = read_request(&mut stream);
+            write_response(&mut stream, 4, &[], &[]);
+            let packet = rtp_packet(10, 12_000, true, &[0x65, 1, 2]);
+            stream.write_all(&interleaved(0, &packet)).unwrap();
+            keepalive
+        });
+
+        let options = RtspSourceOptions::new(640, 480)
+            .with_expected_codec(EncodedVideoCodec::H264)
+            .with_read_timeout(Duration::from_millis(100))
+            .with_idle_timeout(Duration::from_secs(5));
+        let mut source =
+            RtspEncodedSource::connect(&format!("rtsp://{addr}/camera"), options).unwrap();
+        source.keepalive.next_due = Instant::now() + Duration::from_millis(250);
+
+        let access_unit = source.next_access_unit().unwrap().unwrap();
+
+        assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 1, 2]);
+        let keepalive = server.join().unwrap();
+        assert!(keepalive.starts_with("OPTIONS rtsp://"));
+        assert!(keepalive.contains("Session: abc123"));
+    }
+
+    #[test]
+    fn handshake_read_timeout_is_hard_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _describe = read_request(&mut stream);
+            // Never respond; hold the connection open past the read timeout.
+            thread::sleep(Duration::from_millis(300));
+        });
+
+        let options = RtspSourceOptions::new(640, 480).with_read_timeout(Duration::from_millis(50));
+        let err =
+            RtspEncodedSource::connect(&format!("rtsp://{addr}/camera"), options).unwrap_err();
+
+        assert!(
+            matches!(&err, RtspSourceError::Timeout { phase } if phase.contains("DESCRIBE")),
+            "expected DESCRIBE timeout, got {err:?}"
+        );
         server.join().unwrap();
     }
 

@@ -16,9 +16,11 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
-#include <vector>
+#include <memory>
 
+#include "api/video/encoded_image.h"
 #include "api/video/video_frame_buffer.h"
 
 namespace livekit {
@@ -39,11 +41,17 @@ enum class EncodedFrameType {
 // A native WebRTC frame buffer carrying one encoded video access unit.
 class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
  public:
-  EncodedVideoFrameBuffer(int width,
-                          int height,
-                          EncodedVideoCodec codec,
-                          EncodedFrameType frame_type,
-                          std::vector<uint8_t> payload);
+  // `keyframe_request_flag` is shared with the owning video source: the
+  // pass-through encoder sets it when the RTP layer asks for a keyframe the
+  // pending frame cannot satisfy, and the capture side polls it to forward
+  // the request upstream.
+  EncodedVideoFrameBuffer(
+      int width,
+      int height,
+      EncodedVideoCodec codec,
+      EncodedFrameType frame_type,
+      webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
+      std::shared_ptr<std::atomic<bool>> keyframe_request_flag = nullptr);
   ~EncodedVideoFrameBuffer() override = default;
 
   Type type() const override;
@@ -60,7 +68,17 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
 
   EncodedVideoCodec codec() const { return codec_; }
   EncodedFrameType frame_type() const { return frame_type_; }
-  const std::vector<uint8_t>& payload() const { return payload_; }
+
+  // The encoded access unit. Shared with the pass-through encoder so the
+  // payload is not copied again on the send path.
+  webrtc::scoped_refptr<webrtc::EncodedImageBuffer> encoded_data() const {
+    return payload_;
+  }
+  const uint8_t* payload_data() const { return payload_->data(); }
+  size_t payload_size() const { return payload_->size(); }
+
+  // Asks the capture side to produce a keyframe (e.g. on PLI/FIR).
+  void request_keyframe() const;
 
   static EncodedVideoFrameBuffer* FromNative(webrtc::VideoFrameBuffer* buffer);
 
@@ -69,7 +87,8 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   int height_;
   EncodedVideoCodec codec_;
   EncodedFrameType frame_type_;
-  std::vector<uint8_t> payload_;
+  webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload_;
+  std::shared_ptr<std::atomic<bool>> keyframe_request_flag_;
 };
 
 }  // namespace livekit

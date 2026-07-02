@@ -140,6 +140,26 @@ impl Default for CodecSpecific {
     }
 }
 
+impl CodecSpecific {
+    /// Returns the single-layer default metadata for a codec, matching what
+    /// the passthrough encoder synthesizes on the wire.
+    pub fn default_for(codec: EncodedVideoCodec) -> Self {
+        match codec {
+            EncodedVideoCodec::H264 => {
+                Self::H264 { packetization_mode: H264PacketizationMode::NonInterleaved }
+            }
+            EncodedVideoCodec::H265 => Self::H265,
+            EncodedVideoCodec::VP8 => Self::VP8 { temporal_id: None, layer_sync: false },
+            EncodedVideoCodec::VP9 => {
+                Self::VP9 { temporal_id: None, spatial_id: None, inter_layer_predicted: None }
+            }
+            EncodedVideoCodec::AV1 => {
+                Self::AV1 { scalability_mode: Some("L1T1".to_owned()), dependency_descriptor: None }
+            }
+        }
+    }
+}
+
 /// Borrowed encoded payload fragment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EncodedFragment<'a> {
@@ -307,26 +327,7 @@ impl<'a> EncodedAccessUnit<'a> {
         width: u32,
         height: u32,
     ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
-        let mut is_key = false;
-        for nal in nal_units {
-            let nal_type = h264_nal_type(nal)?;
-            if nal_type == 5 {
-                is_key = true;
-            }
-        }
-
-        Ok(EncodedAccessUnit {
-            codec: EncodedVideoCodec::H264,
-            payload: EncodedPayload::Owned(annex_b_payload(nal_units)?),
-            timestamp_us,
-            frame_type: if is_key { EncodedFrameType::Key } else { EncodedFrameType::Delta },
-            width,
-            height,
-            layers: EncodedLayerInfo::default(),
-            codec_specific: CodecSpecific::H264 {
-                packetization_mode: H264PacketizationMode::NonInterleaved,
-            },
-        })
+        Self::from_nalus(EncodedVideoCodec::H264, nal_units, timestamp_us, width, height)
     }
 
     /// Creates an H.265 access unit from raw NAL-unit payloads.
@@ -336,24 +337,46 @@ impl<'a> EncodedAccessUnit<'a> {
         width: u32,
         height: u32,
     ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
-        let mut is_key = false;
-        for nal in nal_units {
-            let nal_type = h265_nal_type(nal)?;
-            if (16..=21).contains(&nal_type) {
-                is_key = true;
-            }
-        }
+        Self::from_nalus(EncodedVideoCodec::H265, nal_units, timestamp_us, width, height)
+    }
 
+    fn from_nalus(
+        codec: EncodedVideoCodec,
+        nal_units: &[&[u8]],
+        timestamp_us: i64,
+        width: u32,
+        height: u32,
+    ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
+        let is_key = is_keyframe_nalus(codec, nal_units)?;
         Ok(EncodedAccessUnit {
-            codec: EncodedVideoCodec::H265,
+            codec,
             payload: EncodedPayload::Owned(annex_b_payload(nal_units)?),
             timestamp_us,
             frame_type: if is_key { EncodedFrameType::Key } else { EncodedFrameType::Delta },
             width,
             height,
             layers: EncodedLayerInfo::default(),
-            codec_specific: CodecSpecific::H265,
+            codec_specific: CodecSpecific::default_for(codec),
         })
+    }
+}
+
+/// Returns true when any NAL unit in the slice is an intra/key picture.
+pub(crate) fn is_keyframe_nalus(
+    codec: EncodedVideoCodec,
+    nal_units: &[&[u8]],
+) -> Result<bool, CaptureError> {
+    match codec {
+        EncodedVideoCodec::H264 => {
+            nal_units.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
+        }
+        EncodedVideoCodec::H265 => nal_units.iter().try_fold(false, |is_key, nal| {
+            let nal_type = h265_nal_type(nal)?;
+            Ok(is_key || (16..=21).contains(&nal_type))
+        }),
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+            Err(CaptureError::UnsupportedCodec(codec))
+        }
     }
 }
 

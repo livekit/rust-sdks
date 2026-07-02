@@ -6,14 +6,13 @@ publish = false
 
 [features]
 default = []
-gstreamer = ["dep:gstreamer", "dep:gstreamer-app", "livekit-capture/gstreamer"]
+gstreamer = ["dep:gstreamer", "livekit-capture/gstreamer"]
 
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 env_logger = { workspace = true }
 gstreamer = { workspace = true, optional = true }
-gstreamer-app = { workspace = true, optional = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-capture = { workspace = true, features = ["rtsp", "tcpsink"] }

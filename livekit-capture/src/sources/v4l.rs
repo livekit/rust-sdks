@@ -16,10 +16,7 @@
 
 use std::time::Duration;
 #[cfg(target_os = "linux")]
-use std::{
-    path::Path,
-    time::{Instant, SystemTime, UNIX_EPOCH},
-};
+use std::{path::Path, time::Instant};
 
 #[cfg(target_os = "linux")]
 use livekit::webrtc::video_frame::VideoRotation;
@@ -44,9 +41,10 @@ use crate::device::{
     CaptureDeviceInfo, CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest,
     CaptureFrameFormat, CapturePath, CaptureResolution,
 };
-
 #[cfg(any(target_os = "linux", test))]
-const MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
+use crate::time::validate_capture_timestamp_us;
+#[cfg(target_os = "linux")]
+use crate::time::{elapsed_us, unix_time_us_now};
 
 /// Options used to open a Linux V4L2 capture session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,6 +144,9 @@ pub struct V4lCaptureSession {
     #[cfg(target_os = "linux")]
     stream: MmapStream<'static>,
     format: CaptureFormat,
+    /// Driver-reported row stride in bytes (V4L2 `bytesperline`).
+    #[cfg(target_os = "linux")]
+    stride: u32,
     options: V4lCaptureOptions,
     #[cfg(target_os = "linux")]
     started_at: Instant,
@@ -192,10 +193,11 @@ impl V4lCaptureSession {
         let frame_formats = frame_formats_for_request(&options)?;
         let device = open_device(&options.device)?;
         let all_formats = enumerate_device_formats(&device)?;
-        let format = apply_format_request(&device, &options, &frame_formats, &all_formats)?;
+        let (format, stride) =
+            apply_format_request(&device, &options, &frame_formats, &all_formats)?;
         let stream =
             MmapStream::with_buffers(&device, V4lBufferType::VideoCapture, 4).map_err(v4l_error)?;
-        Ok(Self { stream, format, options, started_at: Instant::now() })
+        Ok(Self { stream, format, stride, options, started_at: Instant::now() })
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -225,8 +227,14 @@ impl V4lCaptureSession {
             buffer: I420Buffer::new(width, height),
         };
         let source = frame_bytes(buffer, metadata.bytesused);
-        let used_decode_path =
-            convert_to_i420(format.frame_format, source, width, height, &mut frame.buffer)?;
+        let used_decode_path = convert_to_i420(
+            format.frame_format,
+            source,
+            width,
+            height,
+            self.stride,
+            &mut frame.buffer,
+        )?;
 
         Ok(V4lFrame {
             frame,
@@ -458,7 +466,7 @@ fn apply_format_request(
     options: &V4lCaptureOptions,
     frame_formats: &[CaptureFrameFormat],
     all_formats: &[CaptureFormat],
-) -> Result<CaptureFormat, V4lError> {
+) -> Result<(CaptureFormat, u32), V4lError> {
     match options.format {
         CaptureFormatRequest::Default => {
             let selected = select_format_for_request(&options.format, frame_formats, all_formats)?;
@@ -481,7 +489,7 @@ fn apply_ordered_format_request(
     options: &V4lCaptureOptions,
     frame_formats: &[CaptureFrameFormat],
     all_formats: &[CaptureFormat],
-) -> Result<CaptureFormat, V4lError> {
+) -> Result<(CaptureFormat, u32), V4lError> {
     let mut last_error = None;
     for frame_format in frame_formats {
         let request = format_request_with_frame_format(&options.format, *frame_format);
@@ -684,8 +692,11 @@ fn compare_format_preference(
 }
 
 #[cfg(target_os = "linux")]
-fn set_device_format(device: &Device, selected: CaptureFormat) -> Result<CaptureFormat, V4lError> {
-    let current = device_capture_format(device)?;
+fn set_device_format(
+    device: &Device,
+    selected: CaptureFormat,
+) -> Result<(CaptureFormat, u32), V4lError> {
+    let (current, _) = device_capture_format(device)?;
     let format_changed =
         current.resolution != selected.resolution || current.frame_format != selected.frame_format;
     if format_changed {
@@ -704,28 +715,32 @@ fn set_device_format(device: &Device, selected: CaptureFormat) -> Result<Capture
             .map_err(v4l_error)?;
     }
 
-    let actual = device_capture_format(device)?;
+    let (actual, stride) = device_capture_format(device)?;
     if actual != selected {
         return Err(V4lError::Camera(format!(
             "CameraFormat rejected: requested {:?}, got {:?}",
             selected, actual
         )));
     }
-    Ok(actual)
+    Ok((actual, stride))
 }
 
+/// Returns the device's current capture format and its row stride in bytes
+/// (V4L2 `bytesperline`).
 #[cfg(target_os = "linux")]
-fn device_capture_format(device: &Device) -> Result<CaptureFormat, V4lError> {
+fn device_capture_format(device: &Device) -> Result<(CaptureFormat, u32), V4lError> {
     let format = device.format().map_err(v4l_error)?;
     let params = device.params().map_err(v4l_error)?;
-    let frame_rate = frame_rate_from_fraction(params.interval)
-        .ok_or(V4lError::InvalidOption("V4L frame interval must be a whole frame rate"))?;
-    Ok(CaptureFormat::new(
+    let frame_rate =
+        frame_rate_from_fraction(params.interval.numerator, params.interval.denominator)
+            .ok_or(V4lError::InvalidOption("V4L frame interval must be non-zero"))?;
+    let capture_format = CaptureFormat::new(
         CaptureResolution::new(format.width, format.height),
         frame_rate,
         capture_frame_format_from_fourcc(format.fourcc)
             .ok_or_else(|| V4lError::Camera(format!("unsupported V4L fourcc {}", format.fourcc)))?,
-    ))
+    );
+    Ok((capture_format, format.stride))
 }
 
 #[cfg(target_os = "linux")]
@@ -840,16 +855,17 @@ fn push_stepwise_resolution(
 fn frame_rates_from_interval(interval: v4l::FrameInterval) -> Vec<u32> {
     match interval.interval {
         FrameIntervalEnum::Discrete(fraction) => {
-            frame_rate_from_fraction(fraction).into_iter().collect()
+            frame_rate_from_fraction(fraction.numerator, fraction.denominator).into_iter().collect()
         }
         FrameIntervalEnum::Stepwise(stepwise) => {
             let mut frame_rates = Vec::new();
-            if let Some(frame_rate) = frame_rate_from_fraction(stepwise.min) {
-                frame_rates.push(frame_rate);
-            }
-            if let Some(frame_rate) = frame_rate_from_fraction(stepwise.max) {
-                if !frame_rates.contains(&frame_rate) {
-                    frame_rates.push(frame_rate);
+            for fraction in [stepwise.min, stepwise.max] {
+                if let Some(frame_rate) =
+                    frame_rate_from_fraction(fraction.numerator, fraction.denominator)
+                {
+                    if !frame_rates.contains(&frame_rate) {
+                        frame_rates.push(frame_rate);
+                    }
                 }
             }
             frame_rates
@@ -857,15 +873,20 @@ fn frame_rates_from_interval(interval: v4l::FrameInterval) -> Vec<u32> {
     }
 }
 
-#[cfg(target_os = "linux")]
-fn frame_rate_from_fraction(fraction: v4l::Fraction) -> Option<u32> {
-    if fraction.numerator == 0 || fraction.denominator == 0 {
+/// Converts a V4L2 frame interval (seconds per frame) to frames per second.
+///
+/// Non-integer rates (e.g. the NTSC interval 1001/30000 = 29.97fps) round to
+/// the nearest whole rate, never below 1.
+#[cfg(any(target_os = "linux", test))]
+fn frame_rate_from_fraction(numerator: u32, denominator: u32) -> Option<u32> {
+    if numerator == 0 || denominator == 0 {
         return None;
     }
-    if fraction.denominator % fraction.numerator != 0 {
-        return None;
+    if denominator % numerator == 0 {
+        return Some(denominator / numerator);
     }
-    Some(fraction.denominator / fraction.numerator)
+    let rounded = (u64::from(denominator) + u64::from(numerator) / 2) / u64::from(numerator);
+    Some(u32::try_from(rounded).unwrap_or(u32::MAX).max(1))
 }
 
 #[cfg(target_os = "linux")]
@@ -878,12 +899,13 @@ fn frame_bytes(buffer: &[u8], bytes_used: u32) -> &[u8] {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 fn convert_to_i420(
     source_format: CaptureFrameFormat,
     source: &[u8],
     width: u32,
     height: u32,
+    source_stride: u32,
     destination: &mut I420Buffer,
 ) -> Result<bool, V4lError> {
     let (stride_y, stride_u, stride_v) = destination.strides();
@@ -893,12 +915,14 @@ fn convert_to_i420(
 
     let ret = match source_format {
         CaptureFrameFormat::Yuyv => {
-            validate_len(source, width as usize * height as usize * 2, "YUYV frame")?;
+            let stride = source_row_stride(source_stride, width as usize * 2);
+            validate_len(source, stride * height as usize, "YUYV frame")?;
+            let stride_i32 = i32_from_usize(stride, "stride")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
                 yuv_sys::rs_YUY2ToI420(
                     source.as_ptr(),
-                    width_i32 * 2,
+                    stride_i32,
                     dst_y.as_mut_ptr(),
                     stride_y as i32,
                     dst_u.as_mut_ptr(),
@@ -911,12 +935,14 @@ fn convert_to_i420(
             }
         }
         CaptureFrameFormat::Rgb24 => {
-            validate_len(source, width as usize * height as usize * 3, "RGB24 frame")?;
+            let stride = source_row_stride(source_stride, width as usize * 3);
+            validate_len(source, stride * height as usize, "RGB24 frame")?;
+            let stride_i32 = i32_from_usize(stride, "stride")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
                 yuv_sys::rs_RGB24ToI420(
                     source.as_ptr(),
-                    width_i32 * 3,
+                    stride_i32,
                     dst_y.as_mut_ptr(),
                     stride_y as i32,
                     dst_u.as_mut_ptr(),
@@ -929,12 +955,14 @@ fn convert_to_i420(
             }
         }
         CaptureFrameFormat::Bgr24 => {
-            validate_len(source, width as usize * height as usize * 3, "BGR24 frame")?;
+            let stride = source_row_stride(source_stride, width as usize * 3);
+            validate_len(source, stride * height as usize, "BGR24 frame")?;
+            let stride_i32 = i32_from_usize(stride, "stride")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
                 yuv_sys::rs_RAWToI420(
                     source.as_ptr(),
-                    width_i32 * 3,
+                    stride_i32,
                     dst_y.as_mut_ptr(),
                     stride_y as i32,
                     dst_u.as_mut_ptr(),
@@ -947,12 +975,14 @@ fn convert_to_i420(
             }
         }
         CaptureFrameFormat::Grey => {
-            validate_len(source, width as usize * height as usize, "GREY frame")?;
+            let stride = source_row_stride(source_stride, width as usize);
+            validate_len(source, stride * height as usize, "GREY frame")?;
+            let stride_i32 = i32_from_usize(stride, "stride")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
                 yuv_sys::rs_I400ToI420(
                     source.as_ptr(),
-                    width_i32,
+                    stride_i32,
                     dst_y.as_mut_ptr(),
                     stride_y as i32,
                     dst_u.as_mut_ptr(),
@@ -965,15 +995,19 @@ fn convert_to_i420(
             }
         }
         CaptureFrameFormat::Nv12 => {
-            let y_size = width as usize * height as usize;
+            // Single-planar V4L2 NV12: the interleaved chroma plane follows the
+            // luma plane at `stride * height` and shares the luma stride.
+            let stride = source_row_stride(source_stride, width as usize);
+            let y_size = stride * height as usize;
             validate_len(source, y_size + y_size / 2, "NV12 frame")?;
+            let stride_i32 = i32_from_usize(stride, "stride")?;
             unsafe {
                 // SAFETY: Source and destination slices are valid for the dimensions and strides.
                 yuv_sys::rs_NV12ToI420(
                     source.as_ptr(),
-                    width_i32,
+                    stride_i32,
                     source[y_size..].as_ptr(),
-                    width_i32,
+                    stride_i32,
                     dst_y.as_mut_ptr(),
                     stride_y as i32,
                     dst_u.as_mut_ptr(),
@@ -1000,7 +1034,15 @@ fn convert_to_i420(
     }
 }
 
-#[cfg(target_os = "linux")]
+/// Returns the effective source row stride in bytes, falling back to the
+/// packed width-derived stride when the driver reports `bytesperline` as zero
+/// or smaller than one packed row.
+#[cfg(any(target_os = "linux", test))]
+fn source_row_stride(reported_stride: u32, packed_stride: usize) -> usize {
+    (reported_stride as usize).max(packed_stride)
+}
+
+#[cfg(any(target_os = "linux", test))]
 fn convert_mjpeg_to_i420(
     source: &[u8],
     width: u32,
@@ -1061,7 +1103,7 @@ fn convert_mjpeg_to_i420(
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 fn validate_len(source: &[u8], expected: usize, label: &'static str) -> Result<(), V4lError> {
     if source.len() < expected {
         return Err(V4lError::InvalidFrame(label));
@@ -1076,38 +1118,18 @@ fn select_capture_wall_time_us(
     read_wall_time_us: u64,
 ) -> u64 {
     backend_capture_timestamp
-        .and_then(|timestamp| validate_backend_capture_timestamp_us(timestamp, read_wall_time_us))
+        .and_then(|timestamp| u64::try_from(timestamp.as_micros()).ok())
+        .and_then(|timestamp_us| validate_capture_timestamp_us(timestamp_us, read_wall_time_us))
         .unwrap_or(fallback_wall_time_us)
 }
 
 #[cfg(any(target_os = "linux", test))]
-fn validate_backend_capture_timestamp_us(
-    capture_timestamp: Duration,
-    read_wall_time_us: u64,
-) -> Option<u64> {
-    let capture_timestamp_us = u64::try_from(capture_timestamp.as_micros()).ok()?;
-    if capture_timestamp_us == 0 || capture_timestamp_us > read_wall_time_us {
-        return None;
-    }
-    if read_wall_time_us - capture_timestamp_us > MAX_BACKEND_CAPTURE_TIMESTAMP_AGE_US {
-        return None;
-    }
-    Some(capture_timestamp_us)
-}
-
-#[cfg(target_os = "linux")]
-fn unix_time_us_now() -> Option<u64> {
-    let elapsed = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-    u64::try_from(elapsed.as_micros()).ok()
-}
-
-#[cfg(target_os = "linux")]
-fn elapsed_us(duration: Duration) -> i64 {
-    i64::try_from(duration.as_micros()).unwrap_or(i64::MAX)
-}
-
-#[cfg(target_os = "linux")]
 fn i32_from_u32(value: u32, field: &'static str) -> Result<i32, V4lError> {
+    i32::try_from(value).map_err(|_| V4lError::OptionOutOfRange(field))
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn i32_from_usize(value: usize, field: &'static str) -> Result<i32, V4lError> {
     i32::try_from(value).map_err(|_| V4lError::OptionOutOfRange(field))
 }
 
@@ -1146,6 +1168,7 @@ fn clock_time(clock_id: libc::clockid_t) -> Option<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::time::MAX_CAPTURE_TIMESTAMP_AGE_US;
 
     #[test]
     fn rejects_empty_frame_format_preferences() {
@@ -1179,5 +1202,160 @@ mod tests {
         let selected =
             select_capture_wall_time_us(Some(Duration::from_micros(10)), 10_000_000, 10_000_000);
         assert_eq!(selected, 10_000_000);
+    }
+
+    #[test]
+    fn accepts_recent_backend_capture_timestamp() {
+        let read_us = 20_000_000;
+        let recent = Duration::from_micros(read_us - 1_000);
+        assert_eq!(select_capture_wall_time_us(Some(recent), 42, read_us), read_us - 1_000);
+    }
+
+    #[test]
+    fn ignores_backend_capture_timestamp_older_than_max_age() {
+        let read_us = 20_000_000;
+        let stale = Duration::from_micros(read_us - MAX_CAPTURE_TIMESTAMP_AGE_US - 1);
+        assert_eq!(select_capture_wall_time_us(Some(stale), 42, read_us), 42);
+    }
+
+    #[test]
+    fn frame_rate_from_fraction_rounds_fractional_intervals() {
+        assert_eq!(frame_rate_from_fraction(1, 30), Some(30));
+        assert_eq!(frame_rate_from_fraction(1001, 30000), Some(30));
+        assert_eq!(frame_rate_from_fraction(1001, 60000), Some(60));
+        assert_eq!(frame_rate_from_fraction(3, 1), Some(1));
+    }
+
+    #[test]
+    fn frame_rate_from_fraction_rejects_zero_terms() {
+        assert_eq!(frame_rate_from_fraction(0, 30000), None);
+        assert_eq!(frame_rate_from_fraction(1001, 0), None);
+    }
+
+    #[test]
+    fn converts_padded_stride_nv12_frame() {
+        let width = 6u32;
+        let height = 4u32;
+        let stride = 8usize;
+        let y_size = stride * height as usize;
+        // Padding bytes past each 6-pixel row must never reach the output.
+        let mut source = vec![0xEE; y_size + y_size / 2];
+        for row in 0..height as usize {
+            for col in 0..width as usize {
+                source[row * stride + col] = (100 + row * 10 + col) as u8;
+            }
+        }
+        for row in 0..height as usize / 2 {
+            for pair in 0..width as usize / 2 {
+                source[y_size + row * stride + pair * 2] = (50 + row * 10 + pair) as u8;
+                source[y_size + row * stride + pair * 2 + 1] = (150 + row * 10 + pair) as u8;
+            }
+        }
+
+        let mut destination = I420Buffer::new(width, height);
+        let used_decode_path = convert_to_i420(
+            CaptureFrameFormat::Nv12,
+            &source,
+            width,
+            height,
+            stride as u32,
+            &mut destination,
+        )
+        .expect("padded NV12 frame must convert");
+        assert!(!used_decode_path);
+
+        let (stride_y, stride_u, stride_v) = destination.strides();
+        let (dst_y, dst_u, dst_v) = destination.data();
+        for row in 0..height as usize {
+            for col in 0..width as usize {
+                assert_eq!(
+                    dst_y[row * stride_y as usize + col],
+                    (100 + row * 10 + col) as u8,
+                    "Y({row},{col})"
+                );
+            }
+        }
+        for row in 0..height as usize / 2 {
+            for pair in 0..width as usize / 2 {
+                assert_eq!(dst_u[row * stride_u as usize + pair], (50 + row * 10 + pair) as u8);
+                assert_eq!(dst_v[row * stride_v as usize + pair], (150 + row * 10 + pair) as u8);
+            }
+        }
+    }
+
+    #[test]
+    fn converts_padded_stride_yuyv_frame() {
+        let width = 6u32;
+        let height = 2u32;
+        let stride = 16usize;
+        // Padding bytes past each 12-byte packed row must never reach the output.
+        let mut source = vec![0xEE; stride * height as usize];
+        for row in 0..height as usize {
+            for col in 0..width as usize {
+                source[row * stride + col * 2] = (40 + row * 10 + col) as u8;
+                source[row * stride + col * 2 + 1] = 128;
+            }
+        }
+
+        let mut destination = I420Buffer::new(width, height);
+        convert_to_i420(
+            CaptureFrameFormat::Yuyv,
+            &source,
+            width,
+            height,
+            stride as u32,
+            &mut destination,
+        )
+        .expect("padded YUYV frame must convert");
+
+        let (stride_y, _, _) = destination.strides();
+        let (dst_y, _, _) = destination.data();
+        for row in 0..height as usize {
+            for col in 0..width as usize {
+                assert_eq!(
+                    dst_y[row * stride_y as usize + col],
+                    (40 + row * 10 + col) as u8,
+                    "Y({row},{col})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_nv12_frame_shorter_than_padded_stride_size() {
+        let width = 6u32;
+        let height = 4u32;
+        let packed = vec![0u8; (width * height) as usize * 3 / 2];
+        let mut destination = I420Buffer::new(width, height);
+        let err =
+            convert_to_i420(CaptureFrameFormat::Nv12, &packed, width, height, 8, &mut destination)
+                .expect_err("packed-size buffer must fail the stride-aware length check");
+        assert!(matches!(err, V4lError::InvalidFrame("NV12 frame")));
+    }
+
+    #[test]
+    fn falls_back_to_packed_stride_when_driver_reports_zero() {
+        let width = 4u32;
+        let height = 2u32;
+        let y_size = (width * height) as usize;
+        let mut source = vec![128u8; y_size + y_size / 2];
+        for (index, value) in source.iter_mut().take(y_size).enumerate() {
+            *value = index as u8;
+        }
+
+        let mut destination = I420Buffer::new(width, height);
+        convert_to_i420(CaptureFrameFormat::Nv12, &source, width, height, 0, &mut destination)
+            .expect("packed NV12 frame with zero reported stride must convert");
+
+        let (stride_y, _, _) = destination.strides();
+        let (dst_y, _, _) = destination.data();
+        for row in 0..height as usize {
+            for col in 0..width as usize {
+                assert_eq!(
+                    dst_y[row * stride_y as usize + col],
+                    (row * width as usize + col) as u8
+                );
+            }
+        }
     }
 }

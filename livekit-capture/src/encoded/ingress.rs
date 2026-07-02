@@ -12,7 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, fmt};
+use std::{
+    error::Error,
+    fmt,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use crate::{encoded::OwnedEncodedAccessUnit, error::CaptureError, track::VideoCaptureTrack};
 
@@ -23,6 +30,13 @@ pub trait EncodedAccessUnitSource {
 
     /// Returns the next encoded access unit, or `Ok(None)` when the source reaches EOF.
     fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error>;
+
+    /// Forwards a downstream keyframe request (PLI/FIR, late subscriber) to
+    /// the producer so it can emit an IDR.
+    ///
+    /// The default implementation does nothing, for transports that cannot
+    /// influence the upstream encoder.
+    fn request_keyframe(&mut self) {}
 }
 
 /// Error returned while forwarding encoded access units into a track.
@@ -55,17 +69,48 @@ where
     }
 }
 
+/// Cancellation handle for [`EncodedIngress::run_until_end`].
+///
+/// Cheap to clone; wire it to a shutdown signal (e.g. Ctrl-C) and call
+/// [`EncodedIngressStop::stop`] from any thread to make the ingest loop
+/// return after the access unit in flight.
+#[derive(Debug, Clone, Default)]
+pub struct EncodedIngressStop(Arc<AtomicBool>);
+
+impl EncodedIngressStop {
+    /// Creates an un-stopped handle.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Signals the ingest loop to stop.
+    pub fn stop(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    /// Returns true once [`EncodedIngressStop::stop`] has been called.
+    pub fn is_stopped(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
 /// Pulls encoded access units from a source and forwards them into a video track.
 #[derive(Debug)]
 pub struct EncodedIngress<S> {
     track: VideoCaptureTrack,
     source: S,
+    stop: EncodedIngressStop,
 }
 
 impl<S> EncodedIngress<S> {
     /// Creates an encoded ingress runner.
     pub fn new(track: VideoCaptureTrack, source: S) -> Self {
-        Self { track, source }
+        Self { track, source, stop: EncodedIngressStop::new() }
+    }
+
+    /// Returns a cancellation handle for this runner.
+    pub fn stop_handle(&self) -> EncodedIngressStop {
+        self.stop.clone()
     }
 
     /// Returns the capture track used by this runner.
@@ -89,28 +134,54 @@ impl<S> EncodedIngress<S> {
     }
 }
 
+/// Details of one access unit captured by [`EncodedIngress::capture_next`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EncodedIngressCapture {
+    /// Capture timestamp of the access unit in microseconds.
+    pub timestamp_us: i64,
+    /// Frame type of the access unit.
+    pub frame_type: crate::encoded::EncodedFrameType,
+    /// Payload size in bytes.
+    pub payload_len: usize,
+}
+
 impl<S> EncodedIngress<S>
 where
     S: EncodedAccessUnitSource,
 {
-    /// Captures the next access unit and returns `false` after source EOF.
-    pub fn capture_next(&mut self) -> Result<bool, EncodedIngressError<S::Error>> {
+    /// Captures the next access unit, returning `None` after source EOF.
+    ///
+    /// Downstream keyframe requests (PLI/FIR raised by the passthrough
+    /// encoder) are polled on every call and forwarded to the source via
+    /// [`EncodedAccessUnitSource::request_keyframe`].
+    pub fn capture_next(
+        &mut self,
+    ) -> Result<Option<EncodedIngressCapture>, EncodedIngressError<S::Error>> {
+        if self.track.take_keyframe_request() {
+            self.source.request_keyframe();
+        }
+
         let Some(access_unit) =
             self.source.next_access_unit().map_err(EncodedIngressError::Source)?
         else {
-            return Ok(false);
+            return Ok(None);
         };
 
         self.track
             .capture_encoded(&access_unit.as_access_unit())
             .map_err(EncodedIngressError::Capture)?;
-        Ok(true)
+        Ok(Some(EncodedIngressCapture {
+            timestamp_us: access_unit.timestamp_us,
+            frame_type: access_unit.frame_type,
+            payload_len: access_unit.payload.len(),
+        }))
     }
 
-    /// Captures access units until the source reaches EOF.
+    /// Captures access units until the source reaches EOF or the stop
+    /// handle fires, returning the number of captured access units.
     pub fn run_until_end(&mut self) -> Result<u64, EncodedIngressError<S::Error>> {
         let mut captured = 0;
-        while self.capture_next()? {
+        while !self.stop.is_stopped() && self.capture_next()?.is_some() {
             captured += 1;
         }
         Ok(captured)

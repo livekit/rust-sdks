@@ -18,6 +18,7 @@
 
 #include <utility>
 
+#include "api/video/i420_buffer.h"
 #include "rtc_base/logging.h"
 
 namespace livekit {
@@ -27,12 +28,14 @@ EncodedVideoFrameBuffer::EncodedVideoFrameBuffer(
     int height,
     EncodedVideoCodec codec,
     EncodedFrameType frame_type,
-    std::vector<uint8_t> payload)
+    webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
+    std::shared_ptr<std::atomic<bool>> keyframe_request_flag)
     : width_(width),
       height_(height),
       codec_(codec),
       frame_type_(frame_type),
-      payload_(std::move(payload)) {}
+      payload_(std::move(payload)),
+      keyframe_request_flag_(std::move(keyframe_request_flag)) {}
 
 webrtc::VideoFrameBuffer::Type EncodedVideoFrameBuffer::type() const {
   return Type::kNative;
@@ -48,8 +51,19 @@ int EncodedVideoFrameBuffer::height() const {
 
 webrtc::scoped_refptr<webrtc::I420BufferInterface>
 EncodedVideoFrameBuffer::ToI420() {
-  RTC_LOG(LS_ERROR) << "EncodedVideoFrameBuffer::ToI420 is unsupported";
-  return nullptr;
+  // Sinks attached to a pre-encoded track (local preview, FFI color
+  // conversion) convert whatever buffer they receive; the encoded payload
+  // cannot be decoded here, so hand back a black frame instead of a null
+  // buffer that would crash the caller.
+  static std::atomic<bool> logged{false};
+  if (!logged.exchange(true)) {
+    RTC_LOG(LS_WARNING) << "EncodedVideoFrameBuffer::ToI420 cannot decode an "
+                           "encoded access unit; returning black frames";
+  }
+  webrtc::scoped_refptr<webrtc::I420Buffer> buffer =
+      webrtc::I420Buffer::Create(width_, height_);
+  webrtc::I420Buffer::SetBlack(buffer.get());
+  return buffer;
 }
 
 webrtc::scoped_refptr<webrtc::VideoFrameBuffer>
@@ -59,8 +73,18 @@ EncodedVideoFrameBuffer::CropAndScale(int /* offset_x */,
                                       int /* crop_height */,
                                       int /* scaled_width */,
                                       int /* scaled_height */) {
-  RTC_LOG(LS_ERROR) << "EncodedVideoFrameBuffer::CropAndScale is unsupported";
-  return nullptr;
+  // Encoded payloads cannot be rescaled; returning the buffer unchanged
+  // keeps misbehaving callers alive (the capture path never scales encoded
+  // frames).
+  RTC_LOG(LS_WARNING) << "EncodedVideoFrameBuffer::CropAndScale is "
+                         "unsupported; returning the frame unscaled";
+  return webrtc::scoped_refptr<webrtc::VideoFrameBuffer>(this);
+}
+
+void EncodedVideoFrameBuffer::request_keyframe() const {
+  if (keyframe_request_flag_) {
+    keyframe_request_flag_->store(true, std::memory_order_relaxed);
+  }
 }
 
 EncodedVideoFrameBuffer* EncodedVideoFrameBuffer::FromNative(

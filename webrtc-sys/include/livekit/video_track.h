@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 
 #include "api/media_stream_interface.h"
@@ -105,11 +106,19 @@ class VideoTrackSource {
     void set_packet_trailer_handler(
         std::shared_ptr<PacketTrailerHandler> handler);
 
+    // Shared with every EncodedVideoFrameBuffer this source emits; the
+    // pass-through encoder raises it on unsatisfied keyframe requests.
+    std::shared_ptr<std::atomic<bool>> keyframe_request_flag() const {
+      return keyframe_request_flag_;
+    }
+
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
     std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
+    std::shared_ptr<std::atomic<bool>> keyframe_request_flag_ =
+        std::make_shared<std::atomic<bool>>(false);
     bool is_screencast_;
   };
 
@@ -135,7 +144,13 @@ class VideoTrackSource {
   bool capture_encoded_frame(int width,
                              int height,
                              const EncodedVideoFrameData& frame,
+                             rust::Slice<const uint8_t> payload,
                              const FrameMetadata& frame_metadata) const;
+
+  // Returns and clears the pending upstream keyframe request raised by the
+  // pass-through encoder (PLI/FIR or post-reconfigure). Poll from the
+  // capture loop.
+  bool take_keyframe_request() const;
 
   void set_packet_trailer_handler(
       std::shared_ptr<PacketTrailerHandler> handler) const;

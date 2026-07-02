@@ -20,7 +20,7 @@ fn main() -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn platform_devices() -> Result<Vec<CaptureDeviceInfo>> {
-    Ok(livekit_capture::platform::avfoundation::devices()?)
+    Ok(livekit_capture::sources::avfoundation::devices()?)
 }
 
 #[cfg(target_os = "linux")]

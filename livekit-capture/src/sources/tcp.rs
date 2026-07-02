@@ -21,12 +21,13 @@ use thiserror::Error;
 
 use crate::{
     encoded::{
-        h26x::{AnnexBAccessUnitParser, AvcAccessUnitParser},
+        h26x::{AccessUnitParser, AnnexBAccessUnitParser, AvcAccessUnitParser},
         ingress::EncodedAccessUnitSource,
         rtp::{RtpAccessUnitAssembler, RtpDepacketizerError},
         EncodedVideoCodec, EncodedWireFormat, OwnedEncodedAccessUnit,
     },
     error::CaptureError,
+    sources::io::read_exact_or_clean_eof,
 };
 
 const DEFAULT_CHUNK_SIZE: usize = 4096;
@@ -82,6 +83,9 @@ pub struct ByteStreamEncodedSource<R> {
     parser: ByteStreamParser,
     read_chunk: Vec<u8>,
     eof: bool,
+    /// Whether the parser may still hold complete access units from the last
+    /// push, which must be drained before reading more from the stream.
+    drain_pending: bool,
 }
 
 /// TCP encoded source using the same parser as other byte streams.
@@ -151,6 +155,7 @@ where
             parser,
             read_chunk: vec![0; config.read_chunk_size.max(1)],
             eof: false,
+            drain_pending: false,
         })
     }
 
@@ -174,15 +179,19 @@ where
         self.reader
     }
 
-    fn next_annex_b(
+    fn next_from_parser<P: AccessUnitParser>(
         reader: &mut R,
         read_chunk: &mut [u8],
-        parser: &mut AnnexBAccessUnitParser,
+        parser: &mut P,
         eof: &mut bool,
+        drain_pending: &mut bool,
     ) -> Result<Option<OwnedEncodedAccessUnit>, TcpSourceError> {
         loop {
-            if let Some(access_unit) = parser.push(&[]).map_err(TcpSourceError::Capture)? {
-                return Ok(Some(access_unit));
+            if *drain_pending {
+                if let Some(access_unit) = parser.drain().map_err(TcpSourceError::Capture)? {
+                    return Ok(Some(access_unit));
+                }
+                *drain_pending = false;
             }
             if *eof {
                 return parser.flush().map_err(TcpSourceError::Capture);
@@ -196,33 +205,7 @@ where
             if let Some(access_unit) =
                 parser.push(&read_chunk[..read]).map_err(TcpSourceError::Capture)?
             {
-                return Ok(Some(access_unit));
-            }
-        }
-    }
-
-    fn next_avc(
-        reader: &mut R,
-        read_chunk: &mut [u8],
-        parser: &mut AvcAccessUnitParser,
-        eof: &mut bool,
-    ) -> Result<Option<OwnedEncodedAccessUnit>, TcpSourceError> {
-        loop {
-            if let Some(access_unit) = parser.push(&[]).map_err(TcpSourceError::Capture)? {
-                return Ok(Some(access_unit));
-            }
-            if *eof {
-                return parser.flush().map_err(TcpSourceError::Capture);
-            }
-
-            let read = reader.read(read_chunk).map_err(TcpSourceError::Io)?;
-            if read == 0 {
-                *eof = true;
-                continue;
-            }
-            if let Some(access_unit) =
-                parser.push(&read_chunk[..read]).map_err(TcpSourceError::Capture)?
-            {
+                *drain_pending = true;
                 return Ok(Some(access_unit));
             }
         }
@@ -230,6 +213,7 @@ where
 
     fn next_rtp(
         reader: &mut R,
+        packet: &mut Vec<u8>,
         assembler: &mut RtpAccessUnitAssembler,
         eof: &mut bool,
     ) -> Result<Option<OwnedEncodedAccessUnit>, TcpSourceError> {
@@ -245,9 +229,9 @@ where
                 continue;
             }
 
-            let mut packet = vec![0; packet_len];
-            reader.read_exact(&mut packet).map_err(TcpSourceError::Io)?;
-            if let Some(access_unit) = assembler.push(&packet)? {
+            packet.resize(packet_len, 0);
+            reader.read_exact(packet).map_err(TcpSourceError::Io)?;
+            if let Some(access_unit) = assembler.push(packet)? {
                 return Ok(Some(access_unit));
             }
         }
@@ -337,14 +321,22 @@ where
 
     fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
         match &mut self.parser {
-            ByteStreamParser::H26x(parser) => {
-                Self::next_annex_b(&mut self.reader, &mut self.read_chunk, parser, &mut self.eof)
-            }
-            ByteStreamParser::H264Avc(parser) => {
-                Self::next_avc(&mut self.reader, &mut self.read_chunk, parser, &mut self.eof)
-            }
+            ByteStreamParser::H26x(parser) => Self::next_from_parser(
+                &mut self.reader,
+                &mut self.read_chunk,
+                parser,
+                &mut self.eof,
+                &mut self.drain_pending,
+            ),
+            ByteStreamParser::H264Avc(parser) => Self::next_from_parser(
+                &mut self.reader,
+                &mut self.read_chunk,
+                parser,
+                &mut self.eof,
+                &mut self.drain_pending,
+            ),
             ByteStreamParser::Rtp(assembler) => {
-                Self::next_rtp(&mut self.reader, assembler, &mut self.eof)
+                Self::next_rtp(&mut self.reader, &mut self.read_chunk, assembler, &mut self.eof)
             }
         }
     }
@@ -365,18 +357,6 @@ pub enum TcpSourceError {
     /// Access-unit construction failed.
     #[error(transparent)]
     Capture(CaptureError),
-}
-
-fn read_exact_or_clean_eof(reader: &mut impl Read, buf: &mut [u8]) -> io::Result<bool> {
-    let mut offset = 0;
-    while offset < buf.len() {
-        match reader.read(&mut buf[offset..])? {
-            0 if offset == 0 => return Ok(false),
-            0 => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
-            read => offset += read,
-        }
-    }
-    Ok(true)
 }
 
 #[cfg(test)]

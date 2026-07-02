@@ -253,6 +253,19 @@ static SensorTimestampStatus read_sensor_timestamp_ns(
     return egl_status;
 }
 
+// Destroys the persistent NvBufSurface ring entries [0, count), releasing
+// their DMA-BUF fds. Entries that were never created (nullptr) are skipped,
+// so this is safe on a partially-initialized session.
+static void destroy_dmabuf_surfaces(LkArgusSession* s, int count) {
+    for (int i = 0; i < count; i++) {
+        if (s->dmabuf_surfaces[i]) {
+            NvBufSurfaceDestroy(s->dmabuf_surfaces[i]);
+            s->dmabuf_surfaces[i] = nullptr;
+        }
+        s->dmabuf_fds[i] = -1;
+    }
+}
+
 extern "C" {
 
 void* lk_argus_create_session(int sensor_index, int width, int height, int fps) {
@@ -478,6 +491,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
         NvBufSurface* surface = nullptr;
         if (NvBufSurfaceCreate(&surface, 1, &create_params) != 0 || !surface) {
             fprintf(stderr, "[lk_argus] Failed to create NvBufSurface[%d]\n", i);
+            destroy_dmabuf_surfaces(s, i);
             delete s;
             return nullptr;
         }
@@ -491,6 +505,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     if (status != Argus::STATUS_OK) {
         fprintf(stderr, "[lk_argus] Failed to start repeating capture: %d\n",
                 static_cast<int>(status));
+        destroy_dmabuf_surfaces(s, kNumDmaBufs);
         delete s;
         return nullptr;
     }
@@ -725,13 +740,7 @@ void lk_argus_destroy_session(void* handle) {
     s->current_frame.reset();
 
     // Free all persistent NvBufSurface buffers using the original pointers.
-    for (int i = 0; i < kNumDmaBufs; i++) {
-        if (s->dmabuf_surfaces[i]) {
-            NvBufSurfaceDestroy(s->dmabuf_surfaces[i]);
-            s->dmabuf_surfaces[i] = nullptr;
-        }
-        s->dmabuf_fds[i] = -1;
-    }
+    destroy_dmabuf_surfaces(s, kNumDmaBufs);
 
     delete s;
     fprintf(stderr, "[lk_argus] Session destroyed\n");

@@ -71,7 +71,6 @@ pub mod ffi {
     pub struct EncodedVideoFrameData {
         pub codec: EncodedVideoCodec,
         pub frame_type: EncodedFrameType,
-        pub payload: Vec<u8>,
         pub timestamp_us: i64,
     }
 
@@ -124,8 +123,10 @@ pub mod ffi {
             width: i32,
             height: i32,
             frame: &EncodedVideoFrameData,
+            payload: &[u8],
             frame_metadata: &FrameMetadata,
         ) -> bool;
+        fn take_keyframe_request(self: &VideoTrackSource) -> bool;
         fn set_packet_trailer_handler(
             self: &VideoTrackSource,
             handler: SharedPtr<PacketTrailerHandler>,

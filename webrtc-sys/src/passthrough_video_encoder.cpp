@@ -16,6 +16,7 @@
 
 #include "livekit/passthrough_video_encoder.h"
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <optional>
@@ -110,15 +111,13 @@ bool IsKeyframe(livekit::EncodedFrameType frame_type) {
   return frame_type == livekit::EncodedFrameType::kKey;
 }
 
-std::vector<uint8_t> NormalizedPayloadForEncode(
-    const livekit::EncodedVideoFrameBuffer& encoded_buffer) {
-  std::vector<uint8_t> payload = encoded_buffer.payload();
-  if (encoded_buffer.codec() == livekit::EncodedVideoCodec::kAV1) {
-    livekit::av1::StripIvfFrameHeaderIfPresent(&payload);
-    livekit::av1::ConvertAnnexBToLowOverheadIfPresent(&payload);
-    livekit::av1::StripNonTransferObusIfPresent(&payload);
-  }
-  return payload;
+// SDP profile parameters constrain real encoders, not a pass-through: the
+// forwarded bytes are whatever the upstream encoder produced. Match formats
+// by codec only (H265/HEVC are aliases via CodecTypeFromFormat).
+bool IsSameCodecType(const SdpVideoFormat& a, const SdpVideoFormat& b) {
+  VideoCodecType type_a = CodecTypeFromFormat(a);
+  return type_a != webrtc::kVideoCodecGeneric &&
+         type_a == CodecTypeFromFormat(b);
 }
 
 void FillSingleLayerCodecSpecific(
@@ -213,7 +212,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
   }
 
   int32_t Encode(const VideoFrame& frame,
-                 const std::vector<VideoFrameType>* /* frame_types */) override {
+                 const std::vector<VideoFrameType>* frame_types) override {
     if (!encoded_image_callback_) {
       RTC_LOG(LS_ERROR)
           << "PassthroughVideoEncoder callback is not registered";
@@ -236,13 +235,36 @@ class PassthroughVideoEncoder final : public VideoEncoder {
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
 
-    std::vector<uint8_t> payload = NormalizedPayloadForEncode(*encoded_buffer);
-    if (payload.empty()) {
+    const bool is_keyframe = IsKeyframe(encoded_buffer->frame_type());
+
+    // A pass-through cannot synthesize the keyframe the RTP layer wants
+    // (PLI/FIR, late subscriber, reconfiguration); forward the request to
+    // the capture source so the upstream encoder can produce an IDR.
+    const bool keyframe_requested =
+        frame_types != nullptr &&
+        std::any_of(frame_types->begin(), frame_types->end(),
+                    [](VideoFrameType type) {
+                      return type == VideoFrameType::kVideoFrameKey;
+                    });
+    if (keyframe_requested && !is_keyframe) {
+      encoded_buffer->request_keyframe();
+    }
+
+    if (encoded_buffer->payload_size() == 0) {
       RTC_LOG(LS_ERROR) << "PassthroughVideoEncoder received an empty frame";
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
-    const bool is_keyframe = IsKeyframe(encoded_buffer->frame_type());
+
+    // Non-AV1 payloads are forwarded without copying: the buffer already
+    // owns a webrtc::EncodedImageBuffer. AV1 needs RTP normalization, which
+    // may rewrite the bytes, so it works on a copy.
+    webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> encoded_data;
     if (IsAv1Codec(codec_type_)) {
+      std::vector<uint8_t> payload(
+          encoded_buffer->payload_data(),
+          encoded_buffer->payload_data() + encoded_buffer->payload_size());
+      livekit::av1::NormalizeForRtp(&payload);
+
       std::vector<uint8_t> sequence_header;
       if (livekit::av1::ExtractSequenceHeaderObu(
               payload.data(), payload.size(), &sequence_header)) {
@@ -251,12 +273,16 @@ class PassthroughVideoEncoder final : public VideoEncoder {
         livekit::av1::EnsureSequenceHeaderOnKeyframe(
             &payload, cached_sequence_header_obu_);
       }
-      if (!livekit::av1::IsWebRtcParseable(payload.data(), payload.size())) {
+      if (payload.empty() ||
+          !livekit::av1::IsWebRtcParseable(payload.data(), payload.size())) {
         RTC_LOG(LS_ERROR)
             << "PassthroughVideoEncoder received an AV1 frame that WebRTC "
                "cannot packetize";
         return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
       }
+      encoded_data = EncodedImageBuffer::Create(payload.data(), payload.size());
+    } else {
+      encoded_data = encoded_buffer->encoded_data();
     }
 
     EncodedImage encoded_image;
@@ -271,9 +297,9 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     encoded_image.timing_.flags = webrtc::VideoSendTiming::kInvalid;
     encoded_image._frameType = FrameTypeFromBuffer(encoded_buffer->frame_type());
     encoded_image.SetColorSpace(frame.color_space());
-    encoded_image.SetEncodedData(
-        EncodedImageBuffer::Create(payload.data(), payload.size()));
-    encoded_image.set_size(payload.size());
+    const size_t encoded_size = encoded_data->size();
+    encoded_image.SetEncodedData(std::move(encoded_data));
+    encoded_image.set_size(encoded_size);
     encoded_image.qp_ = -1;
 
     CodecSpecificInfo codec_info;
@@ -350,7 +376,7 @@ PassthroughVideoEncoderFactory::QueryCodecSupport(
     const SdpVideoFormat& format,
     std::optional<std::string> scalability_mode) const {
   for (const auto& supported_format : supported_formats_) {
-    if (format.IsSameCodec(supported_format)) {
+    if (IsSameCodecType(format, supported_format)) {
       if (format.name == "AV1" && scalability_mode.has_value() &&
           *scalability_mode != "L1T1") {
         return {.is_supported = false, .is_power_efficient = false};
@@ -364,9 +390,12 @@ PassthroughVideoEncoderFactory::QueryCodecSupport(
 std::unique_ptr<VideoEncoder> PassthroughVideoEncoderFactory::Create(
     const Environment& env,
     const SdpVideoFormat& format) {
+  // Match by codec, not by exact profile: rejecting e.g. a High-profile
+  // H264 negotiation here would hand the session to a real encoder that
+  // cannot consume pre-encoded frames.
   for (const auto& supported_format : supported_formats_) {
-    if (format.IsSameCodec(supported_format)) {
-      return std::make_unique<PassthroughVideoEncoder>(env, supported_format);
+    if (IsSameCodecType(format, supported_format)) {
+      return std::make_unique<PassthroughVideoEncoder>(env, format);
     }
   }
   return nullptr;

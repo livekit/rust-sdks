@@ -18,20 +18,21 @@ pub mod device;
 pub mod dmabuf;
 pub mod encoded;
 mod error;
-pub mod platform;
 pub mod source;
 pub mod sources;
+pub(crate) mod time;
 pub mod track;
 
-#[allow(deprecated)]
-pub use device::CapturePixelFormat;
 pub use device::{
     CaptureBackend, CaptureDeviceInfo, CaptureDeviceQueryError, CaptureDeviceSelector,
     CaptureFormat, CaptureFormatRequest, CaptureFrameFormat, CapturePath, CaptureResolution,
 };
 pub use dmabuf::{DmaBufFrame, DmaBufPixelFormat, DmaBufPlane};
 pub use encoded::{
-    ingress::{EncodedAccessUnitSource, EncodedIngress, EncodedIngressError},
+    ingress::{
+        EncodedAccessUnitSource, EncodedIngress, EncodedIngressCapture, EncodedIngressError,
+        EncodedIngressStop,
+    },
     CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
     EncodedPayload, EncodedVideoCodec, EncodedWireFormat, H264PacketizationMode,
     OwnedEncodedAccessUnit,
@@ -39,7 +40,7 @@ pub use encoded::{
 pub use error::CaptureError;
 pub use source::{
     CaptureFrame, CaptureFrameSource, CaptureSourceError, CaptureSourceOptions,
-    EncodedCaptureFrameSource, EncodedFrameSourceError, NativeVideoFrame, RawVideoFrame,
-    VideoCaptureSource,
+    EncodedCaptureFrameSource, EncodedEndpoint, EncodedFrameSourceError, NativeVideoFrame,
+    RawVideoFrame, VideoCaptureSource,
 };
 pub use track::VideoCaptureTrack;

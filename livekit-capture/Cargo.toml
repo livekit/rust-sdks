@@ -8,13 +8,13 @@ edition.workspace = true
 repository.workspace = true
 
 [dependencies]
-base64 = { workspace = true }
+base64 = { workspace = true, optional = true }
 bytes = { workspace = true }
 gstreamer = { workspace = true, optional = true }
 gstreamer-app = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 livekit = { workspace = true }
-md-5 = { workspace = true }
+md-5 = { workspace = true, optional = true }
 thiserror = { workspace = true }
 yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
@@ -58,7 +58,7 @@ avfoundation = [
 ]
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 libargus = []
-rtsp = []
+rtsp = ["dep:base64", "dep:md-5"]
 tcpsink = []
 v4l = ["dep:image", "dep:libc", "dep:v4l", "dep:yuv-sys"]
 

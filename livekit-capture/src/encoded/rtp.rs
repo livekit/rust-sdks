@@ -98,26 +98,35 @@ impl<'a> RtpPacket<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RtpTimestampMapper {
     clock_rate: u32,
-    base_rtp_timestamp: Option<u32>,
+    last_rtp_timestamp: Option<u32>,
+    extended_ticks: i64,
     base_timestamp_us: i64,
 }
 
 impl RtpTimestampMapper {
     /// Creates an RTP timestamp mapper.
     pub fn new(clock_rate: u32, base_timestamp_us: i64) -> Self {
-        Self { clock_rate, base_rtp_timestamp: None, base_timestamp_us }
+        Self { clock_rate, last_rtp_timestamp: None, extended_ticks: 0, base_timestamp_us }
     }
 
-    /// Maps an RTP timestamp to microseconds, handling `u32` RTP timestamp rollover.
+    /// Maps an RTP timestamp to microseconds, unwrapping `u32` RTP timestamp
+    /// rollover so mapped timestamps stay monotonic across any number of wraps.
     pub fn map(&mut self, rtp_timestamp: u32) -> Result<i64, RtpDepacketizerError> {
         if self.clock_rate == 0 {
             return Err(RtpDepacketizerError::InvalidClockRate);
         }
 
-        let base = *self.base_rtp_timestamp.get_or_insert(rtp_timestamp);
-        let delta = rtp_timestamp.wrapping_sub(base) as u64;
-        let delta_us = delta.saturating_mul(1_000_000) / u64::from(self.clock_rate);
-        Ok(self.base_timestamp_us.saturating_add(delta_us as i64))
+        let last = *self.last_rtp_timestamp.get_or_insert(rtp_timestamp);
+        self.last_rtp_timestamp = Some(rtp_timestamp);
+        // Reinterpreting the wrapped u32 delta as i32 picks the nearest extended
+        // timestamp, which unwraps rollover while tolerating small backwards
+        // jumps from reordered packets.
+        let delta_ticks = i64::from(rtp_timestamp.wrapping_sub(last) as i32);
+        self.extended_ticks = self.extended_ticks.saturating_add(delta_ticks);
+
+        let extended_us = i128::from(self.extended_ticks) * 1_000_000 / i128::from(self.clock_rate);
+        let extended_us = extended_us.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64;
+        Ok(self.base_timestamp_us.saturating_add(extended_us))
     }
 }
 
@@ -133,14 +142,6 @@ pub enum RtpDepacketizerError {
     /// RTP clock rate must be non-zero.
     #[error("RTP clock rate must be non-zero")]
     InvalidClockRate,
-    /// RTP sequence number gap was detected.
-    #[error("RTP sequence gap: expected {expected}, got {actual}")]
-    SequenceGap {
-        /// Expected RTP sequence number.
-        expected: u16,
-        /// Actual RTP sequence number.
-        actual: u16,
-    },
     /// RTP payload format is unsupported or malformed.
     #[error("unsupported or malformed RTP payload")]
     UnsupportedPayload,
@@ -158,6 +159,17 @@ pub enum RtpDepacketizerError {
     Capture(#[from] CaptureError),
 }
 
+/// Packet-loss recovery counters for an [`RtpAccessUnitAssembler`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RtpDepacketizerStats {
+    /// Number of RTP sequence-number gaps detected.
+    pub sequence_gaps: u64,
+    /// Number of access units dropped while recovering from packet loss.
+    pub dropped_access_units: u64,
+    /// Whether output is gated until the next keyframe completes.
+    pub awaiting_keyframe: bool,
+}
+
 /// Reassembles RTP packets into encoded access units.
 #[derive(Debug, Clone)]
 pub struct RtpAccessUnitAssembler {
@@ -170,6 +182,9 @@ pub struct RtpAccessUnitAssembler {
     fragment: Option<FragmentState>,
     current_frame: Option<PartialFrame>,
     av1_fragment: Option<Av1FragmentState>,
+    awaiting_keyframe: bool,
+    sequence_gaps: u64,
+    dropped_access_units: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -222,7 +237,19 @@ impl RtpAccessUnitAssembler {
             fragment: None,
             current_frame: None,
             av1_fragment: None,
+            awaiting_keyframe: false,
+            sequence_gaps: 0,
+            dropped_access_units: 0,
         })
+    }
+
+    /// Returns packet-loss recovery counters.
+    pub fn stats(&self) -> RtpDepacketizerStats {
+        RtpDepacketizerStats {
+            sequence_gaps: self.sequence_gaps,
+            dropped_access_units: self.dropped_access_units,
+            awaiting_keyframe: self.awaiting_keyframe,
+        }
     }
 
     /// Pushes one encoded RTP packet and returns an access unit when a marker closes a frame.
@@ -235,11 +262,15 @@ impl RtpAccessUnitAssembler {
     }
 
     /// Pushes one parsed RTP packet and returns an access unit when a marker closes a frame.
+    ///
+    /// Packet loss is recovered internally: gaps and truncated fragments drop the
+    /// interrupted access unit and gate output on the next keyframe instead of
+    /// returning an error; see [`Self::stats`].
     pub fn push_packet(
         &mut self,
         packet: RtpPacket<'_>,
     ) -> Result<Option<OwnedEncodedAccessUnit>, RtpDepacketizerError> {
-        self.check_sequence(packet.sequence_number)?;
+        self.check_sequence(packet.sequence_number);
 
         match self.codec {
             EncodedVideoCodec::H264 => self.push_h264_payload(&packet)?,
@@ -250,10 +281,12 @@ impl RtpAccessUnitAssembler {
         }
 
         if packet.marker {
-            if self.codec == EncodedVideoCodec::AV1 && self.av1_fragment.is_some() {
-                self.current_frame = None;
-                self.av1_fragment = None;
-                return Err(RtpDepacketizerError::InvalidFragment);
+            if self.fragment.is_some() || self.av1_fragment.is_some() {
+                // The marker closed the access unit before the open fragment's
+                // end arrived, so its tail packets were lost.
+                self.discard_in_progress();
+                self.dropped_access_units += 1;
+                return Ok(None);
             }
             if matches!(
                 self.codec,
@@ -266,20 +299,41 @@ impl RtpAccessUnitAssembler {
         Ok(None)
     }
 
-    fn check_sequence(&mut self, sequence_number: u16) -> Result<(), RtpDepacketizerError> {
+    fn check_sequence(&mut self, sequence_number: u16) {
         let Some(expected) = self.expected_sequence_number.replace(sequence_number.wrapping_add(1))
         else {
-            return Ok(());
+            return;
         };
         if sequence_number == expected {
-            return Ok(());
+            return;
         }
 
+        self.sequence_gaps += 1;
+        self.discard_in_progress();
+    }
+
+    /// Discards all partially assembled state and gates output on the next keyframe.
+    fn discard_in_progress(&mut self) {
         self.current = None;
         self.fragment = None;
         self.current_frame = None;
         self.av1_fragment = None;
-        Err(RtpDepacketizerError::SequenceGap { expected, actual: sequence_number })
+        self.awaiting_keyframe = true;
+    }
+
+    /// Drops completed access units until a keyframe ends loss recovery.
+    fn gate_on_keyframe(
+        &mut self,
+        access_unit: OwnedEncodedAccessUnit,
+    ) -> Option<OwnedEncodedAccessUnit> {
+        if self.awaiting_keyframe {
+            if access_unit.frame_type != EncodedFrameType::Key {
+                self.dropped_access_units += 1;
+                return None;
+            }
+            self.awaiting_keyframe = false;
+        }
+        Some(access_unit)
     }
 
     fn current_mut(
@@ -387,11 +441,13 @@ impl RtpAccessUnitAssembler {
             return Ok(());
         }
 
-        let fragment = self
-            .fragment
-            .as_mut()
-            .filter(|fragment| fragment.rtp_timestamp == rtp_timestamp)
-            .ok_or(RtpDepacketizerError::InvalidFragment)?;
+        let Some(fragment) =
+            self.fragment.as_mut().filter(|fragment| fragment.rtp_timestamp == rtp_timestamp)
+        else {
+            // A continuation without its start means the preceding packets were lost.
+            self.discard_in_progress();
+            return Ok(());
+        };
         fragment.nal_unit.extend_from_slice(&payload[2..]);
 
         if end {
@@ -466,11 +522,13 @@ impl RtpAccessUnitAssembler {
             return Ok(());
         }
 
-        let fragment = self
-            .fragment
-            .as_mut()
-            .filter(|fragment| fragment.rtp_timestamp == rtp_timestamp)
-            .ok_or(RtpDepacketizerError::InvalidFragment)?;
+        let Some(fragment) =
+            self.fragment.as_mut().filter(|fragment| fragment.rtp_timestamp == rtp_timestamp)
+        else {
+            // A continuation without its start means the preceding packets were lost.
+            self.discard_in_progress();
+            return Ok(());
+        };
         fragment.nal_unit.extend_from_slice(&payload[3..]);
 
         if end {
@@ -490,8 +548,9 @@ impl RtpAccessUnitAssembler {
         let frame = self.current_frame_mut(packet.timestamp)?;
         if frame.payload.is_empty() {
             if !descriptor.start_of_partition || descriptor.partition_id != 0 {
-                self.current_frame = None;
-                return Err(RtpDepacketizerError::InvalidFragment);
+                // The beginning of this frame was lost.
+                self.discard_in_progress();
+                return Ok(());
             }
             frame.frame_type = Some(if is_vp8_keyframe(descriptor.payload) {
                 EncodedFrameType::Key
@@ -517,8 +576,9 @@ impl RtpAccessUnitAssembler {
         let frame = self.current_frame_mut(packet.timestamp)?;
         if frame.payload.is_empty() {
             if !descriptor.beginning_of_frame {
-                self.current_frame = None;
-                return Err(RtpDepacketizerError::InvalidFragment);
+                // The beginning of this frame was lost.
+                self.discard_in_progress();
+                return Ok(());
             }
             frame.frame_type = Some(
                 if !descriptor.inter_picture_predicted || is_vp9_keyframe(descriptor.payload) {
@@ -546,14 +606,18 @@ impl RtpAccessUnitAssembler {
             }
 
             let obu = if index == 0 && descriptor.starts_fragment {
-                let mut fragment = self
+                let Some(fragment) = self
                     .av1_fragment
                     .take()
                     .filter(|fragment| fragment.rtp_timestamp == packet.timestamp)
-                    .ok_or(RtpDepacketizerError::InvalidFragment)?
-                    .obu;
-                fragment.extend_from_slice(element);
-                fragment
+                else {
+                    // A continuation without its start means the preceding packets were lost.
+                    self.discard_in_progress();
+                    return Ok(());
+                };
+                let mut obu = fragment.obu;
+                obu.extend_from_slice(element);
+                obu
             } else {
                 if index == 0 && self.av1_fragment.is_some() {
                     return Err(RtpDepacketizerError::InvalidFragment);
@@ -591,13 +655,14 @@ impl RtpAccessUnitAssembler {
         }
 
         let nal_units = current.nal_units.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        Ok(Some(access_unit_from_nalus(
+        let access_unit = access_unit_from_nalus(
             self.codec,
             &nal_units,
             current.timestamp_us,
             self.width,
             self.height,
-        )?))
+        )?;
+        Ok(self.gate_on_keyframe(access_unit))
     }
 
     fn finish_current_frame(
@@ -618,20 +683,8 @@ impl RtpAccessUnitAssembler {
             self.width,
             self.height,
         );
-        access_unit.codec_specific = match self.codec {
-            EncodedVideoCodec::VP8 => CodecSpecific::VP8 { temporal_id: None, layer_sync: false },
-            EncodedVideoCodec::VP9 => CodecSpecific::VP9 {
-                temporal_id: None,
-                spatial_id: None,
-                inter_layer_predicted: None,
-            },
-            EncodedVideoCodec::AV1 => CodecSpecific::AV1 {
-                scalability_mode: Some("L1T1".to_string()),
-                dependency_descriptor: None,
-            },
-            EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => CodecSpecific::None,
-        };
-        Ok(Some(access_unit))
+        access_unit.codec_specific = CodecSpecific::default_for(self.codec);
+        Ok(self.gate_on_keyframe(access_unit))
     }
 }
 
@@ -910,11 +963,14 @@ fn is_vp8_keyframe(payload: &[u8]) -> bool {
     payload.first().is_some_and(|header| header & 0x01 == 0)
 }
 
+/// Parses the start of a VP9 uncompressed frame header, whose `f(n)` fields
+/// are MSB-first, and reports whether it begins a keyframe.
 fn is_vp9_keyframe(payload: &[u8]) -> bool {
     let Some(&first_byte) = payload.first() else {
         return false;
     };
-    if first_byte & 0x03 != 0x02 {
+    // frame_marker: f(2), must be 0b10.
+    if first_byte >> 6 != 0b10 {
         return false;
     }
 
@@ -925,17 +981,20 @@ fn is_vp9_keyframe(payload: &[u8]) -> bool {
     bit_offset += 1;
     let profile = profile_low | (profile_high << 1);
     if profile == 3 {
-        bit_offset += 1;
+        bit_offset += 1; // reserved_zero
     }
+    // show_existing_frame: a repeated frame is never a keyframe.
     if read_bit(first_byte, bit_offset) != 0 {
         return false;
     }
     bit_offset += 1;
+    // frame_type: 0 is KEY_FRAME.
     read_bit(first_byte, bit_offset) == 0
 }
 
+/// Reads bit `bit_offset` of `byte`, counting from the most significant bit.
 fn read_bit(byte: u8, bit_offset: usize) -> u8 {
-    (byte >> bit_offset) & 0x01
+    (byte >> (7 - bit_offset)) & 0x01
 }
 
 fn av1_obu_type(obu: &[u8]) -> Option<u8> {
@@ -976,6 +1035,31 @@ mod tests {
     }
 
     #[test]
+    fn maps_rtp_timestamps_across_multiple_rollovers() {
+        let mut mapper = RtpTimestampMapper::new(90_000, 0);
+        let step = 1u32 << 30;
+        let mut rtp_timestamp = 0u32;
+        let mut last_us = mapper.map(rtp_timestamp).unwrap();
+        for _ in 0..20 {
+            rtp_timestamp = rtp_timestamp.wrapping_add(step);
+            let mapped_us = mapper.map(rtp_timestamp).unwrap();
+            assert!(mapped_us > last_us, "mapped timestamps must stay monotonic");
+            last_us = mapped_us;
+        }
+        assert_eq!(last_us, (20i64 << 30) * 1_000_000 / 90_000);
+    }
+
+    #[test]
+    fn maps_reordered_rtp_timestamps() {
+        let mut mapper = RtpTimestampMapper::new(90_000, 1_000);
+        assert_eq!(mapper.map(9_000).unwrap(), 1_000);
+        assert_eq!(mapper.map(18_000).unwrap(), 101_000);
+        // A late packet maps behind the stream without disturbing what follows.
+        assert_eq!(mapper.map(15_000).unwrap(), 67_666);
+        assert_eq!(mapper.map(27_000).unwrap(), 201_000);
+    }
+
+    #[test]
     fn assembles_h264_fu_a() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
@@ -988,15 +1072,64 @@ mod tests {
     }
 
     #[test]
-    fn sequence_gap_clears_current_frame() {
+    fn sequence_gap_recovers_h264_at_next_keyframe() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x7c, 0x85, 1, 2]);
-        let end = rtp_packet(12, 12_000, true, &[0x7c, 0x45, 3, 4]);
+        let delta = rtp_packet(12, 15_000, true, &[0x41, 1, 2]);
+        let key = rtp_packet(13, 18_000, true, &[0x65, 3, 4]);
 
         assert!(assembler.push(&start).unwrap().is_none());
-        let err = assembler.push(&end).unwrap_err();
-        assert_eq!(err, RtpDepacketizerError::SequenceGap { expected: 11, actual: 12 });
+        // The gap dropped the fragment; the delta frame after it is withheld.
+        assert!(assembler.push(&delta).unwrap().is_none());
+        let stats = assembler.stats();
+        assert_eq!(stats.sequence_gaps, 1);
+        assert_eq!(stats.dropped_access_units, 1);
+        assert!(stats.awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 3, 4]);
+        let stats = assembler.stats();
+        assert_eq!(stats.dropped_access_units, 1);
+        assert!(!stats.awaiting_keyframe);
+    }
+
+    #[test]
+    fn marker_with_open_h264_fragment_drops_access_unit() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
+        let start = rtp_packet(10, 12_000, false, &[0x7c, 0x85, 1, 2]);
+        let truncated = rtp_packet(11, 12_000, true, &[0x7c, 0x05, 3, 4]);
+        let key = rtp_packet(12, 15_000, true, &[0x65, 5, 6]);
+
+        assert!(assembler.push(&start).unwrap().is_none());
+        // The marker arrived without the FU end bit: the fragment is truncated.
+        assert!(assembler.push(&truncated).unwrap().is_none());
+        let stats = assembler.stats();
+        assert_eq!(stats.sequence_gaps, 0);
+        assert_eq!(stats.dropped_access_units, 1);
+        assert!(stats.awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 5, 6]);
+        assert!(!assembler.stats().awaiting_keyframe);
+    }
+
+    #[test]
+    fn drops_h264_fu_continuation_without_start() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
+        let continuation = rtp_packet(10, 12_000, false, &[0x7c, 0x05, 1, 2]);
+        let key = rtp_packet(11, 15_000, true, &[0x65, 3, 4]);
+
+        assert!(assembler.push(&continuation).unwrap().is_none());
+        assert!(assembler.stats().awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0, 0, 0, 1, 0x65, 3, 4]);
     }
 
     #[test]
@@ -1014,13 +1147,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_vp8_mid_frame_start() {
+    fn drops_vp8_mid_frame_start() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
-        let packet = rtp_packet(10, 12_000, true, &[0x00, 1, 2]);
+        let mid_frame = rtp_packet(10, 12_000, true, &[0x00, 1, 2]);
+        let key = rtp_packet(11, 15_000, true, &[0x10, 0x00, 3, 4]);
 
-        let err = assembler.push(&packet).unwrap_err();
-        assert_eq!(err, RtpDepacketizerError::InvalidFragment);
+        assert!(assembler.push(&mid_frame).unwrap().is_none());
+        assert!(assembler.stats().awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x00, 3, 4]);
     }
 
     #[test]
@@ -1099,11 +1237,43 @@ mod tests {
     fn assembles_vp9_predicted_frame_as_delta() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
-        let packet = rtp_packet(10, 12_000, true, &[0x4c, 0x83, 1, 2]);
+        // P is set and the payload is an inter frame: must not classify as Key.
+        let packet = rtp_packet(10, 12_000, true, &[0x4c, 0x86, 1, 2]);
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
         assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
-        assert_eq!(access_unit.payload.as_ref(), &[0x83, 1, 2]);
+        assert_eq!(access_unit.payload.as_ref(), &[0x86, 1, 2]);
+    }
+
+    #[test]
+    fn vp9_bitstream_keyframe_overrides_predicted_bit() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        // P is set but the uncompressed header says KEY_FRAME.
+        let packet = rtp_packet(10, 12_000, true, &[0x4c, 0x82, 1, 2]);
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x82, 1, 2]);
+    }
+
+    #[test]
+    fn classifies_vp9_uncompressed_header_frame_types() {
+        // 0b1000_0010: marker, profile 0, show_existing=0, KEY_FRAME, show_frame=1.
+        assert!(is_vp9_keyframe(&[0x82]));
+        // 0b1000_0011: keyframe with error_resilient_mode set.
+        assert!(is_vp9_keyframe(&[0x83]));
+        // 0b1011_0000: profile 3 keyframe.
+        assert!(is_vp9_keyframe(&[0xb0]));
+        // 0b1000_0110: frame_type=1, an inter frame.
+        assert!(!is_vp9_keyframe(&[0x86]));
+        // 0b1011_0010: profile 3 inter frame.
+        assert!(!is_vp9_keyframe(&[0xb2]));
+        // 0b1000_1000: show_existing_frame repeats a decoded frame.
+        assert!(!is_vp9_keyframe(&[0x88]));
+        // 0b0000_0010: invalid frame_marker.
+        assert!(!is_vp9_keyframe(&[0x02]));
+        assert!(!is_vp9_keyframe(&[]));
     }
 
     #[test]
@@ -1117,13 +1287,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_vp9_mid_frame_start() {
+    fn drops_vp9_mid_frame_start() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
-        let packet = rtp_packet(10, 12_000, true, &[0x04, 0x82, 1, 2]);
+        let mid_frame = rtp_packet(10, 12_000, true, &[0x04, 0x82, 1, 2]);
+        let key = rtp_packet(11, 15_000, true, &[0x0c, 0x82, 3, 4]);
 
-        let err = assembler.push(&packet).unwrap_err();
-        assert_eq!(err, RtpDepacketizerError::InvalidFragment);
+        assert!(assembler.push(&mid_frame).unwrap().is_none());
+        assert!(assembler.stats().awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x82, 3, 4]);
     }
 
     #[test]
@@ -1173,14 +1348,59 @@ mod tests {
     }
 
     #[test]
-    fn sequence_gap_clears_vp8_frame() {
+    fn marker_with_open_av1_fragment_drops_frame() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        // Y is set, so the OBU fragment is unterminated when the marker closes it.
+        let truncated = rtp_packet(10, 12_000, true, &[0x50, 0x30, 1]);
+        let key = rtp_packet(11, 15_000, true, &[0x18, 0x08]);
+
+        assert!(assembler.push(&truncated).unwrap().is_none());
+        let stats = assembler.stats();
+        assert_eq!(stats.dropped_access_units, 1);
+        assert!(stats.awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x00]);
+        assert!(!assembler.stats().awaiting_keyframe);
+    }
+
+    #[test]
+    fn drops_av1_fragment_continuation_without_start() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        // Z is set: this continues an OBU whose start was never received.
+        let continuation = rtp_packet(10, 12_000, true, &[0x90, 2, 3]);
+        let key = rtp_packet(11, 15_000, true, &[0x18, 0x08]);
+
+        assert!(assembler.push(&continuation).unwrap().is_none());
+        assert!(assembler.stats().awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x00]);
+    }
+
+    #[test]
+    fn sequence_gap_recovers_vp8_at_next_keyframe() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x10, 0x00, 1, 2]);
-        let end = rtp_packet(12, 12_000, true, &[0x00, 3, 4]);
+        let delta = rtp_packet(12, 15_000, true, &[0x10, 0x01, 3, 4]);
+        let key = rtp_packet(13, 18_000, true, &[0x10, 0x00, 5, 6]);
 
         assert!(assembler.push(&start).unwrap().is_none());
-        let err = assembler.push(&end).unwrap_err();
-        assert_eq!(err, RtpDepacketizerError::SequenceGap { expected: 11, actual: 12 });
+        // The gap dropped the fragment; the delta frame after it is withheld.
+        assert!(assembler.push(&delta).unwrap().is_none());
+        let stats = assembler.stats();
+        assert_eq!(stats.sequence_gaps, 1);
+        assert_eq!(stats.dropped_access_units, 1);
+        assert!(stats.awaiting_keyframe);
+
+        let access_unit = assembler.push(&key).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+        assert_eq!(access_unit.payload.as_ref(), &[0x00, 5, 6]);
+        assert!(!assembler.stats().awaiting_keyframe);
     }
 }

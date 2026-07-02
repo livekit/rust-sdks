@@ -32,8 +32,6 @@ use crate::{
 
 #[cfg(target_os = "macos")]
 const FIRST_FRAME_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-#[cfg(target_os = "macos")]
-const MAX_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
 
 /// Options used to create an AVFoundation capture session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,13 +135,37 @@ impl AvFoundationCaptureSession {
     }
 
     /// Captures the next decoded frame and converts it to I420.
+    ///
+    /// Blocks until AVFoundation delivers a frame. Fails with
+    /// [`AvFoundationError::NotRunning`] once the session has been stopped via
+    /// [`Self::stop`] or an [`AvFoundationStopHandle`].
     pub fn capture_frame(&mut self) -> Result<AvFoundationFrame, AvFoundationError> {
         self.capture_frame_inner()
     }
 
     /// Captures the next frame as a native `CVPixelBuffer`.
+    ///
+    /// Blocks until AVFoundation delivers a frame. Fails with
+    /// [`AvFoundationError::NotRunning`] once the session has been stopped via
+    /// [`Self::stop`] or an [`AvFoundationStopHandle`].
     pub fn capture_native_frame(&mut self) -> Result<AvFoundationNativeFrame, AvFoundationError> {
         self.capture_native_frame_inner()
+    }
+
+    /// Returns a cheaply cloneable handle that stops this session from another
+    /// thread. See [`AvFoundationStopHandle::stop`].
+    pub fn stop_handle(&self) -> AvFoundationStopHandle {
+        AvFoundationStopHandle {
+            #[cfg(target_os = "macos")]
+            shared: self.inner.frame_queue(),
+        }
+    }
+
+    /// Stops frame delivery, waking any thread blocked in
+    /// [`Self::capture_frame`] or [`Self::capture_native_frame`]. See
+    /// [`AvFoundationStopHandle::stop`] for the exact contract.
+    pub fn stop(&self) {
+        self.stop_handle().stop();
     }
 
     /// Returns the negotiated capture format.
@@ -242,6 +264,37 @@ impl AvFoundationCaptureSession {
     }
 }
 
+/// Cheaply cloneable handle that stops an [`AvFoundationCaptureSession`] from
+/// another thread.
+///
+/// The thread that owns the session is typically blocked inside
+/// [`AvFoundationCaptureSession::capture_frame`] waiting for the camera, so it
+/// cannot stop itself if the device stalls without delivering an error
+/// (unplug, sleep, exclusive use by another app). Obtaining this handle before
+/// handing the session to that thread gives the rest of the process a way to
+/// abort the wait.
+#[derive(Clone, Debug)]
+pub struct AvFoundationStopHandle {
+    #[cfg(target_os = "macos")]
+    shared: Arc<macos::FrameQueue>,
+}
+
+impl AvFoundationStopHandle {
+    /// Stops frame delivery for the associated session and wakes all blocked
+    /// capture calls.
+    ///
+    /// Stopping is idempotent. Once stopped,
+    /// [`AvFoundationCaptureSession::capture_frame`] and
+    /// [`AvFoundationCaptureSession::capture_native_frame`] fail with
+    /// [`AvFoundationError::NotRunning`]; a frame that was already queued may
+    /// still be returned before the first error. The underlying AVFoundation
+    /// session is torn down when the session value itself is dropped.
+    pub fn stop(&self) {
+        #[cfg(target_os = "macos")]
+        self.shared.stop();
+    }
+}
+
 /// AVFoundation decoded-frame capture session that forwards frames into a track.
 pub struct AvFoundationCapture {
     track: VideoCaptureTrack,
@@ -299,6 +352,9 @@ impl Drop for AvFoundationCapture {
 #[derive(Debug)]
 struct CaptureRunner {
     stop: Arc<AtomicBool>,
+    /// Wakes the capture thread out of a blocking frame wait so `stop_capture`
+    /// can join it even when the camera has stalled.
+    stop_handle: AvFoundationStopHandle,
     handle: JoinHandle<()>,
 }
 
@@ -526,6 +582,9 @@ fn start_capture(capture: &mut AvFoundationCapture) -> Result<(), AvFoundationEr
     let track = capture.track.clone();
     let mut session = AvFoundationCaptureSession::new(capture.options.clone())?;
     let capture_native = session.native_capture_supported();
+    // Keep a stop handle outside the capture thread: once the session moves
+    // into the thread, this is the only way to wake a blocked frame wait.
+    let stop_handle = session.stop_handle();
     let stop = Arc::new(AtomicBool::new(false));
     let stop_for_thread = stop.clone();
     let handle = std::thread::Builder::new()
@@ -547,7 +606,7 @@ fn start_capture(capture: &mut AvFoundationCapture) -> Result<(), AvFoundationEr
         })
         .map_err(|err| AvFoundationError::SessionSetup(err.to_string()))?;
 
-    capture.runner = Some(CaptureRunner { stop, handle });
+    capture.runner = Some(CaptureRunner { stop, stop_handle, handle });
     Ok(())
 }
 
@@ -563,6 +622,11 @@ fn stop_capture(capture: &mut AvFoundationCapture) -> Result<(), AvFoundationErr
     };
 
     runner.stop.store(true, Ordering::Release);
+    // Wake the capture thread if it is blocked waiting for the next frame so a
+    // stalled camera cannot keep the join below from completing. The woken
+    // wait fails with `NotRunning`, and the thread exits via the loop's error
+    // path or the stop flag.
+    runner.stop_handle.stop();
     runner.handle.join().map_err(|_| {
         AvFoundationError::Runtime("AVFoundation capture thread panicked".to_string())
     })?;
@@ -580,7 +644,7 @@ mod macos {
     use std::ops::Deref;
     use std::ptr::NonNull;
     use std::sync::{Arc, Condvar, Mutex};
-    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant};
 
     use dispatch2::{DispatchQueue, DispatchRetained};
     use livekit::webrtc::video_frame::{
@@ -618,11 +682,13 @@ mod macos {
 
     use super::{
         AvFoundationCaptureOptions, AvFoundationError, AvFoundationFrame, AvFoundationNativeFrame,
-        MAX_CAPTURE_TIMESTAMP_AGE_US,
     };
     use crate::device::{
         CaptureDeviceSelector, CaptureFormat, CaptureFormatRequest, CaptureFrameFormat,
         CaptureResolution,
+    };
+    use crate::time::{
+        elapsed_us, unix_time_us_now, validate_capture_timestamp_us, MAX_CAPTURE_TIMESTAMP_AGE_US,
     };
 
     unsafe extern "C" {
@@ -746,6 +812,12 @@ mod macos {
 
         pub(super) fn discard_pending_frame(&self) {
             self.shared.discard_latest();
+        }
+
+        /// Returns the shared frame queue so callers outside the session-owning
+        /// thread can stop a blocked frame wait.
+        pub(super) fn frame_queue(&self) -> Arc<FrameQueue> {
+            Arc::clone(&self.shared)
         }
     }
 
@@ -886,8 +958,11 @@ mod macos {
         }
     }
 
+    /// Latest-frame mailbox shared between the AVFoundation delegate queue and
+    /// the capturing thread. `pub(super)` so [`super::AvFoundationStopHandle`]
+    /// can hold it and unit tests can exercise the stop path without a camera.
     #[derive(Debug)]
-    struct FrameQueue {
+    pub(super) struct FrameQueue {
         state: Mutex<FrameQueueState>,
         ready: Condvar,
         started_at: Instant,
@@ -933,7 +1008,13 @@ mod macos {
             self.ready.notify_all();
         }
 
-        fn stop(&self) {
+        /// Signals shutdown and wakes every blocked capture wait.
+        ///
+        /// Stopping is idempotent. `push_frame` discards frames delivered after
+        /// this point, and `take_frame`/`take_native_frame` fail with
+        /// [`AvFoundationError::NotRunning`] once any already-queued frame has
+        /// been drained.
+        pub(super) fn stop(&self) {
             let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
             state.stopped = true;
             self.ready.notify_all();
@@ -979,27 +1060,33 @@ mod macos {
             }
         }
 
-        fn take_frame(&self) -> Result<AvFoundationFrame, AvFoundationError> {
-            let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
-            loop {
-                if let Some(frame) = state.latest.take() {
-                    return frame.into_i420_frame();
-                }
-                if let Some(error) = state.error.take() {
-                    return Err(AvFoundationError::Runtime(error));
-                }
-                if state.stopped {
-                    return Err(AvFoundationError::NotRunning);
-                }
-                state = self.ready.wait(state).expect("AVFoundation frame queue poisoned");
-            }
+        pub(super) fn take_frame(&self) -> Result<AvFoundationFrame, AvFoundationError> {
+            // Convert only after `wait_take_queued_frame` has released the
+            // state mutex: the conversion locks the pixel buffer and runs a
+            // full-frame libyuv copy, and holding the mutex through that would
+            // block `push_frame` on the AVFoundation delegate queue, which
+            // drops camera frames while stalled
+            // (`setAlwaysDiscardsLateVideoFrames(true)`).
+            self.wait_take_queued_frame()?.into_i420_frame()
         }
 
-        fn take_native_frame(&self) -> Result<AvFoundationNativeFrame, AvFoundationError> {
+        pub(super) fn take_native_frame(
+            &self,
+        ) -> Result<AvFoundationNativeFrame, AvFoundationError> {
+            // See `take_frame` for why conversion happens outside the mutex.
+            self.wait_take_queued_frame()?.into_native_frame()
+        }
+
+        /// Blocks until a frame, a delegate error, or a stop signal arrives and
+        /// moves the frame out of the shared state. The state mutex guard is
+        /// dropped when this returns, so callers convert the fully owned frame
+        /// without holding the lock. Fails with
+        /// [`AvFoundationError::NotRunning`] once the queue has been stopped.
+        fn wait_take_queued_frame(&self) -> Result<QueuedAvFoundationFrame, AvFoundationError> {
             let mut state = self.state.lock().expect("AVFoundation frame queue poisoned");
             loop {
                 if let Some(frame) = state.latest.take() {
-                    return frame.into_native_frame();
+                    return Ok(frame);
                 }
                 if let Some(error) = state.error.take() {
                     return Err(AvFoundationError::Runtime(error));
@@ -1535,19 +1622,6 @@ mod macos {
         (micros <= u64::MAX as f64).then_some(micros.round() as u64)
     }
 
-    fn validate_capture_timestamp_us(
-        capture_timestamp_us: u64,
-        read_wall_time_us: u64,
-    ) -> Option<u64> {
-        if capture_timestamp_us == 0 || capture_timestamp_us > read_wall_time_us {
-            return None;
-        }
-        if read_wall_time_us - capture_timestamp_us > MAX_CAPTURE_TIMESTAMP_AGE_US {
-            return None;
-        }
-        Some(capture_timestamp_us)
-    }
-
     fn convert_pixel_buffer(
         pixel_buffer: &CVPixelBuffer,
     ) -> Result<(I420Buffer, CaptureFrameFormat), AvFoundationError> {
@@ -1843,15 +1917,59 @@ mod macos {
         let data = unsafe { std::slice::from_raw_parts(base.cast::<u8>(), min_len) };
         Ok(Plane { data, stride })
     }
+}
 
-    fn elapsed_us(duration: Duration) -> i64 {
-        i64::try_from(duration.as_micros()).unwrap_or(i64::MAX)
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+
+    use super::{macos::FrameQueue, AvFoundationError, AvFoundationStopHandle};
+
+    /// Upper bound on how long a woken capture wait may take to return before
+    /// the test declares the stop path broken.
+    const STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+    // `FrameQueue` is pure Rust state, so these tests run on macOS CI hosts
+    // without camera hardware or AVFoundation involvement.
+
+    #[test]
+    fn stop_handle_unblocks_take_frame() {
+        let queue = Arc::new(FrameQueue::default());
+        let stop_handle = AvFoundationStopHandle { shared: Arc::clone(&queue) };
+
+        let (done_tx, done_rx) = mpsc::channel();
+        let waiter = std::thread::spawn(move || {
+            let result = queue.take_frame();
+            let _ = done_tx.send(());
+            result
+        });
+
+        // Give the waiter time to block on the condvar. There is no race if
+        // the stop lands first: the wait loop re-checks `stopped` before every
+        // wait.
+        std::thread::sleep(Duration::from_millis(50));
+        stop_handle.stop();
+
+        done_rx
+            .recv_timeout(STOP_WAIT_TIMEOUT)
+            .expect("take_frame did not return after the stop handle fired");
+        let result = waiter.join().expect("take_frame thread panicked");
+        assert!(
+            matches!(result, Err(AvFoundationError::NotRunning)),
+            "unexpected take_frame result: {result:?}"
+        );
     }
 
-    fn unix_time_us_now() -> Option<u64> {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .and_then(|duration| u64::try_from(duration.as_micros()).ok())
+    #[test]
+    fn capture_waits_fail_fast_once_stopped() {
+        let queue = Arc::new(FrameQueue::default());
+        let stop_handle = AvFoundationStopHandle { shared: Arc::clone(&queue) };
+        stop_handle.stop();
+        // Stopping is idempotent.
+        stop_handle.stop();
+
+        assert!(matches!(queue.take_frame(), Err(AvFoundationError::NotRunning)));
+        assert!(matches!(queue.take_native_frame(), Err(AvFoundationError::NotRunning)));
     }
 }

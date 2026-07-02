@@ -19,13 +19,13 @@ use thiserror::Error;
 
 use ::gstreamer as gst;
 use ::gstreamer_app as gst_app;
+use gst::prelude::*;
 
 use crate::{
     encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
         ingress::EncodedAccessUnitSource,
-        CodecSpecific, EncodedFrameType, EncodedVideoCodec, H264PacketizationMode,
-        OwnedEncodedAccessUnit,
+        CodecSpecific, EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     error::CaptureError,
 };
@@ -172,6 +172,15 @@ impl EncodedAccessUnitSource for GStreamerAppSinkEncodedSource {
             Err(err) => Err(GStreamerSourceError::PullSample(err.to_string())),
         }
     }
+
+    fn request_keyframe(&mut self) {
+        // The `GstForceKeyUnit` custom upstream event is understood by every
+        // GStreamer video encoder (it is what gst-video's force-key-unit
+        // helper builds), so downstream PLI/FIR reaches the producer.
+        let structure =
+            gst::Structure::builder("GstForceKeyUnit").field("all-headers", true).build();
+        let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
+    }
 }
 
 /// Error returned by GStreamer appsink encoded sources.
@@ -270,32 +279,334 @@ fn access_unit_from_sample_payload(
                 width,
                 height,
             );
-            access_unit.codec_specific = codec_specific_for(codec);
+            access_unit.codec_specific = CodecSpecific::default_for(codec);
             Ok(access_unit)
         }
-    }
-}
-
-fn codec_specific_for(codec: EncodedVideoCodec) -> CodecSpecific {
-    match codec {
-        EncodedVideoCodec::H264 => {
-            CodecSpecific::H264 { packetization_mode: H264PacketizationMode::NonInterleaved }
-        }
-        EncodedVideoCodec::H265 => CodecSpecific::H265,
-        EncodedVideoCodec::VP8 => CodecSpecific::VP8 { temporal_id: None, layer_sync: false },
-        EncodedVideoCodec::VP9 => {
-            CodecSpecific::VP9 { temporal_id: None, spatial_id: None, inter_layer_predicted: None }
-        }
-        EncodedVideoCodec::AV1 => CodecSpecific::AV1 {
-            scalability_mode: Some("L1T1".to_string()),
-            dependency_descriptor: None,
-        },
     }
 }
 
 fn clock_time_to_timestamp_us(start_timestamp_us: i64, timestamp: gst::ClockTime) -> i64 {
     let timestamp_us = timestamp.useconds().min(i64::MAX as u64) as i64;
     start_timestamp_us.saturating_add(timestamp_us)
+}
+
+/// Name of the appsink element the pipeline helpers look up or create.
+pub const ENCODED_APPSINK_NAME: &str = "lk_appsink";
+
+/// Error returned by the GStreamer pipeline helpers.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum GStreamerPipelineError {
+    /// The requested codec does not match what the pipeline advertises.
+    #[error(
+        "GStreamer codec mismatch: requested {requested:?}, but {location} advertises {advertised:?}"
+    )]
+    CodecMismatch {
+        /// Codec requested by the caller.
+        requested: EncodedVideoCodec,
+        /// Codec advertised by the pipeline.
+        advertised: EncodedVideoCodec,
+        /// Pipeline location that advertised the codec.
+        location: String,
+    },
+    /// The pipeline has no usable appsink and no unlinked encoded pad.
+    #[error(
+        "GStreamer pipeline must include `appsink name={ENCODED_APPSINK_NAME}` or leave one \
+         encoded video source pad unlinked"
+    )]
+    MissingAppSink,
+    /// The named element exists but is not an appsink.
+    #[error("GStreamer element {ENCODED_APPSINK_NAME} is not an appsink")]
+    NotAnAppSink,
+    /// Pad caps advertise no supported encoded video codec.
+    #[error("unlinked GStreamer pad '{0}' does not advertise supported encoded video caps")]
+    UnsupportedPadCaps(String),
+    /// Caps advertise a stream layout the encoded sources cannot consume.
+    #[error("unsupported GStreamer caps: {0}")]
+    UnsupportedCaps(String),
+    /// Element creation or linking failed.
+    #[error("{0}")]
+    Pipeline(String),
+}
+
+/// Returns the appsink caps for a codec as a launch-string fragment.
+///
+/// This is the single per-codec caps table: [`encoded_caps`] and pipeline
+/// descriptions embedding a capsfilter should all derive from it.
+pub fn encoded_caps_string(codec: EncodedVideoCodec) -> &'static str {
+    match codec {
+        EncodedVideoCodec::H264 => "video/x-h264,stream-format=byte-stream,alignment=au",
+        EncodedVideoCodec::H265 => "video/x-h265,stream-format=byte-stream,alignment=au",
+        EncodedVideoCodec::VP8 => "video/x-vp8",
+        EncodedVideoCodec::VP9 => "video/x-vp9,profile=(string)0",
+        EncodedVideoCodec::AV1 => "video/x-av1,stream-format=obu-stream,alignment=tu",
+    }
+}
+
+/// Returns the appsink caps for a codec.
+pub fn encoded_caps(codec: EncodedVideoCodec) -> Result<gst::Caps, GStreamerPipelineError> {
+    encoded_caps_string(codec)
+        .parse::<gst::Caps>()
+        .map_err(|err| GStreamerPipelineError::Pipeline(format!("invalid encoded caps: {err}")))
+}
+
+/// Returns the appsink sample format used to ingest a codec.
+pub fn sample_format_for_codec(codec: EncodedVideoCodec) -> GStreamerSampleFormat {
+    match codec {
+        EncodedVideoCodec::H264 => GStreamerSampleFormat::H264AnnexB,
+        EncodedVideoCodec::H265 => GStreamerSampleFormat::H265AnnexB,
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+            GStreamerSampleFormat::AccessUnit { codec }
+        }
+    }
+}
+
+/// Returns the parser element name used to normalize a codec, when one is needed.
+pub fn parser_name(codec: EncodedVideoCodec) -> Option<&'static str> {
+    match codec {
+        EncodedVideoCodec::H264 => Some("h264parse"),
+        EncodedVideoCodec::H265 => Some("h265parse"),
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 => None,
+        EncodedVideoCodec::AV1 => Some("av1parse"),
+    }
+}
+
+/// Finds or builds the encoded appsink in a pipeline.
+///
+/// When the pipeline already contains `appsink name=lk_appsink`, it is used
+/// as-is (its sink caps decide the sample format). Otherwise the pipeline
+/// must leave one encoded video source pad unlinked; the codec parser, a
+/// capsfilter, and an appsink are created and linked to it.
+pub fn ensure_encoded_appsink(
+    pipeline: &gst::Pipeline,
+    requested_codec: Option<EncodedVideoCodec>,
+) -> Result<(gst_app::AppSink, GStreamerSampleFormat), GStreamerPipelineError> {
+    if let Some(appsink) = pipeline.by_name(ENCODED_APPSINK_NAME) {
+        let sample_format = match sample_format_from_element_sink_caps(&appsink)? {
+            Some(sample_format) => {
+                if let Some(requested_codec) = requested_codec {
+                    if requested_codec != sample_format.codec() {
+                        return Err(GStreamerPipelineError::CodecMismatch {
+                            requested: requested_codec,
+                            advertised: sample_format.codec(),
+                            location: format!("appsink '{ENCODED_APPSINK_NAME}'"),
+                        });
+                    }
+                }
+                sample_format
+            }
+            None => sample_format_for_codec(requested_codec.unwrap_or(EncodedVideoCodec::H264)),
+        };
+        let appsink = appsink
+            .downcast::<gst_app::AppSink>()
+            .map_err(|_| GStreamerPipelineError::NotAnAppSink)?;
+        return Ok((appsink, sample_format));
+    }
+
+    let src_pad = pipeline
+        .find_unlinked_pad(gst::PadDirection::Src)
+        .ok_or(GStreamerPipelineError::MissingAppSink)?;
+    let inferred_codec = codec_from_pad_caps(&src_pad)
+        .ok_or_else(|| GStreamerPipelineError::UnsupportedPadCaps(src_pad.name().to_string()))?;
+    let codec = match requested_codec {
+        Some(requested_codec) if requested_codec != inferred_codec => {
+            return Err(GStreamerPipelineError::CodecMismatch {
+                requested: requested_codec,
+                advertised: inferred_codec,
+                location: format!("unlinked pad '{}'", src_pad.name()),
+            });
+        }
+        Some(requested_codec) => requested_codec,
+        None => inferred_codec,
+    };
+    let sample_format = sample_format_for_codec(codec);
+    let src_element = src_pad.parent_element().ok_or_else(|| {
+        GStreamerPipelineError::Pipeline(
+            "unlinked GStreamer encoded pad has no parent element".to_owned(),
+        )
+    })?;
+
+    let parser = parser_element_for_codec(codec)?;
+    let codec_caps = encoded_caps(codec)?;
+    let capsfilter = gst::ElementFactory::make("capsfilter")
+        .property("caps", codec_caps)
+        .build()
+        .map_err(|err| {
+        GStreamerPipelineError::Pipeline(format!("failed to create {codec:?} capsfilter: {err}"))
+    })?;
+    let appsink = gst::ElementFactory::make("appsink")
+        .name(ENCODED_APPSINK_NAME)
+        .property("sync", false)
+        .property("max-buffers", 8u32)
+        .property("drop", true)
+        .build()
+        .map_err(|err| {
+            GStreamerPipelineError::Pipeline(format!("failed to create appsink: {err}"))
+        })?;
+
+    if let Some(parser) = &parser {
+        pipeline.add(parser).map_err(|err| {
+            GStreamerPipelineError::Pipeline(format!(
+                "failed to add {} to GStreamer pipeline: {err}",
+                parser.name()
+            ))
+        })?;
+    }
+    pipeline.add(&capsfilter).map_err(|err| {
+        GStreamerPipelineError::Pipeline(format!(
+            "failed to add capsfilter to GStreamer pipeline: {err}"
+        ))
+    })?;
+    pipeline.add(&appsink).map_err(|err| {
+        GStreamerPipelineError::Pipeline(format!(
+            "failed to add appsink to GStreamer pipeline: {err}"
+        ))
+    })?;
+    if let Some(parser) = &parser {
+        gst::Element::link_many([parser, &capsfilter, &appsink]).map_err(|err| {
+            GStreamerPipelineError::Pipeline(format!(
+                "failed to link {} to appsink: {err}",
+                parser.name()
+            ))
+        })?;
+    } else {
+        gst::Element::link_many([&capsfilter, &appsink]).map_err(|err| {
+            GStreamerPipelineError::Pipeline(format!("failed to link capsfilter to appsink: {err}"))
+        })?;
+    }
+    let link_target = parser.as_ref().unwrap_or(&capsfilter);
+    let sink_pad = link_target.static_pad("sink").ok_or_else(|| {
+        GStreamerPipelineError::Pipeline(format!(
+            "{} did not expose a sink pad",
+            link_target.name()
+        ))
+    })?;
+    src_pad.link(&sink_pad).map_err(|err| {
+        GStreamerPipelineError::Pipeline(format!(
+            "failed to link '{}' to {}: {err}",
+            src_element.name(),
+            link_target.name()
+        ))
+    })?;
+
+    let appsink =
+        appsink.downcast::<gst_app::AppSink>().map_err(|_| GStreamerPipelineError::NotAnAppSink)?;
+    Ok((appsink, sample_format))
+}
+
+fn parser_element_for_codec(
+    codec: EncodedVideoCodec,
+) -> Result<Option<gst::Element>, GStreamerPipelineError> {
+    let Some(name) = parser_name(codec) else {
+        return Ok(None);
+    };
+    let mut builder = gst::ElementFactory::make(name);
+    if matches!(codec, EncodedVideoCodec::H264 | EncodedVideoCodec::H265) {
+        builder = builder.property("config-interval", -1i32);
+    }
+    builder
+        .build()
+        .map(Some)
+        .map_err(|err| GStreamerPipelineError::Pipeline(format!("failed to create {name}: {err}")))
+}
+
+fn sample_format_from_element_sink_caps(
+    element: &gst::Element,
+) -> Result<Option<GStreamerSampleFormat>, GStreamerPipelineError> {
+    let Some(sink_pad) = element.static_pad("sink") else {
+        return Ok(None);
+    };
+    sample_format_from_pad_caps(&sink_pad)
+}
+
+fn sample_format_from_pad_caps(
+    pad: &gst::Pad,
+) -> Result<Option<GStreamerSampleFormat>, GStreamerPipelineError> {
+    let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
+    for structure in caps.iter() {
+        if let Some(sample_format) = sample_format_from_caps_structure(structure)? {
+            return Ok(Some(sample_format));
+        }
+    }
+    Ok(None)
+}
+
+/// Infers the appsink sample format from a caps structure.
+pub fn sample_format_from_caps_structure(
+    structure: &gst::StructureRef,
+) -> Result<Option<GStreamerSampleFormat>, GStreamerPipelineError> {
+    let Some(codec) = codec_from_caps_name(structure.name()) else {
+        return Ok(None);
+    };
+
+    match codec {
+        EncodedVideoCodec::H264 => {
+            let stream_format = structure.get::<String>("stream-format").ok();
+            match stream_format.as_deref() {
+                Some("avc") | Some("avc3") => Ok(Some(GStreamerSampleFormat::H264Avc {
+                    nal_length_size: h264_avc_nal_length_size_from_caps(structure),
+                })),
+                Some("byte-stream") | None => Ok(Some(GStreamerSampleFormat::H264AnnexB)),
+                Some(stream_format) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
+                    "H.264 stream-format '{stream_format}'; expected byte-stream or avc"
+                ))),
+            }
+        }
+        EncodedVideoCodec::H265 => Ok(Some(GStreamerSampleFormat::H265AnnexB)),
+        EncodedVideoCodec::VP8 => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
+        EncodedVideoCodec::VP9 => {
+            let profile = structure.get::<String>("profile").ok();
+            match profile.as_deref() {
+                Some("0") | None => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
+                Some(profile) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
+                    "VP9 profile '{profile}'; expected profile 0"
+                ))),
+            }
+        }
+        EncodedVideoCodec::AV1 => {
+            let stream_format = structure.get::<String>("stream-format").ok();
+            match stream_format.as_deref() {
+                Some("obu-stream") | None => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
+                Some(stream_format) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
+                    "AV1 stream-format '{stream_format}'; expected obu-stream"
+                ))),
+            }
+        }
+    }
+}
+
+fn h264_avc_nal_length_size_from_caps(structure: &gst::StructureRef) -> u8 {
+    let Ok(codec_data) = structure.get::<gst::Buffer>("codec_data") else {
+        return 4;
+    };
+    let Ok(codec_data) = codec_data.map_readable() else {
+        return 4;
+    };
+    h264_avc_nal_length_size_from_codec_data(codec_data.as_ref()).unwrap_or(4)
+}
+
+/// Reads the AVC NAL length-prefix size from `avcC` codec data.
+pub fn h264_avc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
+    let length_size = (codec_data.get(4)? & 0x03) + 1;
+    (1..=4).contains(&length_size).then_some(length_size)
+}
+
+/// Infers the encoded codec advertised by a pad's caps.
+pub fn codec_from_pad_caps(pad: &gst::Pad) -> Option<EncodedVideoCodec> {
+    let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
+    caps.iter().find_map(|structure| codec_from_caps_name(structure.name()))
+}
+
+/// Maps a caps media-type name to an encoded codec.
+pub fn codec_from_caps_name(name: &str) -> Option<EncodedVideoCodec> {
+    match name {
+        "video/x-h264" => Some(EncodedVideoCodec::H264),
+        "video/x-h265" => Some(EncodedVideoCodec::H265),
+        "video/x-vp8" => Some(EncodedVideoCodec::VP8),
+        "video/x-vp9" => Some(EncodedVideoCodec::VP9),
+        "video/x-av1" => Some(EncodedVideoCodec::AV1),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -367,7 +678,7 @@ mod tests {
             480,
         )
         .unwrap();
-        assert_eq!(vp9.codec_specific, codec_specific_for(EncodedVideoCodec::VP9));
+        assert_eq!(vp9.codec_specific, CodecSpecific::default_for(EncodedVideoCodec::VP9));
 
         let av1 = access_unit_from_sample_payload(
             GStreamerSampleFormat::AccessUnit { codec: EncodedVideoCodec::AV1 },
@@ -378,7 +689,7 @@ mod tests {
             480,
         )
         .unwrap();
-        assert_eq!(av1.codec_specific, codec_specific_for(EncodedVideoCodec::AV1));
+        assert_eq!(av1.codec_specific, CodecSpecific::default_for(EncodedVideoCodec::AV1));
     }
 
     #[test]

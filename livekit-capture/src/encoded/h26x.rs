@@ -18,17 +18,43 @@ use bytes::Bytes;
 
 use crate::{
     encoded::{
-        annex_b_payload, h264_nal_type, h265_nal_type, CodecSpecific, EncodedFrameType,
-        EncodedVideoCodec, H264PacketizationMode, OwnedEncodedAccessUnit,
+        annex_b_payload, h264_nal_type, h265_nal_type, is_keyframe_nalus, CodecSpecific,
+        EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     error::CaptureError,
 };
+
+/// Upper bound on bytes buffered while waiting for an access-unit boundary.
+const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
+
+/// Byte-stream access-unit parser shared by the encoded ingest sources.
+///
+/// `push` appends bytes and returns at most one completed access unit; call
+/// `drain` repeatedly to pull further access units already buffered, and
+/// `flush` once at end of stream to emit the final pending access unit.
+pub(crate) trait AccessUnitParser {
+    /// Appends bytes and returns the next complete access unit, if any.
+    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError>;
+
+    /// Returns the next complete access unit from already-buffered bytes.
+    fn drain(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+        self.push(&[])
+    }
+
+    /// Flushes remaining buffered bytes as the final access unit.
+    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError>;
+}
 
 /// H26x Annex-B parser state.
 #[derive(Debug, Clone)]
 pub struct AnnexBAccessUnitParser {
     codec: EncodedVideoCodec,
     pending: Vec<u8>,
+    /// NAL ranges found in `pending`; the last range's end is provisional
+    /// until the next start code (or flush) confirms it.
+    nal_ranges: Vec<Range<usize>>,
+    /// Offset up to which `pending` has been scanned for start codes.
+    scan_cursor: usize,
     next_timestamp_us: i64,
     frame_interval_us: i64,
     width: u32,
@@ -40,6 +66,10 @@ pub struct AnnexBAccessUnitParser {
 #[derive(Debug, Clone)]
 pub(crate) struct AvcAccessUnitParser {
     pending: Vec<u8>,
+    /// Complete NAL ranges found in `pending`.
+    nal_ranges: Vec<Range<usize>>,
+    /// Offset of the first unparsed length prefix or incomplete NAL in `pending`.
+    scan_cursor: usize,
     nal_length_size: u8,
     next_timestamp_us: i64,
     frame_interval_us: i64,
@@ -66,6 +96,8 @@ impl AnnexBAccessUnitParser {
         Ok(Self {
             codec,
             pending: Vec::new(),
+            nal_ranges: Vec::new(),
+            scan_cursor: 0,
             next_timestamp_us: start_timestamp_us,
             frame_interval_us,
             width,
@@ -85,19 +117,49 @@ impl AnnexBAccessUnitParser {
     }
 
     fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
-        let ranges = annex_b_nal_ranges(&self.pending);
-        if ranges.is_empty() {
-            return Ok(None);
+        self.scan_pending();
+
+        if let Some(split_at) =
+            access_unit_split_index(self.codec, &self.pending, &self.nal_ranges)?
+        {
+            return self.take_access_unit(split_at);
         }
+        if at_eof && self.nal_ranges.iter().any(|range| range.start < range.end) {
+            return self.take_access_unit(self.pending.len());
+        }
+        if !at_eof && self.pending.len() > MAX_PENDING_ACCESS_UNIT_BYTES {
+            return Err(CaptureError::InvalidEncodedData(
+                "access unit exceeds maximum buffered size",
+            ));
+        }
+        Ok(None)
+    }
 
-        let Some(split_at) = access_unit_split_index(self.codec, &self.pending, &ranges)? else {
-            if at_eof {
-                return self.take_access_unit(self.pending.len());
+    /// Scans bytes appended since the previous call, extending the cached NAL ranges.
+    fn scan_pending(&mut self) {
+        // Resume behind the previous scan end so a start code straddling the
+        // boundary is found, but never before the last NAL start so an
+        // already-found start code is not rediscovered.
+        let mut cursor = self.scan_cursor.saturating_sub(3);
+        if let Some(last) = self.nal_ranges.last() {
+            cursor = cursor.max(last.start);
+        }
+        while let Some((offset, prefix_len)) = find_start_code(&self.pending[cursor..]) {
+            let prefix_start = cursor + offset;
+            let nal_start = prefix_start + prefix_len;
+            if let Some(last) = self.nal_ranges.last_mut() {
+                last.end = prefix_start;
+                if last.start >= prefix_start {
+                    self.nal_ranges.pop();
+                }
             }
-            return Ok(None);
-        };
-
-        self.take_access_unit(split_at)
+            self.nal_ranges.push(nal_start..nal_start);
+            cursor = nal_start;
+        }
+        if let Some(last) = self.nal_ranges.last_mut() {
+            last.end = self.pending.len();
+        }
+        self.scan_cursor = self.pending.len();
     }
 
     fn take_access_unit(
@@ -110,6 +172,15 @@ impl AnnexBAccessUnitParser {
 
         let access_unit = self.pending[..byte_len].to_vec();
         self.pending.drain(..byte_len);
+        self.nal_ranges.retain_mut(|range| {
+            if range.end <= byte_len {
+                return false;
+            }
+            range.start -= byte_len;
+            range.end -= byte_len;
+            true
+        });
+        self.scan_cursor -= byte_len;
         let timestamp_us = self.next_timestamp_us;
         self.next_timestamp_us = self.next_timestamp_us.saturating_add(self.frame_interval_us);
         access_unit_from_annex_b(
@@ -120,6 +191,16 @@ impl AnnexBAccessUnitParser {
             self.height,
         )
         .map(Some)
+    }
+}
+
+impl AccessUnitParser for AnnexBAccessUnitParser {
+    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+        AnnexBAccessUnitParser::push(self, bytes)
+    }
+
+    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+        AnnexBAccessUnitParser::flush(self)
     }
 }
 
@@ -137,6 +218,8 @@ impl AvcAccessUnitParser {
 
         Ok(Self {
             pending: Vec::new(),
+            nal_ranges: Vec::new(),
+            scan_cursor: 0,
             nal_length_size,
             next_timestamp_us: start_timestamp_us,
             frame_interval_us,
@@ -160,21 +243,57 @@ impl AvcAccessUnitParser {
     }
 
     fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
-        let ranges = avc_nal_ranges(&self.pending, self.nal_length_size, at_eof)?;
-        if ranges.is_empty() {
-            return Ok(None);
+        self.scan_pending(at_eof)?;
+
+        if let Some(split_at) = avc_access_unit_split_index(
+            &self.pending,
+            &self.nal_ranges,
+            self.nal_length_size as usize,
+        )? {
+            return self.take_access_unit(split_at);
         }
+        if at_eof && !self.nal_ranges.is_empty() {
+            return self.take_access_unit(self.pending.len());
+        }
+        if !at_eof && self.pending.len() > MAX_PENDING_ACCESS_UNIT_BYTES {
+            return Err(CaptureError::InvalidEncodedData(
+                "access unit exceeds maximum buffered size",
+            ));
+        }
+        Ok(None)
+    }
 
-        let Some(split_at) =
-            avc_access_unit_split_index(&self.pending, &ranges, self.nal_length_size as usize)?
-        else {
-            if at_eof {
-                return self.take_access_unit(self.pending.len());
+    /// Parses length-prefixed NAL units appended since the previous call.
+    fn scan_pending(&mut self, at_eof: bool) -> Result<(), CaptureError> {
+        let nal_length_size = self.nal_length_size as usize;
+        while self.scan_cursor < self.pending.len() {
+            if self.pending.len() - self.scan_cursor < nal_length_size {
+                if at_eof {
+                    return Err(CaptureError::InvalidEncodedData("truncated AVC NAL length"));
+                }
+                break;
             }
-            return Ok(None);
-        };
 
-        self.take_access_unit(split_at)
+            let nal_start = self.scan_cursor + nal_length_size;
+            let nal_len = read_avc_nal_length(&self.pending[self.scan_cursor..nal_start]);
+            if nal_len == 0 {
+                return Err(CaptureError::InvalidEncodedData("empty AVC NAL unit"));
+            }
+
+            let Some(nal_end) = nal_start.checked_add(nal_len) else {
+                return Err(CaptureError::InvalidEncodedData("AVC NAL unit length overflow"));
+            };
+            if nal_end > self.pending.len() {
+                if at_eof {
+                    return Err(CaptureError::InvalidEncodedData("truncated AVC NAL unit"));
+                }
+                break;
+            }
+
+            self.nal_ranges.push(nal_start..nal_end);
+            self.scan_cursor = nal_end;
+        }
+        Ok(())
     }
 
     fn take_access_unit(
@@ -187,6 +306,15 @@ impl AvcAccessUnitParser {
 
         let access_unit = self.pending[..byte_len].to_vec();
         self.pending.drain(..byte_len);
+        self.nal_ranges.retain_mut(|range| {
+            if range.end <= byte_len {
+                return false;
+            }
+            range.start -= byte_len;
+            range.end -= byte_len;
+            true
+        });
+        self.scan_cursor -= byte_len;
         let timestamp_us = self.next_timestamp_us;
         self.next_timestamp_us = self.next_timestamp_us.saturating_add(self.frame_interval_us);
         access_unit_from_h264_avc(
@@ -197,6 +325,17 @@ impl AvcAccessUnitParser {
             self.height,
         )
         .map(Some)
+    }
+}
+
+#[cfg(any(feature = "tcpsink", test))]
+impl AccessUnitParser for AvcAccessUnitParser {
+    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+        AvcAccessUnitParser::push(self, bytes)
+    }
+
+    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+        AvcAccessUnitParser::flush(self)
     }
 }
 
@@ -267,15 +406,7 @@ pub fn access_unit_from_annex_b(
     };
     let mut access_unit =
         OwnedEncodedAccessUnit::new(codec, payload, timestamp_us, frame_type, width, height);
-    access_unit.codec_specific = match codec {
-        EncodedVideoCodec::H264 => {
-            CodecSpecific::H264 { packetization_mode: H264PacketizationMode::NonInterleaved }
-        }
-        EncodedVideoCodec::H265 => CodecSpecific::H265,
-        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-            return Err(CaptureError::UnsupportedCodec(codec));
-        }
-    };
+    access_unit.codec_specific = CodecSpecific::default_for(codec);
     Ok(access_unit)
 }
 
@@ -294,18 +425,7 @@ pub fn access_unit_from_nalus(
 /// Returns true when an Annex-B access unit contains an intra/key picture.
 pub fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, CaptureError> {
     let nals = annex_b_nalus(bytes)?;
-    match codec {
-        EncodedVideoCodec::H264 => {
-            nals.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
-        }
-        EncodedVideoCodec::H265 => nals.iter().try_fold(false, |is_key, nal| {
-            let nal_type = h265_nal_type(nal)?;
-            Ok(is_key || (16..=21).contains(&nal_type))
-        }),
-        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-            Err(CaptureError::UnsupportedCodec(codec))
-        }
-    }
+    is_keyframe_nalus(codec, &nals)
 }
 
 fn access_unit_split_index(
@@ -313,20 +433,10 @@ fn access_unit_split_index(
     bytes: &[u8],
     ranges: &[Range<usize>],
 ) -> Result<Option<usize>, CaptureError> {
-    if ranges.len() < 2 {
-        return Ok(None);
+    match access_unit_boundary_nal(codec, bytes, ranges)? {
+        Some(index) => split_start_code_index(bytes, ranges[index].start).map(Some),
+        None => Ok(None),
     }
-
-    let first_nal = &bytes[ranges[0].clone()];
-    let mut seen_vcl = is_vcl_nal(codec, first_nal)?;
-    for range in ranges.iter().skip(1) {
-        let nal = &bytes[range.clone()];
-        if is_access_unit_delimiter(codec, nal)? && seen_vcl {
-            return split_start_code_index(bytes, range.start).map(Some);
-        }
-        seen_vcl |= is_vcl_nal(codec, nal)?;
-    }
-    Ok(None)
 }
 
 #[cfg(any(feature = "tcpsink", test))]
@@ -335,24 +445,72 @@ fn avc_access_unit_split_index(
     ranges: &[Range<usize>],
     nal_length_size: usize,
 ) -> Result<Option<usize>, CaptureError> {
-    if ranges.len() < 2 {
-        return Ok(None);
+    match access_unit_boundary_nal(EncodedVideoCodec::H264, bytes, ranges)? {
+        Some(index) => ranges[index]
+            .start
+            .checked_sub(nal_length_size)
+            .ok_or(CaptureError::InvalidEncodedData("missing AVC NAL length"))
+            .map(Some),
+        None => Ok(None),
     }
+}
 
-    let first_nal = &bytes[ranges[0].clone()];
-    let mut seen_vcl = is_vcl_nal(EncodedVideoCodec::H264, first_nal)?;
-    for range in ranges.iter().skip(1) {
+/// Returns the index of the first NAL that starts a new access unit, once at
+/// least one VCL NAL has been seen in the current one.
+fn access_unit_boundary_nal(
+    codec: EncodedVideoCodec,
+    bytes: &[u8],
+    ranges: &[Range<usize>],
+) -> Result<Option<usize>, CaptureError> {
+    let mut seen_vcl = false;
+    for (index, range) in ranges.iter().enumerate() {
         let nal = &bytes[range.clone()];
-        if is_access_unit_delimiter(EncodedVideoCodec::H264, nal)? && seen_vcl {
-            return range
-                .start
-                .checked_sub(nal_length_size)
-                .ok_or(CaptureError::InvalidEncodedData("missing AVC NAL length"))
-                .map(Some);
+        // The final NAL may still be streaming in; wait for its header.
+        if index + 1 == ranges.len() && nal.len() < min_nal_header_len(codec) {
+            return Ok(None);
         }
-        seen_vcl |= is_vcl_nal(EncodedVideoCodec::H264, nal)?;
+        if seen_vcl && starts_new_access_unit(codec, nal)? {
+            return Ok(Some(index));
+        }
+        seen_vcl |= is_vcl_nal(codec, nal)?;
     }
     Ok(None)
+}
+
+fn min_nal_header_len(codec: EncodedVideoCodec) -> usize {
+    match codec {
+        EncodedVideoCodec::H265 => 2,
+        _ => 1,
+    }
+}
+
+fn starts_new_access_unit(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, CaptureError> {
+    Ok(match codec {
+        EncodedVideoCodec::H264 => match h264_nal_type(nal)? {
+            // Prefix SEI(6), SPS(7), PPS(8), and AUD(9) open a new access unit.
+            6..=9 => true,
+            // A VCL NAL opens a new picture when first_mb_in_slice == 0:
+            // ue(v) == 0 is a lone 1 bit, so the first RBSP bit after the
+            // header is set. The header byte is nonzero, so the next byte
+            // cannot be an emulation-prevention byte.
+            1..=5 => nal.len() >= 2 && nal[1] & 0x80 != 0,
+            _ => false,
+        },
+        EncodedVideoCodec::H265 => match h265_nal_type(nal)? {
+            // VPS(32), SPS(33), PPS(34), AUD(35), and prefix SEI(39).
+            32..=35 | 39 => true,
+            // A VCL NAL opens a new picture when
+            // first_slice_segment_in_pic_flag (the bit after the 2-byte
+            // header) is set. nuh_temporal_id_plus1 makes the second header
+            // byte nonzero, so the next byte cannot be an
+            // emulation-prevention byte.
+            0..=31 => nal.len() >= 3 && nal[2] & 0x80 != 0,
+            _ => false,
+        },
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+            return Err(CaptureError::UnsupportedCodec(codec));
+        }
+    })
 }
 
 fn split_start_code_index(bytes: &[u8], nal_start: usize) -> Result<usize, CaptureError> {
@@ -363,16 +521,6 @@ fn split_start_code_index(bytes: &[u8], nal_start: usize) -> Result<usize, Captu
         return Ok(nal_start - 3);
     }
     Err(CaptureError::InvalidEncodedData("missing Annex-B start code"))
-}
-
-fn is_access_unit_delimiter(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, CaptureError> {
-    Ok(match codec {
-        EncodedVideoCodec::H264 => h264_nal_type(nal)? == 9,
-        EncodedVideoCodec::H265 => h265_nal_type(nal)? == 35,
-        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-            return Err(CaptureError::UnsupportedCodec(codec));
-        }
-    })
 }
 
 fn is_vcl_nal(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, CaptureError> {
@@ -543,5 +691,228 @@ mod tests {
         let au = parser.flush().unwrap().unwrap();
         assert_eq!(au.timestamp_us, 33_433);
         assert_eq!(au.payload.as_ref(), &[0, 0, 0, 1, 0x09, 0x10, 0, 0, 0, 1, 0x41, 3]);
+    }
+
+    #[test]
+    fn splits_aud_less_h264_stream_per_frame() {
+        let mut parser =
+            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        let stream = [
+            0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1e, // SPS
+            0, 0, 0, 1, 0x68, 0xce, // PPS
+            0, 0, 1, 0x65, 0x88, 0x84, 0x21, // IDR slice, first_mb_in_slice == 0
+            0, 0, 1, 0x41, 0x9a, 0x22, // P slice, first_mb_in_slice == 0
+            0, 0, 1, 0x41, 0x9a, 0x33, // P slice, first_mb_in_slice == 0
+        ];
+
+        let au = parser.push(&stream).unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 0);
+        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(au.payload.as_ref(), &stream[..21]);
+
+        let au = parser.drain().unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 33_333);
+        assert_eq!(au.frame_type, EncodedFrameType::Delta);
+        assert_eq!(au.payload.as_ref(), &stream[21..27]);
+
+        let au = parser.flush().unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 66_666);
+        assert_eq!(au.payload.as_ref(), &stream[27..]);
+    }
+
+    #[test]
+    fn keeps_multi_slice_h264_access_unit_together() {
+        let mut parser =
+            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        let stream = [
+            0, 0, 1, 0x65, 0x88, 0x11, // IDR slice, first_mb_in_slice == 0
+            0, 0, 1, 0x65, 0x21, 0x22, // IDR slice, first_mb_in_slice != 0
+            0, 0, 1, 0x41, 0x9a, 0x33, // next picture
+        ];
+
+        let au = parser.push(&stream).unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 0);
+        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(au.payload.as_ref(), &stream[..12]);
+
+        let au = parser.flush().unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 33_333);
+        assert_eq!(au.payload.as_ref(), &stream[12..]);
+    }
+
+    #[test]
+    fn splits_aud_less_h265_stream_per_frame() {
+        let mut parser =
+            AnnexBAccessUnitParser::new(EncodedVideoCodec::H265, 0, 33_333, 640, 480).unwrap();
+        let stream = [
+            0, 0, 0, 1, 0x40, 0x01, 0x0c, // VPS
+            0, 0, 0, 1, 0x42, 0x01, 0x02, // SPS
+            0, 0, 0, 1, 0x44, 0x01, 0x03, // PPS
+            0, 0, 1, 0x26, 0x01, 0xaf,
+            0x04, // IDR_W_RADL, first_slice_segment_in_pic_flag == 1
+            0, 0, 1, 0x02, 0x01, 0xd0, 0x05, // TRAIL_R, first_slice_segment_in_pic_flag == 1
+        ];
+
+        let au = parser.push(&stream).unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 0);
+        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(au.payload.as_ref(), &stream[..28]);
+
+        let au = parser.flush().unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 33_333);
+        assert_eq!(au.frame_type, EncodedFrameType::Delta);
+        assert_eq!(au.payload.as_ref(), &stream[28..]);
+    }
+
+    #[test]
+    fn keeps_multi_slice_h265_access_unit_together() {
+        let mut parser =
+            AnnexBAccessUnitParser::new(EncodedVideoCodec::H265, 0, 33_333, 640, 480).unwrap();
+        let stream = [
+            0, 0, 1, 0x26, 0x01, 0xaf,
+            0x11, // IDR slice, first_slice_segment_in_pic_flag == 1
+            0, 0, 1, 0x26, 0x01, 0x40,
+            0x22, // IDR slice, first_slice_segment_in_pic_flag == 0
+            0, 0, 1, 0x02, 0x01, 0xd0, 0x33, // next picture
+        ];
+
+        let au = parser.push(&stream).unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 0);
+        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(au.payload.as_ref(), &stream[..14]);
+
+        let au = parser.flush().unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 33_333);
+        assert_eq!(au.payload.as_ref(), &stream[14..]);
+    }
+
+    #[test]
+    fn groups_parameter_sets_with_following_frame() {
+        let mut parser =
+            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        let stream = [
+            0, 0, 1, 0x67, 0x42, 0x1e, // SPS
+            0, 0, 1, 0x68, 0xce, // PPS
+            0, 0, 1, 0x65, 0x88, 0x11, // IDR
+            0, 0, 1, 0x67, 0x42, 0x1e, // SPS
+            0, 0, 1, 0x68, 0xce, // PPS
+            0, 0, 1, 0x65, 0x88, 0x22, // IDR
+        ];
+
+        let au = parser.push(&stream).unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 0);
+        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(au.payload.as_ref(), &stream[..17]);
+
+        let au = parser.flush().unwrap().unwrap();
+        assert_eq!(au.timestamp_us, 33_333);
+        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(au.payload.as_ref(), &stream[17..]);
+    }
+
+    fn collect_units(
+        parser: &mut impl AccessUnitParser,
+        stream: &[u8],
+        chunk_size: usize,
+    ) -> Vec<(Vec<u8>, i64, EncodedFrameType)> {
+        let mut units = Vec::new();
+        for chunk in stream.chunks(chunk_size) {
+            let mut unit = parser.push(chunk).unwrap();
+            while let Some(au) = unit {
+                units.push((au.payload.to_vec(), au.timestamp_us, au.frame_type));
+                unit = parser.drain().unwrap();
+            }
+        }
+        let mut unit = parser.flush().unwrap();
+        while let Some(au) = unit {
+            units.push((au.payload.to_vec(), au.timestamp_us, au.frame_type));
+            unit = parser.flush().unwrap();
+        }
+        units
+    }
+
+    fn assert_chunked_matches_one_shot<P: AccessUnitParser>(
+        make_parser: impl Fn() -> P,
+        stream: &[u8],
+        expected_units: usize,
+    ) {
+        let baseline = collect_units(&mut make_parser(), stream, stream.len());
+        assert_eq!(baseline.len(), expected_units);
+        for chunk_size in [1, 7] {
+            assert_eq!(collect_units(&mut make_parser(), stream, chunk_size), baseline);
+        }
+    }
+
+    #[test]
+    fn chunked_pushes_match_one_shot_parsing() {
+        let h264_annex_b = [
+            0, 0, 0, 1, 0x67, 0x64, 0x00, 0x1e, // SPS
+            0, 0, 0, 1, 0x68, 0xce, 0x3c, 0x80, // PPS
+            0, 0, 1, 0x65, 0x88, 0x84, 0x00, 0x01, // IDR, first_mb_in_slice == 0
+            0, 0, 1, 0x41, 0x9a, 0x02, // P, first_mb_in_slice == 0
+            0, 0, 1, 0x09, 0x10, // AUD
+            0, 0, 1, 0x41, 0x9a, 0x03, // P
+            0, 0, 0, 1, 0x41, 0x9a, 0x04, 0x00, // P, first_mb_in_slice == 0
+        ];
+        assert_chunked_matches_one_shot(
+            || AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap(),
+            &h264_annex_b,
+            4,
+        );
+
+        let h265_annex_b = [
+            0, 0, 0, 1, 0x40, 0x01, 0x0c, // VPS
+            0, 0, 0, 1, 0x42, 0x01, 0x02, // SPS
+            0, 0, 0, 1, 0x44, 0x01, 0x03, // PPS
+            0, 0, 1, 0x26, 0x01, 0xaf, 0x08, // IDR_W_RADL
+            0, 0, 1, 0x02, 0x01, 0xd0, 0x09, // TRAIL_R
+            0, 0, 1, 0x46, 0x01, 0x50, // AUD
+            0, 0, 1, 0x02, 0x01, 0xd0, 0x0a, // TRAIL_R
+        ];
+        assert_chunked_matches_one_shot(
+            || AnnexBAccessUnitParser::new(EncodedVideoCodec::H265, 0, 33_333, 640, 480).unwrap(),
+            &h265_annex_b,
+            3,
+        );
+
+        let h264_avc = [
+            0, 0, 0, 4, 0x67, 0x64, 0x00, 0x1e, // SPS
+            0, 0, 0, 2, 0x68, 0xce, // PPS
+            0, 0, 0, 4, 0x65, 0x88, 0x84, 0x00, // IDR, first_mb_in_slice == 0
+            0, 0, 0, 3, 0x41, 0x9a, 0x02, // P, first_mb_in_slice == 0
+            0, 0, 0, 2, 0x09, 0x10, // AUD
+            0, 0, 0, 3, 0x41, 0x9a, 0x03, // P
+        ];
+        assert_chunked_matches_one_shot(
+            || AvcAccessUnitParser::new(4, 0, 33_333, 640, 480).unwrap(),
+            &h264_avc,
+            3,
+        );
+    }
+
+    #[test]
+    fn rejects_pending_access_unit_over_size_cap() {
+        let mut parser =
+            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        assert!(parser.push(&[0, 0, 1, 0x65, 0x88]).unwrap().is_none());
+
+        let err = parser.push(&vec![0xff; MAX_PENDING_ACCESS_UNIT_BYTES]).unwrap_err();
+        assert_eq!(
+            err,
+            CaptureError::InvalidEncodedData("access unit exceeds maximum buffered size")
+        );
+    }
+
+    #[test]
+    fn avc_rejects_pending_access_unit_over_size_cap() {
+        let mut parser = AvcAccessUnitParser::new(4, 0, 33_333, 640, 480).unwrap();
+        let nal_len = (MAX_PENDING_ACCESS_UNIT_BYTES + 1) as u32;
+        assert!(parser.push(&nal_len.to_be_bytes()).unwrap().is_none());
+
+        let err = parser.push(&vec![0x41; MAX_PENDING_ACCESS_UNIT_BYTES]).unwrap_err();
+        assert_eq!(
+            err,
+            CaptureError::InvalidEncodedData("access unit exceeds maximum buffered size")
+        );
     }
 }
