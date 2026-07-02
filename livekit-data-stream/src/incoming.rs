@@ -226,7 +226,7 @@ struct Descriptor {
     is_internal: bool,
     /// Whether this is a text stream (decompressed output is reframed on UTF-8 boundaries).
     is_text: bool,
-    /// Per-stream deflate-raw decompressor; `Some` iff the header declared `DEFLATE_RAW`.
+    /// Per-stream deflate-raw decompressor; `Some` if the header declared `DEFLATE_RAW`.
     decompressor: Option<DeflateDecompressState>,
     /// Highest chunk index processed so far (compressed streams; for dedup/gap detection).
     last_chunk_index: Option<u64>,
@@ -248,9 +248,9 @@ impl DeflateDecompressState {
 
     /// Feeds compressed `input` through the stateful decompressor, returning all
     /// decompressed output produced so far.
-    fn run(&mut self, input: &[u8]) -> StreamResult<Vec<u8>> {
+    fn push(&mut self, input: &[u8]) -> StreamResult<Vec<u8>> {
         let mut out = Vec::new();
-        let mut buf = vec![0u8; 16384];
+        let mut buf = vec![];
         let mut offset = 0;
         loop {
             let in_before = self.decompress.total_in();
@@ -440,7 +440,7 @@ impl IncomingStreamManager {
             let is_text = descriptor.is_text;
             // Confine the decompressor borrow so we can re-borrow `inner` afterwards.
             let result: StreamResult<(u64, Bytes)> = {
-                match decompressor.run(&chunk.content) {
+                match decompressor.push(&chunk.content) {
                     Ok(decompressed) => {
                         let produced = decompressed.len() as u64;
                         let yielded = if is_text {
