@@ -220,6 +220,9 @@ struct Descriptor {
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
     encryption_type: EncryptionType,
+    /// Identity of the participant sending this stream; used to abort the stream
+    /// if that participant disconnects mid-send.
+    sender_identity: String,
     is_internal: bool,
     /// Whether this is a text stream (decompressed output is reframed on UTF-8 boundaries).
     is_text: bool,
@@ -350,7 +353,7 @@ impl IncomingStreamManager {
         }
 
         let (reader, chunk_tx) = AnyStreamReader::from(info);
-        let _ = self.open_tx.send((reader, identity));
+        let _ = self.open_tx.send((reader, identity.clone()));
 
         // Inline single-packet stream: synthesize the complete content now; no chunk/trailer
         // packets will follow, so we never register an open descriptor.
@@ -380,6 +383,7 @@ impl IncomingStreamManager {
             progress: StreamProgress { bytes_total, ..Default::default() },
             chunk_tx,
             encryption_type: stream_encryption_type,
+            sender_identity: identity,
             is_internal,
             is_text,
             decompressor: is_compressed.then(DeflateDecompressState::new),
@@ -511,6 +515,29 @@ impl IncomingStreamManager {
             return;
         }
         inner.close_stream(&id);
+    }
+
+    /// Aborts every open stream being sent by the given participant, erroring each
+    /// reader with [`StreamError::AbnormalEnd`].
+    ///
+    /// Called when a remote participant disconnects: any streams it had in flight to
+    /// this receiver are terminated so their readers observe an error rather than
+    /// hanging forever waiting for chunks that will never arrive.
+    pub fn abort_streams_from(&self, identity: &str) {
+        let mut inner = self.inner.lock();
+        let ids: Vec<String> = inner
+            .open_streams
+            .iter()
+            .filter(|(_, descriptor)| descriptor.sender_identity == identity)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in ids {
+            let reason = format!(
+                "Participant {} unexpectedly disconnected in the middle of sending data",
+                identity
+            );
+            inner.close_stream_with_error(&id, StreamError::AbnormalEnd(reason));
+        }
     }
 }
 
@@ -868,6 +895,37 @@ mod tests {
         }
         mgr.handle_trailer(trailer("s1"));
         assert_eq!(read_text(reader).await.unwrap(), text);
+    }
+
+    #[tokio::test]
+    async fn errors_open_streams_on_sender_disconnect() {
+        let (mgr, mut rx) = IncomingStreamManager::new();
+        mgr.handle_header(
+            text_header("s1", Some(10), HashMap::new(), None, proto::CompressionType::None),
+            SENDER.to_string(),
+            EncType::None,
+        );
+        let (reader, _) = recv_reader(&mut rx).await;
+        // Partial content, no trailer: the sender then drops.
+        mgr.handle_chunk(chunk("s1", 0, vec![b'h', b'e', b'l', b'l', b'o']), EncType::None);
+        mgr.abort_streams_from(SENDER);
+        assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
+    }
+
+    #[tokio::test]
+    async fn abort_only_affects_matching_sender() {
+        let (mgr, mut rx) = IncomingStreamManager::new();
+        mgr.handle_header(
+            text_header("s1", Some(5), HashMap::new(), None, proto::CompressionType::None),
+            "bob".to_string(),
+            EncType::None,
+        );
+        let (reader, _) = recv_reader(&mut rx).await;
+        mgr.handle_chunk(chunk("s1", 0, vec![b'h', b'e', b'l', b'l', b'o']), EncType::None);
+        // A different participant disconnecting must not disturb bob's stream.
+        mgr.abort_streams_from(SENDER);
+        mgr.handle_trailer(trailer("s1"));
+        assert_eq!(read_text(reader).await.unwrap(), "hello");
     }
 
     #[tokio::test]

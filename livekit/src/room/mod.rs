@@ -2161,6 +2161,12 @@ impl RoomSession {
 
         let mut participants = self.remote_participants.write();
         participants.remove(&remote_participant.identity());
+        drop(participants);
+
+        // Terminate any data streams this participant was still sending; otherwise their
+        // readers would hang waiting for chunks that will never arrive.
+        self.incoming_stream_manager.abort_streams_from(remote_participant.identity().as_str());
+
         self.dispatcher.dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
 
