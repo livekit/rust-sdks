@@ -154,6 +154,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-${{ matrix.target }}-
 
+      # Runtime-invariant: livekit (desktop) is tokio-only; livekit-uniffi uses
+      # the foreign+tokio feature pair, which also resolves to tokio at the
+      # livekit-runtime layer.  Both crates therefore satisfy the one-runtime
+      # guard when built together via --workspace.
+      # IMPORTANT: a future cdylib that uses foreign+dispatcher/async-std MUST
+      # NOT share this --workspace invocation; use its own build job (like the
+      # uniffi-cdylib.yml `-p livekit-uniffi` job) so the runtimes do not clash.
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}
         run: |
