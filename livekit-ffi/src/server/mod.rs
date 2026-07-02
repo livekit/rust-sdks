@@ -24,10 +24,10 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
+use livekit::prelude::DisconnectReason;
 use livekit::webrtc::{
     native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
 };
-use livekit::{prelude::DisconnectReason, rtc_engine::lk_runtime::LkRuntime};
 use parking_lot::{deadlock, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};
 
@@ -179,7 +179,6 @@ impl FfiServer {
         *self.config.lock() = None; // Invalidate the config
         self.ffi_handles.clear();
         self.handle_dropped_txs.clear();
-        LkRuntime::wait_for_teardown();
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
