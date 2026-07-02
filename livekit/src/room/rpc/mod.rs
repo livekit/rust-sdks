@@ -23,8 +23,9 @@ pub use server::{HandleRequestOptions, RpcServerManager};
 
 use crate::data_stream::{StreamResult, StreamTextOptions, TextStreamInfo};
 use crate::room::id::ParticipantIdentity;
-use crate::room::participant::{ClientCapability, RemoteParticipantRegistry};
+use crate::room::participant::ClientCapability;
 use livekit_protocol::RpcError as RpcError_Proto;
+use livekit_common::RemoteParticipantRegistry;
 use std::{error::Error, fmt::Display, future::Future, time::Duration};
 
 // RPC protocol version constants (distinct from client_protocol; this is the

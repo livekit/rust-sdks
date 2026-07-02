@@ -2257,7 +2257,7 @@ impl RoomSession {
     }
 }
 
-impl participant::RemoteParticipantRegistry for RoomSession {
+impl livekit_common::RemoteParticipantRegistry for RoomSession {
     fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
         self.get_remote_client_protocol(identity)
     }
