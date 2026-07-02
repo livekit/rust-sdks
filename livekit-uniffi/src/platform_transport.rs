@@ -12,17 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Access token generation and verification from [`livekit-api::access_token`].
-pub mod access_token;
+use livekit_net::PlatformTransport;
+use std::sync::Arc;
 
-/// Forward log messages from Rust.
-pub mod log_forward;
-
-/// Information about the build such as version.
-pub mod build_info;
-
-/// Register a host-provided network transport for signalling.
-pub mod platform_transport;
-pub use platform_transport::set_platform_transport;
-
-uniffi::setup_scaffolding!();
+/// Register the host-provided network transport. The host implements
+/// `PlatformTransport` (and `PlatformConnection`) in Swift/Kotlin/Dart and calls
+/// this once at startup, before the first connection.
+#[uniffi::export]
+pub fn set_platform_transport(transport: Arc<dyn PlatformTransport>) {
+    livekit_net::set_transport(transport);
+}
