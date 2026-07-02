@@ -240,9 +240,10 @@ impl TwirpClient {
         region_urls: &mut Option<Vec<String>>,
         attempted: &[String],
     ) -> Option<Url> {
-        if region_urls.is_none() {
-            *region_urls = Some(failover::region_urls(original, forward).await);
-        }
-        failover::pick_next(region_urls.as_ref().unwrap(), attempted)
+        let region_urls = match region_urls {
+            Some(urls) => urls,
+            None => region_urls.insert(failover::region_urls(original, forward).await),
+        };
+        failover::pick_next(region_urls, attempted)
     }
 }
