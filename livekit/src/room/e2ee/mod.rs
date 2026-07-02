@@ -22,13 +22,7 @@ pub mod manager;
 /// Provider implementations for data track.
 pub(crate) mod data_track;
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EncryptionType {
-    #[default]
-    None,
-    Gcm,
-    Custom,
-}
+pub(crate) use livekit_common::EncryptionType;
 
 #[derive(Clone)]
 pub struct E2eeOptions {

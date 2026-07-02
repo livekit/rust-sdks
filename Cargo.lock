@@ -3957,6 +3957,7 @@ dependencies = [
  "http 1.4.0",
  "isahc",
  "jsonwebtoken",
+ "livekit-common",
  "livekit-protocol",
  "livekit-runtime",
  "log",
@@ -3977,6 +3978,13 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "url",
+]
+
+[[package]]
+name = "livekit-common"
+version = "0.1.0"
+dependencies = [
+ "livekit-protocol",
 ]
 
 [[package]]
