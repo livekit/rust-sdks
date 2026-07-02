@@ -250,7 +250,7 @@ impl DeflateDecompressState {
     /// decompressed output produced so far.
     fn push(&mut self, input: &[u8]) -> StreamResult<Vec<u8>> {
         let mut out = Vec::new();
-        let mut buf = vec![];
+        let mut buf = vec![0u8; 16384 /* number of bytes to process every loop iteration */];
         let mut offset = 0;
         loop {
             let in_before = self.decompress.total_in();
