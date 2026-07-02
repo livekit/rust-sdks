@@ -19,16 +19,12 @@
 //! replays the request against the next region, with exponential backoff. 4xx
 //! responses are returned immediately. See [`TwirpClient::request`].
 
-use std::{
-    collections::HashMap,
-    sync::{Mutex, OnceLock},
-    time::{Duration, Instant},
-};
+use std::{sync::OnceLock, time::Duration};
 
 use http::header::{HeaderMap, CONTENT_LENGTH, CONTENT_TYPE};
 use url::Url;
 
-use crate::region::{is_cloud_host, parse_max_age, RegionsResponse};
+use crate::region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
 /// Total attempts (the original request plus fallback regions) and the base
 /// retry backoff are fixed, not user-configurable, so retries can't be tuned to
@@ -107,8 +103,9 @@ pub(crate) fn pick_next(region_urls: &[String], attempted: &[String]) -> Option<
     None
 }
 
-/// Sleeps for `d` before a retry. Backoff is applied on the tokio backend; the
-/// async backend retries without delay (the failover path is short).
+/// Sleeps for `d` before a retry, so failover backs off between attempts on
+/// either backend (retrying with no delay would risk hammering the server).
+/// `futures-timer` keeps the async path runtime-agnostic.
 pub(crate) async fn backoff_sleep(d: Duration) {
     if d.is_zero() {
         return;
@@ -117,9 +114,9 @@ pub(crate) async fn backoff_sleep(d: Duration) {
     {
         tokio::time::sleep(d).await;
     }
-    #[cfg(not(feature = "services-tokio"))]
+    #[cfg(all(feature = "services-async", not(feature = "services-tokio")))]
     {
-        let _ = d;
+        futures_timer::Delay::new(d).await;
     }
 }
 
@@ -127,15 +124,11 @@ pub(crate) async fn backoff_sleep(d: Duration) {
 /// unreachable endpoint doesn't stall the failover path.
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 
-struct CacheEntry {
-    urls: Vec<String>,
-    fetched_at: Instant,
-    ttl: Duration,
-}
-
-fn cache() -> &'static Mutex<HashMap<String, CacheEntry>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, CacheEntry>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+/// Process-wide region cache for the API failover path. Owns the API instance of
+/// the shared [`RegionCache`] (which stores `http(s)` URLs; see [`crate::region`]).
+fn region_cache() -> &'static RegionCache {
+    static CACHE: OnceLock<RegionCache> = OnceLock::new();
+    CACHE.get_or_init(|| RegionCache::new(RegionCache::DEFAULT_TTL))
 }
 
 /// Returns the alternative region URLs for `base`, fetching `/settings/regions`
@@ -145,28 +138,26 @@ fn cache() -> &'static Mutex<HashMap<String, CacheEntry>> {
 /// directives — reach the discovery endpoint.
 pub(crate) async fn region_urls(base: &Url, headers: &HeaderMap) -> Vec<String> {
     let key = host_key(base);
+    let cache = region_cache();
 
-    {
-        let c = cache().lock().unwrap();
-        if let Some(entry) = c.get(&key) {
-            if entry.fetched_at.elapsed() < entry.ttl {
-                return entry.urls.clone();
-            }
-        }
-    }
+    let stale = match cache.get(&key) {
+        Cached::Fresh(urls) => return urls,
+        Cached::Stale(urls) => Some(urls),
+        Cached::Miss => None,
+    };
 
     match fetch(base, headers).await {
-        Ok((urls, ttl)) => {
-            // A zero TTL (e.g. Cache-Control: max-age=0) means "do not cache".
-            if !ttl.is_zero() {
-                cache().lock().unwrap().insert(
-                    key,
-                    CacheEntry { urls: urls.clone(), fetched_at: Instant::now(), ttl },
-                );
+        Ok((urls, max_age)) => {
+            // A zero max-age (e.g. `Cache-Control: max-age=0`) means "do not
+            // cache"; skip the insert so the next call re-fetches rather than
+            // serving a stale entry. An absent max-age uses the cache default.
+            if max_age != Some(Duration::ZERO) {
+                cache.insert(key, urls.clone(), max_age);
             }
             urls
         }
-        Err(()) => cache().lock().unwrap().get(&key).map(|e| e.urls.clone()).unwrap_or_default(),
+        // The fresh fetch failed; fall back to the stale entry if we have one.
+        Err(()) => stale.unwrap_or_default(),
     }
 }
 
@@ -185,14 +176,14 @@ fn normalize(list: RegionsResponse) -> Vec<String> {
     list.regions.into_iter().filter(|r| !r.url.is_empty()).map(|r| to_http_url(&r.url)).collect()
 }
 
-/// Reads the cache TTL from a `Cache-Control` header value; absent or
-/// unparseable means a zero TTL ("do not cache").
-fn ttl_from_cache_control(value: Option<&str>) -> Duration {
-    value.and_then(parse_max_age).unwrap_or(Duration::ZERO)
+/// Reads the `Cache-Control: max-age` from a header value for use as the cache
+/// TTL; `None` (absent or unparseable) falls back to the cache's default TTL.
+fn max_age_from_cache_control(value: Option<&str>) -> Option<Duration> {
+    value.and_then(parse_max_age)
 }
 
 #[cfg(feature = "services-tokio")]
-async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Duration), ()> {
+async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
     let mut url = base.clone();
     url.set_path("/settings/regions");
 
@@ -206,14 +197,15 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Duration
     if !resp.status().is_success() {
         return Err(());
     }
-    let ttl =
-        ttl_from_cache_control(resp.headers().get("cache-control").and_then(|v| v.to_str().ok()));
+    let max_age = max_age_from_cache_control(
+        resp.headers().get("cache-control").and_then(|v| v.to_str().ok()),
+    );
     let list: RegionsResponse = resp.json().await.map_err(|_| ())?;
-    Ok((normalize(list), ttl))
+    Ok((normalize(list), max_age))
 }
 
 #[cfg(all(feature = "services-async", not(feature = "services-tokio")))]
-async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Duration), ()> {
+async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
     use isahc::config::Configurable;
     use isahc::AsyncReadResponseExt;
 
@@ -229,8 +221,9 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Duration
     if !resp.status().is_success() {
         return Err(());
     }
-    let ttl =
-        ttl_from_cache_control(resp.headers().get("cache-control").and_then(|v| v.to_str().ok()));
+    let max_age = max_age_from_cache_control(
+        resp.headers().get("cache-control").and_then(|v| v.to_str().ok()),
+    );
     let list: RegionsResponse = resp.json().await.map_err(|_| ())?;
-    Ok((normalize(list), ttl))
+    Ok((normalize(list), max_age))
 }
