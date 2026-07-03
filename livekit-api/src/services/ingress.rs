@@ -72,6 +72,19 @@ impl IngressClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
+        self
+    }
+
     pub async fn create_ingress(
         &self,
         input_type: proto::IngressInput,

@@ -163,6 +163,12 @@ mod async_std {
                 self
             }
 
+            pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+                use isahc::config::Configurable;
+                self.builder = self.builder.timeout(timeout);
+                self
+            }
+
             pub async fn send(self) -> io::Result<Response> {
                 let request = self.builder.body(self.body).unwrap();
                 let response = self.client.send_async(request).await?;

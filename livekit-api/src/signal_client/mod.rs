@@ -41,10 +41,10 @@ use async_tungstenite::tungstenite::Error as WsError;
 
 use crate::{http_client, signal_client::signal_stream::SignalStream};
 
-mod region;
+mod region_url_provider;
 mod signal_stream;
 
-pub use region::RegionUrlProvider;
+pub use region_url_provider::RegionUrlProvider;
 
 pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
 pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
@@ -1307,7 +1307,7 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
         let (urls, _max_age) = result.unwrap();
         assert_eq!(
@@ -1339,7 +1339,7 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1358,7 +1358,7 @@ mod tests {
         // Try to connect to a port that's definitely not listening
         // This simulates a network-level failure
         let endpoint = "http://127.0.0.1:1/settings/regions";
-        let result = region::fetch_from_endpoint(endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(endpoint, "fake-token").await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1416,7 +1416,7 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
