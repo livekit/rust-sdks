@@ -25,8 +25,8 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --arch)
       arch="$2"
-      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
-        echo "Error: Invalid value for --arch. Must be 'x64' or 'arm64'."
+      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ] && [ "$arch" != "arm" ]; then
+        echo "Error: Invalid value for --arch. Must be 'x64', 'arm64' or 'arm'."
         exit 1
       fi
       shift 2
@@ -132,6 +132,23 @@ args="is_debug=$debug  \
   use_rtti=true \
   rtc_use_x11=true"
 
+# 32-bit ARM: armv7-a baseline, hard-float NEON (also runs on armv8 AArch32).
+if [ "$arch" = "arm" ]; then
+  args="$args \
+  arm_float_abi=\"hard\" \
+  arm_use_neon=true"
+fi
+
+# Chromium only publishes x64 Linux clang binaries. On non-x64 hosts
+# (e.g. aarch64), point CLANG_BASE_PATH at a matching LLVM release.
+OBJCOPY="src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy"
+if [ -n "$CLANG_BASE_PATH" ]; then
+  args="$args \
+  clang_base_path=\"$CLANG_BASE_PATH\" \
+  clang_use_chrome_plugins=false"
+  OBJCOPY="$CLANG_BASE_PATH/bin/llvm-objcopy"
+fi
+
 # generate ninja files
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
@@ -141,7 +158,7 @@ ninja -C "$OUTPUT_DIR" :default
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
-src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+"$OBJCOPY" --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
 # License generation is optional - may fail with some Python versions
 # Use vpython3 from depot_tools for consistent Python version

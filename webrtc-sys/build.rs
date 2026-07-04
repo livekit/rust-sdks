@@ -469,6 +469,8 @@ fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>)
         let mut arch_dir = "x86_64-linux-gnu";
         if target_arch.contains("arm64") {
             arch_dir = "aarch64-linux-gnu";
+        } else if target_arch == "arm" {
+            arch_dir = "arm-linux-gnueabihf";
         }
         let implib_file_c_name = "src/lazy_load_deps_for/".to_owned()
             + name
@@ -494,6 +496,7 @@ fn add_gio_headers(builder: &mut cc::Build) {
     let target_arch_sysroot = match target_arch.as_str() {
         "arm64" => "arm64",
         "x64" => "amd64",
+        "arm" => "armhf",
         _ => panic!("unsupported arch"),
     };
     let sysroot_path = format!("include/build/linux/debian_bullseye_{target_arch_sysroot}-sysroot");
@@ -505,6 +508,7 @@ fn add_gio_headers(builder: &mut cc::Build) {
     let arch_specific_path = match target_arch.as_str() {
         "x64" => "x86_64-linux-gnu",
         "arm64" => "aarch64-linux-gnu",
+        "arm" => "arm-linux-gnueabihf",
         _ => panic!("unsupported target"),
     };
 

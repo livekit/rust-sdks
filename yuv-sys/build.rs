@@ -236,7 +236,10 @@ fn main() {
 
     let mut bindgen = bindgen::Builder::default()
         .header(include_dir.join("libyuv.h").to_string_lossy())
-        .clang_arg(format!("-I{}", include_dir.to_str().unwrap()));
+        .clang_arg(format!("-I{}", include_dir.to_str().unwrap()))
+        // YuvConstants contains SIMD vector members whose alignment bindgen
+        // cannot mirror on 32-bit ARM; it is only ever passed by pointer.
+        .opaque_type("YuvConstants");
 
     for fnc in fnc_list {
         let new_name = format!("{}{}", FNC_PREFIX, fnc);
