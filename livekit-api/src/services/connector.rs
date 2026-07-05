@@ -13,9 +13,12 @@
 // limitations under the License.
 
 use livekit_protocol as proto;
+use pbjson_types::Duration as ProtoDuration;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use crate::services::dial_timeout::DEFAULT_RINGING_TIMEOUT;
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 const SVC: &str = "Connector";
@@ -60,6 +63,15 @@ pub struct AcceptWhatsAppCallOptions {
     pub participant_attributes: Option<HashMap<String, String>>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2
     pub destination_country: Option<String>,
+    /// Optional - Max time for the callee to answer the call
+    pub ringing_timeout: Option<Duration>,
+    /// Optional - Wait for the call to be answered before returning. When set,
+    /// the request blocks until the call is answered or fails.
+    pub wait_until_answered: Option<bool>,
+    /// Optional - Per-request timeout override. When `wait_until_answered` is
+    /// set, defaults to a longer value (dialing takes time) and is raised, if
+    /// needed, to stay above `ringing_timeout`; otherwise the client default.
+    pub timeout: Option<Duration>,
 }
 
 /// Options for connecting a Twilio call
@@ -96,6 +108,19 @@ impl ConnectorClient {
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))
+    }
+
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
+        self
     }
 
     /// Dials a WhatsApp call
@@ -223,34 +248,52 @@ impl ConnectorClient {
         sdp: proto::SessionDescription,
         options: AcceptWhatsAppCallOptions,
     ) -> ServiceResult<proto::AcceptWhatsAppCallResponse> {
-        self.client
-            .request(
-                SVC,
-                "AcceptWhatsAppCall",
-                proto::AcceptWhatsAppCallRequest {
-                    whatsapp_phone_number_id: phone_number_id.into(),
-                    whatsapp_api_key: api_key.into(),
-                    whatsapp_cloud_api_version: cloud_api_version.into(),
-                    whatsapp_call_id: call_id.into(),
-                    whatsapp_biz_opaque_callback_data: options
-                        .biz_opaque_callback_data
-                        .unwrap_or_default(),
-                    sdp: Some(sdp),
-                    room_name: options.room_name.unwrap_or_default(),
-                    agents: options.agents.unwrap_or_default(),
-                    participant_identity: options.participant_identity.unwrap_or_default(),
-                    participant_name: options.participant_name.unwrap_or_default(),
-                    participant_metadata: options.participant_metadata.unwrap_or_default(),
-                    participant_attributes: options.participant_attributes.unwrap_or_default(),
-                    destination_country: options.destination_country.unwrap_or_default(),
-                    ringing_timeout: Default::default(),
-                    wait_until_answered: Default::default(),
-                },
-                self.base
-                    .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
-            )
-            .await
-            .map_err(Into::into)
+        let wait_until_answered = options.wait_until_answered.unwrap_or(false);
+        let request = proto::AcceptWhatsAppCallRequest {
+            whatsapp_phone_number_id: phone_number_id.into(),
+            whatsapp_api_key: api_key.into(),
+            whatsapp_cloud_api_version: cloud_api_version.into(),
+            whatsapp_call_id: call_id.into(),
+            whatsapp_biz_opaque_callback_data: options.biz_opaque_callback_data.unwrap_or_default(),
+            sdp: Some(sdp),
+            room_name: options.room_name.unwrap_or_default(),
+            agents: options.agents.unwrap_or_default(),
+            participant_identity: options.participant_identity.unwrap_or_default(),
+            participant_name: options.participant_name.unwrap_or_default(),
+            participant_metadata: options.participant_metadata.unwrap_or_default(),
+            participant_attributes: options.participant_attributes.unwrap_or_default(),
+            destination_country: options.destination_country.unwrap_or_default(),
+            ringing_timeout: options.ringing_timeout.map(|d| ProtoDuration {
+                seconds: d.as_secs() as i64,
+                nanos: d.subsec_nanos() as i32,
+            }),
+            wait_until_answered,
+        };
+        let headers =
+            self.base.auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?;
+
+        // Accept can block until the call is answered, so default the request
+        // timeout to the standard ring window; the caller overrides via
+        // `options.timeout` and should set it above the ringing_timeout passed to
+        // `dial_whatsapp_call`. Without waiting, the request returns promptly and
+        // the client default applies.
+        let timeout = if wait_until_answered {
+            Some(options.timeout.unwrap_or(DEFAULT_RINGING_TIMEOUT))
+        } else {
+            options.timeout
+        };
+        match timeout {
+            Some(timeout) => self
+                .client
+                .request_with_timeout(SVC, "AcceptWhatsAppCall", request, headers, timeout)
+                .await
+                .map_err(Into::into),
+            None => self
+                .client
+                .request(SVC, "AcceptWhatsAppCall", request, headers)
+                .await
+                .map_err(Into::into),
+        }
     }
 
     /// Connects a Twilio call

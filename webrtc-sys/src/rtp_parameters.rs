@@ -53,7 +53,10 @@ pub mod ffi {
     #[derive(Debug)]
     #[repr(i32)]
     pub enum DegradationPreference {
-        Disabled,
+        /// Maintain both framerate and resolution. Frames may be dropped before encoding
+        /// if necessary to avoid overusing network and encoder resources.
+        /// Note: This was previously called `Disabled` in older WebRTC versions.
+        MaintainFramerateAndResolution,
         MaintainFramerate,
         MaintainResolution,
         Balanced,
