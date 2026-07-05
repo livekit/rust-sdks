@@ -1,0 +1,132 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::{proto, server::participant::FfiParticipant};
+use livekit::prelude::*;
+use livekit::DisconnectReason;
+use livekit::ParticipantKind;
+use livekit::ParticipantKindDetail;
+use livekit::ParticipantState;
+use livekit_protocol as livekit_proto;
+
+impl From<&FfiParticipant> for proto::ParticipantInfo {
+    fn from(value: &FfiParticipant) -> Self {
+        From::<&Participant>::from(&value.participant)
+    }
+}
+
+impl From<&Participant> for proto::ParticipantInfo {
+    fn from(participant: &Participant) -> Self {
+        // Convert permission if present
+        let permission = participant.permission().map(|p| (&p).into());
+
+        Self {
+            sid: participant.sid().into(),
+            name: participant.name(),
+            identity: participant.identity().into(),
+            state: proto::ParticipantState::from(participant.state()).into(),
+            metadata: participant.metadata(),
+            attributes: participant.attributes(),
+            kind: proto::ParticipantKind::from(participant.kind()).into(),
+            disconnect_reason: proto::DisconnectReason::from(participant.disconnect_reason())
+                .into(),
+            joined_at: participant.joined_at(),
+            kind_details: participant
+                .kind_details()
+                .into_iter()
+                .map(|k| proto::ParticipantKindDetail::from(k).into())
+                .collect(),
+            permission,
+            client_protocol: participant.client_protocol(),
+        }
+    }
+}
+
+impl From<ParticipantState> for proto::ParticipantState {
+    fn from(state: ParticipantState) -> Self {
+        match state {
+            ParticipantState::Joining => proto::ParticipantState::Joining,
+            ParticipantState::Joined => proto::ParticipantState::Joined,
+            ParticipantState::Active => proto::ParticipantState::Active,
+            ParticipantState::Disconnected => proto::ParticipantState::Disconnected,
+        }
+    }
+}
+
+impl From<ParticipantKind> for proto::ParticipantKind {
+    fn from(kind: ParticipantKind) -> Self {
+        match kind {
+            ParticipantKind::Standard => proto::ParticipantKind::Standard,
+            ParticipantKind::Sip => proto::ParticipantKind::Sip,
+            ParticipantKind::Ingress => proto::ParticipantKind::Ingress,
+            ParticipantKind::Egress => proto::ParticipantKind::Egress,
+            ParticipantKind::Agent => proto::ParticipantKind::Agent,
+            ParticipantKind::Connector => proto::ParticipantKind::Connector,
+            ParticipantKind::Bridge => proto::ParticipantKind::Bridge,
+        }
+    }
+}
+
+impl From<ParticipantKindDetail> for proto::ParticipantKindDetail {
+    fn from(kind_detail: ParticipantKindDetail) -> Self {
+        match kind_detail {
+            ParticipantKindDetail::CloudAgent => proto::ParticipantKindDetail::CloudAgent,
+            ParticipantKindDetail::Forwarded => proto::ParticipantKindDetail::Forwarded,
+            ParticipantKindDetail::ConnectorWhatsapp => {
+                proto::ParticipantKindDetail::ConnectorWhatsapp
+            }
+            ParticipantKindDetail::ConnectorTwilio => proto::ParticipantKindDetail::ConnectorTwilio,
+            ParticipantKindDetail::BridgeRtsp => proto::ParticipantKindDetail::BridgeRtsp,
+        }
+    }
+}
+
+impl From<DisconnectReason> for proto::DisconnectReason {
+    fn from(reason: DisconnectReason) -> Self {
+        match reason {
+            DisconnectReason::UnknownReason => proto::DisconnectReason::UnknownReason,
+            DisconnectReason::ClientInitiated => proto::DisconnectReason::ClientInitiated,
+            DisconnectReason::DuplicateIdentity => proto::DisconnectReason::DuplicateIdentity,
+            DisconnectReason::ServerShutdown => proto::DisconnectReason::ServerShutdown,
+            DisconnectReason::ParticipantRemoved => proto::DisconnectReason::ParticipantRemoved,
+            DisconnectReason::RoomDeleted => proto::DisconnectReason::RoomDeleted,
+            DisconnectReason::StateMismatch => proto::DisconnectReason::StateMismatch,
+            DisconnectReason::JoinFailure => proto::DisconnectReason::JoinFailure,
+            DisconnectReason::Migration => proto::DisconnectReason::Migration,
+            DisconnectReason::SignalClose => proto::DisconnectReason::SignalClose,
+            DisconnectReason::RoomClosed => proto::DisconnectReason::RoomClosed,
+            DisconnectReason::UserUnavailable => proto::DisconnectReason::UserUnavailable,
+            DisconnectReason::UserRejected => proto::DisconnectReason::UserRejected,
+            DisconnectReason::SipTrunkFailure => proto::DisconnectReason::SipTrunkFailure,
+            DisconnectReason::ConnectionTimeout => proto::DisconnectReason::ConnectionTimeout,
+            DisconnectReason::MediaFailure => proto::DisconnectReason::MediaFailure,
+            DisconnectReason::AgentError => proto::DisconnectReason::AgentError,
+        }
+    }
+}
+
+impl From<&livekit_proto::ParticipantPermission> for proto::ParticipantPermission {
+    fn from(perm: &livekit_proto::ParticipantPermission) -> Self {
+        proto::ParticipantPermission {
+            can_subscribe: perm.can_subscribe,
+            can_publish: perm.can_publish,
+            can_publish_data: perm.can_publish_data,
+            can_publish_sources: perm.can_publish_sources.clone(),
+            hidden: perm.hidden,
+            can_update_metadata: perm.can_update_metadata,
+            can_subscribe_metrics: perm.can_subscribe_metrics,
+            can_manage_agent_session: perm.can_manage_agent_session,
+        }
+    }
+}

@@ -1,0 +1,5 @@
+module MobileExample {
+    umbrella header "mobile_example.h"
+    export *
+    module * { export * }
+}

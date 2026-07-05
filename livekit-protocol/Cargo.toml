@@ -1,0 +1,13 @@
+[package]
+name = "livekit-protocol"
+version = "0.7.10"
+edition.workspace = true
+license.workspace = true
+description = "Livekit protocol and utilities for the Rust SDK"
+repository.workspace = true
+
+[dependencies]
+prost = "0.12"
+serde = { workspace = true }
+pbjson = "0.6"
+pbjson-types = "0.6"

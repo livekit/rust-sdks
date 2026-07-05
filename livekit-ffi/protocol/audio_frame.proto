@@ -1,0 +1,527 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
+
+import "handle.proto";
+import "track.proto";
+
+// Create a new AudioStream
+// AudioStream is used to receive audio frames from a track
+message NewAudioStreamRequest {
+  required uint64 track_handle = 1;
+  required AudioStreamType type = 2;
+  optional uint32 sample_rate = 3;
+  optional uint32 num_channels = 4;
+  optional string audio_filter_module_id = 5; // Unique identifier passed in LoadAudioFilterPluginRequest
+  optional string audio_filter_options = 6;
+  optional uint32 frame_size_ms = 7;
+  // Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+  // of decoded PCM audio on the receive path. Omit this field to use the
+  // default bounded queue size of 10 frames. Set it to 0 to request unbounded
+  // buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 8;
+}
+message NewAudioStreamResponse { required OwnedAudioStream stream = 1; }
+
+message AudioStreamFromParticipantRequest {
+  required uint64 participant_handle = 1;
+  required AudioStreamType type = 2;
+  optional TrackSource track_source = 3;
+  optional uint32 sample_rate = 5;
+  optional uint32 num_channels = 6;
+  optional string audio_filter_module_id = 7;
+  optional string audio_filter_options = 8;
+  optional uint32 frame_size_ms = 9;
+  // Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+  // of decoded PCM audio on the receive path. Omit this field to use the
+  // default bounded queue size of 10 frames. Set it to 0 to request unbounded
+  // buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 10;
+}
+
+message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 1; }
+
+// Create a new AudioSource
+message NewAudioSourceRequest {
+  required AudioSourceType type = 1;
+  optional AudioSourceOptions options = 2;
+  // Sample rate in Hz. Optional - defaults to 48000 if not specified.
+  // For AudioSourcePlatform: ignored, ADM uses hardware native sample rate.
+  // For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+  optional uint32 sample_rate = 3;
+  // Number of audio channels. Optional - defaults to 1 (mono) if not specified.
+  // For AudioSourcePlatform: ignored, ADM uses hardware native channels.
+  // For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+  optional uint32 num_channels = 4;
+  optional uint32 queue_size_ms = 5;
+  // For AudioSourcePlatform: the PlatformAudio handle to configure audio processing on.
+  // If provided with options, audio processing will be configured on the PlatformAudio.
+  optional uint64 platform_audio_handle = 6;
+}
+message NewAudioSourceResponse { required OwnedAudioSource source = 1; }
+
+// Push a frame to an AudioSource
+// The data provided must be available as long as the client receive the callback.
+message CaptureAudioFrameRequest {
+  required uint64 source_handle = 1;
+  required AudioFrameBufferInfo buffer = 2;
+  optional uint64 request_async_id = 3;
+}
+message CaptureAudioFrameResponse {
+  required uint64 async_id = 1;
+}
+message CaptureAudioFrameCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+}
+
+message ClearAudioBufferRequest {
+  required uint64 source_handle = 1;
+}
+message ClearAudioBufferResponse {}
+
+// Create a new AudioResampler
+message NewAudioResamplerRequest {}
+message NewAudioResamplerResponse {
+  required OwnedAudioResampler resampler = 1;
+}
+
+// Remix and resample an audio frame
+message RemixAndResampleRequest {
+  required uint64 resampler_handle = 1;
+  required AudioFrameBufferInfo buffer = 2;
+  required uint32 num_channels = 3;
+  required uint32 sample_rate = 4;
+}
+
+message RemixAndResampleResponse {
+  required OwnedAudioFrameBuffer buffer = 1;
+}
+
+// AEC
+
+
+message NewApmRequest {
+  required bool echo_canceller_enabled = 1;
+  required bool gain_controller_enabled = 2;
+  required bool high_pass_filter_enabled = 3;
+  required bool noise_suppression_enabled = 4;
+}
+message NewApmResponse {
+  required OwnedApm apm = 1;
+}
+
+message ApmProcessStreamRequest {
+  required uint64 apm_handle = 1;
+  required uint64 data_ptr = 2; // *mut i16
+  required uint32 size = 3; // in bytes
+  required uint32 sample_rate = 4;
+  required uint32 num_channels = 5;
+}
+
+message ApmProcessStreamResponse {
+  optional string error = 1;
+}
+
+message ApmProcessReverseStreamRequest {
+  required uint64 apm_handle = 1;
+  required uint64 data_ptr = 2; // *mut i16
+  required uint32 size = 3; // in bytes
+  required uint32 sample_rate = 4;
+  required uint32 num_channels = 5;
+}
+
+message ApmProcessReverseStreamResponse {
+  optional string error = 1;
+}
+
+message ApmSetStreamDelayRequest {
+  required uint64 apm_handle = 1;
+  required int32 delay_ms = 2;
+}
+
+message ApmSetStreamDelayResponse {
+  optional string error = 1;
+}
+
+
+// New resampler using SoX (much better quality)
+
+message NewSoxResamplerRequest {
+  required double input_rate = 1;
+  required double output_rate  = 2;
+  required uint32 num_channels = 3;
+  required SoxResamplerDataType input_data_type = 4;
+  required SoxResamplerDataType output_data_type = 5;
+  required SoxQualityRecipe quality_recipe = 6;
+  optional uint32 flags = 7;
+}
+message NewSoxResamplerResponse {
+  oneof message {
+    OwnedSoxResampler resampler = 1;
+    string error = 2;
+  }
+  
+}
+
+message PushSoxResamplerRequest {
+  required uint64 resampler_handle = 1;
+  required uint64 data_ptr = 2; // *const i16
+  required uint32 size = 3; // in bytes
+}
+
+message PushSoxResamplerResponse {
+  required uint64 output_ptr = 1; // *const i16 (could be null)
+  required uint32 size = 2; // in bytes
+  optional string error = 3;
+}
+
+message FlushSoxResamplerRequest {
+  required uint64 resampler_handle = 1;
+}
+
+message FlushSoxResamplerResponse {
+  required uint64 output_ptr = 1; // *const i16 (could be null)
+  required uint32 size = 2; // in bytes
+  optional string error = 3;
+}
+
+enum SoxResamplerDataType {
+  // TODO(theomonnom): support other datatypes (shouldn't really be needed)
+  SOXR_DATATYPE_INT16I = 0;
+  SOXR_DATATYPE_INT16S = 1;
+}
+
+enum SoxQualityRecipe {
+  SOXR_QUALITY_QUICK = 0;
+  SOXR_QUALITY_LOW = 1;
+  SOXR_QUALITY_MEDIUM = 2;
+  SOXR_QUALITY_HIGH = 3;
+  SOXR_QUALITY_VERYHIGH = 4;
+}
+
+enum SoxFlagBits {
+  SOXR_ROLLOFF_SMALL = 0;  // 1 << 0
+  SOXR_ROLLOFF_MEDIUM = 1; // 1 << 1
+  SOXR_ROLLOFF_NONE = 2;   // 1 << 2
+  SOXR_HIGH_PREC_CLOCK = 3; // 1 << 3
+  SOXR_DOUBLE_PRECISION = 4; // 1 << 4
+  SOXR_VR = 5; // 1 << 5
+}
+
+
+
+//
+// AudioFrame buffer
+//
+
+message AudioFrameBufferInfo {
+  required uint64 data_ptr = 1; // *const i16
+  required uint32 num_channels = 2;
+  required uint32 sample_rate = 3;
+  required uint32 samples_per_channel = 4;
+}
+
+message OwnedAudioFrameBuffer {
+  required FfiOwnedHandle handle = 1;
+  required AudioFrameBufferInfo info = 2;
+}
+
+//
+// AudioStream
+//
+
+enum AudioStreamType {
+  AUDIO_STREAM_NATIVE = 0;
+  AUDIO_STREAM_HTML = 1;
+}
+
+message AudioStreamInfo {
+  required AudioStreamType type = 1;
+}
+
+message OwnedAudioStream {
+  required FfiOwnedHandle handle = 1;
+  required AudioStreamInfo info = 2;
+}
+
+message AudioStreamEvent {
+  required uint64 stream_handle = 1;
+  oneof message { 
+    AudioFrameReceived frame_received = 2;
+    AudioStreamEOS eos = 3;
+  }
+}
+
+message AudioFrameReceived {
+  required OwnedAudioFrameBuffer frame = 1;
+}
+
+message AudioStreamEOS {}
+
+//
+// AudioSource
+//
+
+message AudioSourceOptions {
+  required bool echo_cancellation = 1;
+  required bool noise_suppression = 2;
+  required bool auto_gain_control = 3;
+  // Prefer hardware audio processing (e.g., iOS VPIO). Lower latency.
+  // Only applies to AudioSourcePlatform. Default: true.
+  optional bool prefer_hardware = 4;
+}
+
+enum AudioSourceType {
+  // Push-based audio source - manually capture frames via CaptureAudioFrameRequest
+  AUDIO_SOURCE_NATIVE = 0;
+  // Platform ADM-based audio source - captures from microphone automatically
+  // Requires PlatformAudio to be created first to enable ADM recording
+  AUDIO_SOURCE_PLATFORM = 1;
+}
+
+message AudioSourceInfo {
+  required AudioSourceType type = 2;
+}
+
+message OwnedAudioSource {
+  required FfiOwnedHandle handle = 1;
+  required AudioSourceInfo info = 2;
+}
+
+//
+// AudioResampler
+//
+
+message AudioResamplerInfo { }
+
+message OwnedAudioResampler {
+  required FfiOwnedHandle handle = 1;
+  required AudioResamplerInfo info = 2;
+}
+
+
+//
+// AEC
+//
+
+message OwnedApm {
+  required FfiOwnedHandle handle = 1;
+}
+
+//
+// Sox AudioResampler
+//
+
+
+message SoxResamplerInfo {}
+
+message OwnedSoxResampler {
+  required FfiOwnedHandle handle = 1;
+  required SoxResamplerInfo info = 2;
+}
+
+// Audio Filter Plugin
+message LoadAudioFilterPluginRequest {
+  required string plugin_path = 1;  // path for ffi audio filter plugin
+  repeated string dependencies = 2; // Optional: paths for dependency dylibs
+  required string module_id = 3;    // Unique identifier of the plugin
+}
+
+message LoadAudioFilterPluginResponse {
+  optional string error = 1;
+}
+
+//
+// PlatformAudio - Platform audio device management via WebRTC's ADM
+//
+// PlatformAudio provides access to the platform's audio devices (microphones and
+// speakers) via WebRTC's Audio Device Module (ADM). Use it to:
+//
+// - Capture audio from the microphone for publishing
+// - Play received audio through the speakers
+// - Enumerate and select audio devices
+//
+// # Usage
+//
+// 1. Create a PlatformAudio handle with NewPlatformAudioRequest
+// 2. Enumerate devices with GetAudioDevicesRequest (optional)
+// 3. Select devices with SetRecordingDeviceRequest/SetPlayoutDeviceRequest (optional)
+// 4. Create an audio track using AudioSourcePlatform type
+// 5. When done, drop the handle (the ADM is disabled when all handles are released)
+//
+
+// Information about an audio device.
+message AudioDeviceInfo {
+  // Device index (0-based). Note: indices can change when devices are added/removed.
+  required uint32 index = 1;
+  // Device name as reported by the operating system.
+  required string name = 2;
+  // Platform-specific unique device identifier (GUID).
+  // This is stable across device additions/removals and should be preferred
+  // over index for device selection. Format varies by platform:
+  // - Windows: Device interface path
+  // - macOS: AudioObjectID as string
+  // - Linux: ALSA/PulseAudio device identifier
+  optional string guid = 3;
+}
+
+// Information about a PlatformAudio instance.
+message PlatformAudioInfo {
+  // Number of available recording (microphone) devices.
+  required int32 recording_device_count = 1;
+  // Number of available playout (speaker) devices.
+  required int32 playout_device_count = 2;
+}
+
+// Owned PlatformAudio handle with info.
+message OwnedPlatformAudio {
+  required FfiOwnedHandle handle = 1;
+  required PlatformAudioInfo info = 2;
+}
+
+// Create a new PlatformAudio instance.
+//
+// This enables the platform ADM for microphone capture and speaker playout.
+// If another PlatformAudio instance exists, this reuses the same underlying ADM.
+//
+// The returned handle must be kept alive while platform audio is needed.
+// When all handles are released, the ADM is automatically disabled.
+message NewPlatformAudioRequest {}
+
+message NewPlatformAudioResponse {
+  oneof message {
+    // The PlatformAudio handle on success.
+    OwnedPlatformAudio platform_audio = 1;
+    // Error message if creation failed.
+    string error = 2;
+  }
+}
+
+// Get available audio devices.
+//
+// Returns lists of available recording (microphone) and playout (speaker) devices.
+//
+// # Platform Notes
+//
+// - Desktop (Windows/macOS/Linux): Returns all available devices with names and GUIDs.
+// - Mobile (iOS/Android): Returns only one "default" device with empty name and GUID.
+//   Device enumeration is not meaningful on mobile - use for device count only.
+message GetAudioDevicesRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message GetAudioDevicesResponse {
+  // Available playout devices (speakers/headphones).
+  repeated AudioDeviceInfo playout_devices = 1;
+  // Available recording devices (microphones).
+  repeated AudioDeviceInfo recording_devices = 2;
+  // Error message if enumeration failed, empty/absent on success.
+  optional string error = 3;
+}
+
+// Set the recording device (microphone).
+//
+// Call this before creating audio tracks to select which microphone to use.
+// Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
+//
+// # Platform Notes
+//
+// - Desktop: Works as expected - selects from enumerated devices.
+// - Mobile (iOS/Android): No-op. Mobile platforms handle microphone selection at the
+//   system level. This will succeed but has no effect. Skip calling on mobile.
+message SetRecordingDeviceRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+  // Device GUID from AudioDeviceInfo.guid - stable across device additions/removals.
+  required string device_id = 2;
+}
+
+message SetRecordingDeviceResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success (including no-op success on mobile).
+  optional string error = 1;
+}
+
+// Set the playout device (speaker/headphones).
+//
+// Call this before connecting to select which speaker to use for audio output.
+// Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
+//
+// # Platform Notes
+//
+// - Desktop: Works as expected - selects from enumerated devices.
+// - Mobile (iOS/Android): No-op. Mobile platforms handle audio routing at the system level.
+//   This will succeed but has no effect. For audio routing on mobile:
+//   - iOS: Use AVAudioSession to control speaker/earpiece/Bluetooth routing
+//   - Android: Use AudioManager.setSpeakerphoneOn() to switch outputs
+message SetPlayoutDeviceRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+  // Device GUID from AudioDeviceInfo.guid - stable across device additions/removals.
+  required string device_id = 2;
+}
+
+message SetPlayoutDeviceResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success (including no-op success on mobile).
+  optional string error = 1;
+}
+
+// Start recording from the microphone.
+//
+// Recording is started automatically when PlatformAudio is created.
+// Use this to resume recording after calling StopRecording.
+// This also turns on the system's recording privacy indicator.
+message StartRecordingRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message StartRecordingResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success.
+  optional string error = 1;
+}
+
+// Stop recording from the microphone.
+//
+// Use this to temporarily stop recording without disposing PlatformAudio.
+// This will turn off the system's recording privacy indicator (e.g., on macOS/iOS).
+// Call StartRecording to resume recording.
+message StopRecordingRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message StopRecordingResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success.
+  optional string error = 1;
+}

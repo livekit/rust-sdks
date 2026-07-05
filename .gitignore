@@ -1,4 +1,14 @@
+<<<<<<< HEAD
 target/
 models/
 .DS_Store
 .env
+=======
+target
+/.idea
+soxr-sys/test-input.wav
+soxr-sys/test-output.wav
+.DS_Store
+.env
+.cursor
+>>>>>>> ef0b36a8472308828310d7eb646a93752cb0a821

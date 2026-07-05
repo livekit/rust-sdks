@@ -1,0 +1,165 @@
+# Copyright 2023 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+    # Skip the test matrix for changes that can't possibly affect Rust
+    # compilation/tests (docs, changesets, license/notice, dependabot config).
+    # Source-only changes still trigger normally.
+    paths-ignore:
+      - "**/*.md"
+      - ".changeset/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "renovate.json"
+      - ".vscode/**"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: debug
+  # sccache stores its cache in GitHub Actions' cache backend; both rustc and
+  # C/C++ invocations route through it. RUSTC_WRAPPER is intentionally NOT set
+  # at workflow scope — the "Enable sccache" step only exports it after the
+  # backend probe succeeds, so transient outages of the GHA cache service
+  # (which return HTTP 400 and abort sccache server startup) make CI continue
+  # without sccache instead of failing the whole build.
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Platform supports is limited for tests
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    name: Test (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+        with:
+          submodules: true
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+          rustflags: ""
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # sccache wraps both rustc and the C/C++ compilers used by `cxx_build`
+      # in `webrtc-sys`. The Mozilla action installs the binary; the probe
+      # step below only enables wrapping if the GHA cache backend is reachable
+      # (it occasionally returns transient HTTP 400s that crash sccache
+      # startup — we want builds to continue, not fail, in that case).
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
+      - name: Enable sccache wrapping (probe first)
+        shell: bash
+        run: |
+          # `sccache --start-server` actually exercises the configured backend
+          # (here: GHA cache). If it fails — e.g. azure-side outage — log a
+          # warning and skip exporting RUSTC_WRAPPER / CC / CXX so the build
+          # falls back to vanilla rustc. Slower, but green.
+          if sccache --start-server >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            # All three matrix targets in tests.yml are host targets (no
+            # cross-compile), so wrapping CC/CXX is safe. Skip on Windows:
+            # MSVC `cl` setup needs more care.
+            if [ "${{ runner.os }}" != "Windows" ]; then
+              echo "CC=sccache cc"  >> "$GITHUB_ENV"
+              echo "CXX=sccache c++" >> "$GITHUB_ENV"
+            fi
+            echo "::notice::sccache enabled (RUSTC_WRAPPER=sccache)"
+          else
+            echo "::warning::sccache backend unreachable; building without compile cache this run"
+          fi
+
+      # Cache cargo's downloaded crate sources + per-target build outputs.
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo target
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-${{ matrix.target }}-
+
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt update -y
+          # libasound2-dev is needed for local_audio example
+          # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
+          sudo apt install -y \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libva-dev \
+            libdrm-dev \
+            libnvidia-decode-570 \
+            libnvidia-compute-570 \
+            nvidia-cuda-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev
+
+      - name: Run LiveKit dev server
+        uses: livekit/dev-server-action@61e2b4dcb170dd3591e0c9b0db3c3fe5db93b500
+        with:
+          github-token: ${{ github.token }}
+
+      - name: Test
+        env:
+          RUST_LOG: info
+        shell: bash
+        run: |
+          cargo test --verbose \
+            --target ${{ matrix.target }} \
+            --features __lk-e2e-test \
+            -- \
+            --nocapture \
+            --test-threads=1

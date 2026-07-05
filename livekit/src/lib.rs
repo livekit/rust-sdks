@@ -1,0 +1,46 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#![doc = include_str!("../README.md")]
+
+mod plugin;
+pub mod proto;
+mod room;
+pub mod rtc_engine;
+
+pub mod webrtc {
+    pub use libwebrtc::*;
+}
+
+pub use room::*;
+
+/// `use livekit::prelude::*;` to import livekit types
+pub mod prelude;
+
+// Platform Audio Device Module (ADM) management
+#[cfg(not(target_arch = "wasm32"))]
+mod platform_audio;
+#[cfg(not(target_arch = "wasm32"))]
+pub use platform_audio::*;
+
+#[cfg(feature = "dispatcher")]
+pub mod dispatcher {
+    pub use livekit_runtime::set_dispatcher;
+    pub use livekit_runtime::Dispatcher;
+    pub use livekit_runtime::Runnable;
+}
+
+pub use plugin::*;
+
+mod utils;

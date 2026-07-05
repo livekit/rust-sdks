@@ -1,0 +1,10 @@
+[package]
+name = "webhooks"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+hyper = { version = "0.14", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }

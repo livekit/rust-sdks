@@ -1,0 +1,23 @@
+[package]
+name = "mobile"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+futures = { workspace = true }
+lazy_static = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+log = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21.1"
+android_logger = "0.13.1"
+
+[build-dependencies]
+webrtc-sys-build = { workspace = true }
+
+[lib]
+crate-type = ["cdylib"]

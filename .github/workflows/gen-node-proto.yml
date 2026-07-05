@@ -1,0 +1,66 @@
+name: Generate FFI Proto (Node)
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - livekit-ffi/**
+      - livekit-ffi-node-bindings/**
+      - Cargo.lock
+      - Cargo.toml
+      - .github/**
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_DIR: ./livekit-ffi-node-bindings
+
+jobs:
+  generate_protobuf:
+    runs-on: ubuntu-latest
+    name: Generating protobuf
+    defaults:
+      run:
+        working-directory: ${{ env.PACKAGE_DIR }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          version: "25.1"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
+
+      - name: Setup node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
+
+      - run: pnpm install
+
+      - name: generate JS stubs
+        run: ./generate_proto.sh
+
+      - name: Add changes
+        uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
+        with:
+          add: '["livekit-ffi-node-bindings/proto"]'
+          default_author: github_actions
+          message: generated protobuf

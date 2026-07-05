@@ -1,0 +1,219 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
+
+import "handle.proto";
+import "track.proto";
+
+// Create a new VideoStream
+// VideoStream is used to receive video frames from a track
+message NewVideoStreamRequest {
+  required uint64 track_handle = 1;
+  required VideoStreamType type = 2;
+  // Get the frame on a specific format
+  optional VideoBufferType format = 3;
+  optional bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
+  // Maximum number of queued WebRTC sink frames on the receive path. Omit this
+  // field to use the default bounded queue size of 1 frame. Set it to 0 to
+  // request unbounded buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 5;
+}
+message NewVideoStreamResponse { required OwnedVideoStream stream = 1; }
+
+// Request a video stream from a participant
+message VideoStreamFromParticipantRequest {
+  required uint64 participant_handle = 1;
+  required VideoStreamType type = 2;
+  required TrackSource track_source = 3;
+  optional VideoBufferType format = 4;
+  optional bool normalize_stride = 5;
+  // Maximum number of queued WebRTC sink frames on the receive path. Omit this
+  // field to use the default bounded queue size of 1 frame. Set it to 0 to
+  // request unbounded buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 6;
+}
+
+message VideoStreamFromParticipantResponse { required OwnedVideoStream stream = 1;}
+
+// Create a new VideoSource
+// VideoSource is used to send video frame to a track
+message NewVideoSourceRequest {
+  required VideoSourceType type = 1;
+  // Used to determine which encodings to use + simulcast layers
+  // Most of the time it corresponds to the source resolution
+  required VideoSourceResolution resolution = 2;
+  optional bool is_screencast = 3;
+}
+message NewVideoSourceResponse { required OwnedVideoSource source = 1; }
+
+// Push a frame to a VideoSource
+message CaptureVideoFrameRequest {
+  required uint64 source_handle = 1;
+  required VideoBufferInfo buffer = 2;
+  required int64 timestamp_us = 3; // In microseconds
+  required VideoRotation rotation = 4;
+  optional FrameMetadata metadata = 5;
+}
+
+message CaptureVideoFrameResponse {}
+
+message VideoConvertRequest {
+  optional bool flip_y = 1;
+  required VideoBufferInfo buffer = 2;
+  required VideoBufferType dst_type = 3;
+}
+message VideoConvertResponse {
+  oneof message {
+    string error = 1;
+    OwnedVideoBuffer buffer = 2; 
+  }
+}
+
+//
+// VideoFrame buffers
+//
+
+message VideoResolution {
+  required uint32 width = 1;
+  required uint32 height = 2;
+  required double frame_rate = 3;
+}
+
+enum VideoCodec {
+  VP8 = 0;
+  H264 = 1;
+  AV1 = 2;
+  VP9 = 3;
+  H265 = 4;
+}
+
+enum VideoRotation {
+  VIDEO_ROTATION_0 = 0;
+  VIDEO_ROTATION_90 = 1;
+  VIDEO_ROTATION_180 = 2;
+  VIDEO_ROTATION_270 = 3;
+}
+
+// Values of this enum must not be changed
+// It is used to serialize a rtc.VideoFrame on Python
+enum VideoBufferType {
+  RGBA = 0;
+  ABGR = 1;
+  ARGB = 2;
+  BGRA = 3;
+  RGB24 = 4;
+  I420 = 5;
+  I420A = 6;
+  I422 = 7;
+  I444 = 8;
+  I010 = 9;
+  NV12 = 10;
+}
+
+message VideoBufferInfo {
+  message ComponentInfo {
+    required uint64 data_ptr = 1;
+    required uint32 stride = 2;
+    required uint32 size = 3;
+  }
+  required VideoBufferType type = 1;
+  required uint32 width = 2;
+  required uint32 height = 3;
+  required uint64 data_ptr = 4;
+  optional uint32 stride = 6; // only for packed formats
+  repeated ComponentInfo components = 7;
+}
+
+message OwnedVideoBuffer {
+  required FfiOwnedHandle handle = 1;
+  required VideoBufferInfo info = 2;
+}
+
+message FrameMetadata {
+  optional uint64 user_timestamp = 1;
+  optional uint32 frame_id = 2;
+  optional bytes user_data = 3;
+}
+
+//
+// VideoStream
+//
+
+enum VideoStreamType {
+  VIDEO_STREAM_NATIVE = 0;
+  VIDEO_STREAM_WEBGL = 1;
+  VIDEO_STREAM_HTML = 2;
+}
+
+message VideoStreamInfo {
+  required VideoStreamType type = 1;
+}
+
+message OwnedVideoStream {
+  required FfiOwnedHandle handle = 1;
+  required VideoStreamInfo info = 2;
+}
+
+message VideoStreamEvent {
+  required uint64 stream_handle = 1;
+  oneof message { 
+    VideoFrameReceived frame_received = 2;
+    VideoStreamEOS eos = 3;
+  }
+}
+
+message VideoFrameReceived {
+  required OwnedVideoBuffer buffer = 1;
+  required int64 timestamp_us = 2; // In microseconds
+  required VideoRotation rotation = 3;
+  optional FrameMetadata metadata = 4;
+}
+
+message VideoStreamEOS {}
+
+//
+// VideoSource
+//
+
+message VideoSourceResolution {
+  required uint32 width = 1;
+  required uint32 height = 2;
+}
+
+enum VideoSourceType {
+  VIDEO_SOURCE_NATIVE = 0;
+}
+
+message VideoSourceInfo {
+  required VideoSourceType type = 1;
+}
+
+message OwnedVideoSource {
+  required FfiOwnedHandle handle = 1;
+  required VideoSourceInfo info = 2;
+}

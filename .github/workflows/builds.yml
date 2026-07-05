@@ -1,0 +1,167 @@
+# Copyright 2023 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Builds
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - ".changeset/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "renovate.json"
+      - ".vscode/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # sccache caches rustc invocations across runs (key: source hash + flags).
+  # RUSTC_WRAPPER is intentionally NOT set at workflow scope — see the probe
+  # step below for why (transient GHA cache backend errors should not fail
+  # the whole build). We do NOT wrap CC/CXX in this workflow because the
+  # matrix includes cross-compile targets (iOS, Android, Windows-arm64)
+  # where wrapping is fragile.
+  SCCACHE_GHA_ENABLED: "true"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-ios
+          - os: macos-latest
+            target: aarch64-apple-ios-sim
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            ndk_arch: aarch64-unknown-linux-musl
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+            ndk_arch: arm-unknown-linux-musleabihf
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+            ndk_arch: x86_64-unknown-linux-musl
+
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'}}
+        run: |
+          sudo apt update -y
+          # libasound2-dev is needed for local_audio example
+          # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
+          # lld is needed on aarch64 because GNU ld cannot link libwebrtc.a for some reason
+          sudo apt install -y \
+            lld \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev
+
+      - name: Install VA-API/NVIDIA drivers for linux x64 build
+        if: ${{ matrix.os == 'ubuntu-latest'}}
+        run: |
+          sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+          rustflags: ""
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # v0.0.10
+
+      - name: Enable sccache wrapping (probe first)
+        shell: bash
+        run: |
+          # Probe the GHA cache backend by starting the sccache server. If it
+          # fails (transient HTTP 400 from actions.githubusercontent.com has
+          # been seen in practice), skip exporting RUSTC_WRAPPER so the build
+          # falls back to vanilla rustc instead of erroring out.
+          if sccache --start-server >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            echo "::notice::sccache enabled (RUSTC_WRAPPER=sccache)"
+          else
+            echo "::warning::sccache backend unreachable; building without compile cache this run"
+          fi
+
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo target
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-${{ matrix.target }}-
+
+      - name: Build (Cargo)
+        if: ${{ !contains(matrix.target, 'android') }}
+        run: |
+          cargo build --release --workspace -p livekit --target ${{ matrix.target }}
+
+      - name: Build (Android)
+        if: ${{ contains(matrix.target, 'android') }}
+        run: |
+          cargo install cargo-ndk
+          # FIXME: wgpu_room does not link on aarch64
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv

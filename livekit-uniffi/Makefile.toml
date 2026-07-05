@@ -1,0 +1,614 @@
+# Copyright 2025 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[env]
+PACKAGES_DIR = "./packages"
+SUPPORT_DIR = "./support"
+LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
+TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
+SPM_NAME = "LiveKitUniFFI"
+NPM_NAME = "@livekit/uniffi"
+
+# Base URL for downloading release builds of the cdylib.
+# Currently, it is assumed the archives will be named "ffi-<platform>-<arch>.zip".
+CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/example/releases/download/example/build"
+
+[config]
+skip_core_tasks = true
+
+# MARK: - Build
+
+[tasks.build.env.TARGET]
+value = "${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+condition = { env_not_set = ["TARGET"] }
+# Set to target triple of the current platform if not explicitly set.
+
+[tasks.build]
+clear = true
+script_runner = "@duckscript"
+script = """
+echo "TARGET: ${TARGET}"
+
+if not ${TIER_3}
+    # Ensure target is installed
+    exec rustup target add ${TARGET}
+    exec cargo build --release --target ${TARGET}
+else
+    # Ensure nightly toolchain is installed
+    exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+    exec cargo +nightly build -Zbuild-std=std,panic_abort --release --target ${TARGET}
+end
+"""
+
+[tasks.android-shared]
+private = true
+
+[tasks.android-shared.env]
+ANDROID_CARGO_OUT_DIR = { source = "${CARGO_MAKE_PROFILE}", mapping = { development = "debug", release = "release", default = "debug" } }
+ANDROID_AAR_BASENAME = "livekit-uniffi-android-release"
+
+[tasks.build-android]
+extend = "android-shared"
+install_crate = { crate_name = "cargo-ndk", binary = "cargo-ndk", test_arg = "--help" }
+script_runner = "@shell"
+script = """
+echo "TARGET: ${TARGET}"
+rustup target add "${TARGET}"
+cargo ndk --target "${TARGET}" build ${ANDROID_RELEASE_FLAG}
+"""
+
+[tasks.build-android.env]
+ANDROID_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
+RUSTFLAGS = { value = "-C force-unwind-tables=no", condition = { profiles = ["release"] } }
+
+# MARK: - Build, specific platforms
+
+[tasks.build-windows-x64]
+extend = "build"
+env = { TARGET = "x86_64-pc-windows-msvc" }
+
+[tasks.build-windows-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-pc-windows-msvc" }
+
+[tasks.build-linux-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-unknown-linux-gnu" }
+
+[tasks.build-linux-x64]
+extend = "build"
+env = { TARGET = "x86_64-unknown-linux-gnu" }
+
+[tasks.build-android-aarch64]
+private = false
+extend = "build-android"
+env = { TARGET = "aarch64-linux-android" }
+
+[tasks.build-android-armv7]
+private = false
+extend = "build-android"
+env = { TARGET = "armv7-linux-androideabi" }
+
+[tasks.build-android-x64]
+private = false
+extend = "build-android"
+env = { TARGET = "x86_64-linux-android" }
+
+# MARK: - Build, platform groups
+
+[tasks.build-windows-platforms]
+description = "Build for Windows"
+dependencies = [
+    "build-windows-x64",
+    "build-windows-aarch64"
+]
+
+[tasks.build-android-platforms]
+description = "Build for Android"
+dependencies = [
+    "build-android-aarch64",
+    "build-android-armv7",
+    "build-android-x64"
+]
+
+[tasks.build-linux-platforms]
+description = "Build for generic Linux and Android"
+dependencies = [
+    "build-linux-aarch64",
+    "build-linux-x64"
+]
+
+# MARK: - Bindgen common
+
+[tasks.locate-lib.env.LIB_EXT]
+source = "${CARGO_MAKE_RUST_TARGET_OS}"
+mapping = { linux = "so", macos = "dylib", windows = "dll" }
+
+[tasks.locate-lib]
+private = true
+script_runner = "@duckscript"
+script = """
+path = join_path ${TARGET_DIR} ${TARGET} release/ ${LIB_NAME}.${LIB_EXT}
+set_env LIB_PATH "${path}"
+"""
+
+[tasks.uniffi-bindgen]
+private = true
+description = "Generate bindings for core UniFFI languages"
+dependencies = ["build", "locate-lib"]
+script_runner = "@duckscript"
+script = """
+out_dir = join_path ${PACKAGES_DIR} ${LANG}
+exec cargo run --bin uniffi-bindgen generate \
+    --language ${LANG} \
+    --out-dir ${out_dir} \
+    --library ${LIB_PATH}
+"""
+
+[tasks.tera]
+private = true
+install_crate = { crate_name = "teracli", binary = "tera", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/chevdor/tera-cli"]
+command = "tera"
+
+[tasks.bindgen]
+dependencies = [
+    "bindgen-kotlin",
+    "bindgen-python"
+]
+
+# MARK: - Kotlin
+
+[tasks.bindgen-kotlin]
+private = false
+extend = "uniffi-bindgen"
+env = { LANG = "kotlin" }
+
+# MARK: - Python
+
+[tasks.bindgen-python]
+private = false
+extend = "uniffi-bindgen"
+env = { LANG = "python" }
+
+# MARK: - Node
+
+[tasks.node-bindgen]
+private = true
+dependencies = ["build", "locate-lib"]
+env = { CARGO_NET_GIT_FETCH_WITH_CLI = true }
+install_crate = { crate_name = "uniffi-bindgen-node", binary = "uniffi-bindgen-node", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/livekit/uniffi-bindgen-node.git"]
+command = "uniffi-bindgen-node"
+args = [
+    "--out-dir", "${PACKAGES_DIR}/${LANG}",
+    "--out-dirname-api", "import-meta-url",
+    "--out-node-version", "^18",
+    "--out-verbose-logs",
+    "--crate-name", "${CARGO_MAKE_CRATE_FS_NAME}",
+    "${LIB_PATH}"
+]
+
+[tasks.node-format]
+private = true
+command = "npx"
+args = [
+    "--yes",
+    "prettier",
+    "--write", "${PACKAGES_DIR}/${LANG}"
+]
+
+[tasks.node-move-code-into-src]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/src
+mv ${PACKAGES_DIR}/${LANG}/*.ts ${PACKAGES_DIR}/${LANG}/src
+"""
+
+[tasks.node-generate-manifest]
+private = true
+extend = "tera"
+args = [
+    "--env",
+    "-t", "${SUPPORT_DIR}/${LANG}/package.json.tera",
+    "-o", "${PACKAGES_DIR}/${LANG}/package.json",
+    "${PACKAGES_DIR}/${LANG}/package.json"
+    # Provide original package.json as input
+]
+
+[tasks.node-copy-support-files]
+private = true
+script_runner = "@shell"
+script = """
+cp ${SUPPORT_DIR}/${LANG}/tsconfig.json ${PACKAGES_DIR}/${LANG}/tsconfig.json
+cp ${SUPPORT_DIR}/${LANG}/tsup.config.ts ${PACKAGES_DIR}/${LANG}/tsup.config.ts
+"""
+
+[tasks.node-generate-downloader]
+private = true
+condition = { profiles = ["release"] }
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/download-lib.ts.tera", "-o", "${PACKAGES_DIR}/${LANG}/download-lib.ts"]
+
+[tasks.node-link-lib]
+private = true
+condition = { profiles = ["development"] }
+script_runner = "@shell"
+script = """
+ln -sf ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/src
+"""
+
+[tasks.node-package-flow]
+private = true
+dependencies = [
+    "node-bindgen",
+    "node-move-code-into-src",
+    "node-generate-manifest",
+    "node-generate-downloader",
+    "node-copy-support-files",
+    "node-format",
+    "node-link-lib"
+]
+
+[tasks.node-package]
+env = { LANG = "node" }
+run_task = "node-package-flow"
+
+# MARK: - Swift
+#
+# Output: ${PACKAGES_DIR}/swift/${SPM_NAME}/ ready to publish.
+#
+# Debugging:   cargo make swift-package-debug
+#              → Package.swift uses local `.xcframework` path; unstripped debug
+#                dylib for Rust-side debugging (see support/swift/DEBUGGING.md).
+#                macos-only by default; SPM_PLATFORMS overrides, or run
+#                `cargo make swift-package` for all Apple platforms.
+#
+# Release:     SPM_VERSION=0.1.0 cargo make --profile release swift-package
+#              → Package.swift uses release URL + checksum; zip + podspec generated.
+
+[tasks.swift-xcframework.env]
+SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
+# `--debug-symbols` embeds .dSYM bundles into the xcframework; only meaningful
+# alongside --release where the dylib is stripped and a sidecar carries DWARF.
+# (Named SWIFT_DSYMS_* rather than SWIFT_DEBUG_SYMBOLS_* because tera-cli's
+# --env mode warns on any env var matching SWIFT_DEBUG_*.)
+SWIFT_DSYMS_FLAG = { value = "--debug-symbols", condition = { profiles = ["release"] } }
+# Apple-only debug-info knobs. Cargo treats these env vars as profile.release
+# overrides. Scoped to this task so other release builds (FFI, node bindings,
+# Linux/Windows/Android) remain on the lean Cargo.toml profile.
+# `split-debuginfo = "packed"` triggers dsymutil → produces .dSYM bundles next
+# to each per-arch .dylib at target/<arch>/release/deps/lib<name>.dylib.dSYM.
+CARGO_PROFILE_RELEASE_DEBUG = { value = "limited", condition = { profiles = ["release"] } }
+CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO = { value = "packed", condition = { profiles = ["release"] } }
+# Space-separated platform list, overridable for partial builds (e.g. the
+# macos-only debug flow below).
+SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { env_not_set = ["SPM_PLATFORMS"] } }
+
+[tasks.swift-xcframework]
+private = true
+install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "f94e76675b9524e71be028c4b03a51163d6a5c28"]
+script_runner = "@shell"
+script = """
+export IPHONEOS_DEPLOYMENT_TARGET=13.0
+export MACOSX_DEPLOYMENT_TARGET=10.15
+export TVOS_DEPLOYMENT_TARGET=17.0
+export XROS_DEPLOYMENT_TARGET=26.0
+export CFLAGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios14.0-macabi"
+export CFLAGS_aarch64_apple_ios_macabi="--target=aarch64-apple-ios14.0-macabi"
+
+platform_flags=""
+for p in ${SPM_PLATFORMS}; do
+  platform_flags="$platform_flags --platforms $p"
+done
+
+cargo swift package \
+--accept-all \
+--name ${SPM_NAME} \
+$platform_flags \
+--lib-type dynamic \
+--privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
+--exclude-arch x86_64-apple-tvos \
+${SWIFT_RELEASE_FLAG} \
+${SWIFT_DSYMS_FLAG}
+"""
+
+# Print a size breakdown of the iPhone-arm64 framework binary (the slice that
+# actually ships to end users) using bloaty. Runs right before the size gate
+# so a failing gate ends with the diagnostic already in the log — no need to
+# rerun anything to find out who got fat. Uses the .dSYM we just embedded for
+# per-crate attribution; without it bloaty still prints sections + symbols.
+[tasks.swift-bloat]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+bin="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/Rust${SPM_NAME}.framework/Rust${SPM_NAME}"
+dsym="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/dSYMs/Rust${SPM_NAME}.framework.dSYM/Contents/Resources/DWARF/Rust${SPM_NAME}"
+
+if ! command -v bloaty >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "swift-bloat: installing bloaty via brew..."
+    brew install --quiet bloaty >/dev/null || true
+  fi
+fi
+if ! command -v bloaty >/dev/null 2>&1; then
+  echo "swift-bloat: bloaty unavailable, skipping size breakdown (brew install bloaty)."
+  exit 0
+fi
+
+dsym_arg=""
+[ -f "${dsym}" ] && dsym_arg="--debug-file=${dsym}"
+
+for view in sections compileunits symbols; do
+  echo
+  echo "=== Rust${SPM_NAME} (ios-arm64) — bloaty -d ${view} ==="
+  bloaty "${bin}" ${dsym_arg} -d "${view}" -n 15 || true
+done
+echo
+"""
+
+# Enforce a size budget on the framework binary an iPhone user actually
+# downloads. The ios-arm64 slice is single-arch and matches App Store Connect's
+# thinning output for ~95% of consumers, so it's the most meaningful proxy
+# for "how much does this dep cost an end user". Universal/simulator slices
+# are ~2× larger by construction (two archs in one Mach-O) and shouldn't be
+# the metric. Override the limit per release with SPM_SIZE_LIMIT_BYTES.
+[tasks.swift-check-size.env]
+SPM_SIZE_LIMIT_BYTES = { value = "723467", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
+
+[tasks.swift-check-size]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+binary="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/Rust${SPM_NAME}.framework/Rust${SPM_NAME}"
+
+if [ ! -f "${binary}" ]; then
+  echo "swift-check-size: framework binary not found at ${binary}" >&2
+  exit 1
+fi
+
+bytes=$(stat -f%z "${binary}")
+limit=${SPM_SIZE_LIMIT_BYTES}
+
+# Trailing decimal trick avoids depending on numfmt (not in macOS base).
+kib=$((bytes / 1024))
+limit_kib=$((limit / 1024))
+
+if [ "${bytes}" -gt "${limit}" ]; then
+  echo "swift-check-size: Rust${SPM_NAME} (ios-arm64) is ${kib} KiB (${bytes} bytes), exceeds limit ${limit_kib} KiB (${limit} bytes)." >&2
+  echo "  Either land the size regression intentionally and bump SPM_SIZE_LIMIT_BYTES, or investigate (cargo bloat, panic = abort, opt-level)." >&2
+  exit 1
+fi
+
+echo "Rust${SPM_NAME} (ios-arm64) ${kib} KiB / ${limit_kib} KiB budget"
+"""
+
+# Zip the xcframework and stash the SHA256 next to it so swift-generate-manifest
+# can pick it up. Only runs in release profile — the debugging flow points at
+# the unzipped xcframework directly.
+[tasks.swift-zip-xcframework]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+cd ${SPM_NAME}
+zip -r --symlinks Rust${SPM_NAME}.xcframework.zip Rust${SPM_NAME}.xcframework
+shasum -a 256 Rust${SPM_NAME}.xcframework.zip | awk '{print $1}' > .checksum
+echo "Rust${SPM_NAME}.xcframework.zip checksum: $(cat .checksum)"
+"""
+
+[tasks.swift-generate-manifest.env]
+# Caller sets SPM_VERSION for release publishing. Hosting repo defaults to the
+# canonical LiveKit one; override if forking. The condition makes these
+# defaults only — caller-set values from the environment take precedence.
+SPM_VERSION = { value = "0.0.0-dev", condition = { env_not_set = ["SPM_VERSION"] } }
+SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework", condition = { env_not_set = ["SPM_HOSTING_REPO"] } }
+
+[tasks.swift-generate-manifest]
+private = true
+install_crate = { crate_name = "tera-cli", binary = "tera", test_arg = "--version" }
+script_runner = "@shell"
+script = """
+# Derive URL and read the checksum produced by swift-zip-xcframework. In dev
+# profile the .checksum file is absent and these aren't substituted into the
+# template (the path: branch is used instead), so dummy values are fine.
+export SPM_URL="https://github.com/${SPM_HOSTING_REPO}/releases/download/${SPM_VERSION}/Rust${SPM_NAME}.xcframework.zip"
+if [ -f ${SPM_NAME}/.checksum ]; then
+  export SPM_CHECKSUM=$(cat ${SPM_NAME}/.checksum)
+else
+  export SPM_CHECKSUM="0000000000000000000000000000000000000000000000000000000000000000"
+fi
+
+tera --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
+tera --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera > ${SPM_NAME}/Package@swift-6.2.swift
+tera --env --file ${SUPPORT_DIR}/${LANG}/${SPM_NAME}.podspec.tera > ${SPM_NAME}/${SPM_NAME}.podspec
+cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${SPM_NAME}/LICENSE
+rm -f ${SPM_NAME}/.checksum
+"""
+
+[tasks.swift-move-to-packages]
+private = true
+script_runner = "@shell"
+script = """
+out_dir="${PACKAGES_DIR}/${LANG}"
+rm -rf "${out_dir}"
+mkdir -p "${out_dir}"
+mv "${SPM_NAME}" "${out_dir}"
+"""
+
+[tasks.swift-package-flow]
+private = true
+dependencies = [
+    "swift-xcframework",
+    "swift-bloat",
+    "swift-check-size",
+    "swift-zip-xcframework",
+    "swift-generate-manifest",
+    "swift-move-to-packages"
+]
+
+[tasks.swift-package]
+description = "Generate Swift package using cargo-swift"
+env = { LANG = "swift" }
+run_task = "swift-package-flow"
+
+# Same flow as `swift-package`, restricted to macos by default — a debug
+# (unstripped, full-DWARF) dylib in seconds, no nightly toolchains. For
+# debugging the Rust side from Swift consumers; see support/swift/DEBUGGING.md.
+# Development profile only (enforced — in release it would silently produce a
+# stripped dylib labeled "debug").
+#
+#   cargo make swift-package-debug
+#   SPM_PLATFORMS="macos ios" cargo make swift-package-debug
+
+[tasks.swift-package-debug.env]
+LANG = "swift"
+SPM_PLATFORMS = { value = "macos", condition = { env_not_set = ["SPM_PLATFORMS"] } }
+
+[tasks.swift-package-debug]
+description = "Generate Swift package with a debug (unstripped) xcframework, default macos-only"
+condition = { profiles = ["development"], fail_message = "swift-package-debug is development-profile only; for release builds use `SPM_VERSION=x.y.z cargo make --profile release swift-package`" }
+run_task = "swift-package-flow"
+
+# MARK: - Android
+#
+# Output: ${PACKAGES_DIR}/android/livekit-uniffi-android-release.aar
+#
+# Debugging:   cargo make android-package
+#              → debug .so files packaged into the release AAR (unstripped Rust
+#                libs for local iteration).
+#
+# Release:     cargo make --profile release android-package
+#              → release .so files, size gate, release AAR for publishing.
+#
+# Local Maven: cargo make android-package-local
+#              → same AAR flow, published to ~/.m2/repository (Maven Local).
+
+# Enforce a size budget on the arm64-v8a native library an Android user actually
+# downloads. arm64-v8a is the primary shipping arch, so it's the most meaningful 
+# proxy for "how much does this dep cost an end user".
+# Measured on the stripped .so inside the release AAR (AGP strips debug symbols
+# during assemble; the raw target/ artifact is larger and not what ships).
+# Override the limit per release with ANDROID_SIZE_LIMIT_BYTES.
+[tasks.android-check-size.env]
+ANDROID_SIZE_LIMIT_BYTES = { value = "877918", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
+
+[tasks.android-check-size]
+extend = "android-shared"
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+aar="${SUPPORT_DIR}/android/build/outputs/aar/${ANDROID_AAR_BASENAME}.aar"
+
+if [ ! -f "${aar}" ]; then
+  echo "android-check-size: release AAR not found at ${aar}" >&2
+  exit 1
+fi
+
+bytes=$(unzip -l "${aar}" | awk '$4 ~ /jni\\/arm64-v8a\\/.*\\.so$/ { print $1; exit }')
+if [ -z "${bytes}" ]; then
+  echo "android-check-size: arm64-v8a .so not found in ${aar}" >&2
+  exit 1
+fi
+
+limit=${ANDROID_SIZE_LIMIT_BYTES}
+
+kib=$((bytes / 1024))
+limit_kib=$((limit / 1024))
+
+if [ "${bytes}" -gt "${limit}" ]; then
+  echo "android-check-size: ${LIB_NAME} (arm64-v8a) is ${kib} KiB (${bytes} bytes), exceeds limit ${limit_kib} KiB (${limit} bytes)." >&2
+  echo "  Either land the size regression intentionally and bump ANDROID_SIZE_LIMIT_BYTES, or investigate (cargo bloat, panic = abort, opt-level)." >&2
+  exit 1
+fi
+
+echo "${LIB_NAME} (arm64-v8a) ${kib} KiB / ${limit_kib} KiB budget"
+"""
+
+[tasks.android-copy-jniLibs]
+extend = "android-shared"
+private = true
+description = "Copy Android .so files into support/android jniLibs"
+script_runner = "@shell"
+script = """
+JNI_LIBS="${SUPPORT_DIR}/android/src/main/jniLibs"
+cp "${TARGET_DIR}/aarch64-linux-android/${ANDROID_CARGO_OUT_DIR}/${LIB_NAME}.so" "${JNI_LIBS}/arm64-v8a/"
+cp "${TARGET_DIR}/armv7-linux-androideabi/${ANDROID_CARGO_OUT_DIR}/${LIB_NAME}.so" "${JNI_LIBS}/armeabi-v7a/"
+cp "${TARGET_DIR}/x86_64-linux-android/${ANDROID_CARGO_OUT_DIR}/${LIB_NAME}.so" "${JNI_LIBS}/x86_64/"
+"""
+
+[tasks.android-assemble]
+extend = "android-shared"
+private = true
+description = "Build the AAR from support/android"
+script_runner = "@shell"
+script = """
+cd "${SUPPORT_DIR}/android"
+./gradlew assembleRelease
+echo "AAR: ${SUPPORT_DIR}/android/build/outputs/aar/${ANDROID_AAR_BASENAME}.aar"
+"""
+
+[tasks.android-copy-to-packages]
+extend = "android-shared"
+private = true
+description = "Copy the AAR into packages/android"
+script_runner = "@shell"
+script = """
+out_dir="${PACKAGES_DIR}/android"
+aar="${SUPPORT_DIR}/android/build/outputs/aar/${ANDROID_AAR_BASENAME}.aar"
+mkdir -p "${out_dir}"
+cp "${aar}" "${out_dir}/"
+echo "AAR: ${out_dir}/${ANDROID_AAR_BASENAME}.aar"
+"""
+
+[tasks.android-package-flow]
+private = true
+dependencies = [
+    "build-android-platforms",
+    "bindgen-kotlin",
+    "android-copy-jniLibs",
+    "android-assemble",
+    "android-check-size",
+    "android-copy-to-packages",
+]
+
+[tasks.android-package]
+description = "Build Android AAR with native libs and Kotlin bindings"
+run_task = "android-package-flow"
+
+[tasks.android-publish-maven-local]
+private = true
+description = "Publish the release AAR to the local Maven repository (~/.m2/repository)"
+script_runner = "@shell"
+script = """
+cd "${SUPPORT_DIR}/android"
+./gradlew publishToMavenLocal -PRELEASE_SIGNING_ENABLED=false
+version="$(grep '^VERSION_NAME=' gradle.properties | cut -d= -f2)"
+group="$(grep '^GROUP=' gradle.properties | cut -d= -f2)"
+artifact="$(grep '^POM_ARTIFACT_ID=' gradle.properties | cut -d= -f2)"
+echo "Published to local Maven: ${group}:${artifact}:${version}"
+"""
+
+[tasks.android-package-local]
+description = "Build Android AAR with native libs and Kotlin bindings; publish to local Maven"
+dependencies = ["android-package-flow"]
+run_task = "android-publish-maven-local"
+
+# Add other bindgen tasks here, following the same pattern
+# as above for the task name (e.g., "bindgen-<lang>").

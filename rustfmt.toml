@@ -1,0 +1,12 @@
+# Uncomment these when they become stabilized by Rust
+#comment_width = 100
+#doc_comment_code_block_width = 100
+#format_code_in_doc_comments = true
+#group_imports = "StdExternalCrate"
+#imports_granularity = "Crate"
+#wrap_comments = true
+
+max_width = 100
+use_small_heuristics = "Max"
+# Workaround for https://github.com/rust-lang/rust.vim/issues/464
+edition = "2021"

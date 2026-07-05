@@ -1,0 +1,6 @@
+# Optimize for size on mobile
+[profile.release]
+lto = true
+opt-level = "z"
+strip = true
+rpath = true
