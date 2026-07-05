@@ -22,6 +22,7 @@
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
 #include "livekit/helper.h"
+#include "livekit/encoded_video_frame_buffer.h"
 #include "livekit/media_stream_track.h"
 #include "livekit/video_frame.h"
 #include "livekit/webrtc.h"
@@ -111,6 +112,10 @@ class VideoTrackSource {
     std::shared_ptr<std::atomic<bool>> keyframe_request_flag() const {
       return keyframe_request_flag_;
     }
+    std::shared_ptr<livekit::EncodedRateControlState> rate_control_state()
+        const {
+      return rate_control_state_;
+    }
 
    private:
     mutable webrtc::Mutex mutex_;
@@ -119,6 +124,8 @@ class VideoTrackSource {
     std::shared_ptr<PacketTrailerHandler> packet_trailer_handler_;
     std::shared_ptr<std::atomic<bool>> keyframe_request_flag_ =
         std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<livekit::EncodedRateControlState> rate_control_state_ =
+        std::make_shared<livekit::EncodedRateControlState>();
     bool is_screencast_;
   };
 
@@ -151,6 +158,7 @@ class VideoTrackSource {
   // pass-through encoder (PLI/FIR or post-reconfigure). Poll from the
   // capture loop.
   bool take_keyframe_request() const;
+  EncodedRateControlRequest take_rate_control_request() const;
 
   void set_packet_trailer_handler(
       std::shared_ptr<PacketTrailerHandler> handler) const;

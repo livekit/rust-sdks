@@ -306,7 +306,7 @@ bool VideoTrackSource::capture_encoded_frame(
       width, height, ToNativeEncodedCodec(encoded_frame.codec),
       ToNativeEncodedFrameType(encoded_frame.frame_type),
       webrtc::EncodedImageBuffer::Create(payload.data(), payload.size()),
-      source_->keyframe_request_flag());
+      source_->keyframe_request_flag(), source_->rate_control_state());
 
   auto frame = webrtc::VideoFrame::Builder()
                    .set_video_frame_buffer(std::move(buffer))
@@ -320,6 +320,13 @@ bool VideoTrackSource::capture_encoded_frame(
 bool VideoTrackSource::take_keyframe_request() const {
   return source_->keyframe_request_flag()->exchange(false,
                                                     std::memory_order_relaxed);
+}
+
+EncodedRateControlRequest VideoTrackSource::take_rate_control_request() const {
+  auto request = source_->rate_control_state()->Take();
+  return EncodedRateControlRequest{request.has_request,
+                                   request.target_bitrate_bps,
+                                   request.framerate_fps};
 }
 
 void VideoTrackSource::set_packet_trailer_handler(

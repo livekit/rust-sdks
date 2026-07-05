@@ -206,6 +206,7 @@ struct PartialFrame {
     timestamp_us: i64,
     payload: Vec<u8>,
     frame_type: Option<EncodedFrameType>,
+    av1_reduced_still_picture_header: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -371,6 +372,7 @@ impl RtpAccessUnitAssembler {
                 timestamp_us,
                 payload: Vec::new(),
                 frame_type: None,
+                av1_reduced_still_picture_header: None,
             });
         }
 
@@ -598,7 +600,6 @@ impl RtpAccessUnitAssembler {
             return Err(RtpDepacketizerError::UnsupportedPayload);
         }
 
-        let mut saw_sequence_header = descriptor.new_sequence;
         let last_index = descriptor.elements.len() - 1;
         for (index, element) in descriptor.elements.iter().enumerate() {
             if element.is_empty() {
@@ -631,14 +632,12 @@ impl RtpAccessUnitAssembler {
             }
 
             let mut obu = av1_obu_from_rtp_element(&obu)?;
-            saw_sequence_header |= av1_obu_type(&obu) == Some(1);
             let frame = self.current_frame_mut(packet.timestamp)?;
-            if frame.payload.is_empty() || saw_sequence_header {
-                frame.frame_type = Some(if saw_sequence_header {
-                    EncodedFrameType::Key
-                } else {
-                    EncodedFrameType::Delta
-                });
+            if let Some(reduced_still_picture_header) = av1_reduced_still_picture_header(&obu)? {
+                frame.av1_reduced_still_picture_header = Some(reduced_still_picture_header);
+            }
+            if frame.frame_type.is_none() {
+                frame.frame_type = av1_frame_type(&obu, frame.av1_reduced_still_picture_header)?;
             }
             frame.payload.append(&mut obu);
         }
@@ -708,7 +707,6 @@ struct Vp9PayloadDescriptor<'a> {
 struct Av1PayloadDescriptor<'a> {
     starts_fragment: bool,
     ends_fragment: bool,
-    new_sequence: bool,
     elements: Vec<&'a [u8]>,
 }
 
@@ -853,7 +851,6 @@ fn parse_av1_payload_descriptor(
     let starts_fragment = header & 0x80 != 0;
     let ends_fragment = header & 0x40 != 0;
     let element_count = (header >> 4) & 0x03;
-    let new_sequence = header & 0x08 != 0;
 
     let mut cursor = 1;
     let mut elements = Vec::new();
@@ -887,7 +884,7 @@ fn parse_av1_payload_descriptor(
         }
     }
 
-    Ok(Av1PayloadDescriptor { starts_fragment, ends_fragment, new_sequence, elements })
+    Ok(Av1PayloadDescriptor { starts_fragment, ends_fragment, elements })
 }
 
 fn read_leb128(bytes: &[u8], cursor: &mut usize) -> Result<usize, RtpDepacketizerError> {
@@ -992,6 +989,101 @@ fn is_vp9_keyframe(payload: &[u8]) -> bool {
     read_bit(first_byte, bit_offset) == 0
 }
 
+fn av1_reduced_still_picture_header(obu: &[u8]) -> Result<Option<bool>, RtpDepacketizerError> {
+    let Some((obu_type, payload)) = av1_obu_parts(obu)? else {
+        return Ok(None);
+    };
+    if obu_type != 1 {
+        return Ok(None);
+    }
+
+    let mut reader = MsbBitReader::new(payload);
+    reader.read_bits(3).ok_or(RtpDepacketizerError::UnsupportedPayload)?; // seq_profile
+    reader.read_bit().ok_or(RtpDepacketizerError::UnsupportedPayload)?; // still_picture
+    Ok(Some(reader.read_bit().ok_or(RtpDepacketizerError::UnsupportedPayload)? != 0))
+}
+
+fn av1_frame_type(
+    obu: &[u8],
+    reduced_still_picture_header: Option<bool>,
+) -> Result<Option<EncodedFrameType>, RtpDepacketizerError> {
+    let Some((obu_type, payload)) = av1_obu_parts(obu)? else {
+        return Ok(None);
+    };
+    if !matches!(obu_type, 3 | 6) {
+        return Ok(None);
+    }
+
+    if reduced_still_picture_header.unwrap_or(false) {
+        return Ok(Some(EncodedFrameType::Key));
+    }
+
+    let mut reader = MsbBitReader::new(payload);
+    let show_existing_frame = reader.read_bit().ok_or(RtpDepacketizerError::UnsupportedPayload)?;
+    if show_existing_frame != 0 {
+        return Ok(Some(EncodedFrameType::Delta));
+    }
+
+    let frame_type = reader.read_bits(2).ok_or(RtpDepacketizerError::UnsupportedPayload)?;
+    Ok(Some(if frame_type == 0 { EncodedFrameType::Key } else { EncodedFrameType::Delta }))
+}
+
+fn av1_obu_parts(obu: &[u8]) -> Result<Option<(u8, &[u8])>, RtpDepacketizerError> {
+    let Some(&header) = obu.first() else {
+        return Ok(None);
+    };
+    if header & 0x80 != 0 {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+
+    let obu_type = av1_obu_type(obu).ok_or(RtpDepacketizerError::UnsupportedPayload)?;
+    let has_extension = header & 0x04 != 0;
+    let has_size = header & 0x02 != 0;
+    let mut cursor = if has_extension { 2 } else { 1 };
+    if cursor > obu.len() {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+
+    if !has_size {
+        return Ok(Some((obu_type, &obu[cursor..])));
+    }
+
+    let payload_size = read_leb128(obu, &mut cursor)?;
+    let Some(end) = cursor.checked_add(payload_size) else {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    };
+    if end > obu.len() {
+        return Err(RtpDepacketizerError::UnsupportedPayload);
+    }
+    Ok(Some((obu_type, &obu[cursor..end])))
+}
+
+struct MsbBitReader<'a> {
+    bytes: &'a [u8],
+    bit_offset: usize,
+}
+
+impl<'a> MsbBitReader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, bit_offset: 0 }
+    }
+
+    fn read_bit(&mut self) -> Option<u8> {
+        let byte = *self.bytes.get(self.bit_offset / 8)?;
+        let bit = read_bit(byte, self.bit_offset % 8);
+        self.bit_offset += 1;
+        Some(bit)
+    }
+
+    fn read_bits(&mut self, bits: usize) -> Option<u8> {
+        let mut value = 0;
+        for _ in 0..bits {
+            value = (value << 1) | self.read_bit()?;
+        }
+        Some(value)
+    }
+}
+
 /// Reads bit `bit_offset` of `byte`, counting from the most significant bit.
 fn read_bit(byte: u8, bit_offset: usize) -> u8 {
     (byte >> (7 - bit_offset)) & 0x01
@@ -1014,6 +1106,17 @@ mod tests {
         packet.extend_from_slice(&0x1122_3344_u32.to_be_bytes());
         packet.extend_from_slice(payload);
         packet
+    }
+
+    fn av1_sequence_and_frame_rtp_payload(frame_header: u8) -> [u8; 6] {
+        [
+            0x28, // W=2, N=1.
+            0x02, // First OBU element length.
+            0x08, // Sequence header OBU without the size field.
+            0x00, // profile=0, still_picture=false, reduced_still_picture_header=false.
+            0x30, // Frame OBU without the size field.
+            frame_header,
+        ]
     }
 
     #[test]
@@ -1315,36 +1418,47 @@ mod tests {
     fn assembles_av1_temporal_unit() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
-        let packet = rtp_packet(10, 12_000, true, &[0x18, 0x08]);
+        let packet = rtp_packet(10, 12_000, true, &av1_sequence_and_frame_rtp_payload(0x10));
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
         assert_eq!(access_unit.codec, EncodedVideoCodec::AV1);
         assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
-        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x00]);
+        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x01, 0x00, 0x32, 0x01, 0x10]);
+    }
+
+    #[test]
+    fn av1_sequence_header_before_inter_frame_is_delta() {
+        let mut assembler =
+            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let packet = rtp_packet(10, 12_000, true, &av1_sequence_and_frame_rtp_payload(0x38));
+
+        let access_unit = assembler.push(&packet).unwrap().unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
+        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x01, 0x00, 0x32, 0x01, 0x38]);
     }
 
     #[test]
     fn assembles_fragmented_av1_obu() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
-        let start = rtp_packet(10, 12_000, false, &[0x50, 0x30, 1]);
+        let start = rtp_packet(10, 12_000, false, &[0x50, 0x30, 0x38]);
         let end = rtp_packet(11, 12_000, true, &[0x90, 2, 3]);
 
         assert!(assembler.push(&start).unwrap().is_none());
         let access_unit = assembler.push(&end).unwrap().unwrap();
         assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
-        assert_eq!(access_unit.payload.as_ref(), &[0x32, 0x03, 1, 2, 3]);
+        assert_eq!(access_unit.payload.as_ref(), &[0x32, 0x03, 0x38, 2, 3]);
     }
 
     #[test]
     fn assembles_av1_obu_payload_with_size_field() {
         let mut assembler =
             RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
-        let packet = rtp_packet(10, 12_000, true, &[0x10, 0x30, 1, 2, 3]);
+        let packet = rtp_packet(10, 12_000, true, &[0x10, 0x30, 0x38, 2, 3]);
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
         assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
-        assert_eq!(access_unit.payload.as_ref(), &[0x32, 0x03, 1, 2, 3]);
+        assert_eq!(access_unit.payload.as_ref(), &[0x32, 0x03, 0x38, 2, 3]);
     }
 
     #[test]
@@ -1353,7 +1467,7 @@ mod tests {
             RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
         // Y is set, so the OBU fragment is unterminated when the marker closes it.
         let truncated = rtp_packet(10, 12_000, true, &[0x50, 0x30, 1]);
-        let key = rtp_packet(11, 15_000, true, &[0x18, 0x08]);
+        let key = rtp_packet(11, 15_000, true, &av1_sequence_and_frame_rtp_payload(0x10));
 
         assert!(assembler.push(&truncated).unwrap().is_none());
         let stats = assembler.stats();
@@ -1362,7 +1476,7 @@ mod tests {
 
         let access_unit = assembler.push(&key).unwrap().unwrap();
         assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
-        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x00]);
+        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x01, 0x00, 0x32, 0x01, 0x10]);
         assert!(!assembler.stats().awaiting_keyframe);
     }
 
@@ -1372,14 +1486,14 @@ mod tests {
             RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
         // Z is set: this continues an OBU whose start was never received.
         let continuation = rtp_packet(10, 12_000, true, &[0x90, 2, 3]);
-        let key = rtp_packet(11, 15_000, true, &[0x18, 0x08]);
+        let key = rtp_packet(11, 15_000, true, &av1_sequence_and_frame_rtp_payload(0x10));
 
         assert!(assembler.push(&continuation).unwrap().is_none());
         assert!(assembler.stats().awaiting_keyframe);
 
         let access_unit = assembler.push(&key).unwrap().unwrap();
         assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
-        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x00]);
+        assert_eq!(access_unit.payload.as_ref(), &[0x0a, 0x01, 0x00, 0x32, 0x01, 0x10]);
     }
 
     #[test]

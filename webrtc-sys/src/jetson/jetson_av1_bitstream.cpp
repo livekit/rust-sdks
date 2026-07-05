@@ -82,7 +82,9 @@ bool StripIvfFrameHeader(std::vector<uint8_t>* packet) {
   }
 
   const uint32_t declared_size = ReadLittleEndianUint32(*packet);
-  if (declared_size == 0 || declared_size > packet->size() - 12) {
+  // A standalone IVF frame header must describe exactly the remaining buffer.
+  // Otherwise valid low-overhead OBUs can be mistaken for a length prefix.
+  if (declared_size == 0 || declared_size != packet->size() - 12) {
     return false;
   }
 

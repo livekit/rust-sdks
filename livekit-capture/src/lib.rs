@@ -34,8 +34,8 @@ pub use encoded::{
         EncodedIngressStop,
     },
     CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
-    EncodedPayload, EncodedVideoCodec, EncodedWireFormat, H264PacketizationMode,
-    OwnedEncodedAccessUnit,
+    EncodedPayload, EncodedRateControl, EncodedVideoCodec, EncodedWireFormat,
+    H264PacketizationMode, OwnedEncodedAccessUnit,
 };
 pub use error::CaptureError;
 pub use source::{

@@ -28,6 +28,9 @@ use crate::error::CaptureError;
 
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
+/// Encoder rate-control target requested by WebRTC for an encoded source.
+pub use livekit::webrtc::video_source::EncodedRateControl;
+
 /// Encoded byte-stream framing used by encoded source backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -361,7 +364,7 @@ impl<'a> EncodedAccessUnit<'a> {
     }
 }
 
-/// Returns true when any NAL unit in the slice is an intra/key picture.
+/// Returns true when the NAL units form a WebRTC-usable key frame.
 pub(crate) fn is_keyframe_nalus(
     codec: EncodedVideoCodec,
     nal_units: &[&[u8]],
@@ -370,10 +373,24 @@ pub(crate) fn is_keyframe_nalus(
         EncodedVideoCodec::H264 => {
             nal_units.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
         }
-        EncodedVideoCodec::H265 => nal_units.iter().try_fold(false, |is_key, nal| {
-            let nal_type = h265_nal_type(nal)?;
-            Ok(is_key || (16..=21).contains(&nal_type))
-        }),
+        EncodedVideoCodec::H265 => {
+            let mut has_vps = false;
+            let mut has_sps = false;
+            let mut has_pps = false;
+            let mut has_idr = false;
+
+            for nal in nal_units {
+                match h265_nal_type(nal)? {
+                    32 => has_vps = true,
+                    33 => has_sps = true,
+                    34 => has_pps = true,
+                    19 | 20 => has_idr = true,
+                    _ => {}
+                }
+            }
+
+            Ok(has_vps && has_sps && has_pps && has_idr)
+        }
         EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
             Err(CaptureError::UnsupportedCodec(codec))
         }
@@ -467,13 +484,24 @@ mod tests {
     }
 
     #[test]
-    fn h265_nal_helper_detects_irap_keyframe() {
+    fn h265_nal_helper_requires_parameter_sets_and_idr_keyframe() {
         let vps = [0x40, 1, 2];
+        let sps = [0x42, 1, 2];
+        let pps = [0x44, 1, 2];
         let idr_w_radl = [19 << 1, 1, 3];
-        let au = EncodedAccessUnit::from_h265_nalus(&[&vps, &idr_w_radl], 10, 640, 480).unwrap();
+        let idr_without_headers =
+            EncodedAccessUnit::from_h265_nalus(&[&vps, &idr_w_radl], 10, 640, 480).unwrap();
+        let key =
+            EncodedAccessUnit::from_h265_nalus(&[&vps, &sps, &pps, &idr_w_radl], 10, 640, 480)
+                .unwrap();
+        let cra = [21 << 1, 1, 3];
+        let cra_with_headers =
+            EncodedAccessUnit::from_h265_nalus(&[&vps, &sps, &pps, &cra], 10, 640, 480).unwrap();
 
-        assert_eq!(au.codec, EncodedVideoCodec::H265);
-        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(idr_without_headers.codec, EncodedVideoCodec::H265);
+        assert_eq!(idr_without_headers.frame_type, EncodedFrameType::Delta);
+        assert_eq!(key.frame_type, EncodedFrameType::Key);
+        assert_eq!(cra_with_headers.frame_type, EncodedFrameType::Delta);
     }
 
     #[test]

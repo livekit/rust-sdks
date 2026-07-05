@@ -74,6 +74,13 @@ pub mod ffi {
         pub timestamp_us: i64,
     }
 
+    #[derive(Debug)]
+    pub struct EncodedRateControlRequest {
+        pub has_request: bool,
+        pub target_bitrate_bps: u64,
+        pub framerate_fps: f64,
+    }
+
     extern "C++" {
         include!("livekit/video_frame.h");
         include!("livekit/media_stream_track.h");
@@ -127,6 +134,7 @@ pub mod ffi {
             frame_metadata: &FrameMetadata,
         ) -> bool;
         fn take_keyframe_request(self: &VideoTrackSource) -> bool;
+        fn take_rate_control_request(self: &VideoTrackSource) -> EncodedRateControlRequest;
         fn set_packet_trailer_handler(
             self: &VideoTrackSource,
             handler: SharedPtr<PacketTrailerHandler>,

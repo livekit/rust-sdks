@@ -38,6 +38,7 @@
 #include "modules/video_coding/include/video_error_codes.h"
 #include "modules/video_coding/svc/scalable_video_controller_no_layering.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/synchronization/mutex.h"
 
 namespace livekit_ffi {
 namespace {
@@ -234,6 +235,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
           << "PassthroughVideoEncoder frame codec does not match sender codec";
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
+    ForwardPendingRateControl(encoded_buffer);
 
     const bool is_keyframe = IsKeyframe(encoded_buffer->frame_type());
 
@@ -318,7 +320,11 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     return WEBRTC_VIDEO_CODEC_OK;
   }
 
-  void SetRates(const RateControlParameters& /* parameters */) override {}
+  void SetRates(const RateControlParameters& parameters) override {
+    webrtc::MutexLock lock(&rate_control_mutex_);
+    latest_rate_control_request_ = livekit::EncodedRateControlRequest{
+        true, parameters.bitrate.get_sum_bps(), parameters.framerate_fps};
+  }
 
   EncoderInfo GetEncoderInfo() const override {
     EncoderInfo info;
@@ -332,6 +338,20 @@ class PassthroughVideoEncoder final : public VideoEncoder {
   }
 
  private:
+  void ForwardPendingRateControl(
+      EncodedVideoFrameBuffer* encoded_buffer) {
+    std::optional<livekit::EncodedRateControlRequest> request;
+    {
+      webrtc::MutexLock lock(&rate_control_mutex_);
+      request = latest_rate_control_request_;
+      latest_rate_control_request_.reset();
+    }
+    if (request.has_value()) {
+      encoded_buffer->set_rate_control_request(request->target_bitrate_bps,
+                                               request->framerate_fps);
+    }
+  }
+
   Environment env_;
   SdpVideoFormat format_;
   VideoCodecType codec_type_;
@@ -339,6 +359,8 @@ class PassthroughVideoEncoder final : public VideoEncoder {
   EncodedImageCallback* encoded_image_callback_ = nullptr;
   ScalableVideoControllerNoLayering av1_svc_controller_;
   std::vector<uint8_t> cached_sequence_header_obu_;
+  webrtc::Mutex rate_control_mutex_;
+  std::optional<livekit::EncodedRateControlRequest> latest_rate_control_request_;
 };
 
 }  // namespace

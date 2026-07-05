@@ -22,17 +22,20 @@ use clap::{Parser, ValueEnum};
 #[cfg(feature = "gstreamer")]
 use gstreamer as gst;
 #[cfg(feature = "gstreamer")]
+use gstreamer::glib::{self, types::StaticType};
+#[cfg(feature = "gstreamer")]
 use gstreamer::prelude::*;
 use livekit::{
-    options::{self, VideoEncoding},
+    options::{self, FrameMetadataFeatures, VideoEncoding},
     prelude::*,
-    webrtc::video_source::VideoResolution,
+    webrtc::{video_frame::FrameMetadata, video_source::VideoResolution},
 };
 use livekit_api::access_token;
 #[cfg(feature = "gstreamer")]
 use livekit_capture::sources::gstreamer::{
     encoded_caps_string, ensure_encoded_appsink, GStreamerAppSinkConfig,
-    GStreamerAppSinkEncodedSource, ENCODED_APPSINK_NAME,
+    GStreamerAppSinkEncodedSource, GStreamerBitrateUnit, GStreamerEncoderRateControl,
+    ENCODED_APPSINK_NAME,
 };
 use livekit_capture::{
     sources::{
@@ -40,14 +43,23 @@ use livekit_capture::{
         tcp::{ByteStreamSourceConfig, TcpEncodedSource},
     },
     CaptureError, EncodedAccessUnitSource, EncodedFrameType, EncodedIngress, EncodedIngressCapture,
-    EncodedIngressError, EncodedVideoCodec, EncodedWireFormat, OwnedEncodedAccessUnit,
-    VideoCaptureTrack,
+    EncodedIngressError, EncodedIngressStop, EncodedRateControl, EncodedVideoCodec,
+    EncodedWireFormat, OwnedEncodedAccessUnit, VideoCaptureTrack,
 };
 
 const DIAGNOSTIC_REPORT_INTERVAL: Duration = Duration::from_secs(1);
 const SOURCE_STALL_THRESHOLD: Duration = Duration::from_millis(250);
 const BURST_WALL_DELTA_THRESHOLD: Duration = Duration::from_millis(5);
+const MAX_PUBLISH_PACE_SLEEP: Duration = Duration::from_millis(100);
+const PUBLISH_PACE_SLEEP_SLICE: Duration = Duration::from_millis(10);
+const MIN_KEYFRAME_REQUEST_INTERVAL: Duration = Duration::from_secs(2);
 const KEYFRAME_GAP_THRESHOLD: Duration = Duration::from_secs(5);
+const H265_PREENCODED_BITRATE_HEADROOM: u64 = 2;
+const AV1_PREENCODED_BITRATE_HEADROOM: u64 = 3;
+#[cfg(feature = "gstreamer")]
+const GSTREAMER_ENCODER_NAME: &str = "lk_encoder";
+#[cfg(feature = "gstreamer")]
+const GSTREAMER_BITRATE_OVERLAY_NAME: &str = "lk_bitrate_overlay";
 
 /// Publish a pre-encoded video stream into a LiveKit room.
 #[derive(Parser, Debug)]
@@ -129,14 +141,28 @@ struct Args {
     #[arg(long)]
     diagnostics: bool,
 
+    /// Attach a wall-clock timestamp to each published encoded frame.
+    #[arg(long)]
+    attach_timestamp: bool,
+
+    /// Attach a monotonically increasing frame id to each published encoded frame.
+    #[arg(long)]
+    attach_frame_id: bool,
+
     /// GStreamer shmsink socket path. Used with --source shmsink.
     #[cfg(feature = "gstreamer")]
     #[arg(long, default_value = "/tmp/livekit-preencode-test.shm")]
     shmsink_socket_path: String,
 
+    /// Overlay the WebRTC target bitrate on generated GStreamer test video.
+    #[cfg(feature = "gstreamer")]
+    #[arg(long)]
+    overlay_bitrate: bool,
+
     /// GStreamer launch pipeline used with --source gstappsink. If the pipeline does not include
     /// appsink name=lk_appsink, codec-specific normalization and an appsink are attached to its
-    /// unlinked output.
+    /// unlinked output. Name encoder element lk_encoder and textoverlay lk_bitrate_overlay to
+    /// receive WebRTC bitrate updates.
     #[cfg(feature = "gstreamer")]
     #[arg(last = true, value_name = "PIPELINE")]
     gstreamer_pipeline: Vec<String>,
@@ -375,6 +401,7 @@ async fn run_rtsp_source(args: Args) -> Result<()> {
 
 #[cfg(feature = "gstreamer")]
 async fn run_gstreamer_source(args: Args, frame_interval_us: i64) -> Result<()> {
+    let overlay_bitrate = args.overlay_bitrate;
     let source = GStreamerTestSource::start(
         args.width,
         args.height,
@@ -384,6 +411,7 @@ async fn run_gstreamer_source(args: Args, frame_interval_us: i64) -> Result<()> 
         args.codec.map(CodecArg::encoded_codec),
         &args.gstreamer_pipeline,
         args.max_bitrate,
+        overlay_bitrate,
     )?;
     let codec = source.codec();
     let shutdown_pipeline = source.shutdown_pipeline();
@@ -417,6 +445,7 @@ async fn run_shmsink_source(args: Args, frame_interval_us: i64) -> Result<()> {
         Some(codec),
         &pipeline_args,
         args.max_bitrate,
+        false,
     )?;
     let shutdown_pipeline = source.shutdown_pipeline();
     log::info!(
@@ -444,6 +473,7 @@ async fn run_shmsink_source(args: Args, frame_interval_us: i64) -> Result<()> {
 struct GStreamerTestSource {
     pipeline: gst::Pipeline,
     source: GStreamerAppSinkEncodedSource,
+    bitrate_overlay: Option<gst::Element>,
     pipeline_description: String,
 }
 
@@ -458,6 +488,7 @@ impl GStreamerTestSource {
         requested_codec: Option<EncodedVideoCodec>,
         pipeline_args: &[String],
         max_bitrate: Option<u64>,
+        overlay_bitrate: bool,
     ) -> Result<Self> {
         gst::init().context("failed to initialize GStreamer")?;
 
@@ -469,6 +500,7 @@ impl GStreamerTestSource {
             generated_codec,
             pipeline_args,
             max_bitrate,
+            overlay_bitrate,
         );
         let element = gst::parse::launch(&pipeline_description).with_context(|| {
             format!("failed to create GStreamer pipeline: {pipeline_description}")
@@ -480,6 +512,7 @@ impl GStreamerTestSource {
             if pipeline_args.is_empty() { Some(generated_codec) } else { requested_codec };
         let (appsink, sample_format) = ensure_encoded_appsink(&pipeline, requested_codec)
             .context("failed to prepare GStreamer encoded appsink")?;
+        let bitrate_overlay = pipeline.by_name(GSTREAMER_BITRATE_OVERLAY_NAME);
 
         let config = GStreamerAppSinkConfig::new(
             sample_format,
@@ -488,15 +521,16 @@ impl GStreamerTestSource {
             width,
             height,
         );
+        let mut source = GStreamerAppSinkEncodedSource::new(appsink, config);
+        if let Some(rate_control) = gstreamer_encoder_rate_control(&pipeline, sample_format.codec())
+        {
+            source.set_encoder_rate_control(rate_control);
+        }
         pipeline
             .set_state(gst::State::Playing)
             .context("failed to start GStreamer test pipeline")?;
 
-        Ok(Self {
-            pipeline,
-            source: GStreamerAppSinkEncodedSource::new(appsink, config),
-            pipeline_description,
-        })
+        Ok(Self { pipeline, source, bitrate_overlay, pipeline_description })
     }
 
     fn pipeline_description(&self) -> &str {
@@ -525,6 +559,13 @@ impl EncodedAccessUnitSource for GStreamerTestSource {
         // GstForceKeyUnit event so the upstream encoder emits an IDR.
         self.source.request_keyframe();
     }
+
+    fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
+        if let Some(overlay) = &self.bitrate_overlay {
+            update_bitrate_overlay(overlay, rate_control);
+        }
+        self.source.update_rate_control(rate_control);
+    }
 }
 
 #[cfg(feature = "gstreamer")]
@@ -542,9 +583,17 @@ fn gstreamer_pipeline_description(
     codec: EncodedVideoCodec,
     pipeline_args: &[String],
     max_bitrate: Option<u64>,
+    overlay_bitrate: bool,
 ) -> String {
     if pipeline_args.is_empty() {
-        return gstreamer_test_pipeline_description(width, height, fps, codec, max_bitrate);
+        return gstreamer_test_pipeline_description(
+            width,
+            height,
+            fps,
+            codec,
+            max_bitrate,
+            overlay_bitrate,
+        );
     }
 
     pipeline_args.join(" ")
@@ -557,18 +606,83 @@ fn gstreamer_test_pipeline_description(
     fps: u32,
     codec: EncodedVideoCodec,
     max_bitrate: Option<u64>,
+    overlay_bitrate: bool,
 ) -> String {
     let bitrate = publish_video_encoding(max_bitrate, width, height, fps, codec).max_bitrate;
     let codec_pipeline = gstreamer_test_encode_pipeline(fps, codec, bitrate);
+    let bitrate_overlay = if overlay_bitrate {
+        format!(
+            "textoverlay name={GSTREAMER_BITRATE_OVERLAY_NAME} text={} \
+             halignment=left valignment=top shaded-background=true font-desc={} ! ",
+            gstreamer_launch_string_value("WebRTC target: pending"),
+            gstreamer_launch_string_value("Sans, 24"),
+        )
+    } else {
+        String::new()
+    };
 
     format!(
         "videotestsrc is-live=true do-timestamp=true pattern=ball motion=wavy animation-mode=frames ! \
          video/x-raw,width={width},height={height},framerate={fps}/1 ! \
          timeoverlay halignment=right valignment=bottom shaded-background=true ! \
+         {bitrate_overlay}\
          videoconvert ! \
          video/x-raw,format=I420 ! \
          {codec_pipeline} ! \
          appsink name={ENCODED_APPSINK_NAME} sync=false max-buffers=8 drop=true"
+    )
+}
+
+#[cfg(feature = "gstreamer")]
+fn gstreamer_encoder_rate_control(
+    pipeline: &gst::Pipeline,
+    codec: EncodedVideoCodec,
+) -> Option<GStreamerEncoderRateControl> {
+    let encoder = pipeline.by_name(GSTREAMER_ENCODER_NAME)?;
+    let (property, unit) = match codec {
+        EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => {
+            ("bitrate", GStreamerBitrateUnit::KilobitsPerSecond)
+        }
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 => {
+            ("target-bitrate", GStreamerBitrateUnit::BitsPerSecond)
+        }
+        EncodedVideoCodec::AV1 => ("target-bitrate", GStreamerBitrateUnit::KilobitsPerSecond),
+        _ => return None,
+    };
+    Some(GStreamerEncoderRateControl::new(encoder, property, unit))
+}
+
+#[cfg(feature = "gstreamer")]
+fn update_bitrate_overlay(overlay: &gst::Element, rate_control: EncodedRateControl) {
+    let Some(pspec) = overlay.find_property("text") else {
+        log::warn!(
+            "GStreamer element '{}' has no text property for bitrate overlay",
+            overlay.name()
+        );
+        return;
+    };
+
+    let flags = pspec.flags();
+    if pspec.value_type() != String::static_type()
+        || !flags.contains(glib::ParamFlags::WRITABLE)
+        || flags.contains(glib::ParamFlags::CONSTRUCT_ONLY)
+    {
+        log::warn!(
+            "GStreamer element '{}' cannot be used as a bitrate text overlay",
+            overlay.name()
+        );
+        return;
+    }
+
+    overlay.set_property("text", bitrate_overlay_text(rate_control));
+}
+
+#[cfg(feature = "gstreamer")]
+fn bitrate_overlay_text(rate_control: EncodedRateControl) -> String {
+    format!(
+        "WebRTC target: {} kbps @ {:.1} fps",
+        rate_control.target_bitrate_bps / 1000,
+        rate_control.framerate_fps
     )
 }
 
@@ -582,25 +696,29 @@ fn gstreamer_test_encode_pipeline(fps: u32, codec: EncodedVideoCodec, bitrate: u
     let caps = encoded_caps_string(codec);
     match codec {
         EncodedVideoCodec::H264 => format!(
-            "x264enc tune=zerolatency speed-preset=ultrafast key-int-max={key_int_max} \
+            "x264enc name={GSTREAMER_ENCODER_NAME} tune=zerolatency speed-preset=ultrafast \
+             key-int-max={key_int_max} \
              bitrate={bitrate_kbps} byte-stream=true aud=true ! h264parse config-interval=-1 ! \
              {caps}"
         ),
         EncodedVideoCodec::H265 => format!(
-            "x265enc tune=zerolatency speed-preset=ultrafast key-int-max={key_int_max} \
-             bitrate={bitrate_kbps} ! h265parse config-interval=-1 ! {caps}"
+            "x265enc name={GSTREAMER_ENCODER_NAME} tune=zerolatency speed-preset=ultrafast \
+             key-int-max={key_int_max} \
+             bitrate={bitrate_kbps} option-string=repeat-headers=1:aud=1:open-gop=0 ! \
+             h265parse config-interval=-1 ! {caps}"
         ),
         EncodedVideoCodec::VP8 => format!(
-            "vp8enc deadline=1 cpu-used=8 keyframe-max-dist={key_int_max} lag-in-frames=0 \
-             target-bitrate={bitrate} ! {caps}"
+            "vp8enc name={GSTREAMER_ENCODER_NAME} deadline=1 cpu-used=8 \
+             keyframe-max-dist={key_int_max} lag-in-frames=0 target-bitrate={bitrate} ! {caps}"
         ),
         EncodedVideoCodec::VP9 => format!(
-            "vp9enc deadline=1 cpu-used=8 keyframe-max-dist={key_int_max} lag-in-frames=0 \
-             target-bitrate={bitrate} ! {caps}"
+            "vp9enc name={GSTREAMER_ENCODER_NAME} deadline=1 cpu-used=8 \
+             keyframe-max-dist={key_int_max} lag-in-frames=0 target-bitrate={bitrate} ! {caps}"
         ),
         EncodedVideoCodec::AV1 => format!(
-            "av1enc cpu-used=8 usage-profile=realtime keyframe-max-dist={key_int_max} \
-             lag-in-frames=0 target-bitrate={bitrate_kbps} ! av1parse ! {caps}"
+            "av1enc name={GSTREAMER_ENCODER_NAME} cpu-used=8 usage-profile=realtime \
+             keyframe-max-dist={key_int_max} lag-in-frames=0 target-bitrate={bitrate_kbps} ! \
+             av1parse ! {caps}"
         ),
         _ => unreachable!("unknown generated GStreamer codec"),
     }
@@ -639,6 +757,10 @@ where
     ShutdownSource: FnOnce() + Send + 'static,
 {
     let diagnostics_enabled = args.diagnostics;
+    let metadata_config = FrameMetadataConfig {
+        attach_timestamp: args.attach_timestamp,
+        attach_frame_id: args.attach_frame_id,
+    };
     let token = access_token::AccessToken::with_api_key(&args.api_key, &args.api_secret)
         .with_identity(&args.identity)
         .with_name(&args.identity)
@@ -665,6 +787,7 @@ where
         publish_video_encoding(args.max_bitrate, args.width, args.height, args.fps, codec);
     publish_options.video_encoding = Some(video_encoding.clone());
     publish_options.source = TrackSource::Camera;
+    publish_options.frame_metadata_features = metadata_config.publish_features();
 
     room.local_participant()
         .publish_track(LocalTrack::Video(capture_track.track()), publish_options)
@@ -679,6 +802,13 @@ where
         video_encoding.max_framerate,
         source_label
     );
+    if metadata_config.is_enabled() {
+        log::info!(
+            "Frame metadata enabled: timestamp={} frame_id={}",
+            metadata_config.attach_timestamp,
+            metadata_config.attach_frame_id
+        );
+    }
 
     let keyframe_requests_forwarded = Arc::new(AtomicU64::new(0));
     let ingress = EncodedIngress::new(
@@ -699,7 +829,7 @@ where
             expected_frame_interval_us,
             keyframe_requests_forwarded,
         );
-        forward_access_units(ingress, diagnostics)
+        forward_access_units(ingress, diagnostics, metadata_config)
     });
     let captured = capture_task.await.context("capture task failed to join")??;
     signal_task.abort();
@@ -714,16 +844,21 @@ where
 fn forward_access_units<S>(
     mut ingress: EncodedIngress<S>,
     mut diagnostics: AccessUnitDiagnostics,
+    metadata_config: FrameMetadataConfig,
 ) -> Result<u64>
 where
     S: EncodedAccessUnitSource,
 {
     let stop = ingress.stop_handle();
+    let mut pacer = AccessUnitPacer::default();
     let mut captured = 0;
     let mut dropped = 0;
+    let mut frame_counter = 0_u32;
     while !stop.is_stopped() {
         let read_started = Instant::now();
-        let capture = match ingress.capture_next() {
+        let capture = match ingress
+            .capture_next_with_metadata(|_| metadata_config.next_metadata(&mut frame_counter))
+        {
             Ok(Some(capture)) => capture,
             Ok(None) => break,
             Err(EncodedIngressError::Capture(CaptureError::CaptureFailed)) => {
@@ -745,10 +880,94 @@ where
         if captured % 300 == 0 {
             log::info!("Published {captured} encoded access units");
         }
+        pacer.sleep_after_capture(&capture, &stop);
     }
     diagnostics.finish();
 
     Ok(captured)
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct FrameMetadataConfig {
+    attach_timestamp: bool,
+    attach_frame_id: bool,
+}
+
+impl FrameMetadataConfig {
+    fn is_enabled(&self) -> bool {
+        self.attach_timestamp || self.attach_frame_id
+    }
+
+    fn publish_features(&self) -> FrameMetadataFeatures {
+        let mut features = FrameMetadataFeatures::default();
+        features.user_timestamp = self.attach_timestamp;
+        features.frame_id = self.attach_frame_id;
+        features
+    }
+
+    fn next_metadata(&self, frame_counter: &mut u32) -> Option<FrameMetadata> {
+        if !self.is_enabled() {
+            return None;
+        }
+
+        let user_timestamp = self.attach_timestamp.then(|| current_time_us().max(0) as u64);
+        let frame_id = if self.attach_frame_id {
+            let frame_id = *frame_counter;
+            *frame_counter = (*frame_counter).wrapping_add(1);
+            Some(frame_id)
+        } else {
+            None
+        };
+
+        Some(FrameMetadata { user_timestamp, frame_id, user_data: None })
+    }
+}
+
+#[derive(Debug, Default)]
+struct AccessUnitPacer {
+    start_timestamp_us: Option<i64>,
+    start_wall_time: Option<Instant>,
+}
+
+impl AccessUnitPacer {
+    fn sleep_after_capture(&mut self, capture: &EncodedIngressCapture, stop: &EncodedIngressStop) {
+        let Some(mut remaining) = self.delay_after_capture(capture, Instant::now()) else {
+            return;
+        };
+
+        while !remaining.is_zero() && !stop.is_stopped() {
+            let sleep_for = remaining.min(PUBLISH_PACE_SLEEP_SLICE);
+            std::thread::sleep(sleep_for);
+            remaining = remaining.saturating_sub(sleep_for);
+        }
+    }
+
+    fn delay_after_capture(
+        &mut self,
+        capture: &EncodedIngressCapture,
+        now: Instant,
+    ) -> Option<Duration> {
+        let (Some(start_timestamp_us), Some(start_wall_time)) =
+            (self.start_timestamp_us, self.start_wall_time)
+        else {
+            self.start_timestamp_us = Some(capture.timestamp_us);
+            self.start_wall_time = Some(now);
+            return None;
+        };
+
+        let elapsed_us = capture.timestamp_us.saturating_sub(start_timestamp_us);
+        if elapsed_us <= 0 {
+            return None;
+        }
+
+        let elapsed = Duration::from_micros(elapsed_us as u64);
+        let target = start_wall_time + elapsed;
+        if target <= now {
+            return None;
+        }
+
+        Some(target.saturating_duration_since(now).min(MAX_PUBLISH_PACE_SLEEP))
+    }
 }
 
 /// Wraps an encoded source to count and log the downstream keyframe requests
@@ -757,11 +976,26 @@ struct KeyframeRequestLogger<S> {
     source: S,
     source_label: &'static str,
     forwarded: Arc<AtomicU64>,
+    last_forwarded: Option<Instant>,
 }
 
 impl<S> KeyframeRequestLogger<S> {
     fn new(source: S, source_label: &'static str, forwarded: Arc<AtomicU64>) -> Self {
-        Self { source, source_label, forwarded }
+        Self { source, source_label, forwarded, last_forwarded: None }
+    }
+
+    fn should_forward(&mut self, now: Instant) -> bool {
+        let Some(last_forwarded) = self.last_forwarded else {
+            self.last_forwarded = Some(now);
+            return true;
+        };
+
+        if now.saturating_duration_since(last_forwarded) < MIN_KEYFRAME_REQUEST_INTERVAL {
+            return false;
+        }
+
+        self.last_forwarded = Some(now);
+        true
     }
 }
 
@@ -776,12 +1010,19 @@ where
     }
 
     fn request_keyframe(&mut self) {
+        if !self.should_forward(Instant::now()) {
+            return;
+        }
         let forwarded = self.forwarded.fetch_add(1, Ordering::Relaxed) + 1;
         log::info!(
             "{} forwarding downstream keyframe request {forwarded} to the encoded source",
             self.source_label
         );
         self.source.request_keyframe();
+    }
+
+    fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
+        self.source.update_rate_control(rate_control);
     }
 }
 
@@ -1069,9 +1310,20 @@ fn publish_video_encoding(
     let mut encoding = options::compute_appropriate_encoding(false, width, height, codec.into());
     if let Some(max_bitrate) = max_bitrate {
         encoding.max_bitrate = max_bitrate;
+    } else {
+        encoding.max_bitrate =
+            encoding.max_bitrate.saturating_mul(preencoded_bitrate_headroom(codec));
     }
     encoding.max_framerate = f64::from(fps);
     encoding
+}
+
+fn preencoded_bitrate_headroom(codec: EncodedVideoCodec) -> u64 {
+    match codec {
+        EncodedVideoCodec::H265 => H265_PREENCODED_BITRATE_HEADROOM,
+        EncodedVideoCodec::AV1 => AV1_PREENCODED_BITRATE_HEADROOM,
+        _ => 1,
+    }
 }
 
 fn current_time_us() -> i64 {
@@ -1088,13 +1340,14 @@ mod tests {
     #[test]
     fn gstreamer_pipeline_description_routes_test_source_to_h264_appsink() {
         let description =
-            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::H264, None);
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::H264, None, false);
 
         assert!(description.contains("videotestsrc is-live=true do-timestamp=true"));
         assert!(description.contains("pattern=ball motion=wavy animation-mode=frames"));
         assert!(description.contains("timeoverlay"));
+        assert!(!description.contains(GSTREAMER_BITRATE_OVERLAY_NAME));
         assert!(description.contains("video/x-raw,format=I420"));
-        assert!(description.contains("x264enc"));
+        assert!(description.contains(&format!("x264enc name={GSTREAMER_ENCODER_NAME}")));
         assert!(description.contains("video/x-h264,stream-format=byte-stream,alignment=au"));
         assert!(description.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
     }
@@ -1102,34 +1355,94 @@ mod tests {
     #[test]
     fn gstreamer_pipeline_description_routes_test_source_to_h265_appsink() {
         let description =
-            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::H265, None);
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::H265, None, false);
 
         assert!(description.contains("videotestsrc is-live=true do-timestamp=true"));
         assert!(description.contains("timeoverlay"));
         assert!(description.contains("video/x-raw,format=I420"));
-        assert!(description.contains("x265enc"));
+        assert!(description.contains(&format!("x265enc name={GSTREAMER_ENCODER_NAME}")));
+        assert!(description.contains("bitrate=360"));
+        assert!(description.contains("option-string=repeat-headers=1:aud=1:open-gop=0"));
         assert!(description.contains("h265parse config-interval=-1"));
         assert!(description.contains("video/x-h265,stream-format=byte-stream,alignment=au"));
         assert!(description.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
     }
 
     #[test]
+    fn gstreamer_pipeline_description_can_overlay_webrtc_bitrate() {
+        let description =
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::H264, None, true);
+
+        assert!(description.contains(&format!("textoverlay name={GSTREAMER_BITRATE_OVERLAY_NAME}")));
+        assert!(description.contains("text=\"WebRTC target: pending\""));
+        assert!(description.contains("halignment=left valignment=top"));
+    }
+
+    #[test]
+    fn preencoded_publish_encoding_adds_codec_headroom() {
+        let h264 = publish_video_encoding(None, 640, 480, 30, EncodedVideoCodec::H264);
+        let h265 = publish_video_encoding(None, 640, 480, 30, EncodedVideoCodec::H265);
+        let av1 = publish_video_encoding(None, 640, 480, 30, EncodedVideoCodec::AV1);
+        let explicit_h265 =
+            publish_video_encoding(Some(450_000), 640, 480, 30, EncodedVideoCodec::H265);
+        let explicit_av1 =
+            publish_video_encoding(Some(315_000), 640, 480, 30, EncodedVideoCodec::AV1);
+
+        assert_eq!(h264.max_bitrate, 450_000);
+        assert_eq!(h265.max_bitrate, 900_000);
+        assert_eq!(av1.max_bitrate, 945_000);
+        assert_eq!(explicit_h265.max_bitrate, 450_000);
+        assert_eq!(explicit_av1.max_bitrate, 315_000);
+        assert_eq!(h265.max_framerate, 30.0);
+    }
+
+    #[test]
+    fn access_unit_pacer_delays_when_source_runs_ahead_of_timestamps() {
+        let mut pacer = AccessUnitPacer::default();
+        let now = Instant::now();
+        let first = encoded_capture(1_000_000);
+        let second = encoded_capture(1_033_333);
+        let distant = encoded_capture(2_000_000);
+
+        assert_eq!(pacer.delay_after_capture(&first, now), None);
+        assert_eq!(pacer.delay_after_capture(&second, now), Some(Duration::from_micros(33_333)));
+        assert_eq!(pacer.delay_after_capture(&distant, now), Some(MAX_PUBLISH_PACE_SLEEP));
+    }
+
+    #[test]
+    fn keyframe_request_logger_rate_limits_forwarding() {
+        let mut logger = KeyframeRequestLogger::new((), "test", Arc::new(AtomicU64::new(0)));
+        let now = Instant::now();
+
+        assert!(logger.should_forward(now));
+        assert!(!logger.should_forward(now + MIN_KEYFRAME_REQUEST_INTERVAL / 2));
+        assert!(logger.should_forward(now + MIN_KEYFRAME_REQUEST_INTERVAL));
+    }
+
+    fn encoded_capture(timestamp_us: i64) -> EncodedIngressCapture {
+        EncodedIngressCapture { timestamp_us, frame_type: EncodedFrameType::Delta, payload_len: 1 }
+    }
+
+    #[test]
     fn gstreamer_pipeline_description_routes_test_source_to_vp8_vp9_and_av1_appsink() {
-        let vp8 = gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::VP8, None);
+        let vp8 =
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::VP8, None, false);
         assert!(vp8.contains("video/x-raw,format=I420"));
-        assert!(vp8.contains("vp8enc"));
+        assert!(vp8.contains(&format!("vp8enc name={GSTREAMER_ENCODER_NAME}")));
         assert!(vp8.contains("video/x-vp8"));
         assert!(vp8.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
 
-        let vp9 = gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::VP9, None);
+        let vp9 =
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::VP9, None, false);
         assert!(vp9.contains("video/x-raw,format=I420"));
-        assert!(vp9.contains("vp9enc"));
+        assert!(vp9.contains(&format!("vp9enc name={GSTREAMER_ENCODER_NAME}")));
         assert!(vp9.contains("video/x-vp9,profile=(string)0"));
         assert!(vp9.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
 
-        let av1 = gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::AV1, None);
+        let av1 =
+            gstreamer_test_pipeline_description(320, 180, 30, EncodedVideoCodec::AV1, None, false);
         assert!(av1.contains("video/x-raw,format=I420"));
-        assert!(av1.contains("av1enc"));
+        assert!(av1.contains(&format!("av1enc name={GSTREAMER_ENCODER_NAME}")));
         assert!(av1.contains("av1parse"));
         assert!(av1.contains("video/x-av1,stream-format=obu-stream,alignment=tu"));
         assert!(av1.contains(&format!("appsink name={ENCODED_APPSINK_NAME}")));
@@ -1145,7 +1458,15 @@ mod tests {
         ];
 
         assert_eq!(
-            gstreamer_pipeline_description(320, 180, 30, EncodedVideoCodec::H265, &pipeline, None),
+            gstreamer_pipeline_description(
+                320,
+                180,
+                30,
+                EncodedVideoCodec::H265,
+                &pipeline,
+                None,
+                true,
+            ),
             "videotestsrc is-live=true ! x264enc"
         );
     }
@@ -1187,6 +1508,7 @@ mod tests {
             Some(EncodedVideoCodec::H264),
             &[],
             None,
+            false,
         ) {
             Ok(source) => source,
             Err(err) => {
@@ -1210,6 +1532,7 @@ mod tests {
             Some(EncodedVideoCodec::H265),
             &[],
             None,
+            false,
         ) {
             Ok(source) => source,
             Err(err) => {
@@ -1250,6 +1573,7 @@ mod tests {
             None,
             &pipeline,
             None,
+            false,
         ) {
             Ok(source) => source,
             Err(err) => {
@@ -1289,6 +1613,7 @@ mod tests {
             None,
             &pipeline,
             None,
+            false,
         ) {
             Ok(source) => source,
             Err(err) => {

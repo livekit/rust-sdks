@@ -134,7 +134,7 @@ gst_h26x_annex_b_pipeline() {
                 "$key_int_max" "$BITRATE_KBPS"
             ;;
         h265)
-            printf 'x265enc tune=zerolatency speed-preset=ultrafast key-int-max=%s bitrate=%s ! h265parse config-interval=-1 ! video/x-h265,stream-format=byte-stream,alignment=au' \
+            printf 'x265enc tune=zerolatency speed-preset=ultrafast key-int-max=%s bitrate=%s option-string=repeat-headers=1:aud=1:open-gop=0 ! h265parse config-interval=-1 ! video/x-h265,stream-format=byte-stream,alignment=au' \
                 "$key_int_max" "$BITRATE_KBPS"
             ;;
         *)

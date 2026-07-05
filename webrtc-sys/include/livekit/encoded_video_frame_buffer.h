@@ -19,6 +19,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 
 #include "api/video/encoded_image.h"
 #include "api/video/video_frame_buffer.h"
@@ -38,6 +39,24 @@ enum class EncodedFrameType {
   kDelta,
 };
 
+struct EncodedRateControlRequest {
+  bool has_request = false;
+  uint64_t target_bitrate_bps = 0;
+  double framerate_fps = 0.0;
+};
+
+// Latest-wins rate-control mailbox shared between the pass-through encoder and
+// the Rust capture side.
+class EncodedRateControlState {
+ public:
+  void Store(uint64_t target_bitrate_bps, double framerate_fps);
+  EncodedRateControlRequest Take();
+
+ private:
+  std::mutex mutex_;
+  EncodedRateControlRequest request_;
+};
+
 // A native WebRTC frame buffer carrying one encoded video access unit.
 class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
  public:
@@ -51,7 +70,8 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
       EncodedVideoCodec codec,
       EncodedFrameType frame_type,
       webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
-      std::shared_ptr<std::atomic<bool>> keyframe_request_flag = nullptr);
+      std::shared_ptr<std::atomic<bool>> keyframe_request_flag = nullptr,
+      std::shared_ptr<EncodedRateControlState> rate_control_state = nullptr);
   ~EncodedVideoFrameBuffer() override = default;
 
   Type type() const override;
@@ -80,6 +100,10 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   // Asks the capture side to produce a keyframe (e.g. on PLI/FIR).
   void request_keyframe() const;
 
+  // Updates the capture side with the latest encoder rate-control target.
+  void set_rate_control_request(uint64_t target_bitrate_bps,
+                                double framerate_fps) const;
+
   static EncodedVideoFrameBuffer* FromNative(webrtc::VideoFrameBuffer* buffer);
 
  private:
@@ -89,6 +113,7 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   EncodedFrameType frame_type_;
   webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload_;
   std::shared_ptr<std::atomic<bool>> keyframe_request_flag_;
+  std::shared_ptr<EncodedRateControlState> rate_control_state_;
 };
 
 }  // namespace livekit

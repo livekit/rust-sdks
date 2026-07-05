@@ -23,19 +23,36 @@
 
 namespace livekit {
 
+void EncodedRateControlState::Store(uint64_t target_bitrate_bps,
+                                    double framerate_fps) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  request_.has_request = true;
+  request_.target_bitrate_bps = target_bitrate_bps;
+  request_.framerate_fps = framerate_fps;
+}
+
+EncodedRateControlRequest EncodedRateControlState::Take() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  EncodedRateControlRequest request = request_;
+  request_ = EncodedRateControlRequest();
+  return request;
+}
+
 EncodedVideoFrameBuffer::EncodedVideoFrameBuffer(
     int width,
     int height,
     EncodedVideoCodec codec,
     EncodedFrameType frame_type,
     webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
-    std::shared_ptr<std::atomic<bool>> keyframe_request_flag)
+    std::shared_ptr<std::atomic<bool>> keyframe_request_flag,
+    std::shared_ptr<EncodedRateControlState> rate_control_state)
     : width_(width),
       height_(height),
       codec_(codec),
       frame_type_(frame_type),
       payload_(std::move(payload)),
-      keyframe_request_flag_(std::move(keyframe_request_flag)) {}
+      keyframe_request_flag_(std::move(keyframe_request_flag)),
+      rate_control_state_(std::move(rate_control_state)) {}
 
 webrtc::VideoFrameBuffer::Type EncodedVideoFrameBuffer::type() const {
   return Type::kNative;
@@ -84,6 +101,14 @@ EncodedVideoFrameBuffer::CropAndScale(int /* offset_x */,
 void EncodedVideoFrameBuffer::request_keyframe() const {
   if (keyframe_request_flag_) {
     keyframe_request_flag_->store(true, std::memory_order_relaxed);
+  }
+}
+
+void EncodedVideoFrameBuffer::set_rate_control_request(
+    uint64_t target_bitrate_bps,
+    double framerate_fps) const {
+  if (rate_control_state_) {
+    rate_control_state_->Store(target_bitrate_bps, framerate_fps);
   }
 }
 

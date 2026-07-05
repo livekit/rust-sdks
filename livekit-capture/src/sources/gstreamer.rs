@@ -19,13 +19,15 @@ use thiserror::Error;
 
 use ::gstreamer as gst;
 use ::gstreamer_app as gst_app;
+use gst::glib;
 use gst::prelude::*;
 
 use crate::{
     encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
         ingress::EncodedAccessUnitSource,
-        CodecSpecific, EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
+        CodecSpecific, EncodedFrameType, EncodedRateControl, EncodedVideoCodec,
+        OwnedEncodedAccessUnit,
     },
     error::CaptureError,
 };
@@ -90,18 +92,91 @@ impl GStreamerAppSinkConfig {
     }
 }
 
+/// Bitrate unit used by a GStreamer encoder property.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GStreamerBitrateUnit {
+    /// The encoder property expects bits per second.
+    BitsPerSecond,
+    /// The encoder property expects kilobits per second.
+    KilobitsPerSecond,
+}
+
+impl GStreamerBitrateUnit {
+    fn property_value(self, target_bitrate_bps: u64) -> u64 {
+        match self {
+            Self::BitsPerSecond => target_bitrate_bps,
+            Self::KilobitsPerSecond => target_bitrate_bps.saturating_add(999) / 1000,
+        }
+    }
+}
+
+/// GStreamer encoder bitrate control used by [`GStreamerAppSinkEncodedSource`].
+#[derive(Debug, Clone)]
+pub struct GStreamerEncoderRateControl {
+    encoder: gst::Element,
+    bitrate_property: String,
+    bitrate_unit: GStreamerBitrateUnit,
+    last_target_bitrate_bps: Option<u64>,
+}
+
+impl GStreamerEncoderRateControl {
+    /// Creates bitrate control for a GStreamer encoder element.
+    pub fn new(
+        encoder: gst::Element,
+        bitrate_property: &str,
+        bitrate_unit: GStreamerBitrateUnit,
+    ) -> Self {
+        Self {
+            encoder,
+            bitrate_property: bitrate_property.to_owned(),
+            bitrate_unit,
+            last_target_bitrate_bps: None,
+        }
+    }
+
+    fn update(&mut self, rate_control: EncodedRateControl) {
+        if self.last_target_bitrate_bps == Some(rate_control.target_bitrate_bps) {
+            return;
+        }
+
+        let property_value = self.bitrate_unit.property_value(rate_control.target_bitrate_bps);
+        if set_integer_property(&self.encoder, &self.bitrate_property, property_value) {
+            self.last_target_bitrate_bps = Some(rate_control.target_bitrate_bps);
+            log::debug!(
+                "updated GStreamer encoder '{}' {}={} for WebRTC target {} bps at {:.2} fps",
+                self.encoder.name(),
+                self.bitrate_property,
+                property_value,
+                rate_control.target_bitrate_bps,
+                rate_control.framerate_fps,
+            );
+        }
+    }
+}
+
 /// Encoded source backed by a GStreamer appsink.
 #[derive(Debug)]
 pub struct GStreamerAppSinkEncodedSource {
     appsink: gst_app::AppSink,
     config: GStreamerAppSinkConfig,
     next_fallback_timestamp_us: i64,
+    rate_control: Option<GStreamerEncoderRateControl>,
 }
 
 impl GStreamerAppSinkEncodedSource {
     /// Creates an encoded source from an existing GStreamer appsink.
     pub fn new(appsink: gst_app::AppSink, config: GStreamerAppSinkConfig) -> Self {
-        Self { appsink, config, next_fallback_timestamp_us: config.start_timestamp_us }
+        Self {
+            appsink,
+            config,
+            next_fallback_timestamp_us: config.start_timestamp_us,
+            rate_control: None,
+        }
+    }
+
+    /// Sets the encoder bitrate control used for downstream rate requests.
+    pub fn set_encoder_rate_control(&mut self, rate_control: GStreamerEncoderRateControl) {
+        self.rate_control = Some(rate_control);
     }
 
     /// Returns the wrapped appsink.
@@ -181,6 +256,62 @@ impl EncodedAccessUnitSource for GStreamerAppSinkEncodedSource {
             gst::Structure::builder("GstForceKeyUnit").field("all-headers", true).build();
         let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
     }
+
+    fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
+        if let Some(control) = &mut self.rate_control {
+            control.update(rate_control);
+        }
+    }
+}
+
+fn set_integer_property(element: &gst::Element, property: &str, value: u64) -> bool {
+    let Some(pspec) = element.find_property(property) else {
+        log::warn!("GStreamer encoder '{}' has no '{property}' property", element.name());
+        return false;
+    };
+
+    let flags = pspec.flags();
+    if !flags.contains(glib::ParamFlags::WRITABLE)
+        || flags.contains(glib::ParamFlags::CONSTRUCT_ONLY)
+    {
+        log::warn!("GStreamer encoder '{}' property '{property}' is not writable", element.name());
+        return false;
+    }
+
+    if let Some(pspec) = pspec.downcast_ref::<glib::ParamSpecUInt>() {
+        element.set_property(
+            property,
+            value.clamp(pspec.minimum() as u64, pspec.maximum() as u64) as u32,
+        );
+        return true;
+    }
+    if let Some(pspec) = pspec.downcast_ref::<glib::ParamSpecInt>() {
+        element.set_property(
+            property,
+            clamp_to_i64(value, pspec.minimum() as i64, pspec.maximum() as i64) as i32,
+        );
+        return true;
+    }
+    if let Some(pspec) = pspec.downcast_ref::<glib::ParamSpecUInt64>() {
+        element.set_property(property, value.clamp(pspec.minimum(), pspec.maximum()));
+        return true;
+    }
+    if let Some(pspec) = pspec.downcast_ref::<glib::ParamSpecInt64>() {
+        element.set_property(property, clamp_to_i64(value, pspec.minimum(), pspec.maximum()));
+        return true;
+    }
+
+    log::warn!(
+        "GStreamer encoder '{}' property '{property}' has unsupported type '{}'",
+        element.name(),
+        pspec.value_type()
+    );
+    false
+}
+
+fn clamp_to_i64(value: u64, minimum: i64, maximum: i64) -> i64 {
+    let value = value.min(i64::MAX as u64) as i64;
+    value.clamp(minimum, maximum)
 }
 
 /// Error returned by GStreamer appsink encoded sources.

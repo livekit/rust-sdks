@@ -23,7 +23,7 @@ use crate::{
         CaptureFormat, CaptureFormatRequest, CaptureFrameFormat, CapturePath,
     },
     dmabuf::DmaBufFrame,
-    encoded::{ingress::EncodedAccessUnitSource, OwnedEncodedAccessUnit},
+    encoded::{ingress::EncodedAccessUnitSource, EncodedRateControl, OwnedEncodedAccessUnit},
     error::CaptureError,
     track::VideoCaptureTrack,
 };
@@ -526,12 +526,33 @@ impl VideoCaptureSource {
         }
     }
 
+    /// Forwards a downstream rate-control target to the source's producer.
+    ///
+    /// No-op for decoded camera backends and encoded transports that cannot
+    /// influence an upstream encoder.
+    pub fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
+        match self {
+            #[cfg(feature = "rtsp")]
+            Self::Rtsp(source) => source.source_mut().update_rate_control(rate_control),
+            #[cfg(feature = "tcpsink")]
+            Self::Tcp(source) => source.source_mut().update_rate_control(rate_control),
+            #[cfg(feature = "gstreamer")]
+            Self::Gstreamer(source) => source.source.source_mut().update_rate_control(rate_control),
+            #[allow(unreachable_patterns)]
+            _ => {}
+        }
+    }
+
     /// Captures and publishes the next frame, returning `false` once an
     /// encoded source reaches end of stream.
     ///
-    /// Keyframe requests raised by the passthrough encoder are polled from
-    /// the track and forwarded to the source before each capture.
+    /// Rate-control and keyframe requests raised by the passthrough encoder
+    /// are polled from the track and forwarded to the source before each
+    /// capture.
     pub fn publish_next(&mut self, track: &VideoCaptureTrack) -> Result<bool, CaptureSourceError> {
+        if let Some(rate_control) = track.take_rate_control_request() {
+            self.update_rate_control(rate_control);
+        }
         if track.take_keyframe_request() {
             self.request_keyframe();
         }

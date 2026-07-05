@@ -21,7 +21,13 @@ use std::{
     },
 };
 
-use crate::{encoded::OwnedEncodedAccessUnit, error::CaptureError, track::VideoCaptureTrack};
+use livekit::webrtc::video_frame::FrameMetadata;
+
+use crate::{
+    encoded::{EncodedFrameType, EncodedRateControl, OwnedEncodedAccessUnit},
+    error::CaptureError,
+    track::VideoCaptureTrack,
+};
 
 /// Source of owned encoded access units.
 pub trait EncodedAccessUnitSource {
@@ -37,6 +43,12 @@ pub trait EncodedAccessUnitSource {
     /// The default implementation does nothing, for transports that cannot
     /// influence the upstream encoder.
     fn request_keyframe(&mut self) {}
+
+    /// Forwards a downstream rate-control target to the producer.
+    ///
+    /// The default implementation does nothing, for transports that cannot
+    /// influence the upstream encoder.
+    fn update_rate_control(&mut self, _rate_control: EncodedRateControl) {}
 }
 
 /// Error returned while forwarding encoded access units into a track.
@@ -100,12 +112,13 @@ pub struct EncodedIngress<S> {
     track: VideoCaptureTrack,
     source: S,
     stop: EncodedIngressStop,
+    awaiting_initial_keyframe: bool,
 }
 
 impl<S> EncodedIngress<S> {
     /// Creates an encoded ingress runner.
     pub fn new(track: VideoCaptureTrack, source: S) -> Self {
-        Self { track, source, stop: EncodedIngressStop::new() }
+        Self { track, source, stop: EncodedIngressStop::new(), awaiting_initial_keyframe: true }
     }
 
     /// Returns a cancellation handle for this runner.
@@ -151,24 +164,47 @@ where
 {
     /// Captures the next access unit, returning `None` after source EOF.
     ///
-    /// Downstream keyframe requests (PLI/FIR raised by the passthrough
-    /// encoder) are polled on every call and forwarded to the source via
+    /// Downstream rate-control and keyframe requests raised by the
+    /// passthrough encoder are polled on every call and forwarded to the
+    /// source via [`EncodedAccessUnitSource::update_rate_control`] and
     /// [`EncodedAccessUnitSource::request_keyframe`].
     pub fn capture_next(
         &mut self,
     ) -> Result<Option<EncodedIngressCapture>, EncodedIngressError<S::Error>> {
+        self.capture_next_with_metadata(|_| None)
+    }
+
+    /// Captures the next access unit with metadata generated after the source yields it.
+    ///
+    /// The metadata producer is not called for skipped pre-roll frames while
+    /// the ingress runner is waiting for the initial keyframe.
+    pub fn capture_next_with_metadata(
+        &mut self,
+        frame_metadata: impl FnOnce(&OwnedEncodedAccessUnit) -> Option<FrameMetadata>,
+    ) -> Result<Option<EncodedIngressCapture>, EncodedIngressError<S::Error>> {
+        if let Some(rate_control) = self.track.take_rate_control_request() {
+            self.source.update_rate_control(rate_control);
+        }
         if self.track.take_keyframe_request() {
             self.source.request_keyframe();
         }
 
-        let Some(access_unit) =
-            self.source.next_access_unit().map_err(EncodedIngressError::Source)?
-        else {
-            return Ok(None);
+        let access_unit = loop {
+            let Some(access_unit) =
+                self.source.next_access_unit().map_err(EncodedIngressError::Source)?
+            else {
+                return Ok(None);
+            };
+
+            if !self.awaiting_initial_keyframe || access_unit.frame_type == EncodedFrameType::Key {
+                self.awaiting_initial_keyframe = false;
+                break access_unit;
+            }
         };
 
+        let frame_metadata = frame_metadata(&access_unit);
         self.track
-            .capture_encoded(&access_unit.as_access_unit())
+            .capture_encoded_with_metadata(&access_unit.as_access_unit(), frame_metadata)
             .map_err(EncodedIngressError::Capture)?;
         Ok(Some(EncodedIngressCapture {
             timestamp_us: access_unit.timestamp_us,
@@ -185,5 +221,94 @@ where
             captured += 1;
         }
         Ok(captured)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::VecDeque, error::Error, fmt};
+
+    use livekit::webrtc::video_source::VideoResolution;
+
+    use super::*;
+    use crate::encoded::EncodedVideoCodec;
+
+    #[derive(Debug)]
+    struct FakeSourceError;
+
+    impl fmt::Display for FakeSourceError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("fake source failed")
+        }
+    }
+
+    impl Error for FakeSourceError {}
+
+    #[derive(Debug)]
+    struct FakeSource {
+        access_units: VecDeque<OwnedEncodedAccessUnit>,
+    }
+
+    impl FakeSource {
+        fn new(access_units: impl IntoIterator<Item = OwnedEncodedAccessUnit>) -> Self {
+            Self { access_units: access_units.into_iter().collect() }
+        }
+    }
+
+    impl EncodedAccessUnitSource for FakeSource {
+        type Error = FakeSourceError;
+
+        fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
+            Ok(self.access_units.pop_front())
+        }
+    }
+
+    fn access_unit(timestamp_us: i64, frame_type: EncodedFrameType) -> OwnedEncodedAccessUnit {
+        OwnedEncodedAccessUnit::new(
+            EncodedVideoCodec::VP8,
+            vec![1, 2, 3],
+            timestamp_us,
+            frame_type,
+            640,
+            480,
+        )
+    }
+
+    fn encoded_track() -> VideoCaptureTrack {
+        VideoCaptureTrack::new_encoded("test", VideoResolution { width: 640, height: 480 })
+    }
+
+    #[test]
+    fn capture_next_starts_at_initial_keyframe() {
+        let source = FakeSource::new([
+            access_unit(1, EncodedFrameType::Delta),
+            access_unit(2, EncodedFrameType::Delta),
+            access_unit(3, EncodedFrameType::Key),
+        ]);
+        let mut ingress = EncodedIngress::new(encoded_track(), source);
+
+        let capture = ingress
+            .capture_next()
+            .expect("capture should succeed")
+            .expect("keyframe should be captured");
+
+        assert_eq!(capture.timestamp_us, 3);
+        assert_eq!(capture.frame_type, EncodedFrameType::Key);
+    }
+
+    #[test]
+    fn capture_next_allows_deltas_after_initial_keyframe() {
+        let source = FakeSource::new([
+            access_unit(1, EncodedFrameType::Key),
+            access_unit(2, EncodedFrameType::Delta),
+        ]);
+        let mut ingress = EncodedIngress::new(encoded_track(), source);
+
+        let first = ingress.capture_next().unwrap().unwrap();
+        let second = ingress.capture_next().unwrap().unwrap();
+
+        assert_eq!(first.frame_type, EncodedFrameType::Key);
+        assert_eq!(second.frame_type, EncodedFrameType::Delta);
+        assert_eq!(second.timestamp_us, 2);
     }
 }

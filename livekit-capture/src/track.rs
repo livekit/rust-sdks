@@ -16,14 +16,15 @@ use livekit::{
     options::{TrackPublishOptions, VideoEncoderBackend},
     prelude::LocalVideoTrack,
     webrtc::{
-        video_frame::{EncodedVideoFrame, VideoBuffer, VideoFrame},
+        video_frame::{EncodedVideoFrame, FrameMetadata, VideoBuffer, VideoFrame},
         video_source::{native::NativeVideoSource, RtcVideoSource, VideoResolution},
     },
 };
 
 use crate::{
     encoded::{
-        CodecSpecific, EncodedAccessUnit, EncodedLayerInfo, EncodedPayload, EncodedVideoCodec,
+        CodecSpecific, EncodedAccessUnit, EncodedLayerInfo, EncodedPayload, EncodedRateControl,
+        EncodedVideoCodec,
     },
     error::CaptureError,
 };
@@ -108,9 +109,22 @@ impl VideoCaptureTrack {
     /// a non-`L1T1` scalability mode are rejected so callers are not misled
     /// into thinking that metadata reaches the wire.
     pub fn capture_encoded(&self, access_unit: &EncodedAccessUnit<'_>) -> Result<(), CaptureError> {
+        self.capture_encoded_with_metadata(access_unit, None)
+    }
+
+    /// Captures one encoded video access unit with optional frame metadata.
+    ///
+    /// Metadata is only propagated to subscribers when the corresponding
+    /// [`TrackPublishOptions::frame_metadata_features`] are enabled before
+    /// publishing the local track.
+    pub fn capture_encoded_with_metadata(
+        &self,
+        access_unit: &EncodedAccessUnit<'_>,
+        frame_metadata: Option<FrameMetadata>,
+    ) -> Result<(), CaptureError> {
         validate_encoded_access_unit(access_unit)?;
 
-        let mut scratch = Vec::new();
+        let scratch;
         let payload: &[u8] = match &access_unit.payload {
             EncodedPayload::Contiguous(bytes) => bytes,
             EncodedPayload::Owned(bytes) => bytes,
@@ -126,7 +140,7 @@ impl VideoCaptureTrack {
             frame_type: access_unit.frame_type.into(),
             width: access_unit.width,
             height: access_unit.height,
-            frame_metadata: None,
+            frame_metadata,
         };
         self.source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
     }
@@ -140,6 +154,16 @@ impl VideoCaptureTrack {
     /// subscribers cannot render the track.
     pub fn take_keyframe_request(&self) -> bool {
         self.source.take_keyframe_request()
+    }
+
+    /// Returns and clears the pending rate-control target raised by the
+    /// passthrough encoder.
+    ///
+    /// Poll this from the capture loop and forward the target to the
+    /// upstream encoder so congestion control can adjust the produced
+    /// bitrate.
+    pub fn take_rate_control_request(&self) -> Option<EncodedRateControl> {
+        self.source.take_rate_control_request()
     }
 
     /// Returns publish options appropriate for encoded passthrough.

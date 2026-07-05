@@ -27,7 +27,7 @@ use crate::video_frame::FrameMetadata;
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
     video_frame::{EncodedVideoFrame, I420Buffer, VideoBuffer, VideoFrame},
-    video_source::VideoResolution,
+    video_source::{EncodedRateControl, VideoResolution},
 };
 
 impl From<vt_sys::ffi::VideoResolution> for VideoResolution {
@@ -201,6 +201,16 @@ impl NativeVideoSource {
     /// capture loop and forward the request to the upstream encoder.
     pub fn take_keyframe_request(&self) -> bool {
         self.sys_handle.take_keyframe_request()
+    }
+
+    /// Returns and clears the pending rate-control target raised by the
+    /// pass-through encoder.
+    pub fn take_rate_control_request(&self) -> Option<EncodedRateControl> {
+        let request = self.sys_handle.take_rate_control_request();
+        request.has_request.then_some(EncodedRateControl {
+            target_bitrate_bps: request.target_bitrate_bps,
+            framerate_fps: request.framerate_fps,
+        })
     }
 
     /// Captures a Jetson DMA-buffer backed video frame.

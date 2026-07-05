@@ -20,6 +20,15 @@ pub struct VideoResolution {
     pub height: u32,
 }
 
+/// Encoder rate-control target requested by WebRTC for a pre-encoded source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EncodedRateControl {
+    /// Target bitrate in bits per second.
+    pub target_bitrate_bps: u64,
+    /// Target frame rate in frames per second.
+    pub framerate_fps: f64,
+}
+
 impl Default for VideoResolution {
     // Default to 720p
     fn default() -> Self {
@@ -94,6 +103,12 @@ pub mod native {
         /// pass-through encoder (PLI/FIR or reconfiguration).
         pub fn take_keyframe_request(&self) -> bool {
             self.handle.take_keyframe_request()
+        }
+
+        /// Returns and clears the pending rate-control target raised by the
+        /// pass-through encoder.
+        pub fn take_rate_control_request(&self) -> Option<EncodedRateControl> {
+            self.handle.take_rate_control_request()
         }
 
         /// Captures a Jetson DMA-buffer backed video frame.

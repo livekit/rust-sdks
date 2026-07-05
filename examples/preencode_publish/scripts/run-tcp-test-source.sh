@@ -76,7 +76,7 @@ case "$CODEC" in
         FORMAT="Annex-B"
         ;;
     vp8|vp9|av1)
-        PIPELINE="$(gst_animated_video_source) ! $(gst_encoded_access_unit_pipeline "$CODEC") ! $(gst_rtp_payloader_pipeline "$CODEC") ! rtpstreampay ! tcpserversink host=$HOST port=$PORT sync-method=next-keyframe recover-policy=keyframe"
+        PIPELINE="$(gst_animated_video_source) ! $(gst_encoded_access_unit_pipeline "$CODEC") ! $(gst_rtp_payloader_pipeline "$CODEC") ! rtpstreampay ! tcpserversink host=$HOST port=$PORT"
         FORMAT="RTP"
         ;;
     *)

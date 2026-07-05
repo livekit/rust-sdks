@@ -10,11 +10,14 @@ use livekit::prelude::*;
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
-use log::{debug, info};
+use log::{debug, info, warn};
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, VecDeque},
     env,
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
     sync::OnceLock,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -409,9 +412,89 @@ struct Args {
     #[arg(long)]
     display_timestamp: bool,
 
+    /// Write per-frame receive latency samples to this CSV file.
+    #[arg(long)]
+    latency_csv: Option<PathBuf>,
+
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
+}
+
+struct LatencyCsvWriter {
+    writer: Mutex<BufWriter<File>>,
+    start_timestamp_us: u64,
+}
+
+impl LatencyCsvWriter {
+    fn create(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut writer = BufWriter::new(File::create(path)?);
+        writeln!(
+            writer,
+            "elapsed_s,frame_id,user_timestamp_us,receive_timestamp_us,latency_ms,width,height"
+        )?;
+        Ok(Self { writer: Mutex::new(writer), start_timestamp_us: current_timestamp_us() })
+    }
+
+    fn record_frame(&self, frame: &BoxVideoFrame) -> bool {
+        let Some(metadata) = &frame.frame_metadata else {
+            return false;
+        };
+        let Some(user_timestamp_us) = metadata.user_timestamp else {
+            return false;
+        };
+
+        let receive_timestamp_us = current_timestamp_us();
+        let elapsed_s =
+            receive_timestamp_us.saturating_sub(self.start_timestamp_us) as f64 / 1_000_000.0;
+        let latency_ms = receive_timestamp_us.saturating_sub(user_timestamp_us) as f64 / 1_000.0;
+        let frame_id = metadata.frame_id.map(|frame_id| frame_id.to_string()).unwrap_or_default();
+        let width = frame.buffer.width();
+        let height = frame.buffer.height();
+
+        let mut writer = self.writer.lock();
+        let write_result = writeln!(
+            writer,
+            "{elapsed_s:.6},{frame_id},{user_timestamp_us},{receive_timestamp_us},{latency_ms:.3},{width},{height}"
+        )
+        .and_then(|_| writer.flush());
+        if let Err(err) = write_result {
+            warn!("failed to write latency CSV sample: {err}");
+            return false;
+        }
+
+        true
+    }
+}
+
+fn record_received_frame_sample(
+    frame: &BoxVideoFrame,
+    subscriber_timing: &SubscriberTimingHandle,
+    latency_csv: Option<&LatencyCsvWriter>,
+    recorded_latency_sample: &mut bool,
+    logged_missing_latency_metadata: &mut bool,
+) {
+    if let Some(metadata) = &frame.frame_metadata {
+        if let Some(capture_timestamp_us) = metadata.user_timestamp {
+            subscriber_timing.record_frame_received_by_sink(
+                capture_timestamp_us,
+                metadata.frame_id,
+                current_timestamp_us(),
+            );
+        }
+    }
+
+    if let Some(latency_csv) = latency_csv {
+        if latency_csv.record_frame(frame) {
+            *recorded_latency_sample = true;
+        } else if !*recorded_latency_sample && !*logged_missing_latency_metadata {
+            info!("Latency CSV enabled; waiting for frame metadata timestamps");
+            *logged_missing_latency_metadata = true;
+        }
+    }
 }
 
 struct SharedYuv {
@@ -872,6 +955,7 @@ async fn handle_track_subscribed(
     simulcast: &Arc<Mutex<SimulcastState>>,
     repaint_ctx: &Arc<OnceLock<egui::Context>>,
     subscriber_timing: SubscriberTimingHandle,
+    latency_csv: Option<Arc<LatencyCsvWriter>>,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -940,6 +1024,7 @@ async fn handle_track_subscribed(
     let ctrl_c_sink = ctrl_c_received.clone();
     let repaint_ctx_sink = repaint_ctx.clone();
     let subscriber_timing_sink = subscriber_timing.clone();
+    let latency_csv_sink = latency_csv.clone();
     // Initialize simulcast state for this publication
     {
         let mut sc = simulcast.lock();
@@ -958,27 +1043,34 @@ async fn handle_track_subscribed(
         let mut fps_window_frames: u64 = 0;
         let mut fps_window_start = Instant::now();
         let mut fps_smoothed: f32 = 0.0;
+        let mut logged_missing_latency_metadata = false;
+        let mut recorded_latency_sample = false;
         loop {
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
             }
             let Some(mut frame) = sink.next().await else { break };
+            record_received_frame_sample(
+                &frame,
+                &subscriber_timing_sink,
+                latency_csv_sink.as_deref(),
+                &mut recorded_latency_sample,
+                &mut logged_missing_latency_metadata,
+            );
             let mut drained_frames = 0_u64;
             while let Some(Some(newer_frame)) = sink.next().now_or_never() {
+                record_received_frame_sample(
+                    &newer_frame,
+                    &subscriber_timing_sink,
+                    latency_csv_sink.as_deref(),
+                    &mut recorded_latency_sample,
+                    &mut logged_missing_latency_metadata,
+                );
                 frame = newer_frame;
                 drained_frames += 1;
             }
             if drained_frames > 0 {
                 debug!("Dropped {drained_frames} stale decoded frames before render upload");
-            }
-            if let Some(metadata) = &frame.frame_metadata {
-                if let Some(capture_timestamp_us) = metadata.user_timestamp {
-                    subscriber_timing_sink.record_frame_received_by_sink(
-                        capture_timestamp_us,
-                        metadata.frame_id,
-                        current_timestamp_us(),
-                    );
-                }
             }
             let w = frame.buffer.width();
             let h = frame.buffer.height();
@@ -1493,6 +1585,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let frame_slot = Arc::new(LatestRenderFrameSlot::new());
     let video_size = Arc::new(AtomicVideoSize::default());
     let subscriber_timing = SubscriberTimingHandle::new();
+    let latency_csv =
+        args.latency_csv.as_deref().map(LatencyCsvWriter::create).transpose()?.map(Arc::new);
+    if let Some(path) = &args.latency_csv {
+        info!("Writing latency samples to {}", path.display());
+    }
 
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
@@ -1508,6 +1605,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
     let subscriber_timing_events = subscriber_timing.clone();
+    let latency_csv_events = latency_csv.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
         let simulcast = simulcast_events;
@@ -1530,6 +1628,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &simulcast,
                         &repaint_ctx_events,
                         subscriber_timing_events.clone(),
+                        latency_csv_events.clone(),
                     )
                     .await;
                 }

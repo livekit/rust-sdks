@@ -778,7 +778,7 @@ mod tests {
 
         let au = parser.push(&stream).unwrap().unwrap();
         assert_eq!(au.timestamp_us, 0);
-        assert_eq!(au.frame_type, EncodedFrameType::Key);
+        assert_eq!(au.frame_type, EncodedFrameType::Delta);
         assert_eq!(au.payload.as_ref(), &stream[..14]);
 
         let au = parser.flush().unwrap().unwrap();

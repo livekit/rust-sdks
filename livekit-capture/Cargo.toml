@@ -14,6 +14,7 @@ gstreamer = { workspace = true, optional = true }
 gstreamer-app = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 livekit = { workspace = true }
+log = { workspace = true }
 md-5 = { workspace = true, optional = true }
 thiserror = { workspace = true }
 yuv-sys = { workspace = true, features = ["jpeg"], optional = true }

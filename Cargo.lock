@@ -4029,6 +4029,7 @@ dependencies = [
  "image",
  "libc",
  "livekit",
+ "log",
  "md-5",
  "objc2 0.6.4",
  "objc2-av-foundation",
