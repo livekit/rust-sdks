@@ -58,8 +58,15 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
 #if defined(__ANDROID__)
   // platform_adm_ stays nullptr, will be created in EnsurePlatformAdmCreated()
 #else
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+  // Use the AVAudioEngine based ADM on Apple platforms. It supports runtime
+  // switchable voice processing and device change handling.
+  platform_adm_ = webrtc::CreateAudioDeviceModule(
+      env_, webrtc::AudioDeviceModule::kAppleAudioEngine);
+#else
   platform_adm_ = webrtc::CreateAudioDeviceModule(
       env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
+#endif
 
   if (!platform_adm_) {
     RTC_LOG(LS_ERROR) << "AdmProxy: CreateAudioDeviceModule returned nullptr";
@@ -834,6 +841,38 @@ int32_t AdmProxy::EnableBuiltInNS(bool enable) {
   return WithPlatformAdm<int32_t>(-1, [enable](webrtc::AudioDeviceModule& adm) {
     return adm.EnableBuiltInNS(enable);
   });
+}
+
+webrtc::AudioDeviceModule::PlatformAudioProcessingTopology
+AdmProxy::GetPlatformAudioProcessingTopology() const {
+  return WithPlatformAdm<
+      webrtc::AudioDeviceModule::PlatformAudioProcessingTopology>(
+      webrtc::AudioDeviceModule::PlatformAudioProcessingTopology::kIndependent,
+      [](webrtc::AudioDeviceModule& adm) {
+        return adm.GetPlatformAudioProcessingTopology();
+      });
+}
+
+bool AdmProxy::PlatformVoiceProcessingPathIsAvailable() const {
+  return WithPlatformAdm<bool>(false, [](webrtc::AudioDeviceModule& adm) {
+    return adm.PlatformVoiceProcessingPathIsAvailable();
+  });
+}
+
+int32_t AdmProxy::EnablePlatformVoiceProcessingPath(bool enable) {
+  return WithPlatformAdm<int32_t>(-1, [enable](webrtc::AudioDeviceModule& adm) {
+    return adm.EnablePlatformVoiceProcessingPath(enable);
+  });
+}
+
+webrtc::AudioDeviceModule::PlatformAudioProcessingState
+AdmProxy::GetPlatformAudioProcessingState() const {
+  return WithPlatformAdm<
+      webrtc::AudioDeviceModule::PlatformAudioProcessingState>(
+      webrtc::AudioDeviceModule::PlatformAudioProcessingState(),
+      [](webrtc::AudioDeviceModule& adm) {
+        return adm.GetPlatformAudioProcessingState();
+      });
 }
 
 #if defined(WEBRTC_IOS)

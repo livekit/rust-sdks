@@ -95,9 +95,9 @@
 //!
 //! # Platform-Specific Notes
 //!
-//! - **iOS**: Creates a VPIO (Voice Processing IO) AudioUnit. Only one VPIO
-//!   can exist per process. Drop all `PlatformAudio` instances to release it.
-//! - **macOS**: Uses CoreAudio. Full device enumeration and selection supported.
+//! - **iOS**: Uses WebRTC's Apple AudioEngine ADM with platform voice processing.
+//!   Drop all `PlatformAudio` instances to release active audio I/O.
+//! - **macOS**: Uses WebRTC's Apple AudioEngine ADM. Full device enumeration and selection supported.
 //! - **Windows**: Uses WASAPI. Full device enumeration and selection supported.
 //! - **Linux**: Uses PulseAudio or ALSA. Full device enumeration and selection supported.
 //! - **Android**: Uses Java AudioRecord/AudioTrack via WebRTC's `JavaAudioDeviceModule`.
@@ -399,9 +399,9 @@ impl Drop for PlatformAdmHandle {
 ///
 /// # Platform-Specific Notes
 ///
-/// - **iOS**: Creates a VPIO AudioUnit (exclusive microphone access).
+/// - **iOS**: Uses WebRTC's Apple AudioEngine ADM with platform voice processing.
 ///   Drop all instances to allow other audio frameworks to use the mic.
-/// - **macOS**: Uses CoreAudio for device management.
+/// - **macOS**: Uses WebRTC's Apple AudioEngine ADM for device management.
 /// - **Windows**: Uses WASAPI for device management.
 /// - **Linux**: Uses PulseAudio or ALSA.
 #[derive(Clone)]
@@ -484,7 +484,7 @@ impl PlatformAudio {
         let audio = Self { handle };
 
         // Configure audio processing with platform-appropriate defaults:
-        // - iOS: prefer_hardware_processing=true (VPIO is excellent)
+        // - iOS: prefer_hardware_processing=true (Apple voice processing is preferred)
         // - Android: prefer_hardware_processing=false (hardware AEC unreliable across devices)
         // - Desktop: prefer_hardware_processing=false (hardware not available anyway)
         if let Err(e) = audio.configure_audio_processing(AudioProcessingOptions::default()) {
@@ -662,7 +662,7 @@ impl PlatformAudio {
     ///
     /// **Mobile (iOS/Android):** Device selection is a no-op. Both platforms handle
     /// microphone selection at the system level. This method will succeed but has no effect.
-    /// - iOS: VPIO AudioUnit handles input selection
+    /// - iOS: Apple AudioEngine handles input selection
     /// - Android: System selects best input source based on audio mode
     ///
     /// # Arguments
@@ -987,7 +987,7 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: Returns `true` (VPIO provides hardware AEC)
+    /// - **iOS**: Returns `true` when Apple voice processing can provide AEC
     /// - **Android**: Returns `true` on devices with hardware AEC support
     /// - **Desktop**: Returns `false` (hardware AEC not available)
     ///
@@ -1007,7 +1007,7 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: Returns `true` (VPIO provides hardware AGC)
+    /// - **iOS**: Returns `true` when Apple voice processing can provide AGC
     /// - **Android**: Returns `true` on devices with hardware AGC support
     /// - **Desktop**: Returns `false` (hardware AGC not available)
     pub fn is_hardware_agc_available(&self) -> bool {
@@ -1018,7 +1018,7 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: Returns `true` (VPIO provides hardware NS)
+    /// - **iOS**: Returns `true` when Apple voice processing can provide NS
     /// - **Android**: Returns `true` on devices with hardware NS support
     /// - **Desktop**: Returns `false` (hardware NS not available)
     pub fn is_hardware_ns_available(&self) -> bool {
@@ -1076,7 +1076,7 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: `prefer_hardware_processing` is ignored (always uses VPIO)
+    /// - **iOS/macOS**: `prefer_hardware_processing` uses Apple voice processing when available
     /// - **Android**: When `prefer_hardware_processing` is `false`, hardware
     ///   effects are disabled and WebRTC's software APM is used instead
     /// - **Desktop**: `prefer_hardware_processing` is ignored (hardware not available)

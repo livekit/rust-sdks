@@ -216,6 +216,14 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t EnableBuiltInAGC(bool enable) override;
   int32_t EnableBuiltInNS(bool enable) override;
 
+  // Platform voice processing (Apple's coupled AEC+NS path)
+  webrtc::AudioDeviceModule::PlatformAudioProcessingTopology
+  GetPlatformAudioProcessingTopology() const override;
+  bool PlatformVoiceProcessingPathIsAvailable() const override;
+  int32_t EnablePlatformVoiceProcessingPath(bool enable) override;
+  webrtc::AudioDeviceModule::PlatformAudioProcessingState
+  GetPlatformAudioProcessingState() const override;
+
 #if defined(WEBRTC_IOS)
   int GetPlayoutAudioParameters(webrtc::AudioParameters* params) const override;
   int GetRecordAudioParameters(webrtc::AudioParameters* params) const override;
