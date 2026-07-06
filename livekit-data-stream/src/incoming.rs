@@ -300,7 +300,7 @@ pub struct IncomingStreamManager {
     open_tx: UnboundedSender<(AnyStreamReader, String)>,
     /// Topics whose streams are handled internally by the SDK (e.g. RPC) and never surfaced as
     /// application events. Supplied by the host crate so this crate stays decoupled from RPC.
-    reserved_topics: Arc<[String]>,
+    reserved_topics: Vec<&'static str>,
 }
 
 #[derive(Default)]
@@ -310,14 +310,14 @@ struct ManagerInner {
 
 impl IncomingStreamManager {
     pub fn new(
-        reserved_topics: Vec<String>,
+        reserved_topics: Vec<&'static str>,
     ) -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
         let (open_tx, open_rx) = mpsc::unbounded_channel();
         (
             Self {
                 inner: Arc::new(Mutex::new(Default::default())),
                 open_tx,
-                reserved_topics: reserved_topics.into(),
+                reserved_topics,
             },
             open_rx,
         )
