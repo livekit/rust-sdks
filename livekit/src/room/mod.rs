@@ -1812,7 +1812,7 @@ impl RoomSession {
         participant_identity: String,
         encryption_type: proto::encryption::Type,
     ) {
-        let is_internal = is_internal_topic(&header.topic);
+        let is_internal = self.incoming_stream_manager.is_internal_topic(&header.topic);
         self.incoming_stream_manager.handle_header(
             header.clone(),
             participant_identity.clone(),
@@ -2271,6 +2271,15 @@ impl livekit_common::RemoteParticipantRegistry for RoomSession {
     }
 }
 
+/// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
+/// handled within the `livekit` crate and never surfaced through `RoomEvent`; the list is also
+/// passed to `IncomingStreamManager` so it can flag internal streams.
+const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
+
+fn is_internal_topic(topic: &str) -> bool {
+    INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
+}
+
 /// Receives stream readers for newly-opened streams and dispatches room events.
 ///
 /// Intercepts text streams on RPC topics (`lk.rpc_request`, `lk.rpc_response`)
@@ -2334,15 +2343,6 @@ async fn incoming_data_stream_task(
             }
         }
     }
-}
-
-/// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
-/// handled within the `livekit` crate and never surfaced through `RoomEvent`; the list is also
-/// passed to `IncomingStreamManager` so it can flag internal streams.
-const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
-
-fn is_internal_topic(topic: &str) -> bool {
-    INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
 }
 
 /// Receives packets from the outgoing stream manager and send them.

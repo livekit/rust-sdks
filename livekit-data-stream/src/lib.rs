@@ -130,10 +130,10 @@ pub struct ByteStreamInfo {
     /// The encryption used
     pub encryption_type: EncryptionType,
     /// Test-only: expose whether the byte stream was compressed or not.
-    #[cfg(feature = "__lk-e2e-test")]
+    #[cfg(feature = "__e2e-test")]
     pub is_compressed: bool,
     /// Test-only: expose whether the byte stream was sent inline on the header packet
-    #[cfg(feature = "__lk-e2e-test")]
+    #[cfg(feature = "__e2e-test")]
     pub is_inline: bool,
 }
 
@@ -160,10 +160,10 @@ pub struct TextStreamInfo {
     /// The encryption used
     pub encryption_type: EncryptionType,
     /// Test-only: expose whether the byte stream was compressed or not.
-    #[cfg(feature = "__lk-e2e-test")]
+    #[cfg(feature = "__e2e-test")]
     pub is_compressed: bool,
     /// Test-only: expose whether the byte stream was sent inline on the header packet
-    #[cfg(feature = "__lk-e2e-test")]
+    #[cfg(feature = "__e2e-test")]
     pub is_inline: bool,
 }
 
@@ -218,9 +218,9 @@ impl ByteStreamInfo {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            #[cfg(feature = "__lk-e2e-test")]
+            #[cfg(feature = "__e2e-test")]
             is_compressed: header.compression() != proto::CompressionType::None,
-            #[cfg(feature = "__lk-e2e-test")]
+            #[cfg(feature = "__e2e-test")]
             is_inline: !header.inline_content().is_empty(),
 
             id: header.stream_id,
@@ -247,9 +247,9 @@ impl TextStreamInfo {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            #[cfg(feature = "__lk-e2e-test")]
+            #[cfg(feature = "__e2e-test")]
             is_compressed: header.compression() != proto::CompressionType::None,
-            #[cfg(feature = "__lk-e2e-test")]
+            #[cfg(feature = "__e2e-test")]
             is_inline: !header.inline_content().is_empty(),
 
             id: header.stream_id,
