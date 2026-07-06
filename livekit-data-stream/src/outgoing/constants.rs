@@ -12,23 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![doc = include_str!("../README.md")]
+/// Max chunk content size AND the header-packet MTU budget. Kept below the ~16 KB
+/// data-channel MTU for protocol/E2EE framing headroom.
+pub(crate) const STREAM_CHUNK_SIZE_BYTES: usize = 15000;
 
-mod utils;
-pub use utils::{SendError, StreamError, StreamResult};
+// Default MIME type to use for byte streams.
+pub(crate) static BYTE_MIME_TYPE: &str = "application/octet-stream";
 
-mod info;
-pub use info::{ByteStreamInfo, TextStreamInfo};
+/// Default MIME type to use for text streams.
+pub(crate) static TEXT_MIME_TYPE: &str = "text/plain";
 
-mod utf8_chunk;
+/// Default name for `send_bytes` byte-stream headers.
+pub(crate) static BYTE_DEFAULT_NAME: &str = "unknown";
 
-mod incoming;
-pub use incoming::{
-    AnyStreamReader, ByteStreamReader, IncomingStreamManager, StreamReader, TextStreamReader,
-};
-
-mod outgoing;
-pub use outgoing::{
-    ByteStreamWriter, OutgoingStreamManager, StreamByteOptions, StreamTextOptions, StreamWriter,
-    TextStreamWriter,
-};
