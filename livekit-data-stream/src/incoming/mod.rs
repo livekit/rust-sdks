@@ -19,11 +19,11 @@ use parking_lot::Mutex;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-use crate::utils::{StreamError, StreamProgress, StreamResult};
 use crate::info::{AnyStreamInfo, ByteStreamInfo, TextStreamInfo};
+use crate::utils::{StreamError, StreamProgress, StreamResult};
 
 mod stream_reader;
-pub use stream_reader::{StreamReader, ByteStreamReader, TextStreamReader, AnyStreamReader};
+pub use stream_reader::{AnyStreamReader, ByteStreamReader, StreamReader, TextStreamReader};
 
 struct Descriptor {
     progress: StreamProgress,
@@ -123,11 +123,7 @@ impl IncomingStreamManager {
     ) -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
         let (open_tx, open_rx) = mpsc::unbounded_channel();
         (
-            Self {
-                inner: Arc::new(Mutex::new(Default::default())),
-                open_tx,
-                reserved_topics,
-            },
+            Self { inner: Arc::new(Mutex::new(Default::default())), open_tx, reserved_topics },
             open_rx,
         )
     }

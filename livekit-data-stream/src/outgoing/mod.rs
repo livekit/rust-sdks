@@ -23,12 +23,12 @@ use proto::data_stream::CompressionType;
 use std::{collections::HashMap, io::Write, path::Path, sync::Arc};
 use tokio::sync::Mutex;
 
+use crate::info::{ByteStreamInfo, OperationType, TextStreamInfo};
 use crate::utf8_chunk::Utf8AwareChunkExt;
-use crate::info::{OperationType, TextStreamInfo, ByteStreamInfo};
-use crate::utils::{StreamResult, StreamError, SendError};
+use crate::utils::{SendError, StreamError, StreamResult};
 
 mod stream_writer;
-pub use stream_writer::{StreamWriter, ByteStreamWriter, TextStreamWriter};
+pub use stream_writer::{ByteStreamWriter, StreamWriter, TextStreamWriter};
 
 mod constants;
 
@@ -190,7 +190,8 @@ impl OutgoingStreamManager {
         if should_compress {
             stream.write_raw_chunks(payload.as_compressed()?).await?;
         } else {
-            for chunk in payload.uncompressed.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
+            for chunk in payload.uncompressed.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES)
+            {
                 stream.write_chunk(chunk).await?;
             }
         }
@@ -443,7 +444,10 @@ fn build_byte_header(
         stream_id,
         timestamp: Utc::now().timestamp_millis(),
         topic: options.topic.clone(),
-        mime_type: options.mime_type.clone().unwrap_or_else(|| constants::BYTE_MIME_TYPE.to_owned()),
+        mime_type: options
+            .mime_type
+            .clone()
+            .unwrap_or_else(|| constants::BYTE_MIME_TYPE.to_owned()),
         total_length,
         encryption_type: proto::encryption::Type::None.into(),
         attributes: options.attributes.clone(),

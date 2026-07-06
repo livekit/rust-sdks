@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::outgoing::{RawStream, constants::STREAM_CHUNK_SIZE_BYTES};
+use crate::info::{ByteStreamInfo, TextStreamInfo};
+use crate::outgoing::{constants::STREAM_CHUNK_SIZE_BYTES, RawStream};
 use crate::utf8_chunk::Utf8AwareChunkExt;
-use crate::info::{TextStreamInfo, ByteStreamInfo};
 use crate::utils::StreamResult;
 
 /// Writer for an open data stream.
