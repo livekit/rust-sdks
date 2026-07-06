@@ -60,9 +60,6 @@ pub const PROTOCOL_VERSION: u32 = 17;
 const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
     &[proto::client_info::Capability::CapPacketTrailer];
 
-// The canonical `client_protocol` constants live in `livekit-common` (shared with the
-// data-stream crate); re-exported here so existing `livekit_api::signal_client::CLIENT_PROTOCOL_*`
-// references keep resolving.
 pub use livekit_common::{
     CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DATA_STREAM_V2, CLIENT_PROTOCOL_DEFAULT,
 };

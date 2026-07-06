@@ -116,9 +116,8 @@ impl From<EncryptionType> for i32 {
 // ClientCapability
 // -------------------------------------------------------------------------------------------------
 
-/// A capability a participant's client advertises (mirrors `ClientInfo.Capability`).
-///
-/// Stored typed rather than as the raw protobuf `i32` so accessors don't leak protobuf types.
+/// A capability a participant's client advertises, mirroring the `ClientInfo.Capability` protobuf
+/// enum.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ClientCapability {
@@ -162,9 +161,9 @@ impl From<ClientCapability> for i32 {
 
 /// Read access to remote participants' advertised protocol and capabilities.
 ///
-/// Shared by the RPC transport (v1/v2 transport selection) and the data-stream send
-/// path (inline / compression eligibility), so both consult a single abstraction over
-/// the room's remote participants and both are unit-testable with a fake.
+/// Used by downstream modules like the the RPC transport (v1/v2 transport selection) and
+/// the data-stream send path (inline / compression eligibility) to determine what level of support
+/// a participant has for protocol level features.
 pub trait RemoteParticipantRegistry: Send + Sync {
     /// A remote participant's `client_protocol`, or `CLIENT_PROTOCOL_DEFAULT` (0) if unknown.
     fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32;
