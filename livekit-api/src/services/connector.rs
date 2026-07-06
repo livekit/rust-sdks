@@ -93,6 +93,7 @@ pub struct ConnectorClient {
 }
 
 impl ConnectorClient {
+    /// Authenticates with an API key and secret, signing a short-lived token per request.
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
         Self {
             base: ServiceBase::with_api_key(api_key, api_secret),
@@ -100,6 +101,7 @@ impl ConnectorClient {
         }
     }
 
+    /// Authenticates with a pre-signed token, sent verbatim on every request.
     pub fn with_token(host: &str, token: &str) -> Self {
         Self {
             base: ServiceBase::with_token(token),
@@ -113,6 +115,8 @@ impl ConnectorClient {
         self
     }
 
+    /// Reads the API key and secret from the `LIVEKIT_API_KEY` and
+    /// `LIVEKIT_API_SECRET` environment variables.
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))
