@@ -55,7 +55,7 @@ pub enum ServiceError {
     #[error("invalid access token: {0}")]
     AccessToken(#[from] AccessTokenError),
     #[error("server error: {0}")]
-    Server(#[from] ServerError),
+    Twirp(#[from] ServerError),
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
@@ -120,7 +120,7 @@ impl SipCallError {
     /// Returns a `SipCallError` if `err` is a server error carrying a SIP status,
     /// otherwise `None`.
     pub fn from_error(err: &ServiceError) -> Option<Self> {
-        let ServiceError::Server(ServerError::Response(code)) = err else {
+        let ServiceError::Twirp(ServerError::Twirp(code)) = err else {
             return None;
         };
         if !code.meta.contains_key("sip_status_code") && !code.meta.contains_key("sip_status") {

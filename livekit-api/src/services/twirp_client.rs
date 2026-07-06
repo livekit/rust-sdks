@@ -64,7 +64,7 @@ pub enum ServerError {
     #[error("failed to execute the request: {0}")]
     Request(#[from] std::io::Error),
     #[error("server error: {0}")]
-    Response(ServerErrorCode),
+    Twirp(ServerErrorCode),
     #[error("url error: {0}")]
     Url(#[from] url::ParseError),
     #[error("prost error: {0}")]
@@ -254,7 +254,7 @@ impl TwirpClient {
                     // No fallback: surface the server's error (needs the body).
                     let Some(next) = next else {
                         let err: ServerErrorCode = resp.json().await?;
-                        return Err(ServerError::Response(err));
+                        return Err(ServerError::Twirp(err));
                     };
                     drop(resp); // release the connection before backing off
                     (next, format!("status {status}"))

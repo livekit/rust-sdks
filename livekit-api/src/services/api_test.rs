@@ -119,7 +119,7 @@ async fn all_unavailable() {
     let err = call(&base, config(true, true), r#"{"skipAuth":true,"failRegions":[0,1,2,3]}"#)
         .await
         .expect_err("all regions down should surface an error");
-    assert!(matches!(err, ServerError::Response(_)));
+    assert!(matches!(err, ServerError::Twirp(_)));
 }
 
 #[tokio::test]
@@ -131,7 +131,7 @@ async fn client_error_not_retried() {
             .await
             .expect_err("a 4xx must be returned without failover");
     match err {
-        ServerError::Response(code) => assert_eq!(code.code, "invalid_argument"),
+        ServerError::Twirp(code) => assert_eq!(code.code, "invalid_argument"),
         other => panic!("expected a twirp error, got {other:?}"),
     }
 }
@@ -752,5 +752,5 @@ async fn sip_dial_timeout() {
         )
         .await
         .expect_err("the dial should abort before the mock answers");
-    assert!(matches!(err, ServiceError::Server(ServerError::Request(_))), "{err:?}");
+    assert!(matches!(err, ServiceError::Twirp(ServerError::Request(_))), "{err:?}");
 }
