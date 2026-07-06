@@ -730,7 +730,7 @@ static BYTE_DEFAULT_NAME: &str = "unknown";
 #[cfg(test)]
 mod tests {
     use super::*;
-    use livekit_api::signal_client::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
+    use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
     use std::sync::Mutex as StdMutex;
 
     // --- Fake recipient registry ---------------------------------------------------------

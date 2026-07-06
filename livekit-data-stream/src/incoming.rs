@@ -131,10 +131,13 @@ impl Stream for ByteStreamReader {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 impl TextStreamReader {
     /// Create a TextStreamReader for testing purposes.
-    pub(crate) fn new_for_test(
+    ///
+    /// Exposed under the `test-utils` feature so downstream crates (e.g. `livekit`'s RPC tests)
+    /// can construct a reader directly.
+    pub fn new_for_test(
         info: TextStreamInfo,
         chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
     ) -> Self {
@@ -330,7 +333,7 @@ impl IncomingStreamManager {
         identity: String,
         encryption_type: livekit_protocol::encryption::Type,
     ) {
-        let is_internal = self.reserved_topics.iter().any(|t| t == &header.topic);
+        let is_internal = self.is_internal_topic(&header.topic);
         // Read the v2 signals before `try_from_with_encryption` consumes the header.
         let inline_content = header.inline_content.take();
         let is_compressed = header.compression() == proto::CompressionType::DeflateRaw;
@@ -397,6 +400,14 @@ impl IncomingStreamManager {
     /// dispatches for traffic the SDK handles itself.
     pub fn is_internal(&self, stream_id: &str) -> bool {
         self.inner.lock().open_streams.get(stream_id).is_some_and(|d| d.is_internal)
+    }
+
+    /// Returns whether data streams which are created on the given topic should be
+    /// considered "internal" and not have their raw events surfaced to users.
+    ///
+    /// When possible, prefer [Self::is_internal] instead.
+    pub fn is_internal_topic(&self, topic: &str) -> bool {
+        self.reserved_topics.iter().any(|t| t == &topic)
     }
 
     /// Handles an incoming chunk packet.
@@ -899,7 +910,7 @@ mod tests {
 
     #[tokio::test]
     async fn errors_open_streams_on_sender_disconnect() {
-        let (mgr, mut rx) = IncomingStreamManager::new();
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
         mgr.handle_header(
             text_header("s1", Some(10), HashMap::new(), None, proto::CompressionType::None),
             SENDER.to_string(),
@@ -914,7 +925,7 @@ mod tests {
 
     #[tokio::test]
     async fn abort_only_affects_matching_sender() {
-        let (mgr, mut rx) = IncomingStreamManager::new();
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
         mgr.handle_header(
             text_header("s1", Some(5), HashMap::new(), None, proto::CompressionType::None),
             "bob".to_string(),
