@@ -68,6 +68,19 @@ impl RoomClient {
         }
     }
 
+    pub fn with_token(host: &str, token: &str) -> Self {
+        Self {
+            base: ServiceBase::with_token(token),
+            client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
+    }
+
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))

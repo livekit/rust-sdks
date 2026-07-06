@@ -15,7 +15,7 @@
 use std::{fmt::Display, time::Duration};
 
 use http::{
-    header::{HeaderMap, HeaderValue, CONTENT_TYPE},
+    header::{HeaderMap, HeaderValue, CONTENT_TYPE, USER_AGENT},
     StatusCode,
 };
 use serde::Deserialize;
@@ -27,15 +27,43 @@ use crate::http_client;
 
 pub const DEFAULT_PREFIX: &str = "/twirp";
 
+/// Identifies the SDK and version to the server on every request.
+const USER_AGENT_VALUE: &str = concat!("livekit-server-sdk-rust/", env!("CARGO_PKG_VERSION"));
+
+/// LiveKit URLs are commonly `wss://` (or `ws://`); the server APIs are Twirp
+/// over HTTP, so the scheme is normalized to `https://` (or `http://`).
+fn normalize_host(host: &str) -> String {
+    if let Some(rest) = host.strip_prefix("wss://") {
+        format!("https://{rest}")
+    } else if let Some(rest) = host.strip_prefix("ws://") {
+        format!("http://{rest}")
+    } else {
+        host.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod normalize_host_tests {
+    use super::normalize_host;
+
+    #[test]
+    fn normalizes_ws_schemes() {
+        assert_eq!(normalize_host("wss://my.livekit.cloud"), "https://my.livekit.cloud");
+        assert_eq!(normalize_host("ws://localhost:7880"), "http://localhost:7880");
+        assert_eq!(normalize_host("https://my.livekit.cloud"), "https://my.livekit.cloud");
+        assert_eq!(normalize_host("http://localhost:7880"), "http://localhost:7880");
+    }
+}
+
 #[derive(Debug, Error)]
-pub enum TwirpError {
+pub enum ServerError {
     #[cfg(feature = "services-tokio")]
     #[error("failed to execute the request: {0}")]
     Request(#[from] reqwest::Error),
     #[cfg(feature = "services-async")]
     #[error("failed to execute the request: {0}")]
     Request(#[from] std::io::Error),
-    #[error("twirp error: {0}")]
+    #[error("server error: {0}")]
     Twirp(TwirpErrorCode),
     #[error("url error: {0}")]
     Url(#[from] url::ParseError),
@@ -43,10 +71,17 @@ pub enum TwirpError {
     Prost(#[from] prost::DecodeError),
 }
 
+/// Deprecated alias for [`ServerError`], kept for backwards compatibility.
+pub type TwirpError = ServerError;
+
 #[derive(Debug, Deserialize)]
 pub struct TwirpErrorCode {
     pub code: String,
     pub msg: String,
+    /// Extra key/value context the server attached (e.g. SIP status). Absent on
+    /// most errors.
+    #[serde(default)]
+    pub meta: std::collections::HashMap<String, String>,
 }
 
 impl TwirpErrorCode {
@@ -86,18 +121,30 @@ pub struct TwirpClient {
     client: http_client::Client,
     failover: FailoverConfig,
     request_timeout: Duration,
+    // Headers added to every request; used by tests to inject mock directives
+    // since the public service methods don't expose per-call headers.
+    #[cfg(test)]
+    default_headers: HeaderMap,
 }
 
 impl TwirpClient {
     pub fn new(host: &str, pkg: &str, prefix: Option<&str>) -> Self {
         Self {
-            host: host.to_owned(),
+            host: normalize_host(host),
             pkg: pkg.to_owned(),
             prefix: prefix.unwrap_or(DEFAULT_PREFIX).to_owned(),
             client: http_client::Client::new(),
             failover: FailoverConfig::default(),
             request_timeout: failover::DEFAULT_REQUEST_TIMEOUT,
+            #[cfg(test)]
+            default_headers: HeaderMap::new(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: HeaderMap) -> Self {
+        self.default_headers = headers;
+        self
     }
 
     /// Enables or disables region failover (enabled by default). Failover only
@@ -149,6 +196,11 @@ impl TwirpClient {
     ) -> TwirpResult<R> {
         let original = Url::parse(&self.host)?;
         let path = format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method);
+        headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+        #[cfg(test)]
+        for (k, v) in &self.default_headers {
+            headers.insert(k.clone(), v.clone());
+        }
         let forward = headers.clone(); // headers for the discovery fetch (no content-type yet)
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/protobuf"));
         let body = data.encode_to_vec();

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use livekit_protocol as proto;
-use pbjson_types::Duration as ProtoDuration;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -63,14 +62,10 @@ pub struct AcceptWhatsAppCallOptions {
     pub participant_attributes: Option<HashMap<String, String>>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2
     pub destination_country: Option<String>,
-    /// Optional - Max time for the callee to answer the call
-    pub ringing_timeout: Option<Duration>,
-    /// Optional - Wait for the call to be answered before returning. When set,
-    /// the request blocks until the call is answered or fails.
+    /// Optional - Wait until the inbound party joins before returning.
     pub wait_until_answered: Option<bool>,
-    /// Optional - Per-request timeout override. When `wait_until_answered` is
-    /// set, defaults to a longer value (dialing takes time) and is raised, if
-    /// needed, to stay above `ringing_timeout`; otherwise the client default.
+    /// Optional - Per-request timeout override. When `wait_until_answered` is set
+    /// it defaults to the standard ring window; otherwise the client default applies.
     pub timeout: Option<Duration>,
 }
 
@@ -103,6 +98,19 @@ impl ConnectorClient {
             base: ServiceBase::with_api_key(api_key, api_secret),
             client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
         }
+    }
+
+    pub fn with_token(host: &str, token: &str) -> Self {
+        Self {
+            base: ServiceBase::with_token(token),
+            client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
     }
 
     pub fn new(host: &str) -> ServiceResult<Self> {
@@ -174,7 +182,9 @@ impl ConnectorClient {
     ///
     /// # Arguments
     /// * `call_id` - Call ID sent by Meta
-    /// * `api_key` - The API key of the business disconnecting the call
+    /// * `api_key` - The API key of the business disconnecting the call. Required
+    ///   when `reason` is `BusinessInitiated`; optional for `UserInitiated`.
+    /// * `reason` - Why the call is being disconnected
     ///
     /// # Returns
     /// Empty response on success
@@ -182,6 +192,7 @@ impl ConnectorClient {
         &self,
         call_id: impl Into<String>,
         api_key: impl Into<String>,
+        reason: proto::disconnect_whats_app_call_request::DisconnectReason,
     ) -> ServiceResult<proto::DisconnectWhatsAppCallResponse> {
         self.client
             .request(
@@ -190,7 +201,7 @@ impl ConnectorClient {
                 proto::DisconnectWhatsAppCallRequest {
                     whatsapp_call_id: call_id.into(),
                     whatsapp_api_key: api_key.into(),
-                    ..Default::default()
+                    disconnect_reason: reason as i32,
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
@@ -263,20 +274,15 @@ impl ConnectorClient {
             participant_metadata: options.participant_metadata.unwrap_or_default(),
             participant_attributes: options.participant_attributes.unwrap_or_default(),
             destination_country: options.destination_country.unwrap_or_default(),
-            ringing_timeout: options.ringing_timeout.map(|d| ProtoDuration {
-                seconds: d.as_secs() as i64,
-                nanos: d.subsec_nanos() as i32,
-            }),
+            ringing_timeout: None,
             wait_until_answered,
         };
         let headers =
             self.base.auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?;
 
-        // Accept can block until the call is answered, so default the request
-        // timeout to the standard ring window; the caller overrides via
-        // `options.timeout` and should set it above the ringing_timeout passed to
-        // `dial_whatsapp_call`. Without waiting, the request returns promptly and
-        // the client default applies.
+        // When waiting for the inbound party to join, the request can block, so
+        // default its timeout to the standard ring window; otherwise the client
+        // default applies.
         let timeout = if wait_until_answered {
             Some(options.timeout.unwrap_or(DEFAULT_RINGING_TIMEOUT))
         } else {
