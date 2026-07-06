@@ -141,6 +141,10 @@ pub struct CreateSIPParticipantOptions {
     /// Optionally set the free-form metadata of the participant in a LiveKit room
     pub participant_metadata: Option<String>,
     pub participant_attributes: Option<HashMap<String, String>>,
+    /// Optional custom caller ID shown to the callee. Requires SIP provider
+    /// support. If unset, the phone number is used; set it to an empty string to
+    /// trigger a CNAM lookup on providers that support it.
+    pub display_name: Option<String>,
     // What number should be dialed via SIP
     pub sip_number: Option<String>,
     /// Optionally send following DTMF digits (extension codes) when making a call.
@@ -659,6 +663,7 @@ impl SIPClient {
             participant_name: options.participant_name.to_owned().unwrap_or_default(),
             participant_metadata: options.participant_metadata.to_owned().unwrap_or_default(),
             participant_attributes: options.participant_attributes.to_owned().unwrap_or_default(),
+            display_name: options.display_name.to_owned(),
             dtmf: options.dtmf.to_owned().unwrap_or_default(),
             wait_until_answered,
             play_ringtone: options.play_dialtone.unwrap_or(false),

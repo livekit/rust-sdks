@@ -561,13 +561,17 @@ async fn connector_smoke() {
         .await
         .expect("accept_whatsapp_call");
     connector
-        .disconnect_whatsapp_call(
-            "wacid.HBg",
-            "wa-secret-key",
-            proto::disconnect_whats_app_call_request::DisconnectReason::BusinessInitiated,
-        )
+        .disconnect_whatsapp_call("wacid.HBg", "wa-secret-key")
         .await
         .expect("disconnect_whatsapp_call");
+    connector
+        .disconnect_whatsapp_call_with_reason(
+            "wacid.HBg",
+            "wa-secret-key",
+            proto::disconnect_whats_app_call_request::DisconnectReason::UserInitiated,
+        )
+        .await
+        .expect("disconnect_whatsapp_call_with_reason");
 }
 
 #[tokio::test]
@@ -630,6 +634,9 @@ async fn sip_participant() {
             CreateSIPParticipantOptions {
                 participant_identity: "sip-caller".to_owned(),
                 participant_name: Some("SIP Caller".to_owned()),
+                display_name: Some("Support".to_owned()),
+                dtmf: Some("*123#".to_owned()),
+                play_dialtone: Some(true),
                 wait_until_answered: Some(true),
                 ringing_timeout: Some(Duration::from_secs(2)),
                 ..Default::default()

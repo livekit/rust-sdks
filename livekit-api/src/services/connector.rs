@@ -178,7 +178,34 @@ impl ConnectorClient {
             .map_err(Into::into)
     }
 
-    /// Disconnects a WhatsApp call
+    /// Disconnects a WhatsApp call initiated by the business.
+    ///
+    /// This is the `BusinessInitiated` case; use [`disconnect_whatsapp_call_with_reason`]
+    /// to disconnect with a different [`DisconnectReason`].
+    ///
+    /// [`disconnect_whatsapp_call_with_reason`]: Self::disconnect_whatsapp_call_with_reason
+    /// [`DisconnectReason`]: proto::disconnect_whats_app_call_request::DisconnectReason
+    ///
+    /// # Arguments
+    /// * `call_id` - Call ID sent by Meta
+    /// * `api_key` - The API key of the business disconnecting the call
+    ///
+    /// # Returns
+    /// Empty response on success
+    pub async fn disconnect_whatsapp_call(
+        &self,
+        call_id: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> ServiceResult<proto::DisconnectWhatsAppCallResponse> {
+        self.disconnect_whatsapp_call_with_reason(
+            call_id,
+            api_key,
+            proto::disconnect_whats_app_call_request::DisconnectReason::BusinessInitiated,
+        )
+        .await
+    }
+
+    /// Disconnects a WhatsApp call, specifying why it is being disconnected.
     ///
     /// # Arguments
     /// * `call_id` - Call ID sent by Meta
@@ -188,7 +215,7 @@ impl ConnectorClient {
     ///
     /// # Returns
     /// Empty response on success
-    pub async fn disconnect_whatsapp_call(
+    pub async fn disconnect_whatsapp_call_with_reason(
         &self,
         call_id: impl Into<String>,
         api_key: impl Into<String>,
