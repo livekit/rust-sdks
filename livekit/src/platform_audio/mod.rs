@@ -490,8 +490,7 @@ impl PlatformAudio {
         let audio = Self { handle };
 
         // Configure audio processing with platform-appropriate defaults:
-        // - iOS: prefer_hardware_processing=true (Apple voice processing is preferred)
-        // - macOS: prefer_hardware_processing=false (Apple voice processing available, opt in)
+        // - iOS/macOS: prefer_hardware_processing=true (Apple voice processing is preferred)
         // - Android: prefer_hardware_processing=false (hardware AEC unreliable across devices)
         // - Windows/Linux: prefer_hardware_processing=false (hardware not available)
         if let Err(e) = audio.configure_audio_processing(AudioProcessingOptions::default()) {
@@ -1093,7 +1092,7 @@ impl PlatformAudio {
     /// # Platform Behavior
     ///
     /// - **iOS/macOS**: `prefer_hardware_processing` uses Apple voice processing
-    ///   when available (defaults to enabled on iOS, opt-in on macOS)
+    ///   when available (enabled by default)
     /// - **Android**: When `prefer_hardware_processing` is `false`, hardware
     ///   effects are disabled and WebRTC's software APM is used instead
     /// - **Windows/Linux**: `prefer_hardware_processing` is ignored (hardware not available)

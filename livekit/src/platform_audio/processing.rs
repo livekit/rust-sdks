@@ -36,7 +36,7 @@ impl Default for AudioProcessingType {
 /// # Platform Behavior
 ///
 /// - **iOS/macOS**: Apple voice processing can provide platform AEC/AGC/NS.
-///   The `prefer_hardware_processing` default is `true` on iOS.
+///   The `prefer_hardware_processing` default is `true` on both.
 ///
 /// - **Android**: Hardware AEC quality varies significantly across manufacturers
 ///   and device models. Many devices have broken or poorly-tuned hardware AEC.
@@ -96,8 +96,9 @@ pub struct AudioProcessingOptions {
     ///
     /// # Platform Defaults
     ///
-    /// - **iOS**: `true` - Apple voice processing provides reliable,
-    ///   low-latency AEC/AGC/NS that is tightly integrated with audio I/O.
+    /// - **iOS/macOS**: `true` - Apple voice processing provides reliable,
+    ///   low-latency AEC/AGC/NS that is tightly integrated with audio I/O,
+    ///   and is especially effective for built-in speaker/microphone echo.
     ///
     /// - **Android**: `false` - Hardware AEC is unreliable on many devices.
     ///   Quality varies significantly across manufacturers (Samsung, Xiaomi, etc.)
@@ -106,8 +107,8 @@ pub struct AudioProcessingOptions {
     ///   Reference: Meta found hardware AEC "broken on many combinations of HW + OS"
     ///   when supporting billions of users across thousands of device models.
     ///
-    /// - **Desktop**: `false` - Hardware processing is not available on
-    ///   non-Apple desktop targets. WebRTC software APM is used.
+    /// - **Windows/Linux**: `false` - Hardware processing is not available.
+    ///   WebRTC software APM is used.
     pub prefer_hardware_processing: bool,
 }
 
@@ -117,12 +118,12 @@ impl Default for AudioProcessingOptions {
             echo_cancellation: true,
             noise_suppression: true,
             auto_gain_control: true,
-            // iOS: Apple voice processing is preferred when available.
+            // iOS/macOS: Apple voice processing is preferred when available.
             // Android: Hardware AEC is unreliable across the fragmented device ecosystem.
-            // Desktop: Hardware processing not available on non-Apple desktop targets.
-            #[cfg(target_os = "ios")]
+            // Windows/Linux: Hardware processing not available.
+            #[cfg(any(target_os = "ios", target_os = "macos"))]
             prefer_hardware_processing: true,
-            #[cfg(not(target_os = "ios"))]
+            #[cfg(not(any(target_os = "ios", target_os = "macos")))]
             prefer_hardware_processing: false,
         }
     }
