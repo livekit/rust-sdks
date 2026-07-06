@@ -18,7 +18,7 @@ mod utils;
 pub use utils::{SendError, StreamError, StreamResult};
 
 mod info;
-pub use info::{ByteStreamInfo, TextStreamInfo};
+pub use info::{ByteStreamInfo, OperationType, TextStreamInfo};
 
 mod utf8_chunk;
 
