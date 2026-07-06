@@ -18,8 +18,8 @@ use livekit_protocol as proto;
 use std::{io::Write, path::Path};
 use tokio::io::AsyncReadExt;
 
-use crate::utils::{StreamProgress, StreamResult, StreamError, SendError};
 use super::constants;
+use crate::utils::{SendError, StreamError, StreamProgress, StreamResult};
 
 pub(crate) struct RawStreamOpenOptions {
     pub(crate) header: proto::data_stream::Header,
@@ -72,7 +72,11 @@ impl RawStream {
 
     /// Streams a file's contents into MTU-sized chunks, optionally deflate-raw compressing
     /// on the fly. The whole file is never buffered in memory at once.
-    pub(crate) async fn write_file(&mut self, path: impl AsRef<Path>, compress: bool) -> StreamResult<()> {
+    pub(crate) async fn write_file(
+        &mut self,
+        path: impl AsRef<Path>,
+        compress: bool,
+    ) -> StreamResult<()> {
         let mut file = tokio::fs::File::open(path).await?;
         let mut read_buf = vec![0u8; 8192];
 
@@ -152,7 +156,11 @@ impl RawStream {
         }
     }
 
-    pub(crate) fn create_chunk_packet(id: &str, chunk_index: u64, content: &[u8]) -> proto::DataPacket {
+    pub(crate) fn create_chunk_packet(
+        id: &str,
+        chunk_index: u64,
+        content: &[u8],
+    ) -> proto::DataPacket {
         let chunk = proto::data_stream::Chunk {
             stream_id: id.to_string(),
             chunk_index,

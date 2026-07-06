@@ -24,4 +24,3 @@ pub(crate) static TEXT_MIME_TYPE: &str = "text/plain";
 
 /// Default name for `send_bytes` byte-stream headers.
 pub(crate) static BYTE_DEFAULT_NAME: &str = "unknown";
-
