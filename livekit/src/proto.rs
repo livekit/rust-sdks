@@ -14,9 +14,7 @@
 
 use livekit_protocol::*;
 
-use crate::{
-    e2ee::EncryptionType, participant, room::ChatMessage as RoomChatMessage, track, DataPacketKind,
-};
+use crate::{participant, room::ChatMessage as RoomChatMessage, track, DataPacketKind};
 
 // Conversions
 impl From<ConnectionQuality> for participant::ConnectionQuality {

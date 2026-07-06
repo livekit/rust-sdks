@@ -15,9 +15,9 @@
 use super::{
     AnyStreamInfo, ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
-use crate::{e2ee::EncryptionType, TakeCell};
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
+use livekit_common::EncryptionType;
 use livekit_protocol::data_stream as proto;
 use parking_lot::Mutex;
 use std::{
@@ -50,23 +50,6 @@ pub trait StreamReader: Stream<Item = StreamResult<Self::Output>> {
     /// Returns the data consisting of all concatenated chunks.
     ///
     fn read_all(self) -> impl std::future::Future<Output = StreamResult<Self::Output>> + Send;
-}
-
-impl<T> TakeCell<T>
-where
-    T: StreamReader,
-{
-    /// Takes the reader out of the cell if its info matches the given predicate.
-    ///
-    /// Use this method to conditionally handle incoming streams based on info fields
-    /// such as topic or attributes.
-    ///
-    /// This method will only take the reader if the provided predicate returns `true` when called with the reader's info.
-    /// If the predicate returns `false` or the reader has already been taken, this method returns `None`.
-    ///
-    pub fn take_if(&self, predicate: impl FnOnce(&T::Info) -> bool) -> Option<T> {
-        self.take_if_raw(|reader| predicate(reader.info()))
-    }
 }
 
 /// Reader for an incoming byte data stream.
@@ -242,9 +225,12 @@ struct Descriptor {
 }
 
 #[derive(Clone)]
-pub(crate) struct IncomingStreamManager {
+pub struct IncomingStreamManager {
     inner: Arc<Mutex<ManagerInner>>,
     open_tx: UnboundedSender<(AnyStreamReader, String)>,
+    /// Topics whose streams are handled internally by the SDK (e.g. RPC) and never surfaced as
+    /// application events. Supplied by the host crate so this crate stays decoupled from RPC.
+    reserved_topics: Arc<[String]>,
 }
 
 #[derive(Default)]
@@ -253,9 +239,18 @@ struct ManagerInner {
 }
 
 impl IncomingStreamManager {
-    pub fn new() -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
+    pub fn new(
+        reserved_topics: Vec<String>,
+    ) -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
         let (open_tx, open_rx) = mpsc::unbounded_channel();
-        (Self { inner: Arc::new(Mutex::new(Default::default())), open_tx }, open_rx)
+        (
+            Self {
+                inner: Arc::new(Mutex::new(Default::default())),
+                open_tx,
+                reserved_topics: reserved_topics.into(),
+            },
+            open_rx,
+        )
     }
 
     /// Handles an incoming header packet.
@@ -265,7 +260,7 @@ impl IncomingStreamManager {
         identity: String,
         encryption_type: livekit_protocol::encryption::Type,
     ) {
-        let is_internal = super::is_internal_topic(&header.topic);
+        let is_internal = self.reserved_topics.iter().any(|t| t == &header.topic);
         let Ok(info) = AnyStreamInfo::try_from_with_encryption(header, encryption_type.into())
             .inspect_err(|e| log::error!("Invalid header: {}", e))
         else {

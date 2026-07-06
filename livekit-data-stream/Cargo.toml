@@ -1,0 +1,33 @@
+[package]
+name = "livekit-data-stream"
+description = "Data stream core logic for LiveKit"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[features]
+# End-to-end testing hooks (exposes is_compressed/is_inline on stream info). Forwarded from
+# the `livekit` crate's `__lk-e2e-test` feature.
+__e2e-test = []
+# Exposes constructors used by downstream crates' test suites (e.g. `TextStreamReader::new_for_test`).
+test-utils = []
+
+[dependencies]
+livekit-common = { workspace = true }
+livekit-protocol = { workspace = true }
+log = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+bytes = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["sync", "fs", "io-util", "rt"] }
+futures-util = { workspace = true, default-features = false, features = ["sink"] }
+prost = "0.12"
+chrono = "0.4.38"
+flate2 = "1"
+bmrng = "0.5.2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }

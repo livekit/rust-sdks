@@ -22,7 +22,7 @@ pub mod manager;
 /// Provider implementations for data track.
 pub(crate) mod data_track;
 
-pub(crate) use livekit_common::EncryptionType;
+pub use livekit_common::EncryptionType;
 
 #[derive(Clone)]
 pub struct E2eeOptions {

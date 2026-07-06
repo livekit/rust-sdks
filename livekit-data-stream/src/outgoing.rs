@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use super::{
-    ByteStreamInfo, OperationType, StreamError, StreamProgress, StreamResult, TextStreamInfo,
+    create_random_uuid, ByteStreamInfo, OperationType, SendError, StreamError, StreamProgress,
+    StreamResult, TextStreamInfo,
 };
-use crate::{
-    id::ParticipantIdentity, rtc_engine::EngineError, utils::utf8_chunk::Utf8AwareChunkExt,
-};
+use crate::utf8_chunk::Utf8AwareChunkExt;
 use bmrng::unbounded::{UnboundedRequestReceiver, UnboundedRequestSender};
 use chrono::Utc;
-use libwebrtc::native::create_random_uuid;
+use livekit_common::ParticipantIdentity;
 use livekit_protocol as proto;
 use std::{collections::HashMap, path::Path, sync::Arc};
 use tokio::{io::AsyncReadExt, sync::Mutex};
@@ -136,7 +135,7 @@ impl<'a> StreamWriter<'a> for TextStreamWriter {
 struct RawStreamOpenOptions {
     header: proto::data_stream::Header,
     destination_identities: Vec<ParticipantIdentity>,
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
 struct RawStream {
@@ -144,7 +143,7 @@ struct RawStream {
     progress: StreamProgress,
     is_closed: bool,
     /// Request channel for sending packets.
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
 impl RawStream {
@@ -182,7 +181,7 @@ impl RawStream {
     }
 
     async fn send_packet(
-        tx: &UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+        tx: &UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
         packet: proto::DataPacket,
     ) -> StreamResult<()> {
         tx.send_receive(packet)
@@ -282,11 +281,11 @@ pub struct StreamTextOptions {
 #[derive(Clone)]
 pub(crate) struct OutgoingStreamManager {
     /// Request channel for sending packets.
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
 impl OutgoingStreamManager {
-    pub fn new() -> (Self, UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>) {
+    pub fn new() -> (Self, UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>) {
         let (packet_tx, packet_rx) = bmrng::unbounded_channel();
         let manager = Self { packet_tx };
         (manager, packet_rx)
@@ -522,7 +521,7 @@ mod tests {
 
         let raw_stream = rt.block_on(async {
             let (packet_tx, mut packet_rx) =
-                bmrng::unbounded_channel::<proto::DataPacket, Result<(), EngineError>>();
+                bmrng::unbounded_channel::<proto::DataPacket, Result<(), SendError>>();
 
             tokio::spawn(async move {
                 while let Ok((_packet, responder)) = packet_rx.recv().await {
