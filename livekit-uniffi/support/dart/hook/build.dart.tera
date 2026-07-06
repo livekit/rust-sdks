@@ -31,11 +31,14 @@ void main(List<String> args) async {
     if (!input.config.buildCodeAssets) return;
 
     final code = input.config.code;
+    final os = code.targetOS;
+    final iosSdk = os == OS.iOS ? code.iOS.targetSdk : null;
     final libFile = await _resolveLibrary(
       input,
       output,
-      code.targetOS,
+      os,
       code.targetArchitecture,
+      iosSdk,
     );
 
     output.assets.code.add(
@@ -55,6 +58,7 @@ Future<Uri> _resolveLibrary(
   BuildOutputBuilder output,
   OS os,
   Architecture arch,
+  IOSSdk? iosSdk,
 ) async {
   final libName = _libFileName(os);
 
@@ -69,7 +73,7 @@ Future<Uri> _resolveLibrary(
   );
   final libFile = File.fromUri(outDir.uri.resolve(libName));
 
-  final triple = _targetTriple(os, arch);
+  final triple = _targetTriple(os, arch, iosSdk);
   // Asset naming matches the existing node downloader convention so one set of
   // release assets serves both: `<base>/v<version>/build-<triple>.zip`.
   final zipUrl = Uri.parse('$_downloadBase/v$_version/build-$triple.zip');
@@ -129,7 +133,7 @@ String _libFileName(OS os) {
 
 // Maps a target to the Rust triple used in the published asset name. Kept in
 // sync with the build matrix in .github/workflows/uniffi-cdylib.yml.
-String _targetTriple(OS os, Architecture arch) {
+String _targetTriple(OS os, Architecture arch, IOSSdk? iosSdk) {
   if (os == OS.macOS) {
     if (arch == Architecture.arm64) return 'aarch64-apple-darwin';
     if (arch == Architecture.x64) return 'x86_64-apple-darwin';
@@ -144,7 +148,11 @@ String _targetTriple(OS os, Architecture arch) {
     if (arch == Architecture.arm) return 'armv7-linux-androideabi';
     if (arch == Architecture.x64) return 'x86_64-linux-android';
   } else if (os == OS.iOS) {
-    if (arch == Architecture.arm64) return 'aarch64-apple-ios';
+    final simulator = iosSdk == IOSSdk.iPhoneSimulator;
+    if (arch == Architecture.arm64) {
+      return simulator ? 'aarch64-apple-ios-sim' : 'aarch64-apple-ios';
+    }
+    if (arch == Architecture.x64 && simulator) return 'x86_64-apple-ios';
   }
   throw UnsupportedError('No prebuilt $_cdylibName for $os $arch');
 }

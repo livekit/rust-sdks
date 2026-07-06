@@ -8,8 +8,6 @@ environment:
 
 dependencies:
   ffi: ^2.1.0
-
-dev_dependencies:
   # Native Assets build-hook support. `any` tracks the SDK-bundled versions.
   code_assets: any
   hooks: any
@@ -17,4 +15,6 @@ dev_dependencies:
   archive: ^4.0.0
   crypto: ^3.0.0
   http: ^1.2.0
+
+dev_dependencies:
   test: ^1.25.0
