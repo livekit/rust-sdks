@@ -55,6 +55,15 @@ void StripIvfFrameHeaderIfPresent(std::vector<uint8_t>* packet);
 /// present.
 void ConvertAnnexBToLowOverheadIfPresent(std::vector<uint8_t>* packet);
 
+/// Strip OBUs that should not be transferred in WebRTC RTP payloads when present.
+void StripNonTransferObusIfPresent(std::vector<uint8_t>* packet);
+
+/// Normalizes an AV1 temporal unit for WebRTC RTP packetization: strips IVF
+/// framing, converts Annex-B units to low-overhead OBUs, and strips
+/// non-transfer OBUs. Shared by every encoder that emits AV1 into the RTP
+/// pipeline so the steps cannot drift apart.
+void NormalizeForRtp(std::vector<uint8_t>* packet);
+
 /// Basic validation that WebRTC's AV1 packetizer can parse the bitstream.
 bool IsWebRtcParseable(const uint8_t* data, size_t len);
 

@@ -84,7 +84,9 @@ fn main() {
         "src/video_frame.cpp",
         "src/video_frame_buffer.cpp",
         "src/dmabuf_video_frame_buffer.cpp",
+        "src/encoded_video_frame_buffer.cpp",
         "src/video_encoder_factory.cpp",
+        "src/passthrough_video_encoder.cpp",
         "src/video_decoder_factory.cpp",
         "src/synthetic_audio_device.cpp",
         "src/adm_proxy.cpp",
@@ -96,6 +98,7 @@ fn main() {
         "src/audio_mixer.cpp",
         "src/packet_trailer.cpp",
         "src/packet_trailer_av1.cpp",
+        "src/jetson/jetson_av1_bitstream.cpp",
     ]);
 
     if is_desktop {
@@ -231,7 +234,6 @@ fn main() {
                         .file("src/jetson/h264_encoder_impl.cpp")
                         .file("src/jetson/h265_encoder_impl.cpp")
                         .file("src/jetson/av1_encoder_impl.cpp")
-                        .file("src/jetson/jetson_av1_bitstream.cpp")
                         .file("src/jetson/jetson_encoder_factory.cpp")
                         .flag("-DUSE_JETSON_VIDEO_CODEC=1");
 

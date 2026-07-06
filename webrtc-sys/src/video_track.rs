@@ -50,6 +50,37 @@ pub mod ffi {
         pub user_data: Vec<u8>,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum EncodedVideoCodec {
+        H264,
+        H265,
+        VP8,
+        VP9,
+        AV1,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum EncodedFrameType {
+        Key,
+        Delta,
+    }
+
+    #[derive(Debug)]
+    pub struct EncodedVideoFrameData {
+        pub codec: EncodedVideoCodec,
+        pub frame_type: EncodedFrameType,
+        pub timestamp_us: i64,
+    }
+
+    #[derive(Debug)]
+    pub struct EncodedRateControlRequest {
+        pub has_request: bool,
+        pub target_bitrate_bps: u64,
+        pub framerate_fps: f64,
+    }
+
     extern "C++" {
         include!("livekit/video_frame.h");
         include!("livekit/media_stream_track.h");
@@ -94,6 +125,16 @@ pub mod ffi {
             timestamp_us: i64,
             frame_metadata: &FrameMetadata,
         ) -> bool;
+        fn capture_encoded_frame(
+            self: &VideoTrackSource,
+            width: i32,
+            height: i32,
+            frame: &EncodedVideoFrameData,
+            payload: &[u8],
+            frame_metadata: &FrameMetadata,
+        ) -> bool;
+        fn take_keyframe_request(self: &VideoTrackSource) -> bool;
+        fn take_rate_control_request(self: &VideoTrackSource) -> EncodedRateControlRequest;
         fn set_packet_trailer_handler(
             self: &VideoTrackSource,
             handler: SharedPtr<PacketTrailerHandler>,
