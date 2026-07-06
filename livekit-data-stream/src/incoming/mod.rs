@@ -473,12 +473,6 @@ mod tests {
         proto::Trailer { stream_id: id.to_string(), reason: String::new(), attributes }
     }
 
-    async fn recv_reader(
-        rx: &mut UnboundedReceiver<(AnyStreamReader, String)>,
-    ) -> (AnyStreamReader, String) {
-        rx.recv().await.expect("a reader should be dispatched")
-    }
-
     async fn read_text(reader: AnyStreamReader) -> StreamResult<String> {
         match reader {
             AnyStreamReader::Text(r) => r.read_all().await,
@@ -517,7 +511,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, identity) = recv_reader(&mut rx).await;
+        let (reader, identity) = rx.recv().await.expect("a reader should be dispatched");
         assert_eq!(identity, SENDER);
         assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
         mgr.handle_chunk(chunk("s1", 0, text.as_bytes().to_vec()), EncType::None);
@@ -533,7 +527,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         mgr.handle_chunk(chunk("s1", 0, vec![1, 2, 3, 4]), EncType::None);
         mgr.handle_trailer(trailer("s1"));
         assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3, 4]));
@@ -554,7 +548,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         mgr.handle_chunk(chunk("s1", 0, text.as_bytes().to_vec()), EncType::None);
         mgr.handle_trailer(trailer_with_attrs(
             "s1",
@@ -575,7 +569,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         mgr.handle_chunk(chunk("s1", 0, vec![b'x']), EncType::None);
         mgr.handle_trailer(trailer("s1"));
         assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
@@ -589,7 +583,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         mgr.handle_chunk(chunk("s1", 0, vec![1, 2, 3, 4, 5]), EncType::None);
         mgr.handle_trailer(trailer("s1"));
         assert!(matches!(read_bytes(reader).await, Err(StreamError::LengthExceeded)));
@@ -603,7 +597,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         mgr.handle_chunk(chunk("s1", 0, vec![b'h', b'i']), EncType::Gcm);
         assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
     }
@@ -625,7 +619,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
         // No chunk/trailer packets are fed.
         assert_eq!(read_text(reader).await.unwrap(), text);
@@ -639,7 +633,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3]));
     }
 
@@ -659,7 +653,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
         assert_eq!(read_text(reader).await.unwrap(), text);
     }
@@ -679,7 +673,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(payload));
     }
 
@@ -705,7 +699,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         for (i, piece) in chunk_pieces.iter().enumerate() {
             mgr.handle_chunk(chunk("s1", i as u64, piece.to_vec()), EncType::None);
         }
@@ -721,7 +715,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         // Partial content, no trailer: the sender then drops.
         mgr.handle_chunk(chunk("s1", 0, vec![b'h', b'e', b'l', b'l', b'o']), EncType::None);
         mgr.abort_streams_from(SENDER);
@@ -736,7 +730,7 @@ mod tests {
             "bob".to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         mgr.handle_chunk(chunk("s1", 0, vec![b'h', b'e', b'l', b'l', b'o']), EncType::None);
         // A different participant disconnecting must not disturb bob's stream.
         mgr.abort_streams_from(SENDER);
@@ -762,7 +756,7 @@ mod tests {
             SENDER.to_string(),
             EncType::None,
         );
-        let (reader, _) = recv_reader(&mut rx).await;
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
         mgr.handle_chunk(chunk("s1", 0, pieces[0].to_vec()), EncType::None);
         // Skip index 1 -> feed index 2: a gap is a hard error.
         mgr.handle_chunk(chunk("s1", 2, pieces[1].to_vec()), EncType::None);
