@@ -23,7 +23,7 @@ import 'package:http/http.dart' as http;
 // Matches `cdylib_name` in uniffi.toml and the asset name in the generated Dart.
 const _cdylibName = 'livekit_uniffi';
 const _version = '{{ CARGO_MAKE_CRATE_VERSION }}';
-// Per-release directory holding the `livekit_uniffi-<triple>.zip` assets.
+// Per-release directory holding the `build-<triple>.zip` assets.
 const _downloadBase = '{{ CDYLIB_DOWNLOAD_BASE_URL }}';
 
 void main(List<String> args) async {
@@ -64,7 +64,12 @@ Future<Uri> _resolveLibrary(
 
   // Local mode: library copied into the package root for development.
   final local = File.fromUri(input.packageRoot.resolve(libName));
-  if (await local.exists()) return local.uri;
+  if (await local.exists()) {
+    // Track the file so the hooks runner reruns when a fresh `cargo make
+    // dart-package` overwrites it; otherwise a cached result bundles a stale lib.
+    output.dependencies.add(local.uri);
+    return local.uri;
+  }
 
   // Download mode: fetch the prebuilt library for the target. The hooks-runner
   // already caches hook results across builds, so there's no manual cache check.
@@ -80,9 +85,18 @@ Future<Uri> _resolveLibrary(
   final bytes = await _downloadAndVerify(zipUrl);
 
   await outDir.create(recursive: true);
+  final base = outDir.uri;
   for (final entry in ZipDecoder().decodeBytes(bytes)) {
     if (!entry.isFile) continue;
-    final out = File.fromUri(outDir.uri.resolve(entry.name));
+    // Guard against zip-slip: `resolve` normalizes `../` and absolute paths, so
+    // an entry that lands outside `base` is a malicious name — reject it. The
+    // SHA-256 check proves integrity against tampering in transit, not that a
+    // compromised host can't serve a matching-checksum malicious archive.
+    final entryUri = base.resolve(entry.name);
+    if (!entryUri.toString().startsWith(base.toString())) {
+      throw Exception('Refusing zip entry outside output dir: ${entry.name}');
+    }
+    final out = File.fromUri(entryUri);
     await out.create(recursive: true);
     await out.writeAsBytes(entry.content as List<int>);
   }
