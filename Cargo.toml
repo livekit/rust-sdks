@@ -30,6 +30,7 @@ members = [
     "examples/local_video",
     "examples/mobile",
     "examples/play_from_disk",
+    "examples/preencode_publish",
     "examples/rpc",
     "examples/save_to_disk",
     "examples/screensharing",

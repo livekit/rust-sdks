@@ -2,7 +2,8 @@
 
 Examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, subscribing to render video in a window, and showing a low-latency clock for measurement.
 
-**Note:** These examples are intended for **desktop platforms only** (macOS, Linux, Windows).
+**Note:** These examples are intended for **macOS and Linux** (including NVIDIA Jetson).
+Windows camera capture is not currently supported; the test-pattern publisher (`--test-pattern`), subscriber, and clock still work there.
 You must enable the `desktop` feature when building or running them.
 For smoother local rendering, especially above 720p, run the publisher/subscriber with `cargo run --release`.
 
@@ -69,7 +70,17 @@ Publisher usage:
  cargo run -p local_video -F desktop --bin publisher -- \
    --source argus \
    --camera-index 0 \
+   --zero-copy \
    --codec h265 \
+   --room-name demo \
+   --identity jetson-cam-1
+
+ # publish from Argus with a visible burned timestamp (uses CPU I420 copy)
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --source argus \
+   --camera-index 0 \
+   --attach-timestamp \
+   --burn-timestamp \
    --room-name demo \
    --identity jetson-cam-1
 
@@ -83,7 +94,13 @@ Publisher usage:
 
  # publish a static SMPTE color-bar test pattern (no camera required)
  cargo run -p local_video -F desktop --bin publisher -- \
-   --test-pattern \
+   --test-pattern 0 \
+   --room-name demo \
+   --identity test-1
+
+ # publish an animated encoder exercise test pattern (no camera required)
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --test-pattern 1 \
    --room-name demo \
    --identity test-1
 
@@ -123,8 +140,9 @@ The clock draws a 3x9 grid below the time. The top row fills from `0` to `9` for
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
 - `--source <uvc|argus>`: Camera backend to use (default: `uvc`). `argus` uses NVIDIA libargus for MIPI CSI cameras and is available only on Linux aarch64 Jetson builds.
-- `--format <auto|yuv|mjpeg>`: UVC camera capture format (default: `auto`). `auto` tries uncompressed YUYV first and falls back to MJPEG; `mjpeg` can reduce USB bandwidth when running multiple cameras.
-- `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
+- `--format <auto|yuv|mjpeg|grey>`: UVC camera capture format (default: `auto`). `auto` prefers uncompressed YUYV and falls back to the camera's other supported formats; `mjpeg` can reduce USB bandwidth when running multiple cameras. If an explicitly requested format is unavailable, the publisher logs a warning and continues with the negotiated format.
+- `--zero-copy`: Use a platform zero-copy capture/encode path when available, such as AVFoundation IOSurface-backed CVPixelBuffers on macOS or Argus DMA-BUF frames on Jetson. If the selected source does not support zero-copy, the publisher logs a warning and uses CPU I420 capture.
+- `--test-pattern [0|1]`: Generate a test pattern instead of capturing from a camera. `0` is a static SMPTE 75% color-bar pattern and `1` is an animated encoder exercise graphic. Omitting the value defaults to `0`. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
 - `--fps <n>`: Desired capture framerate (default: `30`).
@@ -132,7 +150,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
-- `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
+- `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set. With `--zero-copy`, frames stay out of CPU memory, so the publisher logs a warning and skips the visible burn while still attaching timestamp metadata.
 - `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
 - `--display-video`: Open a window that displays the video frames being published.
 - `--display-timing`: Burn publisher timing metrics into the local preview window. Requires `--display-video`.
@@ -179,6 +197,6 @@ Notes:
 - If the active video track is unsubscribed or unpublished, the app clears its state and will automatically attach to the next matching video track when it appears.
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
 - The timestamp overlay updates at ~2 Hz so the latency value is readable rather than flickering every frame.
-- On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. It publishes NV12 DMA buffers through the Jetson hardware encoder; local publisher preview and burned timestamps are not supported on that path.
+- On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. Use `--zero-copy` to publish NV12 DMA-BUF frames through the Jetson hardware encoder. Without `--zero-copy`, Argus frames are copied to CPU I420 before publish so `--attach-timestamp --burn-timestamp` can draw the timestamp into the frame.
 - Jetson AV1 hardware encoding requires an Orin-class device (e.g. Orin NX or AGX Orin on JetPack 5+); the encoder is probed at startup and on devices without AV1 support (e.g. Xavier) `--codec av1` automatically falls back to the software libaom encoder. The Jetson AV1 encoder produces a single L1T1 stream (no SVC).
 - On Linux, preview windows use the Vulkan `wgpu` backend by default to avoid GLES/EGL conflicts on Jetson desktops. Set `WGPU_BACKEND=gl` or another supported `wgpu` backend to override this.
