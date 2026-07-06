@@ -21,7 +21,15 @@ use thiserror::Error;
 use crate::access_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
 
 pub use livekit_api::LiveKitApi;
-pub use twirp_client::{ServerError, TwirpError, TwirpErrorCode, TwirpResult};
+pub use twirp_client::{
+    ServerError,
+    ServerErrorCode,
+    ServerResult,
+    // Deprecated aliases, kept for backwards compatibility.
+    TwirpError,
+    TwirpErrorCode,
+    TwirpResult,
+};
 
 pub mod agent_dispatch;
 pub mod connector;
@@ -47,7 +55,7 @@ pub enum ServiceError {
     #[error("invalid access token: {0}")]
     AccessToken(#[from] AccessTokenError),
     #[error("server error: {0}")]
-    Twirp(#[from] ServerError),
+    Server(#[from] ServerError),
 }
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
@@ -98,8 +106,8 @@ impl ServiceBase {
 }
 
 /// A failed SIP call (e.g. the callee was busy or declined), decoded from the
-/// SIP status the server attaches to the Twirp error metadata. Extract one from
-/// a [`ServiceError`] with [`SipCallError::from_error`].
+/// SIP status the server attaches to the error metadata. Extract one from a
+/// [`ServiceError`] with [`SipCallError::from_error`].
 #[derive(Debug, Clone)]
 pub struct SipCallError {
     code: String,
@@ -109,10 +117,10 @@ pub struct SipCallError {
 }
 
 impl SipCallError {
-    /// Returns a `SipCallError` if `err` is a Twirp error carrying a SIP status,
+    /// Returns a `SipCallError` if `err` is a server error carrying a SIP status,
     /// otherwise `None`.
     pub fn from_error(err: &ServiceError) -> Option<Self> {
-        let ServiceError::Twirp(ServerError::Twirp(code)) = err else {
+        let ServiceError::Server(ServerError::Response(code)) = err else {
             return None;
         };
         if !code.meta.contains_key("sip_status_code") && !code.meta.contains_key("sip_status") {
@@ -126,7 +134,7 @@ impl SipCallError {
         })
     }
 
-    /// The Twirp error code (e.g. `resource_exhausted` for a busy callee).
+    /// The server error code (e.g. `resource_exhausted` for a busy callee).
     pub fn code(&self) -> &str {
         &self.code
     }

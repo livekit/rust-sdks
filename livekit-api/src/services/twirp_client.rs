@@ -64,7 +64,7 @@ pub enum ServerError {
     #[error("failed to execute the request: {0}")]
     Request(#[from] std::io::Error),
     #[error("server error: {0}")]
-    Twirp(TwirpErrorCode),
+    Response(ServerErrorCode),
     #[error("url error: {0}")]
     Url(#[from] url::ParseError),
     #[error("prost error: {0}")]
@@ -75,7 +75,7 @@ pub enum ServerError {
 pub type TwirpError = ServerError;
 
 #[derive(Debug, Deserialize)]
-pub struct TwirpErrorCode {
+pub struct ServerErrorCode {
     pub code: String,
     pub msg: String,
     /// Extra key/value context the server attached (e.g. SIP status). Absent on
@@ -84,7 +84,7 @@ pub struct TwirpErrorCode {
     pub meta: std::collections::HashMap<String, String>,
 }
 
-impl TwirpErrorCode {
+impl ServerErrorCode {
     pub const CANCELED: &'static str = "canceled";
     pub const UNKNOWN: &'static str = "unknown";
     pub const INVALID_ARGUMENT: &'static str = "invalid_argument";
@@ -105,13 +105,19 @@ impl TwirpErrorCode {
     pub const DATA_LOSS: &'static str = "dataloss";
 }
 
-impl Display for TwirpErrorCode {
+impl Display for ServerErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.code, self.msg)
     }
 }
 
-pub type TwirpResult<T> = Result<T, TwirpError>;
+pub type ServerResult<T> = Result<T, ServerError>;
+
+/// Deprecated alias for [`ServerErrorCode`], kept for backwards compatibility.
+pub type TwirpErrorCode = ServerErrorCode;
+
+/// Deprecated alias for [`ServerResult`], kept for backwards compatibility.
+pub type TwirpResult<T> = ServerResult<T>;
 
 #[derive(Debug)]
 pub struct TwirpClient {
@@ -180,7 +186,7 @@ impl TwirpClient {
         method: &str,
         data: D,
         headers: HeaderMap,
-    ) -> TwirpResult<R> {
+    ) -> ServerResult<R> {
         self.request_with_timeout(service, method, data, headers, self.request_timeout).await
     }
 
@@ -193,7 +199,7 @@ impl TwirpClient {
         data: D,
         mut headers: HeaderMap,
         timeout: Duration,
-    ) -> TwirpResult<R> {
+    ) -> ServerResult<R> {
         let original = Url::parse(&self.host)?;
         let path = format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method);
         headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
@@ -239,8 +245,8 @@ impl TwirpClient {
                     };
                     // No fallback: surface the server's error (needs the body).
                     let Some(next) = next else {
-                        let err: TwirpErrorCode = resp.json().await?;
-                        return Err(TwirpError::Twirp(err));
+                        let err: ServerErrorCode = resp.json().await?;
+                        return Err(ServerError::Response(err));
                     };
                     drop(resp); // release the connection before backing off
                     (next, format!("status {status}"))

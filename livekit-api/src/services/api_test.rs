@@ -33,7 +33,7 @@ use livekit_protocol as proto;
 use super::egress::{EgressListOptions, EgressOutput};
 use super::failover::FailoverConfig;
 use super::sip::CreateSIPParticipantOptions;
-use super::twirp_client::{ServerError, TwirpClient, TwirpResult};
+use super::twirp_client::{ServerError, ServerResult, TwirpClient};
 use super::{LiveKitApi, ServiceError, SipCallError, LIVEKIT_PACKAGE};
 use crate::access_token::{AccessToken, VideoGrants};
 
@@ -70,7 +70,7 @@ fn config(enabled: bool, force: bool) -> FailoverConfig {
 // Issues a CreateRoom through the failover machinery with the given X-Lk-Mock
 // directives. These tests exercise failover, not authz, so they skip the mock's
 // permission check.
-async fn call(base: &str, cfg: FailoverConfig, mock: &str) -> TwirpResult<proto::Room> {
+async fn call(base: &str, cfg: FailoverConfig, mock: &str) -> ServerResult<proto::Room> {
     let client = TwirpClient::new(base, LIVEKIT_PACKAGE, None).with_failover_config(cfg);
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, HeaderValue::from_static("Bearer test-token"));
@@ -119,7 +119,7 @@ async fn all_unavailable() {
     let err = call(&base, config(true, true), r#"{"skipAuth":true,"failRegions":[0,1,2,3]}"#)
         .await
         .expect_err("all regions down should surface an error");
-    assert!(matches!(err, ServerError::Twirp(_)));
+    assert!(matches!(err, ServerError::Response(_)));
 }
 
 #[tokio::test]
@@ -131,7 +131,7 @@ async fn client_error_not_retried() {
             .await
             .expect_err("a 4xx must be returned without failover");
     match err {
-        ServerError::Twirp(code) => assert_eq!(code.code, "invalid_argument"),
+        ServerError::Response(code) => assert_eq!(code.code, "invalid_argument"),
         other => panic!("expected a twirp error, got {other:?}"),
     }
 }
@@ -752,5 +752,5 @@ async fn sip_dial_timeout() {
         )
         .await
         .expect_err("the dial should abort before the mock answers");
-    assert!(matches!(err, ServiceError::Twirp(ServerError::Request(_))), "{err:?}");
+    assert!(matches!(err, ServiceError::Server(ServerError::Request(_))), "{err:?}");
 }
