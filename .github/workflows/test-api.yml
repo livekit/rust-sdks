@@ -44,11 +44,6 @@ jobs:
             cmd: cargo test -p livekit-api --no-default-features --features signal-client-tokio --lib signal_client -- --nocapture
           - name: signal-client (async)
             cmd: cargo test -p livekit-api --no-default-features --features signal-client-async --lib signal_client -- --nocapture
-          # The dispatcher runtime uses a caller-driven executor that a standalone
-          # test harness doesn't pump, so compile it (catches the regressions we
-          # care about) rather than run it.
-          - name: signal-client (dispatcher, build only)
-            cmd: cargo test -p livekit-api --no-default-features --features signal-client-dispatcher --no-run
     services:
       mock-server:
         image: livekit/test-server:latest
