@@ -25,8 +25,30 @@ on:
     branches: [main]
 
 jobs:
-  failover:
+  # Exercise every runtime backend so a regression in one (e.g. the async/isahc
+  # server API silently failing to compile) is caught. Each leg pins a single
+  # runtime via --no-default-features; the mock server backs the legs that make
+  # real requests (services-*), and is a harmless no-op for the signal-client
+  # legs, which spin up their own ephemeral listeners.
+  livekit-api:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: services (tokio)
+            cmd: cargo test -p livekit-api --no-default-features --features services-tokio,access-token --lib services::api_test -- --nocapture
+          - name: services (async / isahc)
+            cmd: cargo test -p livekit-api --no-default-features --features services-async,access-token --test services_async -- --nocapture
+          - name: signal-client (tokio)
+            cmd: cargo test -p livekit-api --no-default-features --features signal-client-tokio --lib signal_client -- --nocapture
+          - name: signal-client (async)
+            cmd: cargo test -p livekit-api --no-default-features --features signal-client-async --lib signal_client -- --nocapture
+          # The dispatcher runtime uses a caller-driven executor that a standalone
+          # test harness doesn't pump, so compile it (catches the regressions we
+          # care about) rather than run it.
+          - name: signal-client (dispatcher, build only)
+            cmd: cargo test -p livekit-api --no-default-features --features signal-client-dispatcher --no-run
     services:
       mock-server:
         image: livekit/test-server:latest
@@ -60,5 +82,5 @@ jobs:
           done
           echo "mock server did not become ready" && exit 1
 
-      - name: Run API tests
-        run: cargo test -p livekit-api --lib services::api_test -- --nocapture
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.cmd }}

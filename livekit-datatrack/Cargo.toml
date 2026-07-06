@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 livekit-protocol = { workspace = true }
-livekit-runtime = { workspace = true }
+livekit-runtime = { workspace = true, features = ["tokio"] }
 log = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync"] }
