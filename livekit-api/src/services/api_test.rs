@@ -256,7 +256,38 @@ async fn room_smoke() {
     )
     .await
     .expect("send_data");
+    room.update_participant(
+        "test-room",
+        "participant-42",
+        super::room::UpdateParticipantOptions {
+            metadata: "{}".to_owned(),
+            name: "Alice".to_owned(),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("update_participant");
+    room.remove_participant_with_options(
+        "test-room",
+        "participant-42",
+        super::room::RemoveParticipantOptions { revoke_token_ts: 1_700_000_000_000 },
+    )
+    .await
+    .expect("remove_participant_with_options");
     room.delete_room("test-room").await.expect("delete_room");
+}
+
+// MutePublishedTrack returns the muted track; the mock has no live tracks, so
+// supply one via the `response` directive to exercise the SDK's decode path.
+#[tokio::test]
+async fn room_mute_track() {
+    let base = base_url();
+    skip_if_offline!(base);
+    let api = api(Some(r#"{"response":{"track":{"sid":"TR_video1"}}}"#));
+    api.room()
+        .mute_published_track("test-room", "participant-42", "TR_video1", true)
+        .await
+        .expect("mute_published_track");
 }
 
 #[tokio::test]
@@ -278,6 +309,55 @@ async fn egress_smoke() {
         )
         .await
         .expect("start_room_composite_egress");
+    egress
+        .start_web_egress(
+            "https://example.com/scene",
+            vec![EgressOutput::File(proto::EncodedFileOutput {
+                file_type: proto::EncodedFileType::Mp4 as i32,
+                filepath: "web.mp4".to_owned(),
+                ..Default::default()
+            })],
+            Default::default(),
+        )
+        .await
+        .expect("start_web_egress");
+    egress
+        .start_participant_egress(
+            "test-room",
+            "participant-42",
+            vec![EgressOutput::File(proto::EncodedFileOutput {
+                file_type: proto::EncodedFileType::Mp4 as i32,
+                filepath: "participant.mp4".to_owned(),
+                ..Default::default()
+            })],
+            Default::default(),
+        )
+        .await
+        .expect("start_participant_egress");
+    egress
+        .start_track_composite_egress(
+            "test-room",
+            vec![EgressOutput::File(proto::EncodedFileOutput {
+                file_type: proto::EncodedFileType::Mp4 as i32,
+                filepath: "track-composite.mp4".to_owned(),
+                ..Default::default()
+            })],
+            super::egress::TrackCompositeOptions {
+                audio_track_id: "TR_audio1".to_owned(),
+                video_track_id: "TR_video1".to_owned(),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("start_track_composite_egress");
+    egress
+        .start_track_egress(
+            "test-room",
+            super::egress::TrackEgressOutput::WebSocket("wss://example.com/ws".to_owned()),
+            "TR_video1",
+        )
+        .await
+        .expect("start_track_egress");
     egress.update_layout("EG_abc123", "speaker").await.expect("update_layout");
     egress
         .update_stream("EG_abc123", vec!["rtmps://b.example.com/live/key".to_owned()], vec![])
@@ -453,6 +533,27 @@ async fn connector_smoke() {
         )
         .await
         .expect("connect_twilio_call");
+    let offer = proto::SessionDescription {
+        r#type: "offer".to_owned(),
+        sdp: "v=0\r\n".to_owned(),
+        ..Default::default()
+    };
+    connector
+        .connect_whatsapp_call("wacid.HBg", offer.clone())
+        .await
+        .expect("connect_whatsapp_call");
+    connector
+        .accept_whatsapp_call("123456789012345", "wa-secret-key", "23.0", "wacid.HBg", offer, Default::default())
+        .await
+        .expect("accept_whatsapp_call");
+    connector
+        .disconnect_whatsapp_call(
+            "wacid.HBg",
+            "wa-secret-key",
+            proto::disconnect_whats_app_call_request::DisconnectReason::BusinessInitiated,
+        )
+        .await
+        .expect("disconnect_whatsapp_call");
 }
 
 #[tokio::test]
