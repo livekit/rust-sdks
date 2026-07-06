@@ -157,7 +157,9 @@ impl Display for SipCallError {
         let mut extra: Vec<_> = self
             .metadata
             .iter()
-            .filter(|(k, _)| !matches!(k.as_str(), "sip_status_code" | "sip_status" | "error_details"))
+            .filter(|(k, _)| {
+                !matches!(k.as_str(), "sip_status_code" | "sip_status" | "error_details")
+            })
             .map(|(k, v)| format!("{}={}", k, v))
             .collect();
         if !extra.is_empty() {

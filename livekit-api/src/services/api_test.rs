@@ -126,9 +126,10 @@ async fn all_unavailable() {
 async fn client_error_not_retried() {
     let base = base_url();
     skip_if_offline!(base);
-    let err = call(&base, config(true, true), r#"{"skipAuth":true,"failRegions":[0],"failStatus":400}"#)
-        .await
-        .expect_err("a 4xx must be returned without failover");
+    let err =
+        call(&base, config(true, true), r#"{"skipAuth":true,"failRegions":[0],"failStatus":400}"#)
+            .await
+            .expect_err("a 4xx must be returned without failover");
     match err {
         ServerError::Twirp(code) => assert_eq!(code.code, "invalid_argument"),
         other => panic!("expected a twirp error, got {other:?}"),
@@ -522,7 +523,13 @@ async fn connector_smoke() {
     let api = api(None);
     let connector = api.connector();
     connector
-        .dial_whatsapp_call("123456789012345", "+15105550100", "wa-secret-key", "23.0", Default::default())
+        .dial_whatsapp_call(
+            "123456789012345",
+            "+15105550100",
+            "wa-secret-key",
+            "23.0",
+            Default::default(),
+        )
         .await
         .expect("dial_whatsapp_call");
     connector
@@ -543,7 +550,14 @@ async fn connector_smoke() {
         .await
         .expect("connect_whatsapp_call");
     connector
-        .accept_whatsapp_call("123456789012345", "wa-secret-key", "23.0", "wacid.HBg", offer, Default::default())
+        .accept_whatsapp_call(
+            "123456789012345",
+            "wa-secret-key",
+            "23.0",
+            "wacid.HBg",
+            offer,
+            Default::default(),
+        )
         .await
         .expect("accept_whatsapp_call");
     connector
