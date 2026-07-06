@@ -603,14 +603,20 @@ mod tests {
 
     /// ~50 KB of deterministic, somewhat-compressible text (repeated marker + pseudo-random
     /// lowercase). Compresses to >15 KB (so it can't inline) but well under its raw size.
+    ///
+    /// Seeded with a fixed value so the output is identical on every run.
     fn somewhat_compressible(blocks: usize) -> String {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+
+        /// Fixed RNG seed that keeps `somewhat_compressible` output identical on every run.
+        const RANDOM_SEED: u64 = 0x1234_5678_9abc_def0;
+
+        let mut rng = StdRng::seed_from_u64(RANDOM_SEED);
         let mut s = String::new();
-        let mut state: u64 = 0x1234_5678_9abc_def0;
         for _ in 0..blocks {
             s.push_str("hello world");
             for _ in 0..1000 {
-                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-                s.push((b'a' + ((state >> 33) % 26) as u8) as char);
+                s.push(rng.random_range(b'a'..=b'z') as char);
             }
         }
         s
