@@ -8747,26 +8747,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wgpu_room"
-version = "0.1.1"
-dependencies = [
- "console-subscriber",
- "eframe",
- "egui",
- "egui-wgpu",
- "env_logger 0.11.10",
- "futures",
- "image",
- "livekit",
- "log",
- "parking_lot",
- "serde",
- "tokio",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "which"
 version = "4.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
