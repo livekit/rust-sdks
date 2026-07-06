@@ -8,6 +8,7 @@ members = [
     "livekit-uniffi",
     "livekit-datatrack",
     "livekit-ffi-node-bindings",
+    "livekit-capture",
     "livekit-runtime",
     "livekit-wakeword",
     "libwebrtc",
@@ -49,6 +50,7 @@ imgproc = { version = "0.3.19", path = "imgproc" }
 libwebrtc = { version = "0.3.38", path = "libwebrtc" }
 livekit = { version = "0.7.49", path = "livekit" }
 livekit-api = { version = "0.5.4", path = "livekit-api" }
+livekit-capture = { version = "0.1.0", path = "livekit-capture" }
 livekit-ffi = { version = "0.12.67", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.9", path = "livekit-datatrack" }
 livekit-protocol = { version = "0.7.9", path = "livekit-protocol" }
@@ -59,6 +61,7 @@ webrtc-sys-build = { version = "0.3.18", path = "webrtc-sys/build" }
 yuv-sys = { version = "0.3.14", path = "yuv-sys" }
 
 anyhow = "1.0"
+base64 = "0.22"
 bytes = "1.10"
 clap = "4.5"
 console-subscriber = "0.1"
@@ -67,8 +70,11 @@ from_variants = "1.0.2"
 futures = "0.3"
 futures-core = "0.3"
 futures-util = { version = "0.3", default-features = false }
+gstreamer = "0.25.2"
+gstreamer-app = "0.25.2"
 lazy_static = "1.4"
 log = "0.4"
+md-5 = "0.10"
 parking_lot = "0.12"
 prost = "0.14"
 prost-build = "0.14"

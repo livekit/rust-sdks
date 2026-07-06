@@ -1,0 +1,79 @@
+[package]
+name = "livekit-capture"
+description = "Capture sources and pre-encoded video publishing helpers for LiveKit"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64 = { workspace = true, optional = true }
+bytes = { workspace = true }
+gstreamer = { workspace = true, optional = true }
+gstreamer-app = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+livekit = { workspace = true }
+log = { workspace = true }
+md-5 = { workspace = true, optional = true }
+thiserror = { workspace = true }
+yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
+
+[features]
+default = []
+avfoundation = [
+    "dep:dispatch2",
+    "dep:objc2",
+    "dep:objc2-av-foundation",
+    "dep:objc2-core-media",
+    "dep:objc2-core-video",
+    "dep:objc2-foundation",
+    "dep:yuv-sys",
+    "objc2-av-foundation/AVCaptureDevice",
+    "objc2-av-foundation/AVCaptureInput",
+    "objc2-av-foundation/AVCaptureOutputBase",
+    "objc2-av-foundation/AVCaptureSession",
+    "objc2-av-foundation/AVCaptureSessionPreset",
+    "objc2-av-foundation/AVCaptureVideoDataOutput",
+    "objc2-av-foundation/AVMediaFormat",
+    "objc2-av-foundation/AVVideoSettings",
+    "objc2-av-foundation/dispatch2",
+    "objc2-av-foundation/objc2-core-media",
+    "objc2-core-media/CMFormatDescription",
+    "objc2-core-media/CMSync",
+    "objc2-core-media/CMTime",
+    "objc2-core-media/CMSampleBuffer",
+    "objc2-core-media/objc2-core-video",
+    "objc2-core-video/CVBase",
+    "objc2-core-video/CVBuffer",
+    "objc2-core-video/CVImageBuffer",
+    "objc2-core-video/CVPixelBuffer",
+    "objc2-core-video/CVReturn",
+    "objc2-foundation/NSArray",
+    "objc2-foundation/NSDictionary",
+    "objc2-foundation/NSError",
+    "objc2-foundation/NSObject",
+    "objc2-foundation/NSValue",
+    "objc2-foundation/NSString",
+    "objc2-foundation/objc2-core-foundation",
+]
+gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
+libargus = []
+rtsp = ["dep:base64", "dep:md-5"]
+tcpsink = []
+v4l = ["dep:image", "dep:libc", "dep:v4l", "dep:yuv-sys"]
+
+[build-dependencies]
+cc = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+dispatch2 = { version = "0.3.1", default-features = false, features = ["std"], optional = true }
+objc2 = { version = "0.6.4", default-features = false, features = ["std"], optional = true }
+objc2-av-foundation = { version = "0.3.2", default-features = false, optional = true }
+objc2-core-media = { version = "0.3.2", default-features = false, optional = true }
+objc2-core-video = { version = "0.3.2", default-features = false, optional = true }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
+v4l = { version = "0.14", default-features = false, features = ["v4l2"], optional = true }
