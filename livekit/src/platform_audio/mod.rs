@@ -299,6 +299,9 @@ lazy_static! {
 /// When the last PlatformAudio is dropped, the Platform ADM is released.
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
+    // Device level processing configuration last applied via
+    // configure_audio_processing, used by the active_*_type getters
+    processing_options: Mutex<AudioProcessingOptions>,
 }
 
 impl Drop for PlatformAdmHandle {
@@ -478,15 +481,19 @@ impl PlatformAudio {
             playout_count
         );
 
-        let handle = Arc::new(PlatformAdmHandle { runtime });
+        let handle = Arc::new(PlatformAdmHandle {
+            runtime,
+            processing_options: Mutex::new(AudioProcessingOptions::default()),
+        });
         *handle_ref = Arc::downgrade(&handle);
 
         let audio = Self { handle };
 
         // Configure audio processing with platform-appropriate defaults:
         // - iOS: prefer_hardware_processing=true (Apple voice processing is preferred)
+        // - macOS: prefer_hardware_processing=false (Apple voice processing available, opt in)
         // - Android: prefer_hardware_processing=false (hardware AEC unreliable across devices)
-        // - Desktop: prefer_hardware_processing=false (hardware not available anyway)
+        // - Windows/Linux: prefer_hardware_processing=false (hardware not available)
         if let Err(e) = audio.configure_audio_processing(AudioProcessingOptions::default()) {
             log::warn!("PlatformAudio: failed to configure audio processing: {}", e);
         }
@@ -1044,7 +1051,10 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn active_aec_type(&self) -> AudioProcessingType {
-        if self.is_hardware_aec_available() {
+        let options = *self.handle.processing_options.lock();
+        if !options.echo_cancellation {
+            AudioProcessingType::None
+        } else if options.prefer_hardware_processing && self.is_hardware_aec_available() {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1053,7 +1063,10 @@ impl PlatformAudio {
 
     /// Gets the type of automatic gain control currently active.
     pub fn active_agc_type(&self) -> AudioProcessingType {
-        if self.is_hardware_agc_available() {
+        let options = *self.handle.processing_options.lock();
+        if !options.auto_gain_control {
+            AudioProcessingType::None
+        } else if options.prefer_hardware_processing && self.is_hardware_agc_available() {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1062,7 +1075,10 @@ impl PlatformAudio {
 
     /// Gets the type of noise suppression currently active.
     pub fn active_ns_type(&self) -> AudioProcessingType {
-        if self.is_hardware_ns_available() {
+        let options = *self.handle.processing_options.lock();
+        if !options.noise_suppression {
+            AudioProcessingType::None
+        } else if options.prefer_hardware_processing && self.is_hardware_ns_available() {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1076,10 +1092,11 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS/macOS**: `prefer_hardware_processing` uses Apple voice processing when available
+    /// - **iOS/macOS**: `prefer_hardware_processing` uses Apple voice processing
+    ///   when available (defaults to enabled on iOS, opt-in on macOS)
     /// - **Android**: When `prefer_hardware_processing` is `false`, hardware
     ///   effects are disabled and WebRTC's software APM is used instead
-    /// - **Desktop**: `prefer_hardware_processing` is ignored (hardware not available)
+    /// - **Windows/Linux**: `prefer_hardware_processing` is ignored (hardware not available)
     ///
     /// # Example
     ///
@@ -1129,6 +1146,8 @@ impl PlatformAudio {
                 log::warn!("enable_builtin_ns({}) failed", enable_hw);
             }
         }
+
+        *self.handle.processing_options.lock() = options;
 
         log::info!(
             "Audio processing configured: AEC={}, AGC={}, NS={}, prefer_hw={}",
