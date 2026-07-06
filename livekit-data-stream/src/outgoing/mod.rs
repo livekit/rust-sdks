@@ -348,6 +348,12 @@ fn evaluate_eligibility(
     SendEligibility { inline, compression }
 }
 
+/// A struct which manages the state of data which potentially may need to be compressed in the
+/// future.
+///
+/// By storing the compressed text optionally after performing compression, we can be sure that co
+/// compression will only ever happen once, even if it must happen as part of speculative paths
+/// (like checking whether compressed bytes are bigger than the literal bytes).
 struct MaybeCompressed<'a> {
     uncompressed: &'a [u8],
     compressed: Option<Vec<u8>>,
