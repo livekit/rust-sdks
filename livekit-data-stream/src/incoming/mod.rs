@@ -397,14 +397,17 @@ mod tests {
     }
 
     /// Deterministic, barely-compressible lowercase text (so its deflate output spans chunks).
+    ///
+    /// Seeded with a fixed value so the output is identical on every run; the letters carry
+    /// enough entropy that deflate can't shrink them away, unlike repetitive text ("aaaa…").
     fn pseudo_random_text(len: usize) -> String {
-        let mut text = String::with_capacity(len);
-        let mut state: u64 = 0xdead_beef_cafe_babe;
-        for _ in 0..len {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            text.push((b'a' + ((state >> 33) % 26) as u8) as char);
-        }
-        text
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+
+        /// Fixed RNG seed that keeps `pseudo_random_text` output identical on every run.
+        const RANDOM_SEED: u64 = 0xdead_beef_cafe_babe;
+
+        let mut rng = StdRng::seed_from_u64(RANDOM_SEED);
+        (0..len).map(|_| rng.random_range(b'a'..=b'z') as char).collect()
     }
 
     #[allow(clippy::too_many_arguments)]
