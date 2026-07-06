@@ -680,9 +680,8 @@ impl Room {
         let (remote_dt_manager, remote_dt_input, remote_dt_output) =
             dt::remote::Manager::new(remote_dt_options);
 
-        let (incoming_stream_manager, open_rx) = IncomingStreamManager::new(
-            INTERNAL_DATA_STREAM_TOPICS.into()
-        );
+        let (incoming_stream_manager, open_rx) =
+            IncomingStreamManager::new(INTERNAL_DATA_STREAM_TOPICS.into());
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
 
         let room_info = join_response.room.unwrap();
