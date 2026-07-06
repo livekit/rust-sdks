@@ -153,6 +153,14 @@ impl TwirpClient {
         self
     }
 
+    /// Replaces the underlying HTTP client so several service clients can share
+    /// one connection pool (the unified [`LiveKitApi`] uses this).
+    ///
+    /// [`LiveKitApi`]: super::LiveKitApi
+    pub(crate) fn set_http_client(&mut self, client: http_client::Client) {
+        self.client = client;
+    }
+
     /// Enables or disables region failover (enabled by default). Failover only
     /// engages for LiveKit Cloud hosts.
     pub fn with_failover(mut self, enabled: bool) -> Self {

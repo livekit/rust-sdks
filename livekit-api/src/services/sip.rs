@@ -28,7 +28,7 @@ const SVC: &str = "SIP";
 #[derive(Debug)]
 pub struct SIPClient {
     base: ServiceBase,
-    client: TwirpClient,
+    pub(crate) client: TwirpClient,
 }
 
 #[deprecated]

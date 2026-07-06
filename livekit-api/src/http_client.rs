@@ -113,7 +113,9 @@ mod async_std {
 
     // Shared isahc HTTP client: the server-API backend POSTs Twirp requests; the
     // signal client's region provider GETs the region list.
-    #[derive(Debug)]
+    // Clone is cheap and shares the underlying connection pool (isahc::HttpClient
+    // is reference-counted), so the unified client can hand one to every service.
+    #[derive(Debug, Clone)]
     pub struct Client(isahc::HttpClient);
 
     impl Client {

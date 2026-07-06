@@ -22,6 +22,7 @@ use super::room::RoomClient;
 use super::sip::SIPClient;
 use super::ServiceResult;
 use crate::get_env_keys;
+use crate::http_client;
 
 /// A single entry point to every LiveKit server API, exposing each service
 /// through an accessor (`room()`, `egress()`, `ingress()`, `sip()`,
@@ -43,14 +44,16 @@ pub struct LiveKitApi {
 
 impl LiveKitApi {
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
-        Self {
+        let mut api = Self {
             room: RoomClient::with_api_key(host, api_key, api_secret),
             egress: EgressClient::with_api_key(host, api_key, api_secret),
             ingress: IngressClient::with_api_key(host, api_key, api_secret),
             sip: SIPClient::with_api_key(host, api_key, api_secret),
             agent_dispatch: AgentDispatchClient::with_api_key(host, api_key, api_secret),
             connector: ConnectorClient::with_api_key(host, api_key, api_secret),
-        }
+        };
+        api.share_http_client();
+        api
     }
 
     /// Reads the key and secret from the `LIVEKIT_API_KEY` and
@@ -63,14 +66,28 @@ impl LiveKitApi {
     /// Authenticates with a pre-signed token, sent verbatim on every request.
     /// The token's grants must cover the calls made through this client.
     pub fn with_token(host: &str, token: &str) -> Self {
-        Self {
+        let mut api = Self {
             room: RoomClient::with_token(host, token),
             egress: EgressClient::with_token(host, token),
             ingress: IngressClient::with_token(host, token),
             sip: SIPClient::with_token(host, token),
             agent_dispatch: AgentDispatchClient::with_token(host, token),
             connector: ConnectorClient::with_token(host, token),
-        }
+        };
+        api.share_http_client();
+        api
+    }
+
+    /// Points every service at one shared HTTP client so they reuse a single
+    /// connection pool instead of each opening its own.
+    fn share_http_client(&mut self) {
+        let http = http_client::Client::new();
+        self.room.client.set_http_client(http.clone());
+        self.egress.client.set_http_client(http.clone());
+        self.ingress.client.set_http_client(http.clone());
+        self.sip.client.set_http_client(http.clone());
+        self.agent_dispatch.client.set_http_client(http.clone());
+        self.connector.client.set_http_client(http);
     }
 
     /// Enables or disables region failover on every service (enabled by

@@ -56,7 +56,7 @@ const SVC: &str = "Ingress";
 #[derive(Debug)]
 pub struct IngressClient {
     base: ServiceBase,
-    client: TwirpClient,
+    pub(crate) client: TwirpClient,
 }
 
 impl IngressClient {

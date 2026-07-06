@@ -57,7 +57,7 @@ pub struct SendDataOptions {
 #[derive(Debug)]
 pub struct RoomClient {
     base: ServiceBase,
-    client: TwirpClient,
+    pub(crate) client: TwirpClient,
 }
 
 impl RoomClient {

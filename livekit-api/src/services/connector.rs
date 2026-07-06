@@ -89,7 +89,7 @@ pub struct ConnectTwilioCallOptions {
 #[derive(Debug)]
 pub struct ConnectorClient {
     base: ServiceBase,
-    client: TwirpClient,
+    pub(crate) client: TwirpClient,
 }
 
 impl ConnectorClient {

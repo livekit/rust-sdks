@@ -105,7 +105,7 @@ const SVC: &str = "Egress";
 #[derive(Debug)]
 pub struct EgressClient {
     base: ServiceBase,
-    client: TwirpClient,
+    pub(crate) client: TwirpClient,
 }
 
 impl EgressClient {

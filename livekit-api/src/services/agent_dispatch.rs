@@ -25,7 +25,7 @@ const SVC: &str = "AgentDispatchService";
 #[derive(Debug)]
 pub struct AgentDispatchClient {
     base: ServiceBase,
-    client: TwirpClient,
+    pub(crate) client: TwirpClient,
 }
 
 impl AgentDispatchClient {
