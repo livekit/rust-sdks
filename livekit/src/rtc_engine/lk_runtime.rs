@@ -15,11 +15,12 @@
 use std::{
     fmt::{Debug, Formatter},
     sync::{Arc, Weak},
+    time::Duration,
 };
 
 use lazy_static::lazy_static;
 use libwebrtc::prelude::*;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use thiserror::Error;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -27,6 +28,41 @@ use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<LkRuntimeState> = Mutex::new(LkRuntimeState::default());
+
+    /// Number of [`LkRuntime`] instances created but not yet fully dropped.
+    ///
+    /// Unlike [`LK_RUNTIME`] (whose [`Weak`] stops upgrading the instant the
+    /// strong count hits zero, i.e. *before* `Drop` runs), this only reaches
+    /// zero once teardown - peer connection factory destruction, ADM
+    /// termination, capture/render worker-thread joins - has fully completed.
+    static ref LK_RUNTIME_TEARDOWN_GATE: (Mutex<usize>, Condvar) =
+        (Mutex::new(0), Condvar::new());
+}
+
+/// How long to wait for a previous runtime's teardown before giving up.
+const RUNTIME_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Tracks a live [`LkRuntime`] in [`LK_RUNTIME_TEARDOWN_GATE`].
+///
+/// Must be the *last* field of [`LkRuntime`]: struct fields drop in
+/// declaration order, so this guard's `Drop` (which opens the gate) only runs
+/// after `pc_factory` has been fully destroyed.
+struct RuntimeTeardownGuard;
+
+impl RuntimeTeardownGuard {
+    fn new() -> Self {
+        *LK_RUNTIME_TEARDOWN_GATE.0.lock() += 1;
+        Self
+    }
+}
+
+impl Drop for RuntimeTeardownGuard {
+    fn drop(&mut self) {
+        let (lock, cv) = &*LK_RUNTIME_TEARDOWN_GATE;
+        let mut live = lock.lock();
+        *live = live.saturating_sub(1);
+        cv.notify_all();
+    }
 }
 
 #[derive(Default)]
@@ -57,6 +93,8 @@ pub struct WebRtcRuntimeInitializedError;
 pub struct LkRuntime {
     pc_factory: PeerConnectionFactory,
     zero_playout_delay: bool,
+    /// Keep last so it drops after `pc_factory`; see [`RuntimeTeardownGuard`].
+    _teardown_guard: RuntimeTeardownGuard,
 }
 
 impl Debug for LkRuntime {
@@ -78,6 +116,20 @@ impl LkRuntime {
         if let Some(lk_runtime) = state.runtime.upgrade() {
             lk_runtime
         } else {
+            // The previous runtime's strong count may have just reached zero
+            // while its `Drop` (factory + ADM teardown, including joining the
+            // platform capture/render worker threads) is still running on
+            // another thread. Creating a new factory/ADM concurrently with
+            // that teardown races platform audio/device state, so wait for it
+            // to finish first. Holding the `LK_RUNTIME` lock here is safe: the
+            // dropping thread only touches the teardown gate, never this lock.
+            if !Self::wait_for_teardown(RUNTIME_TEARDOWN_TIMEOUT) {
+                log::error!(
+                    "LkRuntime::instance() timed out after {RUNTIME_TEARDOWN_TIMEOUT:?} waiting \
+                     for a previous runtime to tear down; continuing anyway - audio I/O from the \
+                     old runtime may still be shutting down"
+                );
+            }
             log::debug!("LkRuntime::new()");
             let zero_playout_delay = state.zero_playout_delay;
             #[cfg(not(target_arch = "wasm32"))]
@@ -88,10 +140,31 @@ impl LkRuntime {
             };
             #[cfg(target_arch = "wasm32")]
             let pc_factory = PeerConnectionFactory::default();
-            let new_runtime = Arc::new(Self { pc_factory, zero_playout_delay });
+            let new_runtime = Arc::new(Self {
+                pc_factory,
+                zero_playout_delay,
+                _teardown_guard: RuntimeTeardownGuard::new(),
+            });
             state.runtime = Arc::downgrade(&new_runtime);
             new_runtime
         }
+    }
+
+    /// Blocks until every previously created runtime has finished tearing down,
+    /// or `timeout` elapses.
+    ///
+    /// Returns `true` once no runtime teardown is in flight, `false` on
+    /// timeout. Used by [`instance`](Self::instance) before constructing a new
+    /// runtime, and by FFI dispose to guarantee that no factory/ADM teardown
+    /// from a previous lifecycle overlaps a subsequent initialize.
+    pub fn wait_for_teardown(timeout: Duration) -> bool {
+        let (lock, cv) = &*LK_RUNTIME_TEARDOWN_GATE;
+        let mut live = lock.lock();
+        if *live == 0 {
+            return true;
+        }
+        log::debug!("waiting for {} previous LkRuntime teardown(s) to complete", *live);
+        !cv.wait_while_for(&mut live, |live| *live > 0, timeout).timed_out()
     }
 
     pub fn pc_factory(&self) -> &PeerConnectionFactory {

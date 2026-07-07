@@ -281,9 +281,14 @@ void AdmProxy::StopPlatformAudioIO() {
   recording_ = false;
 
   if (platform_adm_) {
-    platform_adm_->RegisterAudioCallback(nullptr);
+    // Stop capture/playout first: StopRecording()/StopPlayout() join the
+    // platform worker threads. Only then detach the callback -
+    // AudioDeviceBuffer refuses RegisterAudioCallback() while media is active,
+    // so detaching before stopping would silently fail and leave the transport
+    // attached.
     platform_adm_->StopRecording();
     platform_adm_->StopPlayout();
+    platform_adm_->RegisterAudioCallback(nullptr);
     // platform_adm_ is kept alive for re-acquire and iOS compatibility; see
     // ReleasePlatformAdm().
   }
@@ -297,16 +302,19 @@ void AdmProxy::StopAudioIO() {
   recording_initialized_ = false;
   playout_initialized_ = false;
 
+  // Stop before detaching: AudioDeviceBuffer refuses RegisterAudioCallback()
+  // while media is active, so the detach only takes effect once
+  // capture/playout worker threads have been stopped (and joined).
   if (platform_adm_) {
-    platform_adm_->RegisterAudioCallback(nullptr);
     platform_adm_->StopRecording();
     platform_adm_->StopPlayout();
+    platform_adm_->RegisterAudioCallback(nullptr);
   }
 
   if (synthetic_adm_) {
-    synthetic_adm_->RegisterAudioCallback(nullptr);
     synthetic_adm_->StopRecording();
     synthetic_adm_->StopPlayout();
+    synthetic_adm_->RegisterAudioCallback(nullptr);
     // synthetic_adm_ is kept alive until ~AdmProxy() / Terminate().
   }
 
