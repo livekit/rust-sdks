@@ -60,27 +60,35 @@ pub enum ServiceError {
 
 pub type ServiceResult<T> = Result<T, ServiceError>;
 
-struct ServiceBase {
-    api_key: String,
-    api_secret: String,
-    // When set, requests carry this token verbatim and grants are ignored; the
-    // caller (typically a browser client) signed it out of band.
-    token: Option<String>,
+// The two authentication modes are mutually exclusive, so they're distinct
+// variants rather than a struct where an invalid combination is representable.
+enum ServiceBase {
+    /// Sign a short-lived token per request from an API key and secret.
+    ApiKeySecret { api_key: String, api_secret: String },
+    /// Send a caller-supplied token verbatim; grants are ignored (the caller,
+    /// typically a browser client, signed it out of band).
+    Token(String),
 }
 
 impl Debug for ServiceBase {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ServiceBase").field("api_key", &self.api_key).finish()
+        // Never print the API secret or token.
+        match self {
+            Self::ApiKeySecret { api_key, .. } => {
+                f.debug_struct("ServiceBase").field("api_key", api_key).finish_non_exhaustive()
+            }
+            Self::Token(_) => f.debug_struct("ServiceBase").field("token", &"<redacted>").finish(),
+        }
     }
 }
 
 impl ServiceBase {
     pub fn with_api_key(api_key: &str, api_secret: &str) -> Self {
-        Self { api_key: api_key.to_owned(), api_secret: api_secret.to_owned(), token: None }
+        Self::ApiKeySecret { api_key: api_key.to_owned(), api_secret: api_secret.to_owned() }
     }
 
     pub fn with_token(token: &str) -> Self {
-        Self { api_key: String::new(), api_secret: String::new(), token: Some(token.to_owned()) }
+        Self::Token(token.to_owned())
     }
 
     pub fn auth_header(
@@ -88,15 +96,15 @@ impl ServiceBase {
         grants: VideoGrants,
         sip: Option<SIPGrants>,
     ) -> Result<HeaderMap, AccessTokenError> {
-        let token = if let Some(token) = &self.token {
-            token.clone()
-        } else {
-            let mut tok =
-                AccessToken::with_api_key(&self.api_key, &self.api_secret).with_grants(grants);
-            if let Some(sip_grants) = sip {
-                tok = tok.with_sip_grants(sip_grants);
+        let token = match self {
+            Self::Token(token) => token.clone(),
+            Self::ApiKeySecret { api_key, api_secret } => {
+                let mut tok = AccessToken::with_api_key(api_key, api_secret).with_grants(grants);
+                if let Some(sip_grants) = sip {
+                    tok = tok.with_sip_grants(sip_grants);
+                }
+                tok.to_jwt()?
             }
-            tok.to_jwt()?
         };
 
         let mut headers = HeaderMap::new();
