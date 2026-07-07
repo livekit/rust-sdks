@@ -155,9 +155,9 @@ impl LkRuntime {
     ///
     /// Returns `true` once no runtime teardown is in flight, `false` on
     /// timeout. Used by [`instance`](Self::instance) before constructing a new
-    /// runtime, and by FFI dispose to guarantee that no factory/ADM teardown
-    /// from a previous lifecycle overlaps a subsequent initialize.
-    pub fn wait_for_teardown(timeout: Duration) -> bool {
+    /// runtime, so that no factory/ADM teardown from a previous lifecycle
+    /// overlaps the next one's startup.
+    pub(crate) fn wait_for_teardown(timeout: Duration) -> bool {
         let (lock, cv) = &*LK_RUNTIME_TEARDOWN_GATE;
         let mut live = lock.lock();
         if *live == 0 {

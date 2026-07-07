@@ -180,24 +180,12 @@ impl FfiServer {
         self.ffi_handles.clear();
         self.handle_dropped_txs.clear();
 
-        // Clearing the handles above releases the last FFI-held references to
-        // the shared LkRuntime, but the final Arc may still be held by an
-        // in-flight task, so factory/ADM teardown (including platform
-        // capture-worker joins) can complete asynchronously on another thread.
-        // Wait for it so that once dispose() returns, no teardown from this
-        // lifecycle can overlap a subsequent initialize.
-        let torn_down = self
-            .async_runtime
-            .spawn_blocking(|| {
-                livekit::rtc_engine::lk_runtime::LkRuntime::wait_for_teardown(
-                    Duration::from_secs(10),
-                )
-            })
-            .await
-            .unwrap_or(false);
-        if !torn_down {
-            log::error!("dispose() timed out waiting for LkRuntime teardown to complete");
-        }
+        // Note: clearing the handles above releases the last FFI-held
+        // references to the shared LkRuntime, but its teardown may complete
+        // asynchronously on another thread. dispose() intentionally does not
+        // block on it; `LkRuntime::instance()` waits for any in-flight
+        // teardown before constructing the next runtime, so a subsequent
+        // initialize cannot overlap it.
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
