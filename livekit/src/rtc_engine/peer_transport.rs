@@ -474,8 +474,10 @@ impl PeerTransport {
             out.push(rewritten);
         }
 
-        // 3) For video codecs without fmtp lines (VP8/VP9), create new fmtp lines
-        // This is needed because VP8/VP9 don't have fmtp lines by default
+        // 3) For video codecs that don't already have fmtp lines, create new ones
+        // with x-google-start-bitrate. This handles cases where the browser/WebRTC
+        // didn't generate an fmtp line for a particular payload type (e.g., VP8
+        // typically has no fmtp, while H.264/VP9-SVC/AV1 usually do).
         let pts_with_fmtp: std::collections::HashSet<String> = out
             .iter()
             .filter_map(|line| {
@@ -488,12 +490,12 @@ impl PeerTransport {
             })
             .collect();
 
-        // Find rtpmap lines and insert fmtp after them for codecs without fmtp
+        // Find rtpmap lines and insert fmtp after them for video codecs without existing fmtp
         let mut final_out: Vec<String> = Vec::with_capacity(out.len() + target_pts.len());
         for line in out.iter() {
             final_out.push(line.clone());
 
-            // Check if this is an rtpmap line for a video codec without fmtp
+            // Check if this is an rtpmap line for a video codec without an existing fmtp line
             let l = line.trim();
             if let Some(rest) = l.strip_prefix("a=rtpmap:") {
                 let mut it = rest.split_whitespace();
