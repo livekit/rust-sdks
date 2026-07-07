@@ -148,7 +148,7 @@ impl Default for SignalOptions {
             auto_subscribe: true,
             adaptive_stream: false,
             sdk_options: SignalSdkOptions::default(),
-            single_peer_connection: true,
+            single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
         }
     }
