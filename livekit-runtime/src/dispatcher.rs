@@ -62,6 +62,17 @@ where
     JoinHandle { task: Some(task) }
 }
 
+impl<T> JoinHandle<T> {
+    /// Aborts the task associated with this handle.
+    ///
+    /// The task will be cancelled at the next await point.
+    pub fn abort(&self) {
+        if let Some(task) = &self.task {
+            task.cancel();
+        }
+    }
+}
+
 impl<T> Future for JoinHandle<T> {
     type Output = T;
 

@@ -908,6 +908,34 @@ impl EngineInner {
         let mut resuming_emitted = false;
         let mut restarting_emitted = false;
 
+        // # Set network hint on reconnection trigger
+        //
+        // The need to reconnect itself is a strong signal of network instability. Rather
+        // than waiting for slow connection detection (>5 seconds), we proactively set
+        // a conservative bitrate hint immediately.
+        //
+        // This helps in two scenarios:
+        // 1. Resume path: The hint is applied to subsequent offers on the SAME session
+        // 2. Full restart path: The old session's hint is lost, but try_restart_connection()
+        //    passes the hint to the new session via connect_with_hint()
+        //
+        // Note: For the resume path, setting the hint here is sufficient. For full restart,
+        // this hint on the old session is lost (new session is created), so we also pass
+        // the hint via connect_with_hint() in try_restart_connection().
+        {
+            let session = self.running_handle.read().session.clone();
+            log::info!(
+                "Reconnection triggered: setting constrained network hint to {} kbps",
+                rtc_session::CONSTRAINED_NETWORK_START_BITRATE_KBPS
+            );
+            session
+                .publisher()
+                .set_network_quality_start_bitrate_kbps(Some(
+                    rtc_session::CONSTRAINED_NETWORK_START_BITRATE_KBPS,
+                ))
+                .await;
+        }
+
         for i in 1..=RECONNECT_ATTEMPTS {
             let (is_closed, full_reconnect) = {
                 let running_handle = self.running_handle.read();
@@ -1052,8 +1080,37 @@ impl EngineInner {
             let _ = engine_task.await;
         }
 
-        let (new_session, join_response, session_events) =
-            RtcSession::connect(url, token, options, e2ee_manager).await?;
+        // # Problem: Network hint is lost during full restart
+        //
+        // A full restart creates a completely NEW RtcSession, which means:
+        // - New PeerTransport with network_quality_start_bitrate_kbps = None
+        // - Any hint set on the old session is lost
+        // - The first offer of the new session would use aggressive bitrate (e.g., 4500 kbps)
+        // - On poor networks, this overwhelms the connection and causes immediate failure
+        //
+        // # Solution: Pass hint to new session via connect_with_hint()
+        //
+        // Since a full restart is triggered by connection failures (which often indicate
+        // poor network conditions), we proactively pass CONSTRAINED_NETWORK_START_BITRATE_KBPS
+        // (300 kbps) to the new session. This ensures:
+        // 1. The initial offer uses conservative bitrate
+        // 2. Track republishing after restart also uses conservative bitrate
+        // 3. WebRTC's BWE can ramp up if the network improves
+        //
+        // This is more reliable than waiting for slow connection detection (which only
+        // triggers after 5+ seconds of connection time).
+        log::info!(
+            "Full restart: creating new session with network hint {} kbps",
+            rtc_session::CONSTRAINED_NETWORK_START_BITRATE_KBPS
+        );
+        let (new_session, join_response, session_events) = RtcSession::connect_with_hint(
+            url,
+            token,
+            options,
+            e2ee_manager,
+            Some(rtc_session::CONSTRAINED_NETWORK_START_BITRATE_KBPS),
+        )
+        .await?;
 
         // On SignalRestarted, the room will try to unpublish the local tracks
         // NOTE: Doing operations that use rtc_session will not use the new one

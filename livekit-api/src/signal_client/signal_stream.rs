@@ -407,7 +407,20 @@ impl SignalStream {
                 }
                 Ok(Message::Frame(_)) => {}
                 Err(WsError::Protocol(ProtocolError::ResetWithoutClosingHandshake)) => {
-                    break; // Ignore
+                    log::debug!("websocket reset without closing handshake");
+                    break; // Treat as normal close
+                }
+                Err(WsError::Io(ref io_err))
+                    if io_err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
+                    // TLS connection closed without close_notify - treat as normal close
+                    // This happens when the server closes the connection abruptly
+                    log::debug!("websocket closed with unexpected EOF (TLS close without close_notify)");
+                    break;
+                }
+                Err(WsError::ConnectionClosed) | Err(WsError::AlreadyClosed) => {
+                    log::debug!("websocket connection already closed");
+                    break;
                 }
                 _ => {
                     log::error!("unhandled websocket message {:?}", msg);

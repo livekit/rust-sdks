@@ -65,6 +65,14 @@ use crate::{
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Total connection time (signal + ICE) taking longer than this indicates a
+/// constrained network. Used to cap the initial video bitrate hint.
+pub const SLOW_CONNECTION_THRESHOLD: Duration = Duration::from_secs(5);
+
+/// x-google-start-bitrate cap (kbps) for constrained networks detected via slow ICE
+/// or reconnection events. 300 kbps is conservative enough to work on poor networks.
+pub const CONSTRAINED_NETWORK_START_BITRATE_KBPS: u32 = 300;
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
 pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
@@ -424,6 +432,8 @@ struct SessionInner {
     e2ee_manager: Option<E2eeManager>,
     subscriber_primary: bool,
     pc_state_notify: Notify,
+    /// Time when the connection process started (for network quality detection)
+    connect_start_time: std::time::Instant,
 }
 
 /// Information about the local participant needed for outgoing
@@ -468,12 +478,45 @@ struct SessionHandle {
 }
 
 impl RtcSession {
+    /// Connect to a LiveKit room (fresh connection with no network hint).
     pub async fn connect(
         url: &str,
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        Self::connect_with_hint(url, token, options, e2ee_manager, None).await
+    }
+
+    /// Connect with an optional network quality hint for the initial offer bitrate.
+    ///
+    /// # Problem Solved
+    ///
+    /// When a connection fails and requires a full restart (new session), we lose any
+    /// network quality hints that were set on the old session. This meant:
+    /// 1. Poor network detected → hint set to 300 kbps
+    /// 2. Full restart creates NEW session
+    /// 3. New session has hint=None (lost the 300 kbps constraint)
+    /// 4. First offer uses aggressive 4500 kbps → overwhelms poor network → fails again
+    ///
+    /// # Solution
+    ///
+    /// Accept an optional `initial_network_hint_kbps` parameter that is passed from
+    /// `try_restart_connection()`. This hint is set on the new publisher_pc BEFORE
+    /// any offers are created, so the first offer of the new session respects the
+    /// network constraint.
+    ///
+    /// The hint is set in TWO places to handle both connection paths:
+    /// 1. Early in single PC mode (before initial offer is created)
+    /// 2. After publisher_pc is finalized (covers v0 fallback path where early PC isn't used)
+    pub async fn connect_with_hint(
+        url: &str,
+        token: &str,
+        options: EngineOptions,
+        e2ee_manager: Option<E2eeManager>,
+        initial_network_hint_kbps: Option<u32>,
+    ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        let connect_start_time = std::time::Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
 
         let lk_runtime = LkRuntime::instance();
@@ -486,6 +529,17 @@ impl RtcSession {
                 proto::SignalTarget::Publisher,
                 true,
             );
+
+            // Set network hint BEFORE creating initial offer so it gets applied.
+            // In single PC mode (v1 path), the initial offer is sent with JoinRequest.
+            // This hint ensures the first offer respects network constraints.
+            if let Some(hint_kbps) = initial_network_hint_kbps {
+                log::info!(
+                    "Setting initial network hint to {} kbps for new session (v1 path)",
+                    hint_kbps
+                );
+                publisher_pc.set_network_quality_start_bitrate_kbps(Some(hint_kbps)).await;
+            }
 
             let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
 
@@ -588,6 +642,32 @@ impl RtcSession {
         };
         let (dt_sender, dt_packet_tx) = DataChannelSender::new(dt_sender_options);
 
+        // Set network quality hint on publisher_pc if provided (for full restart after network issues).
+        //
+        // # Why This Is Needed (v0 Fallback Path Problem)
+        //
+        // There are two code paths for creating publisher_pc:
+        // 1. Single PC mode (v1): early_publisher_pc is created and hint is set at line ~536
+        // 2. v0 fallback: A NEW publisher_pc is created at line ~607 WITHOUT the hint
+        //
+        // In v0 fallback, the signal client falls back from the v1 WebSocket path to the
+        // v0 HTTP-upgrade path. When this happens, `single_pc_mode` becomes false and a
+        // different PeerTransport is created that doesn't have the hint set.
+        //
+        // By setting the hint HERE (after publisher_pc is finalized), we ensure the hint
+        // is applied regardless of which code path was taken. This is belt-and-suspenders:
+        // - For v1 path: hint was already set, setting it again is harmless (same value)
+        // - For v0 path: hint is set for the first time here
+        //
+        // This MUST happen BEFORE any offers are created (e.g., when track is republished).
+        if let Some(hint_kbps) = initial_network_hint_kbps {
+            log::info!(
+                "Setting network hint to {} kbps on publisher_pc (covers v0 fallback path)",
+                hint_kbps
+            );
+            publisher_pc.set_network_quality_start_bitrate_kbps(Some(hint_kbps)).await;
+        }
+
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
@@ -625,6 +705,7 @@ impl RtcSession {
             e2ee_manager,
             subscriber_primary,
             pc_state_notify: Notify::new(),
+            connect_start_time,
         });
 
         // Log when a publisher data channel closes without the engine or peer
@@ -2170,13 +2251,37 @@ impl SessionInner {
             Ok(())
         };
 
-        tokio::select! {
+        let result = tokio::select! {
             res = wait_connected => res,
             _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("wait_pc_connection timed out".into());
                 Err(err)
             }
+        };
+
+        // On successful connection, check if total connection time was slow and set network quality hint
+        if result.is_ok() {
+            let elapsed = self.connect_start_time.elapsed();
+            log::info!(
+                "Network quality check: connection_time={:?}, threshold={:?}, slow={}",
+                elapsed,
+                SLOW_CONNECTION_THRESHOLD,
+                elapsed > SLOW_CONNECTION_THRESHOLD
+            );
+            if elapsed > SLOW_CONNECTION_THRESHOLD {
+                log::info!(
+                    "Slow network detected! Setting start_bitrate hint to {} kbps",
+                    CONSTRAINED_NETWORK_START_BITRATE_KBPS
+                );
+                self.publisher_pc
+                    .set_network_quality_start_bitrate_kbps(Some(
+                        CONSTRAINED_NETWORK_START_BITRATE_KBPS,
+                    ))
+                    .await;
+            }
         }
+
+        result
     }
 
     /// Start publisher negotiation

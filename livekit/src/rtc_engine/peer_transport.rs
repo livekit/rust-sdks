@@ -34,6 +34,8 @@ struct TransportInner {
     // Publish-side target bitrate (bps) for offer munging
     max_send_bitrate_bps: Option<u64>,
     pending_initial_offer: Option<SessionDescription>,
+    // Network quality hint: caps x-google-start-bitrate on poor networks
+    network_quality_start_bitrate_kbps: Option<u32>,
 }
 
 pub struct PeerTransport {
@@ -66,6 +68,7 @@ impl PeerTransport {
                 single_pc_mode,
                 max_send_bitrate_bps: None,
                 pending_initial_offer: None,
+                network_quality_start_bitrate_kbps: None,
             })),
         }
     }
@@ -147,20 +150,67 @@ impl PeerTransport {
 
     /// Create an initial offer without setting it as local description.
     /// The offer is stored as pending and will be applied when the server's answer arrives.
+    ///
+    /// # Problem Solved
+    ///
+    /// In single PC mode, this initial offer is sent with the JoinRequest before any track
+    /// is published. Previously, this function only applied `inactive→recvonly` munging but
+    /// NOT the `x-google-start-bitrate` munging that `create_and_send_offer()` applies.
+    ///
+    /// This was a problem during full restart after network issues:
+    /// 1. Full restart creates a new session with network_hint=300 kbps
+    /// 2. Initial offer is created here (with recv-only video transceivers)
+    /// 3. The SDP contains video codecs (VP8/90000 etc.) from recv-only transceivers
+    /// 4. But without bitrate munging, the first offer after restart didn't get the hint
+    ///
+    /// Now we apply the same x-google-start-bitrate munging as `create_and_send_offer()`,
+    /// so the initial offer respects the network quality hint if one is set.
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
         let mut inner = self.inner.lock().await;
         if !inner.single_pc_mode {
             return Ok(None);
         }
 
-        let offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let sdp = offer.to_string();
+        let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
+        let mut sdp = offer.to_string();
 
+        // Apply inactive→recvonly munging for single PC mode
         let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
         if recvonly_munged != sdp {
             if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                inner.pending_initial_offer = Some(parsed.clone());
-                return Ok(Some(parsed));
+                offer = parsed;
+                sdp = recvonly_munged;
+            }
+        }
+
+        // Apply x-google-start-bitrate munging for video codecs.
+        // Even though no track is published yet, the recv-only transceivers include video
+        // codecs in the SDP. If we have a network quality hint (e.g., from a previous
+        // connection that detected poor network), apply it to avoid overwhelming the
+        // network when video is eventually published.
+        let has_video = sdp.contains(" VP8/90000")
+            || sdp.contains(" VP9/90000")
+            || sdp.contains(" AV1/90000")
+            || sdp.contains(" H264/90000")
+            || sdp.contains(" H265/90000");
+        if has_video {
+            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(
+                inner.max_send_bitrate_bps,
+                inner.network_quality_start_bitrate_kbps,
+            ) {
+                log::info!(
+                    "Initial offer: applying x-google-start-bitrate={} kbps (ultimate_bps={:?}, network_hint={:?})",
+                    start_kbps,
+                    inner.max_send_bitrate_bps,
+                    inner.network_quality_start_bitrate_kbps
+                );
+
+                let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
+                if munged != sdp {
+                    if let Ok(parsed) = SessionDescription::parse(&munged, offer.sdp_type()) {
+                        offer = parsed;
+                    }
+                }
             }
         }
 
@@ -178,11 +228,60 @@ impl PeerTransport {
         inner.max_send_bitrate_bps = bps;
     }
 
-    fn compute_start_bitrate_kbps(ultimate_bps: Option<u64>) -> Option<u32> {
-        let ultimate_kbps = (ultimate_bps? / 1000) as u32;
+    /// Set a network quality hint that caps x-google-start-bitrate on poor networks.
+    ///
+    /// This hint persists across all subsequent offers until explicitly changed or the
+    /// session is replaced. It's set when:
+    /// - Connection time exceeds SLOW_CONNECTION_THRESHOLD (5 seconds)
+    /// - Reconnection is triggered (network instability indicator)
+    /// - Full restart is initiated (passed via connect_with_hint)
+    ///
+    /// The hint value (e.g., 300 kbps) is conservative enough to work on poor networks
+    /// while allowing WebRTC's BWE to ramp up on good networks.
+    pub async fn set_network_quality_start_bitrate_kbps(&self, kbps: Option<u32>) {
+        let mut inner = self.inner.lock().await;
+        inner.network_quality_start_bitrate_kbps = kbps;
+    }
+
+    /// Compute the x-google-start-bitrate value for SDP munging.
+    ///
+    /// # Problem Solved
+    ///
+    /// Previously, this function required `ultimate_bps` (the track's target bitrate) to
+    /// compute any start bitrate. But during initial offer creation in single PC mode,
+    /// no track is published yet, so `ultimate_bps` is None. This meant:
+    /// 1. Initial offers never got bitrate munging applied
+    /// 2. After full restart with network_hint=300, the first offer still used default
+    ///
+    /// # Solution
+    ///
+    /// When `ultimate_bps` is None but `network_hint_kbps` is Some, return the hint
+    /// directly. This allows initial offers to respect network quality constraints even
+    /// before any track is published.
+    ///
+    /// # Priority
+    ///
+    /// The final start bitrate is: min(90% of ultimate, network_hint)
+    /// - If only ultimate_bps: use 90% of it
+    /// - If only network_hint: use the hint directly
+    /// - If both: use the smaller of (90% of ultimate, hint)
+    fn compute_start_bitrate_kbps(
+        ultimate_bps: Option<u64>,
+        network_hint_kbps: Option<u32>,
+    ) -> Option<u32> {
+        // If we have a network hint but no ultimate bitrate (e.g., initial offer before
+        // track is published), use the network hint directly as the start bitrate.
+        // This is critical for full restart recovery where we want to cap bitrate even
+        // before the track is republished.
+        let Some(ultimate_bps) = ultimate_bps else {
+            return network_hint_kbps;
+        };
+
+        let ultimate_kbps = (ultimate_bps / 1000) as u32;
         if ultimate_kbps == 0 {
-            return None;
+            return network_hint_kbps;
         }
+
         // Use 90% of target bitrate as start bitrate for all codecs.
         // Why 90%: Gives ~10% headroom for bandwidth estimation while starting close to target.
         // Why same for all codecs: Target bitrate already accounts for codec efficiency
@@ -192,10 +291,19 @@ impl PeerTransport {
         // A low start-bitrate hint is more likely to hurt than help for VP9/AV1.
         // If the max is too low, don't inject a start-bitrate hint at all.
         if ultimate_kbps < 300 {
-            return None;
+            return network_hint_kbps;
         }
 
-        Some(start_kbps.min(ultimate_kbps))
+        let mut result = start_kbps.min(ultimate_kbps);
+
+        // Apply network quality cap if a hint is provided (e.g., 300 kbps on poor network).
+        // This ensures that even with a high ultimate bitrate (e.g., 5 Mbps → 4500 kbps start),
+        // we respect the network constraint and start lower.
+        if let Some(hint) = network_hint_kbps {
+            result = result.min(hint);
+        }
+
+        Some(result)
     }
 
     /// Munge SDP to change a=inactive to a=recvonly for RTP media m-lines in single PC mode.
@@ -366,8 +474,51 @@ impl PeerTransport {
             out.push(rewritten);
         }
 
+        // 3) For video codecs without fmtp lines (VP8/VP9), create new fmtp lines
+        // This is needed because VP8/VP9 don't have fmtp lines by default
+        let pts_with_fmtp: std::collections::HashSet<String> = out
+            .iter()
+            .filter_map(|line| {
+                let l = line.trim();
+                if let Some(rest) = l.strip_prefix("a=fmtp:") {
+                    rest.split_whitespace().next().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Find rtpmap lines and insert fmtp after them for codecs without fmtp
+        let mut final_out: Vec<String> = Vec::with_capacity(out.len() + target_pts.len());
+        for line in out.iter() {
+            final_out.push(line.clone());
+
+            // Check if this is an rtpmap line for a video codec without fmtp
+            let l = line.trim();
+            if let Some(rest) = l.strip_prefix("a=rtpmap:") {
+                let mut it = rest.split_whitespace();
+                let pt = it.next().unwrap_or("");
+                let codec = it.next().unwrap_or("");
+                if Self::is_video_codec(codec)
+                    && !pt.is_empty()
+                    && !pts_with_fmtp.contains(pt)
+                {
+                    // Create fmtp line with x-google-start-bitrate
+                    let fmtp_line =
+                        format!("a=fmtp:{pt} x-google-start-bitrate={start_bitrate_kbps}");
+                    log::debug!(
+                        "Creating fmtp line for {} (pt={}): {}",
+                        codec,
+                        pt,
+                        fmtp_line
+                    );
+                    final_out.push(fmtp_line);
+                }
+            }
+        }
+
         // Re-join using same EOL, and ensure trailing EOL (some parsers are picky)
-        let mut munged = out.join(eol);
+        let mut munged = final_out.join(eol);
         if !munged.ends_with(eol) {
             munged.push_str(eol);
         }
@@ -443,11 +594,15 @@ impl PeerTransport {
             || sdp.contains(" H264/90000")
             || sdp.contains(" H265/90000");
         if has_video {
-            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps) {
+            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(
+                inner.max_send_bitrate_bps,
+                inner.network_quality_start_bitrate_kbps,
+            ) {
                 log::info!(
-                    "Applying x-google-start-bitrate={} kbps (ultimate_bps={:?})",
+                    "Applying x-google-start-bitrate={} kbps (ultimate_bps={:?}, network_hint={:?})",
                     start_kbps,
-                    inner.max_send_bitrate_bps
+                    inner.max_send_bitrate_bps,
+                    inner.network_quality_start_bitrate_kbps
                 );
 
                 let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
