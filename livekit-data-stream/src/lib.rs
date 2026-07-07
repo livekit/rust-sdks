@@ -26,7 +26,8 @@ pub use incoming::{
     AnyStreamReader, ByteStreamReader, IncomingStreamManager, StreamReader, TextStreamReader,
 };
 pub use outgoing::{
-    ByteStreamWriter, TextStreamWriter, OutgoingStreamManager, StreamByteOptions, StreamTextOptions,
+    ByteStreamWriter, OutgoingStreamManager, StreamByteOptions, StreamTextOptions, StreamWriter,
+    TextStreamWriter,
 };
 
 /// Error returned by the packet transport when a data-stream packet fails to send.
