@@ -279,7 +279,7 @@ pub struct StreamTextOptions {
 }
 
 #[derive(Clone)]
-pub(crate) struct OutgoingStreamManager {
+pub struct OutgoingStreamManager {
     /// Request channel for sending packets.
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }

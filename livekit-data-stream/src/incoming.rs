@@ -200,7 +200,7 @@ impl Debug for TextStreamReader {
     }
 }
 
-pub(crate) enum AnyStreamReader {
+pub enum AnyStreamReader {
     Byte(ByteStreamReader),
     Text(TextStreamReader),
 }

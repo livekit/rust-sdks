@@ -22,8 +22,12 @@ mod incoming;
 mod outgoing;
 mod utf8_chunk;
 
-pub use incoming::*;
-pub use outgoing::*;
+pub use incoming::{
+    AnyStreamReader, ByteStreamReader, IncomingStreamManager, StreamReader, TextStreamReader,
+};
+pub use outgoing::{
+    ByteStreamWriter, TextStreamWriter, OutgoingStreamManager, StreamByteOptions, StreamTextOptions,
+};
 
 /// Error returned by the packet transport when a data-stream packet fails to send.
 ///
