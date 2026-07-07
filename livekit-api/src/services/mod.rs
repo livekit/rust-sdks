@@ -62,7 +62,7 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 
 // The two authentication modes are mutually exclusive, so they're distinct
 // variants rather than a struct where an invalid combination is representable.
-enum ServiceBase {
+pub(crate) enum ServiceBase {
     /// Sign a short-lived token per request from an API key and secret.
     ApiKeySecret { api_key: String, api_secret: String },
     /// Send a caller-supplied token verbatim; grants are ignored (the caller,

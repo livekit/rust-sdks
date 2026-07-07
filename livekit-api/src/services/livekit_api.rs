@@ -20,7 +20,7 @@ use super::egress::EgressClient;
 use super::ingress::IngressClient;
 use super::room::RoomClient;
 use super::sip::SIPClient;
-use super::ServiceResult;
+use super::{ServiceBase, ServiceResult};
 use crate::get_env_keys;
 use crate::http_client;
 
@@ -44,16 +44,18 @@ pub struct LiveKitApi {
 
 impl LiveKitApi {
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
-        let mut api = Self {
-            room: RoomClient::with_api_key(host, api_key, api_secret),
-            egress: EgressClient::with_api_key(host, api_key, api_secret),
-            ingress: IngressClient::with_api_key(host, api_key, api_secret),
-            sip: SIPClient::with_api_key(host, api_key, api_secret),
-            agent_dispatch: AgentDispatchClient::with_api_key(host, api_key, api_secret),
-            connector: ConnectorClient::with_api_key(host, api_key, api_secret),
-        };
-        api.share_http_client();
-        api
+        // One HTTP client shared across every service, so they reuse a single
+        // connection pool instead of each opening its own.
+        let http = http_client::Client::new();
+        let base = || ServiceBase::with_api_key(api_key, api_secret);
+        Self {
+            room: RoomClient::build(host, base(), http.clone()),
+            egress: EgressClient::build(host, base(), http.clone()),
+            ingress: IngressClient::build(host, base(), http.clone()),
+            sip: SIPClient::build(host, base(), http.clone()),
+            agent_dispatch: AgentDispatchClient::build(host, base(), http.clone()),
+            connector: ConnectorClient::build(host, base(), http),
+        }
     }
 
     /// Reads the key and secret from the `LIVEKIT_API_KEY` and
@@ -66,28 +68,17 @@ impl LiveKitApi {
     /// Authenticates with a pre-signed token, sent verbatim on every request.
     /// The token's grants must cover the calls made through this client.
     pub fn with_token(host: &str, token: &str) -> Self {
-        let mut api = Self {
-            room: RoomClient::with_token(host, token),
-            egress: EgressClient::with_token(host, token),
-            ingress: IngressClient::with_token(host, token),
-            sip: SIPClient::with_token(host, token),
-            agent_dispatch: AgentDispatchClient::with_token(host, token),
-            connector: ConnectorClient::with_token(host, token),
-        };
-        api.share_http_client();
-        api
-    }
-
-    /// Points every service at one shared HTTP client so they reuse a single
-    /// connection pool instead of each opening its own.
-    fn share_http_client(&mut self) {
+        // One HTTP client shared across every service (see `with_api_key`).
         let http = http_client::Client::new();
-        self.room.client.set_http_client(http.clone());
-        self.egress.client.set_http_client(http.clone());
-        self.ingress.client.set_http_client(http.clone());
-        self.sip.client.set_http_client(http.clone());
-        self.agent_dispatch.client.set_http_client(http.clone());
-        self.connector.client.set_http_client(http);
+        let base = || ServiceBase::with_token(token);
+        Self {
+            room: RoomClient::build(host, base(), http.clone()),
+            egress: EgressClient::build(host, base(), http.clone()),
+            ingress: IngressClient::build(host, base(), http.clone()),
+            sip: SIPClient::build(host, base(), http.clone()),
+            agent_dispatch: AgentDispatchClient::build(host, base(), http.clone()),
+            connector: ConnectorClient::build(host, base(), http),
+        }
     }
 
     /// Enables or disables region failover on every service (enabled by

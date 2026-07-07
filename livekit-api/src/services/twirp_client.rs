@@ -135,11 +135,25 @@ pub struct TwirpClient {
 
 impl TwirpClient {
     pub fn new(host: &str, pkg: &str, prefix: Option<&str>) -> Self {
+        Self::with_client(host, pkg, prefix, http_client::Client::new())
+    }
+
+    /// Like [`new`](Self::new) but reuses an existing HTTP client (and its
+    /// connection pool) instead of creating one — the unified [`LiveKitApi`]
+    /// builds one client and shares it across all its services this way.
+    ///
+    /// [`LiveKitApi`]: super::LiveKitApi
+    pub(crate) fn with_client(
+        host: &str,
+        pkg: &str,
+        prefix: Option<&str>,
+        client: http_client::Client,
+    ) -> Self {
         Self {
             host: normalize_host(host),
             pkg: pkg.to_owned(),
             prefix: prefix.unwrap_or(DEFAULT_PREFIX).to_owned(),
-            client: http_client::Client::new(),
+            client,
             failover: FailoverConfig::default(),
             request_timeout: failover::DEFAULT_REQUEST_TIMEOUT,
             #[cfg(test)]
@@ -151,14 +165,6 @@ impl TwirpClient {
     pub(crate) fn with_default_headers(mut self, headers: HeaderMap) -> Self {
         self.default_headers = headers;
         self
-    }
-
-    /// Replaces the underlying HTTP client so several service clients can share
-    /// one connection pool (the unified [`LiveKitApi`] uses this).
-    ///
-    /// [`LiveKitApi`]: super::LiveKitApi
-    pub(crate) fn set_http_client(&mut self, client: http_client::Client) {
-        self.client = client;
     }
 
     /// Enables or disables region failover (enabled by default). Failover only
