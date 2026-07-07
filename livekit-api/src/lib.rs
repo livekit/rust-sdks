@@ -14,6 +14,8 @@
 
 #![doc = include_str!("../README.md")]
 
+use url::Url;
+
 #[cfg(feature = "access-token")]
 pub mod access_token;
 
@@ -59,4 +61,37 @@ pub(crate) fn get_env_keys() -> Result<(String, String), std::env::VarError> {
     let api_key = std::env::var("LIVEKIT_API_KEY")?;
     let api_secret = std::env::var("LIVEKIT_API_SECRET")?;
     Ok((api_key, api_secret))
+}
+
+/// Creates a new URL by appending `suffix` to the supplied `base` URL without overwriting its path.
+fn url_with_path_suffix(base: &Url, suffix: &str) -> Url {
+    let mut path = base.path().trim_end_matches('/').to_owned();
+    path.push_str(suffix);
+    let mut url = base.clone();
+    url.set_path(&path);
+    url
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::url_with_path_suffix;
+    use url::Url;
+
+    #[test]
+    fn url_with_path_suffix_no_path_on_base() {
+        let url = url_with_path_suffix(&Url::parse("https://foo.bar").unwrap(), "/foobar");
+        assert_eq!(url.to_string(), "https://foo.bar/foobar");
+    }
+
+    #[test]
+    fn url_with_path_suffix_root_path_on_base() {
+        let url = url_with_path_suffix(&Url::parse("https://foo.bar/").unwrap(), "/foobar");
+        assert_eq!(url.to_string(), "https://foo.bar/foobar");
+    }
+
+    #[test]
+    fn url_with_path_suffix_some_path_on_base() {
+        let url = url_with_path_suffix(&Url::parse("https://foo.bar/bar").unwrap(), "/foobar");
+        assert_eq!(url.to_string(), "https://foo.bar/bar/foobar");
+    }
 }
