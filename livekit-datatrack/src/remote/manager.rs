@@ -768,6 +768,129 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_sid_reassignment_does_not_republish() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let pub_handle: Handle = Faker.fake();
+        let old_sid: DataTrackSid = Faker.fake();
+        let new_sid: DataTrackSid = Faker.fake();
+
+        // Simulate track published
+        let info = DataTrackInfo {
+            sid: RwLock::new(old_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+
+        let track = expect_event!(output, OutputEvent::TrackPublished).track;
+        assert_eq!(track.info().sid(), old_sid);
+
+        // Simulate publisher full reconnect: same track, new SID
+        let info = DataTrackInfo {
+            sid: RwLock::new(new_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+
+        // Drain remaining events; no publish/unpublish should appear
+        input.send(InputEvent::Shutdown).unwrap();
+        while let Some(event) = output.next().await {
+            assert!(!matches!(
+                event,
+                OutputEvent::TrackPublished(_) | OutputEvent::TrackUnpublished(_)
+            ));
+        }
+        assert_eq!(track.info().sid(), new_sid);
+    }
+
+    #[tokio::test]
+    async fn test_sid_reassignment_resubscribes_active_subscription() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let pub_handle: Handle = Faker.fake();
+        let old_sid: DataTrackSid = Faker.fake();
+        let new_sid: DataTrackSid = Faker.fake();
+        let old_sub_handle: Handle = Faker.fake();
+        let new_sub_handle: Handle = Faker.fake();
+
+        // Simulate track published
+        let info = DataTrackInfo {
+            sid: RwLock::new(old_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+        let track = expect_event!(output, OutputEvent::TrackPublished).track;
+
+        // Subscribe to the track
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = SubscribeRequest {
+            sid: old_sid.clone(),
+            options: DataTrackSubscribeOptions::default(),
+            result_tx,
+        };
+        input.send(event.into()).unwrap();
+        expect_event!(output, OutputEvent::SfuUpdateSubscription);
+
+        // Simulate SFU assigning subscriber handle
+        let event = SfuSubscriberHandles { mapping: HashMap::from([(old_sub_handle, old_sid)]) };
+        input.send(event.into()).unwrap();
+
+        let mut frame_rx =
+            time::timeout(Duration::from_secs(1), result_rx).await.unwrap().unwrap().unwrap();
+
+        // Simulate publisher full reconnect: same track, new SID
+        let info = DataTrackInfo {
+            sid: RwLock::new(new_sid.clone()).into(),
+            pub_handle,
+            name: "test".into(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+
+        // Manager should re-subscribe under the new SID
+        let event = expect_event!(output, OutputEvent::SfuUpdateSubscription);
+        assert!(event.subscribe);
+        assert_eq!(event.sid, new_sid);
+        assert_eq!(track.info().sid(), new_sid);
+        assert!(track.is_published());
+
+        // Simulate SFU assigning a new subscriber handle
+        let event = SfuSubscriberHandles { mapping: HashMap::from([(new_sub_handle, new_sid)]) };
+        input.send(event.into()).unwrap();
+
+        // Frames received on the new handle reach the existing subscriber
+        let packet = Packet {
+            header: Header {
+                marker: FrameMarker::Single,
+                track_handle: new_sub_handle,
+                sequence: 0,
+                frame_number: 0,
+                timestamp: Timestamp::from_ticks(0),
+                extensions: Extensions::default(),
+            },
+            payload: Bytes::from_static(&[1, 2, 3, 4, 5]),
+        };
+        input.send(InputEvent::PacketReceived(packet.serialize())).unwrap();
+
+        let frame = time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap().unwrap();
+        assert_eq!(frame.payload.as_ref(), &[1, 2, 3, 4, 5]);
+    }
+
+    #[tokio::test]
     async fn test_subscribe_receives_frame() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
