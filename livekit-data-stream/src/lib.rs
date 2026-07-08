@@ -12,12 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![doc = include_str!("../README.md")]
+
 use chrono::{DateTime, Utc};
 use livekit_common::EncryptionType;
 use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 use thiserror::Error;
-#![doc = include_str!("../README.md")]
+
 mod incoming;
 mod outgoing;
 mod utf8_chunk;
