@@ -85,6 +85,8 @@ pub enum DisconnectReason {
     AgentError,
 }
 
+pub use livekit_common::ClientCapability;
+
 #[derive(Debug, Clone)]
 pub enum Participant {
     Local(LocalParticipant),
