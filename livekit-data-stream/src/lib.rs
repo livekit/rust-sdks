@@ -17,7 +17,7 @@ use livekit_common::EncryptionType;
 use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 use thiserror::Error;
-
+#![doc = include_str!("../README.md")]
 mod incoming;
 mod outgoing;
 mod utf8_chunk;
