@@ -139,7 +139,6 @@ impl From<data_packet::Kind> for DataPacketKind {
     }
 }
 
-
 impl From<participant_info::State> for participant::ParticipantState {
     fn from(value: participant_info::State) -> Self {
         match value {
