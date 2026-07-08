@@ -173,18 +173,20 @@ impl PeerTransport {
         // Apply x-google-start-bitrate munging for video codecs if we have a target bitrate.
         // In initial offers (before track is published), max_send_bitrate_bps is None,
         // so no munging is applied and WebRTC uses its default conservative start bitrate.
-        let inner = self.inner.lock().await;
         let has_video = sdp.contains(" VP8/90000")
             || sdp.contains(" VP9/90000")
             || sdp.contains(" AV1/90000")
             || sdp.contains(" H264/90000")
             || sdp.contains(" H265/90000");
         if has_video {
-            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps) {
+            let start_kbps = {
+                let inner = self.inner.lock().await;
+                Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps)
+            };
+            if let Some(start_kbps) = start_kbps {
                 log::info!(
-                    "Initial offer: applying x-google-start-bitrate={} kbps (target_bps={:?})",
-                    start_kbps,
-                    inner.max_send_bitrate_bps
+                    "Initial offer: applying x-google-start-bitrate={} kbps",
+                    start_kbps
                 );
 
                 let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
