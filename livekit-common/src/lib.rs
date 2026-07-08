@@ -25,10 +25,10 @@ mod enum_dispatch;
 // Client protocol
 // -------------------------------------------------------------------------------------------------
 
-/// Legacy client. No v2 data-stream features.
+/// Legacy client.
 pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
 
-/// RPC v2 (see RPC spec). No v2 data-stream features.
+/// RPC v2 (see RPC spec).
 pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
 
 // -------------------------------------------------------------------------------------------------
