@@ -60,7 +60,11 @@ impl LogoTrack {
         self.handle.is_some()
     }
 
-    pub async fn publish(&mut self) -> Result<(), RoomError> {
+    pub async fn publish(
+        &mut self,
+        simulcast: bool,
+        video_codec: VideoCodec,
+    ) -> Result<(), RoomError> {
         self.unpublish().await?;
 
         let (close_tx, close_rx) = oneshot::channel();
@@ -77,8 +81,8 @@ impl LogoTrack {
                 LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Camera,
-                    simulcast: true,
-                    video_codec: VideoCodec::H265,
+                    simulcast: simulcast,
+                    video_codec: video_codec,
                     ..Default::default()
                 },
             )
