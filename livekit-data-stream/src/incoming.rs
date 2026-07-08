@@ -131,10 +131,10 @@ impl Stream for ByteStreamReader {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "test-utils")]
 impl TextStreamReader {
     /// Create a TextStreamReader for testing purposes.
-    pub(crate) fn new_for_test(
+    pub fn new_for_test(
         info: TextStreamInfo,
         chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
     ) -> Self {
