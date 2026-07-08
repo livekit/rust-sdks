@@ -8,8 +8,10 @@ edition.workspace = true
 repository.workspace = true
 
 [features]
-# Exposes test-only hooks used by downstream crates' test suites (e.g.
-# `TextStreamReader::new_for_test`). Forwarded from the `livekit` crate's `__lk-e2e-test` feature.
+# End-to-end testing hooks (exposes is_compressed/is_inline on stream info). Forwarded from
+# the `livekit` crate's `__lk-e2e-test` feature.
+__e2e-test = []
+# Exposes constructors used by downstream crates' test suites (e.g. `TextStreamReader::new_for_test`).
 test-utils = []
 
 [dependencies]
