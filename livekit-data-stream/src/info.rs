@@ -198,26 +198,12 @@ pub(crate) enum AnyStreamInfo {
 }
 
 impl AnyStreamInfo {
-    pub fn id(&self) -> &str {
-        match self {
-            Self::Byte(info) => info.id(),
-            Self::Text(info) => info.id(),
-        }
-    }
-
-    pub fn total_length(&self) -> Option<u64> {
-        match self {
-            Self::Byte(info) => info.total_length(),
-            Self::Text(info) => info.total_length(),
-        }
-    }
-
-    pub fn encryption_type(&self) -> EncryptionType {
-        match self {
-            Self::Byte(info) => info.encryption_type(),
-            Self::Text(info) => info.encryption_type(),
-        }
-    }
+    livekit_common::enum_dispatch!(
+        [Byte, Text];
+        pub fn id(self: &Self) -> &str;
+        pub fn total_length(self: &Self) -> Option<u64>;
+        pub fn encryption_type(self: &Self) -> EncryptionType;
+    );
 }
 
 #[rustfmt::skip]
