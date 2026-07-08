@@ -243,7 +243,7 @@ impl Manager {
         info: &DataTrackInfo,
     ) -> bool {
         // Publisher identity and pub handle are stable across republications.
-        let Some((old_sid, desc)) = self.descriptors.iter().find(|(_, desc)| {
+        let Some((old_sid, descriptor)) = self.descriptors.iter().find(|(_, desc)| {
             desc.publisher_identity.as_ref() == publisher_identity
                 && desc.info.pub_handle == info.pub_handle
         }) else {
@@ -252,7 +252,7 @@ impl Manager {
 
         // Invariant: other than SID, info should not have changed.
         // TODO: consider refactoring to move SID out of info to allow for direct comparison.
-        let DataTrackInfo { sid: _, pub_handle: _, name, uses_e2ee } = &*desc.info;
+        let DataTrackInfo { sid: _, pub_handle: _, name, uses_e2ee } = &*descriptor.info;
         if *name != info.name || *uses_e2ee != info.uses_e2ee {
             log::warn!("Info mismatch for {}, treating as new publication", old_sid);
             return false;
@@ -262,7 +262,9 @@ impl Manager {
         let new_sid = info.sid();
         log::debug!("SID reassigned: {} -> {}", old_sid, new_sid);
 
-        let descriptor = self.descriptors.remove(&old_sid).unwrap();
+        let Some(descriptor) = self.descriptors.remove(&old_sid) else {
+            return false;
+        };
         *descriptor.info.sid.write().unwrap() = new_sid.clone();
 
         match &descriptor.subscription {
