@@ -877,10 +877,8 @@ mod tests {
             header: Header {
                 marker: FrameMarker::Single,
                 track_handle: new_sub_handle,
-                sequence: 0,
-                frame_number: 0,
-                timestamp: Timestamp::from_ticks(0),
                 extensions: Extensions::default(),
+                ..Faker.fake()
             },
             payload: Bytes::from_static(&[1, 2, 3, 4, 5]),
         };
