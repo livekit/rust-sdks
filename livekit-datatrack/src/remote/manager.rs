@@ -179,6 +179,9 @@ impl Manager {
                 if self.descriptors.contains_key(&sid) {
                     continue;
                 }
+                if self.handle_sid_reassigned(&publisher_identity, &info).await {
+                    continue;
+                }
                 self.handle_track_published(publisher_identity.clone(), info).await;
             }
         }
@@ -227,6 +230,57 @@ impl Manager {
         };
         let track = RemoteDataTrack::new(info, inner);
         _ = self.event_out_tx.send(TrackPublished { track }.into()).await;
+    }
+
+    /// Detects and handles SID reassignment, which occurs when the publisher
+    /// republishes its tracks after a full reconnect.
+    ///
+    /// Returns `true` if an SID reassignment occurred, `false` otherwise.
+    ///
+    async fn handle_sid_reassigned(
+        &mut self,
+        publisher_identity: &str,
+        info: &DataTrackInfo,
+    ) -> bool {
+        // Publisher identity and pub handle are stable across republications.
+        let Some((old_sid, desc)) = self.descriptors.iter().find(|(_, desc)| {
+            desc.publisher_identity.as_ref() == publisher_identity
+                && desc.info.pub_handle == info.pub_handle
+        }) else {
+            return false;
+        };
+
+        // Invariant: other than SID, info should not have changed.
+        // TODO: consider refactoring to move SID out of info to allow for direct comparison.
+        let DataTrackInfo { sid: _, pub_handle: _, name, uses_e2ee } = &*desc.info;
+        if *name != info.name || *uses_e2ee != info.uses_e2ee {
+            log::warn!("Info mismatch for {}, treating as new publication", old_sid);
+            return false;
+        }
+        let old_sid = old_sid.clone();
+
+        let new_sid = info.sid();
+        log::debug!("SID reassigned: {} -> {}", old_sid, new_sid);
+
+        let descriptor = self.descriptors.remove(&old_sid).unwrap();
+        *descriptor.info.sid.write().unwrap() = new_sid.clone();
+
+        match &descriptor.subscription {
+            SubscriptionState::None => {}
+            SubscriptionState::Pending { .. } | SubscriptionState::Active { .. } => {
+                // The SFU does not carry subscriptions across a publisher's full
+                // reconnect; re-request the subscription under the new SID.
+                let event = SfuUpdateSubscription { sid: new_sid.clone(), subscribe: true };
+                _ = self.event_out_tx.send(event.into()).await;
+            }
+        }
+        if let SubscriptionState::Active { sub_handle, .. } = &descriptor.subscription {
+            // Keep the routing index consistent until the SFU assigns a new handle
+            // (see `register_subscriber_handle`).
+            self.sub_handles.insert(*sub_handle, new_sid.clone());
+        }
+        self.descriptors.insert(new_sid, descriptor);
+        true
     }
 
     fn on_set_pipeline_options(&mut self, event: SetPipelineOptions) {
