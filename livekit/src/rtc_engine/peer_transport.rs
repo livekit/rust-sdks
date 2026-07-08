@@ -427,19 +427,11 @@ impl PeerTransport {
                 let mut it = rest.split_whitespace();
                 let pt = it.next().unwrap_or("");
                 let codec = it.next().unwrap_or("");
-                if Self::is_video_codec(codec)
-                    && !pt.is_empty()
-                    && !pts_with_fmtp.contains(pt)
-                {
+                if Self::is_video_codec(codec) && !pt.is_empty() && !pts_with_fmtp.contains(pt) {
                     // Create fmtp line with x-google-start-bitrate
                     let fmtp_line =
                         format!("a=fmtp:{pt} x-google-start-bitrate={start_bitrate_kbps}");
-                    log::debug!(
-                        "Creating fmtp line for {} (pt={}): {}",
-                        codec,
-                        pt,
-                        fmtp_line
-                    );
+                    log::debug!("Creating fmtp line for {} (pt={}): {}", codec, pt, fmtp_line);
                     final_out.push(fmtp_line);
                 }
             }

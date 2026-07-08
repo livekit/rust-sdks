@@ -415,7 +415,9 @@ impl SignalStream {
                 {
                     // TLS connection closed without close_notify - treat as normal close
                     // This happens when the server closes the connection abruptly
-                    log::debug!("websocket closed with unexpected EOF (TLS close without close_notify)");
+                    log::debug!(
+                        "websocket closed with unexpected EOF (TLS close without close_notify)"
+                    );
                     break;
                 }
                 Err(WsError::ConnectionClosed) | Err(WsError::AlreadyClosed) => {
