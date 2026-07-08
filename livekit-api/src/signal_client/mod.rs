@@ -60,9 +60,7 @@ pub const PROTOCOL_VERSION: u32 = 17;
 const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
     &[proto::client_info::Capability::CapPacketTrailer];
 
-pub use livekit_common::{
-    CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DATA_STREAM_V2, CLIENT_PROTOCOL_DEFAULT,
-};
+pub use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.
