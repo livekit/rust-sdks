@@ -1,0 +1,20 @@
+[package]
+name = "live_streaming"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "live_streaming"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["full", "parking_lot"] }
+tokio-stream = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+rand = { workspace = true }

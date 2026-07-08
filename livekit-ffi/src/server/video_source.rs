@@ -84,6 +84,7 @@ impl FfiVideoSource {
                 let frame = VideoFrame {
                     rotation: capture.rotation().into(),
                     timestamp_us: capture.timestamp_us,
+                    rtp_timestamp: 0,
                     frame_metadata: frame_metadata_from_proto(capture.metadata),
                     buffer,
                 };

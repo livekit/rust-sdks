@@ -1372,6 +1372,7 @@ async fn run_capture_loop(
         let mut frame = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: 0,
+            rtp_timestamp: 0,
             frame_metadata: None,
             buffer: create_i420_buffer(width, height, align_buffers_for_display),
         };
