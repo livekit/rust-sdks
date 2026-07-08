@@ -20,7 +20,7 @@ use livekit_common::{
 };
 use livekit_protocol as proto;
 use proto::data_stream::CompressionType;
-use std::{collections::HashMap, io::Write, path::Path, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::info::{ByteStreamInfo, OperationType, TextStreamInfo};
@@ -139,31 +139,41 @@ impl OutgoingStreamManager {
     ) -> StreamResult<TextStreamInfo> {
         let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
         let total_length = text.len() as u64;
-        let mut payload = MaybeCompressed::new(text.as_bytes());
 
         let eligibility =
             evaluate_eligibility(remote_participant_registry, &options.destination_identities);
         let can_compress = options.compress.unwrap_or(true) && eligibility.compression;
 
+        let text_bytes = text.as_bytes();
+        let mut maybe_compressed = MaybeCollectedAsyncReader::from_async_reader(
+            async_compression::futures::bufread::DeflateEncoder::new(
+                futures_util::io::Cursor::new(text_bytes.to_vec()),
+            ),
+        );
+
+        // Compress once up front when eligible (the deflate work happens at most once, cached in
+        // the returned `Vec`), then decide whether it's worth using.
+        let use_compression = can_compress
+            && maybe_compressed.collect().await.is_ok_and(|c| c.len() < text_bytes.len());
+
         // 1. Inline single-packet attempt (no attachments; all recipients are >= v2).
-        let (mut header, text_header) =
-            if can_compress && payload.as_compressed()?.len() < payload.uncompressed.len() {
-                build_text_header(
-                    &options,
-                    stream_id.clone(),
-                    Some(total_length),
-                    Some(payload.as_compressed()?.to_vec()),
-                    CompressionType::DeflateRaw,
-                )
-            } else {
-                build_text_header(
-                    &options,
-                    stream_id.clone(),
-                    Some(total_length),
-                    Some(payload.uncompressed.to_vec()),
-                    CompressionType::None,
-                )
-            };
+        let (mut header, text_header) = if use_compression {
+            build_text_header(
+                &options,
+                stream_id.clone(),
+                Some(total_length),
+                Some(maybe_compressed.collect().await?.to_owned()),
+                CompressionType::DeflateRaw,
+            )
+        } else {
+            build_text_header(
+                &options,
+                stream_id.clone(),
+                Some(total_length),
+                Some(text.as_bytes().to_vec()),
+                CompressionType::None,
+            )
+        };
         if eligibility.inline
             && options.attached_stream_ids.is_empty()
             && header_packet_fits(&header, &options.destination_identities)
@@ -178,8 +188,6 @@ impl OutgoingStreamManager {
         header.inline_content = None;
         enforce_header_size(&header, &options.destination_identities)?;
 
-        let should_compress =
-            header.compression() == proto::data_stream::CompressionType::DeflateRaw;
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: options.destination_identities,
@@ -187,11 +195,10 @@ impl OutgoingStreamManager {
         };
         let info = TextStreamInfo::from_headers(header, text_header);
         let mut stream = RawStream::open(open_options).await?;
-        if should_compress {
-            stream.write_raw_chunks(payload.as_compressed()?).await?;
+        if use_compression {
+            stream.write_raw_chunks(maybe_compressed.collect().await?).await?;
         } else {
-            for chunk in payload.uncompressed.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES)
-            {
+            for chunk in text_bytes.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
                 stream.write_chunk(chunk).await?;
             }
         }
@@ -221,33 +228,42 @@ impl OutgoingStreamManager {
         let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
         let name = options.name.clone().unwrap_or_else(|| constants::BYTE_DEFAULT_NAME.to_owned());
         let total_length = bytes.len() as u64;
-        let mut payload = MaybeCompressed::new(bytes);
 
         let eligibility =
             evaluate_eligibility(remote_participant_registry, &options.destination_identities);
         let can_compress = options.compress.unwrap_or(true) && eligibility.compression;
 
+        let mut maybe_compressed = MaybeCollectedAsyncReader::from_async_reader(
+            async_compression::futures::bufread::DeflateEncoder::new(
+                futures_util::io::Cursor::new(bytes.to_vec()),
+            ),
+        );
+
+        // Compress once up front when eligible (the deflate work happens at most once, cached in
+        // the returned `Vec`), then decide whether it's worth using.
+        let use_compression =
+            can_compress && maybe_compressed.collect().await.is_ok_and(|c| c.len() < bytes.len());
+
         // 1. Inline single-packet attempt (if all recipients are >= v2).
-        let (mut header, byte_header) =
-            if can_compress && payload.as_compressed()?.len() < payload.uncompressed.len() {
-                build_byte_header(
-                    &options,
-                    stream_id.clone(),
-                    name.clone(),
-                    Some(total_length), // NOTE: this is purposely always uncompressed length
-                    Some(payload.as_compressed()?.to_vec()),
-                    CompressionType::DeflateRaw,
-                )
-            } else {
-                build_byte_header(
-                    &options,
-                    stream_id.clone(),
-                    name.clone(),
-                    Some(total_length), // NOTE: this is purposely always uncompressed length
-                    Some(payload.uncompressed.to_vec()),
-                    CompressionType::None,
-                )
-            };
+        let (mut header, byte_header) = if use_compression {
+            build_byte_header(
+                &options,
+                stream_id.clone(),
+                name.clone(),
+                Some(total_length), // NOTE: this is purposely always uncompressed length
+                Some(maybe_compressed.collect().await?.to_owned()),
+                CompressionType::DeflateRaw,
+            )
+        } else {
+            build_byte_header(
+                &options,
+                stream_id.clone(),
+                name.clone(),
+                Some(total_length), // NOTE: this is purposely always uncompressed length
+                Some(bytes.to_vec()),
+                CompressionType::None,
+            )
+        };
         if eligibility.inline && header_packet_fits(&header, &options.destination_identities) {
             let packet =
                 RawStream::create_header_packet(header.clone(), options.destination_identities);
@@ -259,8 +275,6 @@ impl OutgoingStreamManager {
         header.inline_content = None;
         enforce_header_size(&header, &options.destination_identities)?;
 
-        let should_compress =
-            header.compression() == proto::data_stream::CompressionType::DeflateRaw;
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: options.destination_identities,
@@ -268,10 +282,10 @@ impl OutgoingStreamManager {
         };
         let info = ByteStreamInfo::from_headers(header, byte_header);
         let mut stream = RawStream::open(open_options).await?;
-        if should_compress {
-            stream.write_raw_chunks(payload.as_compressed()?).await?;
+        if use_compression {
+            stream.write_raw_chunks(maybe_compressed.collect().await?).await?;
         } else {
-            stream.write_raw_chunks(payload.uncompressed).await?;
+            stream.write_raw_chunks(bytes).await?;
         }
         stream.close(None).await?;
         Ok(info)
@@ -348,38 +362,34 @@ fn evaluate_eligibility(
     SendEligibility { inline, compression }
 }
 
-/// A struct which manages the state of data which potentially may need to be compressed in the
-/// future.
+/// Wraps an [`AsyncRead`] whose bytes are produced lazily (e.g. a deflate encoder), caching them
+/// on first [`Self::collect`] so the underlying work runs at most once. Later `collect` calls
+/// return the cached bytes without re-reading.
 ///
-/// By storing the compressed text optionally after performing compression, we can be sure that co
-/// compression will only ever happen once, even if it must happen as part of speculative paths
-/// (like checking whether compressed bytes are bigger than the literal bytes).
-struct MaybeCompressed<'a> {
-    uncompressed: &'a [u8],
-    compressed: Option<Vec<u8>>,
+/// (The streaming, still-a-reader-after-collect variant needed by `send_file` will be added when
+/// that path is migrated; today's callers only need `collect`.)
+enum MaybeCollectedAsyncReader<Reader: futures_util::io::AsyncRead + Unpin> {
+    Reader(Reader),
+    Collected(Vec<u8>),
 }
 
-impl<'a> MaybeCompressed<'a> {
-    fn new(uncompressed: &'a [u8]) -> Self {
-        Self { uncompressed, compressed: None }
+impl<Reader: futures_util::io::AsyncRead + Unpin> MaybeCollectedAsyncReader<Reader> {
+    fn from_async_reader(reader: Reader) -> Self {
+        Self::Reader(reader)
     }
 
-    /// Upconverts the Uncompressed variant into the Compressed variant, and returns a reference to
-    /// the compressed bytes as a result.
-    fn as_compressed(&mut self) -> Result<&[u8], std::io::Error> {
-        match &mut self.compressed {
-            Some(compressed) => Ok(&*compressed),
-            compressed_option @ None => {
-                let mut encoder =
-                    flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-                encoder.write_all(self.uncompressed)?;
-                *compressed_option = Some(encoder.finish()?);
-                let Some(ref data) = compressed_option else {
-                    unreachable!("compressed data just set")
-                };
-                Ok(data)
+    async fn collect(&mut self) -> Result<&[u8], std::io::Error> {
+        use futures_util::io::AsyncReadExt;
+        match self {
+            Self::Collected(_) => { /* no-op, handled below */ }
+            Self::Reader(reader) => {
+                let mut buf = Vec::new();
+                reader.read_to_end(&mut buf).await?;
+                *self = Self::Collected(buf);
             }
         }
+        let Self::Collected(bytes) = self else { unreachable!("just set to Collected") };
+        Ok(bytes)
     }
 }
 
