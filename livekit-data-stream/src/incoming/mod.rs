@@ -43,43 +43,39 @@ struct Descriptor {
 }
 
 /// Streaming deflate-raw decompressor state for one compressed stream.
+///
+/// Backed by `async-compression`'s push-style (`AsyncWrite`) decoder: ordered compressed chunks
+/// are written into it and the decompressed output lands in the inner `Vec`, which is drained per
+/// chunk. The decoder operates entirely in memory, so it is driven to completion synchronously
+/// (see [`drive`]) — this keeps the incoming handlers non-`async` (no lock held across an
+/// `.await`, no ripple into the room task) and behaves identically across every async backend.
 struct DeflateDecompressState {
-    decompress: flate2::Decompress,
+    decoder: async_compression::futures::write::DeflateDecoder<Vec<u8>>,
     /// Decompressed text bytes not yet yielded because they end mid-codepoint.
     pending_text: Vec<u8>,
 }
 
 impl DeflateDecompressState {
     fn new() -> Self {
-        // `false` => raw deflate (no zlib header/checksum), matching the wire contract.
-        Self { decompress: flate2::Decompress::new(false), pending_text: Vec::new() }
+        // The `deflate` algorithm is raw DEFLATE (no zlib header/checksum), matching the wire
+        // contract.
+        Self {
+            decoder: async_compression::futures::write::DeflateDecoder::new(Vec::new()),
+            pending_text: Vec::new(),
+        }
     }
 
     /// Feeds compressed `input` through the stateful decompressor, returning all
     /// decompressed output produced so far.
     fn push(&mut self, input: &[u8]) -> StreamResult<Vec<u8>> {
-        let mut out = Vec::new();
-        let mut buf = vec![0u8; 16384 /* number of bytes to process every loop iteration */];
-        let mut offset = 0;
-        loop {
-            let in_before = self.decompress.total_in();
-            let out_before = self.decompress.total_out();
-            let status = self
-                .decompress
-                .decompress(&input[offset..], &mut buf, flate2::FlushDecompress::None)
-                .map_err(|_| StreamError::Decompression)?;
-            let consumed = (self.decompress.total_in() - in_before) as usize;
-            let produced = (self.decompress.total_out() - out_before) as usize;
-            offset += consumed;
-            out.extend_from_slice(&buf[..produced]);
-            match status {
-                flate2::Status::StreamEnd => break,
-                // No progress and no input left to feed: wait for the next chunk.
-                _ if consumed == 0 && produced == 0 => break,
-                _ => {}
-            }
-        }
-        Ok(out)
+        use futures_util::io::AsyncWriteExt;
+        drive(async {
+            self.decoder.write_all(input).await?;
+            // Flush so all currently-decodable output lands in the inner `Vec`.
+            self.decoder.flush().await
+        })
+        .map_err(|_| StreamError::Decompression)?;
+        Ok(std::mem::take(self.decoder.get_mut()))
     }
 
     /// Appends `decompressed` text bytes and returns the longest valid-UTF-8 prefix,
@@ -96,11 +92,31 @@ impl DeflateDecompressState {
 
 /// One-shot deflate-raw decompression of a complete (inline) payload.
 fn inflate_raw(data: &[u8]) -> StreamResult<Vec<u8>> {
-    use std::io::Read;
-    let mut decoder = flate2::read::DeflateDecoder::new(data);
+    use futures_util::io::AsyncReadExt;
+    let mut decoder = async_compression::futures::bufread::DeflateDecoder::new(
+        futures_util::io::Cursor::new(data),
+    );
     let mut out = Vec::new();
-    decoder.read_to_end(&mut out).map_err(|_| StreamError::Decompression)?;
+    drive(decoder.read_to_end(&mut out)).map_err(|_| StreamError::Decompression)?;
     Ok(out)
+}
+
+/// Runs an in-memory async IO future to completion synchronously.
+///
+/// The compression codecs used here operate over in-memory buffers (`Vec`/`Cursor`), whose
+/// `AsyncRead`/`AsyncWrite` impls are always immediately ready and never yield `Pending`, so a
+/// single poll always completes them. Driving them with a no-op waker means this crate needs no
+/// async runtime for (de)compression and behaves identically across the tokio/async-std/dispatcher
+/// backends the `livekit` crate supports.
+fn drive<F: std::future::Future>(future: F) -> F::Output {
+    use std::task::{Context, Poll};
+    let waker = futures_util::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    match future.as_mut().poll(&mut cx) {
+        Poll::Ready(output) => output,
+        Poll::Pending => unreachable!("in-memory compression IO is always ready"),
+    }
 }
 
 #[derive(Clone)]
