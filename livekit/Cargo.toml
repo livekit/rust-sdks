@@ -29,7 +29,7 @@ rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-api/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit-api/__rustls-tls"]
 __lk-internal = [] # internal features (used by livekit-ffi)
-__lk-e2e-test = ["livekit-data-stream/test-utils"] # end-to-end testing with a LiveKit server
+__lk-e2e-test = ["livekit-data-stream/__e2e-test"] # end-to-end testing with a LiveKit server
 
 [dependencies]
 livekit-runtime = { workspace = true }
