@@ -14,10 +14,10 @@
 
 use chrono::{DateTime, Utc};
 use livekit_common::EncryptionType;
-use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 
-use super::utils::StreamError;
+use crate::types::{ByteHeader, ContentHeader, Header, OperationType, TextHeader};
+use crate::utils::StreamError;
 
 /// Information about a byte data stream.
 #[derive(Clone, Debug)]
@@ -76,39 +76,29 @@ pub struct TextStreamInfo {
     pub is_inline: bool,
 }
 
-/// Operation type for text streams.
-#[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
-pub enum OperationType {
-    #[default]
-    Create,
-    Update,
-    Delete,
-    Reaction,
-}
+// MARK: - Type conversion
 
-// MARK: - Protocol type conversion
-
-impl TryFrom<proto::Header> for AnyStreamInfo {
+impl TryFrom<Header> for AnyStreamInfo {
     type Error = StreamError;
 
-    fn try_from(header: proto::Header) -> Result<Self, Self::Error> {
+    fn try_from(header: Header) -> Result<Self, Self::Error> {
         Self::try_from_with_encryption(header, EncryptionType::None)
     }
 }
 
 impl AnyStreamInfo {
     pub fn try_from_with_encryption(
-        mut header: proto::Header,
+        mut header: Header,
         encryption_type: EncryptionType,
     ) -> Result<Self, StreamError> {
         let Some(content_header) = header.content_header.take() else {
             Err(StreamError::InvalidHeader)?
         };
         let info = match content_header {
-            proto::header::ContentHeader::ByteHeader(byte_header) => Self::Byte(
+            ContentHeader::ByteHeader(byte_header) => Self::Byte(
                 ByteStreamInfo::from_headers_with_encryption(header, byte_header, encryption_type),
             ),
-            proto::header::ContentHeader::TextHeader(text_header) => Self::Text(
+            ContentHeader::TextHeader(text_header) => Self::Text(
                 TextStreamInfo::from_headers_with_encryption(header, text_header, encryption_type),
             ),
         };
@@ -117,22 +107,17 @@ impl AnyStreamInfo {
 }
 
 impl ByteStreamInfo {
-    pub(crate) fn from_headers(header: proto::Header, byte_header: proto::ByteHeader) -> Self {
+    pub(crate) fn from_headers(header: Header, byte_header: ByteHeader) -> Self {
         Self::from_headers_with_encryption(header, byte_header, EncryptionType::None)
     }
 
     pub(crate) fn from_headers_with_encryption(
-        header: proto::Header,
-        byte_header: proto::ByteHeader,
+        header: Header,
+        byte_header: ByteHeader,
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            #[cfg(feature = "__e2e-test")]
-            is_compressed: header.compression() != proto::CompressionType::None,
-            #[cfg(feature = "__e2e-test")]
-            is_inline: !header.inline_content().is_empty(),
-
-            id: header.stream_id,
+            id: header.stream_id.to_string(),
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
                 .unwrap_or_else(|| Utc::now()),
@@ -141,54 +126,50 @@ impl ByteStreamInfo {
             mime_type: header.mime_type,
             name: byte_header.name,
             encryption_type,
+            #[cfg(feature = "__e2e-test")]
+            is_compressed: header.compression != CompressionType::None,
+            #[cfg(feature = "__e2e-test")]
+            is_inline: !header.inline_content.is_empty(),
         }
     }
 }
 
 impl TextStreamInfo {
-    pub(crate) fn from_headers(header: proto::Header, text_header: proto::TextHeader) -> Self {
+    pub(crate) fn from_headers(header: Header, text_header: TextHeader) -> Self {
         Self::from_headers_with_encryption(header, text_header, EncryptionType::None)
     }
 
     pub(crate) fn from_headers_with_encryption(
-        header: proto::Header,
-        text_header: proto::TextHeader,
+        header: Header,
+        text_header: TextHeader,
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            #[cfg(feature = "__e2e-test")]
-            is_compressed: header.compression() != proto::CompressionType::None,
-            #[cfg(feature = "__e2e-test")]
-            is_inline: !header.inline_content().is_empty(),
-
-            id: header.stream_id,
+            id: header.stream_id.to_string(),
             topic: header.topic,
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
                 .unwrap_or_else(|| Utc::now()),
             total_length: header.total_length,
             attributes: header.attributes,
             mime_type: header.mime_type,
-            operation_type: text_header.operation_type().into(),
+            operation_type: text_header.operation_type,
             version: text_header.version,
-            reply_to_stream_id: (!text_header.reply_to_stream_id.is_empty())
-                .then_some(text_header.reply_to_stream_id),
-            attached_stream_ids: text_header.attached_stream_ids,
+            reply_to_stream_id: text_header.reply_to_stream_id.map(|stream_id| stream_id.into()),
+            attached_stream_ids: text_header
+                .attached_stream_ids
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             generated: text_header.generated,
             encryption_type,
+            #[cfg(feature = "__e2e-test")]
+            is_compressed: header.compression != CompressionType::None,
+            #[cfg(feature = "__e2e-test")]
+            is_inline: !header.inline_content.is_empty(),
         }
     }
 }
 
-impl From<proto::OperationType> for OperationType {
-    fn from(op_type: proto::OperationType) -> Self {
-        match op_type {
-            proto::OperationType::Create => OperationType::Create,
-            proto::OperationType::Update => OperationType::Update,
-            proto::OperationType::Delete => OperationType::Delete,
-            proto::OperationType::Reaction => OperationType::Reaction,
-        }
-    }
-}
 // MARK: - Dispatch
 
 #[derive(Clone, Debug)]

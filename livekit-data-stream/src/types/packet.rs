@@ -237,6 +237,34 @@ pub struct Chunk {
     pub(crate) encryption_type: EncryptionType,
 }
 
+impl From<proto::Chunk> for Chunk {
+    fn from(value: proto::Chunk) -> Self {
+        // The proto carries encryption on the enclosing `DataPacket`, not the chunk, so the
+        // chunk's own `encryption_type` defaults here; the authoritative value rides on `Packet`.
+        Self {
+            stream_id: value.stream_id.into(),
+            chunk_index: value.chunk_index,
+            content: value.content,
+            version: value.version,
+            encryption_type: EncryptionType::default(),
+        }
+    }
+}
+
+impl From<Chunk> for proto::Chunk {
+    fn from(value: Chunk) -> Self {
+        // `iv` is deprecated on the proto (encryption rides on the DataPacket);
+        // `..Default::default()` fills it without naming the deprecated field.
+        Self {
+            stream_id: value.stream_id.into(),
+            chunk_index: value.chunk_index,
+            content: value.content,
+            version: value.version,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Trailer {
     /// Unique identifier for this data stream
@@ -245,6 +273,26 @@ pub struct Trailer {
     pub(crate) reason: String,
     /// Any final attribute updates for the stream
     pub(crate) attributes: HashMap<String, String>,
+}
+
+impl From<proto::Trailer> for Trailer {
+    fn from(value: proto::Trailer) -> Self {
+        Self {
+            stream_id: value.stream_id.into(),
+            reason: value.reason,
+            attributes: value.attributes,
+        }
+    }
+}
+
+impl From<Trailer> for proto::Trailer {
+    fn from(value: Trailer) -> Self {
+        Self {
+            stream_id: value.stream_id.into(),
+            reason: value.reason,
+            attributes: value.attributes,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
