@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_common::ParticipantIdentity;
 use from_variants::FromVariants;
+use livekit_common::ParticipantIdentity;
 
 use crate::incoming::AnyStreamReader;
-use crate::types::{Packet, Chunk, Trailer};
+use crate::types::{Chunk, Packet, Trailer};
 
 pub struct PacketReceived {
     pub packet: Packet,

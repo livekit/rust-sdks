@@ -28,7 +28,9 @@ pub mod events;
 mod stream_reader;
 pub use stream_reader::{AnyStreamReader, ByteStreamReader, StreamReader, TextStreamReader};
 
-use events::{InputEvent, OutputEvent, PacketReceived, StreamOpened, ChunkReceived, TrailerReceived};
+use events::{
+    ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamOpened, TrailerReceived,
+};
 
 struct Descriptor {
     progress: StreamProgress,
@@ -135,7 +137,6 @@ impl IncomingDataStreamInput {
     }
 }
 
-
 /// Actor that owns all incoming-stream state and processes [`IncomingEvent`]s on a single task
 /// (see [`Self::run`]). Because it owns its state directly (no shared `Mutex`), its handlers can
 /// `.await` decompression on the run-loop task.
@@ -218,10 +219,10 @@ impl IncomingDataStreamManager {
         }
 
         let (stream_reader, chunk_tx) = AnyStreamReader::from(info);
-        let _ = self.output_tx.send(StreamOpened {
-            stream_reader,
-            participant_identity: participant_identity.clone(),
-        }.into());
+        let _ = self.output_tx.send(
+            StreamOpened { stream_reader, participant_identity: participant_identity.clone() }
+                .into(),
+        );
 
         // Inline single-packet stream: synthesize the complete content now; no chunk/trailer
         // packets will follow, so we never register an open descriptor.
@@ -280,9 +281,10 @@ impl IncomingDataStreamManager {
         // matching the previous synchronous behavior.
         let is_internal = self.inner.open_streams.get(&id).is_some_and(|d| d.is_internal);
         if !is_internal {
-            let _ = self
-                .output_tx
-                .send(OutputEvent::ChunkReceived(ChunkReceived { chunk: chunk.clone(), participant_identity }));
+            let _ = self.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
+                chunk: chunk.clone(),
+                participant_identity,
+            }));
         }
 
         let inner = &mut self.inner;
@@ -381,10 +383,9 @@ impl IncomingDataStreamManager {
         // Back-compat raw-trailer notification (non-internal streams only).
         let is_internal = self.inner.open_streams.get(&id).is_some_and(|d| d.is_internal);
         if !is_internal {
-            let _ = self.output_tx.send(TrailerReceived {
-                trailer: trailer.clone(),
-                participant_identity,
-            }.into());
+            let _ = self
+                .output_tx
+                .send(TrailerReceived { trailer: trailer.clone(), participant_identity }.into());
         }
 
         let inner = &mut self.inner;
@@ -593,7 +594,10 @@ mod tests {
         async fn next_opened(&mut self) -> (AnyStreamReader, ParticipantIdentity) {
             loop {
                 match self.output_rx.recv().await.expect("a stream should be opened") {
-                    OutputEvent::StreamOpened(StreamOpened { stream_reader, participant_identity }) => {
+                    OutputEvent::StreamOpened(StreamOpened {
+                        stream_reader,
+                        participant_identity,
+                    }) => {
                         return (stream_reader, participant_identity);
                     }
                     _ => continue,
