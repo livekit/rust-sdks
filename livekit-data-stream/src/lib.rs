@@ -28,14 +28,10 @@ pub use info::{ByteStreamInfo, TextStreamInfo};
 
 mod utf8_chunk;
 
-mod incoming;
-pub use incoming::{
-    AnyStreamReader, ByteStreamReader, IncomingEvent, IncomingOutput, IncomingStreamInput,
-    IncomingStreamManager, StreamReader, TextStreamReader,
-};
+pub mod incoming;
+pub use incoming::{AnyStreamReader, ByteStreamReader, StreamReader, TextStreamReader};
 
-mod outgoing;
+pub mod outgoing;
 pub use outgoing::{
-    ByteStreamWriter, OutgoingStreamManager, StreamByteOptions, StreamTextOptions, StreamWriter,
-    TextStreamWriter,
+    ByteStreamWriter, StreamByteOptions, StreamTextOptions, StreamWriter, TextStreamWriter,
 };
