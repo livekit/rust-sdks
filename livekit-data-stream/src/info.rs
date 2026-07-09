@@ -127,9 +127,9 @@ impl ByteStreamInfo {
             name: byte_header.name,
             encryption_type,
             #[cfg(feature = "__e2e-test")]
-            is_compressed: header.compression != CompressionType::None,
+            is_compressed: header.compression != crate::types::CompressionType::None,
             #[cfg(feature = "__e2e-test")]
-            is_inline: !header.inline_content.is_empty(),
+            is_inline: header.inline_content.is_some_and(|c| !c.is_empty()),
         }
     }
 }
@@ -163,9 +163,9 @@ impl TextStreamInfo {
             generated: text_header.generated,
             encryption_type,
             #[cfg(feature = "__e2e-test")]
-            is_compressed: header.compression != CompressionType::None,
+            is_compressed: header.compression != crate::types::CompressionType::None,
             #[cfg(feature = "__e2e-test")]
-            is_inline: !header.inline_content.is_empty(),
+            is_inline: header.inline_content.is_some_and(|c| !c.is_empty()),
         }
     }
 }
