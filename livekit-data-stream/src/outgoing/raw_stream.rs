@@ -19,10 +19,11 @@ use std::{io::Write, path::Path};
 use tokio::io::AsyncReadExt;
 
 use super::constants;
+use crate::types::Header;
 use crate::utils::{SendError, StreamError, StreamProgress, StreamResult};
 
 pub(crate) struct RawStreamOpenOptions {
-    pub(crate) header: proto::data_stream::Header,
+    pub(crate) header: Header,
     pub(crate) destination_identities: Vec<ParticipantIdentity>,
     pub(crate) packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
@@ -40,7 +41,8 @@ impl RawStream {
         let id = options.header.stream_id.to_string();
         let bytes_total = options.header.total_length;
 
-        let packet = Self::create_header_packet(options.header, options.destination_identities);
+        let packet =
+            Self::create_header_packet(options.header.into(), options.destination_identities);
         Self::send_packet(&options.packet_tx, packet).await?;
 
         Ok(Self {
@@ -150,7 +152,7 @@ impl RawStream {
             kind: proto::data_packet::Kind::Reliable.into(),
             participant_identity: String::new(), // populate later
             destination_identities: destination_identities.into_iter().map(|id| id.0).collect(),
-            value: Some(livekit_protocol::data_packet::Value::StreamHeader(header)),
+            value: Some(livekit_protocol::data_packet::Value::StreamHeader(header.into())),
             // TODO: placeholder for reliable data transport
             ..Default::default()
         }
