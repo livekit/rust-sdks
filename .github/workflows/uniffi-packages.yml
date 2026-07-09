@@ -36,7 +36,7 @@ jobs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
       version: ${{ steps.get-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - id: get-tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -76,3 +76,19 @@ jobs:
       tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
+
+  # Raw cdylibs for the Dart package's build-hook download (build-<triple>.zip).
+  cdylib:
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.tag_name != ''
+    # The reusable workflow uploads to this repo's release via github.token; a
+    # called workflow can't elevate the caller's token, so grant write here (the
+    # top-level default is read). Swift uses a PAT and Android uses Maven, so
+    # neither needs this.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/uniffi-cdylib.yml
+    with:
+      version: ${{ needs.resolve-tag.outputs.version }}
+      tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
+      dry_run: ${{ inputs.dry_run || false }}

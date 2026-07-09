@@ -357,6 +357,26 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+        self.publish_track_with_video_send_encodings(track, options, None).await
+    }
+
+    /// Publishes a track without providing video send encodings to WebRTC.
+    #[doc(hidden)]
+    #[cfg(feature = "__lk-e2e-test")]
+    pub async fn publish_track_without_video_send_encodings(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+    ) -> RoomResult<LocalTrackPublication> {
+        self.publish_track_with_video_send_encodings(track, options, Some(Vec::new())).await
+    }
+
+    async fn publish_track_with_video_send_encodings(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        video_send_encodings: Option<Vec<RtpEncodingParameters>>,
+    ) -> RoomResult<LocalTrackPublication> {
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
@@ -388,7 +408,8 @@ impl LocalParticipant {
                 req.width = resolution.width;
                 req.height = resolution.height;
 
-                encodings = compute_video_encodings(req.width, req.height, &options);
+                encodings = video_send_encodings
+                    .unwrap_or_else(|| compute_video_encodings(req.width, req.height, &options));
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
 
                 // Populate simulcast_codecs so the server knows this track has

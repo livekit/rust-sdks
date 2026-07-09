@@ -41,10 +41,10 @@ use async_tungstenite::tungstenite::Error as WsError;
 
 use crate::{http_client, signal_client::signal_stream::SignalStream};
 
-mod region;
+mod region_url_provider;
 mod signal_stream;
 
-pub use region::RegionUrlProvider;
+pub use region_url_provider::RegionUrlProvider;
 
 pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
 pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
@@ -796,20 +796,23 @@ fn create_join_request_param(
     // Serialize JoinRequest to bytes
     let join_request_bytes = join_request.encode_to_vec();
 
-    // Use gzip compression when publisher offer is included (SDP makes payload large)
-    let (compressed_bytes, compression) = if publisher_offer.is_some() {
+    // Always use gzip compression to reduce URL size on poor networks
+    let (compressed_bytes, compression) = {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         if encoder.write_all(&join_request_bytes).is_ok() {
             if let Ok(compressed) = encoder.finish() {
-                (compressed, proto::wrapped_join_request::Compression::Gzip as i32)
+                // Only use compressed version if it's actually smaller
+                if compressed.len() < join_request_bytes.len() {
+                    (compressed, proto::wrapped_join_request::Compression::Gzip as i32)
+                } else {
+                    (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
+                }
             } else {
                 (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
             }
         } else {
             (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
         }
-    } else {
-        (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
     };
 
     let wrapped_join_request =
@@ -1307,7 +1310,7 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
         let (urls, _max_age) = result.unwrap();
         assert_eq!(
@@ -1339,7 +1342,7 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1358,7 +1361,7 @@ mod tests {
         // Try to connect to a port that's definitely not listening
         // This simulates a network-level failure
         let endpoint = "http://127.0.0.1:1/settings/regions";
-        let result = region::fetch_from_endpoint(endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(endpoint, "fake-token").await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1416,7 +1419,7 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
