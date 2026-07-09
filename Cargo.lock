@@ -221,7 +221,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -232,7 +232,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1233,7 +1233,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2184,7 +2184,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2576,12 +2576,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "037711b3d59c33004d3856fbdc83b99d4ff37a24768fa1be9ce3538a1cde4393"
 
 [[package]]
-name = "futures-timer"
-version = "3.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af43fadb8a98512d547e37b4e92e0ced13e205c061b87b4623eff01d918d6968"
-
-[[package]]
 name = "futures-util"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2704,7 +2698,7 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3794,7 +3788,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.39"
+version = "0.3.40"
 dependencies = [
  "cxx",
  "env_logger 0.11.10",
@@ -3923,7 +3917,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.50"
+version = "0.7.51"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3957,14 +3951,14 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.5.4"
+version = "0.5.5"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
  "bytes",
  "device-info",
  "flate2",
- "futures-timer",
+ "futures",
  "futures-util",
  "hmac",
  "http 1.4.0",
@@ -4021,7 +4015,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-datatrack"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4042,7 +4036,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.68"
+version = "0.12.69"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -4094,7 +4088,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-uniffi"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "camino",
  "livekit-api",
@@ -4683,7 +4677,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6416,7 +6410,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6979,7 +6973,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7161,7 +7155,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8577,7 +8571,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.36"
+version = "0.3.37"
 dependencies = [
  "cc",
  "cxx",
@@ -8796,26 +8790,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wgpu_room"
-version = "0.1.1"
-dependencies = [
- "console-subscriber",
- "eframe",
- "egui",
- "egui-wgpu",
- "env_logger 0.11.10",
- "futures",
- "image",
- "livekit",
- "log",
- "parking_lot",
- "serde",
- "tokio",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "which"
 version = "4.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8849,7 +8823,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

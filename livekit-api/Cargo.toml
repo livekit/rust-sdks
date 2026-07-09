@@ -1,6 +1,6 @@
 [package]
 name = "livekit-api"
-version = "0.5.4"
+version = "0.5.5"
 license.workspace = true
 description = "Rust Server SDK for LiveKit"
 edition.workspace = true
@@ -45,8 +45,8 @@ __signal-client-async-compatible = [
 ]
 
 
-services-tokio = ["dep:reqwest", "dep:tokio", "tokio/time"]
-services-async = ["dep:isahc", "dep:futures-timer"]
+services-tokio = ["dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
+services-async = ["dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
 access-token = ["dep:jsonwebtoken", "dep:hmac", "dep:signature"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
@@ -122,7 +122,7 @@ hmac = { version = "0.12", optional = true }
 signature = { version = "2", optional = true }
 
 # signal_client
-livekit-runtime = { workspace = true, optional = true}
+livekit-runtime = { workspace = true, optional = true }
 tokio-tungstenite = { version = "0.29", features = ["url"], optional = true }
 async-tungstenite = { version = "0.29", features = [ "async-std-runtime", "async-native-tls", "url"], optional = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
@@ -135,8 +135,6 @@ bytes = { workspace = true, optional = true }
 http = "1.1"
 reqwest = { version = "0.12", default-features = false, features = [ "json" ], optional = true }
 isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
-# Runtime-agnostic timer for failover backoff on the non-tokio (isahc) backend.
-futures-timer = { version = "3", optional = true }
 
 flate2 = { version = "1", optional = true }
 scopeguard = "1.2.0"
@@ -146,3 +144,5 @@ device-info = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
+# Minimal executor to drive the runtime-agnostic `services-async` (isahc) tests.
+futures = "0.3"

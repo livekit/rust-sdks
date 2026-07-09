@@ -147,23 +147,55 @@ impl PeerTransport {
 
     /// Create an initial offer without setting it as local description.
     /// The offer is stored as pending and will be applied when the server's answer arrives.
+    ///
+    /// In single PC mode, this initial offer is sent with the JoinRequest before any track
+    /// is published. We apply both `inactive→recvonly` munging and `x-google-start-bitrate`
+    /// munging when a target bitrate is known.
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
-        let mut inner = self.inner.lock().await;
+        let inner = self.inner.lock().await;
         if !inner.single_pc_mode {
             return Ok(None);
         }
+        drop(inner);
 
-        let offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let sdp = offer.to_string();
+        let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
+        let mut sdp = offer.to_string();
 
+        // Apply inactive→recvonly munging for single PC mode
         let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
         if recvonly_munged != sdp {
             if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                inner.pending_initial_offer = Some(parsed.clone());
-                return Ok(Some(parsed));
+                offer = parsed;
+                sdp = recvonly_munged;
             }
         }
 
+        // Apply x-google-start-bitrate munging for video codecs if we have a target bitrate.
+        // In initial offers (before track is published), max_send_bitrate_bps is None,
+        // so no munging is applied and WebRTC uses its default conservative start bitrate.
+        let has_video = sdp.contains(" VP8/90000")
+            || sdp.contains(" VP9/90000")
+            || sdp.contains(" AV1/90000")
+            || sdp.contains(" H264/90000")
+            || sdp.contains(" H265/90000");
+        if has_video {
+            let start_kbps = {
+                let inner = self.inner.lock().await;
+                Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps)
+            };
+            if let Some(start_kbps) = start_kbps {
+                log::info!("Initial offer: applying x-google-start-bitrate={} kbps", start_kbps);
+
+                let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
+                if munged != sdp {
+                    if let Ok(parsed) = SessionDescription::parse(&munged, offer.sdp_type()) {
+                        offer = parsed;
+                    }
+                }
+            }
+        }
+
+        let mut inner = self.inner.lock().await;
         inner.pending_initial_offer = Some(offer.clone());
         Ok(Some(offer))
     }
@@ -178,24 +210,25 @@ impl PeerTransport {
         inner.max_send_bitrate_bps = bps;
     }
 
-    fn compute_start_bitrate_kbps(ultimate_bps: Option<u64>) -> Option<u32> {
-        let ultimate_kbps = (ultimate_bps? / 1000) as u32;
-        if ultimate_kbps == 0 {
+    /// Maximum x-google-start-bitrate (kbps).
+    /// 1 Mbps is a reasonable ceiling that prevents BWE from starting too aggressively.
+    const MAX_START_BITRATE_KBPS: u32 = 1000;
+
+    /// Compute the x-google-start-bitrate value for SDP munging.
+    ///
+    /// Returns min(90% of target, 1 Mbps). Returns None if no target bitrate is set
+    /// (initial offer before track publish) or if the target is too low.
+    fn compute_start_bitrate_kbps(target_bps: Option<u64>) -> Option<u32> {
+        let target_bps = target_bps?;
+        let target_kbps = (target_bps / 1000) as u32;
+
+        if target_kbps == 0 || target_kbps < 300 {
             return None;
         }
-        // Use 90% of target bitrate as start bitrate for all codecs.
-        // Why 90%: Gives ~10% headroom for bandwidth estimation while starting close to target.
-        // Why same for all codecs: Target bitrate already accounts for codec efficiency
-        // (e.g., users set lower targets for VP9/AV1 knowing they're more efficient).
-        let start_kbps = (ultimate_kbps as f64 * 0.9).round() as u32;
 
-        // A low start-bitrate hint is more likely to hurt than help for VP9/AV1.
-        // If the max is too low, don't inject a start-bitrate hint at all.
-        if ultimate_kbps < 300 {
-            return None;
-        }
-
-        Some(start_kbps.min(ultimate_kbps))
+        // Use 90% of target bitrate as start bitrate, capped at 1 Mbps
+        let start_kbps = (target_kbps as f64 * 0.9).round() as u32;
+        Some(start_kbps.min(target_kbps).min(Self::MAX_START_BITRATE_KBPS))
     }
 
     /// Munge SDP to change a=inactive to a=recvonly for RTP media m-lines in single PC mode.
@@ -366,8 +399,45 @@ impl PeerTransport {
             out.push(rewritten);
         }
 
+        // 3) For video codecs that don't already have fmtp lines, create new ones
+        // with x-google-start-bitrate. This handles cases where the browser/WebRTC
+        // didn't generate an fmtp line for a particular payload type (e.g., VP8
+        // typically has no fmtp, while H.264/VP9-SVC/AV1 usually do).
+        let pts_with_fmtp: std::collections::HashSet<String> = out
+            .iter()
+            .filter_map(|line| {
+                let l = line.trim();
+                if let Some(rest) = l.strip_prefix("a=fmtp:") {
+                    rest.split_whitespace().next().map(|s| s.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Find rtpmap lines and insert fmtp after them for video codecs without existing fmtp
+        let mut final_out: Vec<String> = Vec::with_capacity(out.len() + target_pts.len());
+        for line in out.iter() {
+            final_out.push(line.clone());
+
+            // Check if this is an rtpmap line for a video codec without an existing fmtp line
+            let l = line.trim();
+            if let Some(rest) = l.strip_prefix("a=rtpmap:") {
+                let mut it = rest.split_whitespace();
+                let pt = it.next().unwrap_or("");
+                let codec = it.next().unwrap_or("");
+                if Self::is_video_codec(codec) && !pt.is_empty() && !pts_with_fmtp.contains(pt) {
+                    // Create fmtp line with x-google-start-bitrate
+                    let fmtp_line =
+                        format!("a=fmtp:{pt} x-google-start-bitrate={start_bitrate_kbps}");
+                    log::debug!("Creating fmtp line for {} (pt={}): {}", codec, pt, fmtp_line);
+                    final_out.push(fmtp_line);
+                }
+            }
+        }
+
         // Re-join using same EOL, and ensure trailing EOL (some parsers are picky)
-        let mut munged = out.join(eol);
+        let mut munged = final_out.join(eol);
         if !munged.ends_with(eol) {
             munged.push_str(eol);
         }
@@ -436,7 +506,8 @@ impl PeerTransport {
             }
         }
 
-        // Apply x-google-start-bitrate for all video codecs to improve initial quality
+        // Apply x-google-start-bitrate for all video codecs to improve initial quality.
+        // Uses min(90% of target, 1 Mbps) to prevent BWE from starting too aggressively.
         let has_video = sdp.contains(" VP8/90000")
             || sdp.contains(" VP9/90000")
             || sdp.contains(" AV1/90000")
@@ -445,14 +516,14 @@ impl PeerTransport {
         if has_video {
             if let Some(start_kbps) = Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps) {
                 log::info!(
-                    "Applying x-google-start-bitrate={} kbps (ultimate_bps={:?})",
+                    "Applying x-google-start-bitrate={} kbps (target_bps={:?})",
                     start_kbps,
                     inner.max_send_bitrate_bps
                 );
 
                 let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
                 if munged != sdp {
-                    log::info!("SDP munged successfully for video codec");
+                    log::debug!("SDP munged successfully for video codec");
                     match SessionDescription::parse(&munged, offer.sdp_type()) {
                         Ok(parsed) => offer = parsed,
                         Err(e) => log::warn!(
@@ -560,8 +631,9 @@ a=fmtp:104 x-google-start-bitrate=1000;foo=bar\n";
     }
 
     #[test]
-    fn vp9_without_fmtp_line_is_noop() {
-        // VP9 rtpmap exists, but no fmtp: function intentionally does not insert a new fmtp line.
+    fn vp9_without_fmtp_line_creates_one() {
+        // VP9 rtpmap exists, but no fmtp: function creates a new fmtp line with x-google-start-bitrate.
+        // This ensures all video codecs (including those like VP8 that typically lack fmtp) get the hint.
         let sdp = "v=0\n\
 o=- 0 0 IN IP4 127.0.0.1\n\
 s=-\n\
@@ -569,9 +641,16 @@ t=0 0\n\
 m=video 9 UDP/TLS/RTP/SAVPF 98\n\
 a=rtpmap:98 VP9/90000\n";
         let out = PeerTransport::munge_x_google_start_bitrate(sdp, 3200);
+        let expected = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=video 9 UDP/TLS/RTP/SAVPF 98\n\
+a=rtpmap:98 VP9/90000\n\
+a=fmtp:98 x-google-start-bitrate=3200\n";
         assert_eq!(
-            out, sdp,
-            "should not modify SDP if there is no fmtp line for the VP9/AV1 payload type"
+            out, expected,
+            "should create fmtp line with x-google-start-bitrate for video codec without fmtp"
         );
     }
 
@@ -613,6 +692,68 @@ a=fmtp:104 x-google-start-bitrate=1111;baz=qux\n";
         // AV1 fmtp should get replaced
         assert!(out.contains("a=fmtp:104 x-google-start-bitrate=2222;baz=qux\n"));
         assert!(!out.contains("a=fmtp:104 x-google-start-bitrate=1111"));
+    }
+
+    #[test]
+    fn all_video_codecs_get_fmtp_with_start_bitrate() {
+        // Mixed scenario: some codecs have fmtp, some don't
+        // All video codecs should end up with exactly one fmtp line containing x-google-start-bitrate
+        let sdp = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96 97 98 99 100\n\
+a=rtpmap:96 VP8/90000\n\
+a=rtpmap:97 VP9/90000\n\
+a=fmtp:97 profile-id=0\n\
+a=rtpmap:98 H264/90000\n\
+a=fmtp:98 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\n\
+a=rtpmap:99 AV1/90000\n\
+a=rtpmap:100 H265/90000\n\
+a=fmtp:100 profile-id=1\n";
+        let out = PeerTransport::munge_x_google_start_bitrate(sdp, 900);
+
+        // VP8 (96): had no fmtp, should get new one
+        assert!(
+            out.contains("a=fmtp:96 x-google-start-bitrate=900\n"),
+            "VP8 should get new fmtp line"
+        );
+        assert_eq!(out.matches("a=fmtp:96 ").count(), 1, "VP8 should have exactly one fmtp line");
+
+        // VP9 (97): had fmtp, should get bitrate appended
+        assert!(
+            out.contains("a=fmtp:97 profile-id=0;x-google-start-bitrate=900\n"),
+            "VP9 should have bitrate appended to existing fmtp"
+        );
+        assert_eq!(out.matches("a=fmtp:97 ").count(), 1, "VP9 should have exactly one fmtp line");
+
+        // H264 (98): had fmtp, should get bitrate appended
+        assert!(
+            out.contains("a=fmtp:98 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-start-bitrate=900\n"),
+            "H264 should have bitrate appended to existing fmtp"
+        );
+        assert_eq!(out.matches("a=fmtp:98 ").count(), 1, "H264 should have exactly one fmtp line");
+
+        // AV1 (99): had no fmtp, should get new one
+        assert!(
+            out.contains("a=fmtp:99 x-google-start-bitrate=900\n"),
+            "AV1 should get new fmtp line"
+        );
+        assert_eq!(out.matches("a=fmtp:99 ").count(), 1, "AV1 should have exactly one fmtp line");
+
+        // H265 (100): had fmtp, should get bitrate appended
+        assert!(
+            out.contains("a=fmtp:100 profile-id=1;x-google-start-bitrate=900\n"),
+            "H265 should have bitrate appended to existing fmtp"
+        );
+        assert_eq!(out.matches("a=fmtp:100 ").count(), 1, "H265 should have exactly one fmtp line");
+
+        // Total: 5 video codecs, 5 fmtp lines with x-google-start-bitrate
+        assert_eq!(
+            out.matches("x-google-start-bitrate=900").count(),
+            5,
+            "all 5 video codecs should have x-google-start-bitrate"
+        );
     }
 
     #[test]

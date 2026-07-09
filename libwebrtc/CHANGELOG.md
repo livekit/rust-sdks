@@ -139,6 +139,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.40 (2026-07-09)
+
+### Fixes
+
+- Fix malformed RTC error handling
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+
 ## 0.3.39 (2026-06-30)
 
 ### Features
