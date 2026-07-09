@@ -1,3 +1,9 @@
+## 0.1.4 (2026-07-09)
+
+### Features
+
+- Add a Dart bindings target. Bumps the crate's UniFFI dependency from 0.30 to 0.31 to match the bindgen.
+
 ## 0.1.3 (2026-06-24)
 
 ### Fixes

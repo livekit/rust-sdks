@@ -1,6 +1,6 @@
 [package]
 name = "livekit"
-version = "0.7.50"
+version = "0.7.51"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
@@ -11,9 +11,9 @@ readme = "README.md"
 # By default ws TLS is not enabled
 default = ["tokio"]
 
-async = ["livekit-api/signal-client-async"]
-tokio = ["livekit-api/signal-client-tokio"]
-dispatcher = ["livekit-api/signal-client-dispatcher"]
+async = ["livekit-api/signal-client-async", "livekit-runtime/async"]
+tokio = ["livekit-api/signal-client-tokio", "livekit-runtime/tokio"]
+dispatcher = ["livekit-api/signal-client-dispatcher", "livekit-runtime/dispatcher"]
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
 # GDBus requires a GLib event loop to be running. Enable this feature if you

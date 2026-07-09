@@ -16,7 +16,7 @@ use livekit_protocol as proto;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::access_token::SIPGrants;
+use crate::access_token::{SIPGrants, VideoGrants};
 use crate::get_env_keys;
 use crate::services::dial_timeout::{dial_timeout, DEFAULT_RINGING_TIMEOUT};
 use crate::services::twirp_client::TwirpClient;
@@ -122,6 +122,9 @@ pub struct CreateSIPDispatchRuleOptions {
     pub trunk_ids: Vec<String>,
     pub allowed_numbers: Vec<String>,
     pub hide_phone_number: bool,
+    /// Room configuration for rooms created by this dispatch rule, including
+    /// agents to dispatch into the room.
+    pub room_config: Option<proto::RoomConfiguration>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +141,10 @@ pub struct CreateSIPParticipantOptions {
     /// Optionally set the free-form metadata of the participant in a LiveKit room
     pub participant_metadata: Option<String>,
     pub participant_attributes: Option<HashMap<String, String>>,
+    /// Optional custom caller ID shown to the callee. Requires SIP provider
+    /// support. If unset, the phone number is used; set it to an empty string to
+    /// trigger a CNAM lookup on providers that support it.
+    pub display_name: Option<String>,
     // What number should be dialed via SIP
     pub sip_number: Option<String>,
     /// Optionally send following DTMF digits (extension codes) when making a call.
@@ -168,14 +175,50 @@ pub struct CreateSIPParticipantOptions {
     pub timeout: Option<Duration>,
 }
 
+#[derive(Default, Clone, Debug)]
+pub struct TransferSIPParticipantOptions {
+    /// Optionally play a dialtone to the SIP participant as an audible indicator
+    /// of being transferred.
+    pub play_dialtone: Option<bool>,
+    /// Max time for the transfer destination to answer the call.
+    pub ringing_timeout: Option<Duration>,
+    /// SIP headers added to the REFER SIP request.
+    pub headers: Option<HashMap<String, String>>,
+    /// Per-request timeout override. A transfer always dials (REFER) and blocks
+    /// until the destination answers, so this is raised, if needed, to stay above
+    /// `ringing_timeout`.
+    pub timeout: Option<Duration>,
+}
+
 impl SIPClient {
+    /// Authenticates with an API key and secret, signing a short-lived token per request.
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
-        Self {
-            base: ServiceBase::with_api_key(api_key, api_secret),
-            client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
-        }
+        Self::build(
+            host,
+            ServiceBase::with_api_key(api_key, api_secret),
+            crate::http_client::Client::new(),
+        )
     }
 
+    /// Authenticates with a pre-signed token, sent verbatim on every request.
+    pub fn with_token(host: &str, token: &str) -> Self {
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::Client::new())
+    }
+
+    /// Builds the client from an already-constructed HTTP client so the unified
+    /// [`LiveKitApi`](super::LiveKitApi) can share one connection pool across services.
+    pub(crate) fn build(host: &str, base: ServiceBase, client: crate::http_client::Client) -> Self {
+        Self { base, client: TwirpClient::with_client(host, LIVEKIT_PACKAGE, None, client) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
+    }
+
+    /// Reads the API key and secret from the `LIVEKIT_API_KEY` and
+    /// `LIVEKIT_API_SECRET` environment variables.
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))
@@ -291,6 +334,105 @@ impl SIPClient {
             .map_err(Into::into)
     }
 
+    /// Updates specific fields of an existing SIP inbound trunk. Only the fields
+    /// set on `update` are changed; everything else is left as-is. Mirrors the
+    /// Python SDK's `update_inbound_trunk_fields` / server-sdk-go's
+    /// `SipInboundTrunkUpdate` action.
+    pub async fn update_sip_inbound_trunk(
+        &self,
+        trunk_id: String,
+        update: proto::SipInboundTrunkUpdate,
+    ) -> ServiceResult<proto::SipInboundTrunkInfo> {
+        self.client
+            .request(
+                SVC,
+                "UpdateSIPInboundTrunk",
+                proto::UpdateSipInboundTrunkRequest {
+                    sip_trunk_id: trunk_id,
+                    action: Some(proto::update_sip_inbound_trunk_request::Action::Update(update)),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Updates an existing SIP inbound trunk by replacing it entirely with
+    /// `trunk`. Mirrors the Python SDK's `update_inbound_trunk` / server-sdk-go's
+    /// `SipInboundTrunkInfo` (Replace) action.
+    pub async fn update_sip_inbound_trunk_replace(
+        &self,
+        trunk_id: String,
+        trunk: proto::SipInboundTrunkInfo,
+    ) -> ServiceResult<proto::SipInboundTrunkInfo> {
+        self.client
+            .request(
+                SVC,
+                "UpdateSIPInboundTrunk",
+                proto::UpdateSipInboundTrunkRequest {
+                    sip_trunk_id: trunk_id,
+                    action: Some(proto::update_sip_inbound_trunk_request::Action::Replace(trunk)),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Updates specific fields of an existing SIP outbound trunk. Only the fields
+    /// set on `update` are changed; everything else is left as-is.
+    pub async fn update_sip_outbound_trunk(
+        &self,
+        trunk_id: String,
+        update: proto::SipOutboundTrunkUpdate,
+    ) -> ServiceResult<proto::SipOutboundTrunkInfo> {
+        self.client
+            .request(
+                SVC,
+                "UpdateSIPOutboundTrunk",
+                proto::UpdateSipOutboundTrunkRequest {
+                    sip_trunk_id: trunk_id,
+                    action: Some(proto::update_sip_outbound_trunk_request::Action::Update(update)),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Updates an existing SIP outbound trunk by replacing it entirely with
+    /// `trunk`.
+    pub async fn update_sip_outbound_trunk_replace(
+        &self,
+        trunk_id: String,
+        trunk: proto::SipOutboundTrunkInfo,
+    ) -> ServiceResult<proto::SipOutboundTrunkInfo> {
+        self.client
+            .request(
+                SVC,
+                "UpdateSIPOutboundTrunk",
+                proto::UpdateSipOutboundTrunkRequest {
+                    sip_trunk_id: trunk_id,
+                    action: Some(proto::update_sip_outbound_trunk_request::Action::Replace(trunk)),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
     #[deprecated]
     pub async fn list_sip_trunk(
         &self,
@@ -390,15 +532,66 @@ impl SIPClient {
                 SVC,
                 "CreateSIPDispatchRule",
                 proto::CreateSipDispatchRuleRequest {
-                    name: options.name,
-                    metadata: options.metadata,
-                    attributes: options.attributes,
-                    trunk_ids: options.trunk_ids.to_owned(),
-                    inbound_numbers: options.allowed_numbers.to_owned(),
-                    hide_phone_number: options.hide_phone_number,
-                    rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
-
+                    dispatch_rule: Some(proto::SipDispatchRuleInfo {
+                        rule: Some(proto::SipDispatchRule { rule: Some(rule) }),
+                        name: options.name,
+                        metadata: options.metadata,
+                        attributes: options.attributes,
+                        trunk_ids: options.trunk_ids,
+                        inbound_numbers: options.allowed_numbers,
+                        hide_phone_number: options.hide_phone_number,
+                        room_config: options.room_config,
+                        ..Default::default()
+                    }),
                     ..Default::default()
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Updates specific fields of an existing SIP dispatch rule. Only the fields
+    /// set on `update` are changed; everything else is left as-is.
+    pub async fn update_sip_dispatch_rule(
+        &self,
+        dispatch_rule_id: String,
+        update: proto::SipDispatchRuleUpdate,
+    ) -> ServiceResult<proto::SipDispatchRuleInfo> {
+        self.client
+            .request(
+                SVC,
+                "UpdateSIPDispatchRule",
+                proto::UpdateSipDispatchRuleRequest {
+                    sip_dispatch_rule_id: dispatch_rule_id,
+                    action: Some(proto::update_sip_dispatch_rule_request::Action::Update(update)),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Updates an existing SIP dispatch rule by replacing it entirely with
+    /// `rule`.
+    pub async fn update_sip_dispatch_rule_replace(
+        &self,
+        dispatch_rule_id: String,
+        rule: proto::SipDispatchRuleInfo,
+    ) -> ServiceResult<proto::SipDispatchRuleInfo> {
+        self.client
+            .request(
+                SVC,
+                "UpdateSIPDispatchRule",
+                proto::UpdateSipDispatchRuleRequest {
+                    sip_dispatch_rule_id: dispatch_rule_id,
+                    action: Some(proto::update_sip_dispatch_rule_request::Action::Replace(rule)),
                 },
                 self.base.auth_header(
                     Default::default(),
@@ -478,6 +671,7 @@ impl SIPClient {
             participant_name: options.participant_name.to_owned().unwrap_or_default(),
             participant_metadata: options.participant_metadata.to_owned().unwrap_or_default(),
             participant_attributes: options.participant_attributes.to_owned().unwrap_or_default(),
+            display_name: options.display_name.to_owned(),
             dtmf: options.dtmf.to_owned().unwrap_or_default(),
             wait_until_answered,
             play_ringtone: options.play_dialtone.unwrap_or(false),
@@ -521,5 +715,43 @@ impl SIPClient {
                 .await
                 .map_err(Into::into)
         }
+    }
+
+    /// Transfers a SIP participant to another number via a SIP REFER. This always
+    /// dials the transfer destination and blocks until it answers or fails, so
+    /// the request must outlast the ring window.
+    pub async fn transfer_sip_participant(
+        &self,
+        room_name: String,
+        participant_identity: String,
+        transfer_to: String,
+        options: TransferSIPParticipantOptions,
+    ) -> ServiceResult<()> {
+        // Pin the ring window explicitly so the request timeout doesn't depend on
+        // the server's default (which could change).
+        let ringing_timeout = options.ringing_timeout.or(Some(DEFAULT_RINGING_TIMEOUT));
+        let request = proto::TransferSipParticipantRequest {
+            participant_identity,
+            room_name: room_name.to_owned(),
+            transfer_to,
+            play_dialtone: options.play_dialtone.unwrap_or(false),
+            headers: options.headers.unwrap_or_default(),
+            ringing_timeout: Self::duration_to_proto(ringing_timeout),
+        };
+        let headers = self.base.auth_header(
+            VideoGrants { room_admin: true, room: room_name, ..Default::default() },
+            Some(SIPGrants { call: true, ..Default::default() }),
+        )?;
+
+        self.client
+            .request_with_timeout(
+                SVC,
+                "TransferSIPParticipant",
+                request,
+                headers,
+                dial_timeout(options.timeout, ringing_timeout),
+            )
+            .await
+            .map_err(Into::into)
     }
 }

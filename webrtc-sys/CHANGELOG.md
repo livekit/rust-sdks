@@ -165,6 +165,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.37 (2026-07-09)
+
+### Fixes
+
+- Fix malformed RTC error handling
+
 ## 0.3.36 (2026-06-30)
 
 ### Features
