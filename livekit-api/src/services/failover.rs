@@ -105,19 +105,13 @@ pub(crate) fn pick_next(region_urls: &[String], attempted: &[String]) -> Option<
 
 /// Sleeps for `d` before a retry, so failover backs off between attempts on
 /// either backend (retrying with no delay would risk hammering the server).
-/// `futures-timer` keeps the async path runtime-agnostic.
+/// `livekit_runtime::sleep` keeps the async path runtime-agnostic (it maps to
+/// `tokio::time::sleep` or the async-std timer depending on the enabled feature).
 pub(crate) async fn backoff_sleep(d: Duration) {
     if d.is_zero() {
         return;
     }
-    #[cfg(feature = "services-tokio")]
-    {
-        tokio::time::sleep(d).await;
-    }
-    #[cfg(all(feature = "services-async", not(feature = "services-tokio")))]
-    {
-        futures_timer::Delay::new(d).await;
-    }
+    livekit_runtime::sleep(d).await;
 }
 
 /// Region discovery (`/settings/regions`) uses a short timeout so a slow or
@@ -213,8 +207,10 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<D
     url.set_path("/settings/regions");
 
     let mut builder = isahc::Request::get(url.as_str()).timeout(DISCOVERY_TIMEOUT);
+    // isahc vendors `http` 0.2, so pass name/value as &str/&[u8] to stay agnostic
+    // to the `http` version the workspace `HeaderMap` (1.x) is built from.
     for (name, value) in forward_headers(headers).iter() {
-        builder = builder.header(name, value);
+        builder = builder.header(name.as_str(), value.as_bytes());
     }
     let request = builder.body(()).map_err(|_| ())?;
     let mut resp = isahc::send_async(request).await.map_err(|_| ())?;

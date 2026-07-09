@@ -29,13 +29,34 @@ pub struct AgentDispatchClient {
 }
 
 impl AgentDispatchClient {
+    /// Authenticates with an API key and secret, signing a short-lived token per request.
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
-        Self {
-            base: ServiceBase::with_api_key(api_key, api_secret),
-            client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
-        }
+        Self::build(
+            host,
+            ServiceBase::with_api_key(api_key, api_secret),
+            crate::http_client::Client::new(),
+        )
     }
 
+    /// Authenticates with a pre-signed token, sent verbatim on every request.
+    pub fn with_token(host: &str, token: &str) -> Self {
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::Client::new())
+    }
+
+    /// Builds the client from an already-constructed HTTP client so the unified
+    /// [`LiveKitApi`](super::LiveKitApi) can share one connection pool across services.
+    pub(crate) fn build(host: &str, base: ServiceBase, client: crate::http_client::Client) -> Self {
+        Self { base, client: TwirpClient::with_client(host, LIVEKIT_PACKAGE, None, client) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
+    }
+
+    /// Reads the API key and secret from the `LIVEKIT_API_KEY` and
+    /// `LIVEKIT_API_SECRET` environment variables.
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))

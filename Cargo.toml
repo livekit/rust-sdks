@@ -34,7 +34,6 @@ members = [
     "examples/screensharing",
     "examples/send_bytes",
     "examples/webhooks",
-    "examples/wgpu_room",
 ]
 
 [workspace.package]
@@ -52,7 +51,10 @@ livekit-api = { version = "0.5.4", path = "livekit-api" }
 livekit-ffi = { version = "0.12.68", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.9", path = "livekit-datatrack" }
 livekit-protocol = { version = "0.7.10", path = "livekit-protocol" }
-livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
+# default-features off so each consumer selects its runtime explicitly
+# (livekit-runtime/tokio | /async | /dispatcher); otherwise the default `tokio`
+# feature is forced on everywhere and collides with `async`/`dispatcher` builds.
+livekit-runtime = { version = "0.4.0", path = "livekit-runtime", default-features = false }
 soxr-sys = { version = "0.1.3", path = "soxr-sys" }
 webrtc-sys = { version = "0.3.36", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.18", path = "webrtc-sys/build" }
