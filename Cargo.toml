@@ -34,7 +34,6 @@ members = [
     "examples/screensharing",
     "examples/send_bytes",
     "examples/webhooks",
-    "examples/wgpu_room",
 ]
 
 [workspace.package]
