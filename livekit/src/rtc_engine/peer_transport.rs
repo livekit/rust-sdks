@@ -184,10 +184,7 @@ impl PeerTransport {
                 Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps)
             };
             if let Some(start_kbps) = start_kbps {
-                log::info!(
-                    "Initial offer: applying x-google-start-bitrate={} kbps",
-                    start_kbps
-                );
+                log::info!("Initial offer: applying x-google-start-bitrate={} kbps", start_kbps);
 
                 let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
                 if munged != sdp {
@@ -634,8 +631,9 @@ a=fmtp:104 x-google-start-bitrate=1000;foo=bar\n";
     }
 
     #[test]
-    fn vp9_without_fmtp_line_is_noop() {
-        // VP9 rtpmap exists, but no fmtp: function intentionally does not insert a new fmtp line.
+    fn vp9_without_fmtp_line_creates_one() {
+        // VP9 rtpmap exists, but no fmtp: function creates a new fmtp line with x-google-start-bitrate.
+        // This ensures all video codecs (including those like VP8 that typically lack fmtp) get the hint.
         let sdp = "v=0\n\
 o=- 0 0 IN IP4 127.0.0.1\n\
 s=-\n\
@@ -643,9 +641,16 @@ t=0 0\n\
 m=video 9 UDP/TLS/RTP/SAVPF 98\n\
 a=rtpmap:98 VP9/90000\n";
         let out = PeerTransport::munge_x_google_start_bitrate(sdp, 3200);
+        let expected = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=video 9 UDP/TLS/RTP/SAVPF 98\n\
+a=rtpmap:98 VP9/90000\n\
+a=fmtp:98 x-google-start-bitrate=3200\n";
         assert_eq!(
-            out, sdp,
-            "should not modify SDP if there is no fmtp line for the VP9/AV1 payload type"
+            out, expected,
+            "should create fmtp line with x-google-start-bitrate for video codec without fmtp"
         );
     }
 
@@ -687,6 +692,68 @@ a=fmtp:104 x-google-start-bitrate=1111;baz=qux\n";
         // AV1 fmtp should get replaced
         assert!(out.contains("a=fmtp:104 x-google-start-bitrate=2222;baz=qux\n"));
         assert!(!out.contains("a=fmtp:104 x-google-start-bitrate=1111"));
+    }
+
+    #[test]
+    fn all_video_codecs_get_fmtp_with_start_bitrate() {
+        // Mixed scenario: some codecs have fmtp, some don't
+        // All video codecs should end up with exactly one fmtp line containing x-google-start-bitrate
+        let sdp = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96 97 98 99 100\n\
+a=rtpmap:96 VP8/90000\n\
+a=rtpmap:97 VP9/90000\n\
+a=fmtp:97 profile-id=0\n\
+a=rtpmap:98 H264/90000\n\
+a=fmtp:98 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\n\
+a=rtpmap:99 AV1/90000\n\
+a=rtpmap:100 H265/90000\n\
+a=fmtp:100 profile-id=1\n";
+        let out = PeerTransport::munge_x_google_start_bitrate(sdp, 900);
+
+        // VP8 (96): had no fmtp, should get new one
+        assert!(
+            out.contains("a=fmtp:96 x-google-start-bitrate=900\n"),
+            "VP8 should get new fmtp line"
+        );
+        assert_eq!(out.matches("a=fmtp:96 ").count(), 1, "VP8 should have exactly one fmtp line");
+
+        // VP9 (97): had fmtp, should get bitrate appended
+        assert!(
+            out.contains("a=fmtp:97 profile-id=0;x-google-start-bitrate=900\n"),
+            "VP9 should have bitrate appended to existing fmtp"
+        );
+        assert_eq!(out.matches("a=fmtp:97 ").count(), 1, "VP9 should have exactly one fmtp line");
+
+        // H264 (98): had fmtp, should get bitrate appended
+        assert!(
+            out.contains("a=fmtp:98 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f;x-google-start-bitrate=900\n"),
+            "H264 should have bitrate appended to existing fmtp"
+        );
+        assert_eq!(out.matches("a=fmtp:98 ").count(), 1, "H264 should have exactly one fmtp line");
+
+        // AV1 (99): had no fmtp, should get new one
+        assert!(
+            out.contains("a=fmtp:99 x-google-start-bitrate=900\n"),
+            "AV1 should get new fmtp line"
+        );
+        assert_eq!(out.matches("a=fmtp:99 ").count(), 1, "AV1 should have exactly one fmtp line");
+
+        // H265 (100): had fmtp, should get bitrate appended
+        assert!(
+            out.contains("a=fmtp:100 profile-id=1;x-google-start-bitrate=900\n"),
+            "H265 should have bitrate appended to existing fmtp"
+        );
+        assert_eq!(out.matches("a=fmtp:100 ").count(), 1, "H265 should have exactly one fmtp line");
+
+        // Total: 5 video codecs, 5 fmtp lines with x-google-start-bitrate
+        assert_eq!(
+            out.matches("x-google-start-bitrate=900").count(),
+            5,
+            "all 5 video codecs should have x-google-start-bitrate"
+        );
     }
 
     #[test]
