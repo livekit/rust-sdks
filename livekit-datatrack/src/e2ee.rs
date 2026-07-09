@@ -68,6 +68,11 @@ pub trait DecryptionProvider: Send + Sync + Debug {
         payload: EncryptedPayload,
         sender_identity: String,
     ) -> Result<Bytes, DecryptionError>;
+
+    // TODO: the above method previously took &str for sender_identity but has
+    // been modified to accept String so it can be exported for UniFFI. However,
+    // this results in an unnecessary heap allocation when used in a Rust-only context.
+    // Find a better solution for this.
 }
 
 #[cfg(feature = "uniffi")]
