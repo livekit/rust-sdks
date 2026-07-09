@@ -67,7 +67,10 @@ impl RemoteDataTrack {
         &self,
         options: DataTrackSubscribeOptions,
     ) -> Result<DataTrackStream, DataTrackSubscribeError> {
-        self.0.subscribe_with_options(options.into()).await.map(|stream| DataTrackStream(Mutex::new(stream)))
+        self.0
+            .subscribe_with_options(options.into())
+            .await
+            .map(|stream| DataTrackStream(Mutex::new(stream)))
     }
 }
 
@@ -130,8 +133,7 @@ impl RemoteDataTrackManager {
     ) -> Arc<Self> {
         let token = CancellationToken::new();
 
-        let decryption_provider = decryption_provider
-            .map(|p| p as Arc<dyn DecryptionProvider>);
+        let decryption_provider = decryption_provider.map(|p| p as Arc<dyn DecryptionProvider>);
         let manager_options = remote::ManagerOptions { decryption_provider };
 
         let (manager, input, output) = remote::Manager::new(manager_options);
