@@ -79,7 +79,7 @@ impl DesktopCapturerOptions {
                 }
             },
         };
-        
+
         sys_handle
     }
 }
