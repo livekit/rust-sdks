@@ -34,19 +34,18 @@ pub struct DataTrackFrame {
     pub user_timestamp: Option<u64>,
 }
 
-impl Into<livekit_datatrack::api::DataTrackFrame> for DataTrackFrame {
-    fn into(self) -> livekit_datatrack::api::DataTrackFrame {
-        let mut frame = livekit_datatrack::api::DataTrackFrame::new(self.payload);
-        if let Some(user_timestamp) = self.user_timestamp {
-            frame = frame.with_user_timestamp(user_timestamp);
+impl From<DataTrackFrame> for livekit_datatrack::api::DataTrackFrame {
+    fn from(frame: DataTrackFrame) -> Self {
+        let mut inner = livekit_datatrack::api::DataTrackFrame::new(frame.payload);
+        if let Some(user_timestamp) = frame.user_timestamp {
+            inner = inner.with_user_timestamp(user_timestamp);
         }
-        frame
+        inner
     }
 }
-
-impl Into<DataTrackFrame> for livekit_datatrack::api::DataTrackFrame {
-    fn into(self) -> DataTrackFrame {
-        DataTrackFrame { payload: self.payload(), user_timestamp: self.user_timestamp() }
+impl From<livekit_datatrack::api::DataTrackFrame> for DataTrackFrame {
+    fn from(frame: livekit_datatrack::api::DataTrackFrame) -> Self {
+        DataTrackFrame { payload: frame.payload(), user_timestamp: frame.user_timestamp() }
     }
 }
 
