@@ -30,7 +30,7 @@ jni = "0.21"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 webrtc-sys = { workspace = true }
-livekit-runtime = { workspace = true }
+livekit-runtime = { workspace = true, features = ["tokio"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }

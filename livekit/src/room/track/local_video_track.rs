@@ -370,17 +370,19 @@ impl LocalVideoTrack {
 
         let mut changed = false;
         for encoding in &mut params.encodings {
-            let quality = crate::options::video_quality_for_rid_or_default(&encoding.rid);
+            // The SFU addresses layers by spatial index (0 = Low), so a
+            // single rid-less encoding is addressed as Low, not High.
+            let rid = if encoding.rid.is_empty() { "q" } else { encoding.rid.as_str() };
+            let quality = crate::options::video_quality_for_rid_or_default(rid);
 
-            let should_active = qualities
-                .iter()
-                .find(|q| q.quality == quality as i32)
-                .map(|q| q.enabled)
-                .unwrap_or(false);
+            // A quality missing from the update is left untouched.
+            let Some(subscribed) = qualities.iter().find(|q| q.quality == quality as i32) else {
+                continue;
+            };
 
-            if encoding.active != should_active {
+            if encoding.active != subscribed.enabled {
                 changed = true;
-                encoding.active = should_active;
+                encoding.active = subscribed.enabled;
             }
         }
 
@@ -394,16 +396,32 @@ impl LocalVideoTrack {
             })
             .collect();
 
-        sender
-            .set_parameters(params)
-            .map_err(|e| RoomError::Internal(format!("failed to set sender parameters: {}", e)))?;
-
         if changed {
+            sender.set_parameters(params).map_err(|e| {
+                RoomError::Internal(format!("failed to set sender parameters: {}", e))
+            })?;
             log::debug!("dynacast: layers changed -> [{}]", layers.join(", "));
         } else {
             log::debug!("dynacast: layers unchanged [{}]", layers.join(", "));
         }
 
         Ok(())
+    }
+
+    /// Applies publishing-layer quality state for end-to-end tests.
+    #[doc(hidden)]
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn set_publishing_layers_for_test(
+        &self,
+        qualities: &[(PublishingLayerQuality, bool)],
+    ) -> RoomResult<()> {
+        let qualities: Vec<proto::SubscribedQuality> = qualities
+            .iter()
+            .map(|(quality, enabled)| proto::SubscribedQuality {
+                quality: proto::VideoQuality::from(*quality) as i32,
+                enabled: *enabled,
+            })
+            .collect();
+        self.set_publishing_layers(&qualities)
     }
 }
