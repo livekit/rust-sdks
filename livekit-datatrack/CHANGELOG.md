@@ -1,4 +1,11 @@
 # Changelog
+## 0.1.10 (2026-07-09)
+
+### Fixes
+
+- Handle data track SID reassignment
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+
 ## 0.1.9 (2026-06-23)
 
 ### Fixes

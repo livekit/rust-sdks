@@ -257,6 +257,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.51 (2026-07-09)
+
+### Fixes
+
+- feat: auto failover APIs with LK Cloud - #1196 (@davidzhao)
+- Fix for dynacast error - #1213 (@MaxHeimbrock)
+- Fix malformed RTC error handling
+- Handle data track SID reassignment
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+- Turn single peerconnection off by default - #1206 (@cnderrauber)
+
 ## 0.7.50 (2026-06-30)
 
 ### Features
