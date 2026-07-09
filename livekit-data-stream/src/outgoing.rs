@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use super::{
-    ByteStreamInfo, OperationType, StreamError, StreamProgress, StreamResult, TextStreamInfo,
+    create_random_uuid, ByteStreamInfo, OperationType, SendError, StreamError, StreamProgress,
+    StreamResult, TextStreamInfo,
 };
-use crate::{
-    id::ParticipantIdentity, rtc_engine::EngineError, utils::utf8_chunk::Utf8AwareChunkExt,
-};
+use crate::utf8_chunk::Utf8AwareChunkExt;
 use bmrng::unbounded::{UnboundedRequestReceiver, UnboundedRequestSender};
 use chrono::Utc;
-use libwebrtc::native::create_random_uuid;
+use livekit_common::ParticipantIdentity;
 use livekit_protocol as proto;
 use std::{collections::HashMap, path::Path, sync::Arc};
 use tokio::{io::AsyncReadExt, sync::Mutex};
@@ -136,7 +135,7 @@ impl<'a> StreamWriter<'a> for TextStreamWriter {
 struct RawStreamOpenOptions {
     header: proto::data_stream::Header,
     destination_identities: Vec<ParticipantIdentity>,
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
 struct RawStream {
@@ -144,7 +143,7 @@ struct RawStream {
     progress: StreamProgress,
     is_closed: bool,
     /// Request channel for sending packets.
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
 impl RawStream {
@@ -182,7 +181,7 @@ impl RawStream {
     }
 
     async fn send_packet(
-        tx: &UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+        tx: &UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
         packet: proto::DataPacket,
     ) -> StreamResult<()> {
         tx.send_receive(packet)
@@ -280,13 +279,13 @@ pub struct StreamTextOptions {
 }
 
 #[derive(Clone)]
-pub(crate) struct OutgoingStreamManager {
+pub struct OutgoingStreamManager {
     /// Request channel for sending packets.
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
 impl OutgoingStreamManager {
-    pub fn new() -> (Self, UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>) {
+    pub fn new() -> (Self, UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>) {
         let (packet_tx, packet_rx) = bmrng::unbounded_channel();
         let manager = Self { packet_tx };
         (manager, packet_rx)
@@ -513,6 +512,121 @@ static TEXT_MIME_TYPE: &str = "text/plain";
 mod tests {
     use super::*;
 
+    type Sent = Arc<std::sync::Mutex<Vec<proto::DataPacket>>>;
+
+    fn setup() -> (OutgoingStreamManager, Sent) {
+        let (manager, mut packet_rx) = OutgoingStreamManager::new();
+        let sent: Sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = sent.clone();
+        tokio::spawn(async move {
+            while let Ok((packet, responder)) = packet_rx.recv().await {
+                sink.lock().unwrap().push(packet);
+                let _ = responder.respond(Ok(()));
+            }
+        });
+        (manager, sent)
+    }
+
+    fn ids(list: &[&str]) -> Vec<ParticipantIdentity> {
+        list.iter().map(|s| ParticipantIdentity(s.to_string())).collect()
+    }
+
+    fn text_opts(topic: &str, dests: &[&str]) -> StreamTextOptions {
+        StreamTextOptions {
+            topic: topic.to_string(),
+            destination_identities: ids(dests),
+            ..Default::default()
+        }
+    }
+
+    fn byte_opts(topic: &str, dests: &[&str]) -> StreamByteOptions {
+        StreamByteOptions {
+            topic: topic.to_string(),
+            destination_identities: ids(dests),
+            ..Default::default()
+        }
+    }
+
+    fn header(p: &proto::DataPacket) -> &proto::data_stream::Header {
+        match p.value.as_ref().unwrap() {
+            proto::data_packet::Value::StreamHeader(h) => h,
+            _ => panic!("expected stream header"),
+        }
+    }
+
+    fn chunk(p: &proto::DataPacket) -> &proto::data_stream::Chunk {
+        match p.value.as_ref().unwrap() {
+            proto::data_packet::Value::StreamChunk(c) => c,
+            _ => panic!("expected stream chunk"),
+        }
+    }
+
+    fn is_text_header(h: &proto::data_stream::Header) -> bool {
+        matches!(h.content_header, Some(proto::data_stream::header::ContentHeader::TextHeader(_)))
+    }
+
+    fn is_byte_header(h: &proto::data_stream::Header) -> bool {
+        matches!(h.content_header, Some(proto::data_stream::header::ContentHeader::ByteHeader(_)))
+    }
+
+    fn assert_trailer(p: &proto::DataPacket) {
+        match p.value.as_ref().unwrap() {
+            proto::data_packet::Value::StreamTrailer(t) => assert_eq!(t.reason, ""),
+            _ => panic!("expected stream trailer"),
+        }
+    }
+
+    fn none_i32() -> i32 {
+        proto::data_stream::CompressionType::None as i32
+    }
+
+    #[tokio::test]
+    async fn short_text_is_legacy_multipacket() {
+        let (m, sent) = setup();
+        m.send_text("hello world", text_opts("chat", &[])).await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 3);
+        let h = header(&p[0]);
+        assert!(is_text_header(h));
+        assert_eq!(h.topic, "chat");
+        assert_eq!(h.compression, none_i32());
+        assert!(h.inline_content.is_none());
+        let c = chunk(&p[1]);
+        assert_eq!(c.chunk_index, 0);
+        assert_eq!(c.content, b"hello world");
+        assert_trailer(&p[2]);
+    }
+
+    #[tokio::test]
+    async fn long_text_splits_at_mtu() {
+        let (m, sent) = setup();
+        let text = "A".repeat(40_000);
+        m.send_text(&text, text_opts("chat", &[])).await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 5); // header + 3 chunks + trailer
+        assert_eq!(header(&p[0]).compression, none_i32());
+        assert_eq!(chunk(&p[1]).content.len(), 15_000);
+        assert_eq!(chunk(&p[2]).content.len(), 15_000);
+        assert_eq!(chunk(&p[3]).content.len(), 10_000);
+        assert_eq!(chunk(&p[1]).chunk_index, 0);
+        assert_eq!(chunk(&p[3]).chunk_index, 2);
+        assert_trailer(&p[4]);
+    }
+
+    #[tokio::test]
+    async fn bytes_is_legacy_multipacket() {
+        let (m, sent) = setup();
+        m.send_bytes([0u8, 1, 2, 3], byte_opts("blob", &[])).await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 3);
+        let h = header(&p[0]);
+        assert!(is_byte_header(h));
+        assert_eq!(h.compression, none_i32());
+        assert!(h.inline_content.is_none());
+        assert_eq!(chunk(&p[1]).content, vec![0, 1, 2, 3]);
+        assert_trailer(&p[2]);
+    }
+
     // Regression test for CLT-2773: dropping a `RawStream` on a thread that has
     // no Tokio runtime in TLS (e.g. the .NET GC finalizer thread in the Unity
     // SDK) used to panic because `Drop` called `tokio::spawn` unconditionally.
@@ -522,7 +636,7 @@ mod tests {
 
         let raw_stream = rt.block_on(async {
             let (packet_tx, mut packet_rx) =
-                bmrng::unbounded_channel::<proto::DataPacket, Result<(), EngineError>>();
+                bmrng::unbounded_channel::<proto::DataPacket, Result<(), SendError>>();
 
             tokio::spawn(async move {
                 while let Ok((_packet, responder)) = packet_rx.recv().await {

@@ -4,6 +4,8 @@ members = [
     "livekit",
     "livekit-api",
     "livekit-protocol",
+    "livekit-common",
+    "livekit-data-stream",
     "livekit-ffi",
     "livekit-uniffi",
     "livekit-datatrack",
@@ -50,6 +52,8 @@ livekit = { version = "0.7.51", path = "livekit" }
 livekit-api = { version = "0.5.5", path = "livekit-api" }
 livekit-ffi = { version = "0.12.69", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.10", path = "livekit-datatrack" }
+livekit-common = { version = "0.1.0", path = "livekit-common" }
+livekit-data-stream = { version = "0.1.0", path = "livekit-data-stream" }
 livekit-protocol = { version = "0.7.10", path = "livekit-protocol" }
 # default-features off so each consumer selects its runtime explicitly
 # (livekit-runtime/tokio | /async | /dispatcher); otherwise the default `tokio`

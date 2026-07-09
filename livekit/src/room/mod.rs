@@ -63,7 +63,7 @@ use crate::{
     utils::{observer::Dispatcher, promise::Promise},
 };
 
-pub mod data_stream;
+pub use livekit_data_stream as data_stream;
 pub mod data_track;
 pub mod e2ee;
 pub mod id;
@@ -679,7 +679,9 @@ impl Room {
         let (remote_dt_manager, remote_dt_input, remote_dt_output) =
             dt::remote::Manager::new(remote_dt_options);
 
-        let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
+        let (incoming_stream_manager, open_rx) = IncomingStreamManager::new(
+            INTERNAL_DATA_STREAM_TOPICS.iter().map(|t| t.to_string()).collect(),
+        );
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
 
         let room_info = join_response.room.unwrap();
@@ -1796,7 +1798,7 @@ impl RoomSession {
         participant_identity: String,
         encryption_type: proto::encryption::Type,
     ) {
-        let is_internal = data_stream::is_internal_topic(&header.topic);
+        let is_internal = is_internal_topic(&header.topic);
         self.incoming_stream_manager.handle_header(
             header.clone(),
             participant_identity.clone(),
@@ -2249,7 +2251,7 @@ async fn incoming_data_stream_task(
                 match reader {
                     AnyStreamReader::Byte(reader) => {
                         let topic = reader.info().topic.clone();
-                        if !data_stream::is_internal_topic(&topic) {
+                        if !is_internal_topic(&topic) {
                             dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
                                 topic,
                                 reader: TakeCell::new(reader),
@@ -2279,7 +2281,7 @@ async fn incoming_data_stream_task(
                                 });
                             }
                             _ => {
-                                if !data_stream::is_internal_topic(&topic) {
+                                if !is_internal_topic(&topic) {
                                     dispatcher.dispatch(&RoomEvent::TextStreamOpened {
                                         topic,
                                         reader: TakeCell::new(reader),
@@ -2298,16 +2300,30 @@ async fn incoming_data_stream_task(
     }
 }
 
+/// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
+/// handled within the `livekit` crate and never surfaced through `RoomEvent`; the list is also
+/// passed to `IncomingStreamManager` so it can flag internal streams.
+const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
+
+fn is_internal_topic(topic: &str) -> bool {
+    INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
+}
+
 /// Receives packets from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
-    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
+    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>,
     engine: Arc<RtcEngine>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
     loop {
         tokio::select! {
             Ok((packet, responder)) = packet_rx.recv() => {
-                let result = engine.publish_data(packet, DataPacketKind::Reliable, false).await;
+                // Bridge the engine error into the data-stream crate's opaque `SendError`
+                // (the crate only needs to know whether the send failed).
+                let result = engine
+                    .publish_data(packet, DataPacketKind::Reliable, false)
+                    .await
+                    .map_err(|_| SendError);
                 let _ = responder.respond(result);
             },
             _ = close_rx.recv() => {

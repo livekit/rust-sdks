@@ -60,11 +60,7 @@ pub const PROTOCOL_VERSION: u32 = 17;
 const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
     &[proto::client_info::Capability::CapPacketTrailer];
 
-/// Default value for `ClientInfo.client_protocol` when a participant has not
-/// advertised one (treat as v1-only / no data-stream RPC support).
-pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
-/// `ClientInfo.client_protocol` value indicating support for RPC v2 over data streams.
-pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
+pub use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.

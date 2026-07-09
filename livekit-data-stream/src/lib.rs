@@ -12,28 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![doc = include_str!("../README.md")]
+
 use chrono::{DateTime, Utc};
-use libwebrtc::enum_dispatch;
+use livekit_common::EncryptionType;
 use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 use thiserror::Error;
 
 mod incoming;
 mod outgoing;
+mod utf8_chunk;
 
-pub use incoming::*;
-pub use outgoing::*;
+pub use incoming::{
+    AnyStreamReader, ByteStreamReader, IncomingStreamManager, StreamReader, TextStreamReader,
+};
+pub use outgoing::{
+    ByteStreamWriter, OutgoingStreamManager, StreamByteOptions, StreamTextOptions, StreamWriter,
+    TextStreamWriter,
+};
 
-use crate::e2ee::EncryptionType;
-use crate::room::rpc::{RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC};
+/// Error returned by the packet transport when a data-stream packet fails to send.
+///
+/// The stream managers only need to know that a send failed (they map it to
+/// [`StreamError::SendFailed`]); the concrete engine error type stays in the `livekit` crate,
+/// which bridges the outgoing packet channel to the RTC engine.
+#[derive(Debug, Clone)]
+pub struct SendError;
 
-/// Data stream topics reserved for internal SDK use. Events for these
-/// topics are handled within the `livekit` crate and never surfaced
-/// through `RoomEvent`.
-pub(crate) const INTERNAL_TOPICS: &[&str] = &[RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC];
-
-pub(crate) fn is_internal_topic(topic: &str) -> bool {
-    INTERNAL_TOPICS.contains(&topic)
+/// Generates a random stream identifier (UUID v4).
+pub(crate) fn create_random_uuid() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 /// Result type for data stream operations.
@@ -252,7 +261,7 @@ pub(crate) enum AnyStreamInfo {
 }
 
 impl AnyStreamInfo {
-    enum_dispatch!(
+    livekit_common::enum_dispatch!(
         [Byte, Text];
         pub fn id(self: &Self) -> &str;
         pub fn total_length(self: &Self) -> Option<u64>;

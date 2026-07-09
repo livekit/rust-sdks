@@ -14,9 +14,7 @@
 
 use livekit_protocol::*;
 
-use crate::{
-    e2ee::EncryptionType, participant, room::ChatMessage as RoomChatMessage, track, DataPacketKind,
-};
+use crate::{participant, room::ChatMessage as RoomChatMessage, track, DataPacketKind};
 
 // Conversions
 impl From<ConnectionQuality> for participant::ConnectionQuality {
@@ -137,36 +135,6 @@ impl From<data_packet::Kind> for DataPacketKind {
         match kind {
             data_packet::Kind::Lossy => Self::Lossy,
             data_packet::Kind::Reliable => Self::Reliable,
-        }
-    }
-}
-
-impl From<encryption::Type> for EncryptionType {
-    fn from(value: livekit_protocol::encryption::Type) -> Self {
-        match value {
-            livekit_protocol::encryption::Type::None => Self::None,
-            livekit_protocol::encryption::Type::Gcm => Self::Gcm,
-            livekit_protocol::encryption::Type::Custom => Self::Custom,
-        }
-    }
-}
-
-impl From<EncryptionType> for encryption::Type {
-    fn from(value: EncryptionType) -> Self {
-        match value {
-            EncryptionType::None => Self::None,
-            EncryptionType::Gcm => Self::Gcm,
-            EncryptionType::Custom => Self::Custom,
-        }
-    }
-}
-
-impl From<EncryptionType> for i32 {
-    fn from(value: EncryptionType) -> Self {
-        match value {
-            EncryptionType::None => 0,
-            EncryptionType::Gcm => 1,
-            EncryptionType::Custom => 2,
         }
     }
 }
