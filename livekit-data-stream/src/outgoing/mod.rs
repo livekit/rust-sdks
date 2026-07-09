@@ -19,11 +19,13 @@ use livekit_common::{
     CLIENT_PROTOCOL_DATA_STREAM_V2,
 };
 use livekit_protocol as proto;
-use proto::data_stream::CompressionType;
 use std::{collections::HashMap, path::Path, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::info::{ByteStreamInfo, OperationType, TextStreamInfo};
+use crate::info::{ByteStreamInfo, TextStreamInfo};
+use crate::types::{
+    ByteHeader, CompressionType, ContentHeader, Header, OperationType, StreamId, TextHeader,
+};
 use crate::utf8_chunk::Utf8AwareChunkExt;
 use crate::utils::{SendError, StreamError, StreamResult};
 
@@ -87,7 +89,7 @@ impl OutgoingStreamManager {
 
     pub async fn stream_text(&self, options: StreamTextOptions) -> StreamResult<TextStreamWriter> {
         // Incremental streams are never inlined or compressed (the content is unknown up front).
-        let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
+        let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let dests = options.destination_identities.clone();
         let (header, text_header) =
             build_text_header(&options, stream_id, None, None, CompressionType::None);
@@ -106,7 +108,7 @@ impl OutgoingStreamManager {
     }
 
     pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
-        let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
+        let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let name = options.name.clone().unwrap_or_default();
         let dests = options.destination_identities.clone();
         let (header, byte_header) = build_byte_header(
@@ -137,7 +139,7 @@ impl OutgoingStreamManager {
         options: StreamTextOptions,
         remote_participant_registry: &dyn RemoteParticipantRegistry,
     ) -> StreamResult<TextStreamInfo> {
-        let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
+        let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let total_length = text.len() as u64;
 
         let eligibility =
@@ -174,14 +176,18 @@ impl OutgoingStreamManager {
                 CompressionType::None,
             )
         };
-        if eligibility.inline
-            && options.attached_stream_ids.is_empty()
-            && header_packet_fits(&header, &options.destination_identities)
+
         {
-            let packet =
-                RawStream::create_header_packet(header.clone(), options.destination_identities);
-            RawStream::send_packet(&self.packet_tx, packet).await?;
-            return Ok(TextStreamInfo::from_headers(header, text_header));
+            let proto_header = header.clone().into();
+            if eligibility.inline
+                && options.attached_stream_ids.is_empty()
+                && header_packet_fits(&proto_header, &options.destination_identities)
+            {
+                let packet =
+                    RawStream::create_header_packet(proto_header, options.destination_identities);
+                RawStream::send_packet(&self.packet_tx, packet).await?;
+                return Ok(TextStreamInfo::from_headers(header, text_header));
+            }
         }
 
         // 2/3. Chunked, compressed when eligible else uncompressed.
@@ -225,7 +231,7 @@ impl OutgoingStreamManager {
             log::warn!("Ignoring total_length option specified for send_bytes");
         }
         let bytes = data.as_ref();
-        let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
+        let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let name = options.name.clone().unwrap_or_else(|| constants::BYTE_DEFAULT_NAME.to_owned());
         let total_length = bytes.len() as u64;
 
@@ -264,11 +270,16 @@ impl OutgoingStreamManager {
                 CompressionType::None,
             )
         };
-        if eligibility.inline && header_packet_fits(&header, &options.destination_identities) {
-            let packet =
-                RawStream::create_header_packet(header.clone(), options.destination_identities);
-            RawStream::send_packet(&self.packet_tx, packet).await?;
-            return Ok(ByteStreamInfo::from_headers(header, byte_header));
+        {
+            let proto_header = header.clone().into();
+            if eligibility.inline
+                && header_packet_fits(&proto_header, &options.destination_identities)
+            {
+                let packet =
+                    RawStream::create_header_packet(proto_header, options.destination_identities);
+                RawStream::send_packet(&self.packet_tx, packet).await?;
+                return Ok(ByteStreamInfo::from_headers(header, byte_header));
+            }
         }
 
         // 2/3. Chunked, compressed when eligible else uncompressed.
@@ -308,7 +319,7 @@ impl OutgoingStreamManager {
             .map(|metadata| metadata.len())
             .map_err(StreamError::from)?;
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
-        let stream_id = options.id.clone().unwrap_or_else(create_random_uuid);
+        let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let dests = options.destination_identities.clone();
 
         let eligibility = evaluate_eligibility(remote_participant_registry, &dests);
@@ -405,11 +416,9 @@ fn header_packet_fits(
 
 /// Enforces the header-packet MTU budget on the chunked path (the inline path falls back
 /// gracefully instead of erroring).
-fn enforce_header_size(
-    header: &proto::data_stream::Header,
-    destinations: &[ParticipantIdentity],
-) -> StreamResult<()> {
-    if header_packet_fits(header, destinations) {
+fn enforce_header_size(header: &Header, destinations: &[ParticipantIdentity]) -> StreamResult<()> {
+    let proto_header: proto::data_stream::Header = header.clone().into();
+    if header_packet_fits(&proto_header, destinations) {
         Ok(())
     } else {
         Err(StreamError::HeaderTooLarge)
@@ -418,45 +427,47 @@ fn enforce_header_size(
 
 fn build_text_header(
     options: &StreamTextOptions,
-    stream_id: String,
+    stream_id: StreamId,
     total_length: Option<u64>,
     inline_content: Option<Vec<u8>>,
     compression: CompressionType,
-) -> (proto::data_stream::Header, proto::data_stream::TextHeader) {
-    let text_header = proto::data_stream::TextHeader {
-        operation_type: options.operation_type.unwrap_or_default() as i32,
+) -> (Header, TextHeader) {
+    let text_header = TextHeader {
+        operation_type: options.operation_type.unwrap_or_default(),
         version: options.version.unwrap_or_default(),
-        reply_to_stream_id: options.reply_to_stream_id.clone().unwrap_or_default(),
-        attached_stream_ids: options.attached_stream_ids.clone(),
+        reply_to_stream_id: options.reply_to_stream_id.clone().map(StreamId::from),
+        attached_stream_ids: options
+            .attached_stream_ids
+            .clone()
+            .into_iter()
+            .map(StreamId::from)
+            .collect(),
         generated: options.generated.unwrap_or_default(),
     };
-    let header = proto::data_stream::Header {
+    let header = Header {
         stream_id,
         timestamp: Utc::now().timestamp_millis(),
         topic: options.topic.clone(),
         mime_type: constants::TEXT_MIME_TYPE.to_owned(),
         total_length,
-        encryption_type: proto::encryption::Type::None.into(),
         attributes: options.attributes.clone(),
-        content_header: Some(proto::data_stream::header::ContentHeader::TextHeader(
-            text_header.clone(),
-        )),
+        content_header: Some(ContentHeader::TextHeader(text_header.clone().into())),
         inline_content,
-        compression: compression as i32,
+        compression,
     };
     (header, text_header)
 }
 
 fn build_byte_header(
     options: &StreamByteOptions,
-    stream_id: String,
+    stream_id: StreamId,
     name: String,
     total_length: Option<u64>,
     inline_content: Option<Vec<u8>>,
     compression: CompressionType,
-) -> (proto::data_stream::Header, proto::data_stream::ByteHeader) {
-    let byte_header = proto::data_stream::ByteHeader { name };
-    let header = proto::data_stream::Header {
+) -> (Header, ByteHeader) {
+    let byte_header = ByteHeader { name };
+    let header = Header {
         stream_id,
         timestamp: Utc::now().timestamp_millis(),
         topic: options.topic.clone(),
@@ -465,13 +476,10 @@ fn build_byte_header(
             .clone()
             .unwrap_or_else(|| constants::BYTE_MIME_TYPE.to_owned()),
         total_length,
-        encryption_type: proto::encryption::Type::None.into(),
         attributes: options.attributes.clone(),
-        content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
-            byte_header.clone(),
-        )),
+        content_header: Some(byte_header.clone().into()),
         inline_content,
-        compression: compression as i32,
+        compression,
     };
     (header, byte_header)
 }
@@ -944,18 +952,17 @@ mod tests {
                 }
             });
 
-            let header = proto::data_stream::Header {
-                stream_id: "gc-test-stream".to_string(),
+            let header = Header {
+                stream_id: "gc-test-stream".into(),
                 timestamp: 0,
                 topic: "gc-test-topic".to_string(),
                 mime_type: constants::TEXT_MIME_TYPE.to_owned(),
                 total_length: None,
-                encryption_type: proto::encryption::Type::None.into(),
                 attributes: HashMap::new(),
                 content_header: None,
                 // Data streams v2 fields
                 inline_content: None,
-                compression: proto::data_stream::CompressionType::None as i32,
+                compression: CompressionType::None,
             };
 
             RawStream::open(RawStreamOpenOptions {
