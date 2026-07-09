@@ -21,7 +21,7 @@ once_cell = "1.21.3"
 # Dart binding generator. Not published to crates.io, so pinned by git rev. The
 # rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
 # above, or it cannot read this crate's compiled metadata.
-uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "90f2c6f29cbf88c8bc2cf515e6a0c2314a48844c", optional = true }
+uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "98aceaf37a54ce047675efc5f02eb428207cd507", optional = true }
 camino = { version = "1", optional = true }
 
 [features]

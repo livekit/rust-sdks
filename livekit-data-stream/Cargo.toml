@@ -21,7 +21,7 @@ parking_lot = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "fs", "io-util", "rt"] }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
-prost = "0.12"
+prost = "0.14"
 chrono = "0.4.38"
 flate2 = "1"
 bmrng = "0.5.2"
