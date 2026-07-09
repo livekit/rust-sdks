@@ -75,12 +75,12 @@ pub struct StreamTextOptions {
 }
 
 #[derive(Clone)]
-pub struct OutgoingStreamManager {
+pub struct OutgoingDataStreamManager {
     /// Request channel for sending packets.
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
-impl OutgoingStreamManager {
+impl OutgoingDataStreamManager {
     pub fn new() -> (Self, UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>) {
         let (packet_tx, packet_rx) = bmrng::unbounded_channel();
         let manager = Self { packet_tx };
@@ -550,8 +550,8 @@ mod tests {
 
     type Sent = Arc<StdMutex<Vec<proto::DataPacket>>>;
 
-    fn setup() -> (OutgoingStreamManager, Sent) {
-        let (manager, mut packet_rx) = OutgoingStreamManager::new();
+    fn setup() -> (OutgoingDataStreamManager, Sent) {
+        let (manager, mut packet_rx) = OutgoingDataStreamManager::new();
         let sent: Sent = Arc::new(StdMutex::new(Vec::new()));
         let sink = sent.clone();
         tokio::spawn(async move {

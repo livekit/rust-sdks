@@ -139,7 +139,7 @@ impl IncomingDataStreamInput {
 /// Actor that owns all incoming-stream state and processes [`IncomingEvent`]s on a single task
 /// (see [`Self::run`]). Because it owns its state directly (no shared `Mutex`), its handlers can
 /// `.await` decompression on the run-loop task.
-pub struct IncomingStreamManager {
+pub struct IncomingDataStreamManager {
     inner: ManagerInner,
     input_rx: UnboundedReceiver<InputEvent>,
     output_tx: UnboundedSender<OutputEvent>,
@@ -154,7 +154,7 @@ struct ManagerInner {
     open_streams: HashMap<StreamId, Descriptor>,
 }
 
-impl IncomingStreamManager {
+impl IncomingDataStreamManager {
     pub fn new(
         reserved_topics: Vec<&'static str>,
     ) -> (Self, IncomingDataStreamInput, UnboundedReceiver<OutputEvent>) {
@@ -568,7 +568,7 @@ mod tests {
 
     impl Harness {
         fn new(reserved_topics: Vec<&'static str>) -> Self {
-            let (manager, input, output_rx) = IncomingStreamManager::new(reserved_topics);
+            let (manager, input, output_rx) = IncomingDataStreamManager::new(reserved_topics);
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
