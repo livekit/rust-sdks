@@ -39,7 +39,7 @@ use livekit_net::HttpClientExt;
 mod region_url_provider;
 mod signal_stream;
 
-#[cfg(all(test, feature = "signal-client-tokio"))]
+#[cfg(all(test, feature = "signal-client-tokio", feature = "access-token"))]
 mod signal_test;
 
 pub use region_url_provider::RegionUrlProvider;
