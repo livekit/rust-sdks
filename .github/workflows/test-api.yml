@@ -79,3 +79,6 @@ jobs:
 
       - name: ${{ matrix.name }}
         run: ${{ matrix.cmd }}
+
+      - name: Run signal tests
+        run: cargo test -p livekit-api --features signal-client-tokio --lib signal_client::signal_test -- --nocapture

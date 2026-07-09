@@ -39,8 +39,8 @@ use livekit_net::HttpClientExt;
 mod region_url_provider;
 mod signal_stream;
 
-#[cfg(test)]
-pub(crate) mod test_transport;
+#[cfg(all(test, feature = "signal-client-tokio"))]
+mod signal_test;
 
 pub use region_url_provider::RegionUrlProvider;
 
