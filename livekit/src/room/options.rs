@@ -142,12 +142,14 @@ pub struct TrackPublishOptions {
     /// Controls how the encoder trades off between resolution and framerate
     /// when bandwidth is constrained.
     ///
-    /// - `MaintainResolution`: Prioritizes resolution, drops frames if needed
     /// - `MaintainFramerate`: Prioritizes framerate, reduces resolution if needed
+    /// - `MaintainResolution`: Prioritizes resolution, drops frames if needed
     /// - `Balanced`: Balances between both
     ///
-    /// If not set, the SDK will use a smart default based on the track source
-    /// and resolution (MaintainResolution for screenshare or video >= 540p).
+    /// If not set, the SDK uses defaults based on track source:
+    /// - Camera: `MaintainFramerate` (smoother video for real-time communication)
+    /// - Screen share: `MaintainResolution` (clarity is critical for text/UI)
+    /// - Other/unknown: `Balanced`
     pub degradation_preference: Option<DegradationPreference>,
 }
 
@@ -175,14 +177,10 @@ impl Default for TrackPublishOptions {
 /// Returns the appropriate degradation preference for a video track.
 ///
 /// If the user explicitly set a preference in `TrackPublishOptions`, that is returned.
-/// Otherwise, defaults to `MaintainResolution` for all video tracks.
-///
-/// `MaintainResolution` ensures video clarity is preserved during bandwidth constraints
-/// by dropping frames rather than reducing resolution. This prevents the "blurry video"
-/// issue that users commonly report during initial connection or network fluctuations.
-///
-/// Users who prefer smoother video over clarity can explicitly set `Balanced` or
-/// `MaintainFramerate` in their `TrackPublishOptions`.
+/// Otherwise, defaults based on track source:
+/// - `MaintainFramerate` for camera tracks (smoother video for real-time communication)
+/// - `MaintainResolution` for screen share (clarity is critical for reading text/UI)
+/// - `Balanced` for other/unknown sources
 pub fn get_default_degradation_preference(
     options: &TrackPublishOptions,
     _height: u32,
@@ -192,9 +190,12 @@ pub fn get_default_degradation_preference(
         return pref;
     }
 
-    // Default to MaintainResolution for all video tracks to prevent blurry video
-    // during bandwidth ramp-up or network constraints
-    DegradationPreference::MaintainResolution
+    // Default based on track source
+    match options.source {
+        TrackSource::Camera => DegradationPreference::MaintainFramerate,
+        TrackSource::Screenshare => DegradationPreference::MaintainResolution,
+        _ => DegradationPreference::Balanced,
+    }
 }
 
 impl VideoPreset {
@@ -571,29 +572,28 @@ mod tests {
     }
 
     #[test]
-    fn degradation_preference_defaults_to_maintain_resolution() {
-        // All sources should default to MaintainResolution
+    fn degradation_preference_defaults_by_source() {
+        // Camera defaults to MaintainFramerate (smoother video)
         let camera_options =
             TrackPublishOptions { source: TrackSource::Camera, ..Default::default() };
-        let screenshare_options =
-            TrackPublishOptions { source: TrackSource::Screenshare, ..Default::default() };
-        let default_options = TrackPublishOptions::default();
-
         assert_eq!(
             get_default_degradation_preference(&camera_options, 1080),
-            DegradationPreference::MaintainResolution
+            DegradationPreference::MaintainFramerate
         );
+
+        // Screenshare defaults to MaintainResolution (clarity for text/UI)
+        let screenshare_options =
+            TrackPublishOptions { source: TrackSource::Screenshare, ..Default::default() };
         assert_eq!(
             get_default_degradation_preference(&screenshare_options, 1080),
             DegradationPreference::MaintainResolution
         );
+
+        // Unknown/default source defaults to Balanced
+        let default_options = TrackPublishOptions::default();
         assert_eq!(
             get_default_degradation_preference(&default_options, 720),
-            DegradationPreference::MaintainResolution
-        );
-        assert_eq!(
-            get_default_degradation_preference(&default_options, 360),
-            DegradationPreference::MaintainResolution
+            DegradationPreference::Balanced
         );
     }
 
