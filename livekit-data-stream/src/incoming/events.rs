@@ -48,13 +48,15 @@ pub struct StreamOpened {
     pub participant_identity: ParticipantIdentity,
 }
 
-/// Back-compat "raw chunk received" notification, emitted only for non-internal streams.
+/// A "raw chunk received" notification, which is used to trigger
+/// the deprecated [RoomEvent:::StreamChunkReceived] event.
 pub struct ChunkReceived {
     pub chunk: Chunk,
     pub participant_identity: ParticipantIdentity,
 }
 
-/// Back-compat "raw trailer received" notification, emitted only for non-internal streams.
+/// A "raw trailer received" notification, which is used to trigger
+/// the deprecated [RoomEvent:::StreamTrailerReceived] event.
 pub struct TrailerReceived {
     pub trailer: Trailer,
     pub participant_identity: ParticipantIdentity,
