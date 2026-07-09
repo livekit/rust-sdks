@@ -261,8 +261,16 @@ impl IncomingDataStreamManager {
         self.inner.open_streams.insert(id, descriptor);
     }
 
+    /// Returns whether a given streams is handled internally by the SDK
+    /// (e.g. `lk.rpc_request`) and associated events should not be surfaced to the application.
+    fn is_internal(&self, id: &StreamId) -> bool {
+        self.inner.open_streams.get(id).is_some_and(|d| d.is_internal)
+    }
+
     /// Returns whether streams created on the given topic are handled internally by the SDK
     /// (e.g. `lk.rpc_request`) and should not be surfaced to the application.
+    ///
+    /// When possible, prefer [`Self::is_internal`] instead.
     fn is_internal_topic(&self, topic: &str) -> bool {
         self.reserved_topics.iter().any(|t| t == &topic)
     }
@@ -275,12 +283,7 @@ impl IncomingDataStreamManager {
         encryption_type: EncryptionType,
     ) {
         let id = chunk.stream_id.clone();
-
-        // Back-compat raw-chunk notification: emitted for any non-internal stream regardless of
-        // whether the chunk turns out to be valid (an unknown stream counts as non-internal),
-        // matching the previous synchronous behavior.
-        let is_internal = self.inner.open_streams.get(&id).is_some_and(|d| d.is_internal);
-        if !is_internal {
+        if !self.is_internal(&id) {
             let _ = self.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
                 chunk: chunk.clone(),
                 participant_identity,
@@ -379,10 +382,7 @@ impl IncomingDataStreamManager {
     /// Handles an incoming trailer packet.
     fn on_trailer(&mut self, trailer: Trailer, participant_identity: ParticipantIdentity) {
         let id = trailer.stream_id.clone();
-
-        // Back-compat raw-trailer notification (non-internal streams only).
-        let is_internal = self.inner.open_streams.get(&id).is_some_and(|d| d.is_internal);
-        if !is_internal {
+        if !self.is_internal(&id) {
             let _ = self
                 .output_tx
                 .send(TrailerReceived { trailer: trailer.clone(), participant_identity }.into());
