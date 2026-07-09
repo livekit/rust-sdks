@@ -17,14 +17,21 @@
 mod utils;
 pub use utils::{SendError, StreamError, StreamResult};
 
+mod types;
+pub use types::{
+    ByteHeader, Chunk, CompressionType, ContentHeader, Header, OperationType, Packet, StreamId,
+    TextHeader, Trailer,
+};
+
 mod info;
-pub use info::{ByteStreamInfo, OperationType, TextStreamInfo};
+pub use info::{ByteStreamInfo, TextStreamInfo};
 
 mod utf8_chunk;
 
 mod incoming;
 pub use incoming::{
-    AnyStreamReader, ByteStreamReader, IncomingStreamManager, StreamReader, TextStreamReader,
+    AnyStreamReader, ByteStreamReader, IncomingEvent, IncomingOutput, IncomingStreamInput,
+    IncomingStreamManager, StreamReader, TextStreamReader,
 };
 
 mod outgoing;
