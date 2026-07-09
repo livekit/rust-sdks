@@ -1,0 +1,11 @@
+[package]
+name = "livekit-common"
+description = "Common foundational types shared across LiveKit crates"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+livekit-protocol = { workspace = true }

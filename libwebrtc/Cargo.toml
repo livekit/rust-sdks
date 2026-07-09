@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.37"
+version = "0.3.40"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true
@@ -30,7 +30,7 @@ jni = "0.21"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 webrtc-sys = { workspace = true }
-livekit-runtime = { workspace = true }
+livekit-runtime = { workspace = true, features = ["tokio"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }

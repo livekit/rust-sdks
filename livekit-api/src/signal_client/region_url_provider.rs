@@ -12,14 +12,53 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::error::Error as StdError;
+use std::{
+    collections::HashMap,
+    error::Error as StdError,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
-use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-use serde::Deserialize;
+use http::header::{HeaderMap, HeaderValue, AUTHORIZATION, CACHE_CONTROL};
+use parking_lot::Mutex;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::http_client;
+use crate::region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
+
+/// Process-wide region cache for the signaling path. Persisting it here (rather
+/// than on a per-connection object) means it survives across reconnect attempts
+/// — each of which rebuilds the SignalClient — so the reconnect loop does not
+/// re-pay the region fetch on every attempt. The caching logic lives in
+/// [`RegionCache`]; this owns the signaling instance (which stores `wss://` URLs).
+fn region_cache() -> &'static RegionCache {
+    static CACHE: OnceLock<RegionCache> = OnceLock::new();
+    CACHE.get_or_init(|| RegionCache::new(RegionCache::DEFAULT_TTL))
+}
+
+/// Returns the per-host fetch lock, creating it on first use. Held across the
+/// network request so only one fetch per host runs at a time — concurrent cache
+/// misses for the same host collapse into a single request (single-flight) —
+/// after which the waiters pick up the result from the cache.
+fn fetch_lock(host: &str) -> Arc<AsyncMutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<AsyncMutex<()>>>>> = OnceLock::new();
+    LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .entry(host.to_string())
+        .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+}
+
+fn region_host(url: &str) -> SignalResult<String> {
+    let parsed = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
+    parsed
+        .host_str()
+        .map(|h| h.to_string())
+        .ok_or_else(|| SignalError::UrlParse("invalid hostname".into()))
+}
 
 /// Converts an error into a string that includes the full error chain.
 /// This is important for debugging TLS errors, where the root cause
@@ -40,33 +79,96 @@ fn error_with_chain(err: &dyn StdError) -> String {
 
 pub struct RegionUrlProvider;
 
-#[derive(Deserialize)]
-pub struct RegionUrlResponse {
-    pub regions: Vec<RegionUrlInfo>,
-}
-
-#[derive(Deserialize)]
-pub struct RegionUrlInfo {
-    pub region: String,
-    pub url: String,
-    pub distance: String,
-}
-
 impl RegionUrlProvider {
+    /// Fetch the ordered list of region signalling URLs for a LiveKit Cloud
+    /// host. Non-cloud (direct / self-hosted) URLs have no regions, so this
+    /// returns an empty list. Successful results are cached per host for the
+    /// server's `Cache-Control: max-age` (or [`RegionCache::DEFAULT_TTL`] when
+    /// absent); failures are never cached. Once an entry goes stale a re-fetch
+    /// is attempted, but if it fails the stale entry is returned as a fallback
+    /// rather than surfacing the error. Concurrent calls for the same host are
+    /// de-duplicated: only one fetch runs at a time and the rest reuse its
+    /// result.
     pub async fn fetch_region_urls(url: &str, token: &str) -> SignalResult<Vec<String>> {
-        if is_cloud_url(url)? {
-            let endpoint = region_endpoint(url)?;
-            fetch_from_endpoint(&endpoint, token).await
-        } else {
-            Ok(vec![])
+        let host = region_host(url)?;
+        // Non-cloud (direct / self-hosted) hosts have no regions.
+        if !is_cloud_host(&host) {
+            return Ok(vec![]);
         }
+
+        let cache = region_cache();
+
+        // Fast path: a fresh entry needs neither a fetch nor the fetch lock.
+        let stale = match cache.get(&host) {
+            Cached::Fresh(urls) => return Ok(urls),
+            Cached::Stale(urls) => Some(urls),
+            Cached::Miss => None,
+        };
+
+        // Single-flight: serialise concurrent fetches for the same host so they
+        // collapse into one network request.
+        let host_lock = fetch_lock(&host);
+        let _guard = host_lock.lock().await;
+
+        // Another caller may have refreshed the entry while we waited on the lock.
+        if let Cached::Fresh(urls) = cache.get(&host) {
+            return Ok(urls);
+        }
+
+        let endpoint = region_endpoint(url)?;
+        match fetch_from_endpoint(&endpoint, token).await {
+            Ok((urls, max_age)) => {
+                cache.insert(host, urls.clone(), max_age);
+                Ok(urls)
+            }
+            // The fresh fetch failed; fall back to the stale entry if we have
+            // one rather than failing outright.
+            Err(err) => match stale {
+                Some(urls) => {
+                    log::warn!(
+                        "region fetch failed ({err}); using stale cached regions for {host}"
+                    );
+                    Ok(urls)
+                }
+                None => Err(err),
+            },
+        }
+    }
+
+    /// Reports that `failed_url` (a region URL previously returned for `url`'s
+    /// host) could not be connected to, dropping it from the cache so it is not
+    /// handed out again. When the host's last region URL is dropped the whole
+    /// entry is invalidated, forcing a fresh fetch on the next attempt.
+    pub fn mark_failed(url: &str, failed_url: &str) {
+        if let Ok(host) = region_host(url) {
+            region_cache().mark_failed(&host, failed_url);
+        }
+    }
+
+    /// Invalidates the cached region list for `url`'s host, forcing a fresh
+    /// fetch on the next [`Self::fetch_region_urls`] call.
+    pub fn invalidate(url: &str) {
+        if let Ok(host) = region_host(url) {
+            region_cache().invalidate(&host);
+        }
+    }
+
+    /// Clears the entire region cache. Useful when external state that affects
+    /// geo routing changes (e.g. the device's network connectivity), since that
+    /// can invalidate every cached host at once.
+    #[allow(dead_code)]
+    pub fn clear() {
+        region_cache().clear();
     }
 }
 
+/// Fetches the region list from `endpoint_url`, returning the ordered URLs
+/// together with the server's `Cache-Control: max-age` (if any) so the caller
+/// can use it as the cache TTL.
 pub(crate) async fn fetch_from_endpoint(
     endpoint_url: &str,
     token: &str,
-) -> SignalResult<Vec<String>> {
+) -> SignalResult<(Vec<String>, Option<Duration>)> {
     let fetch_fut = async {
         let client = http_client::Client::new();
         let mut headers = HeaderMap::new();
@@ -81,28 +183,21 @@ pub(crate) async fn fetch_from_endpoint(
         if !res.status().is_success() {
             return Err(SignalError::Client(res.status(), res.text().await.unwrap_or_default()));
         }
+
+        // Read the cache lifetime before `json()` consumes the response.
+        let max_age =
+            res.headers().get(CACHE_CONTROL).and_then(|v| v.to_str().ok()).and_then(parse_max_age);
+
         let res = res
-            .json::<RegionUrlResponse>()
+            .json::<RegionsResponse>()
             .await
             .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
-        Ok(res.regions.into_iter().map(|i| i.url).collect())
+        Ok((res.regions.into_iter().map(|i| i.url).collect(), max_age))
     };
 
     livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
         .await
         .map_err(|_| SignalError::RegionError("region fetch timed out".into()))?
-}
-
-fn is_cloud_url(url: &str) -> SignalResult<bool> {
-    let url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
-    let host = match url.host() {
-        Some(host) => host.to_string(),
-        None => {
-            return Err(SignalError::UrlParse("invalid hostname".into()));
-        }
-    };
-
-    Ok(host.ends_with(".livekit.cloud") || host.ends_with(".livekit.run"))
 }
 
 fn region_endpoint(url: &str) -> SignalResult<String> {
@@ -266,14 +361,22 @@ mod tests {
     }
 
     #[test]
-    fn test_is_cloud_url() {
-        assert!(is_cloud_url("wss://myapp.livekit.cloud").unwrap());
-        assert!(is_cloud_url("wss://myapp.livekit.run").unwrap());
-        assert!(is_cloud_url("https://myapp.livekit.cloud").unwrap());
+    fn test_region_host() {
+        assert_eq!(region_host("wss://myapp.livekit.cloud").unwrap(), "myapp.livekit.cloud");
+        assert_eq!(region_host("https://myapp.livekit.cloud/rtc").unwrap(), "myapp.livekit.cloud");
+        assert!(region_host("not a url").is_err());
+    }
 
-        assert!(!is_cloud_url("wss://localhost:7880").unwrap());
-        assert!(!is_cloud_url("wss://example.com").unwrap());
-        assert!(!is_cloud_url("wss://livekit.cloud.example.com").unwrap());
+    #[test]
+    fn fetch_lock_is_shared_per_host() {
+        // Same host hands back the same lock, so concurrent callers contend on a
+        // single fetch; distinct hosts get independent locks. (RegionCache's own
+        // caching behavior is unit-tested in crate::region.)
+        let a1 = fetch_lock("a.livekit.cloud");
+        let a2 = fetch_lock("a.livekit.cloud");
+        let b = fetch_lock("b.livekit.cloud");
+        assert!(Arc::ptr_eq(&a1, &a2), "same host shares one fetch lock");
+        assert!(!Arc::ptr_eq(&a1, &b), "different hosts get distinct fetch locks");
     }
 
     #[test]

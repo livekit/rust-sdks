@@ -165,6 +165,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.37 (2026-07-09)
+
+### Fixes
+
+- Fix malformed RTC error handling
+
+## 0.3.36 (2026-06-30)
+
+### Features
+
+#### Add `MaintainFramerateAndResolution` to `DegradationPreference` enum to align with WebRTC M144.
+
+- `MAINTAIN_FRAMERATE_AND_RESOLUTION` is now the recommended value (replaces deprecated `DISABLED`)
+- `DISABLED` is deprecated but still supported for backwards compatibility
+- Both values map to the same behavior: maintain framerate and resolution, dropping frames if needed
+
+### Fixes
+
+- Fix AV1 subscriber decode when packet trailers are enabled.
+
 ## 0.3.35 (2026-06-17)
 
 ### Fixes

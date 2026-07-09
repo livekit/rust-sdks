@@ -357,6 +357,26 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+        self.publish_track_with_video_send_encodings(track, options, None).await
+    }
+
+    /// Publishes a track without providing video send encodings to WebRTC.
+    #[doc(hidden)]
+    #[cfg(feature = "__lk-e2e-test")]
+    pub async fn publish_track_without_video_send_encodings(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+    ) -> RoomResult<LocalTrackPublication> {
+        self.publish_track_with_video_send_encodings(track, options, Some(Vec::new())).await
+    }
+
+    async fn publish_track_with_video_send_encodings(
+        &self,
+        track: LocalTrack,
+        options: TrackPublishOptions,
+        video_send_encodings: Option<Vec<RtpEncodingParameters>>,
+    ) -> RoomResult<LocalTrackPublication> {
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
@@ -388,7 +408,8 @@ impl LocalParticipant {
                 req.width = resolution.width;
                 req.height = resolution.height;
 
-                encodings = compute_video_encodings(req.width, req.height, &options);
+                encodings = video_send_encodings
+                    .unwrap_or_else(|| compute_video_encodings(req.width, req.height, &options));
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
 
                 // Populate simulcast_codecs so the server knows this track has
@@ -432,6 +453,26 @@ impl LocalParticipant {
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
 
         track.set_transceiver(Some(transceiver));
+
+        // Set degradation preference for video tracks
+        if let LocalTrack::Video(video_track) = &track {
+            let resolution = video_track.rtc_source().video_resolution();
+            let degradation_pref =
+                options::get_default_degradation_preference(&options, resolution.height);
+            if let Some(sender) = track.transceiver().map(|t| t.sender()) {
+                let mut params = sender.parameters();
+                params.set_degradation_preference(degradation_pref);
+                if let Err(e) = sender.set_parameters(params) {
+                    log::warn!("Failed to set degradation preference: {:?}", e);
+                } else {
+                    log::debug!(
+                        "Set degradation preference to {:?} for video track (height={})",
+                        degradation_pref,
+                        resolution.height
+                    );
+                }
+            }
+        }
 
         if let LocalTrack::Video(video_track) = &track {
             let has_timing_subscribers = video_track.has_publish_timing_subscribers();
@@ -1011,6 +1052,7 @@ mod tests {
             frame_metadata_features: FrameMetadataFeatures {
                 user_timestamp: true,
                 frame_id: false,
+                user_data: false,
             },
             ..Default::default()
         };

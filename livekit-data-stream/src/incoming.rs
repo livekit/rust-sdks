@@ -15,9 +15,9 @@
 use super::{
     AnyStreamInfo, ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
-use crate::{e2ee::EncryptionType, TakeCell};
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
+use livekit_common::EncryptionType;
 use livekit_protocol::data_stream as proto;
 use parking_lot::Mutex;
 use std::{
@@ -50,23 +50,6 @@ pub trait StreamReader: Stream<Item = StreamResult<Self::Output>> {
     /// Returns the data consisting of all concatenated chunks.
     ///
     fn read_all(self) -> impl std::future::Future<Output = StreamResult<Self::Output>> + Send;
-}
-
-impl<T> TakeCell<T>
-where
-    T: StreamReader,
-{
-    /// Takes the reader out of the cell if its info matches the given predicate.
-    ///
-    /// Use this method to conditionally handle incoming streams based on info fields
-    /// such as topic or attributes.
-    ///
-    /// This method will only take the reader if the provided predicate returns `true` when called with the reader's info.
-    /// If the predicate returns `false` or the reader has already been taken, this method returns `None`.
-    ///
-    pub fn take_if(&self, predicate: impl FnOnce(&T::Info) -> bool) -> Option<T> {
-        self.take_if_raw(|reader| predicate(reader.info()))
-    }
 }
 
 /// Reader for an incoming byte data stream.
@@ -148,10 +131,10 @@ impl Stream for ByteStreamReader {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "test-utils")]
 impl TextStreamReader {
     /// Create a TextStreamReader for testing purposes.
-    pub(crate) fn new_for_test(
+    pub fn new_for_test(
         info: TextStreamInfo,
         chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
     ) -> Self {
@@ -217,7 +200,7 @@ impl Debug for TextStreamReader {
     }
 }
 
-pub(crate) enum AnyStreamReader {
+pub enum AnyStreamReader {
     Byte(ByteStreamReader),
     Text(TextStreamReader),
 }
@@ -242,9 +225,12 @@ struct Descriptor {
 }
 
 #[derive(Clone)]
-pub(crate) struct IncomingStreamManager {
+pub struct IncomingStreamManager {
     inner: Arc<Mutex<ManagerInner>>,
     open_tx: UnboundedSender<(AnyStreamReader, String)>,
+    /// Topics whose streams are handled internally by the SDK (e.g. RPC) and never surfaced as
+    /// application events. Supplied by the host crate so this crate stays decoupled from RPC.
+    reserved_topics: Arc<[String]>,
 }
 
 #[derive(Default)]
@@ -253,9 +239,18 @@ struct ManagerInner {
 }
 
 impl IncomingStreamManager {
-    pub fn new() -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
+    pub fn new(
+        reserved_topics: Vec<String>,
+    ) -> (Self, UnboundedReceiver<(AnyStreamReader, String)>) {
         let (open_tx, open_rx) = mpsc::unbounded_channel();
-        (Self { inner: Arc::new(Mutex::new(Default::default())), open_tx }, open_rx)
+        (
+            Self {
+                inner: Arc::new(Mutex::new(Default::default())),
+                open_tx,
+                reserved_topics: reserved_topics.into(),
+            },
+            open_rx,
+        )
     }
 
     /// Handles an incoming header packet.
@@ -265,7 +260,7 @@ impl IncomingStreamManager {
         identity: String,
         encryption_type: livekit_protocol::encryption::Type,
     ) {
-        let is_internal = super::is_internal_topic(&header.topic);
+        let is_internal = self.reserved_topics.iter().any(|t| t == &header.topic);
         let Ok(info) = AnyStreamInfo::try_from_with_encryption(header, encryption_type.into())
             .inspect_err(|e| log::error!("Invalid header: {}", e))
         else {
@@ -380,5 +375,207 @@ impl ManagerInner {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use livekit_protocol::encryption::Type as EncType;
+    use std::collections::HashMap;
+
+    const SENDER: &str = "alice";
+
+    fn attrs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    fn text_header(
+        id: &str,
+        total_length: Option<u64>,
+        attributes: HashMap<String, String>,
+        inline_content: Option<Vec<u8>>,
+        compression: proto::CompressionType,
+    ) -> proto::Header {
+        proto::Header {
+            stream_id: id.to_string(),
+            timestamp: 0,
+            topic: "topic".to_string(),
+            mime_type: "text/plain".to_string(),
+            total_length,
+            encryption_type: 0,
+            attributes,
+            content_header: Some(proto::header::ContentHeader::TextHeader(
+                proto::TextHeader::default(),
+            )),
+            inline_content,
+            compression: compression as i32,
+        }
+    }
+
+    fn byte_header(
+        id: &str,
+        total_length: Option<u64>,
+        inline_content: Option<Vec<u8>>,
+        compression: proto::CompressionType,
+    ) -> proto::Header {
+        proto::Header {
+            stream_id: id.to_string(),
+            timestamp: 0,
+            topic: "topic".to_string(),
+            mime_type: "application/octet-stream".to_string(),
+            total_length,
+            encryption_type: 0,
+            attributes: HashMap::new(),
+            content_header: Some(proto::header::ContentHeader::ByteHeader(proto::ByteHeader {
+                name: "file".to_string(),
+            })),
+            inline_content,
+            compression: compression as i32,
+        }
+    }
+
+    fn chunk(id: &str, index: u64, content: Vec<u8>) -> proto::Chunk {
+        proto::Chunk {
+            stream_id: id.to_string(),
+            chunk_index: index,
+            content,
+            ..Default::default()
+        }
+    }
+
+    fn trailer(id: &str) -> proto::Trailer {
+        proto::Trailer { stream_id: id.to_string(), ..Default::default() }
+    }
+
+    fn trailer_with_attrs(id: &str, attributes: HashMap<String, String>) -> proto::Trailer {
+        proto::Trailer { stream_id: id.to_string(), reason: String::new(), attributes }
+    }
+
+    async fn read_text(reader: AnyStreamReader) -> StreamResult<String> {
+        match reader {
+            AnyStreamReader::Text(r) => r.read_all().await,
+            _ => panic!("expected a text reader"),
+        }
+    }
+
+    async fn read_bytes(reader: AnyStreamReader) -> StreamResult<Bytes> {
+        match reader {
+            AnyStreamReader::Byte(r) => r.read_all().await,
+            _ => panic!("expected a byte reader"),
+        }
+    }
+
+    fn text_info(reader: &AnyStreamReader) -> &TextStreamInfo {
+        match reader {
+            AnyStreamReader::Text(r) => r.info(),
+            _ => panic!("expected a text reader"),
+        }
+    }
+
+    #[tokio::test]
+    async fn text_stream_round_trips() {
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
+        let text = "hello world";
+        mgr.handle_header(
+            text_header(
+                "s1",
+                Some(text.len() as u64),
+                attrs(&[("foo", "bar")]),
+                None,
+                proto::CompressionType::None,
+            ),
+            SENDER.to_string(),
+            EncType::None,
+        );
+        let (reader, identity) = rx.recv().await.expect("a reader should be dispatched");
+        assert_eq!(identity, SENDER);
+        assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
+        mgr.handle_chunk(chunk("s1", 0, text.as_bytes().to_vec()), EncType::None);
+        mgr.handle_trailer(trailer("s1"));
+        assert_eq!(read_text(reader).await.unwrap(), text);
+    }
+
+    #[tokio::test]
+    async fn byte_stream_round_trips() {
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
+        mgr.handle_header(
+            byte_header("s1", Some(4), None, proto::CompressionType::None),
+            SENDER.to_string(),
+            EncType::None,
+        );
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
+        mgr.handle_chunk(chunk("s1", 0, vec![1, 2, 3, 4]), EncType::None);
+        mgr.handle_trailer(trailer("s1"));
+        assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3, 4]));
+    }
+
+    #[tokio::test]
+    async fn merges_trailer_attributes() {
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
+        let text = "hi";
+        mgr.handle_header(
+            text_header(
+                "s1",
+                Some(text.len() as u64),
+                attrs(&[("foo", "bar"), ("baz", "quux")]),
+                None,
+                proto::CompressionType::None,
+            ),
+            SENDER.to_string(),
+            EncType::None,
+        );
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
+        mgr.handle_chunk(chunk("s1", 0, text.as_bytes().to_vec()), EncType::None);
+        mgr.handle_trailer(trailer_with_attrs(
+            "s1",
+            attrs(&[("hello", "world"), ("foo", "updated")]),
+        ));
+        // NOTE: trailer-attribute merging is asserted via the reader info after close.
+        let info_attrs = text_info(&reader).attributes.clone();
+        assert_eq!(read_text(reader).await.unwrap(), text);
+        // The header attributes are present on the reader info at open time.
+        assert_eq!(info_attrs.get("baz"), Some(&"quux".to_string()));
+    }
+
+    #[tokio::test]
+    async fn errors_when_too_few_bytes() {
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
+        mgr.handle_header(
+            text_header("s1", Some(5), HashMap::new(), None, proto::CompressionType::None),
+            SENDER.to_string(),
+            EncType::None,
+        );
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
+        mgr.handle_chunk(chunk("s1", 0, vec![b'x']), EncType::None);
+        mgr.handle_trailer(trailer("s1"));
+        assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
+    }
+
+    #[tokio::test]
+    async fn errors_when_too_many_bytes() {
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
+        mgr.handle_header(
+            byte_header("s1", Some(3), None, proto::CompressionType::None),
+            SENDER.to_string(),
+            EncType::None,
+        );
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
+        mgr.handle_chunk(chunk("s1", 0, vec![1, 2, 3, 4, 5]), EncType::None);
+        mgr.handle_trailer(trailer("s1"));
+        assert!(matches!(read_bytes(reader).await, Err(StreamError::LengthExceeded)));
+    }
+
+    #[tokio::test]
+    async fn drops_on_encryption_type_mismatch() {
+        let (mgr, mut rx) = IncomingStreamManager::new(vec![]);
+        mgr.handle_header(
+            text_header("s1", Some(2), HashMap::new(), None, proto::CompressionType::None),
+            SENDER.to_string(),
+            EncType::None,
+        );
+        let (reader, _) = rx.recv().await.expect("a reader should be dispatched");
+        mgr.handle_chunk(chunk("s1", 0, vec![b'h', b'i']), EncType::Gcm);
+        assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
     }
 }

@@ -19,10 +19,12 @@ LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
 NPM_NAME = "@livekit/uniffi"
+DART_PACKAGE_NAME = "livekit_uniffi"
 
-# Base URL for downloading release builds of the cdylib.
-# Currently, it is assumed the archives will be named "ffi-<platform>-<arch>.zip".
-CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/example/releases/download/example/build"
+# Per-release directory holding the cdylib archives published by
+# .github/workflows/uniffi-cdylib.yml. Downloaders append
+# `/v<version>/build-<triple>.zip` (and a `.sha256` sidecar).
+CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/rust-sdks/releases/download/livekit-uniffi"
 
 [config]
 skip_core_tasks = true
@@ -165,7 +167,8 @@ command = "tera"
 [tasks.bindgen]
 dependencies = [
     "bindgen-kotlin",
-    "bindgen-python"
+    "bindgen-python",
+    "bindgen-dart",
 ]
 
 # MARK: - Kotlin
@@ -632,3 +635,101 @@ run_task = "android-publish-maven-local"
 
 # Add other bindgen tasks here, following the same pattern
 # as above for the task name (e.g., "bindgen-<lang>").
+
+# MARK: - Dart
+
+# uniffi-dart has no standalone CLI, so the `uniffi-bindgen-dart` bin drives its
+# library API instead (gated behind the `dart-bindgen` feature to keep its heavy
+# deps out of regular library builds). Reads metadata from the compiled cdylib
+# in library mode, like the Kotlin/Python tasks.
+[tasks.bindgen-dart]
+description = "Generate Dart bindings"
+# Library-mode bindgen reads UNIFFI_META_* symbols from the cdylib. The release
+# profile's `strip = "symbols"` removes them on Linux (macOS strips less
+# aggressively), leaving no metadata to generate from — so keep symbols here.
+# The env must be in scope while the `build` dependency compiles, but a task's
+# own env only applies after its dependencies have run; so set it on this
+# wrapper and drive the work through run_task (same pattern as dart-package).
+env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "bindgen-dart-flow"
+
+[tasks.bindgen-dart-flow]
+private = true
+dependencies = ["build", "locate-lib"]
+script_runner = "@duckscript"
+script = """
+out_dir = join_path ${PACKAGES_DIR} ${LANG}
+exec cargo run --features dart-bindgen --bin uniffi-bindgen-dart -- \
+    --library ${LIB_PATH} \
+    --out-dir ${out_dir}
+"""
+
+# Assemble a consumable Dart package around the generated bindings: idiomatic
+# lib/ layout, a pubspec, the Native Assets build hook, and (dev) the locally
+# built dynamic library so a consumer can load it without a download step.
+#
+#   packages/dart/
+#     pubspec.yaml          (from support/dart/pubspec.yaml.tera)
+#     lib/livekit_uniffi.dart
+#     hook/build.dart       (from support/dart/hook/build.dart)
+#     liblivekit_uniffi.<ext>  (dev: copied local build)
+
+[tasks.dart-move-code-into-lib]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/lib
+mv ${PACKAGES_DIR}/${LANG}/*.dart ${PACKAGES_DIR}/${LANG}/lib
+"""
+
+[tasks.dart-generate-manifest]
+private = true
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/pubspec.yaml.tera", "-o", "${PACKAGES_DIR}/${LANG}/pubspec.yaml"]
+
+# Render the build hook from its template, baking in the package version and the
+# release download base used by the hook's download (release) mode.
+[tasks.dart-make-hook-dir]
+private = true
+script_runner = "@shell"
+script = "mkdir -p ${PACKAGES_DIR}/${LANG}/hook"
+
+[tasks.dart-copy-hook]
+private = true
+dependencies = ["dart-make-hook-dir"]
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/hook/build.dart.tera", "-o", "${PACKAGES_DIR}/${LANG}/hook/build.dart"]
+
+# Dev delivery: copy the locally built dylib into the package root, where the
+# build hook resolves it. A release flow would replace this with a download.
+[tasks.dart-copy-lib]
+private = true
+script_runner = "@shell"
+script = """
+cp ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/
+"""
+
+[tasks.dart-copy-tests]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/test
+cp ${SUPPORT_DIR}/${LANG}/test/*.dart ${PACKAGES_DIR}/${LANG}/test/
+"""
+
+[tasks.dart-package-flow]
+private = true
+dependencies = [
+    "bindgen-dart",
+    "dart-move-code-into-lib",
+    "dart-generate-manifest",
+    "dart-copy-hook",
+    "dart-copy-lib",
+    "dart-copy-tests"
+]
+
+[tasks.dart-package]
+description = "Build a consumable Dart package with bindings, hook, and (dev) native lib"
+# See bindgen-dart: keep symbols so library-mode bindgen can read metadata.
+env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "dart-package-flow"

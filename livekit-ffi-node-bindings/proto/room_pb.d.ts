@@ -81,6 +81,15 @@ export declare enum SimulateScenarioKind {
    * @generated from enum value: SIMULATE_FULL_RECONNECT = 7;
    */
   SIMULATE_FULL_RECONNECT = 7,
+
+  /**
+   * Asks the server to drop the signalling connection during the next resume,
+   * then triggers a resume locally. The resume cannot complete, so the engine
+   * escalates to a full reconnect — exercising the resume→full escalation path.
+   *
+   * @generated from enum value: SIMULATE_DISCONNECT_SIGNAL_ON_RESUME = 8;
+   */
+  SIMULATE_DISCONNECT_SIGNAL_ON_RESUME = 8,
 }
 
 /**
@@ -116,6 +125,42 @@ export declare enum VideoEncoderBackend {
    * @generated from enum value: ENCODER_BACKEND_VIDEOTOOLBOX = 5;
    */
   ENCODER_BACKEND_VIDEOTOOLBOX = 5,
+}
+
+/**
+ * Controls how the encoder degrades quality when bandwidth is constrained.
+ *
+ * @generated from enum livekit.proto.DegradationPreference
+ */
+export declare enum DegradationPreference {
+  /**
+   * Balance between framerate and resolution degradation.
+   *
+   * @generated from enum value: DEGRADATION_PREFERENCE_BALANCED = 0;
+   */
+  BALANCED = 0,
+
+  /**
+   * Degrade framerate to maintain resolution.
+   *
+   * @generated from enum value: DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE = 1;
+   */
+  MAINTAIN_FRAMERATE = 1,
+
+  /**
+   * Degrade resolution to maintain framerate (drop frames to keep clarity).
+   *
+   * @generated from enum value: DEGRADATION_PREFERENCE_MAINTAIN_RESOLUTION = 2;
+   */
+  MAINTAIN_RESOLUTION = 2,
+
+  /**
+   * Maintain both framerate and resolution. Frames may be dropped before encoding
+   * if necessary to avoid overusing network and encoder resources.
+   *
+   * @generated from enum value: DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE_AND_RESOLUTION = 4;
+   */
+  MAINTAIN_FRAMERATE_AND_RESOLUTION = 4,
 }
 
 /**
@@ -1863,6 +1908,14 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
    * @generated from field: optional livekit.proto.VideoEncoderBackend video_encoder = 12;
    */
   videoEncoder?: VideoEncoderBackend;
+
+  /**
+   * Controls how the encoder trades off between resolution and framerate
+   * when bandwidth is constrained. Default is MAINTAIN_RESOLUTION.
+   *
+   * @generated from field: optional livekit.proto.DegradationPreference degradation_preference = 13;
+   */
+  degradationPreference?: DegradationPreference;
 
   constructor(data?: PartialMessage<TrackPublishOptions>);
 
