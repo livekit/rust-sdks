@@ -796,20 +796,23 @@ fn create_join_request_param(
     // Serialize JoinRequest to bytes
     let join_request_bytes = join_request.encode_to_vec();
 
-    // Use gzip compression when publisher offer is included (SDP makes payload large)
-    let (compressed_bytes, compression) = if publisher_offer.is_some() {
+    // Always use gzip compression to reduce URL size on poor networks
+    let (compressed_bytes, compression) = {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         if encoder.write_all(&join_request_bytes).is_ok() {
             if let Ok(compressed) = encoder.finish() {
-                (compressed, proto::wrapped_join_request::Compression::Gzip as i32)
+                // Only use compressed version if it's actually smaller
+                if compressed.len() < join_request_bytes.len() {
+                    (compressed, proto::wrapped_join_request::Compression::Gzip as i32)
+                } else {
+                    (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
+                }
             } else {
                 (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
             }
         } else {
             (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
         }
-    } else {
-        (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
     };
 
     let wrapped_join_request =
