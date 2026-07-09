@@ -25,17 +25,16 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT,
-    SIGNAL_CONNECT_TIMEOUT,
+    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+};
+use livekit_data_stream::{
+    self as ds,
+    incoming::{IncomingDataStreamInput, IncomingDataStreamManager},
+    outgoing::OutgoingDataStreamManager,
 };
 use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
     backend as dt,
-};
-use livekit_data_stream::{
-    self as ds,
-    incoming::{IncomingDataStreamManager, IncomingDataStreamInput},
-    outgoing::OutgoingDataStreamManager,
 };
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
@@ -1839,10 +1838,13 @@ impl RoomSession {
             self.dispatcher.dispatch(&event);
         }
 
-        let _ = self.incoming_data_stream_input.send(ds::incoming::events::PacketReceived::new(
-            Packet::Header { header: header.into(), encryption_type: encryption_type.into() },
-            participant_identity.into(),
-        ).into());
+        let _ = self.incoming_data_stream_input.send(
+            ds::incoming::events::PacketReceived::new(
+                Packet::Header { header: header.into(), encryption_type: encryption_type.into() },
+                participant_identity.into(),
+            )
+            .into(),
+        );
     }
 
     fn handle_data_stream_chunk(
@@ -1851,10 +1853,13 @@ impl RoomSession {
         participant_identity: String,
         encryption_type: proto::encryption::Type,
     ) {
-        let _ = self.incoming_data_stream_input.send(ds::incoming::events::PacketReceived::new(
-            Packet::Chunk { chunk: chunk.into(), encryption_type: encryption_type.into() },
-            participant_identity.into(),
-        ).into());
+        let _ = self.incoming_data_stream_input.send(
+            ds::incoming::events::PacketReceived::new(
+                Packet::Chunk { chunk: chunk.into(), encryption_type: encryption_type.into() },
+                participant_identity.into(),
+            )
+            .into(),
+        );
     }
 
     fn handle_data_stream_trailer(
@@ -1862,10 +1867,13 @@ impl RoomSession {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
     ) {
-        let _ = self.incoming_data_stream_input.send(ds::incoming::events::PacketReceived::new(
-            Packet::Trailer(trailer.into()),
-            participant_identity.into(),
-        ).into());
+        let _ = self.incoming_data_stream_input.send(
+            ds::incoming::events::PacketReceived::new(
+                Packet::Trailer(trailer.into()),
+                participant_identity.into(),
+            )
+            .into(),
+        );
     }
 
     fn handle_data_channel_buffered_low_threshold_change(
@@ -2165,9 +2173,9 @@ impl RoomSession {
 
         // Terminate any data streams this participant was still sending; otherwise their
         // readers would hang waiting for chunks that will never arrive.
-        let _ = self.incoming_data_stream_input.send(ds::incoming::events::InputEvent::AbortStreamsFrom(
-            remote_participant.identity(),
-        ));
+        let _ = self.incoming_data_stream_input.send(
+            ds::incoming::events::InputEvent::AbortStreamsFrom(remote_participant.identity()),
+        );
 
         self.dispatcher.dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
