@@ -19,6 +19,7 @@ use webrtc_sys::desktop_capturer::{self as sys_dc, ffi::new_desktop_capturer};
 pub(crate) enum SourceType {
     Screen,
     Window,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     Generic,
 }
 
@@ -61,17 +62,24 @@ impl DesktopCapturerOptions {
         let source_type = match self.source_type {
             SourceType::Screen => sys_dc::ffi::SourceType::Screen,
             SourceType::Window => sys_dc::ffi::SourceType::Window,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             SourceType::Generic => sys_dc::ffi::SourceType::Generic,
         };
-        let mut sys_handle = sys_dc::ffi::DesktopCapturerOptions {
+        let sys_handle = sys_dc::ffi::DesktopCapturerOptions {
             source_type,
             include_cursor: self.include_cursor,
-            allow_sck_system_picker: false,
+            allow_sck_system_picker: {
+                #[cfg(target_os = "macos")]
+                {
+                    self.allow_sck_system_picker
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    false
+                }
+            },
         };
-        #[cfg(target_os = "macos")]
-        {
-            sys_handle.allow_sck_system_picker = self.allow_sck_system_picker;
-        }
+        
         sys_handle
     }
 }
