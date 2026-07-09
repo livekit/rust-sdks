@@ -34,8 +34,8 @@ use livekit_datatrack::{
 };
 use livekit_data_stream::{
     self as ds,
-    incoming::{IncomingStreamManager, IncomingDataStreamInput},
-    outgoing::OutgoingStreamManager,
+    incoming::{IncomingDataStreamManager, IncomingDataStreamInput},
+    outgoing::OutgoingDataStreamManager,
 };
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
@@ -498,7 +498,7 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     incoming_data_stream_input: IncomingDataStreamInput,
-    pub(crate) outgoing_stream_manager: OutgoingStreamManager,
+    pub(crate) outgoing_stream_manager: OutgoingDataStreamManager,
     local_dt_input: dt::local::ManagerInput,
     remote_dt_input: dt::remote::ManagerInput,
     pub(crate) rpc_client: rpc::RpcClientManager,
@@ -687,8 +687,8 @@ impl Room {
             dt::remote::Manager::new(remote_dt_options);
 
         let (incoming_stream_manager, incoming_data_stream_input, incoming_output) =
-            IncomingStreamManager::new(INTERNAL_DATA_STREAM_TOPICS.into());
-        let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
+            IncomingDataStreamManager::new(INTERNAL_DATA_STREAM_TOPICS.into());
+        let (outgoing_stream_manager, packet_rx) = OutgoingDataStreamManager::new();
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
