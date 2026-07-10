@@ -455,6 +455,7 @@ mod tests {
     use crate::incoming::StreamReader;
     use crate::info::TextStreamInfo;
     use crate::types::{ByteHeader, StreamId, TextHeader};
+    use crate::test_utils::pseudo_random_text;
     use std::collections::HashMap;
 
     const SENDER: &str = "alice";
@@ -468,20 +469,6 @@ mod tests {
 
     fn attrs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
-    }
-
-    /// Deterministic, barely-compressible lowercase text (so its deflate output spans chunks).
-    ///
-    /// Seeded with a fixed value so the output is identical on every run; the letters carry
-    /// enough entropy that deflate can't shrink them away, unlike repetitive text ("aaaa…").
-    fn pseudo_random_text(len: usize) -> String {
-        use rand::{rngs::StdRng, Rng, SeedableRng};
-
-        /// Fixed RNG seed that keeps `pseudo_random_text` output identical on every run.
-        const RANDOM_SEED: u64 = 0xdead_beef_cafe_babe;
-
-        let mut rng = StdRng::seed_from_u64(RANDOM_SEED);
-        (0..len).map(|_| rng.random_range(b'a'..=b'z') as char).collect()
     }
 
     #[allow(clippy::too_many_arguments)]

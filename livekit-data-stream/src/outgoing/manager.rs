@@ -450,6 +450,7 @@ fn build_byte_header(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::somewhat_compressible;
     use crate::outgoing::StreamWriter;
     use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
     use std::collections::HashMap;
@@ -584,27 +585,6 @@ mod tests {
         CompressionType::None as i32
     }
 
-    /// ~50 KB of deterministic, somewhat-compressible text (repeated marker + pseudo-random
-    /// lowercase). Compresses to >15 KB (so it can't inline) but well under its raw size.
-    ///
-    /// Seeded with a fixed value so the output is identical on every run.
-    fn somewhat_compressible(blocks: usize) -> String {
-        use rand::{rngs::StdRng, Rng, SeedableRng};
-
-        /// Fixed RNG seed that keeps `somewhat_compressible` output identical on every run.
-        const RANDOM_SEED: u64 = 0x1234_5678_9abc_def0;
-
-        let mut rng = StdRng::seed_from_u64(RANDOM_SEED);
-        let mut s = String::new();
-        for _ in 0..blocks {
-            s.push_str("hello world");
-            for _ in 0..1000 {
-                s.push(rng.random_range(b'a'..=b'z') as char);
-            }
-        }
-        s
-    }
-
     // --- Pre-v2 room: legacy, uncompressed, multi-packet ---------------------------------
 
     #[tokio::test]
@@ -708,7 +688,7 @@ mod tests {
     #[tokio::test]
     async fn v2_somewhat_compressible_text_is_compressed_multipacket() {
         let (m, sent) = setup();
-        let text = somewhat_compressible(50);
+        let text = somewhat_compressible(50_000);
         m.send_text(&text, text_opts("chat", &["alice", "bob"]), &all_v2_room()).await.unwrap();
         let p = sent.lock().unwrap().clone();
         let h = header(&p[0]);
