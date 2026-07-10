@@ -43,6 +43,7 @@ pub mod ffi {
         type I444Buffer;
         type I010Buffer;
         type NV12Buffer;
+        type CudaNv12RenderTarget;
         type PlatformImageBuffer;
 
         fn buffer_type(self: &VideoFrameBuffer) -> VideoFrameBufferType;
@@ -150,6 +151,23 @@ pub mod ffi {
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
 
+        fn native_buffer_is_cuda_nv12(buffer: &VideoFrameBuffer) -> bool;
+        fn cuda_nv12_stride(buffer: &VideoFrameBuffer) -> u32;
+        fn cuda_nv12_device_uuid_low(buffer: &VideoFrameBuffer) -> u64;
+        fn cuda_nv12_device_uuid_high(buffer: &VideoFrameBuffer) -> u64;
+        fn new_cuda_nv12_render_target(
+            buffer: &VideoFrameBuffer,
+            memory_fd: i32,
+            allocation_size: u64,
+            destination_pitch: u32,
+            uv_offset: u64,
+            semaphore_fd: i32,
+        ) -> UniquePtr<CudaNv12RenderTarget>;
+        fn cuda_nv12_copy_to(
+            buffer: &VideoFrameBuffer,
+            target: Pin<&mut CudaNv12RenderTarget>,
+        ) -> bool;
+
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;
@@ -178,3 +196,4 @@ impl_thread_safety!(ffi::I422Buffer, Send + Sync);
 impl_thread_safety!(ffi::I444Buffer, Send + Sync);
 impl_thread_safety!(ffi::I010Buffer, Send + Sync);
 impl_thread_safety!(ffi::NV12Buffer, Send + Sync);
+impl_thread_safety!(ffi::CudaNv12RenderTarget, Send + Sync);

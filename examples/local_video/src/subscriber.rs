@@ -10,6 +10,8 @@ use livekit::prelude::*;
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
+#[cfg(target_os = "linux")]
+use log::warn;
 use log::{debug, info};
 use parking_lot::Mutex;
 use std::{
@@ -375,6 +377,588 @@ mod macos_native_video {
             // descriptor matching the wrapped native texture.
             device.create_texture_from_hal::<wgpu::hal::api::Metal>(hal_texture, &desc)
         })
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux_cuda_video {
+    use std::{
+        ffi::CStr,
+        os::fd::{FromRawFd, OwnedFd},
+        sync::Arc,
+    };
+
+    use anyhow::{anyhow, Context, Result};
+    use ash::{khr, vk};
+    use eframe::wgpu;
+    use egui_wgpu as egui_wgpu_backend;
+    #[cfg(test)]
+    use livekit::webrtc::video_frame::native::CudaInteropError;
+    use livekit::webrtc::video_frame::native::{CudaNv12Frame, CudaNv12RenderTarget};
+    use parking_lot::Mutex;
+
+    const STAGING_SLOTS: usize = 3;
+
+    pub(crate) async fn create_interop_wgpu_setup() -> Result<egui_wgpu_backend::WgpuSetupExisting>
+    {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            flags: wgpu::InstanceFlags::from_build_config().with_env(),
+            backend_options: wgpu::BackendOptions::from_env_or_default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            display: None,
+        });
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .context("no Vulkan adapter is available")?;
+        if adapter.get_info().backend != wgpu::Backend::Vulkan {
+            return Err(anyhow!("selected WGPU adapter is not Vulkan"));
+        }
+
+        let descriptor = wgpu::DeviceDescriptor {
+            label: Some("egui wgpu CUDA interop device"),
+            required_limits: wgpu::Limits { max_texture_dimension_2d: 8192, ..Default::default() },
+            ..Default::default()
+        };
+
+        let hal_adapter = unsafe {
+            // SAFETY: The adapter was created by this Vulkan-only WGPU instance and is held
+            // alive until the HAL device has been wrapped below.
+            adapter
+                .as_hal::<wgpu::hal::api::Vulkan>()
+                .ok_or_else(|| anyhow!("WGPU did not expose a Vulkan HAL adapter"))?
+        };
+        ensure_device_extensions(&hal_adapter)?;
+
+        let callback: Box<wgpu::hal::vulkan::CreateDeviceCallback<'_>> = Box::new(|args| {
+            push_extension(args.extensions, khr::external_memory_fd::NAME);
+            push_extension(args.extensions, khr::external_semaphore_fd::NAME);
+        });
+        let hal_device = unsafe {
+            // SAFETY: The callback only adds extensions verified above and otherwise preserves
+            // WGPU's requested extensions, features, limits, and queue configuration.
+            hal_adapter.open_with_callback(
+                descriptor.required_features,
+                &descriptor.required_limits,
+                &descriptor.memory_hints,
+                Some(callback),
+            )?
+        };
+        drop(hal_adapter);
+
+        let (device, queue) = unsafe {
+            // SAFETY: `hal_device` was opened from this exact adapter with the descriptor
+            // passed to WGPU for validation.
+            adapter.create_device_from_hal::<wgpu::hal::api::Vulkan>(hal_device, &descriptor)?
+        };
+        Ok(egui_wgpu_backend::WgpuSetupExisting { instance, adapter, device, queue })
+    }
+
+    fn ensure_device_extensions(adapter: &wgpu::hal::vulkan::Adapter) -> Result<()> {
+        let properties = unsafe {
+            // SAFETY: The physical device belongs to this live Vulkan instance.
+            adapter
+                .shared_instance()
+                .raw_instance()
+                .enumerate_device_extension_properties(adapter.raw_physical_device())?
+        };
+        for required in [khr::external_memory_fd::NAME, khr::external_semaphore_fd::NAME] {
+            let available = properties.iter().any(|property| unsafe {
+                // SAFETY: Vulkan guarantees `extension_name` is a NUL-terminated string.
+                CStr::from_ptr(property.extension_name.as_ptr()) == required
+            });
+            if !available {
+                return Err(anyhow!(
+                    "Vulkan device does not support {}",
+                    required.to_string_lossy()
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn push_extension(extensions: &mut Vec<&'static CStr>, extension: &'static CStr) {
+        if !extensions.contains(&extension) {
+            extensions.push(extension);
+        }
+    }
+
+    struct ExternalSemaphore {
+        device: ash::Device,
+        raw: vk::Semaphore,
+    }
+
+    impl Drop for ExternalSemaphore {
+        fn drop(&mut self) {
+            unsafe {
+                // SAFETY: This wrapper uniquely owns the semaphore and slots are only dropped
+                // after their WGPU submissions have completed or during device teardown.
+                self.device.destroy_semaphore(self.raw, None);
+            }
+        }
+    }
+
+    struct StagingSlot {
+        target: CudaNv12RenderTarget,
+        buffer: wgpu::Buffer,
+        semaphore: ExternalSemaphore,
+    }
+
+    unsafe impl Send for StagingSlot {}
+
+    struct SlotPool<T> {
+        available: Arc<Mutex<Vec<T>>>,
+    }
+
+    impl<T> Clone for SlotPool<T> {
+        fn clone(&self) -> Self {
+            Self { available: self.available.clone() }
+        }
+    }
+
+    impl<T> SlotPool<T> {
+        fn with_capacity(capacity: usize) -> Self {
+            Self { available: Arc::new(Mutex::new(Vec::with_capacity(capacity))) }
+        }
+
+        fn take(&self) -> Option<T> {
+            self.available.lock().pop()
+        }
+
+        fn put(&self, value: T) {
+            self.available.lock().push(value);
+        }
+    }
+
+    pub(crate) struct CudaRenderer {
+        dims: (u32, u32),
+        device_uuid: [u8; 16],
+        pitch: u32,
+        uv_offset: u64,
+        available: SlotPool<StagingSlot>,
+        current: Option<StagingSlot>,
+        raw_device: ash::Device,
+        raw_queue: vk::Queue,
+    }
+
+    pub(crate) enum UploadResult {
+        Uploaded,
+        Busy,
+    }
+
+    pub(crate) fn mark_selected_path(logged: &mut bool) -> bool {
+        if *logged {
+            return false;
+        }
+        *logged = true;
+        true
+    }
+
+    impl CudaRenderer {
+        pub(crate) fn new(
+            device: &wgpu::Device,
+            frame: &CudaNv12Frame<'_>,
+            dims: (u32, u32),
+        ) -> Result<Self> {
+            let hal = unsafe {
+                // SAFETY: The returned guard is only used while `device` remains live.
+                device
+                    .as_hal::<wgpu::hal::api::Vulkan>()
+                    .ok_or_else(|| anyhow!("WGPU is not using Vulkan"))?
+            };
+            for required in [khr::external_memory_fd::NAME, khr::external_semaphore_fd::NAME] {
+                if !hal.enabled_device_extensions().contains(&required) {
+                    return Err(anyhow!(
+                        "WGPU device did not enable {}",
+                        required.to_string_lossy()
+                    ));
+                }
+            }
+            let device_uuid = vulkan_device_uuid(&hal);
+            if !same_device_uuid(frame.device_uuid(), device_uuid) {
+                return Err(anyhow!("CUDA and Vulkan selected different physical GPUs"));
+            }
+
+            let pitch = align_to(dims.0, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+            let uv_offset = u64::from(pitch) * u64::from(dims.1);
+            let available = SlotPool::with_capacity(STAGING_SLOTS);
+            for _ in 0..STAGING_SLOTS {
+                available.put(create_staging_slot(device, &hal, frame, dims, pitch, uv_offset)?);
+            }
+
+            Ok(Self {
+                dims,
+                device_uuid,
+                pitch,
+                uv_offset,
+                available,
+                current: None,
+                raw_device: hal.raw_device().clone(),
+                raw_queue: hal.raw_queue(),
+            })
+        }
+
+        pub(crate) fn is_compatible(&self, frame: &CudaNv12Frame<'_>, dims: (u32, u32)) -> bool {
+            renderer_compatible(self.dims, self.device_uuid, dims, frame.device_uuid())
+        }
+
+        pub(crate) fn upload(
+            &mut self,
+            frame: &CudaNv12Frame<'_>,
+            queue: &wgpu::Queue,
+            encoder: &mut wgpu::CommandEncoder,
+            y_texture: &wgpu::Texture,
+            uv_texture: &wgpu::Texture,
+        ) -> Result<UploadResult> {
+            if let Some(previous) = self.current.take() {
+                let available = self.available.clone();
+                queue.on_submitted_work_done(move || available.put(previous));
+            }
+
+            let Some(mut slot) = self.available.take() else {
+                return Ok(UploadResult::Busy);
+            };
+            if let Err(error) = frame.copy_to(&mut slot.target) {
+                self.available.put(slot);
+                return Err(error.into());
+            }
+
+            self.wait_for_cuda(&slot.semaphore)?;
+            encoder.copy_buffer_to_texture(
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &slot.buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(self.pitch),
+                        rows_per_image: Some(self.dims.1),
+                    },
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: y_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: self.dims.0,
+                    height: self.dims.1,
+                    depth_or_array_layers: 1,
+                },
+            );
+            encoder.copy_buffer_to_texture(
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &slot.buffer,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: self.uv_offset,
+                        bytes_per_row: Some(self.pitch),
+                        rows_per_image: Some((self.dims.1 + 1) / 2),
+                    },
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: uv_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: (self.dims.0 + 1) / 2,
+                    height: (self.dims.1 + 1) / 2,
+                    depth_or_array_layers: 1,
+                },
+            );
+            self.current = Some(slot);
+            Ok(UploadResult::Uploaded)
+        }
+
+        fn wait_for_cuda(&self, semaphore: &ExternalSemaphore) -> Result<()> {
+            let semaphores = [semaphore.raw];
+            let stages = [vk::PipelineStageFlags::TRANSFER];
+            let submit =
+                vk::SubmitInfo::default().wait_semaphores(&semaphores).wait_dst_stage_mask(&stages);
+            unsafe {
+                // SAFETY: `prepare` runs on WGPU's render thread before its command encoder is
+                // submitted. This empty submission waits on CUDA on the same queue, so the
+                // following WGPU copy is ordered after the device-local CUDA writes.
+                self.raw_device.queue_submit(self.raw_queue, &[submit], vk::Fence::null())?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for CudaRenderer {
+        fn drop(&mut self) {
+            unsafe {
+                // SAFETY: The device is still owned by WGPU while the renderer is dropped.
+                // Waiting here is limited to renderer replacement or application teardown and
+                // guarantees imported CUDA/Vulkan resources are no longer in use.
+                let _ = self.raw_device.device_wait_idle();
+            }
+        }
+    }
+
+    fn create_staging_slot(
+        device: &wgpu::Device,
+        hal: &wgpu::hal::vulkan::Device,
+        frame: &CudaNv12Frame<'_>,
+        dims: (u32, u32),
+        pitch: u32,
+        uv_offset: u64,
+    ) -> Result<StagingSlot> {
+        let chroma_height = (dims.1 + 1) / 2;
+        let buffer_size = uv_offset + u64::from(pitch) * u64::from(chroma_height);
+        let raw_device = hal.raw_device();
+        let raw_instance = hal.shared_instance().raw_instance();
+
+        let mut external_buffer = vk::ExternalMemoryBufferCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
+        let buffer_info = vk::BufferCreateInfo::default()
+            .size(buffer_size)
+            .usage(vk::BufferUsageFlags::TRANSFER_SRC)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .push_next(&mut external_buffer);
+        let raw_buffer = unsafe {
+            // SAFETY: The descriptor is valid and the buffer is cleaned up on every error path.
+            raw_device.create_buffer(&buffer_info, None)?
+        };
+        let requirements = unsafe { raw_device.get_buffer_memory_requirements(raw_buffer) };
+        let memory_type = match find_memory_type(
+            raw_instance,
+            hal.raw_physical_device(),
+            requirements.memory_type_bits,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        ) {
+            Some(memory_type) => memory_type,
+            None => {
+                unsafe { raw_device.destroy_buffer(raw_buffer, None) };
+                return Err(anyhow!("no device-local Vulkan memory type for CUDA staging"));
+            }
+        };
+
+        let mut export_memory = vk::ExportMemoryAllocateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD);
+        let mut dedicated_memory = vk::MemoryDedicatedAllocateInfo::default().buffer(raw_buffer);
+        let allocation_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type)
+            .push_next(&mut export_memory)
+            .push_next(&mut dedicated_memory);
+        let raw_memory = match unsafe { raw_device.allocate_memory(&allocation_info, None) } {
+            Ok(memory) => memory,
+            Err(error) => {
+                unsafe { raw_device.destroy_buffer(raw_buffer, None) };
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = unsafe { raw_device.bind_buffer_memory(raw_buffer, raw_memory, 0) } {
+            unsafe {
+                raw_device.free_memory(raw_memory, None);
+                raw_device.destroy_buffer(raw_buffer, None);
+            }
+            return Err(error.into());
+        }
+
+        let memory_fd_extension = khr::external_memory_fd::Device::new(raw_instance, raw_device);
+        let memory_fd = match unsafe {
+            memory_fd_extension.get_memory_fd(
+                &vk::MemoryGetFdInfoKHR::default()
+                    .memory(raw_memory)
+                    .handle_type(vk::ExternalMemoryHandleTypeFlags::OPAQUE_FD),
+            )
+        } {
+            Ok(fd) => fd,
+            Err(error) => {
+                unsafe {
+                    raw_device.free_memory(raw_memory, None);
+                    raw_device.destroy_buffer(raw_buffer, None);
+                }
+                return Err(error.into());
+            }
+        };
+
+        let mut export_semaphore = vk::ExportSemaphoreCreateInfo::default()
+            .handle_types(vk::ExternalSemaphoreHandleTypeFlags::OPAQUE_FD);
+        let semaphore = match unsafe {
+            raw_device.create_semaphore(
+                &vk::SemaphoreCreateInfo::default().push_next(&mut export_semaphore),
+                None,
+            )
+        } {
+            Ok(semaphore) => semaphore,
+            Err(error) => {
+                drop(unsafe { OwnedFd::from_raw_fd(memory_fd) });
+                unsafe {
+                    raw_device.free_memory(raw_memory, None);
+                    raw_device.destroy_buffer(raw_buffer, None);
+                }
+                return Err(error.into());
+            }
+        };
+        let semaphore_fd_extension =
+            khr::external_semaphore_fd::Device::new(raw_instance, raw_device);
+        let semaphore_fd = match unsafe {
+            semaphore_fd_extension.get_semaphore_fd(
+                &vk::SemaphoreGetFdInfoKHR::default()
+                    .semaphore(semaphore)
+                    .handle_type(vk::ExternalSemaphoreHandleTypeFlags::OPAQUE_FD),
+            )
+        } {
+            Ok(fd) => fd,
+            Err(error) => {
+                drop(unsafe { OwnedFd::from_raw_fd(memory_fd) });
+                unsafe {
+                    raw_device.destroy_semaphore(semaphore, None);
+                    raw_device.free_memory(raw_memory, None);
+                    raw_device.destroy_buffer(raw_buffer, None);
+                }
+                return Err(error.into());
+            }
+        };
+
+        let hal_buffer = unsafe {
+            // SAFETY: The Vulkan buffer is bound to this device's dedicated memory. Ownership
+            // of both is transferred to WGPU by `create_buffer_from_hal` below.
+            wgpu::hal::vulkan::Buffer::from_raw_managed(
+                raw_buffer,
+                raw_memory,
+                0,
+                requirements.size,
+            )
+        };
+        let buffer = unsafe {
+            // SAFETY: `hal_buffer` was created from this exact WGPU device and matches the
+            // descriptor and initialized external allocation.
+            device.create_buffer_from_hal::<wgpu::hal::api::Vulkan>(
+                hal_buffer,
+                &wgpu::BufferDescriptor {
+                    label: Some("NVDEC CUDA Vulkan staging"),
+                    size: buffer_size,
+                    usage: wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                },
+            )
+        };
+
+        let semaphore = ExternalSemaphore { device: raw_device.clone(), raw: semaphore };
+        let target = frame.create_render_target(
+            unsafe { OwnedFd::from_raw_fd(memory_fd) },
+            requirements.size,
+            pitch,
+            uv_offset,
+            unsafe { OwnedFd::from_raw_fd(semaphore_fd) },
+        )?;
+        Ok(StagingSlot { target, buffer, semaphore })
+    }
+
+    fn find_memory_type(
+        instance: &ash::Instance,
+        physical_device: vk::PhysicalDevice,
+        type_bits: u32,
+        required: vk::MemoryPropertyFlags,
+    ) -> Option<u32> {
+        let properties = unsafe {
+            // SAFETY: `physical_device` belongs to `instance`.
+            instance.get_physical_device_memory_properties(physical_device)
+        };
+        properties
+            .memory_types_as_slice()
+            .iter()
+            .enumerate()
+            .find(|(index, memory)| {
+                type_bits & (1 << index) != 0 && memory.property_flags.contains(required)
+            })
+            .map(|(index, _)| index as u32)
+    }
+
+    fn vulkan_device_uuid(device: &wgpu::hal::vulkan::Device) -> [u8; 16] {
+        let mut id = vk::PhysicalDeviceIDProperties::default();
+        let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut id);
+        unsafe {
+            // SAFETY: The physical device and instance are owned by this live WGPU device.
+            device
+                .shared_instance()
+                .raw_instance()
+                .get_physical_device_properties2(device.raw_physical_device(), &mut properties);
+        }
+        id.device_uuid
+    }
+
+    const fn align_to(value: u32, alignment: u32) -> u32 {
+        value.div_ceil(alignment) * alignment
+    }
+
+    fn same_device_uuid(cuda: [u8; 16], vulkan: [u8; 16]) -> bool {
+        cuda == vulkan
+    }
+
+    fn renderer_compatible(
+        renderer_dims: (u32, u32),
+        renderer_uuid: [u8; 16],
+        frame_dims: (u32, u32),
+        frame_uuid: [u8; 16],
+    ) -> bool {
+        renderer_dims == frame_dims && same_device_uuid(renderer_uuid, frame_uuid)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn staging_pitch_uses_wgpu_copy_alignment() {
+            assert_eq!(align_to(1920, 256), 2048);
+            assert_eq!(align_to(2048, 256), 2048);
+        }
+
+        #[test]
+        fn staging_slots_exhaust_and_recycle() {
+            let pool = SlotPool::with_capacity(2);
+            pool.put(1_u8);
+            pool.put(2_u8);
+            assert!(pool.take().is_some());
+            let recycled = pool.take().expect("second staging slot");
+            assert!(pool.take().is_none());
+            pool.put(recycled);
+            assert!(pool.take().is_some());
+        }
+
+        #[test]
+        fn cuda_and_vulkan_must_use_the_same_gpu() {
+            let cuda = [1; 16];
+            assert!(same_device_uuid(cuda, cuda));
+            assert!(!same_device_uuid(cuda, [2; 16]));
+        }
+
+        #[test]
+        fn resolution_changes_require_new_staging_slots() {
+            let uuid = [3; 16];
+            assert!(renderer_compatible((1920, 1080), uuid, (1920, 1080), uuid));
+            assert!(!renderer_compatible((1920, 1080), uuid, (1280, 720), uuid));
+            assert!(!renderer_compatible((1920, 1080), uuid, (1920, 1080), [4; 16]));
+        }
+
+        #[test]
+        fn fallback_selection_logs_only_the_first_path() {
+            let mut logged = false;
+            assert!(mark_selected_path(&mut logged));
+            assert!(!mark_selected_path(&mut logged));
+        }
+
+        #[test]
+        fn cuda_errors_map_to_stable_messages() {
+            assert_eq!(
+                CudaInteropError::ExternalImport.to_string(),
+                "CUDA could not import the Vulkan render target"
+            );
+            assert_eq!(
+                CudaInteropError::Copy.to_string(),
+                "CUDA could not copy the NV12 frame into the render target"
+            );
+        }
     }
 }
 
@@ -1695,7 +2279,21 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         diagnostics_open: Arc::new(AtomicBool::new(true)),
         diagnostics_started: Arc::new(AtomicBool::new(false)),
     };
+    #[cfg(target_os = "linux")]
+    let mut native_options = viewport_aspect::native_options(None);
+    #[cfg(not(target_os = "linux"))]
     let native_options = viewport_aspect::native_options(None);
+    #[cfg(target_os = "linux")]
+    match linux_cuda_video::create_interop_wgpu_setup().await {
+        Ok(setup) => {
+            native_options.wgpu_options.wgpu_setup = egui_wgpu_backend::WgpuSetup::Existing(setup);
+        }
+        Err(error) => {
+            warn!(
+                "CUDA/Vulkan interop device unavailable; native NVDEC frames will use CPU fallback: {error:#}"
+            );
+        }
+    }
     eframe::run_native(
         "LiveKit Video Subscriber",
         native_options,
@@ -1735,6 +2333,16 @@ struct YuvGpuState {
     yuv_layout: u32,
     pending_paint_sample: PendingPaintSampleSlot,
     cpu_upload_logged: bool,
+    #[cfg(target_os = "linux")]
+    cuda_renderer: Option<linux_cuda_video::CudaRenderer>,
+    #[cfg(target_os = "linux")]
+    cuda_renderer_disabled: bool,
+    #[cfg(target_os = "linux")]
+    cuda_import_logged: bool,
+    #[cfg(target_os = "linux")]
+    cuda_import_failed_logged: bool,
+    #[cfg(target_os = "linux")]
+    selected_path_logged: bool,
     #[cfg(target_os = "macos")]
     native_resources: Option<macos_native_video::NativeFrameResources>,
     #[cfg(target_os = "macos")]
@@ -1806,6 +2414,42 @@ impl YuvGpuState {
                 wgpu::BindGroupEntry { binding: 4, resource: self.params_buf.as_entire_binding() },
             ],
         });
+    }
+
+    #[cfg(target_os = "linux")]
+    fn create_nv12_textures(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> (wgpu::Texture, wgpu::Texture, wgpu::TextureView, wgpu::TextureView) {
+        let usage = wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING;
+        let y_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("nvdec_y_plane"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage,
+            view_formats: &[],
+        });
+        let uv_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("nvdec_uv_plane"),
+            size: wgpu::Extent3d {
+                width: (width + 1) / 2,
+                height: (height + 1) / 2,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rg8Unorm,
+            usage,
+            view_formats: &[],
+        });
+        let y_view = y_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let uv_view = uv_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (y_texture, uv_texture, y_view, uv_view)
     }
 
     fn update_params(&mut self, queue: &wgpu::Queue, params: ParamsUniform) {
@@ -2026,6 +2670,16 @@ impl CallbackTrait for YuvPaintCallback {
                 yuv_layout: 0,
                 pending_paint_sample: PendingPaintSampleSlot::new(),
                 cpu_upload_logged: false,
+                #[cfg(target_os = "linux")]
+                cuda_renderer: None,
+                #[cfg(target_os = "linux")]
+                cuda_renderer_disabled: false,
+                #[cfg(target_os = "linux")]
+                cuda_import_logged: false,
+                #[cfg(target_os = "linux")]
+                cuda_import_failed_logged: false,
+                #[cfg(target_os = "linux")]
+                selected_path_logged: false,
                 #[cfg(target_os = "macos")]
                 native_resources: None,
                 #[cfg(target_os = "macos")]
@@ -2069,6 +2723,115 @@ impl CallbackTrait for YuvPaintCallback {
         }
 
         let mut frame_for_cpu_upload = frame_for_upload;
+
+        #[cfg(target_os = "linux")]
+        if let Some((frame, sample)) = frame_for_cpu_upload.take() {
+            let cuda_frame = frame.buffer.as_native().and_then(|native| native.cuda_nv12());
+            if let Some(cuda_frame) = cuda_frame {
+                let mut use_cpu_fallback = state.cuda_renderer_disabled;
+
+                if !use_cpu_fallback {
+                    let renderer_matches = state
+                        .cuda_renderer
+                        .as_ref()
+                        .is_some_and(|renderer| renderer.is_compatible(&cuda_frame, dims));
+                    if !renderer_matches {
+                        if let Some(old_renderer) = state.cuda_renderer.take() {
+                            queue.on_submitted_work_done(move || drop(old_renderer));
+                        }
+                        match linux_cuda_video::CudaRenderer::new(device, &cuda_frame, dims) {
+                            Ok(renderer) => {
+                                let (y_tex, uv_tex, y_view, uv_view) =
+                                    YuvGpuState::create_nv12_textures(device, dims.0, dims.1);
+                                state.y_tex = y_tex;
+                                state.u_tex = uv_tex.clone();
+                                state.v_tex = uv_tex;
+                                state.y_view = y_view;
+                                state.u_view = uv_view.clone();
+                                state.v_view = uv_view;
+                                state.y_tex_w = dims.0;
+                                state.uv_tex_w = (dims.0 + 1) / 2;
+                                state.dims = dims;
+                                state.yuv_layout = 1;
+                                state.cuda_renderer = Some(renderer);
+                                state.recreate_bind_group(device);
+                            }
+                            Err(error) => {
+                                if !state.cuda_import_failed_logged {
+                                    debug!(
+                                        "Unable to initialize CUDA/Vulkan NVDEC rendering; falling back to CPU upload: {error:#}"
+                                    );
+                                    state.cuda_import_failed_logged = true;
+                                }
+                                state.cuda_renderer_disabled = true;
+                                use_cpu_fallback = true;
+                            }
+                        }
+                    }
+                }
+
+                if !use_cpu_fallback {
+                    let y_texture = state.y_tex.clone();
+                    let uv_texture = state.u_tex.clone();
+                    let upload = state
+                        .cuda_renderer
+                        .as_mut()
+                        .expect("CUDA renderer initialized")
+                        .upload(&cuda_frame, queue, _encoder, &y_texture, &uv_texture);
+                    match upload {
+                        Ok(linux_cuda_video::UploadResult::Uploaded) => {
+                            if !state.cuda_import_logged {
+                                if linux_cuda_video::mark_selected_path(
+                                    &mut state.selected_path_logged,
+                                ) {
+                                    info!(
+                                        "Using native NVDEC CUDA-to-Vulkan render path (no CPU frame upload)"
+                                    );
+                                }
+                                state.cuda_import_logged = true;
+                            }
+                            state.update_params(
+                                queue,
+                                ParamsUniform {
+                                    src_w: dims.0,
+                                    src_h: dims.1,
+                                    y_tex_w: state.y_tex_w,
+                                    uv_tex_w: state.uv_tex_w,
+                                    yuv_layout: 1,
+                                    _pad0: 0,
+                                    _pad1: 0,
+                                    _pad2: 0,
+                                },
+                            );
+                            match sample {
+                                Some(sample) => state.pending_paint_sample.store(sample),
+                                None => state.pending_paint_sample.clear(),
+                            }
+                        }
+                        Ok(linux_cuda_video::UploadResult::Busy) => {
+                            debug!("Dropped NVDEC frame because all CUDA/Vulkan staging slots are busy");
+                        }
+                        Err(error) => {
+                            if !state.cuda_import_failed_logged {
+                                debug!(
+                                    "CUDA/Vulkan NVDEC copy failed; falling back to CPU upload: {error:#}"
+                                );
+                                state.cuda_import_failed_logged = true;
+                            }
+                            if let Some(old_renderer) = state.cuda_renderer.take() {
+                                queue.on_submitted_work_done(move || drop(old_renderer));
+                            }
+                            state.cuda_renderer_disabled = true;
+                            frame_for_cpu_upload = Some((frame, sample));
+                        }
+                    }
+                } else {
+                    frame_for_cpu_upload = Some((frame, sample));
+                }
+            } else {
+                frame_for_cpu_upload = Some((frame, sample));
+            }
+        }
 
         #[cfg(target_os = "macos")]
         if let Some((frame, sample)) = frame_for_cpu_upload.take() {
@@ -2150,6 +2913,11 @@ impl CallbackTrait for YuvPaintCallback {
                 state.native_resources = None;
             }
             if !state.cpu_upload_logged {
+                #[cfg(target_os = "linux")]
+                if linux_cuda_video::mark_selected_path(&mut state.selected_path_logged) {
+                    info!("Using CPU I420 upload render path");
+                }
+                #[cfg(not(target_os = "linux"))]
                 info!("Using CPU I420 upload render path");
                 state.cpu_upload_logged = true;
             }

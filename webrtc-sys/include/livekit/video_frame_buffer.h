@@ -38,6 +38,7 @@ class I422Buffer;
 class I444Buffer;
 class I010Buffer;
 class NV12Buffer;
+class CudaNv12RenderTarget;
 }  // namespace livekit_ffi
 
 #ifdef __APPLE__
@@ -221,6 +222,29 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y,
 
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
+
+// NVIDIA CUDA NV12 native-buffer inspection. These return false/zero for all
+// other native-buffer implementations and when NVIDIA codec support is absent.
+bool native_buffer_is_cuda_nv12(const VideoFrameBuffer& buffer);
+uint32_t cuda_nv12_stride(const VideoFrameBuffer& buffer);
+uint64_t cuda_nv12_device_uuid_low(const VideoFrameBuffer& buffer);
+uint64_t cuda_nv12_device_uuid_high(const VideoFrameBuffer& buffer);
+
+// Opaque CUDA import of a Vulkan external-memory buffer and semaphore.
+class CudaNv12RenderTarget {
+ public:
+  virtual ~CudaNv12RenderTarget() = default;
+};
+
+std::unique_ptr<CudaNv12RenderTarget> new_cuda_nv12_render_target(
+    const VideoFrameBuffer& buffer,
+    int memory_fd,
+    uint64_t allocation_size,
+    uint32_t destination_pitch,
+    uint64_t uv_offset,
+    int semaphore_fd);
+bool cuda_nv12_copy_to(const VideoFrameBuffer& buffer,
+                       CudaNv12RenderTarget& target);
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

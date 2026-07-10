@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(target_os = "linux")]
+use std::os::fd::{IntoRawFd, OwnedFd};
 use std::slice;
 
 use cxx::UniquePtr;
@@ -95,6 +97,11 @@ pub struct NativeBuffer {
     sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
 }
 
+#[cfg(target_os = "linux")]
+pub struct CudaNv12RenderTarget {
+    sys_handle: UniquePtr<vfb_sys::ffi::CudaNv12RenderTarget>,
+}
+
 pub struct I420Buffer {
     sys_handle: UniquePtr<vfb_sys::ffi::I420Buffer>,
 }
@@ -164,6 +171,52 @@ impl NativeBuffer {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn cuda_nv12(&self) -> Option<vf::native::CudaNv12Frame<'_>> {
+        vfb_sys::ffi::native_buffer_is_cuda_nv12(&self.sys_handle)
+            .then_some(vf::native::CudaNv12Frame { buffer: self })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn cuda_nv12_stride(&self) -> u32 {
+        vfb_sys::ffi::cuda_nv12_stride(&self.sys_handle)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn cuda_nv12_device_uuid(&self) -> [u8; 16] {
+        let low = vfb_sys::ffi::cuda_nv12_device_uuid_low(&self.sys_handle);
+        let high = vfb_sys::ffi::cuda_nv12_device_uuid_high(&self.sys_handle);
+        let mut uuid = [0; 16];
+        uuid[..8].copy_from_slice(&low.to_ne_bytes());
+        uuid[8..].copy_from_slice(&high.to_ne_bytes());
+        uuid
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn new_cuda_nv12_render_target(
+        &self,
+        memory_fd: OwnedFd,
+        allocation_size: u64,
+        destination_pitch: u32,
+        uv_offset: u64,
+        semaphore_fd: OwnedFd,
+    ) -> Option<CudaNv12RenderTarget> {
+        let sys_handle = vfb_sys::ffi::new_cuda_nv12_render_target(
+            &self.sys_handle,
+            memory_fd.into_raw_fd(),
+            allocation_size,
+            destination_pitch,
+            uv_offset,
+            semaphore_fd.into_raw_fd(),
+        );
+        (!sys_handle.is_null()).then_some(CudaNv12RenderTarget { sys_handle })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn copy_cuda_nv12_to(&self, target: &mut CudaNv12RenderTarget) -> bool {
+        vfb_sys::ffi::cuda_nv12_copy_to(&self.sys_handle, target.sys_handle.pin_mut())
     }
 
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
