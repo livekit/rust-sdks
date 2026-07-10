@@ -171,10 +171,12 @@ impl DataTrackOptions {
         Self { name: name.into(), schema: None, frame_encoding: None }
     }
 
+    /// Sets the schema associated with frames sent on the track.
     pub fn with_schema(self, schema: DataTrackSchemaId) -> Self {
         Self { schema: Some(schema), ..self }
     }
 
+    /// Sets the encoding of frames sent on the track.
     pub fn with_frame_encoding(self, encoding: DataTrackFrameEncoding) -> Self {
         Self { frame_encoding: Some(encoding), ..self }
     }
