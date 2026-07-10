@@ -321,19 +321,19 @@ impl Manager {
             let result: StreamResult<(u64, Bytes)> = {
                 match decompressor.push(&chunk.content).await {
                     Ok(decompressed) => {
-                        let produced = decompressed.len() as u64;
+                        let uncompressed_byte_count = decompressed.len() as u64;
                         let yielded = if is_text {
                             decompressor.reframe_text(decompressed)
                         } else {
                             Bytes::from(decompressed)
                         };
-                        Ok((produced, yielded))
+                        Ok((uncompressed_byte_count, yielded))
                     }
                     Err(error) => Err(error),
                 }
             };
 
-            let (produced, to_yield) = match result {
+            let (uncompressed_byte_count, to_yield) = match result {
                 Ok(value) => value,
                 Err(error) => {
                     inner.close_stream_with_error(&id, error);
@@ -342,7 +342,7 @@ impl Manager {
             };
 
             // Count decompressed bytes against the (uncompressed) total length.
-            descriptor.progress.bytes_processed += produced;
+            descriptor.progress.bytes_processed += uncompressed_byte_count;
             if matches!(descriptor.progress.bytes_total, Some(total) if descriptor.progress.bytes_processed > total)
             {
                 inner.close_stream_with_error(&id, StreamError::LengthExceeded);
