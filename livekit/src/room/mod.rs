@@ -2348,6 +2348,7 @@ async fn incoming_data_stream_task(
                 }
             },
             _ = close_rx.recv() => {
+                _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);
                 break;
             }
         }
