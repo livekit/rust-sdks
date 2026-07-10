@@ -208,6 +208,7 @@ def main():
             "present": sorted(present.items()), "missing": [],
             "changeset_content": "",
         })
+        return  # emit calls sys.exit, but guard against falling through
 
     emit(detect(meta, knope_packages, changed_files, present))
 
