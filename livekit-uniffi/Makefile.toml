@@ -20,6 +20,7 @@ TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
 NPM_NAME = "@livekit/uniffi"
 DART_PACKAGE_NAME = "livekit_uniffi"
+GO_MODULE = "github.com/livekit/livekit-uniffi-go"
 
 # Per-release directory holding the cdylib archives published by
 # .github/workflows/uniffi-cdylib.yml. Downloaders append
@@ -173,6 +174,7 @@ dependencies = [
     "bindgen-kotlin",
     "bindgen-python",
     "bindgen-dart",
+    "bindgen-go",
 ]
 
 # MARK: - Kotlin
@@ -743,3 +745,59 @@ description = "Build a consumable Dart package with bindings, hook, and (dev) na
 # See bindgen-dart: keep symbols so library-mode bindgen can read metadata.
 env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "dart-package-flow"
+
+# MARK: - Go
+
+[tasks.bindgen-go]
+description = "Generate Go bindings"
+env = { LANG = "go", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "bindgen-go-flow"
+
+[tasks.bindgen-go-flow]
+private = true
+dependencies = ["build", "locate-lib"]
+install_crate = { crate_name = "uniffi-bindgen-go", binary = "uniffi-bindgen-go", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/NordSecurity/uniffi-bindgen-go", "--tag", "v0.7.1+v0.31.0", "uniffi-bindgen-go"]
+command = "uniffi-bindgen-go"
+args = ["--library", "${LIB_PATH}", "--out-dir", "${PACKAGES_DIR}/${LANG}"]
+
+[tasks.go-generate-manifest]
+private = true
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/go.mod.tera", "-o", "${PACKAGES_DIR}/${LANG}/go.mod"]
+
+[tasks.go-copy-link-file]
+private = true
+script_runner = "@shell"
+script = """
+cp ${SUPPORT_DIR}/${LANG}/link.go ${PACKAGES_DIR}/${LANG}/livekit_uniffi/link.go
+"""
+
+[tasks.go-copy-tests]
+private = true
+script_runner = "@shell"
+script = """
+cp ${SUPPORT_DIR}/${LANG}/test/*_test.go ${PACKAGES_DIR}/${LANG}/livekit_uniffi/
+"""
+
+[tasks.go-copy-lib]
+private = true
+script_runner = "@shell"
+script = """
+cp ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/
+"""
+
+[tasks.go-package-flow]
+private = true
+dependencies = [
+    "bindgen-go",
+    "go-generate-manifest",
+    "go-copy-link-file",
+    "go-copy-tests",
+    "go-copy-lib",
+]
+
+[tasks.go-package]
+description = "Build a consumable Go module with bindings, link flags, and (dev) native lib"
+env = { LANG = "go", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "go-package-flow"
