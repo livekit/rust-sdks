@@ -135,22 +135,20 @@ impl Manager {
                 &options,
                 stream_id.clone(),
                 Some(total_length),
-                Some(text.as_bytes().to_vec()),
+                Some(text_bytes.to_vec()),
                 CompressionType::None,
             )
         };
 
+        let proto_header = header.clone().into();
+        if eligibility.inline
+            && options.attached_stream_ids.is_empty()
+            && header_packet_fits(&proto_header, &options.destination_identities)
         {
-            let proto_header = header.clone().into();
-            if eligibility.inline
-                && options.attached_stream_ids.is_empty()
-                && header_packet_fits(&proto_header, &options.destination_identities)
-            {
-                let packet =
-                    RawStream::create_header_packet(proto_header, options.destination_identities);
-                RawStream::send_packet(&self.packet_tx, packet).await?;
-                return Ok(TextStreamInfo::from_headers(header, text_header));
-            }
+            let packet =
+                RawStream::create_header_packet(proto_header, options.destination_identities);
+            RawStream::send_packet(&self.packet_tx, packet).await?;
+            return Ok(TextStreamInfo::from_headers(header, text_header));
         }
 
         // 2/3. Chunked, compressed when eligible else uncompressed.
@@ -165,7 +163,8 @@ impl Manager {
         let info = TextStreamInfo::from_headers(header, text_header);
         let mut stream = RawStream::open(open_options).await?;
         if use_compression {
-            stream.write_raw_chunks(maybe_compressed.collect().await?).await?;
+            let compressed_bytes = maybe_compressed.collect().await?;
+            stream.write_raw_chunks(compressed_bytes).await?;
         } else {
             for chunk in text_bytes.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
                 stream.write_chunk(chunk).await?;
@@ -233,16 +232,15 @@ impl Manager {
                 CompressionType::None,
             )
         };
+
+        let proto_header = header.clone().into();
+        if eligibility.inline
+            && header_packet_fits(&proto_header, &options.destination_identities)
         {
-            let proto_header = header.clone().into();
-            if eligibility.inline
-                && header_packet_fits(&proto_header, &options.destination_identities)
-            {
-                let packet =
-                    RawStream::create_header_packet(proto_header, options.destination_identities);
-                RawStream::send_packet(&self.packet_tx, packet).await?;
-                return Ok(ByteStreamInfo::from_headers(header, byte_header));
-            }
+            let packet =
+                RawStream::create_header_packet(proto_header, options.destination_identities);
+            RawStream::send_packet(&self.packet_tx, packet).await?;
+            return Ok(ByteStreamInfo::from_headers(header, byte_header));
         }
 
         // 2/3. Chunked, compressed when eligible else uncompressed.
@@ -257,7 +255,8 @@ impl Manager {
         let info = ByteStreamInfo::from_headers(header, byte_header);
         let mut stream = RawStream::open(open_options).await?;
         if use_compression {
-            stream.write_raw_chunks(maybe_compressed.collect().await?).await?;
+            let compressed_bytes = maybe_compressed.collect().await?;
+            stream.write_raw_chunks(compressed_bytes).await?;
         } else {
             stream.write_raw_chunks(bytes).await?;
         }
