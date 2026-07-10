@@ -1312,7 +1312,7 @@ fn on_data_track_stream_read(
     Ok(stream.read(request))
 }
 
-#[allow(clippy::field_reassign_with_default)] // Avoid uggly format
+#[allow(clippy::field_reassign_with_default)] // Avoid ugly format
 pub fn handle_request(
     server: &'static FfiServer,
     request: proto::FfiRequest,

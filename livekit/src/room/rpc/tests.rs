@@ -753,7 +753,7 @@ async fn test_v2_handler_unsupported_method() {
 
     let reader = make_text_reader(
         "payload",
-        v2_request_attrs("req-unsup", "nonexistent", 5000),
+        v2_request_attrs("req-unsupported", "nonexistent", 5000),
         RPC_REQUEST_TOPIC,
     );
 

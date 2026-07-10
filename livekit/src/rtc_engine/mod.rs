@@ -245,7 +245,7 @@ struct EngineHandle {
 
 struct EngineInner {
     // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection
-    // factory accross multiple Rtc sessions
+    // factory across multiple Rtc sessions
     #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
     engine_tx: EngineEmitter,
@@ -882,9 +882,9 @@ impl EngineInner {
         });
     }
 
-    /// Runned every time the PeerConnection or the SignalClient is closed
+    /// Run every time the PeerConnection or the SignalClient is closed
     /// We first try to resume the connection, if it fails, we start a full reconnect.
-    /// NOTE: The reconnect_task must be canncellation safe
+    /// NOTE: The reconnect_task must be cancellation safe
     async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
         // Get the latest connection info from the signal_client (including the refreshed token
         // because the initial join token may have expired)
@@ -915,7 +915,7 @@ impl EngineInner {
             };
 
             if is_closed {
-                return Err(EngineError::Connection("attempt canncelled, engine is closed".into()));
+                return Err(EngineError::Connection("attempt cancelled, engine is closed".into()));
             }
 
             if full_reconnect {

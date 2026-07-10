@@ -134,7 +134,7 @@ impl Display for DataTrackSid {
 impl fake::Dummy<fake::Faker> for DataTrackSid {
     fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
         const BASE_57_ALPHABET: &[u8; 57] =
-            b"23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+            b"23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"; // cspell:disable-line
         let random_id: String = (0..12)
             .map(|_| {
                 let idx = rng.random_range(0..BASE_57_ALPHABET.len());

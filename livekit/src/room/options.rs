@@ -274,7 +274,7 @@ pub fn compute_video_encodings(
     into_rtp_encodings(width, height, &[initial_preset])
 }
 
-/// Return an appropriate VideoEncdoding for the specified resolution based on our presets
+/// Return an appropriate VideoEncoding for the specified resolution based on our presets
 pub fn compute_appropriate_encoding(
     is_screenshare: bool,
     width: u32,
@@ -534,7 +534,7 @@ pub mod screenshare {
     pub const PRESETS: &[VideoPreset] =
         &[H360_FPS3, H720_FPS5, H720_FPS15, H1080_FPS15, H1080_FPS30];
 
-    /// Only one additional layer for screenshares. (Prioritize quality)
+    /// Only one additional layer for screen sharing. (Prioritize quality)
     pub fn compute_default_simulcast_preset(initial: &VideoPreset) -> VideoPreset {
         const SCALE_DOWN_FACTOR: u32 = 2;
         const FPS: f64 = 3.0;

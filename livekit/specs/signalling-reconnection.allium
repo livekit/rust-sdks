@@ -152,7 +152,7 @@ entity SignalConnection {
         connected -> closed          -- clean / local close
         lost -> reconnecting         -- engine drives the resume
         lost -> closed               -- server Disconnect / give up
-        reconnecting -> connected    -- resume finalised (MarkReconnected)
+        reconnecting -> connected    -- resume finalized (MarkReconnected)
         reconnecting -> lost         -- resume severed again; engine will retry
         reconnecting -> closed       -- close during resume
         terminal: closed

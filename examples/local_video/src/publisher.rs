@@ -1037,6 +1037,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         *frame_format,
                         args.fps,
                     );
+                    // Nokhwa has misspelled method in its public API
+                    // cspell:disable-next-line
                     match camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
                         RequestedFormatType::Exact(wanted),
                     )) {

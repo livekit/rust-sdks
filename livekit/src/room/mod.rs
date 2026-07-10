@@ -1566,7 +1566,7 @@ impl RoomSession {
 
     fn handle_signal_resumed(
         self: &Arc<Self>,
-        _reconnect_repsonse: proto::ReconnectResponse,
+        _reconnect_response: proto::ReconnectResponse,
         tx: oneshot::Sender<()>,
     ) {
         livekit_runtime::spawn({
@@ -1611,7 +1611,7 @@ impl RoomSession {
         // we need to update the track subscription permissions after reconnection
         let local_participant = self.local_participant.clone();
 
-        // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
+        // Spawning a new task because we need to wait for the RtcEngine to close the reconnection
         // lock.
         livekit_runtime::spawn({
             let session = self.clone();

@@ -70,7 +70,7 @@ pub struct RoomInner {
     dtmf_tx: mpsc::UnboundedSender<FfiSipDtmfPacket>,
 
     // local tracks just published, it is used to synchronize the publish events:
-    // - make sure LocalTrackPublised is sent *after* the PublishTrack callback)
+    // - make sure LocalTrackPublished is sent *after* the PublishTrack callback)
     pending_published_tracks: Mutex<HashSet<TrackSid>>,
     // Used to wait for the LocalTrackUnpublished event
     pending_unpublished_tracks: Mutex<HashSet<TrackSid>>,

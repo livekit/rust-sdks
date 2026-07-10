@@ -441,6 +441,8 @@ pub mod dictionaries {
         pub encoder_implementation: String,
         pub power_efficient_encoder: bool,
         pub active: bool,
+        // TODO: this should be renamed to correct spelling
+        // cspell: disable-next-line
         pub scalibility_mode: String,
     }
 

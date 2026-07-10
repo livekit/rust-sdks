@@ -450,6 +450,7 @@ impl From<rtc::dictionaries::OutboundRtpStreamStats> for proto::OutboundRtpStrea
             encoder_implementation: value.encoder_implementation,
             power_efficient_encoder: value.power_efficient_encoder,
             active: value.active,
+            // cspell: disable-next-line
             scalability_mode: value.scalibility_mode,
         }
     }

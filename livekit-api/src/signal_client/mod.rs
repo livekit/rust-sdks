@@ -1242,7 +1242,7 @@ mod tests {
         let request = String::from_utf8_lossy(&request);
 
         // Header names are case-insensitive per RFC 9110; reqwest emits the
-        // canonical `Authorization` but we normalise both for robustness.
+        // canonical `Authorization` but we normalize both for robustness.
         assert!(
             request.to_lowercase().contains("authorization: bearer test-bearer-token"),
             "validate() must attach the access token as a Bearer header; request was:\n{}",

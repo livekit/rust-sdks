@@ -133,7 +133,17 @@ impl PeerTransport {
         Ok(())
     }
 
+    #[deprecated(note = "use `create_answer` instead")]
+    // cspell:disable-next-line
     pub async fn create_anwser(
+        &self,
+        offer: SessionDescription,
+        options: AnswerOptions,
+    ) -> EngineResult<SessionDescription> {
+        self.create_answer(offer, options).await
+    }
+
+    pub async fn create_answer(
         &self,
         offer: SessionDescription,
         options: AnswerOptions,

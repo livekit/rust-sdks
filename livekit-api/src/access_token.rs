@@ -70,7 +70,7 @@ pub struct VideoGrants {
     pub can_publish_data: bool,
 
     // TrackSource types that a participant may publish.
-    // When set, it supercedes CanPublish. Only sources explicitly set here can be published
+    // When set, it supersedes CanPublish. Only sources explicitly set here can be published
     #[serde(default)]
     pub can_publish_sources: Vec<String>, // keys keep track of each source
 
@@ -328,8 +328,8 @@ mod tests {
 
     use super::{AccessToken, Claims, TokenVerifier, VideoGrants};
 
-    const TEST_API_KEY: &str = "myapikey";
-    const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";
+    const TEST_API_KEY: &str = "myapikey"; // cspell:disable-line
+    const TEST_API_SECRET: &str = "thiskeyistotallyunsafe"; // cspell:disable-line
     const TEST_TOKEN: &str = include_str!("test_token.txt");
 
     #[test]
@@ -430,7 +430,7 @@ mod tests {
         assert!(claims.video.room_join);
 
         let parts: Vec<&str> = token.split('.').collect();
-        let malformed_token = format!("{}.{}.wrongsignature", parts[0], parts[1]);
+        let malformed_token = format!("{}.{}.wrongsignature", parts[0], parts[1]); // cspell:disable-line
 
         let claims = Claims::from_unverified(&malformed_token)
             .expect("Failed to parse token with wrong signature");

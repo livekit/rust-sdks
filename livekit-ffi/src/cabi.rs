@@ -24,7 +24,7 @@ use crate::{
     FfiError, FfiHandleId, FFI_SERVER, INVALID_HANDLE,
 };
 
-/// # SAFTEY: The "C" callback must be threadsafe and not block
+/// # SAFETY: The "C" callback must be threadsafe and not block
 pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 
 /// # Safety

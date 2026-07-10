@@ -36,7 +36,7 @@ pub enum FfiError {
     InvalidRequest(Cow<'static, str>),
 }
 
-/// # SAFTEY: The "C" callback must be threadsafe and not block
+/// # SAFETY: The "C" callback must be threadsafe and not block
 pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 pub type FfiResult<T> = Result<T, FfiError>;
 pub type FfiHandleId = u64;

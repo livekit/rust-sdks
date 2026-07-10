@@ -131,7 +131,7 @@ func base64URL(_ json: String) -> String {
 }
 let header = base64URL(#"{"alg":"HS256","typ":"JWT"}"#)
 let payload = base64URL(#"{"exp":4102444800,"iss":"demo-key","sub":"alice","name":"Alice"}"#)
-let token = "\(header).\(payload).c2lnbmF0dXJl"
+let token = "\(header).\(payload).c2lnbmF0dXJl" // cspell:disable-line
 
 let response = TokenSourceResponse(serverURL: URL(string: "wss://example.livekit.cloud")!,
                                    participantToken: token)

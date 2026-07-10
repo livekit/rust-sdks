@@ -105,7 +105,7 @@ impl RegionUrlProvider {
             Cached::Miss => None,
         };
 
-        // Single-flight: serialise concurrent fetches for the same host so they
+        // Single-flight: serialize concurrent fetches for the same host so they
         // collapse into one network request.
         let host_lock = fetch_lock(&host);
         let _guard = host_lock.lock().await;

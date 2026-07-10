@@ -190,7 +190,7 @@ fn attempts_gating_and_timeout_guard() {
     assert_eq!(config(true, false).attempts(Some("myproject.livekit.io"), ok), 1);
     assert_eq!(config(true, false).attempts(Some("example.com"), ok), 1);
     assert_eq!(config(true, false).attempts(Some("127.0.0.1"), ok), 1);
-    assert_eq!(config(true, false).attempts(Some("notlivekit.cloud"), ok), 1);
+    assert_eq!(config(true, false).attempts(Some("not-livekit.cloud"), ok), 1);
 
     // force bypasses the cloud-host check; disabled never fails over.
     assert_eq!(config(true, true).attempts(Some("127.0.0.1"), ok), MAX_ATTEMPTS);

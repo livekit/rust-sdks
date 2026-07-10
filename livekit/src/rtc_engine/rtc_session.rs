@@ -447,7 +447,7 @@ impl SessionParticipantInfo {
 /// This struct holds a WebRTC session
 /// The session changes at every reconnection
 ///
-/// RTCSession is also responsable for the signaling and the negotation
+/// RTCSession is also responsible for the signaling and the negotiation
 pub struct RtcSession {
     inner: Arc<SessionInner>,
     handle: Mutex<Option<SessionHandle>>,
@@ -1321,7 +1321,7 @@ impl SessionInner {
                     .subscriber_pc
                     .as_ref()
                     .unwrap()
-                    .create_anwser(offer_sdp, AnswerOptions::default())
+                    .create_answer(offer_sdp, AnswerOptions::default())
                     .await?;
 
                 self.signal_client
@@ -1764,12 +1764,12 @@ impl SessionInner {
         let (tx, rx) = oneshot::channel();
         let cid = req.cid.clone();
         {
-            let mut pendings_tracks = self.pending_tracks.lock();
-            if pendings_tracks.contains_key(&req.cid) {
+            let mut pending_tracks = self.pending_tracks.lock();
+            if pending_tracks.contains_key(&req.cid) {
                 Err(EngineError::Internal("track already published".into()))?;
             }
 
-            pendings_tracks.insert(cid.clone(), tx);
+            pending_tracks.insert(cid.clone(), tx);
         }
 
         self.signal_client.send(proto::signal_request::Message::AddTrack(req)).await;
@@ -2094,7 +2094,7 @@ impl SessionInner {
         })?
     }
 
-    /// This reconnection if more seemless compared to the full reconnection implemented in
+    /// This reconnection if more seamless compared to the full reconnection implemented in
     /// ['RTCEngine']
     async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
         let reconnect_response = self.signal_client.restart().await?;

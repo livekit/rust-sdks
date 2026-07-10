@@ -25,7 +25,7 @@ macro_rules! enum_dispatch {
         }
     };
 
-    // Create the function and extract self fron the $args tt (little hack)
+    // Create the function and extract self from the $args tt (little hack)
     (@fnc [$($variant:ident),+]: $vis:vis fn $fnc:ident($self:ident: $sty:ty $(, $arg:ident: $t:ty)*) -> $ret:ty) => {
         #[inline]
         $vis fn $fnc($self: $sty, $($arg: $t),*) -> $ret {

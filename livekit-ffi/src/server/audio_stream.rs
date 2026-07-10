@@ -170,7 +170,7 @@ impl FfiAudioStream {
             _ => return Err(FfiError::InvalidRequest("unsupported audio stream type".into())),
         }?;
 
-        // Store AudioStreamInfothe new audio stream and return the info
+        // Store AudioStreamInfo the new audio stream and return the info
         let info = proto::AudioStreamInfo::from(&audio_stream);
         server.store_handle(handle_id, audio_stream);
 

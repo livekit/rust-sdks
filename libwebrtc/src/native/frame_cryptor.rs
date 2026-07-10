@@ -257,7 +257,7 @@ impl From<sys_fc::ffi::Algorithm> for EncryptionAlgorithm {
         match value {
             sys_fc::ffi::Algorithm::AesGcm => Self::AesGcm,
             sys_fc::ffi::Algorithm::AesCbc => Self::AesCbc,
-            _ => panic!("unknown frame cyrptor Algorithm"),
+            _ => panic!("unknown frame cryptor Algorithm"),
         }
     }
 }
@@ -281,7 +281,7 @@ impl From<sys_fc::ffi::FrameCryptionState> for EncryptionState {
             sys_fc::ffi::FrameCryptionState::MissingKey => Self::MissingKey,
             sys_fc::ffi::FrameCryptionState::KeyRatcheted => Self::KeyRatcheted,
             sys_fc::ffi::FrameCryptionState::InternalError => Self::InternalError,
-            _ => panic!("unknown frame cyrptor FrameCryptionState"),
+            _ => panic!("unknown frame cryptor FrameCryptionState"),
         }
     }
 }
