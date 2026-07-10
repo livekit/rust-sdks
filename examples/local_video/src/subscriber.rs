@@ -401,6 +401,12 @@ mod linux_cuda_video {
 
     pub(crate) async fn create_interop_wgpu_setup() -> Result<egui_wgpu_backend::WgpuSetupExisting>
     {
+        let requested_backends = wgpu::Backends::VULKAN.with_env();
+        if !interop_backend_enabled(requested_backends) {
+            return Err(anyhow!(
+                "WGPU_BACKEND does not include Vulkan; CUDA interoperability is disabled"
+            ));
+        }
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN,
             flags: wgpu::InstanceFlags::from_build_config().with_env(),
@@ -488,6 +494,10 @@ mod linux_cuda_video {
         }
     }
 
+    fn interop_backend_enabled(backends: wgpu::Backends) -> bool {
+        backends.contains(wgpu::Backends::VULKAN)
+    }
+
     struct ExternalSemaphore {
         device: ash::Device,
         raw: vk::Semaphore,
@@ -509,6 +519,8 @@ mod linux_cuda_video {
         semaphore: ExternalSemaphore,
     }
 
+    // SAFETY: A slot uniquely owns its CUDA import and Vulkan resources. It is moved to a
+    // completion callback only after submission and is not accessed again until recycled.
     unsafe impl Send for StagingSlot {}
 
     struct SlotPool<T> {
@@ -946,6 +958,12 @@ mod linux_cuda_video {
             let mut logged = false;
             assert!(mark_selected_path(&mut logged));
             assert!(!mark_selected_path(&mut logged));
+        }
+
+        #[test]
+        fn non_vulkan_backend_selects_cpu_fallback() {
+            assert!(interop_backend_enabled(wgpu::Backends::VULKAN));
+            assert!(!interop_backend_enabled(wgpu::Backends::GL));
         }
 
         #[test]
