@@ -307,7 +307,9 @@ SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { e
 [tasks.swift-xcframework]
 private = true
 install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "f94e76675b9524e71be028c4b03a51163d6a5c28"]
+# Multi-crate framework fix, on the fork's `fix/multi-crate-framework` branch
+# (open upstream as antoniusnaumann/cargo-swift#101).
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "439269c4ff5097bcca7a0a7588f1adebd95edc06"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
@@ -329,8 +331,7 @@ $platform_flags \
 --lib-type dynamic \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 --exclude-arch x86_64-apple-tvos \
-${SWIFT_RELEASE_FLAG} \
-${SWIFT_DSYMS_FLAG}
+${SWIFT_RELEASE_FLAG}
 """
 
 # Print a size breakdown of the iPhone-arm64 framework binary (the slice that
@@ -464,6 +465,24 @@ mkdir -p "${out_dir}"
 mv "${SPM_NAME}" "${out_dir}"
 """
 
+# Post-generation Swift workarounds for issues cargo-swift / the templates don't handle.
+# Currently: the `Bytes` custom type is registered in both crates, so uniffi emits its
+# converter in both component Swift files, which collide in one module ("invalid
+# redeclaration of 'Bytes'"). Drop the duplicate from livekit_datatrack.swift.
+# Upstream: https://github.com/mozilla/uniffi-rs/issues/2933. Idempotent.
+[tasks.swift-workarounds]
+private = true
+script_runner = "@shell"
+script = '''
+file="${PACKAGES_DIR}/swift/${SPM_NAME}/Sources/${SPM_NAME}/livekit_datatrack.swift"
+if [ ! -f "$file" ]; then
+  echo "swift-workarounds: $file not found, skipping"
+  exit 0
+fi
+perl -0pi -e 's{public typealias Bytes = Data.*?public func FfiConverterTypeBytes_lower\(_ value: Bytes\) -> RustBuffer \{\n    return FfiConverterTypeBytes\.lower\(value\)\n\}}{// cargo-make swift-workarounds: duplicate Bytes converter removed (kept in livekit_uniffi.swift)}s' "$file"
+echo "swift-workarounds: ensured single Bytes converter in $file"
+'''
+
 [tasks.swift-package-flow]
 private = true
 dependencies = [
@@ -472,7 +491,8 @@ dependencies = [
     "swift-check-size",
     "swift-zip-xcframework",
     "swift-generate-manifest",
-    "swift-move-to-packages"
+    "swift-move-to-packages",
+    "swift-workarounds"
 ]
 
 [tasks.swift-package]

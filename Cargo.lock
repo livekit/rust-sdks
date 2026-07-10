@@ -4032,6 +4032,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
+ "uniffi",
 ]
 
 [[package]]
@@ -4090,12 +4091,18 @@ dependencies = [
 name = "livekit-uniffi"
 version = "0.1.4"
 dependencies = [
+ "bytes",
  "camino",
+ "futures-util",
  "livekit-api",
+ "livekit-datatrack",
  "livekit-protocol",
  "log",
  "once_cell",
+ "prost 0.12.6",
+ "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "uniffi",
  "uniffi-dart",
 ]
