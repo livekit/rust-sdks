@@ -17,6 +17,8 @@
 mod incoming;
 mod info;
 mod outgoing;
+#[cfg(any(test, feature = "test-utils"))]
+mod test_utils;
 mod types;
 mod utf8_chunk;
 mod utils;
@@ -49,4 +51,7 @@ pub mod backend {
     pub mod outgoing {
         pub use crate::outgoing::manager::*;
     }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub use crate::test_utils::*;
 }
