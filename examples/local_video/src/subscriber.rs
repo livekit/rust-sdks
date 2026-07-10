@@ -419,6 +419,9 @@ struct Args {
 }
 
 struct SharedYuv {
+    room_name: String,
+    self_identity: String,
+    remote_identity: Option<String>,
     width: u32,
     height: u32,
     codec: String,
@@ -835,6 +838,9 @@ mod tests {
     #[test]
     fn subscriber_diagnostics_show_status_without_timing() {
         let shared = Arc::new(Mutex::new(SharedYuv {
+            room_name: "video-room".to_string(),
+            self_identity: "viewer".to_string(),
+            remote_identity: Some("publisher".to_string()),
             width: 1280,
             height: 720,
             codec: "H264".to_string(),
@@ -846,10 +852,17 @@ mod tests {
             Arc::new(Mutex::new(SimulcastState { available: true, ..Default::default() }));
         let subscriber_timing = SubscriberTimingHandle::new();
 
-        let lines = subscriber_diagnostics_lines(&shared, &simulcast, false, &subscriber_timing)
-            .expect("diagnostics should render");
+        let lines = subscriber_diagnostics_lines(&shared, &simulcast, false, &subscriber_timing);
 
-        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC 1.2mbps Simulcast"]);
+        assert_eq!(
+            lines,
+            vec![
+                "Room: video-room",
+                "Self Identity: viewer",
+                "Remote Identity: publisher",
+                "1280x720 29.6fps H264 NVDEC 1.2mbps Simulcast",
+            ]
+        );
     }
 }
 
@@ -915,6 +928,7 @@ async fn handle_track_subscribed(
     {
         let mut s = shared.lock();
         s.codec = codec;
+        s.remote_identity = Some(participant.identity().to_string());
     }
 
     let mut timing_events = video_track.subscribe_timing_events();
@@ -1113,6 +1127,7 @@ fn clear_hud_and_simulcast(
         s.codec_implementation.clear();
         s.bitrate_mbps = None;
         s.fps = 0.0;
+        s.remote_identity = None;
     }
     frame_slot.clear();
     channel_history.lock().clear();
@@ -1127,33 +1142,43 @@ fn subscriber_diagnostics_lines(
     simulcast: &Arc<Mutex<SimulcastState>>,
     include_timing: bool,
     subscriber_timing: &SubscriberTimingHandle,
-) -> Option<Vec<String>> {
-    let status_line = {
+) -> Vec<String> {
+    let (mut lines, status_line) = {
         let s = shared.lock();
-        if s.width == 0 || s.height == 0 {
-            return None;
-        }
-
-        let simulcast_enabled = simulcast.lock().available;
-        video_status_line(
-            s.width,
-            s.height,
-            s.fps,
-            &s.codec,
-            &s.codec_implementation,
-            s.bitrate_mbps,
-            simulcast_enabled,
-        )
+        let lines = vec![
+            format!("Room: {}", s.room_name),
+            format!("Self Identity: {}", s.self_identity),
+            format!("Remote Identity: {}", s.remote_identity.as_deref().unwrap_or("--")),
+        ];
+        let status_line = (s.width != 0 && s.height != 0).then(|| {
+            let simulcast_enabled = simulcast.lock().available;
+            video_status_line(
+                s.width,
+                s.height,
+                s.fps,
+                &s.codec,
+                &s.codec_implementation,
+                s.bitrate_mbps,
+                simulcast_enabled,
+            )
+        });
+        (lines, status_line)
     };
 
-    let mut lines = vec![status_line];
-    if include_timing {
+    let has_video = status_line.is_some();
+    if let Some(status_line) = status_line {
+        lines.push(status_line);
+    } else {
+        lines.push("Waiting for video...".to_string());
+    }
+
+    if has_video && include_timing {
         if let Some(mut timing_lines) = subscriber_timing.display_overlay_lines(Instant::now()) {
             lines.append(&mut timing_lines);
         }
     }
 
-    Some(lines)
+    lines
 }
 
 /// Render a live line graph of the six decoded channel values.
@@ -1263,26 +1288,35 @@ fn paint_subscriber_diagnostics(
     subscriber_timing: &SubscriberTimingHandle,
     channel_history: &VecDeque<[f32; user_data::NUM_CHANNELS]>,
 ) {
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        ui.heading("Subscriber Diagnostics");
-        match subscriber_diagnostics_lines(shared, simulcast, include_timing, subscriber_timing) {
-            Some(lines) => {
-                ui.add(
-                    egui::Label::new(egui::RichText::new(lines.join("\n")).monospace().size(12.0))
-                        .extend(),
+    egui::Frame::NONE.inner_margin(egui::Margin::same(DIAGNOSTICS_CONTENT_PADDING)).show(
+        ui,
+        |ui| {
+            ui.visuals_mut().override_text_color = Some(egui::Color32::WHITE);
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let lines = subscriber_diagnostics_lines(
+                    shared,
+                    simulcast,
+                    include_timing,
+                    subscriber_timing,
                 );
-            }
-            None => {
-                ui.label("Waiting for video...");
-            }
-        }
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(lines.join("\n"))
+                            .monospace()
+                            .size(12.0)
+                            .color(egui::Color32::WHITE),
+                    )
+                    .extend(),
+                );
 
-        if !channel_history.is_empty() {
-            ui.separator();
-            paint_channel_graph(ui, channel_history);
-        }
-        paint_simulcast_controls(ui, simulcast);
-    });
+                if !channel_history.is_empty() {
+                    ui.separator();
+                    paint_channel_graph(ui, channel_history);
+                }
+                paint_simulcast_controls(ui, simulcast);
+            });
+        },
+    );
 }
 
 fn handle_track_unsubscribed(
@@ -1341,6 +1375,9 @@ fn handle_track_unpublished(
 const CHANNEL_HISTORY_LEN: usize = 300;
 /// Diagnostics are intentionally slower than video rendering so UI work cannot pace video frames.
 const DIAGNOSTICS_REPAINT_INTERVAL: Duration = Duration::from_millis(100);
+const DIAGNOSTICS_CONTENT_PADDING: i8 = 10;
+const DIAGNOSTICS_WINDOW_SIZE: [f32; 2] = [400.0, 272.0];
+const DIAGNOSTICS_WINDOW_MIN_SIZE: [f32; 2] = [320.0, 120.0];
 
 fn diagnostics_viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("subscriber-diagnostics")
@@ -1390,8 +1427,8 @@ impl VideoApp {
             diagnostics_viewport_id(),
             egui::ViewportBuilder::default()
                 .with_title("LiveKit Subscriber Diagnostics")
-                .with_inner_size([560.0, 620.0])
-                .with_min_inner_size([360.0, 240.0]),
+                .with_inner_size(DIAGNOSTICS_WINDOW_SIZE)
+                .with_min_inner_size(DIAGNOSTICS_WINDOW_MIN_SIZE),
             move |ui, viewport_class| {
                 if !diagnostics_started.swap(true, Ordering::AcqRel) {
                     let viewport_class = match viewport_class {
@@ -1557,6 +1594,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     // Shared YUV buffer for UI/GPU
     let shared = Arc::new(Mutex::new(SharedYuv {
+        room_name: args.room_name.clone(),
+        self_identity: args.identity.clone(),
+        remote_identity: None,
         width: 0,
         height: 0,
         codec: String::new(),
