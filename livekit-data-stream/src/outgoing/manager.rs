@@ -234,8 +234,7 @@ impl Manager {
         };
 
         let proto_header = header.clone().into();
-        if eligibility.inline
-            && header_packet_fits(&proto_header, &options.destination_identities)
+        if eligibility.inline && header_packet_fits(&proto_header, &options.destination_identities)
         {
             let packet =
                 RawStream::create_header_packet(proto_header, options.destination_identities);
