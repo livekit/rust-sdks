@@ -24,6 +24,7 @@
 #include "api/audio/builtin_audio_processing_builder.h"
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/environment/environment_factory.h"
+#include "api/field_trials.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/enable_media.h"
@@ -46,19 +47,45 @@
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
 namespace livekit_ffi {
+namespace {
+
+constexpr char kForcePlayoutDelayFieldTrial[] =
+    "WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/";
+constexpr char kForcePlayoutDelayValue[] = "min_ms:0,max_ms:0";
+
+webrtc::Environment CreateEnvironment(bool zero_playout_delay) {
+  if (zero_playout_delay) {
+    return webrtc::CreateEnvironment(
+        std::make_unique<webrtc::FieldTrials>(kForcePlayoutDelayFieldTrial));
+  }
+  return webrtc::CreateEnvironment();
+}
+
+}  // namespace
 
 class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
+    : PeerConnectionFactory(std::move(rtc_runtime), false) {}
+
+PeerConnectionFactory::PeerConnectionFactory(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
+    bool zero_playout_delay)
     : rtc_runtime_(rtc_runtime),
-    env_(webrtc::EnvironmentFactory().Create()) {
+      env_(CreateEnvironment(zero_playout_delay)) {
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
   dependencies.signaling_thread = rtc_runtime_->signaling_thread();
   dependencies.socket_factory = rtc_runtime_->network_thread()->socketserver();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
+  dependencies.env = env_;
+
+  if (zero_playout_delay) {
+    RTC_LOG(LS_INFO) << "WebRTC zero playout delay enabled with field trial: "
+                     << kForcePlayoutDelayFieldTrial;
+  }
 
   // Create AdmProxy - it creates and initializes Platform ADM internally
   adm_proxy_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
@@ -163,8 +190,18 @@ std::shared_ptr<AudioDeviceController> PeerConnectionFactory::audio_device() con
   return audio_device_;
 }
 
+bool PeerConnectionFactory::zero_playout_delay_enabled() const {
+  return env_.field_trials().Lookup("WebRTC-ForcePlayoutDelay") ==
+         kForcePlayoutDelayValue;
+}
+
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
   return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
+}
+
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_zero_playout_delay() {
+  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(), true);
 }
 
 }  // namespace livekit_ffi
