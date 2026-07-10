@@ -254,8 +254,13 @@ impl Manager {
 
         // Invariant: other than SID, info should not have changed.
         // TODO: consider refactoring to move SID out of info to allow for direct comparison.
-        let DataTrackInfo { sid: _, pub_handle: _, name, uses_e2ee } = &*descriptor.info;
-        if *name != info.name || *uses_e2ee != info.uses_e2ee {
+        let DataTrackInfo { sid: _, pub_handle: _, name, uses_e2ee, schema, frame_encoding } =
+            &*descriptor.info;
+        if *name != info.name
+            || *uses_e2ee != info.uses_e2ee
+            || *schema != info.schema
+            || *frame_encoding != info.frame_encoding
+        {
             log::warn!("Info mismatch for {}, treating as new publication", old_sid);
             return false;
         }
@@ -805,6 +810,8 @@ mod tests {
             pub_handle,
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
@@ -818,6 +825,8 @@ mod tests {
             pub_handle,
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
@@ -851,6 +860,8 @@ mod tests {
             pub_handle,
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
@@ -879,6 +890,8 @@ mod tests {
             pub_handle,
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
