@@ -59,6 +59,7 @@ impl Default for PeerConnectionFactory {
 }
 
 impl PeerConnectionFactory {
+    /// Creates a [`PeerConnectionFactory`] with the WebRTC-ForcePlayoutDelay field trial enabled.
     pub fn with_zero_playout_delay() -> Self {
         ensure_log_sink();
         let sys_handle = sys_pcf::ffi::create_peer_connection_factory_with_zero_playout_delay();
