@@ -172,10 +172,10 @@ pub struct Header {
     pub(crate) stream_id: StreamId,
     /// using int64 for Unix timestamp
     pub(crate) timestamp: i64,
-    pub(crate) topic: ::prost::alloc::string::String,
-    pub(crate) mime_type: ::prost::alloc::string::String,
+    pub(crate) topic: String,
+    pub(crate) mime_type: String,
     /// only populated for finite streams, if it's a stream of unknown size this stays empty
-    pub(crate) total_length: ::core::option::Option<u64>,
+    pub(crate) total_length: Option<u64>,
     /// user defined attributes map that can carry additional info
     pub(crate) attributes: HashMap<String, String>,
     /// Optional inline content so that a data stream can be sent as a single packet for short payloads.
