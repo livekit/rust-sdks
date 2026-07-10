@@ -158,10 +158,14 @@ exec cargo run --bin uniffi-bindgen generate \
     --library ${LIB_PATH}
 """
 
-[tasks.tera]
+[tasks.install-tera]
 private = true
 install_crate = { crate_name = "teracli", binary = "tera", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/chevdor/tera-cli"]
+install_crate_args = ["--git", "https://github.com/chevdor/tera-cli", "--tag", "v0.5.1"]
+
+[tasks.tera]
+private = true
+dependencies = ["install-tera"]
 command = "tera"
 
 [tasks.bindgen]
@@ -424,7 +428,7 @@ SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework", condition = {
 
 [tasks.swift-generate-manifest]
 private = true
-install_crate = { crate_name = "tera-cli", binary = "tera", test_arg = "--version" }
+dependencies = ["install-tera"]
 script_runner = "@shell"
 script = """
 # Derive URL and read the checksum produced by swift-zip-xcframework. In dev
@@ -437,9 +441,15 @@ else
   export SPM_CHECKSUM="0000000000000000000000000000000000000000000000000000000000000000"
 fi
 
-tera --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
-tera --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera > ${SPM_NAME}/Package@swift-6.2.swift
-tera --env --file ${SUPPORT_DIR}/${LANG}/${SPM_NAME}.podspec.tera > ${SPM_NAME}/${SPM_NAME}.podspec
+tera --env-only \
+    -t ${SUPPORT_DIR}/${LANG}/Package.swift.tera \
+    -o ${SPM_NAME}/Package.swift
+tera --env-only \
+    -t ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera \
+    -o ${SPM_NAME}/Package@swift-6.2.swift
+tera --env-only \
+    -t ${SUPPORT_DIR}/${LANG}/${SPM_NAME}.podspec.tera \
+    -o ${SPM_NAME}/${SPM_NAME}.podspec
 cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${SPM_NAME}/LICENSE
 rm -f ${SPM_NAME}/.checksum
 """
