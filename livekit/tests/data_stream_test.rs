@@ -18,7 +18,7 @@ use {
     anyhow::{anyhow, Ok, Result},
     chrono::{TimeDelta, Utc},
     livekit::{RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions},
-    rand::{rngs::StdRng, RngCore, SeedableRng},
+    rand::{rngs::StdRng, Rng, RngCore, SeedableRng},
     std::time::Duration,
     tokio::{time::timeout, try_join},
 };
@@ -84,12 +84,12 @@ async fn test_send_large_compressible_text() -> Result<()> {
     let (_, mut receiving_event_rx) = rooms.pop().unwrap();
 
     // ~50 KB of deterministic pseudo-random lowercase: too big to inline, compresses well
-    // under its raw size, exercising the chunked-compressed path.
+    // under its raw size, exercising the chunked-compressed path. Seeded for a deterministic,
+    // reproducible test.
+    let mut rng = StdRng::seed_from_u64(0x1234_5678_9abc_def0);
     let mut text = String::new();
-    let mut state: u64 = 0x1234_5678_9abc_def0;
     for _ in 0..50_000 {
-        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        text.push((b'a' + ((state >> 33) % 26) as u8) as char);
+        text.push(rng.random_range(b'a'..=b'z') as char);
     }
     let expected = text.clone();
 
