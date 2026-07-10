@@ -56,6 +56,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
+      - name: Install Common Deps for UniFFI Tasks
+        uses: ./.github/actions/uniffi-deps
+
       - name: Install Apple Rust targets
         run: |
           rustup target add \
@@ -70,9 +73,6 @@ jobs:
             aarch64-apple-tvos-sim \
             aarch64-apple-visionos \
             aarch64-apple-visionos-sim
-
-      - uses: cargo-bins/cargo-binstall@30b5ca8b54e1dcffd9548bc87ede1531310fdc67 # v1.20.0
-      - run: cargo binstall cargo-make --no-confirm
 
       - name: Build Swift package
         working-directory: livekit-uniffi
