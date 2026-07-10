@@ -24,10 +24,6 @@ tokio = { workspace = true, default-features = false, features = ["sync", "fs", 
 futures-util = { workspace = true, default-features = false, features = ["sink", "io"] }
 prost = "0.12"
 chrono = "0.4.38"
-# Still used by the streaming file-compression path (`send_file`/`write_file`) and the test
-# suite's cross-implementation interop check. The in-memory (de)compression paths use
-# `async-compression` instead.
-flate2 = "1"
 bmrng = "0.5.2"
 uuid = { version = "1", features = ["v4"] }
 async-compression = { version = "0.4.42", features = ["deflate", "futures-io"] }
