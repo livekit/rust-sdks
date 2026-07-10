@@ -3,4 +3,4 @@ livekit: patch
 livekit-datatrack: patch
 ---
 
-# Make data track E2EE errors enums
+# Refactor data tracks E2EE interface
