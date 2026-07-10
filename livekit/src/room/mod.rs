@@ -2280,15 +2280,6 @@ impl livekit_common::RemoteParticipantRegistry for RoomSession {
     }
 }
 
-/// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
-/// handled within the `livekit` crate and never surfaced through `RoomEvent`; the list is also
-/// passed to `IncomingStreamManager` so it can flag internal streams.
-const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
-
-fn is_internal_topic(topic: &str) -> bool {
-    INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
-}
-
 /// Consumes [`IncomingOutput`]s from the incoming-stream actor and turns them into room events.
 ///
 /// For newly-opened streams, intercepts text streams on RPC topics (`lk.rpc_request`,
@@ -2361,6 +2352,15 @@ async fn incoming_data_stream_task(
             }
         }
     }
+}
+
+/// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
+/// handled within the `livekit` crate and never surfaced through `RoomEvent`; the list is also
+/// passed to `IncomingStreamManager` so it can flag internal streams.
+const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
+
+fn is_internal_topic(topic: &str) -> bool {
+    INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
 }
 
 /// Receives packets from the outgoing stream manager and send them.
