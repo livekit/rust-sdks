@@ -24,7 +24,7 @@
 #include "api/audio/builtin_audio_processing_builder.h"
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/environment/environment_factory.h"
-#include "api/field_trials.h"
+#include "api/field_trials_view.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/enable_media.h"
@@ -53,10 +53,21 @@ constexpr char kForcePlayoutDelayFieldTrial[] =
     "WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/";
 constexpr char kForcePlayoutDelayValue[] = "min_ms:0,max_ms:0";
 
+class ZeroPlayoutDelayFieldTrials final : public webrtc::FieldTrialsView {
+ public:
+  std::string Lookup(absl::string_view key) const override {
+    return key == "WebRTC-ForcePlayoutDelay" ? kForcePlayoutDelayValue : "";
+  }
+
+  std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
+    return std::make_unique<ZeroPlayoutDelayFieldTrials>();
+  }
+};
+
 webrtc::Environment CreateEnvironment(bool zero_playout_delay) {
   if (zero_playout_delay) {
     return webrtc::CreateEnvironment(
-        std::make_unique<webrtc::FieldTrials>(kForcePlayoutDelayFieldTrial));
+        std::make_unique<ZeroPlayoutDelayFieldTrials>());
   }
   return webrtc::CreateEnvironment();
 }
