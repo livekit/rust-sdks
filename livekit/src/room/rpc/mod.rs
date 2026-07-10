@@ -21,7 +21,7 @@ mod tests;
 pub use client::RpcClientManager;
 pub use server::{HandleRequestOptions, RpcServerManager};
 
-use crate::data_stream::{StreamResult, StreamTextOptions, TextStreamInfo};
+use crate::data_stream::api::{StreamResult, StreamTextOptions, TextStreamInfo};
 use crate::room::id::ParticipantIdentity;
 use crate::room::participant::ClientCapability;
 use livekit_common::RemoteParticipantRegistry;

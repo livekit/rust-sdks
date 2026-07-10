@@ -17,7 +17,7 @@ use super::{
     ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_V1_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC,
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
-use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
+use crate::data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
 use livekit_protocol as proto;
 use parking_lot::Mutex;

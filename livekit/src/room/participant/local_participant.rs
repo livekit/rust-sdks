@@ -27,7 +27,7 @@ use super::{
     ParticipantState, ParticipantTrackPermission,
 };
 use crate::{
-    data_stream::{
+    data_stream::api::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },

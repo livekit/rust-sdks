@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::*;
-use crate::data_stream::{
+use crate::data_stream::api::{
     OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
 };
 use crate::e2ee::EncryptionType;
