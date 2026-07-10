@@ -35,7 +35,7 @@ Individual service clients (`RoomClient`, `SIPClient`, etc.) can also be created
 
 The server API supports two modes of operation:
 
-- **API key & secret** — recommended for backend use. `LiveKitApi::with_api_key(host, key, secret)` signs a short-lived token for each request. `LiveKitApi::new(host)` reads the key and secret from the `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` environment variables.
+- **API key & secret** — recommended for backend use. `LiveKitApi::new(host)` reads the key and secret from the `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` environment variables; `LiveKitApi::with_api_key(host, key, secret)` takes them explicitly instead. Either way, a short-lived token is signed for each request.
 - **Access token** — for client-side use where the API secret must not be exposed. `LiveKitApi::with_token(host, token)` sends a pre-signed [access token](https://docs.livekit.io/frontends/reference/tokens-grants/) verbatim on every request; its grants must cover the calls you make.
 
 ### Agent dispatch
