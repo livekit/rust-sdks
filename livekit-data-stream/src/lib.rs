@@ -14,24 +14,39 @@
 
 #![doc = include_str!("../README.md")]
 
-mod utils;
-pub use utils::{SendError, StreamError, StreamResult};
-
-mod types;
-pub use types::{
-    ByteHeader, Chunk, CompressionType, ContentHeader, Header, OperationType, Packet, StreamId,
-    TextHeader, Trailer,
-};
-
+mod incoming;
 mod info;
-pub use info::{ByteStreamInfo, TextStreamInfo};
-
+mod outgoing;
+mod types;
 mod utf8_chunk;
+mod utils;
 
-pub mod incoming;
-pub use incoming::{AnyStreamReader, ByteStreamReader, StreamReader, TextStreamReader};
+/// Public API re-exported by client SDKs (surfaced to end users through the `livekit` crate).
+pub mod api {
+    pub use crate::incoming::{AnyStreamReader, ByteStreamReader, StreamReader, TextStreamReader};
+    pub use crate::info::{ByteStreamInfo, TextStreamInfo};
+    pub use crate::outgoing::{
+        ByteStreamWriter, StreamByteOptions, StreamTextOptions, StreamWriter, TextStreamWriter,
+    };
+    pub use crate::types::OperationType;
+    pub use crate::utils::{SendError, StreamError, StreamResult};
+}
 
-pub mod outgoing;
-pub use outgoing::{
-    ByteStreamWriter, StreamByteOptions, StreamTextOptions, StreamWriter, TextStreamWriter,
-};
+/// Internal APIs used within the `livekit` SDK to power data streams.
+pub mod backend {
+    // Wire types + their proto conversions, used by the room to build packets and events.
+    pub use crate::types::{
+        ByteHeader, Chunk, CompressionType, ContentHeader, Header, OperationType, Packet, StreamId,
+        TextHeader, Trailer,
+    };
+
+    /// Incoming data streams.
+    pub mod incoming {
+        pub use crate::incoming::{events::*, manager::*};
+    }
+
+    /// Outgoing data streams.
+    pub mod outgoing {
+        pub use crate::outgoing::manager::*;
+    }
+}

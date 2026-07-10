@@ -17,7 +17,7 @@ use livekit_common::EncryptionType;
 use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 
-use crate::StreamId;
+use super::StreamId;
 
 /// Operation type for text streams.
 #[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]

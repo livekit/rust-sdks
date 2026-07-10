@@ -27,11 +27,7 @@ use libwebrtc::{
 use livekit_api::signal_client::{
     SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
-use livekit_data_stream::{
-    self as ds,
-    incoming::{IncomingDataStreamInput, IncomingDataStreamManager},
-    outgoing::OutgoingDataStreamManager,
-};
+use livekit_data_stream::backend as ds;
 use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
     backend as dt,
@@ -50,7 +46,7 @@ use tokio::sync::{
 };
 
 pub use self::{
-    data_stream::*,
+    data_stream::api::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
     participant::{ClientCapability, ParticipantKind, ParticipantKindDetail, ParticipantState},
 };
@@ -496,8 +492,8 @@ pub(crate) struct RoomSession {
     local_participant: LocalParticipant,
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
-    incoming_data_stream_input: IncomingDataStreamInput,
-    pub(crate) outgoing_stream_manager: OutgoingDataStreamManager,
+    incoming_data_stream_input: ds::incoming::ManagerInput,
+    pub(crate) outgoing_stream_manager: ds::outgoing::Manager,
     local_dt_input: dt::local::ManagerInput,
     remote_dt_input: dt::remote::ManagerInput,
     pub(crate) rpc_client: rpc::RpcClientManager,
@@ -686,8 +682,8 @@ impl Room {
             dt::remote::Manager::new(remote_dt_options);
 
         let (incoming_stream_manager, incoming_data_stream_input, incoming_output) =
-            IncomingDataStreamManager::new(INTERNAL_DATA_STREAM_TOPICS.into());
-        let (outgoing_stream_manager, packet_rx) = OutgoingDataStreamManager::new();
+            ds::incoming::Manager::new(INTERNAL_DATA_STREAM_TOPICS.into());
+        let (outgoing_stream_manager, packet_rx) = ds::outgoing::Manager::new();
 
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
@@ -1839,8 +1835,11 @@ impl RoomSession {
         }
 
         let _ = self.incoming_data_stream_input.send(
-            ds::incoming::events::PacketReceived::new(
-                Packet::Header { header: header.into(), encryption_type: encryption_type.into() },
+            ds::incoming::PacketReceived::new(
+                ds::Packet::Header {
+                    header: header.into(),
+                    encryption_type: encryption_type.into(),
+                },
                 participant_identity.into(),
             )
             .into(),
@@ -1854,8 +1853,8 @@ impl RoomSession {
         encryption_type: proto::encryption::Type,
     ) {
         let _ = self.incoming_data_stream_input.send(
-            ds::incoming::events::PacketReceived::new(
-                Packet::Chunk { chunk: chunk.into(), encryption_type: encryption_type.into() },
+            ds::incoming::PacketReceived::new(
+                ds::Packet::Chunk { chunk: chunk.into(), encryption_type: encryption_type.into() },
                 participant_identity.into(),
             )
             .into(),
@@ -1868,8 +1867,8 @@ impl RoomSession {
         participant_identity: String,
     ) {
         let _ = self.incoming_data_stream_input.send(
-            ds::incoming::events::PacketReceived::new(
-                Packet::Trailer(trailer.into()),
+            ds::incoming::PacketReceived::new(
+                ds::Packet::Trailer(trailer.into()),
                 participant_identity.into(),
             )
             .into(),
@@ -2173,9 +2172,9 @@ impl RoomSession {
 
         // Terminate any data streams this participant was still sending; otherwise their
         // readers would hang waiting for chunks that will never arrive.
-        let _ = self.incoming_data_stream_input.send(
-            ds::incoming::events::InputEvent::AbortStreamsFrom(remote_participant.identity()),
-        );
+        let _ = self
+            .incoming_data_stream_input
+            .send(ds::incoming::InputEvent::AbortStreamsFrom(remote_participant.identity()));
 
         self.dispatcher.dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }
@@ -2297,7 +2296,7 @@ fn is_internal_topic(topic: &str) -> bool {
 /// forwards the back-compat raw chunk/trailer notifications the actor emits for non-internal
 /// streams.
 async fn incoming_data_stream_task(
-    mut output: UnboundedReceiver<ds::incoming::events::OutputEvent>,
+    mut output: UnboundedReceiver<ds::incoming::OutputEvent>,
     dispatcher: Dispatcher<RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,
     session: Arc<RoomSession>,
@@ -2305,8 +2304,8 @@ async fn incoming_data_stream_task(
     loop {
         tokio::select! {
             Some(event) = output.recv() => match event {
-                ds::incoming::events::OutputEvent::StreamOpened(
-                    ds::incoming::events::StreamOpened { stream_reader, participant_identity }
+                ds::incoming::OutputEvent::StreamOpened(
+                    ds::incoming::StreamOpened { stream_reader, participant_identity }
                 ) => match stream_reader {
                     AnyStreamReader::Byte(reader) => {
                         let topic = reader.info().topic.clone();
@@ -2350,10 +2349,10 @@ async fn incoming_data_stream_task(
                         }
                     }
                 },
-                ds::incoming::events::OutputEvent::ChunkReceived(ds::incoming::events::ChunkReceived { chunk, participant_identity }) => {
+                ds::incoming::OutputEvent::ChunkReceived(ds::incoming::ChunkReceived { chunk, participant_identity }) => {
                     dispatcher.dispatch(&RoomEvent::StreamChunkReceived { chunk: chunk.into(), participant_identity: participant_identity.into() });
                 }
-                ds::incoming::events::OutputEvent::TrailerReceived(ds::incoming::events::TrailerReceived { trailer, participant_identity }) => {
+                ds::incoming::OutputEvent::TrailerReceived(ds::incoming::TrailerReceived { trailer, participant_identity }) => {
                     dispatcher.dispatch(&RoomEvent::StreamTrailerReceived { trailer: trailer.into(), participant_identity: participant_identity.into() });
                 }
             },
