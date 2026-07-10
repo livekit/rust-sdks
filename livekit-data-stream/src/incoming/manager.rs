@@ -454,17 +454,20 @@ mod tests {
     use super::*;
     use crate::incoming::StreamReader;
     use crate::info::TextStreamInfo;
-    use crate::types::{ByteHeader, StreamId, TextHeader};
     use crate::test_utils::pseudo_random_text;
+    use crate::types::{ByteHeader, StreamId, TextHeader};
     use std::collections::HashMap;
+    use futures_util::io::AsyncReadExt;
 
     const SENDER: &str = "alice";
 
-    fn deflate_raw(data: &[u8]) -> Vec<u8> {
-        use std::io::Write;
-        let mut e = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
-        e.write_all(data).unwrap();
-        e.finish().unwrap()
+    async fn deflate_raw(data: &[u8]) -> Vec<u8> {
+        let mut encoder = async_compression::futures::bufread::DeflateEncoder::new(
+            futures_util::io::Cursor::new(data),
+        );
+        let mut out = Vec::new();
+        encoder.read_to_end(&mut out).await.expect("DeflateEncoder::read_to_end failed");
+        out
     }
 
     fn attrs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
@@ -747,7 +750,7 @@ mod tests {
     async fn v2_inline_compressed_text() {
         let mut h = Harness::new(vec![]);
         let text = "hello hello compressible world";
-        let compressed = deflate_raw(text.as_bytes());
+        let compressed = deflate_raw(text.as_bytes()).await;
         h.send_packet(Packet::Header {
             header: text_header(
                 "s1",
@@ -767,7 +770,7 @@ mod tests {
     async fn v2_inline_compressed_byte() {
         let mut h = Harness::new(vec![]);
         let payload: Vec<u8> = (0..2000).map(|i| (i % 7) as u8).collect();
-        let compressed = deflate_raw(&payload);
+        let compressed = deflate_raw(&payload).await;
         h.send_packet(Packet::Header {
             header: byte_header(
                 "s1",
@@ -788,7 +791,7 @@ mod tests {
         let mut h = Harness::new(vec![]);
         // ~60 KB of pseudo-random lowercase so the compressed output spans multiple chunks.
         let text = pseudo_random_text(60_000);
-        let compressed = deflate_raw(text.as_bytes());
+        let compressed = deflate_raw(text.as_bytes()).await;
         let chunk_pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
         assert!(chunk_pieces.len() >= 2, "expected multi-packet compressed stream");
 
@@ -858,7 +861,7 @@ mod tests {
     async fn v2_compressed_gap_errors() {
         let mut h = Harness::new(vec![]);
         let text = pseudo_random_text(60_000);
-        let compressed = deflate_raw(text.as_bytes());
+        let compressed = deflate_raw(text.as_bytes()).await;
         let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
         assert!(pieces.len() >= 2);
         h.send_packet(Packet::Header {

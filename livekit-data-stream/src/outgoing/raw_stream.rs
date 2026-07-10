@@ -15,7 +15,7 @@
 use bmrng::unbounded::UnboundedRequestSender;
 use livekit_common::ParticipantIdentity;
 use livekit_protocol as proto;
-use std::{io::Write, path::Path};
+use std::path::Path;
 use tokio::io::AsyncReadExt;
 
 use super::constants;
@@ -83,15 +83,20 @@ impl RawStream {
         let mut read_buf = vec![0u8; 8192];
 
         if compress {
-            let mut encoder =
-                flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+            use futures_util::io::AsyncWriteExt;
+            // Push-style deflate-raw encoder writing into a `Vec`; the `deflate` algorithm is raw
+            // DEFLATE (no zlib header/checksum), matching the wire contract.
+            let mut encoder = async_compression::futures::write::DeflateEncoder::new(Vec::new());
             loop {
                 let n = file.read(&mut read_buf).await?;
                 if n == 0 {
                     break;
                 }
                 // Writing into a `Vec` is infallible.
-                encoder.write_all(&read_buf[..n]).expect("deflate write to Vec is infallible");
+                encoder
+                    .write_all(&read_buf[..n])
+                    .await
+                    .expect("deflate write to Vec is infallible");
                 // Drain whole MTU-sized chunks of compressed output as they accumulate so
                 // we never hold the full compressed file in memory.
                 while encoder.get_ref().len() >= constants::STREAM_CHUNK_SIZE_BYTES {
@@ -101,7 +106,8 @@ impl RawStream {
                 }
             }
             // Flush the final deflate block and send whatever compressed bytes remain.
-            let remaining = encoder.finish().expect("deflate finish into Vec is infallible");
+            encoder.close().await.expect("deflate finish into Vec is infallible");
+            let remaining = encoder.into_inner();
             self.write_raw_chunks(&remaining).await?;
         } else {
             let mut pending: Vec<u8> = Vec::new();

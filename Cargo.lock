@@ -3994,7 +3994,6 @@ dependencies = [
  "bmrng",
  "bytes",
  "chrono",
- "flate2",
  "from_variants",
  "futures-util",
  "livekit-common",
