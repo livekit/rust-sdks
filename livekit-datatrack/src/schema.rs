@@ -34,7 +34,7 @@ use std::sync::Arc;
 ///
 #[derive(Clone, Hash, PartialEq, Eq)]
 pub struct DataTrackSchemaId {
-    inner: Arc<DataTrackSchemaIdInner>
+    inner: Arc<DataTrackSchemaIdInner>,
 }
 
 #[derive(Hash, PartialEq, Eq)]

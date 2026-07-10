@@ -109,12 +109,16 @@ impl From<DataTrackSchemaEncoding> for proto::DataTrackSchemaEncoding {
         use proto::data_track_schema_encoding::{Encoding, WellKnownSchemaEncoding as WellKnown};
         let encoding = match encoding {
             DataTrackSchemaEncoding::Protobuf => Encoding::WellKnown(WellKnown::Protobuf as i32),
-            DataTrackSchemaEncoding::Flatbuffer => Encoding::WellKnown(WellKnown::Flatbuffer as i32),
+            DataTrackSchemaEncoding::Flatbuffer => {
+                Encoding::WellKnown(WellKnown::Flatbuffer as i32)
+            }
             DataTrackSchemaEncoding::Ros1Msg => Encoding::WellKnown(WellKnown::Ros1Msg as i32),
             DataTrackSchemaEncoding::Ros2Msg => Encoding::WellKnown(WellKnown::Ros2Msg as i32),
             DataTrackSchemaEncoding::Ros2Idl => Encoding::WellKnown(WellKnown::Ros2Idl as i32),
             DataTrackSchemaEncoding::OmgIdl => Encoding::WellKnown(WellKnown::OmgIdl as i32),
-            DataTrackSchemaEncoding::JsonSchema => Encoding::WellKnown(WellKnown::JsonSchema as i32),
+            DataTrackSchemaEncoding::JsonSchema => {
+                Encoding::WellKnown(WellKnown::JsonSchema as i32)
+            }
             DataTrackSchemaEncoding::Custom(name) => Encoding::Custom(name),
             DataTrackSchemaEncoding::Other => Encoding::WellKnown(WellKnown::Unspecified as i32),
             // `DataTrackSchemaEncoding` is `#[non_exhaustive]`; map any future
@@ -175,10 +179,7 @@ impl From<proto::DataTrackSchemaId> for DataTrackSchemaId {
 
 impl From<DataTrackSchemaId> for proto::DataTrackSchemaId {
     fn from(id: DataTrackSchemaId) -> Self {
-        Self {
-            name: id.name().to_string(),
-            encoding: Some(id.encoding().clone().into()),
-        }
+        Self { name: id.name().to_string(), encoding: Some(id.encoding().clone().into()) }
     }
 }
 

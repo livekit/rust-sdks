@@ -17,7 +17,7 @@ use {
     anyhow::{Ok, Result},
     common::test_rooms,
     livekit::data_track::{DataTrackSchemaEncoding, DataTrackSchemaId},
-    test_case::test_case
+    test_case::test_case,
 };
 
 mod common;
@@ -83,7 +83,7 @@ async fn test_get_undefined_schema() -> Result<()> {
     let (room, _) = test_rooms(1).await?.pop().unwrap();
     let identity = room.local_participant().identity();
 
-    let id =  DataTrackSchemaId::new("undefined", DataTrackSchemaEncoding::JsonSchema);
+    let id = DataTrackSchemaId::new("undefined", DataTrackSchemaEncoding::JsonSchema);
     let result = room.local_participant().get_schema(id, identity).await;
     assert!(result.is_err());
 
