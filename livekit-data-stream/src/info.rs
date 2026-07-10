@@ -39,10 +39,10 @@ pub struct ByteStreamInfo {
     /// The encryption used
     pub encryption_type: EncryptionType,
     /// Test-only: expose whether the byte stream was compressed or not.
-    #[cfg(feature = "__e2e-test")]
+    #[cfg(feature = "test-utils")]
     pub is_compressed: bool,
     /// Test-only: expose whether the byte stream was sent inline on the header packet
-    #[cfg(feature = "__e2e-test")]
+    #[cfg(feature = "test-utils")]
     pub is_inline: bool,
 }
 
@@ -69,10 +69,10 @@ pub struct TextStreamInfo {
     /// The encryption used
     pub encryption_type: EncryptionType,
     /// Test-only: expose whether the byte stream was compressed or not.
-    #[cfg(feature = "__e2e-test")]
+    #[cfg(feature = "test-utils")]
     pub is_compressed: bool,
     /// Test-only: expose whether the byte stream was sent inline on the header packet
-    #[cfg(feature = "__e2e-test")]
+    #[cfg(feature = "test-utils")]
     pub is_inline: bool,
 }
 
@@ -126,9 +126,9 @@ impl ByteStreamInfo {
             mime_type: header.mime_type,
             name: byte_header.name,
             encryption_type,
-            #[cfg(feature = "__e2e-test")]
+            #[cfg(feature = "test-utils")]
             is_compressed: header.compression != crate::types::CompressionType::None,
-            #[cfg(feature = "__e2e-test")]
+            #[cfg(feature = "test-utils")]
             is_inline: header.inline_content.is_some_and(|c| !c.is_empty()),
         }
     }
@@ -162,9 +162,9 @@ impl TextStreamInfo {
                 .collect(),
             generated: text_header.generated,
             encryption_type,
-            #[cfg(feature = "__e2e-test")]
+            #[cfg(feature = "test-utils")]
             is_compressed: header.compression != crate::types::CompressionType::None,
-            #[cfg(feature = "__e2e-test")]
+            #[cfg(feature = "test-utils")]
             is_inline: header.inline_content.is_some_and(|c| !c.is_empty()),
         }
     }

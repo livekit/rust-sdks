@@ -8,9 +8,6 @@ edition.workspace = true
 repository.workspace = true
 
 [features]
-# End-to-end testing hooks (exposes is_compressed/is_inline on stream info). Forwarded from
-# the `livekit` crate's `__lk-e2e-test` feature.
-__e2e-test = []
 test-utils = ["dep:rand"]
 
 [dependencies]

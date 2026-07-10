@@ -456,8 +456,8 @@ mod tests {
     use crate::info::TextStreamInfo;
     use crate::test_utils::pseudo_random_text;
     use crate::types::{ByteHeader, StreamId, TextHeader};
-    use std::collections::HashMap;
     use futures_util::io::AsyncReadExt;
+    use std::collections::HashMap;
 
     const SENDER: &str = "alice";
 
