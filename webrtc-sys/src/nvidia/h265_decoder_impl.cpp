@@ -61,9 +61,11 @@ bool NvidiaH265DecoderImpl::Configure(const Settings& settings) {
   int maxWidth = 4096;
   int maxHeight = 4096;
 
+  // WebRTC's real-time encoders produce I/P-only streams, so decode and
+  // display order match and NVDEC can emit directly from its decode callback.
   decoder_ = std::make_shared<NvDecoder>(
       cu_context_, true, cudaVideoCodec_HEVC, true, true, nullptr, nullptr,
-      false, maxWidth, maxHeight);
+      false, maxWidth, maxHeight, 1000, true);
   return true;
 }
 
@@ -100,12 +102,15 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
-  int nFrameReturned = 0;
-  do {
-    nFrameReturned = decoder_->Decode(
-        input_image.data(), static_cast<int>(input_image.size()),
-        CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
-  } while (nFrameReturned == 0);
+  const int nFrameReturned = decoder_->Decode(
+      input_image.data(), static_cast<int>(input_image.size()),
+      CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
+
+  // A packet may only contain sequence metadata. Do not replay it: NVDEC will
+  // emit the next complete picture from its decode callback.
+  if (nFrameReturned == 0) {
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
 
   is_configured_decoder_ = true;
 
@@ -149,4 +154,3 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
 }
 
 }  // end namespace webrtc
-
