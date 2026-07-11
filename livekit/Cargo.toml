@@ -1,6 +1,6 @@
 [package]
 name = "livekit"
-version = "0.7.49"
+version = "0.7.51"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
@@ -11,9 +11,9 @@ readme = "README.md"
 # By default ws TLS is not enabled
 default = ["tokio"]
 
-async = ["livekit-api/signal-client-async"]
-tokio = ["livekit-api/signal-client-tokio"]
-dispatcher = ["livekit-api/signal-client-dispatcher"]
+async = ["livekit-api/signal-client-async", "livekit-runtime/async"]
+tokio = ["livekit-api/signal-client-tokio", "livekit-runtime/tokio"]
+dispatcher = ["livekit-api/signal-client-dispatcher", "livekit-runtime/dispatcher"]
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
 # GDBus requires a GLib event loop to be running. Enable this feature if you
@@ -29,13 +29,15 @@ rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-api/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit-api/__rustls-tls"]
 __lk-internal = [] # internal features (used by livekit-ffi)
-__lk-e2e-test = [] # end-to-end testing with a LiveKit server
+__lk-e2e-test = ["livekit-data-stream/test-utils"] # end-to-end testing with a LiveKit server
 
 [dependencies]
 livekit-runtime = { workspace = true }
 livekit-api = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
+livekit-common = { workspace = true }
+livekit-data-stream = { workspace = true }
 livekit-datatrack = { workspace = true }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
@@ -55,6 +57,8 @@ bmrng = "0.5.2"
 base64 = "0.22"
 
 [dev-dependencies]
+# Enable data-stream test constructors (e.g. TextStreamReader::new_for_test) for our test suites.
+livekit-data-stream = { workspace = true, features = ["test-utils"] }
 anyhow = "1.0.99"
 test-log = "0.2.18"
 test-case = "3.3"

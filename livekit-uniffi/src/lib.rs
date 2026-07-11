@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Data tracks core from [`livekit-datatrack`].
+pub mod data_track;
+
 /// Access token generation and verification from [`livekit-api::access_token`].
 pub mod access_token;
 
@@ -20,5 +23,11 @@ pub mod log_forward;
 
 /// Information about the build such as version.
 pub mod build_info;
+
+/// Shared exports and utilities.
+pub mod common;
+
+/// Global async runtime.
+pub mod runtime;
 
 uniffi::setup_scaffolding!();

@@ -9,7 +9,7 @@ For smoother local rendering, especially above 720p, run the publisher/subscribe
 
 - list_devices: enumerate available cameras and their capabilities
 - publisher: capture from a selected camera and publish a video track
-- subscriber: connect to a room, subscribe to video tracks, and display in a window
+- subscriber: connect to a room, display video in a dedicated window, and show status and timing in a separate diagnostics window
 - clock: render a high-contrast wall-clock with three millisecond digits and a millisecond grid
 
 LiveKit connection can be provided via flags or environment variables:
@@ -175,11 +175,17 @@ Subscriber usage:
    --identity viewer-1 \
    --participant alice
 
- # display timestamp overlay (requires publisher to use --attach-timestamp)
+ # display detailed timing in the diagnostics window (requires publisher to use --attach-timestamp)
  cargo run -p local_video -F desktop --bin subscriber -- \
    --room-name demo \
    --identity viewer-1 \
    --display-timestamp
+
+ # minimize subscriber playout latency (trades smoothness for immediacy)
+ cargo run -p local_video -F desktop --bin subscriber -- \
+   --room-name demo \
+   --identity viewer-1 \
+   --low-latency
 
  # subscribe with end-to-end encryption (must match publisher's key)
  cargo run -p local_video -F desktop --bin subscriber -- \
@@ -190,7 +196,8 @@ Subscriber usage:
 
 Subscriber flags (in addition to the common connection flags above):
 - `--participant <identity>`: Only subscribe to video tracks from the specified participant.
-- `--display-timestamp`: Show a top-left overlay with frame ID, the publisher's timestamp, the subscriber's current time, and the computed end-to-end latency. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
+- `--low-latency`: Force zero video playout delay so received frames render as soon as possible. This can increase visible stutter when packets arrive late or out of order.
+- `--display-timestamp`: Show detailed frame ID, publisher timestamp, subscriber timing stages, and end-to-end latency in the separate diagnostics window. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
 - `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
 
 Notes:
@@ -198,5 +205,6 @@ Notes:
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
 - The timestamp overlay updates at ~2 Hz so the latency value is readable rather than flickering every frame.
 - On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. Use `--zero-copy` to publish NV12 DMA-BUF frames through the Jetson hardware encoder. Without `--zero-copy`, Argus frames are copied to CPU I420 before publish so `--attach-timestamp --burn-timestamp` can draw the timestamp into the frame.
+- The subscriber's video window repaints only when a frame arrives. Its separate diagnostics window updates at 10 Hz so status, timing text, channel graphs, and controls cannot pace video rendering; closing diagnostics leaves video rendering active.
 - Jetson AV1 hardware encoding requires an Orin-class device (e.g. Orin NX or AGX Orin on JetPack 5+); the encoder is probed at startup and on devices without AV1 support (e.g. Xavier) `--codec av1` automatically falls back to the software libaom encoder. The Jetson AV1 encoder produces a single L1T1 stream (no SVC).
 - On Linux, preview windows use the Vulkan `wgpu` backend by default to avoid GLES/EGL conflicts on Jetson desktops. Set `WGPU_BACKEND=gl` or another supported `wgpu` backend to override this.

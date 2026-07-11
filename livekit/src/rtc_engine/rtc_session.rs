@@ -468,6 +468,7 @@ struct SessionHandle {
 }
 
 impl RtcSession {
+    /// Connect to a LiveKit room.
     pub async fn connect(
         url: &str,
         token: &str,

@@ -4,6 +4,8 @@ members = [
     "livekit",
     "livekit-api",
     "livekit-protocol",
+    "livekit-common",
+    "livekit-data-stream",
     "livekit-ffi",
     "livekit-uniffi",
     "livekit-datatrack",
@@ -36,7 +38,6 @@ members = [
     "examples/screensharing",
     "examples/send_bytes",
     "examples/webhooks",
-    "examples/wgpu_room",
 ]
 
 [workspace.package]
@@ -48,16 +49,21 @@ license = "Apache-2.0"
 [workspace.dependencies]
 device-info = { version = "0.1.1", path = "device-info" }
 imgproc = { version = "0.3.19", path = "imgproc" }
-libwebrtc = { version = "0.3.38", path = "libwebrtc" }
-livekit = { version = "0.7.49", path = "livekit" }
-livekit-api = { version = "0.5.4", path = "livekit-api" }
+libwebrtc = { version = "0.3.40", path = "libwebrtc" }
+livekit = { version = "0.7.51", path = "livekit" }
+livekit-api = { version = "0.5.5", path = "livekit-api" }
 livekit-capture = { version = "0.1.0", path = "livekit-capture" }
-livekit-ffi = { version = "0.12.67", path = "livekit-ffi" }
-livekit-datatrack = { version = "0.1.9", path = "livekit-datatrack" }
-livekit-protocol = { version = "0.7.9", path = "livekit-protocol" }
-livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
+livekit-ffi = { version = "0.12.69", path = "livekit-ffi" }
+livekit-datatrack = { version = "0.1.10", path = "livekit-datatrack" }
+livekit-common = { version = "0.1.0", path = "livekit-common" }
+livekit-data-stream = { version = "0.1.0", path = "livekit-data-stream" }
+livekit-protocol = { version = "0.7.10", path = "livekit-protocol" }
+# default-features off so each consumer selects its runtime explicitly
+# (livekit-runtime/tokio | /async | /dispatcher); otherwise the default `tokio`
+# feature is forced on everywhere and collides with `async`/`dispatcher` builds.
+livekit-runtime = { version = "0.4.0", path = "livekit-runtime", default-features = false }
 soxr-sys = { version = "0.1.3", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.35", path = "webrtc-sys" }
+webrtc-sys = { version = "0.3.37", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.18", path = "webrtc-sys/build" }
 yuv-sys = { version = "0.3.14", path = "yuv-sys" }
 
@@ -86,7 +92,7 @@ serde_json = "1.0"
 thiserror = "2"
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
-hound = "3.5"
+uniffi = "0.31"
 
 # For examples
 eframe = { version = "0.35.0", default-features = false }
@@ -95,6 +101,7 @@ egui-wgpu = "0.35.0"
 image = "0.25"
 wgpu = "29.0"
 winit = "0.30.13"
+hound = "3.5"
 cc = { version = "1.0", features = ["parallel"] }
 
 [profile.release]
