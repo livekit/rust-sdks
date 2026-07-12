@@ -151,8 +151,8 @@ H264Level ProbeMaxLevel(IMFTransform* transform) {
 }  // namespace
 
 MFVideoEncoderFactory::MFVideoEncoderFactory() {
-  ComPtr<IMFTransform> transform = ActivateFirstHwEncoder();
-  if (!transform) {
+  ProbeTransform probe = ActivateFirstHwEncoder();
+  if (!probe) {
     return;
   }
 
@@ -160,7 +160,7 @@ MFVideoEncoderFactory::MFVideoEncoderFactory() {
   // advertise the level the hardware actually accepts so 1080p can be
   // negotiated. Baseline-family only for now, matching the software H264
   // default; High is a possible later addition.
-  const H264Level level = ProbeMaxLevel(transform.Get());
+  const H264Level level = ProbeMaxLevel(probe.transform.Get());
   supported_formats_.push_back(CreateH264Format(
       H264Profile::kProfileConstrainedBaseline, level, "1"));
 }
@@ -171,8 +171,8 @@ bool MFVideoEncoderFactory::IsSupported() {
   // Enumeration + activation can take tens of milliseconds; the answer cannot
   // change within the process lifetime, so probe once.
   static const bool supported = [] {
-    ComPtr<IMFTransform> transform = ActivateFirstHwEncoder();
-    if (!transform) {
+    ProbeTransform probe = ActivateFirstHwEncoder();
+    if (!probe) {
       RTC_LOG(LS_WARNING)
           << "No usable hardware H264 encoder MFT; MF encoding disabled.";
       return false;

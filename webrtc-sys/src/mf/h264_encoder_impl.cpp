@@ -365,7 +365,7 @@ int32_t MFH264EncoderImpl::ConfigureTransform() {
     if (FAILED(hr)) {
       break;
     }
-    GUID subtype = GUID_NULL;
+    GUID subtype = {};
     candidate->GetGUID(MF_MT_SUBTYPE, &subtype);
     if (subtype == MFVideoFormat_NV12) {
       input_type = candidate;
@@ -474,7 +474,7 @@ HRESULT MFH264EncoderImpl::NegotiateOutputType() {
     if (FAILED(hr)) {
       return hr;
     }
-    GUID subtype = GUID_NULL;
+    GUID subtype = {};
     candidate->GetGUID(MF_MT_SUBTYPE, &subtype);
     if (subtype != MFVideoFormat_H264) {
       continue;
@@ -826,6 +826,12 @@ int32_t MFH264EncoderImpl::CollectOneOutput() {
                           << HResultToString(nhr);
         ReportError();
         return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+      }
+      // Async MFTs re-signal METransformHaveOutput after a stream change; an
+      // immediate ProcessOutput retry returns E_UNEXPECTED (seen on Intel
+      // QSV). Only sync MFTs retry inline.
+      if (is_async_) {
+        return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
       }
       continue;
     }
