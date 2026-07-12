@@ -165,6 +165,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.37 (2026-07-09)
+
+### Fixes
+
+- Fix malformed RTC error handling
+
+## 0.3.36 (2026-06-30)
+
+### Features
+
+#### Add `MaintainFramerateAndResolution` to `DegradationPreference` enum to align with WebRTC M144.
+
+- `MAINTAIN_FRAMERATE_AND_RESOLUTION` is now the recommended value (replaces deprecated `DISABLED`)
+- `DISABLED` is deprecated but still supported for backwards compatibility
+- Both values map to the same behavior: maintain framerate and resolution, dropping frames if needed
+
+### Fixes
+
+- Fix AV1 subscriber decode when packet trailers are enabled.
+
+## 0.3.35 (2026-06-17)
+
+### Fixes
+
+- Fix silent subscription failures in single-pc mode when the SFU reuses an existing empty transceiver for a new remote track. Also make `RtpTransceiver::mid()` safe to call on transceivers that haven't been negotiated yet — libwebrtc is built with `-fno-exceptions`, so `std::optional::value()` aborted the process instead of throwing.
+- Add `LK_DISABLE_NVDEC` to bypass NVIDIA NVDEC decoder registration when the environment variable is set.
+- Add Jetson DMA-buffer video publishing support for libargus MIPI capture and the Jetson hardware encoder, including AV1 hardware encoding on supported Jetson Orin devices.
+
+#### Make GLib an opt-in dependency
+
+`webrtc-sys` no longer links against `glib-2.0`/`gobject-2.0`/`gio-2.0` by default.
+
+Breaking: Wayland screen sharing now requires the `glib-main-loop` feature on `livekit` (or `libwebrtc`).
+
 ## 0.3.34 (2026-06-09)
 
 ### Fixes

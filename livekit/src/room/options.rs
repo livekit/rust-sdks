@@ -17,6 +17,9 @@ use livekit_protocol as proto;
 
 use crate::prelude::*;
 
+// Re-export DegradationPreference for users
+pub use libwebrtc::rtp_parameters::DegradationPreference;
+
 /// Preferred backend for video encoding when publishing a video track.
 pub use libwebrtc::rtp_sender::VideoEncoderBackend;
 
@@ -74,14 +77,15 @@ pub struct AudioPreset {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct PacketTrailerFeatures {
+pub struct FrameMetadataFeatures {
     pub user_timestamp: bool,
     pub frame_id: bool,
+    pub user_data: bool,
 }
 
-impl PacketTrailerFeatures {
+impl FrameMetadataFeatures {
     pub(crate) fn is_empty(&self) -> bool {
-        !self.user_timestamp && !self.frame_id
+        !self.user_timestamp && !self.frame_id && !self.user_data
     }
 
     pub(crate) fn to_proto(&self) -> Vec<proto::PacketTrailerFeature> {
@@ -93,6 +97,10 @@ impl PacketTrailerFeatures {
 
         if self.frame_id {
             features.push(proto::PacketTrailerFeature::PtfFrameId);
+        }
+
+        if self.user_data {
+            features.push(proto::PacketTrailerFeature::PtfUserData);
         }
 
         features
@@ -164,7 +172,7 @@ pub struct TrackPublishOptions {
     pub source: TrackSource,
     pub stream: String,
     pub preconnect_buffer: bool,
-    pub packet_trailer_features: PacketTrailerFeatures,
+    pub frame_metadata_features: FrameMetadataFeatures,
     /// Preferred encoder backend for video tracks published with these options.
     ///
     /// If the requested backend is unavailable, the SDK logs a warning and
@@ -174,6 +182,18 @@ pub struct TrackPublishOptions {
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
     pub scalability_mode: Option<String>,
+    /// Controls how the encoder trades off between resolution and framerate
+    /// when bandwidth is constrained.
+    ///
+    /// - `MaintainFramerate`: Prioritizes framerate, reduces resolution if needed
+    /// - `MaintainResolution`: Prioritizes resolution, drops frames if needed
+    /// - `Balanced`: Balances between both
+    ///
+    /// If not set, the SDK uses defaults based on track source:
+    /// - Camera: `MaintainFramerate` (smoother video for real-time communication)
+    /// - Screen share: `MaintainResolution` (clarity is critical for text/UI)
+    /// - Other/unknown: `Balanced`
+    pub degradation_preference: Option<DegradationPreference>,
 }
 
 impl Default for TrackPublishOptions {
@@ -189,10 +209,35 @@ impl Default for TrackPublishOptions {
             source: TrackSource::Unknown,
             stream: "".to_string(),
             preconnect_buffer: false,
-            packet_trailer_features: PacketTrailerFeatures::default(),
+            frame_metadata_features: FrameMetadataFeatures::default(),
             video_encoder: VideoEncoderBackend::Auto,
             scalability_mode: None,
+            degradation_preference: None,
         }
+    }
+}
+
+/// Returns the appropriate degradation preference for a video track.
+///
+/// If the user explicitly set a preference in `TrackPublishOptions`, that is returned.
+/// Otherwise, defaults based on track source:
+/// - `MaintainFramerate` for camera tracks (smoother video for real-time communication)
+/// - `MaintainResolution` for screen share (clarity is critical for reading text/UI)
+/// - `Balanced` for other/unknown sources
+pub fn get_default_degradation_preference(
+    options: &TrackPublishOptions,
+    _height: u32,
+) -> DegradationPreference {
+    // Return user's explicit choice if set
+    if let Some(pref) = options.degradation_preference {
+        return pref;
+    }
+
+    // Default based on track source
+    match options.source {
+        TrackSource::Camera => DegradationPreference::MaintainFramerate,
+        TrackSource::Screenshare => DegradationPreference::MaintainResolution,
+        _ => DegradationPreference::Balanced,
     }
 }
 
@@ -390,6 +435,17 @@ pub fn spatial_layers_from_scalability_mode(mode: &str) -> u32 {
     1
 }
 
+/// A single encoding, or one without a recognized RID, represents the full-quality layer.
+pub(crate) const DEFAULT_VIDEO_QUALITY: proto::VideoQuality = proto::VideoQuality::High;
+
+pub(crate) fn video_quality_for_rid_or_default(rid: &str) -> proto::VideoQuality {
+    video_quality_for_rid(rid).unwrap_or(DEFAULT_VIDEO_QUALITY)
+}
+
+pub(crate) fn video_quality_from_i32_or_default(quality: i32) -> proto::VideoQuality {
+    proto::VideoQuality::try_from(quality).unwrap_or(DEFAULT_VIDEO_QUALITY)
+}
+
 pub fn video_layers_from_encodings(
     width: u32,
     height: u32,
@@ -397,7 +453,7 @@ pub fn video_layers_from_encodings(
 ) -> Vec<proto::VideoLayer> {
     if encodings.is_empty() {
         return vec![proto::VideoLayer {
-            quality: proto::VideoQuality::High as i32,
+            quality: DEFAULT_VIDEO_QUALITY as i32,
             width,
             height,
             bitrate: 0,
@@ -442,7 +498,7 @@ pub fn video_layers_from_encodings(
     let mut layers = Vec::with_capacity(encodings.len());
     for encoding in encodings {
         let scale = encoding.scale_resolution_down_by.unwrap_or(1.0);
-        let quality = video_quality_for_rid(&encoding.rid).unwrap_or(proto::VideoQuality::High);
+        let quality = video_quality_for_rid_or_default(&encoding.rid);
 
         layers.push(proto::VideoLayer {
             quality: quality as i32,
@@ -542,10 +598,78 @@ pub mod screenshare {
 
 #[cfg(test)]
 mod tests {
-    use super::{TrackPublishOptions, VideoEncoderBackend};
+    use super::{
+        get_default_degradation_preference, DegradationPreference, TrackPublishOptions,
+        VideoEncoderBackend,
+    };
+    use crate::prelude::TrackSource;
 
     #[test]
     fn track_publish_options_default_encoder_is_auto() {
         assert_eq!(TrackPublishOptions::default().video_encoder, VideoEncoderBackend::Auto);
+    }
+
+    #[test]
+    fn degradation_preference_defaults_to_none() {
+        assert_eq!(TrackPublishOptions::default().degradation_preference, None);
+    }
+
+    #[test]
+    fn degradation_preference_defaults_by_source() {
+        // Camera defaults to MaintainFramerate (smoother video)
+        let camera_options =
+            TrackPublishOptions { source: TrackSource::Camera, ..Default::default() };
+        assert_eq!(
+            get_default_degradation_preference(&camera_options, 1080),
+            DegradationPreference::MaintainFramerate
+        );
+
+        // Screenshare defaults to MaintainResolution (clarity for text/UI)
+        let screenshare_options =
+            TrackPublishOptions { source: TrackSource::Screenshare, ..Default::default() };
+        assert_eq!(
+            get_default_degradation_preference(&screenshare_options, 1080),
+            DegradationPreference::MaintainResolution
+        );
+
+        // Unknown/default source defaults to Balanced
+        let default_options = TrackPublishOptions::default();
+        assert_eq!(
+            get_default_degradation_preference(&default_options, 720),
+            DegradationPreference::Balanced
+        );
+    }
+
+    #[test]
+    fn degradation_preference_respects_explicit_user_choice() {
+        // User explicitly sets MaintainFramerate
+        let options = TrackPublishOptions {
+            degradation_preference: Some(DegradationPreference::MaintainFramerate),
+            ..Default::default()
+        };
+        assert_eq!(
+            get_default_degradation_preference(&options, 1080),
+            DegradationPreference::MaintainFramerate
+        );
+
+        // User explicitly sets Balanced
+        let options = TrackPublishOptions {
+            degradation_preference: Some(DegradationPreference::Balanced),
+            ..Default::default()
+        };
+        assert_eq!(
+            get_default_degradation_preference(&options, 1080),
+            DegradationPreference::Balanced
+        );
+
+        // User explicitly sets MaintainFramerateAndResolution
+        let options = TrackPublishOptions {
+            degradation_preference: Some(DegradationPreference::MaintainFramerateAndResolution),
+            ..Default::default()
+        };
+        assert_eq!(
+            get_default_degradation_preference(&options, 1080),
+            DegradationPreference::MaintainFramerateAndResolution
+        );
     }
 }

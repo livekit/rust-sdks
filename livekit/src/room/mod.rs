@@ -14,7 +14,7 @@
 
 pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -64,7 +64,7 @@ use crate::{
     utils::{observer::Dispatcher, promise::Promise},
 };
 
-pub mod data_stream;
+pub use livekit_data_stream as data_stream;
 pub mod data_track;
 pub mod e2ee;
 pub mod id;
@@ -439,7 +439,7 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
-            single_peer_connection: false,
+            single_peer_connection: true,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
             flexfec: None,
         }
@@ -689,7 +689,9 @@ impl Room {
         let (remote_dt_manager, remote_dt_input, remote_dt_output) =
             dt::remote::Manager::new(remote_dt_options);
 
-        let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
+        let (incoming_stream_manager, open_rx) = IncomingStreamManager::new(
+            INTERNAL_DATA_STREAM_TOPICS.iter().map(|t| t.to_string()).collect(),
+        );
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
 
         let room_info = join_response.room.unwrap();
@@ -838,6 +840,21 @@ impl Room {
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.rtc_engine.simulate_scenario(scenario).await
+    }
+
+    /// Test-only: force the next `count` resume attempts to fail, exercising the
+    /// resume-failure → full-reconnect escalation path end-to-end.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn fail_next_resume_attempts(&self, count: u32) {
+        self.inner.rtc_engine.fail_next_resume_attempts(count);
+    }
+
+    /// Test-only: arm a one-shot fault so the next resume simulates a concurrent
+    /// transport failure (then still succeeds), reproducing the resume-reports-
+    /// success-while-a-failure-was-pending race.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn fail_transport_during_next_resume(&self) {
+        self.inner.rtc_engine.fail_transport_during_next_resume();
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
@@ -1088,6 +1105,9 @@ impl RoomSession {
             }
             EngineEvent::TrackMuted { sid, muted } => {
                 self.handle_server_initiated_mute_track(sid, muted);
+            }
+            EngineEvent::SubscribedQualityUpdate { update } => {
+                self.handle_subscribed_quality_update(update);
             }
             EngineEvent::LocalDataTrackInput(event) => {
                 _ = self.local_dt_input.send(event);
@@ -1804,7 +1824,7 @@ impl RoomSession {
         participant_identity: String,
         encryption_type: proto::encryption::Type,
     ) {
-        let is_internal = data_stream::is_internal_topic(&header.topic);
+        let is_internal = is_internal_topic(&header.topic);
         self.incoming_stream_manager.handle_header(
             header.clone(),
             participant_identity.clone(),
@@ -1898,6 +1918,99 @@ impl RoomSession {
         }
 
         log::warn!("Track not found in mute request: {}", sid_for_log);
+    }
+
+    #[allow(deprecated)]
+    fn handle_subscribed_quality_update(&self, update: proto::SubscribedQualityUpdate) {
+        if !self.options.dynacast {
+            return;
+        }
+
+        let track_sid: TrackSid = match update.track_sid.clone().try_into() {
+            Ok(sid) => sid,
+            Err(_) => {
+                log::warn!(
+                    "dynacast: invalid track sid in subscribed quality update: {}",
+                    update.track_sid
+                );
+                return;
+            }
+        };
+
+        let publication = match self.local_participant.get_track_publication(&track_sid) {
+            Some(pub_) => pub_,
+            None => {
+                log::warn!("dynacast: local track publication not found for sid {}", track_sid);
+                return;
+            }
+        };
+
+        let video_track = match publication.track() {
+            Some(LocalTrack::Video(vt)) => vt,
+            _ => {
+                log::debug!(
+                    "dynacast: track {} is not a local video track, ignoring quality update",
+                    track_sid
+                );
+                return;
+            }
+        };
+
+        let qualities: Vec<proto::SubscribedQuality> = if !update.subscribed_codecs.is_empty() {
+            // This is the requested codec, which we also advertise in simulcast_codecs and use
+            // for sender codec preferences, so it should match the SFU's subscribed codec key.
+            let codec = publication.publish_options().video_codec.as_str().to_lowercase();
+            log::info!(
+                "dynacast: SFU quality update for {}: subscribed_codecs={:?}, looking for codec '{}'",
+                track_sid,
+                update.subscribed_codecs.iter().map(|sc| {
+                    let qs: Vec<String> = sc.qualities.iter().map(|q| {
+                        format!(
+                            "{:?}={}",
+                            crate::options::video_quality_from_i32_or_default(q.quality),
+                            q.enabled
+                        )
+                    }).collect();
+                    format!("{}:[{}]", sc.codec, qs.join(", "))
+                }).collect::<Vec<_>>().join("; "),
+                codec,
+            );
+            update
+                .subscribed_codecs
+                .iter()
+                .find(|sc| sc.codec.to_lowercase() == codec)
+                .map(|sc| sc.qualities.clone())
+                .unwrap_or_else(|| {
+                    log::warn!("dynacast: codec '{}' not found in subscribed_codecs, falling back to first", codec);
+                    update
+                        .subscribed_codecs
+                        .first()
+                        .map(|sc| sc.qualities.clone())
+                        .unwrap_or_default()
+                })
+        } else {
+            let qs: Vec<String> = update
+                .subscribed_qualities
+                .iter()
+                .map(|q| {
+                    format!(
+                        "{:?}={}",
+                        crate::options::video_quality_from_i32_or_default(q.quality),
+                        q.enabled
+                    )
+                })
+                .collect();
+            log::info!(
+                "dynacast: SFU quality update for {} (legacy): [{}]",
+                track_sid,
+                qs.join(", "),
+            );
+            update.subscribed_qualities.clone()
+        };
+
+        if let Err(e) = video_track.set_publishing_layers(&qualities) {
+            log::error!("dynacast: failed to set publishing layers for {}: {}", track_sid, e);
+        }
     }
 
     /// Create a new participant
@@ -2102,7 +2215,7 @@ impl RoomSession {
     /// Task for handling output events from the local data track manager.
     async fn local_dt_forward_task(
         self: Arc<Self>,
-        mut events: impl Stream<Item = dt::local::OutputEvent> + Unpin,
+        mut events: dt::local::ManagerOutput,
         mut close_rx: broadcast::Receiver<()>,
     ) {
         loop {
@@ -2122,7 +2235,7 @@ impl RoomSession {
     /// Task for handling output events from the remote data track manager.
     async fn remote_dt_forward_task(
         self: Arc<Self>,
-        mut events: impl Stream<Item = dt::remote::OutputEvent> + Unpin,
+        mut events: dt::remote::ManagerOutput,
         mut close_rx: broadcast::Receiver<()>,
     ) {
         loop {
@@ -2164,7 +2277,7 @@ async fn incoming_data_stream_task(
                 match reader {
                     AnyStreamReader::Byte(reader) => {
                         let topic = reader.info().topic.clone();
-                        if !data_stream::is_internal_topic(&topic) {
+                        if !is_internal_topic(&topic) {
                             dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
                                 topic,
                                 reader: TakeCell::new(reader),
@@ -2194,7 +2307,7 @@ async fn incoming_data_stream_task(
                                 });
                             }
                             _ => {
-                                if !data_stream::is_internal_topic(&topic) {
+                                if !is_internal_topic(&topic) {
                                     dispatcher.dispatch(&RoomEvent::TextStreamOpened {
                                         topic,
                                         reader: TakeCell::new(reader),
@@ -2213,16 +2326,30 @@ async fn incoming_data_stream_task(
     }
 }
 
+/// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
+/// handled within the `livekit` crate and never surfaced through `RoomEvent`; the list is also
+/// passed to `IncomingStreamManager` so it can flag internal streams.
+const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
+
+fn is_internal_topic(topic: &str) -> bool {
+    INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
+}
+
 /// Receives packets from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
-    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
+    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>,
     engine: Arc<RtcEngine>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
     loop {
         tokio::select! {
             Ok((packet, responder)) = packet_rx.recv() => {
-                let result = engine.publish_data(packet, DataPacketKind::Reliable, false).await;
+                // Bridge the engine error into the data-stream crate's opaque `SendError`
+                // (the crate only needs to know whether the send failed).
+                let result = engine
+                    .publish_data(packet, DataPacketKind::Reliable, false)
+                    .await
+                    .map_err(|_| SendError);
                 let _ = responder.respond(result);
             },
             _ = close_rx.recv() => {

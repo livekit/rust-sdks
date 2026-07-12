@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           submodules: recursive
 
@@ -56,7 +56,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - name: Install Apple Rust targets (tier 1/2)
+      - name: Install Apple Rust targets
         run: |
           rustup target add \
             aarch64-apple-ios \
@@ -65,16 +65,13 @@ jobs:
             aarch64-apple-ios-macabi \
             x86_64-apple-ios-macabi \
             aarch64-apple-darwin \
-            x86_64-apple-darwin
+            x86_64-apple-darwin \
+            aarch64-apple-tvos \
+            aarch64-apple-tvos-sim \
+            aarch64-apple-visionos \
+            aarch64-apple-visionos-sim
 
-      # tvOS + visionOS are still tier 3 (no prebuilt std), so cargo-swift
-      # builds them via `cargo +nightly -Zbuild-std`. Toolchain + rust-src
-      # need to exist ahead of time.
-      - name: Install nightly + rust-src (tvOS/visionOS tier-3 targets)
-        run: |
-          rustup toolchain install nightly --profile minimal --component rust-src
-
-      - uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
+      - uses: cargo-bins/cargo-binstall@30b5ca8b54e1dcffd9548bc87ede1531310fdc67 # v1.20.0
       - run: cargo binstall cargo-make --no-confirm
 
       - name: Build Swift package

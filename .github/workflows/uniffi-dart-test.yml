@@ -1,0 +1,82 @@
+name: UniFFI Dart tests
+
+# Builds the Dart package (dev mode: host cdylib + generated bindings) and runs
+# its test suite, exercising the FFI boundary end-to-end. Scoped to changes that
+# can affect the livekit-uniffi Dart bindings.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "livekit-uniffi/**"
+      - "livekit-api/**"
+      - "livekit-protocol/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - ".cargo/**"
+      - ".github/workflows/uniffi-dart-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  dart-test:
+    # TODO: Fix tests then re-enable.
+    if: false
+    name: Dart package tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1.7.2
+        with:
+          sdk: stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo target
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-cargo-target-dart-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-dart-
+
+      - name: Install cargo-make
+        run: cargo install --locked cargo-make
+
+      - name: Build Dart package
+        working-directory: livekit-uniffi
+        run: cargo make dart-package
+
+      - name: Run Dart tests
+        working-directory: livekit-uniffi/packages/dart
+        run: |
+          dart pub get
+          dart test

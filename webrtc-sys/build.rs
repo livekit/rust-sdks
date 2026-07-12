@@ -84,6 +84,7 @@ fn main() {
         "src/webrtc.cpp",
         "src/video_frame.cpp",
         "src/video_frame_buffer.cpp",
+        "src/dmabuf_video_frame_buffer.cpp",
         "src/video_encoder_factory.cpp",
         "src/video_decoder_factory.cpp",
         "src/synthetic_audio_device.cpp",
@@ -96,6 +97,7 @@ fn main() {
         "src/audio_mixer.cpp",
         "src/packet_trailer.cpp",
         "src/fec_controller.cpp",
+        "src/packet_trailer_av1.cpp",
     ]);
 
     if is_desktop {
@@ -176,8 +178,12 @@ fn main() {
             // In order to avoid any ABI mismatches we use the sysroot's headers.
             add_gio_headers(&mut builder);
 
+            // Do not use pkg_config::probe_library, because we only require headers.
             for lib_name in ["glib-2.0", "gobject-2.0", "gio-2.0"] {
-                pkg_config::probe_library(lib_name).unwrap();
+                let lib = pkg_config::Config::new().cargo_metadata(false).probe(lib_name).unwrap();
+                for path in lib.include_paths {
+                    builder.include(path);
+                }
             }
 
             add_lazy_load_so(
@@ -210,6 +216,58 @@ fn main() {
                     );
                 } else {
                     println!("cargo:warning=libva not found; building without hardware accelerated video codecs");
+                }
+            }
+
+            if arm {
+                let jetson_mmapi_include = PathBuf::from("/usr/src/jetson_multimedia_api/include");
+                if jetson_mmapi_include.exists() {
+                    let jetson_classes_dir =
+                        PathBuf::from("/usr/src/jetson_multimedia_api/samples/common/classes");
+
+                    builder
+                        .include(&jetson_mmapi_include)
+                        .include("src/jetson")
+                        .file("src/jetson/jetson_mmapi_encoder.cpp")
+                        .file("src/jetson/jetson_plane_layout.cpp")
+                        .file("src/jetson/h264_encoder_impl.cpp")
+                        .file("src/jetson/h265_encoder_impl.cpp")
+                        .file("src/jetson/av1_encoder_impl.cpp")
+                        .file("src/jetson/jetson_av1_bitstream.cpp")
+                        .file("src/jetson/jetson_encoder_factory.cpp")
+                        .flag("-DUSE_JETSON_VIDEO_CODEC=1");
+
+                    let mmapi_sources = [
+                        "NvElement.cpp",
+                        "NvV4l2Element.cpp",
+                        "NvV4l2ElementPlane.cpp",
+                        "NvVideoEncoder.cpp",
+                        "NvBuffer.cpp",
+                        "NvLogging.cpp",
+                        "NvElementProfiler.cpp",
+                    ];
+                    for src in &mmapi_sources {
+                        let src_path = jetson_classes_dir.join(src);
+                        if src_path.exists() {
+                            builder.file(&src_path);
+                        } else {
+                            println!(
+                                "cargo:warning=Jetson MMAPI source not found: {}",
+                                src_path.display()
+                            );
+                        }
+                    }
+
+                    let tegra_lib_dir = PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra");
+                    if tegra_lib_dir.exists() {
+                        println!("cargo:rustc-link-search=native={}", tegra_lib_dir.display());
+                    }
+                    println!("cargo:rustc-link-lib=dylib=nvv4l2");
+                    println!("cargo:rustc-link-lib=dylib=nvbufsurface");
+                    if tegra_lib_dir.join("libnvbuf_utils.so").exists() {
+                        println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
+                    }
+                    println!("cargo:rustc-link-lib=dylib=v4l2");
                 }
             }
 

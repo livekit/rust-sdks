@@ -22,7 +22,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 
 const { proto2 } = require("@bufbuild/protobuf");
 const { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } = require("./participant_pb.js");
-const { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackPublicationInfo, TrackSource } = require("./track_pb.js");
+const { FrameMetadataFeature, OwnedTrack, OwnedTrackPublication, TrackPublicationInfo, TrackSource } = require("./track_pb.js");
 const { RtcStats } = require("./stats_pb.js");
 const { VideoCodec } = require("./video_frame_pb.js");
 const { E2eeOptions, EncryptionState } = require("./e2ee_pb.js");
@@ -49,6 +49,7 @@ const SimulateScenarioKind = /*@__PURE__*/ proto2.makeEnum(
     {no: 5, name: "SIMULATE_FORCE_TCP"},
     {no: 6, name: "SIMULATE_FORCE_TLS"},
     {no: 7, name: "SIMULATE_FULL_RECONNECT"},
+    {no: 8, name: "SIMULATE_DISCONNECT_SIGNAL_ON_RESUME"},
   ],
 );
 
@@ -64,6 +65,21 @@ const VideoEncoderBackend = /*@__PURE__*/ proto2.makeEnum(
     {no: 3, name: "ENCODER_BACKEND_NVENC"},
     {no: 4, name: "ENCODER_BACKEND_VAAPI"},
     {no: 5, name: "ENCODER_BACKEND_VIDEOTOOLBOX"},
+  ],
+);
+
+/**
+ * Controls how the encoder degrades quality when bandwidth is constrained.
+ *
+ * @generated from enum livekit.proto.DegradationPreference
+ */
+const DegradationPreference = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.DegradationPreference",
+  [
+    {no: 0, name: "DEGRADATION_PREFERENCE_BALANCED", localName: "BALANCED"},
+    {no: 1, name: "DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE", localName: "MAINTAIN_FRAMERATE"},
+    {no: 2, name: "DEGRADATION_PREFERENCE_MAINTAIN_RESOLUTION", localName: "MAINTAIN_RESOLUTION"},
+    {no: 4, name: "DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE_AND_RESOLUTION", localName: "MAINTAIN_FRAMERATE_AND_RESOLUTION"},
   ],
 );
 
@@ -729,9 +745,10 @@ const TrackPublishOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 7, name: "source", kind: "enum", T: proto2.getEnumType(TrackSource), opt: true },
     { no: 8, name: "stream", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 9, name: "preconnect_buffer", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
-    { no: 10, name: "packet_trailer_features", kind: "enum", T: proto2.getEnumType(PacketTrailerFeature), repeated: true },
+    { no: 10, name: "frame_metadata_features", kind: "enum", T: proto2.getEnumType(FrameMetadataFeature), repeated: true },
     { no: 11, name: "scalability_mode", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 12, name: "video_encoder", kind: "enum", T: proto2.getEnumType(VideoEncoderBackend), opt: true },
+    { no: 13, name: "degradation_preference", kind: "enum", T: proto2.getEnumType(DegradationPreference), opt: true },
   ],
 );
 
@@ -1634,6 +1651,7 @@ const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
 
 exports.SimulateScenarioKind = SimulateScenarioKind;
 exports.VideoEncoderBackend = VideoEncoderBackend;
+exports.DegradationPreference = DegradationPreference;
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;

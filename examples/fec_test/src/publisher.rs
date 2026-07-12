@@ -23,7 +23,9 @@ use std::{fs::File, io::Write as _, time::Duration};
 use anyhow::Result;
 use clap::Parser;
 use livekit::{
-    options::{FlexFecOptions, PacketTrailerFeatures, TrackPublishOptions, VideoCodec, VideoEncoding},
+    options::{
+        FlexFecOptions, FrameMetadataFeatures, TrackPublishOptions, VideoCodec, VideoEncoding,
+    },
     track::{LocalTrack, LocalVideoTrack, TrackSource},
     webrtc::{
         stats::RtcStats,
@@ -145,11 +147,11 @@ async fn main() -> Result<()> {
         LocalVideoTrack::create_video_track(&args.identity, RtcVideoSource::Native(source.clone()));
 
     // embed a wall-clock capture timestamp + frame id in each frame so the
-    // subscriber can measure capture-to-decode latency (PacketTrailerFeatures
+    // subscriber can measure capture-to-decode latency (FrameMetadataFeatures
     // is #[non_exhaustive], build it via Default)
-    let mut packet_trailer_features = PacketTrailerFeatures::default();
-    packet_trailer_features.user_timestamp = true;
-    packet_trailer_features.frame_id = true;
+    let mut frame_metadata_features = FrameMetadataFeatures::default();
+    frame_metadata_features.user_timestamp = true;
+    frame_metadata_features.frame_id = true;
 
     room.local_participant()
         .publish_track(
@@ -162,7 +164,7 @@ async fn main() -> Result<()> {
                     max_bitrate: args.bitrate * 1000,
                     max_framerate: args.fps as f64,
                 }),
-                packet_trailer_features,
+                frame_metadata_features,
                 ..Default::default()
             },
         )
@@ -195,6 +197,7 @@ async fn main() -> Result<()> {
             frame.frame_metadata = Some(FrameMetadata {
                 user_timestamp: Some(common::unix_time_micros()),
                 frame_id: Some(frame_index),
+                user_data: None,
             });
             source.capture_frame(&frame);
         }

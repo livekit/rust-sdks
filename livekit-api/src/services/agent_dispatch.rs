@@ -29,16 +29,50 @@ pub struct AgentDispatchClient {
 }
 
 impl AgentDispatchClient {
+    /// Authenticates with an API key and secret, signing a short-lived token per request.
     pub fn with_api_key(host: &str, api_key: &str, api_secret: &str) -> Self {
-        Self {
-            base: ServiceBase::with_api_key(api_key, api_secret),
-            client: TwirpClient::new(host, LIVEKIT_PACKAGE, None),
-        }
+        Self::build(
+            host,
+            ServiceBase::with_api_key(api_key, api_secret),
+            crate::http_client::Client::new(),
+        )
     }
 
+    /// Authenticates with a pre-signed token, sent verbatim on every request.
+    pub fn with_token(host: &str, token: &str) -> Self {
+        Self::build(host, ServiceBase::with_token(token), crate::http_client::Client::new())
+    }
+
+    /// Builds the client from an already-constructed HTTP client so the unified
+    /// [`LiveKitApi`](super::LiveKitApi) can share one connection pool across services.
+    pub(crate) fn build(host: &str, base: ServiceBase, client: crate::http_client::Client) -> Self {
+        Self { base, client: TwirpClient::with_client(host, LIVEKIT_PACKAGE, None, client) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_default_headers(mut self, headers: http::HeaderMap) -> Self {
+        self.client = self.client.with_default_headers(headers);
+        self
+    }
+
+    /// Reads the API key and secret from the `LIVEKIT_API_KEY` and
+    /// `LIVEKIT_API_SECRET` environment variables.
     pub fn new(host: &str) -> ServiceResult<Self> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(host, &api_key, &api_secret))
+    }
+
+    /// Enables or disables region failover (enabled by default). Failover only
+    /// engages for LiveKit Cloud hosts.
+    pub fn with_failover(mut self, enabled: bool) -> Self {
+        self.client = self.client.with_failover(enabled);
+        self
+    }
+
+    /// Overrides the default per-request timeout (10s) for calls on this client.
+    pub fn with_request_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.client = self.client.with_request_timeout(timeout);
+        self
     }
 
     /// Creates an explicit dispatch for an agent to join a room.
@@ -46,7 +80,9 @@ impl AgentDispatchClient {
     /// To use explicit dispatch, your agent must be registered with an `agent_name`.
     ///
     /// # Arguments
-    /// * `req` - Request containing dispatch creation parameters
+    /// * `req` - Request containing dispatch creation parameters. The request can include
+    ///   an optional `deployment` field to target a specific agent deployment.
+    ///   Leave empty to target the production deployment.
     ///
     /// # Returns
     /// The created agent dispatch object

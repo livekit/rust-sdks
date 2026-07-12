@@ -1,7 +1,7 @@
 [package]
 name = "livekit-datatrack"
 description = "Data track core for LiveKit"
-version = "0.1.8"
+version = "0.1.10"
 readme = "README.md"
 license.workspace = true
 edition.workspace = true
@@ -9,10 +9,10 @@ repository.workspace = true
 
 [dependencies]
 livekit-protocol = { workspace = true }
-livekit-runtime = { workspace = true }
+livekit-runtime = { workspace = true, features = ["tokio"] }
 log = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["sync"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "sync"] }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 futures-core = { workspace = true }
 bytes = { workspace = true }
@@ -21,9 +21,11 @@ tokio-stream = { workspace = true, features = ["sync"] }
 anyhow = { workspace = true } # For internal error handling only
 rand = { workspace = true }
 fake = { version = "4.4", features = ["derive"], optional = true }
+uniffi = { workspace = true, features = ["cli", "scaffolding-ffi-buffer-fns"], optional = true }
 indexmap = "2"
 
 [features]
+uniffi = ["dep:uniffi"]
 __fuzz = ["dep:fake"]
 
 [dev-dependencies]

@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.36"
+version = "0.3.40"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true
@@ -8,11 +8,12 @@ description = "Livekit safe bindings to libwebrtc"
 repository.workspace = true
 
 [features]
-default = [ "glib-main-loop" ]
+default = []
+
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
-# GDBus requires a GLib event loop to be running. If you already have a GLib
-# event loop running in your application, for example if you are using the
-# GTK or GStreamer Rust bindings, disable this feature.
+# GDBus requires a GLib event loop to be running. Enable this feature if you
+# wish to use screensharing, and you do not already have a GLib event loop
+# running in your application.
 glib-main-loop = [ "dep:glib" ]
 
 [dependencies]
@@ -29,7 +30,7 @@ jni = "0.21"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 webrtc-sys = { workspace = true }
-livekit-runtime = { workspace = true }
+livekit-runtime = { workspace = true, features = ["tokio"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }

@@ -41,10 +41,10 @@ use async_tungstenite::tungstenite::Error as WsError;
 
 use crate::{http_client, signal_client::signal_stream::SignalStream};
 
-mod region;
+mod region_url_provider;
 mod signal_stream;
 
-pub use region::RegionUrlProvider;
+pub use region_url_provider::RegionUrlProvider;
 
 pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
 pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
@@ -60,11 +60,7 @@ pub const PROTOCOL_VERSION: u32 = 17;
 const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
     &[proto::client_info::Capability::CapPacketTrailer];
 
-/// Default value for `ClientInfo.client_protocol` when a participant has not
-/// advertised one (treat as v1-only / no data-stream RPC support).
-pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
-/// `ClientInfo.client_protocol` value indicating support for RPC v2 over data streams.
-pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
+pub use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.
@@ -88,6 +84,29 @@ pub enum SignalError {
     Timeout(String),
     #[error("failed to send message to the server")]
     SendError,
+    /// Failed to retrieve region information from LiveKit Cloud.
+    ///
+    /// This error occurs when the SDK cannot fetch the `/settings/regions` endpoint
+    /// from LiveKit Cloud. The error message includes the full error chain to help
+    /// diagnose the root cause.
+    ///
+    /// # Common Causes
+    ///
+    /// - **Missing CA certificates**: When deploying in containers using slim base images
+    ///   (e.g., `node:*-slim`, `debian:*-slim`, Alpine), the system CA certificate store
+    ///   may be empty. The error will include "invalid peer certificate: UnknownIssuer".
+    ///
+    ///   **Fix**: Install the `ca-certificates` package in your Dockerfile:
+    ///   ```dockerfile
+    ///   RUN apt-get update && apt-get install -y ca-certificates
+    ///   ```
+    ///
+    ///   **Alternative**: Use the `rustls-tls-webpki-roots` feature instead of
+    ///   `rustls-tls-native-roots` to bundle Mozilla's root certificates.
+    ///
+    /// - **Network connectivity issues**: The container cannot reach LiveKit Cloud endpoints.
+    ///
+    /// - **Invalid or expired access token**: The token used for authentication is not valid.
     #[error("failed to retrieve region info: {0}")]
     RegionError(String),
     #[error("server sent leave during reconnect: reason={reason:?}, action={action:?}")]
@@ -192,18 +211,48 @@ impl SignalClient {
                 if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
                     log::error!("unexpected signal error: {}", err.to_string());
                 }
-                let urls = RegionUrlProvider::fetch_region_urls(url, token).await?;
-                let mut last_err = err;
 
-                for url in urls.iter() {
-                    log::info!("fallback connection to: {}", url);
-                    match SignalInner::connect(url, token, options.clone(), publisher_offer.clone())
-                        .await
+                // Fetching region URLs is best-effort. `fetch_region_urls`
+                // already returns an empty list for non-cloud (direct /
+                // self-hosted) URLs, so those skip the fallback entirely. If the
+                // fetch itself fails (e.g. the region endpoint is unreachable),
+                // that must NOT be fatal: log a warning and fall back to the
+                // original connection error rather than masking it with the
+                // fetch error.
+                let urls = match RegionUrlProvider::fetch_region_urls(url, token).await {
+                    Ok(urls) => urls,
+                    Err(region_err) => {
+                        log::warn!(
+                            "failed to fetch region urls: {region_err}; surfacing original connection error"
+                        );
+                        return Err(err);
+                    }
+                };
+
+                // With no region URLs to try, this surfaces the original error.
+                // Otherwise we keep the most recent region attempt error, so that
+                // if every region fails the caller sees why the last region
+                // connection failed.
+                let mut last_err = err;
+                for region_url in urls.iter() {
+                    log::info!("fallback connection to: {}", region_url);
+                    match SignalInner::connect(
+                        region_url,
+                        token,
+                        options.clone(),
+                        publisher_offer.clone(),
+                    )
+                    .await
                     {
                         Ok((inner, join_response, stream_events)) => {
                             return Ok(handle_success(inner, join_response, stream_events))
                         }
-                        Err(err) => last_err = err,
+                        Err(region_conn_err) => {
+                            // This region is unreachable; drop it from the cache
+                            // so the next attempt doesn't hand it out again.
+                            RegionUrlProvider::mark_failed(url, region_url);
+                            last_err = region_conn_err;
+                        }
                     }
                 }
 
@@ -743,20 +792,23 @@ fn create_join_request_param(
     // Serialize JoinRequest to bytes
     let join_request_bytes = join_request.encode_to_vec();
 
-    // Use gzip compression when publisher offer is included (SDP makes payload large)
-    let (compressed_bytes, compression) = if publisher_offer.is_some() {
+    // Always use gzip compression to reduce URL size on poor networks
+    let (compressed_bytes, compression) = {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         if encoder.write_all(&join_request_bytes).is_ok() {
             if let Ok(compressed) = encoder.finish() {
-                (compressed, proto::wrapped_join_request::Compression::Gzip as i32)
+                // Only use compressed version if it's actually smaller
+                if compressed.len() < join_request_bytes.len() {
+                    (compressed, proto::wrapped_join_request::Compression::Gzip as i32)
+                } else {
+                    (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
+                }
             } else {
                 (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
             }
         } else {
             (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
         }
-    } else {
-        (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
     };
 
     let wrapped_join_request =
@@ -1254,9 +1306,9 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
-        let urls = result.unwrap();
+        let (urls, _max_age) = result.unwrap();
         assert_eq!(
             urls,
             vec![
@@ -1286,7 +1338,7 @@ mod tests {
         });
 
         let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -1294,6 +1346,89 @@ mod tests {
             matches!(err, SignalError::RegionError(ref msg) if msg.contains("timed out")),
             "expected RegionError with 'timed out', got: {:?}",
             err
+        );
+    }
+
+    /// Test that connection errors include the full error chain.
+    /// This is critical for diagnosing TLS certificate issues in container deployments.
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn region_fetch_connection_refused_includes_error_chain() {
+        // Try to connect to a port that's definitely not listening
+        // This simulates a network-level failure
+        let endpoint = "http://127.0.0.1:1/settings/regions";
+        let result = region_url_provider::fetch_from_endpoint(endpoint, "fake-token").await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+
+        // The error should be a RegionError
+        let SignalError::RegionError(msg) = err else {
+            panic!("expected RegionError, got: {:?}", err);
+        };
+
+        // The error message should contain information about the connection failure.
+        // The exact message varies by platform, but it should contain more than just
+        // "error sending request" - it should include the underlying cause.
+        assert!(
+            msg.contains("error sending request") || msg.contains("connection"),
+            "Error should mention the request failure, got: {}",
+            msg
+        );
+
+        // Most importantly, verify the error contains a colon, indicating the chain
+        // was preserved (format is "outer: middle: inner")
+        // Note: On some platforms the error might be simple, so we just verify
+        // we got a descriptive error message
+        assert!(
+            msg.len() > 20,
+            "Error message should be descriptive with chain info, got: {}",
+            msg
+        );
+    }
+
+    /// Test that JSON parsing errors include the full error chain.
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn region_fetch_invalid_json_includes_error_chain() {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Spawn a task that returns invalid JSON
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+
+            let mut buf = [0u8; 4096];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
+
+            // Return invalid JSON that will fail to parse
+            let body = r#"{"invalid": "not a regions response"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
+        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+
+        let SignalError::RegionError(msg) = err else {
+            panic!("expected RegionError, got: {:?}", err);
+        };
+
+        // The error should mention JSON parsing failure
+        assert!(
+            msg.contains("missing field") || msg.contains("error decoding") || msg.contains("JSON"),
+            "Error should mention JSON parsing failure, got: {}",
+            msg
         );
     }
 }

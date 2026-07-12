@@ -1,6 +1,6 @@
 [package]
 name = "livekit-api"
-version = "0.5.1"
+version = "0.5.5"
 license.workspace = true
 description = "Rust Server SDK for LiveKit"
 edition.workspace = true
@@ -45,22 +45,45 @@ __signal-client-async-compatible = [
 ]
 
 
-services-tokio = ["dep:reqwest"]
-services-async = ["dep:isahc"]
-access-token = ["dep:jsonwebtoken"]
+services-tokio = ["dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
+services-async = ["dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
+access-token = ["dep:jsonwebtoken", "dep:hmac", "dep:signature"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
-# Note that the following features only change the behavior of tokio-tungstenite.
-# It doesn't change the behavior of libwebrtc/webrtc-sys
+# TLS Configuration
+# -----------------
+# These features control TLS behavior for WebSocket and HTTP connections.
+# Note: These features only change the behavior of tokio-tungstenite and reqwest.
+# They don't change the behavior of libwebrtc/webrtc-sys.
+#
+# IMPORTANT FOR CONTAINER DEPLOYMENTS:
+# When using `rustls-tls-native-roots`, the SDK relies on the operating system's
+# CA certificate store. In container environments using slim/minimal base images,
+# this store may be empty, causing TLS errors like "invalid peer certificate: UnknownIssuer".
+#
+# Solutions:
+#   1. Install CA certificates in your Dockerfile:
+#      - Debian/Ubuntu: RUN apt-get update && apt-get install -y ca-certificates
+#      - Alpine: RUN apk add --no-cache ca-certificates
+#
+#   2. Use `rustls-tls-webpki-roots` instead, which bundles Mozilla's root
+#      certificates and doesn't require system CA certificates. This is the
+#      recommended option for containerized deployments. The drawback is that
+#      the embedded certificates can expire, requiring a fresh build to update them.
+
+# Uses the platform's native TLS implementation (OpenSSL on Linux, Secure Transport on macOS, SChannel on Windows)
 native-tls = [
     "tokio-tungstenite?/native-tls",
     "async-tungstenite?/async-native-tls",
     "reqwest?/native-tls"
 ]
+# Same as native-tls but compiles OpenSSL from source (useful for cross-compilation)
 native-tls-vendored = [
     "tokio-tungstenite?/native-tls-vendored",
     "reqwest?/native-tls-vendored",
 ]
+# Uses rustls with the operating system's CA certificate store.
+# Requires ca-certificates to be installed in container environments.
 rustls-tls-native-roots = [
     "tokio-tungstenite?/rustls-tls-native-roots",
     "reqwest?/rustls-tls-native-roots",
@@ -68,6 +91,8 @@ rustls-tls-native-roots = [
     "dep:tokio-rustls",
     "dep:rustls-native-certs"
 ]
+# Uses rustls with Mozilla's bundled root certificates.
+# RECOMMENDED for container deployments - no system CA certificates required.
 rustls-tls-webpki-roots = [
     "tokio-tungstenite?/rustls-tls-webpki-roots",
     "reqwest?/rustls-tls-webpki-roots",
@@ -76,6 +101,7 @@ __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
 [dependencies]
 livekit-protocol = { workspace = true }
+livekit-common = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 sha2 = "0.10"
@@ -89,11 +115,14 @@ pbjson-types = "0.6"
 serde_json = { workspace = true, optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
-# access_token & services
-jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"], optional = true }
+# access_token: HS256 only, via the in-crate HMAC CryptoProvider (jwt_provider.rs).
+# Dropping jsonwebtoken's rust_crypto bundle avoids linking RSA/EC/EdDSA.
+jsonwebtoken = { version = "10", default-features = false, optional = true }
+hmac = { version = "0.12", optional = true }
+signature = { version = "2", optional = true }
 
 # signal_client
-livekit-runtime = { workspace = true, optional = true}
+livekit-runtime = { workspace = true, optional = true }
 tokio-tungstenite = { version = "0.29", features = ["url"], optional = true }
 async-tungstenite = { version = "0.29", features = [ "async-std-runtime", "async-native-tls", "url"], optional = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
@@ -115,3 +144,5 @@ device-info = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
+# Minimal executor to drive the runtime-agnostic `services-async` (isahc) tests.
+futures = "0.3"

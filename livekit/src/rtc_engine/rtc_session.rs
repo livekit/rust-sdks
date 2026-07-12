@@ -215,6 +215,9 @@ pub enum SessionEvent {
         sid: String,
         muted: bool,
     },
+    SubscribedQualityUpdate {
+        update: proto::SubscribedQualityUpdate,
+    },
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -465,6 +468,7 @@ struct SessionHandle {
 }
 
 impl RtcSession {
+    /// Connect to a LiveKit room.
     pub async fn connect(
         url: &str,
         token: &str,
@@ -1433,6 +1437,14 @@ impl SessionInner {
                     self.handle_media_sections_requirement(req)?;
                 }
             }
+            proto::signal_response::Message::SubscribedQualityUpdate(update) => {
+                log::debug!(
+                    "received subscribed quality update for track {}: {:?}",
+                    update.track_sid,
+                    update.subscribed_codecs
+                );
+                let _ = self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
+            }
             _ => {}
         }
 
@@ -1910,6 +1922,21 @@ impl SessionInner {
             SimulateScenario::SignalReconnect => {
                 self.signal_client.close().await;
             }
+            SimulateScenario::DisconnectSignalOnResume => {
+                // Tell the server to drop the signalling link during the next
+                // resume, then trigger a resume by closing the link locally. The
+                // server kills the resumed signal, so the resume fails and the
+                // engine escalates to a full reconnect. Mirrors client-sdk-js's
+                // `disconnect-signal-on-resume`.
+                self.signal_client
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::DisconnectSignalOnResume(true),
+                        ),
+                    }))
+                    .await;
+                self.signal_client.close().await;
+            }
             SimulateScenario::Speaker => {
                 self.signal_client
                     .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
@@ -1975,13 +2002,18 @@ impl SessionInner {
                 .await?
             }
             SimulateScenario::FullReconnect => {
-                self.signal_client
-                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
-                        scenario: Some(
-                            proto::simulate_scenario::Scenario::LeaveRequestFullReconnect(true),
-                        ),
-                    }))
-                    .await;
+                // Client-driven full reconnect, mirroring client-sdk-js's
+                // `full-reconnect` scenario: force the next reconnect to be a
+                // full reconnect and trigger it locally, rather than asking the
+                // server to echo a Leave. The server-side
+                // `LeaveRequestFullReconnect` simulation is not honoured by every
+                // server build, so relying on it makes this scenario flaky.
+                self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Reconnect.into(),
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    ..Default::default()
+                }))
+                .await?
             }
         }
         Ok(())

@@ -139,6 +139,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.40 (2026-07-09)
+
+### Fixes
+
+- Fix malformed RTC error handling
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+
+## 0.3.39 (2026-06-30)
+
+### Features
+
+#### Improve initial video quality by setting `x-google-start-bitrate` SDP hint for all video codecs (VP8, VP9, AV1, H264, H265) and defaulting to `MaintainResolution` degradation preference.
+
+This addresses the issue where video starts blurry for several seconds before improving, by:
+1. Telling WebRTC's bandwidth estimator to start at 70% of target bitrate instead of ramping up from ~300kbps
+2. Preferring frame drops over resolution reduction when bandwidth is constrained
+
+The `DegradationPreference` option is now exposed via FFI for Python, C++, Unity, and Node SDKs.
+
+#### Add `MaintainFramerateAndResolution` to `DegradationPreference` enum to align with WebRTC M144.
+
+- `MAINTAIN_FRAMERATE_AND_RESOLUTION` is now the recommended value (replaces deprecated `DISABLED`)
+- `DISABLED` is deprecated but still supported for backwards compatibility
+- Both values map to the same behavior: maintain framerate and resolution, dropping frames if needed
+
+### Fixes
+
+- Fix AV1 subscriber decode when packet trailers are enabled.
+
+## 0.3.38 (2026-06-23)
+
+### Fixes
+
+- Upgrade protocol to v1.48.0
+
+## 0.3.37 (2026-06-17)
+
+### Features
+
+#### Add dynacast support - #1003 (@chenosaurus, @stephen-derosa)
+
+This includes a minor breaking change for `libwebrtc`: `RtpParameters` now
+contains additional RTP sender state that must be preserved when round-tripping
+through `set_parameters()`.
+
+#### Make GLib an opt-in dependency
+
+`webrtc-sys` no longer links against `glib-2.0`/`gobject-2.0`/`gio-2.0` by default.
+
+Breaking: Wayland screen sharing now requires the `glib-main-loop` feature on `livekit` (or `libwebrtc`).
+
+### Fixes
+
+- Fix silent subscription failures in single-pc mode when the SFU reuses an existing empty transceiver for a new remote track. Also make `RtpTransceiver::mid()` safe to call on transceivers that haven't been negotiated yet — libwebrtc is built with `-fno-exceptions`, so `std::optional::value()` aborted the process instead of throwing.
+- Add `LK_DISABLE_NVDEC` to bypass NVIDIA NVDEC decoder registration when the environment variable is set.
+- Add Jetson DMA-buffer video publishing support for libargus MIPI capture and the Jetson hardware encoder, including AV1 hardware encoding on supported Jetson Orin devices.
+
 ## 0.3.36 (2026-06-09)
 
 ### Fixes

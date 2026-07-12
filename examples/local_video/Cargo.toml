@@ -54,9 +54,13 @@ nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9d
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-avfoundation"] }
 metal = "0.32"
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
+objc2-metal = "0.3.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-v4l"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-msmf"] }
+
+[build-dependencies]
+cc = { workspace = true }

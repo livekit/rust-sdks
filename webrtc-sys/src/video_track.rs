@@ -47,6 +47,7 @@ pub mod ffi {
         pub has_packet_trailer: bool,
         pub user_timestamp: u64,
         pub frame_id: u32,
+        pub user_data: Vec<u8>,
     }
 
     extern "C++" {
@@ -82,6 +83,15 @@ pub mod ffi {
         fn on_captured_frame(
             self: &VideoTrackSource,
             frame: &UniquePtr<VideoFrame>,
+            frame_metadata: &FrameMetadata,
+        ) -> bool;
+        fn capture_dmabuf_frame(
+            self: &VideoTrackSource,
+            dmabuf_fd: i32,
+            width: i32,
+            height: i32,
+            pixel_format: i32,
+            timestamp_us: i64,
             frame_metadata: &FrameMetadata,
         ) -> bool;
         fn set_packet_trailer_handler(

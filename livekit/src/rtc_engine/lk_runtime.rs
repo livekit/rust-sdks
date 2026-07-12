@@ -23,18 +23,45 @@ use std::{
 use lazy_static::lazy_static;
 use libwebrtc::prelude::*;
 use parking_lot::Mutex;
+use thiserror::Error;
 
 #[cfg(not(target_arch = "wasm32"))]
 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 
 lazy_static! {
-    static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
+    static ref LK_RUNTIME: Mutex<LkRuntimeState> = Mutex::new(LkRuntimeState::default());
 }
 
 static FLEXFEC_CONFIGURED: AtomicBool = AtomicBool::new(false);
 
+#[derive(Default)]
+struct LkRuntimeState {
+    runtime: Weak<LkRuntime>,
+    zero_playout_delay: bool,
+}
+
+impl LkRuntimeState {
+    fn enable_zero_playout_delay(
+        &mut self,
+        active_runtime_zero_playout_delay: Option<bool>,
+    ) -> Result<(), WebRtcRuntimeInitializedError> {
+        if active_runtime_zero_playout_delay == Some(false) {
+            return Err(WebRtcRuntimeInitializedError);
+        }
+
+        self.zero_playout_delay = true;
+        Ok(())
+    }
+}
+
+/// Returned when zero playout delay is requested after the default WebRTC runtime is active.
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
+#[error("the WebRTC runtime is already initialized without zero playout delay")]
+pub struct WebRtcRuntimeInitializedError;
+
 pub struct LkRuntime {
     pc_factory: PeerConnectionFactory,
+    zero_playout_delay: bool,
 }
 
 impl Debug for LkRuntime {
@@ -44,14 +71,30 @@ impl Debug for LkRuntime {
 }
 
 impl LkRuntime {
+    pub(crate) fn enable_zero_playout_delay() -> Result<(), WebRtcRuntimeInitializedError> {
+        let mut state = LK_RUNTIME.lock();
+        let active_runtime_zero_playout_delay =
+            state.runtime.upgrade().map(|runtime| runtime.zero_playout_delay);
+        state.enable_zero_playout_delay(active_runtime_zero_playout_delay)
+    }
+
     pub fn instance() -> Arc<LkRuntime> {
-        let mut lk_runtime_ref = LK_RUNTIME.lock();
-        if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
+        let mut state = LK_RUNTIME.lock();
+        if let Some(lk_runtime) = state.runtime.upgrade() {
             lk_runtime
         } else {
             log::debug!("LkRuntime::new()");
-            let new_runtime = Arc::new(Self { pc_factory: PeerConnectionFactory::default() });
-            *lk_runtime_ref = Arc::downgrade(&new_runtime);
+            let zero_playout_delay = state.zero_playout_delay;
+            #[cfg(not(target_arch = "wasm32"))]
+            let pc_factory = if zero_playout_delay {
+                PeerConnectionFactory::with_zero_playout_delay()
+            } else {
+                PeerConnectionFactory::default()
+            };
+            #[cfg(target_arch = "wasm32")]
+            let pc_factory = PeerConnectionFactory::default();
+            let new_runtime = Arc::new(Self { pc_factory, zero_playout_delay });
+            state.runtime = Arc::downgrade(&new_runtime);
             new_runtime
         }
     }
@@ -318,6 +361,31 @@ impl LkRuntime {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn is_platform_adm_active(&self) -> bool {
         self.pc_factory.is_platform_adm_active()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LkRuntimeState, WebRtcRuntimeInitializedError};
+
+    #[test]
+    fn zero_playout_delay_can_be_enabled_early_and_repeated() {
+        let mut state = LkRuntimeState::default();
+
+        assert_eq!(state.enable_zero_playout_delay(None), Ok(()));
+        assert!(state.zero_playout_delay);
+        assert_eq!(state.enable_zero_playout_delay(Some(true)), Ok(()));
+    }
+
+    #[test]
+    fn zero_playout_delay_rejects_late_enable_on_default_runtime() {
+        let mut state = LkRuntimeState::default();
+
+        assert_eq!(
+            state.enable_zero_playout_delay(Some(false)),
+            Err(WebRtcRuntimeInitializedError)
+        );
+        assert!(!state.zero_playout_delay);
     }
 }
 
