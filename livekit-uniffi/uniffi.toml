@@ -11,3 +11,10 @@ cdylib_name = "livekit_uniffi" # the name of the so file to be loaded
 # asset id resolves to `package:livekit_uniffi/uniffi:livekit_uniffi`.
 package_name = "livekit_uniffi"
 cdylib_name = "livekit_uniffi"
+
+[bindings.go]
+# Go module path of the assembled package (must match GO_MODULE in
+# Makefile.toml). Used as the import source for cross-crate references: the
+# generated livekit_uniffi package imports the livekit_datatrack package
+# generated into the same module.
+go_mod = "github.com/livekit/livekit-uniffi-go"
