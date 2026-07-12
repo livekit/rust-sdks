@@ -39,6 +39,10 @@
 #include "nvidia/nvidia_decoder_factory.h"
 #endif
 
+#if defined(USE_MF_VIDEO_CODEC)
+#include "mf/mf_decoder_factory.h"
+#endif
+
 namespace livekit_ffi {
 
 VideoDecoderFactory::VideoDecoderFactory() {
@@ -53,6 +57,12 @@ VideoDecoderFactory::VideoDecoderFactory() {
 #if defined(USE_NVIDIA_VIDEO_CODEC)
   if (webrtc::NvidiaVideoDecoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::NvidiaVideoDecoderFactory>());
+  }
+#endif
+
+#if defined(USE_MF_VIDEO_CODEC)
+  if (webrtc::MFVideoDecoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::MFVideoDecoderFactory>());
   }
 #endif
 }
