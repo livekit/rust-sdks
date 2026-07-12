@@ -17,7 +17,7 @@
 #include "h264_decoder_impl.h"
 
 #include <codecapi.h>
-#include <d3d10.h>
+#include <d3d10_1.h>  // ID3D10Multithread; d3d10.h directly breaks SAL ordering
 #include <wmcodecdsp.h>
 
 #include <algorithm>
@@ -213,7 +213,7 @@ HRESULT MFH264DecoderImpl::NegotiateOutputType() {
     if (FAILED(hr)) {
       return hr;
     }
-    GUID subtype = GUID_NULL;
+    GUID subtype = {};
     candidate->GetGUID(MF_MT_SUBTYPE, &subtype);
     if (subtype != MFVideoFormat_NV12) {
       continue;
