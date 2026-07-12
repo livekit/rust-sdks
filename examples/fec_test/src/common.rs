@@ -53,6 +53,7 @@ pub fn mint_token(
 }
 
 pub fn unix_time_secs() -> f64 {
+    // now() is always at or after the epoch, so duration_since never errors
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs_f64()
 }
 
@@ -60,5 +61,6 @@ pub fn unix_time_secs() -> f64 {
 /// user_timestamp so the subscriber (same host, same clock) can compute true
 /// capture-to-decode latency.
 pub fn unix_time_micros() -> u64 {
+    // now() is always at or after the epoch, so duration_since never errors
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
 }
