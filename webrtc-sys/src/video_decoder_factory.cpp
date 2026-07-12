@@ -75,9 +75,11 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
        webrtc::SupportedH264DecoderCodecs())
     formats.push_back(h264_format);
 
+#if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
   formats.push_back(webrtc::SdpVideoFormat(
       webrtc::SdpVideoFormat::AV1Profile0(),
       webrtc::LibaomAv1EncoderSupportedScalabilityModes()));
+#endif
   return formats;
 }
 
