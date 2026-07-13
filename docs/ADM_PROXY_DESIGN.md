@@ -267,6 +267,35 @@ When Platform ADM is active, additional gates control behavior:
 - Remote audio plays through platform speakers
 - AEC uses playout as reference signal
 
+### Microphone Mute Handling
+
+When a local audio track is muted, WebRTC's voice engine (`WebRtcVoiceSendChannel::MuteStream` in `media/engine/webrtc_voice_engine.cc`) picks one of two strategies based on the ADM capability flag `IsStopOnMuteModeEnabled()`:
+
+- **`true`** (base ADM default): `StopRecording()` on mute, `InitRecording()` + `StartRecording()` on unmute. The capture device is physically stopped, which turns off the OS microphone privacy indicator.
+- **`false`** (Apple AudioEngine ADM): `SetMicrophoneMute(is_all_muted)` instead. The device mutes internally per its `MuteMode` without tearing down the engine.
+
+**AdmProxy delegation:** `AdmProxy::IsStopOnMuteModeEnabled()` delegates to `RecordingAdm()`:
+
+- Platform recording active on Apple: the AudioEngine ADM returns `false`, so track mute drives `SetMicrophoneMute` (which the proxy also gates through `RecordingAdm()`).
+- Platform recording inactive (synthetic mode / native push sources): returns `true`, so the voice engine takes the Stop/StartRecording path, which the recording gate turns into a no-op. Native push sources are unaffected by track mute, matching prior behavior.
+- Non-Apple platform ADMs inherit the base default `true` and keep the stop/start behavior.
+
+Both the flag read and the follow-up mute call run back-to-back on the worker thread, and the gating flags only mutate on the worker, so there is no check/act race.
+
+**SetMicrophoneMute gating rationale:** `SetMicrophoneMute`/`MicrophoneMute` go through `RecordingAdm()` rather than `WithPlatformAdm`, so mute state is a property of active platform recording. Without the gate, a mute call while platform audio is inactive would poke state into the idle-but-alive Apple ADM and get applied whenever the engine later starts. Note that starting recording always resets the hardware mic mute to unmuted (`AudioEngineDevice` behavior).
+
+**Mute mode configuration:** `AudioEngineDevice::MuteMode` selects the internal mute mechanism:
+
+| Mode | Value | Behavior | Privacy indicator while muted |
+|------|-------|----------|-------------------------------|
+| VoiceProcessing (default) | 0 | VPIO mute, engine keeps running | On |
+| RestartEngine | 1 | Input node torn down, engine restarted | Off |
+| InputMixer | 2 | Input mixer volume set to 0 | On |
+
+The plumbing chain: `PlatformAudio::set_mute_mode` → `LkRuntime` → `PeerConnectionFactoryExt` → `AudioDeviceController` → `AdmProxy::SetMuteMode` → `AudioEngineSetMuteMode` (webrtc-sys/src/apple_audio_engine.mm) → `AudioEngineDevice::SetMuteMode`.
+
+`SetMuteMode`/`GetMuteMode` are not part of the base `AudioDeviceModule` interface, they only exist on the concrete `AudioEngineDevice`. The bridge lives in an Objective-C++ TU because `audio_engine_device.h` imports Apple frameworks. The `static_cast` down to `AudioEngineDevice` is safe because the ADM created with `kAppleAudioEngine` is always that concrete type (see `CreateAudioEngineDeviceModule`). On non-Apple platforms `SetMuteMode` returns failure and the Rust API surfaces `AudioError::Unsupported`.
+
 ### Synthetic Playout Mode
 
 When platform playout is not active (ref_count is 0 or `playout_enabled_ = false`), the proxy delegates playout to `SyntheticAudioDevice` (webrtc-sys/src/synthetic_audio_device.cpp), a minimal ADM that runs a 10ms repeating task on its own task queue and pulls audio from WebRTC via `NeedMorePlayData()` without touching platform hardware. The proxy registers the same `AudioTransport` with both sub ADMs and starts/stops whichever one the current mode selects.
@@ -1000,7 +1029,7 @@ while let Some(event) = events.recv().await {
 3. ADM's `NeedMorePlayData()` is called by the audio device thread
 4. Mixed audio is delivered to the platform speaker device
 
-**Track mute/unmute:** Remote track mute state is handled by WebRTC internally. Muted tracks don't contribute to the mix.
+**Track mute/unmute:** Remote track mute state is handled by WebRTC internally. Muted tracks don't contribute to the mix. Local device track mute drives the microphone mute path described in [Microphone Mute Handling](#microphone-mute-handling): hardware mute per `MuteMode` on Apple, stop/start recording elsewhere.
 
 ### Comparison
 
@@ -1079,6 +1108,15 @@ impl PlatformAudio {
 
     /// Switch recording device during active session (hot-swap).
     pub fn switch_recording_device(&self, index: u16) -> AudioResult<()>;
+
+    // === Mute Mode (Apple AudioEngine ADM only) ===
+
+    /// Set how the microphone is muted when a published device track is muted.
+    /// Returns AudioError::Unsupported on non-Apple platforms.
+    pub fn set_mute_mode(&self, mode: MuteMode) -> AudioResult<()>;
+
+    /// Get the current mute mode.
+    pub fn mute_mode(&self) -> AudioResult<MuteMode>;
 
     // === Audio Processing ===
 

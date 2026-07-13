@@ -136,6 +136,24 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   bool playout_enabled() const;
 
   // ===========================================================================
+  // Mute Mode (Apple AudioEngine ADM only)
+  // ===========================================================================
+
+  /// Sets the mute mode of the Apple AudioEngine ADM. `mode` uses
+  /// webrtc::AudioEngineDevice::MuteMode values:
+  /// 0 = VoiceProcessing (VPIO mute, engine keeps running, default)
+  /// 1 = RestartEngine (input node torn down, mic indicator turns off)
+  /// 2 = InputMixer (input mixer volume set to 0)
+  ///
+  /// Mute mode is configuration like device selection, so it can be set at
+  /// any time, including before platform audio is acquired.
+  ///
+  /// Returns 0 on success, -1 on non-Apple platforms or when no platform
+  /// ADM exists.
+  int32_t SetMuteMode(int32_t mode);
+  int32_t GetMuteMode(int32_t* mode) const;
+
+  // ===========================================================================
   // AudioDeviceModule Interface
   // ===========================================================================
 
@@ -198,6 +216,12 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t MicrophoneMuteIsAvailable(bool* available) override;
   int32_t SetMicrophoneMute(bool enable) override;
   int32_t MicrophoneMute(bool* enabled) const override;
+
+  // Delegated to the active recording ADM so the voice engine picks the
+  // right mute strategy (see MuteStream in webrtc_voice_engine.cc). The
+  // AudioEngine ADM returns false and expects SetMicrophoneMute instead of
+  // Stop/StartRecording.
+  bool IsStopOnMuteModeEnabled() const override;
 
   int32_t StereoPlayoutIsAvailable(bool* available) const override;
   int32_t SetStereoPlayout(bool enable) override;

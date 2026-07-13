@@ -76,6 +76,28 @@
 //! room.local_participant().publish_track(LocalTrack::Audio(screen_track), opts).await?;
 //! ```
 //!
+//! # Muting
+//!
+//! To mute the microphone, mute the published track (e.g. `LocalAudioTrack::mute()`).
+//! The WebRTC voice engine reacts to the track mute state:
+//!
+//! - **iOS/macOS** (Apple AudioEngine ADM): the microphone is muted in hardware
+//!   according to the configured [`MuteMode`]. The default
+//!   ([`MuteMode::VoiceProcessing`]) keeps the audio engine running for fast
+//!   unmute; use [`MuteMode::RestartEngine`] to turn off the system microphone
+//!   privacy indicator while muted.
+//! - **Other platforms**: recording is stopped while muted and restarted on
+//!   unmute (default WebRTC behavior).
+//!
+//! ```rust,ignore
+//! let audio = PlatformAudio::new()?;
+//! audio.set_mute_mode(MuteMode::RestartEngine)?;  // optional, Apple only
+//!
+//! // ... publish a device track ...
+//! track.mute();    // mutes the microphone using the configured mode
+//! track.unmute();  // restores capture
+//! ```
+//!
 //! # Reference Counting
 //!
 //! Multiple [`PlatformAudio`] instances share the same underlying ADM:
@@ -97,7 +119,9 @@
 //!
 //! - **iOS**: Uses WebRTC's Apple AudioEngine ADM with platform voice processing.
 //!   Drop all `PlatformAudio` instances to release active audio I/O.
+//!   Supports [`MuteMode`] configuration for track muting.
 //! - **macOS**: Uses WebRTC's Apple AudioEngine ADM. Full device enumeration and selection supported.
+//!   Supports [`MuteMode`] configuration for track muting.
 //! - **Windows**: Uses WASAPI. Full device enumeration and selection supported.
 //! - **Linux**: Uses PulseAudio or ALSA. Full device enumeration and selection supported.
 //! - **Android**: Uses Java AudioRecord/AudioTrack via WebRTC's `JavaAudioDeviceModule`.
@@ -275,6 +299,58 @@ pub struct PlayoutDeviceInfo {
     pub name: String,
     /// Device index (may change when devices are added/removed).
     pub index: usize,
+}
+
+// =============================================================================
+// Mute Mode - How the microphone is muted when a device track is muted
+// =============================================================================
+
+/// Controls how the microphone is muted when a published audio track using
+/// `RtcAudioSource::Device` is muted (Apple platforms only).
+///
+/// When a local device-audio track is muted (e.g. via `LocalAudioTrack::mute()`),
+/// the WebRTC voice engine mutes the microphone in hardware using the configured
+/// mode. The audio pipeline stays alive, so unmuting is fast and does not require
+/// republishing the track.
+///
+/// Configure with [`PlatformAudio::set_mute_mode`]. On platforms without the
+/// Apple AudioEngine ADM, muting a track stops and restarts recording instead
+/// (default WebRTC behavior) and this enum has no effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MuteMode {
+    /// Mute through Apple voice processing (VPIO). The audio engine keeps
+    /// running and the system microphone privacy indicator stays on while
+    /// muted. Lowest mute/unmute latency. This is the default.
+    #[default]
+    VoiceProcessing,
+    /// Mute by disconnecting the input node and restarting the audio engine.
+    /// The system microphone privacy indicator turns off while muted, at the
+    /// cost of slower mute/unmute transitions.
+    RestartEngine,
+    /// Mute by setting the internal input mixer volume to zero. The engine
+    /// keeps running and the privacy indicator stays on.
+    InputMixer,
+}
+
+impl MuteMode {
+    /// Converts to the raw value used by the native layer.
+    fn to_raw(self) -> i32 {
+        match self {
+            MuteMode::VoiceProcessing => 0,
+            MuteMode::RestartEngine => 1,
+            MuteMode::InputMixer => 2,
+        }
+    }
+
+    /// Converts from the raw value used by the native layer.
+    fn from_raw(raw: i32) -> Option<Self> {
+        match raw {
+            0 => Some(MuteMode::VoiceProcessing),
+            1 => Some(MuteMode::RestartEngine),
+            2 => Some(MuteMode::InputMixer),
+            _ => None,
+        }
+    }
 }
 
 use lazy_static::lazy_static;
@@ -903,10 +979,20 @@ impl PlatformAudio {
     ///
     /// Call [`start_recording`] to resume recording.
     ///
+    /// # Muting
+    ///
+    /// To mute the microphone, prefer muting the published track (e.g.
+    /// `LocalAudioTrack::mute()`) over calling this method. On Apple platforms
+    /// the voice engine then mutes the microphone in hardware using the
+    /// configured [`MuteMode`]; on other platforms WebRTC stops and restarts
+    /// recording automatically. Avoid mixing manual `stop_recording` with track
+    /// mute: unmuting a track does not restart manually stopped recording, so
+    /// call [`start_recording`] first in that case.
+    ///
     /// # Note
     ///
     /// When recording is stopped, any published audio tracks using `RtcAudioSource::Device`
-    /// will send silence. You should typically unpublish the track before stopping recording.
+    /// will send silence.
     ///
     /// # Errors
     ///
@@ -916,15 +1002,12 @@ impl PlatformAudio {
     ///
     /// ```rust,ignore
     /// let audio = PlatformAudio::new()?;
-    /// // ... publish microphone track ...
     ///
-    /// // Mute: stop recording to turn off privacy indicator
-    /// room.local_participant().unpublish_track(track, false).await?;
+    /// // Release the microphone while no track is published
     /// audio.stop_recording()?;
     ///
-    /// // Unmute: start recording and republish
+    /// // Resume recording (also resets hardware mic mute to unmuted)
     /// audio.start_recording()?;
-    /// room.local_participant().publish_track(new_track, opts).await?;
     /// ```
     ///
     /// [`start_recording`]: Self::start_recording
@@ -946,6 +1029,54 @@ impl PlatformAudio {
     /// [`start_recording`]: Self::start_recording
     pub fn is_recording_initialized(&self) -> bool {
         self.handle.runtime.recording_is_initialized()
+    }
+
+    /// Sets how the microphone is muted when a published device-audio track
+    /// is muted (e.g. `LocalAudioTrack::mute()`).
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **iOS/macOS** (Apple AudioEngine ADM): the voice engine mutes the
+    ///   microphone in hardware using the configured mode instead of stopping
+    ///   recording. See [`MuteMode`] for the tradeoffs of each mode.
+    /// - **Other platforms**: returns [`AudioError::Unsupported`]. Muting a
+    ///   track stops and restarts recording instead (default WebRTC behavior).
+    ///
+    /// # Notes
+    ///
+    /// - Can be called at any time, including before publishing a track.
+    /// - Starting recording (publishing a device track, or [`start_recording`])
+    ///   always resets the hardware mic mute to unmuted.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    ///
+    /// // Turn off the mic privacy indicator while muted
+    /// audio.set_mute_mode(MuteMode::RestartEngine)?;
+    ///
+    /// // ... publish a device track, then track.mute() applies the mode ...
+    /// ```
+    ///
+    /// [`start_recording`]: Self::start_recording
+    pub fn set_mute_mode(&self, mode: MuteMode) -> AudioResult<()> {
+        if self.handle.runtime.set_mute_mode(mode.to_raw()) {
+            log::info!("PlatformAudio: set mute mode to {:?}", mode);
+            Ok(())
+        } else {
+            Err(AudioError::Unsupported)
+        }
+    }
+
+    /// Returns the current [`MuteMode`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::Unsupported`] on platforms without the Apple
+    /// AudioEngine ADM.
+    pub fn mute_mode(&self) -> AudioResult<MuteMode> {
+        MuteMode::from_raw(self.handle.runtime.mute_mode()).ok_or(AudioError::Unsupported)
     }
 
     // =========================================================================

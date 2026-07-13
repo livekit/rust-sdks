@@ -28,6 +28,10 @@
 #include "sdk/android/native_api/base/init.h"
 #endif
 
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+#include "livekit/apple_audio_engine.h"
+#endif
+
 namespace livekit_ffi {
 
 AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread)
@@ -597,6 +601,20 @@ bool AdmProxy::Recording() const {
   });
 }
 
+bool AdmProxy::IsStopOnMuteModeEnabled() const {
+  return RunOnWorker([this] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    auto* adm = RecordingAdm();
+    if (adm) {
+      return adm->IsStopOnMuteModeEnabled();
+    }
+    // When platform recording is inactive (synthetic mode or native push
+    // sources), report true so the voice engine takes the Stop/StartRecording
+    // path, which is already gated to a no-op here.
+    return true;
+  });
+}
+
 int32_t AdmProxy::InitSpeaker() {
   return WithPlatformAdm<int32_t>(0, [](webrtc::AudioDeviceModule& adm) {
     return adm.InitSpeaker();
@@ -726,14 +744,57 @@ int32_t AdmProxy::MicrophoneMuteIsAvailable(bool* available) {
 }
 
 int32_t AdmProxy::SetMicrophoneMute(bool enable) {
-  return WithPlatformAdm<int32_t>(-1, [enable](webrtc::AudioDeviceModule& adm) {
-    return adm.SetMicrophoneMute(enable);
+  return RunOnWorker([this, enable]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    // Gate through RecordingAdm so mute state is only applied while platform
+    // recording is active. This keeps mute a property of active recording
+    // instead of leaking state into the idle ADM.
+    auto* adm = RecordingAdm();
+    if (adm) {
+      return adm->SetMicrophoneMute(enable);
+    }
+    return -1;
   });
 }
 
 int32_t AdmProxy::MicrophoneMute(bool* enabled) const {
-  return WithPlatformAdm<int32_t>(-1, [enabled](webrtc::AudioDeviceModule& adm) {
-    return adm.MicrophoneMute(enabled);
+  return RunOnWorker([this, enabled]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    auto* adm = RecordingAdm();
+    if (adm) {
+      return adm->MicrophoneMute(enabled);
+    }
+    return -1;
+  });
+}
+
+int32_t AdmProxy::SetMuteMode(int32_t mode) {
+  return RunOnWorker([this, mode]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+    if (!platform_adm_) {
+      return -1;
+    }
+    return AudioEngineSetMuteMode(platform_adm_.get(), mode);
+#else
+    (void)mode;
+    return -1;
+#endif
+  });
+}
+
+int32_t AdmProxy::GetMuteMode(int32_t* mode) const {
+  return RunOnWorker([this, mode]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+    if (!platform_adm_) {
+      return -1;
+    }
+    return AudioEngineGetMuteMode(platform_adm_.get(), mode);
+#else
+    (void)mode;
+    return -1;
+#endif
   });
 }
 

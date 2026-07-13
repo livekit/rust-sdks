@@ -170,6 +170,19 @@ impl LkRuntime {
         self.pc_factory.playout_is_initialized()
     }
 
+    /// Set the platform ADM mute mode (Apple AudioEngine ADM only).
+    /// mode: 0 = VoiceProcessing, 1 = RestartEngine, 2 = InputMixer.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn set_mute_mode(&self, mode: i32) -> bool {
+        self.pc_factory.set_mute_mode(mode)
+    }
+
+    /// Get the platform ADM mute mode, or -1 when unsupported.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn mute_mode(&self) -> i32 {
+        self.pc_factory.mute_mode()
+    }
+
     // ===== Built-in Audio Processing Methods =====
     // These methods are internal - used by PlatformAudio. Use PlatformAudio for the public API.
 
