@@ -33,7 +33,7 @@ impl From<SfuPublishRequest> for proto::PublishDataTrackRequest {
     fn from(event: SfuPublishRequest) -> Self {
         use proto::encryption::Type;
         let encryption = if event.uses_e2ee { Type::Gcm } else { Type::None }.into();
-        let schema = event.schema.map(|schema| schema.into());
+        let schema = event.schema.map(Into::into);
         let frame_encoding = event.frame_encoding.map(Into::into);
         Self {
             pub_handle: event.handle.into(),
