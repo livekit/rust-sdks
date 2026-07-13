@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use crate::imp::video_frame as vf_imp;
+use crate::{imp::video_frame as vf_imp, video_source::VideoResolution};
 
 #[derive(Debug, Error)]
 pub enum SinkError {
@@ -107,10 +107,8 @@ pub struct EncodedVideoFrame<'a> {
     pub timestamp_us: i64,
     /// Encoded frame type.
     pub frame_type: EncodedFrameType,
-    /// Encoded frame width in pixels.
-    pub width: u32,
-    /// Encoded frame height in pixels.
-    pub height: u32,
+    /// Encoded frame resolution in pixels.
+    pub resolution: VideoResolution,
     /// Optional metadata to attach through packet trailers.
     pub frame_metadata: Option<FrameMetadata>,
 }

@@ -176,8 +176,8 @@ impl NativeVideoSource {
 
         self.captured_frames.fetch_add(1, Ordering::Relaxed);
         self.sys_handle.capture_encoded_frame(
-            frame.width as i32,
-            frame.height as i32,
+            frame.resolution.width as i32,
+            frame.resolution.height as i32,
             &vt_sys::ffi::EncodedVideoFrameData {
                 codec: frame.codec.into(),
                 frame_type: frame.frame_type.into(),
