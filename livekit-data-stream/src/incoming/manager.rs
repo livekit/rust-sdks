@@ -343,10 +343,11 @@ impl Manager {
 
             // Count decompressed bytes against the (uncompressed) total length.
             descriptor.progress.bytes_processed += uncompressed_byte_count;
-            if matches!(descriptor.progress.bytes_total, Some(total) if descriptor.progress.bytes_processed > total)
-            {
-                inner.close_stream_with_error(&id, StreamError::LengthExceeded);
-                return;
+            if let Some(total) = descriptor.progress.bytes_total {
+                if descriptor.progress.bytes_processed > total {
+                    inner.close_stream_with_error(&id, StreamError::LengthExceeded);
+                    return;
+                }
             }
             if !to_yield.is_empty() {
                 inner.yield_chunk(&id, to_yield);
