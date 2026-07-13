@@ -76,6 +76,28 @@
 //! room.local_participant().publish_track(LocalTrack::Audio(screen_track), opts).await?;
 //! ```
 //!
+//! # Muting
+//!
+//! To mute the microphone, mute the published track (e.g. `LocalAudioTrack::mute()`).
+//! The WebRTC voice engine reacts to the track mute state:
+//!
+//! - **iOS/macOS** (Apple AudioEngine ADM): the microphone is muted in hardware
+//!   according to the configured [`MuteMode`]. The default
+//!   ([`MuteMode::VoiceProcessing`]) keeps the audio engine running for fast
+//!   unmute; use [`MuteMode::RestartEngine`] to turn off the system microphone
+//!   privacy indicator while muted.
+//! - **Other platforms**: recording is stopped while muted and restarted on
+//!   unmute (default WebRTC behavior).
+//!
+//! ```rust,ignore
+//! let audio = PlatformAudio::new()?;
+//! audio.set_mute_mode(MuteMode::RestartEngine)?;  // optional, Apple only
+//!
+//! // ... publish a device track ...
+//! track.mute();    // mutes the microphone using the configured mode
+//! track.unmute();  // restores capture
+//! ```
+//!
 //! # Reference Counting
 //!
 //! Multiple [`PlatformAudio`] instances share the same underlying ADM:
@@ -95,9 +117,11 @@
 //!
 //! # Platform-Specific Notes
 //!
-//! - **iOS**: Creates a VPIO (Voice Processing IO) AudioUnit. Only one VPIO
-//!   can exist per process. Drop all `PlatformAudio` instances to release it.
-//! - **macOS**: Uses CoreAudio. Full device enumeration and selection supported.
+//! - **iOS**: Uses WebRTC's Apple AudioEngine ADM with platform voice processing.
+//!   Drop all `PlatformAudio` instances to release active audio I/O.
+//!   Supports [`MuteMode`] configuration for track muting.
+//! - **macOS**: Uses WebRTC's Apple AudioEngine ADM. Full device enumeration and selection supported.
+//!   Supports [`MuteMode`] configuration for track muting.
 //! - **Windows**: Uses WASAPI. Full device enumeration and selection supported.
 //! - **Linux**: Uses PulseAudio or ALSA. Full device enumeration and selection supported.
 //! - **Android**: Uses Java AudioRecord/AudioTrack via WebRTC's `JavaAudioDeviceModule`.
@@ -277,8 +301,60 @@ pub struct PlayoutDeviceInfo {
     pub index: usize,
 }
 
+// =============================================================================
+// Mute Mode - How the microphone is muted when a device track is muted
+// =============================================================================
+
+/// Controls how the microphone is muted when a published audio track using
+/// `RtcAudioSource::Device` is muted (Apple platforms only).
+///
+/// When a local device-audio track is muted (e.g. via `LocalAudioTrack::mute()`),
+/// the WebRTC voice engine mutes the microphone in hardware using the configured
+/// mode. The audio pipeline stays alive, so unmuting is fast and does not require
+/// republishing the track.
+///
+/// Configure with [`PlatformAudio::set_mute_mode`]. On platforms without the
+/// Apple AudioEngine ADM, muting a track stops and restarts recording instead
+/// (default WebRTC behavior) and this enum has no effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MuteMode {
+    /// Mute through Apple voice processing (VPIO). The audio engine keeps
+    /// running and the system microphone privacy indicator stays on while
+    /// muted. Lowest mute/unmute latency. This is the default.
+    #[default]
+    VoiceProcessing,
+    /// Mute by disconnecting the input node and restarting the audio engine.
+    /// The system microphone privacy indicator turns off while muted, at the
+    /// cost of slower mute/unmute transitions.
+    RestartEngine,
+    /// Mute by setting the internal input mixer volume to zero. The engine
+    /// keeps running and the privacy indicator stays on.
+    InputMixer,
+}
+
+impl MuteMode {
+    /// Converts to the raw value used by the native layer.
+    fn to_raw(self) -> i32 {
+        match self {
+            MuteMode::VoiceProcessing => 0,
+            MuteMode::RestartEngine => 1,
+            MuteMode::InputMixer => 2,
+        }
+    }
+
+    /// Converts from the raw value used by the native layer.
+    fn from_raw(raw: i32) -> Option<Self> {
+        match raw {
+            0 => Some(MuteMode::VoiceProcessing),
+            1 => Some(MuteMode::RestartEngine),
+            2 => Some(MuteMode::InputMixer),
+            _ => None,
+        }
+    }
+}
+
 use lazy_static::lazy_static;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
 use crate::rtc_engine::lk_runtime::LkRuntime;
 
@@ -299,6 +375,10 @@ lazy_static! {
 /// When the last PlatformAudio is dropped, the Platform ADM is released.
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
+    // Device level processing configuration last applied via
+    // configure_audio_processing, used by the active_*_type getters.
+    // RwLock because the getters read far more often than settings change.
+    processing_options: RwLock<AudioProcessingOptions>,
 }
 
 impl Drop for PlatformAdmHandle {
@@ -399,9 +479,9 @@ impl Drop for PlatformAdmHandle {
 ///
 /// # Platform-Specific Notes
 ///
-/// - **iOS**: Creates a VPIO AudioUnit (exclusive microphone access).
+/// - **iOS**: Uses WebRTC's Apple AudioEngine ADM with platform voice processing.
 ///   Drop all instances to allow other audio frameworks to use the mic.
-/// - **macOS**: Uses CoreAudio for device management.
+/// - **macOS**: Uses WebRTC's Apple AudioEngine ADM for device management.
 /// - **Windows**: Uses WASAPI for device management.
 /// - **Linux**: Uses PulseAudio or ALSA.
 #[derive(Clone)]
@@ -478,15 +558,18 @@ impl PlatformAudio {
             playout_count
         );
 
-        let handle = Arc::new(PlatformAdmHandle { runtime });
+        let handle = Arc::new(PlatformAdmHandle {
+            runtime,
+            processing_options: RwLock::new(AudioProcessingOptions::default()),
+        });
         *handle_ref = Arc::downgrade(&handle);
 
         let audio = Self { handle };
 
         // Configure audio processing with platform-appropriate defaults:
-        // - iOS: prefer_hardware_processing=true (VPIO is excellent)
+        // - iOS/macOS: prefer_hardware_processing=true (Apple voice processing is preferred)
         // - Android: prefer_hardware_processing=false (hardware AEC unreliable across devices)
-        // - Desktop: prefer_hardware_processing=false (hardware not available anyway)
+        // - Windows/Linux: prefer_hardware_processing=false (hardware not available)
         if let Err(e) = audio.configure_audio_processing(AudioProcessingOptions::default()) {
             log::warn!("PlatformAudio: failed to configure audio processing: {}", e);
         }
@@ -662,7 +745,7 @@ impl PlatformAudio {
     ///
     /// **Mobile (iOS/Android):** Device selection is a no-op. Both platforms handle
     /// microphone selection at the system level. This method will succeed but has no effect.
-    /// - iOS: VPIO AudioUnit handles input selection
+    /// - iOS: Apple AudioEngine handles input selection
     /// - Android: System selects best input source based on audio mode
     ///
     /// # Arguments
@@ -897,10 +980,20 @@ impl PlatformAudio {
     ///
     /// Call [`start_recording`] to resume recording.
     ///
+    /// # Muting
+    ///
+    /// To mute the microphone, prefer muting the published track (e.g.
+    /// `LocalAudioTrack::mute()`) over calling this method. On Apple platforms
+    /// the voice engine then mutes the microphone in hardware using the
+    /// configured [`MuteMode`]; on other platforms WebRTC stops and restarts
+    /// recording automatically. Avoid mixing manual `stop_recording` with track
+    /// mute: unmuting a track does not restart manually stopped recording, so
+    /// call [`start_recording`] first in that case.
+    ///
     /// # Note
     ///
     /// When recording is stopped, any published audio tracks using `RtcAudioSource::Device`
-    /// will send silence. You should typically unpublish the track before stopping recording.
+    /// will send silence.
     ///
     /// # Errors
     ///
@@ -910,15 +1003,12 @@ impl PlatformAudio {
     ///
     /// ```rust,ignore
     /// let audio = PlatformAudio::new()?;
-    /// // ... publish microphone track ...
     ///
-    /// // Mute: stop recording to turn off privacy indicator
-    /// room.local_participant().unpublish_track(track, false).await?;
+    /// // Release the microphone while no track is published
     /// audio.stop_recording()?;
     ///
-    /// // Unmute: start recording and republish
+    /// // Resume recording (also resets hardware mic mute to unmuted)
     /// audio.start_recording()?;
-    /// room.local_participant().publish_track(new_track, opts).await?;
     /// ```
     ///
     /// [`start_recording`]: Self::start_recording
@@ -940,6 +1030,54 @@ impl PlatformAudio {
     /// [`start_recording`]: Self::start_recording
     pub fn is_recording_initialized(&self) -> bool {
         self.handle.runtime.recording_is_initialized()
+    }
+
+    /// Sets how the microphone is muted when a published device-audio track
+    /// is muted (e.g. `LocalAudioTrack::mute()`).
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **iOS/macOS** (Apple AudioEngine ADM): the voice engine mutes the
+    ///   microphone in hardware using the configured mode instead of stopping
+    ///   recording. See [`MuteMode`] for the tradeoffs of each mode.
+    /// - **Other platforms**: returns [`AudioError::Unsupported`]. Muting a
+    ///   track stops and restarts recording instead (default WebRTC behavior).
+    ///
+    /// # Notes
+    ///
+    /// - Can be called at any time, including before publishing a track.
+    /// - Starting recording (publishing a device track, or [`start_recording`])
+    ///   always resets the hardware mic mute to unmuted.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    ///
+    /// // Turn off the mic privacy indicator while muted
+    /// audio.set_mute_mode(MuteMode::RestartEngine)?;
+    ///
+    /// // ... publish a device track, then track.mute() applies the mode ...
+    /// ```
+    ///
+    /// [`start_recording`]: Self::start_recording
+    pub fn set_mute_mode(&self, mode: MuteMode) -> AudioResult<()> {
+        if self.handle.runtime.set_mute_mode(mode.to_raw()) {
+            log::info!("PlatformAudio: set mute mode to {:?}", mode);
+            Ok(())
+        } else {
+            Err(AudioError::Unsupported)
+        }
+    }
+
+    /// Returns the current [`MuteMode`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::Unsupported`] on platforms without the Apple
+    /// AudioEngine ADM.
+    pub fn mute_mode(&self) -> AudioResult<MuteMode> {
+        MuteMode::from_raw(self.handle.runtime.mute_mode()).ok_or(AudioError::Unsupported)
     }
 
     // =========================================================================
@@ -987,7 +1125,7 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: Returns `true` (VPIO provides hardware AEC)
+    /// - **iOS**: Returns `true` when Apple voice processing can provide AEC
     /// - **Android**: Returns `true` on devices with hardware AEC support
     /// - **Desktop**: Returns `false` (hardware AEC not available)
     ///
@@ -1007,7 +1145,7 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: Returns `true` (VPIO provides hardware AGC)
+    /// - **iOS**: Returns `true` when Apple voice processing can provide AGC
     /// - **Android**: Returns `true` on devices with hardware AGC support
     /// - **Desktop**: Returns `false` (hardware AGC not available)
     pub fn is_hardware_agc_available(&self) -> bool {
@@ -1018,7 +1156,7 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: Returns `true` (VPIO provides hardware NS)
+    /// - **iOS**: Returns `true` when Apple voice processing can provide NS
     /// - **Android**: Returns `true` on devices with hardware NS support
     /// - **Desktop**: Returns `false` (hardware NS not available)
     pub fn is_hardware_ns_available(&self) -> bool {
@@ -1044,7 +1182,10 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn active_aec_type(&self) -> AudioProcessingType {
-        if self.is_hardware_aec_available() {
+        let options = *self.handle.processing_options.read();
+        if !options.echo_cancellation {
+            AudioProcessingType::None
+        } else if options.prefer_hardware_processing && self.is_hardware_aec_available() {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1053,7 +1194,10 @@ impl PlatformAudio {
 
     /// Gets the type of automatic gain control currently active.
     pub fn active_agc_type(&self) -> AudioProcessingType {
-        if self.is_hardware_agc_available() {
+        let options = *self.handle.processing_options.read();
+        if !options.auto_gain_control {
+            AudioProcessingType::None
+        } else if options.prefer_hardware_processing && self.is_hardware_agc_available() {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1062,7 +1206,10 @@ impl PlatformAudio {
 
     /// Gets the type of noise suppression currently active.
     pub fn active_ns_type(&self) -> AudioProcessingType {
-        if self.is_hardware_ns_available() {
+        let options = *self.handle.processing_options.read();
+        if !options.noise_suppression {
+            AudioProcessingType::None
+        } else if options.prefer_hardware_processing && self.is_hardware_ns_available() {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1076,10 +1223,11 @@ impl PlatformAudio {
     ///
     /// # Platform Behavior
     ///
-    /// - **iOS**: `prefer_hardware_processing` is ignored (always uses VPIO)
+    /// - **iOS/macOS**: `prefer_hardware_processing` uses Apple voice processing
+    ///   when available (enabled by default)
     /// - **Android**: When `prefer_hardware_processing` is `false`, hardware
     ///   effects are disabled and WebRTC's software APM is used instead
-    /// - **Desktop**: `prefer_hardware_processing` is ignored (hardware not available)
+    /// - **Windows/Linux**: `prefer_hardware_processing` is ignored (hardware not available)
     ///
     /// # Example
     ///
@@ -1130,6 +1278,8 @@ impl PlatformAudio {
             }
         }
 
+        *self.handle.processing_options.write() = options;
+
         log::info!(
             "Audio processing configured: AEC={}, AGC={}, NS={}, prefer_hw={}",
             options.echo_cancellation,
@@ -1144,52 +1294,64 @@ impl PlatformAudio {
     /// Enables or disables echo cancellation.
     ///
     /// This is a convenience method equivalent to calling `configure_audio_processing`
-    /// with only the `echo_cancellation` field changed.
+    /// with the `echo_cancellation` and `prefer_hardware_processing` fields changed,
+    /// so the state reported by [`active_aec_type`] stays in sync.
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable AEC, `false` to disable
     /// * `prefer_hardware` - `true` to prefer hardware AEC on supported devices
+    ///
+    /// [`active_aec_type`]: Self::active_aec_type
     pub fn set_echo_cancellation(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        if self.is_hardware_aec_available() {
-            let enable_hw = enable && prefer_hardware;
-            if !self.handle.runtime.enable_builtin_aec(enable_hw) {
-                return Err(AudioError::OperationFailed("enable_builtin_aec failed".to_string()));
-            }
-        }
-        Ok(())
+        let options = AudioProcessingOptions {
+            echo_cancellation: enable,
+            prefer_hardware_processing: prefer_hardware,
+            ..*self.handle.processing_options.read()
+        };
+        self.configure_audio_processing(options)
     }
 
     /// Enables or disables automatic gain control.
+    ///
+    /// This is a convenience method equivalent to calling `configure_audio_processing`
+    /// with the `auto_gain_control` and `prefer_hardware_processing` fields changed,
+    /// so the state reported by [`active_agc_type`] stays in sync.
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable AGC, `false` to disable
     /// * `prefer_hardware` - `true` to prefer hardware AGC on supported devices
+    ///
+    /// [`active_agc_type`]: Self::active_agc_type
     pub fn set_auto_gain_control(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        if self.is_hardware_agc_available() {
-            let enable_hw = enable && prefer_hardware;
-            if !self.handle.runtime.enable_builtin_agc(enable_hw) {
-                return Err(AudioError::OperationFailed("enable_builtin_agc failed".to_string()));
-            }
-        }
-        Ok(())
+        let options = AudioProcessingOptions {
+            auto_gain_control: enable,
+            prefer_hardware_processing: prefer_hardware,
+            ..*self.handle.processing_options.read()
+        };
+        self.configure_audio_processing(options)
     }
 
     /// Enables or disables noise suppression.
+    ///
+    /// This is a convenience method equivalent to calling `configure_audio_processing`
+    /// with the `noise_suppression` and `prefer_hardware_processing` fields changed,
+    /// so the state reported by [`active_ns_type`] stays in sync.
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable NS, `false` to disable
     /// * `prefer_hardware` - `true` to prefer hardware NS on supported devices
+    ///
+    /// [`active_ns_type`]: Self::active_ns_type
     pub fn set_noise_suppression(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        if self.is_hardware_ns_available() {
-            let enable_hw = enable && prefer_hardware;
-            if !self.handle.runtime.enable_builtin_ns(enable_hw) {
-                return Err(AudioError::OperationFailed("enable_builtin_ns failed".to_string()));
-            }
-        }
-        Ok(())
+        let options = AudioProcessingOptions {
+            noise_suppression: enable,
+            prefer_hardware_processing: prefer_hardware,
+            ..*self.handle.processing_options.read()
+        };
+        self.configure_audio_processing(options)
     }
 }
 

@@ -40,6 +40,6 @@ pub use crate::{
 // Platform audio device management (native platforms only)
 #[cfg(not(target_arch = "wasm32"))]
 pub use crate::platform_audio::{
-    AudioError, AudioProcessingOptions, AudioProcessingType, AudioResult, PlatformAudio,
+    AudioError, AudioProcessingOptions, AudioProcessingType, AudioResult, MuteMode, PlatformAudio,
     PlayoutDeviceId, PlayoutDeviceInfo, RecordingDeviceId, RecordingDeviceInfo, RtcAudioSource,
 };

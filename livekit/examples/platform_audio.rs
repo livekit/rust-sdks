@@ -18,6 +18,7 @@
 // - acquire/release lifecycle and full runtime teardown/reacquire cycles
 // - device enumeration, selection, and hot-swap while recording
 // - recording start/stop on real hardware
+// - mute mode configuration (Apple AudioEngine ADM)
 // - audio processing (AEC/AGC/NS) configuration
 // - heavy concurrent access from many threads, the access pattern that
 //   exercises the proxy's marshaling onto the WebRTC worker thread
@@ -32,7 +33,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use livekit::{AudioProcessingOptions, PlatformAudio};
+use livekit::{AudioProcessingOptions, AudioProcessingType, MuteMode, PlatformAudio};
 use log::{Level, LevelFilter, Metadata, Record};
 
 // Counts LkRuntime teardowns so the test can assert that dropping the last
@@ -121,7 +122,28 @@ fn main() {
         }
     }
 
-    println!("=== Phase 3: audio processing reconfiguration ===");
+    println!("=== Phase 3: mute mode ===");
+    match audio.mute_mode() {
+        Ok(mode) => {
+            assert_eq!(mode, MuteMode::VoiceProcessing, "expected default mute mode");
+            println!("default mute mode: {mode:?}");
+            for m in [MuteMode::RestartEngine, MuteMode::InputMixer, MuteMode::VoiceProcessing] {
+                audio.set_mute_mode(m).expect("set_mute_mode");
+                assert_eq!(audio.mute_mode().expect("mute_mode"), m, "round-trip mismatch");
+            }
+            println!("mute mode round-trip ok");
+            // The mode takes effect when a published device track is muted
+            // (LocalAudioTrack::mute), which needs a room to observe end to
+            // end. With RestartEngine the mic privacy indicator turns off
+            // while muted, with the other modes it stays on.
+        }
+        Err(e) => {
+            // Expected on platforms without the Apple AudioEngine ADM
+            println!("mute mode unsupported on this platform: {e}");
+        }
+    }
+
+    println!("=== Phase 4: audio processing reconfiguration ===");
     for prefer_hw in [true, false, true] {
         audio
             .configure_audio_processing(AudioProcessingOptions {
@@ -132,10 +154,13 @@ fn main() {
             })
             .expect("configure_audio_processing");
     }
+    // The convenience toggles must keep the reported processing state in sync
     audio.set_echo_cancellation(false, false).expect("set_echo_cancellation");
+    assert_eq!(audio.active_aec_type(), AudioProcessingType::None, "AEC should report disabled");
     audio.set_echo_cancellation(true, true).expect("set_echo_cancellation");
+    assert_ne!(audio.active_aec_type(), AudioProcessingType::None, "AEC should report enabled");
 
-    println!("=== Phase 4: concurrent hammering (16 threads x 50 iterations) ===");
+    println!("=== Phase 5: concurrent hammering (16 threads x 50 iterations) ===");
     let errors = Arc::new(AtomicUsize::new(0));
     let start = Instant::now();
     let mut handles = Vec::new();
@@ -159,6 +184,7 @@ fn main() {
                         let _ = audio.is_recording_initialized();
                         let _ = audio.is_hardware_aec_available();
                         let _ = audio.active_aec_type();
+                        let _ = audio.mute_mode();
                     }
                     2 => {
                         // recording start/stop churn
@@ -192,7 +218,7 @@ fn main() {
     );
     assert_eq!(errors.load(Ordering::Relaxed), 0, "errors during concurrent phase");
 
-    println!("=== Phase 5: full runtime teardown / reacquire churn ===");
+    println!("=== Phase 6: full runtime teardown / reacquire churn ===");
     // With no rooms alive, dropping the last PlatformAudio destroys the whole
     // LkRuntime (factory + AdmProxy), so each iteration exercises AdmProxy
     // construction on the worker and destruction initiated from this thread
@@ -211,7 +237,7 @@ fn main() {
         drop(a);
     }
     let teardowns = RUNTIME_DROPS.load(Ordering::Relaxed) - drops_before;
-    println!("full runtime teardowns in phase 5: {teardowns}");
+    println!("full runtime teardowns in phase 6: {teardowns}");
     assert!(teardowns >= 5, "expected >= 5 LkRuntime teardowns, got {teardowns}");
 
     println!("ALL PHASES PASSED");

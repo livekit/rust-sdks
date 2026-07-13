@@ -127,6 +127,13 @@ pub mod native {
         fn start_playout(&self) -> bool;
         fn playout_is_initialized(&self) -> bool;
 
+        /// Set the microphone mute mode of the platform ADM.
+        /// Only supported by the Apple AudioEngine ADM; other platforms return false.
+        /// mode: 0 = VoiceProcessing, 1 = RestartEngine, 2 = InputMixer.
+        fn set_mute_mode(&self, mode: i32) -> bool;
+        /// Current mute mode, or -1 when unsupported.
+        fn mute_mode(&self) -> i32;
+
         // Built-in audio processing (hardware AEC/AGC/NS)
         // Only available on iOS and some Android devices
         fn builtin_aec_is_available(&self) -> bool;
@@ -241,6 +248,14 @@ pub mod native {
 
         fn playout_is_initialized(&self) -> bool {
             self.handle.playout_is_initialized()
+        }
+
+        fn set_mute_mode(&self, mode: i32) -> bool {
+            self.handle.set_mute_mode(mode)
+        }
+
+        fn mute_mode(&self) -> i32 {
+            self.handle.mute_mode()
         }
 
         fn builtin_aec_is_available(&self) -> bool {

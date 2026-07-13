@@ -28,6 +28,10 @@
 #include "sdk/android/native_api/base/init.h"
 #endif
 
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+#include "livekit/apple_audio_engine.h"
+#endif
+
 namespace livekit_ffi {
 
 AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread)
@@ -58,8 +62,15 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
 #if defined(__ANDROID__)
   // platform_adm_ stays nullptr, will be created in EnsurePlatformAdmCreated()
 #else
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+  // Use the AVAudioEngine based ADM on Apple platforms. It supports runtime
+  // switchable voice processing and device change handling.
+  platform_adm_ = webrtc::CreateAudioDeviceModule(
+      env_, webrtc::AudioDeviceModule::kAppleAudioEngine);
+#else
   platform_adm_ = webrtc::CreateAudioDeviceModule(
       env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
+#endif
 
   if (!platform_adm_) {
     RTC_LOG(LS_ERROR) << "AdmProxy: CreateAudioDeviceModule returned nullptr";
@@ -590,6 +601,20 @@ bool AdmProxy::Recording() const {
   });
 }
 
+bool AdmProxy::IsStopOnMuteModeEnabled() const {
+  return RunOnWorker([this] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    auto* adm = RecordingAdm();
+    if (adm) {
+      return adm->IsStopOnMuteModeEnabled();
+    }
+    // When platform recording is inactive (synthetic mode or native push
+    // sources), report true so the voice engine takes the Stop/StartRecording
+    // path, which is already gated to a no-op here.
+    return true;
+  });
+}
+
 int32_t AdmProxy::InitSpeaker() {
   return WithPlatformAdm<int32_t>(0, [](webrtc::AudioDeviceModule& adm) {
     return adm.InitSpeaker();
@@ -719,14 +744,57 @@ int32_t AdmProxy::MicrophoneMuteIsAvailable(bool* available) {
 }
 
 int32_t AdmProxy::SetMicrophoneMute(bool enable) {
-  return WithPlatformAdm<int32_t>(-1, [enable](webrtc::AudioDeviceModule& adm) {
-    return adm.SetMicrophoneMute(enable);
+  return RunOnWorker([this, enable]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    // Gate through RecordingAdm so mute state is only applied while platform
+    // recording is active. This keeps mute a property of active recording
+    // instead of leaking state into the idle ADM.
+    auto* adm = RecordingAdm();
+    if (adm) {
+      return adm->SetMicrophoneMute(enable);
+    }
+    return -1;
   });
 }
 
 int32_t AdmProxy::MicrophoneMute(bool* enabled) const {
-  return WithPlatformAdm<int32_t>(-1, [enabled](webrtc::AudioDeviceModule& adm) {
-    return adm.MicrophoneMute(enabled);
+  return RunOnWorker([this, enabled]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    auto* adm = RecordingAdm();
+    if (adm) {
+      return adm->MicrophoneMute(enabled);
+    }
+    return -1;
+  });
+}
+
+int32_t AdmProxy::SetMuteMode(int32_t mode) {
+  return RunOnWorker([this, mode]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+    if (!platform_adm_) {
+      return -1;
+    }
+    return AudioEngineSetMuteMode(platform_adm_.get(), mode);
+#else
+    (void)mode;
+    return -1;
+#endif
+  });
+}
+
+int32_t AdmProxy::GetMuteMode(int32_t* mode) const {
+  return RunOnWorker([this, mode]() -> int32_t {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+    if (!platform_adm_) {
+      return -1;
+    }
+    return AudioEngineGetMuteMode(platform_adm_.get(), mode);
+#else
+    (void)mode;
+    return -1;
+#endif
   });
 }
 
@@ -834,6 +902,38 @@ int32_t AdmProxy::EnableBuiltInNS(bool enable) {
   return WithPlatformAdm<int32_t>(-1, [enable](webrtc::AudioDeviceModule& adm) {
     return adm.EnableBuiltInNS(enable);
   });
+}
+
+webrtc::AudioDeviceModule::PlatformAudioProcessingTopology
+AdmProxy::GetPlatformAudioProcessingTopology() const {
+  return WithPlatformAdm<
+      webrtc::AudioDeviceModule::PlatformAudioProcessingTopology>(
+      webrtc::AudioDeviceModule::PlatformAudioProcessingTopology::kIndependent,
+      [](webrtc::AudioDeviceModule& adm) {
+        return adm.GetPlatformAudioProcessingTopology();
+      });
+}
+
+bool AdmProxy::PlatformVoiceProcessingPathIsAvailable() const {
+  return WithPlatformAdm<bool>(false, [](webrtc::AudioDeviceModule& adm) {
+    return adm.PlatformVoiceProcessingPathIsAvailable();
+  });
+}
+
+int32_t AdmProxy::EnablePlatformVoiceProcessingPath(bool enable) {
+  return WithPlatformAdm<int32_t>(-1, [enable](webrtc::AudioDeviceModule& adm) {
+    return adm.EnablePlatformVoiceProcessingPath(enable);
+  });
+}
+
+webrtc::AudioDeviceModule::PlatformAudioProcessingState
+AdmProxy::GetPlatformAudioProcessingState() const {
+  return WithPlatformAdm<
+      webrtc::AudioDeviceModule::PlatformAudioProcessingState>(
+      webrtc::AudioDeviceModule::PlatformAudioProcessingState(),
+      [](webrtc::AudioDeviceModule& adm) {
+        return adm.GetPlatformAudioProcessingState();
+      });
 }
 
 #if defined(WEBRTC_IOS)

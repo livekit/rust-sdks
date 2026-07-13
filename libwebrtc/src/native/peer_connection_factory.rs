@@ -208,6 +208,18 @@ impl PeerConnectionFactory {
         self.sys_handle.audio_device().playout_is_initialized()
     }
 
+    /// Set the microphone mute mode of the platform ADM.
+    /// Only supported by the Apple AudioEngine ADM; other platforms return false.
+    /// mode: 0 = VoiceProcessing, 1 = RestartEngine, 2 = InputMixer.
+    pub fn set_mute_mode(&self, mode: i32) -> bool {
+        self.sys_handle.audio_device().set_mute_mode(mode)
+    }
+
+    /// Get the current microphone mute mode, or -1 when unsupported.
+    pub fn mute_mode(&self) -> i32 {
+        self.sys_handle.audio_device().mute_mode()
+    }
+
     // ===== Built-in Audio Processing Methods =====
     // These control hardware AEC/AGC/NS on platforms that support it (iOS, some Android)
 
