@@ -17,6 +17,7 @@ use livekit_common::{EncryptionType, ParticipantIdentity};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::watch;
 
 use crate::info::AnyStreamInfo;
 use crate::types::{Chunk, CompressionType, Header, Packet, StreamId, Trailer};
@@ -30,6 +31,8 @@ use super::stream_reader::AnyStreamReader;
 struct Descriptor {
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
+    /// Publishes `progress` updates to the reader's `progress()` stream.
+    progress_tx: watch::Sender<StreamProgress>,
     encryption_type: EncryptionType,
     /// Identity of the participant sending this stream; used to abort the stream
     /// if that participant disconnects mid-send.
@@ -213,7 +216,7 @@ impl Manager {
             return;
         }
 
-        let (stream_reader, chunk_tx) = AnyStreamReader::from(info);
+        let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info);
         let _ = self.output_tx.send(
             StreamOpened { stream_reader, participant_identity: participant_identity.clone() }
                 .into(),
@@ -235,6 +238,12 @@ impl Manager {
             } else {
                 content
             };
+            // The whole payload arrives at once, so publish a single completed progress update.
+            let _ = progress_tx.send(StreamProgress {
+                chunk_index: 0,
+                bytes_processed: content.len() as u64,
+                bytes_total,
+            });
             // The full payload is complete and (for text) valid UTF-8, so deliver it as one chunk.
             if !content.is_empty() {
                 let _ = chunk_tx.send(Ok(Bytes::from(content)));
@@ -246,6 +255,7 @@ impl Manager {
         let descriptor = Descriptor {
             progress: StreamProgress { bytes_total, ..Default::default() },
             chunk_tx,
+            progress_tx,
             encryption_type: stream_encryption_type,
             sender_identity: participant_identity,
             is_internal,
@@ -352,6 +362,7 @@ impl Manager {
             if !to_yield.is_empty() {
                 inner.yield_chunk(&id, to_yield);
             }
+            inner.publish_progress(&id);
             return;
         }
 
@@ -372,7 +383,7 @@ impl Manager {
             return;
         }
         inner.yield_chunk(&id, Bytes::from(chunk.content));
-        // TODO: also yield progress
+        inner.publish_progress(&id);
     }
 
     /// Handles an incoming trailer packet.
@@ -438,6 +449,15 @@ impl ManagerInner {
         }
     }
 
+    /// Publishes the descriptor's current progress to the reader's `progress()` stream.
+    fn publish_progress(&self, id: &StreamId) {
+        if let Some(descriptor) = self.open_streams.get(id) {
+            // `StreamProgress` is `Copy`; a send error just means the reader was dropped, which the
+            // chunk channel already handles, so ignore it.
+            let _ = descriptor.progress_tx.send(descriptor.progress);
+        }
+    }
+
     fn close_stream(&mut self, id: &StreamId) {
         // Dropping the sender closes the channel.
         self.open_streams.remove(id);
@@ -458,6 +478,7 @@ mod tests {
     use crate::test_utils::pseudo_random_text;
     use crate::types::{ByteHeader, StreamId, TextHeader};
     use futures_util::io::AsyncReadExt;
+    use futures_util::Stream;
     use std::collections::HashMap;
 
     const SENDER: &str = "alice";
@@ -886,5 +907,124 @@ mod tests {
             encryption_type: EncryptionType::None,
         });
         assert!(matches!(read_text(reader).await, Err(StreamError::MissedChunk)));
+    }
+
+    // --- progress() ----------------------------------------------------------------------
+
+    /// Returns the reader's progress stream regardless of its concrete kind. Boxed because the two
+    /// `progress()` impls are distinct opaque types that don't unify across match arms.
+    fn progress_of(
+        reader: &AnyStreamReader,
+    ) -> std::pin::Pin<Box<dyn Stream<Item = StreamProgress> + Send + '_>> {
+        match reader {
+            AnyStreamReader::Byte(r) => Box::pin(r.progress()),
+            AnyStreamReader::Text(r) => Box::pin(r.progress()),
+        }
+    }
+
+    /// Drains a progress stream to completion (the stream ends when the sender closes).
+    async fn collect_progress(stream: impl Stream<Item = StreamProgress>) -> Vec<StreamProgress> {
+        use futures_util::StreamExt;
+        let mut stream = std::pin::pin!(stream);
+        let mut out = Vec::new();
+        while let Some(progress) = stream.next().await {
+            out.push(progress);
+        }
+        out
+    }
+
+    /// The last value reaches the total, values never decrease, and the stream terminates.
+    fn assert_progress_completes(values: &[StreamProgress], total: u64) {
+        let last = values.last().expect("progress stream yielded at least one value");
+        assert_eq!(last.bytes_processed(), total);
+        assert_eq!(last.bytes_total(), Some(total));
+        assert_eq!(last.percentage(), Some(1.0));
+        assert!(
+            values.windows(2).all(|w| w[0].bytes_processed() <= w[1].bytes_processed()),
+            "progress must be monotonically non-decreasing: {values:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn progress_reports_completion_uncompressed_bytes() {
+        let mut h = Harness::new(vec![]);
+        let total = 12u64;
+        h.send_packet(Packet::Header {
+            header: byte_header("s1", Some(total), None, CompressionType::None),
+            encryption_type: EncryptionType::None,
+        });
+        let (reader, _) = h.next_opened().await;
+        let progress = progress_of(&reader);
+        // Feed the payload across several contiguous chunks; keep `reader` alive so the chunk
+        // channel stays open while progress is observed.
+        for (i, piece) in
+            [vec![1, 2, 3, 4], vec![5, 6, 7, 8], vec![9, 10, 11, 12]].into_iter().enumerate()
+        {
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", i as u64, piece),
+                encryption_type: EncryptionType::None,
+            });
+        }
+        h.send_packet(Packet::Trailer(trailer("s1")));
+
+        let values = collect_progress(progress).await;
+        assert_progress_completes(&values, total);
+        drop(reader);
+    }
+
+    #[tokio::test]
+    async fn progress_reports_completion_compressed_text() {
+        let mut h = Harness::new(vec![]);
+        let text = pseudo_random_text(60_000);
+        let total = text.len() as u64;
+        let compressed = deflate_raw(text.as_bytes()).await;
+        let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
+        assert!(pieces.len() >= 2, "expected multi-packet compressed stream");
+
+        h.send_packet(Packet::Header {
+            header: text_header(
+                "s1",
+                Some(total),
+                HashMap::new(),
+                None,
+                CompressionType::DeflateRaw,
+            ),
+            encryption_type: EncryptionType::None,
+        });
+        let (reader, _) = h.next_opened().await;
+        let progress = progress_of(&reader);
+        for (i, piece) in pieces.iter().enumerate() {
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", i as u64, piece.to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+        }
+        h.send_packet(Packet::Trailer(trailer("s1")));
+
+        let values = collect_progress(progress).await;
+        assert_progress_completes(&values, total);
+        drop(reader);
+    }
+
+    #[tokio::test]
+    async fn progress_reports_completion_inline() {
+        let mut h = Harness::new(vec![]);
+        let text = "inline hello";
+        let total = text.len() as u64;
+        h.send_packet(Packet::Header {
+            header: text_header(
+                "s1",
+                Some(total),
+                HashMap::new(),
+                Some(text.as_bytes().to_vec()),
+                CompressionType::None,
+            ),
+            encryption_type: EncryptionType::None,
+        });
+        let (reader, _) = h.next_opened().await;
+        // The whole payload arrives in the header, so progress jumps straight to complete.
+        let values = collect_progress(progress_of(&reader)).await;
+        assert_progress_completes(&values, total);
+        drop(reader);
     }
 }

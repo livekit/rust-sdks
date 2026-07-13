@@ -71,7 +71,7 @@ pub enum StreamError {
 
 /// Progress of a data stream.
 #[derive(Clone, Copy, Default, Debug, Hash, Eq, PartialEq)]
-pub(crate) struct StreamProgress {
+pub struct StreamProgress {
     pub(crate) chunk_index: u64,
     /// Number of bytes read or written so far.
     pub(crate) bytes_processed: u64,
@@ -80,9 +80,19 @@ pub(crate) struct StreamProgress {
 }
 
 impl StreamProgress {
-    /// Returns the completion percentage for finite streams.
-    #[allow(dead_code)]
-    fn percentage(&self) -> Option<f32> {
+    /// Number of bytes read or written so far.
+    pub fn bytes_processed(&self) -> u64 {
+        self.bytes_processed
+    }
+
+    /// Total number of bytes expected for finite streams, or `None` for streams of unknown size.
+    pub fn bytes_total(&self) -> Option<u64> {
+        self.bytes_total
+    }
+
+    /// Returns the completion fraction (`0.0..=1.0`) for finite streams, or `None` for streams of
+    /// unknown size.
+    pub fn percentage(&self) -> Option<f32> {
         self.bytes_total.map(|total| self.bytes_processed as f32 / total as f32)
     }
 }

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::info::{AnyStreamInfo, ByteStreamInfo, TextStreamInfo};
-use crate::utils::{StreamError, StreamResult};
+use crate::utils::{StreamError, StreamProgress, StreamResult};
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use std::{
@@ -22,6 +22,8 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::watch;
+use tokio_stream::wrappers::WatchStream;
 
 /// Reader for an incoming data stream.
 ///
@@ -38,6 +40,10 @@ pub trait StreamReader: Stream<Item = StreamResult<Self::Output>> {
     /// Returns a reference to the stream info.
     fn info(&self) -> &Self::Info;
 
+    /// Returns a stream of [`StreamProgress`] events as the stream is incrementally received from
+    /// the sender participant.
+    fn progress(&self) -> impl Stream<Item = StreamProgress>;
+
     /// Reads all incoming chunks from the byte stream, concatenating them
     /// into a single value which is returned once the stream closes normally.
     ///
@@ -50,12 +56,14 @@ pub trait StreamReader: Stream<Item = StreamResult<Self::Output>> {
 pub struct ByteStreamReader {
     info: ByteStreamInfo,
     chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
+    progress_rx: watch::Receiver<StreamProgress>,
 }
 
 /// Reader for an incoming text data stream.
 pub struct TextStreamReader {
     info: TextStreamInfo,
     chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
+    progress_rx: watch::Receiver<StreamProgress>,
 }
 
 impl StreamReader for ByteStreamReader {
@@ -64,6 +72,10 @@ impl StreamReader for ByteStreamReader {
 
     fn info(&self) -> &ByteStreamInfo {
         &self.info
+    }
+
+    fn progress(&self) -> impl Stream<Item = StreamProgress> {
+        WatchStream::new(self.progress_rx.clone())
     }
 
     async fn read_all(mut self) -> StreamResult<Bytes> {
@@ -135,7 +147,10 @@ impl TextStreamReader {
         info: TextStreamInfo,
         chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
     ) -> Self {
-        Self { info, chunk_rx }
+        // The progress channel is unused by these tests; seed it and drop the sender so the
+        // progress stream simply ends after the initial value.
+        let (_, progress_rx) = watch::channel(StreamProgress::default());
+        Self { info, chunk_rx, progress_rx }
     }
 }
 
@@ -145,6 +160,10 @@ impl StreamReader for TextStreamReader {
 
     fn info(&self) -> &TextStreamInfo {
         &self.info
+    }
+
+    fn progress(&self) -> impl Stream<Item = StreamProgress> {
+        WatchStream::new(self.progress_rx.clone())
     }
 
     async fn read_all(mut self) -> StreamResult<String> {
@@ -204,12 +223,27 @@ pub enum AnyStreamReader {
 
 impl AnyStreamReader {
     /// Creates a stream reader for the stream with the given info.
-    pub(super) fn from(info: AnyStreamInfo) -> (Self, UnboundedSender<StreamResult<Bytes>>) {
+    ///
+    /// Returns the reader along with the sender halves the manager uses to feed it: the chunk
+    /// channel for received content, and the progress channel for [`StreamProgress`] updates. The
+    /// progress channel is seeded with the initial progress (0 bytes, plus the total length when
+    /// the stream is finite).
+    pub(super) fn from(
+        info: AnyStreamInfo,
+    ) -> (Self, UnboundedSender<StreamResult<Bytes>>, watch::Sender<StreamProgress>) {
         let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
+        let (progress_tx, progress_rx) = watch::channel(StreamProgress {
+            bytes_total: info.total_length(),
+            ..Default::default()
+        });
         let reader = match info {
-            AnyStreamInfo::Byte(info) => Self::Byte(ByteStreamReader { info, chunk_rx }),
-            AnyStreamInfo::Text(info) => Self::Text(TextStreamReader { info, chunk_rx }),
+            AnyStreamInfo::Byte(info) => {
+                Self::Byte(ByteStreamReader { info, chunk_rx, progress_rx })
+            }
+            AnyStreamInfo::Text(info) => {
+                Self::Text(TextStreamReader { info, chunk_rx, progress_rx })
+            }
         };
-        return (reader, chunk_tx);
+        return (reader, chunk_tx, progress_tx);
     }
 }
