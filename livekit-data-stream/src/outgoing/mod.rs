@@ -33,6 +33,8 @@ pub struct StreamByteOptions {
     pub topic: String,
     pub attributes: HashMap<String, String>,
     pub destination_identities: Vec<ParticipantIdentity>,
+    /// The id associated with the stream. If unspecified, a new uuid will be created and used per
+    /// call.
     pub id: Option<String>,
     pub mime_type: Option<String>,
     pub name: Option<String>,
@@ -48,6 +50,8 @@ pub struct StreamTextOptions {
     pub topic: String,
     pub attributes: HashMap<String, String>,
     pub destination_identities: Vec<ParticipantIdentity>,
+    /// The id associated with the stream. If unspecified, a new uuid will be created and used per
+    /// call.
     pub id: Option<String>,
     pub operation_type: Option<OperationType>,
     pub version: Option<i32>,
