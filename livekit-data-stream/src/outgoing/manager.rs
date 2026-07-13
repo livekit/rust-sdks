@@ -532,19 +532,15 @@ mod tests {
     }
 
     fn text_opts(topic: &str, dests: &[&str]) -> StreamTextOptions {
-        StreamTextOptions {
-            topic: topic.to_string(),
-            destination_identities: ids(dests),
-            ..Default::default()
-        }
+        StreamTextOptions::default()
+            .with_topic(topic.to_string())
+            .with_destination_identities(ids(dests))
     }
 
     fn byte_opts(topic: &str, dests: &[&str]) -> StreamByteOptions {
-        StreamByteOptions {
-            topic: topic.to_string(),
-            destination_identities: ids(dests),
-            ..Default::default()
-        }
+        StreamByteOptions::default()
+            .with_topic(topic.to_string())
+            .with_destination_identities(ids(dests))
     }
 
     fn header(p: &proto::DataPacket) -> &proto::data_stream::Header {
@@ -707,8 +703,7 @@ mod tests {
     async fn v2_compress_false_short_inlines_raw() {
         let (m, sent) = setup();
         let text = "hello hello compressible world";
-        let opts =
-            StreamTextOptions { compress: Some(false), ..text_opts("chat", &["alice", "bob"]) };
+        let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
         m.send_text(text, opts, &all_v2_room()).await.unwrap();
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 1);
@@ -721,8 +716,7 @@ mod tests {
     async fn v2_compress_false_large_is_uncompressed_multipacket() {
         let (m, sent) = setup();
         let text = "B".repeat(50_000);
-        let opts =
-            StreamTextOptions { compress: Some(false), ..text_opts("chat", &["alice", "bob"]) };
+        let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
         m.send_text(&text, opts, &all_v2_room()).await.unwrap();
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 6); // header + 4 chunks + trailer
