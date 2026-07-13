@@ -54,7 +54,7 @@ pub struct ByteStreamReader {
 
 /// Reader for an incoming text data stream.
 pub struct TextStreamReader {
-    pub(crate) info: TextStreamInfo,
+    info: TextStreamInfo,
     chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
 }
 
