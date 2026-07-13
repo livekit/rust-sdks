@@ -44,6 +44,64 @@ pub struct StreamByteOptions {
     pub compress: Option<bool>,
 }
 
+impl StreamByteOptions {
+    /// Sets the topic the stream is published to.
+    pub fn with_topic(mut self, topic: String) -> Self {
+        self.topic = topic;
+        self
+    }
+    /// Replaces all attributes attached to the stream.
+    pub fn with_attributes(mut self, attributes: HashMap<String, String>) -> Self {
+        self.attributes = attributes;
+        self
+    }
+    /// Adds a single attribute to the stream, overwriting any existing value for `key`.
+    pub fn with_attribute(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.attributes.insert(key.into(), value.into());
+        self
+    }
+    /// Replaces the set of participant identities the stream is delivered to.
+    /// An empty list delivers to all participants in the room.
+    pub fn with_destination_identities(
+        mut self,
+        destination_identities: Vec<ParticipantIdentity>,
+    ) -> Self {
+        self.destination_identities = destination_identities;
+        self
+    }
+    /// Adds a single participant identity to the stream's destinations.
+    pub fn with_destination_identity(mut self, identity: impl Into<ParticipantIdentity>) -> Self {
+        self.destination_identities.push(identity.into());
+        self
+    }
+    /// Sets an explicit stream id. If unset, a new uuid is generated per call.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+    /// Sets the MIME type describing the stream's payload.
+    pub fn with_mime_type(mut self, mime_type: impl Into<String>) -> Self {
+        self.mime_type = Some(mime_type.into());
+        self
+    }
+    /// Sets a human-readable name for the stream (e.g. a file name).
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+    /// Sets the total byte length of the payload, when known ahead of time.
+    pub fn with_total_length(mut self, total_length: u64) -> Self {
+        self.total_length = Some(total_length);
+        self
+    }
+    /// Sets whether to deflate-raw compress the payload when all recipients support it.
+    /// Defaults to `true` (compression opt-out).
+    pub fn with_compress(mut self, compress: bool) -> Self {
+        self.compress = Some(compress);
+        self
+    }
+}
+
 /// Options used when opening an outgoing text data stream.
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct StreamTextOptions {
@@ -61,4 +119,77 @@ pub struct StreamTextOptions {
     /// Whether to deflate-raw compress the payload when all recipients support it.
     /// Defaults to `true` (compression opt-out). Ignored by the incremental `stream_text`.
     pub compress: Option<bool>,
+}
+
+impl StreamTextOptions {
+    /// Sets the topic the stream is published to.
+    pub fn with_topic(mut self, topic: String) -> Self {
+        self.topic = topic;
+        self
+    }
+    /// Replaces all attributes attached to the stream.
+    pub fn with_attributes(mut self, attributes: HashMap<String, String>) -> Self {
+        self.attributes = attributes;
+        self
+    }
+    /// Adds a single attribute to the stream, overwriting any existing value for `key`.
+    pub fn with_attribute(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.attributes.insert(key.into(), value.into());
+        self
+    }
+    /// Replaces the set of participant identities the stream is delivered to.
+    /// An empty list delivers to all participants in the room.
+    pub fn with_destination_identities(
+        mut self,
+        destination_identities: Vec<ParticipantIdentity>,
+    ) -> Self {
+        self.destination_identities = destination_identities;
+        self
+    }
+    /// Adds a single participant identity to the stream's destinations.
+    pub fn with_destination_identity(mut self, identity: impl Into<ParticipantIdentity>) -> Self {
+        self.destination_identities.push(identity.into());
+        self
+    }
+    /// Sets an explicit stream id. If unset, a new uuid is generated per call.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+    /// Sets the operation this text stream represents (e.g. create or update).
+    pub fn with_operation_type(mut self, operation_type: OperationType) -> Self {
+        self.operation_type = Some(operation_type);
+        self
+    }
+    /// Sets the version of the text, used to order updates to the same content.
+    pub fn with_version(mut self, version: i32) -> Self {
+        self.version = Some(version);
+        self
+    }
+    /// Sets the id of the stream this text is a reply to.
+    pub fn with_reply_to_stream_id(mut self, reply_to_stream_id: impl Into<String>) -> Self {
+        self.reply_to_stream_id = Some(reply_to_stream_id.into());
+        self
+    }
+    /// Replaces the set of stream ids attached to this text (e.g. referenced files).
+    pub fn with_attached_stream_ids(mut self, attached_stream_ids: Vec<String>) -> Self {
+        self.attached_stream_ids = attached_stream_ids;
+        self
+    }
+    /// Adds a single attached stream id to this text.
+    pub fn with_attached_stream_id(mut self, attached_stream_id: impl Into<String>) -> Self {
+        self.attached_stream_ids.push(attached_stream_id.into());
+        self
+    }
+    /// Sets whether the text was machine-generated (e.g. by an agent).
+    pub fn with_generated(mut self, generated: bool) -> Self {
+        self.generated = Some(generated);
+        self
+    }
+    /// Sets whether to deflate-raw compress the payload when all recipients support it.
+    /// Defaults to `true` (compression opt-out).
+    pub fn with_compress(mut self, compress: bool) -> Self {
+        self.compress = Some(compress);
+        self
+    }
 }
