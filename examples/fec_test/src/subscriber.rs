@@ -48,6 +48,9 @@ struct Args {
     /// SFU's FEC repair stream)
     #[arg(long)]
     fec: bool,
+    /// force zero receiver-side WebRTC playout delay
+    #[arg(long)]
+    low_latency: bool,
     /// run duration in seconds, 0 = forever
     #[arg(long, default_value_t = 0)]
     duration: u64,
@@ -61,10 +64,14 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    // subscriber never enables low-latency (only the publisher's token forces
-    // room re-creation); pass false
-    let token =
-        common::mint_token(&args.api_key, &args.api_secret, &args.room, &args.identity, false)?;
+    if args.low_latency {
+        livekit::webrtc::enable_zero_playout_delay()?;
+        eprintln!("SUBSCRIBER_ZERO_PLAYOUT_DELAY_ENABLED");
+    }
+
+    // Subscriber low-latency mode is receiver-local, configured above before
+    // the shared WebRTC runtime is initialized.
+    let token = common::mint_token(&args.api_key, &args.api_secret, &args.room, &args.identity)?;
 
     let mut options = RoomOptions::default();
     options.auto_subscribe = true;
