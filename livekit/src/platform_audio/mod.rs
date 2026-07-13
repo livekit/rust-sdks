@@ -354,7 +354,7 @@ impl MuteMode {
 }
 
 use lazy_static::lazy_static;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
 use crate::rtc_engine::lk_runtime::LkRuntime;
 
@@ -376,8 +376,9 @@ lazy_static! {
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
     // Device level processing configuration last applied via
-    // configure_audio_processing, used by the active_*_type getters
-    processing_options: Mutex<AudioProcessingOptions>,
+    // configure_audio_processing, used by the active_*_type getters.
+    // RwLock because the getters read far more often than settings change.
+    processing_options: RwLock<AudioProcessingOptions>,
 }
 
 impl Drop for PlatformAdmHandle {
@@ -559,7 +560,7 @@ impl PlatformAudio {
 
         let handle = Arc::new(PlatformAdmHandle {
             runtime,
-            processing_options: Mutex::new(AudioProcessingOptions::default()),
+            processing_options: RwLock::new(AudioProcessingOptions::default()),
         });
         *handle_ref = Arc::downgrade(&handle);
 
@@ -1181,7 +1182,7 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn active_aec_type(&self) -> AudioProcessingType {
-        let options = *self.handle.processing_options.lock();
+        let options = *self.handle.processing_options.read();
         if !options.echo_cancellation {
             AudioProcessingType::None
         } else if options.prefer_hardware_processing && self.is_hardware_aec_available() {
@@ -1193,7 +1194,7 @@ impl PlatformAudio {
 
     /// Gets the type of automatic gain control currently active.
     pub fn active_agc_type(&self) -> AudioProcessingType {
-        let options = *self.handle.processing_options.lock();
+        let options = *self.handle.processing_options.read();
         if !options.auto_gain_control {
             AudioProcessingType::None
         } else if options.prefer_hardware_processing && self.is_hardware_agc_available() {
@@ -1205,7 +1206,7 @@ impl PlatformAudio {
 
     /// Gets the type of noise suppression currently active.
     pub fn active_ns_type(&self) -> AudioProcessingType {
-        let options = *self.handle.processing_options.lock();
+        let options = *self.handle.processing_options.read();
         if !options.noise_suppression {
             AudioProcessingType::None
         } else if options.prefer_hardware_processing && self.is_hardware_ns_available() {
@@ -1277,7 +1278,7 @@ impl PlatformAudio {
             }
         }
 
-        *self.handle.processing_options.lock() = options;
+        *self.handle.processing_options.write() = options;
 
         log::info!(
             "Audio processing configured: AEC={}, AGC={}, NS={}, prefer_hw={}",
@@ -1306,7 +1307,7 @@ impl PlatformAudio {
         let options = AudioProcessingOptions {
             echo_cancellation: enable,
             prefer_hardware_processing: prefer_hardware,
-            ..*self.handle.processing_options.lock()
+            ..*self.handle.processing_options.read()
         };
         self.configure_audio_processing(options)
     }
@@ -1327,7 +1328,7 @@ impl PlatformAudio {
         let options = AudioProcessingOptions {
             auto_gain_control: enable,
             prefer_hardware_processing: prefer_hardware,
-            ..*self.handle.processing_options.lock()
+            ..*self.handle.processing_options.read()
         };
         self.configure_audio_processing(options)
     }
@@ -1348,7 +1349,7 @@ impl PlatformAudio {
         let options = AudioProcessingOptions {
             noise_suppression: enable,
             prefer_hardware_processing: prefer_hardware,
-            ..*self.handle.processing_options.lock()
+            ..*self.handle.processing_options.read()
         };
         self.configure_audio_processing(options)
     }
