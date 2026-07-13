@@ -18,6 +18,7 @@ thiserror = { workspace = true }
 parking_lot = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "fs", "io-util", "rt"] }
+tokio-stream = { workspace = true, features = ["sync"] }
 futures-util = { workspace = true, default-features = false, features = ["sink", "io"] }
 prost = "0.12"
 chrono = "0.4.38"

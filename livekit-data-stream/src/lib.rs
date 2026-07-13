@@ -31,7 +31,7 @@ pub mod api {
         ByteStreamWriter, StreamByteOptions, StreamTextOptions, StreamWriter, TextStreamWriter,
     };
     pub use crate::types::OperationType;
-    pub use crate::utils::{SendError, StreamError, StreamResult};
+    pub use crate::utils::{SendError, StreamError, StreamProgress, StreamResult};
 }
 
 /// Internal APIs used within the `livekit` SDK to power data streams.
