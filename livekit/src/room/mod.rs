@@ -406,6 +406,11 @@ pub struct RoomOptions {
     pub e2ee: Option<E2eeOptions>,
     pub encryption: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
+    /// Smooth decoded video before delivery to render sinks.
+    ///
+    /// Disable this to deliver decoded frames as soon as possible at the cost of potentially
+    /// uneven presentation under jitter.
+    pub prerenderer_smoothing: bool,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
     /// Enable single peer connection mode. When true, uses one RTCPeerConnection
@@ -432,6 +437,7 @@ impl Default for RoomOptions {
                 continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
                 ice_transport_type: IceTransportsType::All,
             },
+            prerenderer_smoothing: true,
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: true,
@@ -546,6 +552,7 @@ impl Room {
             token,
             EngineOptions {
                 rtc_config: options.rtc_config.clone(),
+                prerenderer_smoothing: options.prerenderer_smoothing,
                 signal_options,
                 join_retries: options.join_retries,
                 single_peer_connection: options.single_peer_connection,

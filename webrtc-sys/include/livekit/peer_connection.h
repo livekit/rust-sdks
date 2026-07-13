@@ -49,6 +49,7 @@ class PeerConnection : webrtc::PeerConnectionObserver {
   PeerConnection(
       std::shared_ptr<RtcRuntime> rtc_runtime,
       webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
+      bool prerenderer_smoothing,
       rust::Box<PeerConnectionObserverWrapper> observer);
 
   ~PeerConnection();
@@ -196,6 +197,7 @@ class PeerConnection : webrtc::PeerConnectionObserver {
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
+  const bool prerenderer_smoothing_;
   rust::Box<PeerConnectionObserverWrapper> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };

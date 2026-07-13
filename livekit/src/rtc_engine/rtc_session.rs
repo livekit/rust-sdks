@@ -483,7 +483,10 @@ impl RtcSession {
         let mut publisher_offer = None;
         let early_publisher_pc = if use_single_pc {
             let publisher_pc = PeerTransport::new(
-                lk_runtime.pc_factory().create_peer_connection(options.rtc_config.clone())?,
+                lk_runtime.pc_factory().create_peer_connection_with_prerenderer_smoothing(
+                    options.rtc_config.clone(),
+                    options.prerenderer_smoothing,
+                )?,
                 proto::SignalTarget::Publisher,
                 true,
             );
@@ -553,7 +556,10 @@ impl RtcSession {
             } else {
                 sent_publisher_offer = false;
                 let publisher_pc = PeerTransport::new(
-                    lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
+                    lk_runtime.pc_factory().create_peer_connection_with_prerenderer_smoothing(
+                        rtc_config.clone(),
+                        options.prerenderer_smoothing,
+                    )?,
                     proto::SignalTarget::Publisher,
                     single_pc_mode,
                 );
@@ -566,7 +572,10 @@ impl RtcSession {
             None
         } else {
             Some(PeerTransport::new(
-                lk_runtime.pc_factory().create_peer_connection(rtc_config)?,
+                lk_runtime.pc_factory().create_peer_connection_with_prerenderer_smoothing(
+                    rtc_config,
+                    options.prerenderer_smoothing,
+                )?,
                 proto::SignalTarget::Subscriber,
                 false,
             ))

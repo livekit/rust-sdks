@@ -75,9 +75,18 @@ impl PeerConnectionFactory {
         &self,
         config: RtcConfiguration,
     ) -> Result<PeerConnection, RtcError> {
+        self.create_peer_connection_with_prerenderer_smoothing(config, true)
+    }
+
+    pub(crate) fn create_peer_connection_with_prerenderer_smoothing(
+        &self,
+        config: RtcConfiguration,
+        prerenderer_smoothing: bool,
+    ) -> Result<PeerConnection, RtcError> {
         let observer = Arc::new(imp_pc::PeerObserver::default());
         let res = self.sys_handle.create_peer_connection(
             config.into(),
+            prerenderer_smoothing,
             Box::new(sys_pcf::PeerConnectionObserverWrapper::new(observer.clone())),
         );
 

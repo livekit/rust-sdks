@@ -761,7 +761,8 @@ mod macos {
                     {
                         session.setSessionPreset(AVCaptureSessionPresetInputPriority);
                     }
-                    configure_input_frame_duration(&input, &device, &options.format);
+                    let input_frame_duration_locked =
+                        configure_input_frame_duration(&input, &device, &options.format);
 
                     if let Some(video_settings) = preferred_video_settings(&output) {
                         output.setVideoSettings(Some(&video_settings));
@@ -777,7 +778,12 @@ mod macos {
                         ));
                     }
                     session.addOutput(&output);
-                    configure_output_connection(&output)?;
+                    configure_output_connection(
+                        &output,
+                        &device,
+                        &options.format,
+                        input_frame_duration_locked,
+                    )?;
                     Ok(())
                 })();
                 session.commitConfiguration();
@@ -860,31 +866,39 @@ mod macos {
         input: &AVCaptureDeviceInput,
         device: &AVCaptureDevice,
         request: &CaptureFormatRequest,
-    ) {
+    ) -> bool {
         let Some(frame_rate) = requested_frame_rate(request).filter(|frame_rate| *frame_rate > 0)
         else {
-            return;
+            return false;
         };
         // SAFETY: `input` is the live input just added to the session. The
         // support predicate is checked before setting the locked duration.
         if !unsafe { input.isLockedVideoFrameDurationSupported() } {
-            return;
+            return false;
         }
 
-        let duration = unsafe { CMTime::with_seconds(1.0 / frame_rate as f64, 600) };
+        // SAFETY: `device` belongs to the input's session, and activeFormat is
+        // immutable while session configuration is in progress.
+        let active_format = unsafe { device.activeFormat() };
+        let Some(duration) = device_format_frame_duration(&active_format, frame_rate) else {
+            return false;
+        };
         // SAFETY: `device` and `input` belong to the same session setup path.
-        // The requested rate has already been checked against the active format
-        // before the device frame durations are set, and `input` reports locked
-        // frame duration support.
+        // The duration either comes directly from the active format's advertised
+        // range or is inside a continuous advertised range, and `input` reports
+        // locked frame duration support.
         unsafe {
-            if device_format_supports_frame_rate(&device.activeFormat(), frame_rate) {
-                input.setActiveLockedVideoFrameDuration(duration);
-            }
+            input.setActiveLockedVideoFrameDuration(duration);
         }
+        true
     }
 
+    #[allow(deprecated)]
     fn configure_output_connection(
         output: &AVCaptureVideoDataOutput,
+        device: &AVCaptureDevice,
+        request: &CaptureFormatRequest,
+        input_frame_duration_locked: bool,
     ) -> Result<(), AvFoundationError> {
         let media_type = unsafe { AVMediaTypeVideo }.ok_or(AvFoundationError::DeviceNotFound)?;
         // SAFETY: `output` has just been added to a configured session. Querying
@@ -895,13 +909,27 @@ mod macos {
             ));
         };
 
-        // Keep frame-duration control on the device/input path. The deprecated
-        // output connection frame-duration setters can change whether macOS
-        // delivers IOSurface-backed pixel buffers.
+        // Prefer the locked input-duration API where available. Many macOS UVC
+        // inputs do not support it and reset device-level frame durations when
+        // the session starts; in that case the connection-level controls are
+        // required to make the output honor the requested cadence. These
+        // controls are deprecated on iOS but remain supported on macOS.
         // SAFETY: The connection is the video data output connection. Each
         // setter is guarded by the corresponding support/configuration checks
         // required by AVFoundation's API contract.
         unsafe {
+            if !input_frame_duration_locked
+                && connection.isVideoMinFrameDurationSupported()
+                && connection.isVideoMaxFrameDurationSupported()
+            {
+                let active_format = device.activeFormat();
+                if let Some(duration) = requested_frame_rate(request)
+                    .and_then(|frame_rate| device_format_frame_duration(&active_format, frame_rate))
+                {
+                    connection.setVideoMinFrameDuration(duration);
+                    connection.setVideoMaxFrameDuration(duration);
+                }
+            }
             if connection.isVideoStabilizationSupported() {
                 connection.setPreferredVideoStabilizationMode(AVCaptureVideoStabilizationMode::Off);
             }
@@ -1386,17 +1414,79 @@ mod macos {
         Some(CaptureResolution::new(dimensions.width as u32, dimensions.height as u32))
     }
 
-    fn device_format_supports_frame_rate(format: &AVCaptureDeviceFormat, frame_rate: u32) -> bool {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) enum FrameDurationSelection {
+        AdvertisedMaxDuration,
+        Requested,
+        AdvertisedMinDuration,
+    }
+
+    pub(super) fn frame_duration_selection(
+        frame_rate: u32,
+        min_frame_rate: f64,
+        max_frame_rate: f64,
+    ) -> Option<(f64, FrameDurationSelection)> {
+        if frame_rate == 0
+            || !min_frame_rate.is_finite()
+            || !max_frame_rate.is_finite()
+            || min_frame_rate <= 0.0
+            || max_frame_rate < min_frame_rate
+        {
+            return None;
+        }
+
         let requested = frame_rate as f64;
+        if requested < min_frame_rate.floor() || requested > max_frame_rate.ceil() {
+            return None;
+        }
+
+        if requested <= min_frame_rate {
+            Some((min_frame_rate - requested, FrameDurationSelection::AdvertisedMaxDuration))
+        } else if requested >= max_frame_rate {
+            Some((requested - max_frame_rate, FrameDurationSelection::AdvertisedMinDuration))
+        } else {
+            Some((0.0, FrameDurationSelection::Requested))
+        }
+    }
+
+    fn device_format_frame_duration(
+        format: &AVCaptureDeviceFormat,
+        frame_rate: u32,
+    ) -> Option<CMTime> {
+        let mut best: Option<(f64, CMTime)> = None;
         // SAFETY: `format` is an AVCaptureDeviceFormat from the device's immutable formats array.
         // The returned frame-rate ranges are immutable AVFoundation objects.
-        unsafe { format.videoSupportedFrameRateRanges() }.iter().any(|range| {
+        for range in unsafe { format.videoSupportedFrameRateRanges() }.iter() {
             // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
             let min = unsafe { range.minFrameRate() };
             // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
             let max = unsafe { range.maxFrameRate() };
-            requested >= min.floor() && requested <= max.ceil()
-        })
+            let Some((distance, selection)) = frame_duration_selection(frame_rate, min, max) else {
+                continue;
+            };
+            let duration = match selection {
+                // AVFoundation may advertise nominal rates such as 60.000240 fps. Reuse the
+                // range's exact CMTime instead of synthesizing 1/60, which the device rejects.
+                FrameDurationSelection::AdvertisedMaxDuration => unsafe {
+                    range.maxFrameDuration()
+                },
+                FrameDurationSelection::Requested => unsafe {
+                    CMTime::with_seconds(1.0 / frame_rate as f64, 600)
+                },
+                FrameDurationSelection::AdvertisedMinDuration => unsafe {
+                    range.minFrameDuration()
+                },
+            };
+
+            if best.as_ref().map_or(true, |(best_distance, _)| distance < *best_distance) {
+                best = Some((distance, duration));
+            }
+        }
+        best.map(|(_, duration)| duration)
+    }
+
+    fn device_format_supports_frame_rate(format: &AVCaptureDeviceFormat, frame_rate: u32) -> bool {
+        device_format_frame_duration(format, frame_rate).is_some()
     }
 
     fn device_format_max_frame_rate(format: &AVCaptureDeviceFormat) -> u32 {
@@ -1465,12 +1555,12 @@ mod macos {
             // SAFETY: The caller holds the configuration lock, and reading activeFormat is valid.
             None => unsafe { device.activeFormat() },
         };
-        if !device_format_supports_frame_rate(&active_format, frame_rate) {
+        let Some(duration) = device_format_frame_duration(&active_format, frame_rate) else {
             return Ok(());
-        }
+        };
 
-        let duration = unsafe { CMTime::with_seconds(1.0 / frame_rate as f64, 600) };
-        // SAFETY: The device is locked for configuration and the CMTime value is finite.
+        // SAFETY: The device is locked for configuration. The duration either comes directly
+        // from the active format's advertised range or is inside a continuous advertised range.
         unsafe {
             device.setActiveVideoMinFrameDuration(duration);
             device.setActiveVideoMaxFrameDuration(duration);
@@ -1924,11 +2014,41 @@ mod tests {
     use std::sync::{mpsc, Arc};
     use std::time::Duration;
 
-    use super::{macos::FrameQueue, AvFoundationError, AvFoundationStopHandle};
+    use super::{
+        macos::{frame_duration_selection, FrameDurationSelection, FrameQueue},
+        AvFoundationError, AvFoundationStopHandle,
+    };
 
     /// Upper bound on how long a woken capture wait may take to return before
     /// the test declares the stop path broken.
     const STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn nominal_integer_rate_uses_exact_advertised_duration() {
+        let (distance, selection) = frame_duration_selection(60, 60.000_240, 60.000_240)
+            .expect("60 fps should match the nominal device rate");
+        assert!((distance - 0.000_240).abs() < 1e-9);
+        assert_eq!(selection, FrameDurationSelection::AdvertisedMaxDuration);
+
+        let (distance, selection) = frame_duration_selection(30, 30.000_030, 30.000_030)
+            .expect("30 fps should match the nominal device rate");
+        assert!((distance - 0.000_030).abs() < 1e-9);
+        assert_eq!(selection, FrameDurationSelection::AdvertisedMaxDuration);
+    }
+
+    #[test]
+    fn requested_rate_inside_continuous_range_uses_requested_duration() {
+        assert_eq!(
+            frame_duration_selection(20, 15.0, 30.0),
+            Some((0.0, FrameDurationSelection::Requested))
+        );
+    }
+
+    #[test]
+    fn unsupported_rate_has_no_duration_selection() {
+        assert_eq!(frame_duration_selection(58, 60.000_240, 60.000_240), None);
+        assert_eq!(frame_duration_selection(0, 10.0, 60.0), None);
+    }
 
     // `FrameQueue` is pure Rust state, so these tests run on macOS CI hosts
     // without camera hardware or AVFoundation involvement.

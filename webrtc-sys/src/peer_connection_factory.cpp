@@ -136,11 +136,16 @@ PeerConnectionFactory::~PeerConnectionFactory() {
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
     RtcConfiguration config,
+    bool prerenderer_smoothing,
     rust::Box<PeerConnectionObserverWrapper> observer) const {
   std::shared_ptr<PeerConnection> pc = std::make_shared<PeerConnection>(
-      rtc_runtime_, peer_factory_, std::move(observer));
+      rtc_runtime_, peer_factory_, prerenderer_smoothing, std::move(observer));
 
-  if (!pc->Initialize(to_native_rtc_configuration(config))) {
+  auto rtc_config = to_native_rtc_configuration(config);
+  rtc_config.set_prerenderer_smoothing(prerenderer_smoothing);
+  RTC_LOG(LS_INFO) << "WebRTC prerenderer smoothing: "
+                   << (prerenderer_smoothing ? "enabled" : "disabled");
+  if (!pc->Initialize(std::move(rtc_config))) {
     throw std::runtime_error(serialize_error(to_error(webrtc::RTCError(
         webrtc::RTCErrorType::INTERNAL_ERROR, "failed to initialize pc"))));
   }

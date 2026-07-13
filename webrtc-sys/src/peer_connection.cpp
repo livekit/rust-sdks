@@ -75,9 +75,11 @@ to_native_offer_answer_options(const RtcOfferAnswerOptions& options) {
 PeerConnection::PeerConnection(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
+    bool prerenderer_smoothing,
     rust::Box<PeerConnectionObserverWrapper> observer)
     : rtc_runtime_(std::move(rtc_runtime)),
       pc_factory_(std::move(pc_factory)),
+      prerenderer_smoothing_(prerenderer_smoothing),
       observer_(std::move(observer)) {
   RTC_LOG(LS_VERBOSE) << "PeerConnection::PeerConnection()";
 }
@@ -102,8 +104,9 @@ bool PeerConnection::Initialize(
 }
 
 void PeerConnection::set_configuration(RtcConfiguration config) const {
-  auto result =
-      peer_connection_->SetConfiguration(to_native_rtc_configuration(config));
+  auto rtc_config = to_native_rtc_configuration(config);
+  rtc_config.set_prerenderer_smoothing(prerenderer_smoothing_);
+  auto result = peer_connection_->SetConfiguration(std::move(rtc_config));
 
   if (!result.ok()) {
     throw std::runtime_error(serialize_error(to_error(result)));

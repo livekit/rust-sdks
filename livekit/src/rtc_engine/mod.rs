@@ -100,13 +100,27 @@ pub enum EngineError {
     Internal(Cow<'static, str>), // Unexpected error, generally we can't recover
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
+    /// Whether decoded video is smoothed before delivery to render sinks.
+    pub prerenderer_smoothing: bool,
     pub signal_options: SignalOptions,
     pub join_retries: u32,
     /// Enable single peer connection mode
     pub single_peer_connection: bool,
+}
+
+impl Default for EngineOptions {
+    fn default() -> Self {
+        Self {
+            rtc_config: RtcConfiguration::default(),
+            prerenderer_smoothing: true,
+            signal_options: SignalOptions::default(),
+            join_retries: 0,
+            single_peer_connection: false,
+        }
+    }
 }
 
 #[derive(Debug)]

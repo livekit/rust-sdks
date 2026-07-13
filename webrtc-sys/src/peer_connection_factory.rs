@@ -96,6 +96,7 @@ pub mod ffi {
         fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: RtcConfiguration,
+            prerenderer_smoothing: bool,
             observer: Box<PeerConnectionObserverWrapper>,
         ) -> Result<SharedPtr<PeerConnection>>;
 

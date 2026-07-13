@@ -51,6 +51,7 @@ class PeerConnectionFactory {
 
   std::shared_ptr<PeerConnection> create_peer_connection(
       RtcConfiguration config,
+      bool prerenderer_smoothing,
       rust::Box<PeerConnectionObserverWrapper> observer) const;
 
   std::shared_ptr<VideoTrack> create_video_track(

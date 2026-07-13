@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
@@ -10,14 +10,12 @@ use livekit::prelude::*;
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
-use log::{debug, info, warn};
+use log::{debug, info};
 use parking_lot::Mutex;
 use std::{
     collections::{HashMap, VecDeque},
     env,
-    fs::File,
-    io::{BufWriter, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::OnceLock,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -27,11 +25,13 @@ use std::{
 };
 
 mod codec_display;
+mod frame_log;
 mod subscriber_timing;
 mod user_data;
 mod viewport_aspect;
 
 use codec_display::{codec_from_mime, codec_with_implementation};
+use frame_log::FrameLogRange;
 use subscriber_timing::SubscriberTimingHandle;
 use viewport_aspect::AspectConstrainedViewport;
 
@@ -412,75 +412,32 @@ struct Args {
     #[arg(long)]
     low_latency: bool,
 
+    /// Deliver decoded video immediately instead of smoothing presentation timing
+    #[arg(long)]
+    disable_prerenderer_smoothing: bool,
+
     /// Display detailed frame timing in the separate diagnostics window
     #[arg(long)]
     display_timestamp: bool,
 
-    /// Write per-frame receive latency samples to this CSV file.
-    #[arg(long)]
-    latency_csv: Option<PathBuf>,
+    /// Write one row of subscriber timing and delivery metrics per rendered frame
+    #[arg(long, value_name = "PATH")]
+    log_csv: Option<PathBuf>,
+
+    /// Start CSV logging at this frame ID (inclusive)
+    #[arg(long, requires = "log_csv")]
+    log_start_frame_id: Option<u32>,
+
+    /// Stop CSV logging after this frame ID (inclusive)
+    #[arg(long, requires = "log_csv")]
+    log_end_frame_id: Option<u32>,
 
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
 }
 
-struct LatencyCsvWriter {
-    writer: Mutex<BufWriter<File>>,
-    start_timestamp_us: u64,
-}
-
-impl LatencyCsvWriter {
-    fn create(path: &Path) -> Result<Self> {
-        if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)?;
-        }
-        let mut writer = BufWriter::new(File::create(path)?);
-        writeln!(
-            writer,
-            "elapsed_s,frame_id,user_timestamp_us,receive_timestamp_us,latency_ms,width,height"
-        )?;
-        Ok(Self { writer: Mutex::new(writer), start_timestamp_us: current_timestamp_us() })
-    }
-
-    fn record_frame(&self, frame: &BoxVideoFrame) -> bool {
-        let Some(metadata) = &frame.frame_metadata else {
-            return false;
-        };
-        let Some(user_timestamp_us) = metadata.user_timestamp else {
-            return false;
-        };
-
-        let receive_timestamp_us = current_timestamp_us();
-        let elapsed_s =
-            receive_timestamp_us.saturating_sub(self.start_timestamp_us) as f64 / 1_000_000.0;
-        let latency_ms = receive_timestamp_us.saturating_sub(user_timestamp_us) as f64 / 1_000.0;
-        let frame_id = metadata.frame_id.map(|frame_id| frame_id.to_string()).unwrap_or_default();
-        let width = frame.buffer.width();
-        let height = frame.buffer.height();
-
-        let mut writer = self.writer.lock();
-        let write_result = writeln!(
-            writer,
-            "{elapsed_s:.6},{frame_id},{user_timestamp_us},{receive_timestamp_us},{latency_ms:.3},{width},{height}"
-        )
-        .and_then(|_| writer.flush());
-        if let Err(err) = write_result {
-            warn!("failed to write latency CSV sample: {err}");
-            return false;
-        }
-
-        true
-    }
-}
-
-fn record_received_frame_sample(
-    frame: &BoxVideoFrame,
-    subscriber_timing: &SubscriberTimingHandle,
-    latency_csv: Option<&LatencyCsvWriter>,
-    recorded_latency_sample: &mut bool,
-    logged_missing_latency_metadata: &mut bool,
-) {
+fn record_received_frame_sample(frame: &BoxVideoFrame, subscriber_timing: &SubscriberTimingHandle) {
     if let Some(metadata) = &frame.frame_metadata {
         if let Some(capture_timestamp_us) = metadata.user_timestamp {
             subscriber_timing.record_frame_received_by_sink(
@@ -488,15 +445,6 @@ fn record_received_frame_sample(
                 metadata.frame_id,
                 current_timestamp_us(),
             );
-        }
-    }
-
-    if let Some(latency_csv) = latency_csv {
-        if latency_csv.record_frame(frame) {
-            *recorded_latency_sample = true;
-        } else if !*recorded_latency_sample && !*logged_missing_latency_metadata {
-            info!("Latency CSV enabled; waiting for frame metadata timestamps");
-            *logged_missing_latency_metadata = true;
         }
     }
 }
@@ -873,6 +821,21 @@ fn update_receive_bitrate_from_stats(
     }
 }
 
+fn update_frame_log_quality(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    subscriber_timing: &SubscriberTimingHandle,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+    subscriber_timing.record_inbound_quality(
+        inbound.received.packets_lost,
+        inbound.inbound.frames_dropped,
+        inbound.inbound.freeze_count,
+        inbound.inbound.total_freeze_duration,
+    );
+}
+
 fn stats_poll_interval() -> Duration {
     Duration::from_secs(10)
 }
@@ -939,6 +902,38 @@ mod tests {
     }
 
     #[test]
+    fn prerenderer_smoothing_flag_defaults_off_and_parses_on() {
+        let default_args = Args::try_parse_from(["subscriber"]).expect("default args should parse");
+        assert!(!default_args.disable_prerenderer_smoothing);
+
+        let disabled_args = Args::try_parse_from(["subscriber", "--disable-prerenderer-smoothing"])
+            .expect("flag should parse");
+        assert!(disabled_args.disable_prerenderer_smoothing);
+    }
+
+    #[test]
+    fn subscriber_frame_log_flags_parse_inclusive_bounds() {
+        let args = Args::try_parse_from([
+            "subscriber",
+            "--log-csv",
+            "subscriber.csv",
+            "--log-start-frame-id",
+            "301",
+            "--log-end-frame-id",
+            "1200",
+        ])
+        .expect("frame log flags should parse");
+        assert_eq!(args.log_csv, Some(PathBuf::from("subscriber.csv")));
+        assert_eq!(args.log_start_frame_id, Some(301));
+        assert_eq!(args.log_end_frame_id, Some(1200));
+    }
+
+    #[test]
+    fn subscriber_frame_log_bounds_require_csv_path() {
+        assert!(Args::try_parse_from(["subscriber", "--log-end-frame-id", "1200"]).is_err());
+    }
+
+    #[test]
     fn subscriber_diagnostics_show_status_without_timing() {
         let shared = Arc::new(Mutex::new(SharedYuv {
             room_name: "video-room".to_string(),
@@ -983,7 +978,6 @@ async fn handle_track_subscribed(
     channel_history: &Arc<Mutex<VecDeque<[f32; user_data::NUM_CHANNELS]>>>,
     repaint_ctx: &Arc<OnceLock<egui::Context>>,
     subscriber_timing: SubscriberTimingHandle,
-    latency_csv: Option<Arc<LatencyCsvWriter>>,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -1028,6 +1022,16 @@ async fn handle_track_subscribed(
         publication.dimension().1,
         publication.frame_metadata_features(),
     );
+    if subscriber_timing.has_frame_log() {
+        let features = publication.frame_metadata_features();
+        if !features.contains(&PacketTrailerFeature::PtfUserTimestamp)
+            || !features.contains(&PacketTrailerFeature::PtfFrameId)
+        {
+            log::warn!(
+                "Subscriber CSV logging requires publisher timestamp and frame-ID metadata; run the publisher with --log-csv or with both --attach-timestamp and --attach-frame-id"
+            );
+        }
+    }
 
     {
         let mut s = shared.lock();
@@ -1053,7 +1057,6 @@ async fn handle_track_subscribed(
     let ctrl_c_sink = ctrl_c_received.clone();
     let repaint_ctx_sink = repaint_ctx.clone();
     let subscriber_timing_sink = subscriber_timing.clone();
-    let latency_csv_sink = latency_csv.clone();
     let channel_history_sink = channel_history.clone();
     // Initialize simulcast state for this publication
     {
@@ -1073,29 +1076,15 @@ async fn handle_track_subscribed(
         let mut fps_window_frames: u64 = 0;
         let mut fps_window_start = Instant::now();
         let mut fps_smoothed: f32 = 0.0;
-        let mut logged_missing_latency_metadata = false;
-        let mut recorded_latency_sample = false;
         loop {
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
             }
             let Some(mut frame) = sink.next().await else { break };
-            record_received_frame_sample(
-                &frame,
-                &subscriber_timing_sink,
-                latency_csv_sink.as_deref(),
-                &mut recorded_latency_sample,
-                &mut logged_missing_latency_metadata,
-            );
+            record_received_frame_sample(&frame, &subscriber_timing_sink);
             let mut drained_frames = 0_u64;
             while let Some(Some(newer_frame)) = sink.next().now_or_never() {
-                record_received_frame_sample(
-                    &newer_frame,
-                    &subscriber_timing_sink,
-                    latency_csv_sink.as_deref(),
-                    &mut recorded_latency_sample,
-                    &mut logged_missing_latency_metadata,
-                );
+                record_received_frame_sample(&newer_frame, &subscriber_timing_sink);
                 frame = newer_frame;
                 drained_frames += 1;
             }
@@ -1175,15 +1164,20 @@ async fn handle_track_subscribed(
     let my_sid_stats = sid.clone();
     let simulcast_stats = simulcast.clone();
     let shared_stats = shared.clone();
+    let subscriber_timing_stats = subscriber_timing.clone();
+    let stats_interval = if subscriber_timing.has_frame_log() {
+        Duration::from_secs(1)
+    } else {
+        stats_poll_interval()
+    };
     tokio::spawn(async move {
         let mut logged_initial = false;
         let mut jitter_buffer_snapshot = None;
         let mut receive_bitrate_snapshot = None;
         let mut last_jitter_buffer_log =
             Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
-        let mut interval = tokio::time::interval(stats_poll_interval());
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
+        let mut stats_timer = tokio::time::interval(stats_interval);
+        stats_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             if ctrl_c_stats.load(Ordering::Acquire) {
                 break;
@@ -1209,6 +1203,7 @@ async fn handle_track_subscribed(
                         &mut receive_bitrate_snapshot,
                         &shared_stats,
                     );
+                    update_frame_log_quality(&stats, &subscriber_timing_stats);
                     update_simulcast_quality_from_stats(&stats, &simulcast_stats);
                 }
                 Err(e) if !logged_initial => {
@@ -1218,7 +1213,7 @@ async fn handle_track_subscribed(
                 Err(_) => {}
             }
 
-            interval.tick().await;
+            stats_timer.tick().await;
         }
     });
 }
@@ -1648,6 +1643,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
+    let log_range = FrameLogRange::new(args.log_start_frame_id, args.log_end_frame_id)?;
     if args.low_latency {
         livekit::webrtc::enable_zero_playout_delay()?;
         info!("Low-latency mode enabled: WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/");
@@ -1682,6 +1678,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     room_options.auto_subscribe = true;
     room_options.dynacast = true;
     room_options.adaptive_stream = false;
+    room_options.prerenderer_smoothing = !args.disable_prerenderer_smoothing;
+    info!(
+        "WebRTC prerenderer smoothing: {}",
+        if room_options.prerenderer_smoothing { "enabled" } else { "disabled" }
+    );
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {
@@ -1718,12 +1719,19 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     }));
     let frame_slot = Arc::new(LatestRenderFrameSlot::new());
     let video_size = Arc::new(AtomicVideoSize::default());
-    let subscriber_timing = SubscriberTimingHandle::new();
-    let latency_csv =
-        args.latency_csv.as_deref().map(LatencyCsvWriter::create).transpose()?.map(Arc::new);
-    if let Some(path) = &args.latency_csv {
-        info!("Writing latency samples to {}", path.display());
-    }
+    let subscriber_timing = if let Some(path) = args.log_csv.as_deref() {
+        let timing =
+            SubscriberTimingHandle::with_frame_log(path, log_range).with_context(|| {
+                format!("failed to create subscriber frame log at {}", path.display())
+            })?;
+        info!(
+            "Writing subscriber per-frame metrics to {} (frame-ID bounds are inclusive)",
+            path.display()
+        );
+        timing
+    } else {
+        SubscriberTimingHandle::new()
+    };
     let channel_history = Arc::new(Mutex::new(VecDeque::with_capacity(CHANNEL_HISTORY_LEN)));
 
     // Subscribe to room events: on first video track, start sink task
@@ -1741,7 +1749,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
     let subscriber_timing_events = subscriber_timing.clone();
-    let latency_csv_events = latency_csv.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
         let simulcast = simulcast_events;
@@ -1765,7 +1772,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &channel_history_events,
                         &repaint_ctx_events,
                         subscriber_timing_events.clone(),
-                        latency_csv_events.clone(),
                     )
                     .await;
                 }

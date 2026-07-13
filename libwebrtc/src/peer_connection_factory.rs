@@ -81,6 +81,15 @@ impl PeerConnectionFactory {
         self.handle.create_peer_connection(config)
     }
 
+    /// Creates a peer connection with explicit decoded-video prerender smoothing behavior.
+    pub fn create_peer_connection_with_prerenderer_smoothing(
+        &self,
+        config: RtcConfiguration,
+        prerenderer_smoothing: bool,
+    ) -> Result<PeerConnection, RtcError> {
+        self.handle.create_peer_connection_with_prerenderer_smoothing(config, prerenderer_smoothing)
+    }
+
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.handle.get_rtp_sender_capabilities(media_type)
     }
