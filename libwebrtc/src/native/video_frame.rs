@@ -51,9 +51,7 @@ pub fn new_video_frame_buffer(
             vfb_sys::ffi::VideoFrameBufferType::NV12 => Box::new(vf::NV12Buffer {
                 handle: NV12Buffer { sys_handle: sys_handle.pin_mut().get_nv12() },
             }),
-            _ => {
-                Box::new(vf::I420Buffer { handle: I420Buffer { sys_handle: sys_handle.to_i420() } })
-            }
+            _ => unreachable!(),
         }
     }
 }
