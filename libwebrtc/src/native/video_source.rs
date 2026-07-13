@@ -13,13 +13,15 @@
 // limitations under the License.
 
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use cxx::SharedPtr;
 use livekit_runtime::interval;
-use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
 #[cfg(target_os = "linux")]
@@ -45,11 +47,7 @@ impl From<VideoResolution> for vt_sys::ffi::VideoResolution {
 #[derive(Clone)]
 pub struct NativeVideoSource {
     sys_handle: SharedPtr<vt_sys::ffi::VideoTrackSource>,
-    inner: Arc<Mutex<VideoSourceInner>>,
-}
-
-struct VideoSourceInner {
-    captured_frames: usize,
+    captured_frames: Arc<AtomicUsize>,
 }
 
 impl NativeVideoSource {
@@ -77,7 +75,7 @@ impl NativeVideoSource {
                 &vt_sys::ffi::VideoResolution::from(resolution.clone()),
                 is_screencast,
             ),
-            inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),
+            captured_frames: Arc::new(AtomicUsize::new(0)),
         };
 
         if raw_keepalive {
@@ -90,8 +88,7 @@ impl NativeVideoSource {
                     loop {
                         interval.tick().await;
 
-                        let inner = source.inner.lock();
-                        if inner.captured_frames > 0 {
+                        if source.captured_frames.load(Ordering::Relaxed) > 0 {
                             break;
                         }
 
@@ -146,7 +143,7 @@ impl NativeVideoSource {
             None => (false, 0, 0, Vec::new()),
         };
 
-        self.inner.lock().captured_frames += 1;
+        self.captured_frames.fetch_add(1, Ordering::Relaxed);
 
         self.sys_handle.on_captured_frame(
             &builder.pin_mut().build(),
@@ -177,7 +174,7 @@ impl NativeVideoSource {
             frame.timestamp_us
         };
 
-        self.inner.lock().captured_frames += 1;
+        self.captured_frames.fetch_add(1, Ordering::Relaxed);
         self.sys_handle.capture_encoded_frame(
             frame.width as i32,
             frame.height as i32,
@@ -258,7 +255,7 @@ impl NativeVideoSource {
             None => (false, 0, 0, Vec::new()),
         };
 
-        self.inner.lock().captured_frames += 1;
+        self.captured_frames.fetch_add(1, Ordering::Relaxed);
         self.sys_handle.capture_dmabuf_frame(
             dmabuf_fd,
             width as i32,
