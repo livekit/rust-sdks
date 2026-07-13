@@ -33,7 +33,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use livekit::{AudioProcessingOptions, MuteMode, PlatformAudio};
+use livekit::{AudioProcessingOptions, AudioProcessingType, MuteMode, PlatformAudio};
 use log::{Level, LevelFilter, Metadata, Record};
 
 // Counts LkRuntime teardowns so the test can assert that dropping the last
@@ -154,8 +154,11 @@ fn main() {
             })
             .expect("configure_audio_processing");
     }
+    // The convenience toggles must keep the reported processing state in sync
     audio.set_echo_cancellation(false, false).expect("set_echo_cancellation");
+    assert_eq!(audio.active_aec_type(), AudioProcessingType::None, "AEC should report disabled");
     audio.set_echo_cancellation(true, true).expect("set_echo_cancellation");
+    assert_ne!(audio.active_aec_type(), AudioProcessingType::None, "AEC should report enabled");
 
     println!("=== Phase 5: concurrent hammering (16 threads x 50 iterations) ===");
     let errors = Arc::new(AtomicUsize::new(0));

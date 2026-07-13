@@ -1293,52 +1293,64 @@ impl PlatformAudio {
     /// Enables or disables echo cancellation.
     ///
     /// This is a convenience method equivalent to calling `configure_audio_processing`
-    /// with only the `echo_cancellation` field changed.
+    /// with the `echo_cancellation` and `prefer_hardware_processing` fields changed,
+    /// so the state reported by [`active_aec_type`] stays in sync.
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable AEC, `false` to disable
     /// * `prefer_hardware` - `true` to prefer hardware AEC on supported devices
+    ///
+    /// [`active_aec_type`]: Self::active_aec_type
     pub fn set_echo_cancellation(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        if self.is_hardware_aec_available() {
-            let enable_hw = enable && prefer_hardware;
-            if !self.handle.runtime.enable_builtin_aec(enable_hw) {
-                return Err(AudioError::OperationFailed("enable_builtin_aec failed".to_string()));
-            }
-        }
-        Ok(())
+        let options = AudioProcessingOptions {
+            echo_cancellation: enable,
+            prefer_hardware_processing: prefer_hardware,
+            ..*self.handle.processing_options.lock()
+        };
+        self.configure_audio_processing(options)
     }
 
     /// Enables or disables automatic gain control.
+    ///
+    /// This is a convenience method equivalent to calling `configure_audio_processing`
+    /// with the `auto_gain_control` and `prefer_hardware_processing` fields changed,
+    /// so the state reported by [`active_agc_type`] stays in sync.
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable AGC, `false` to disable
     /// * `prefer_hardware` - `true` to prefer hardware AGC on supported devices
+    ///
+    /// [`active_agc_type`]: Self::active_agc_type
     pub fn set_auto_gain_control(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        if self.is_hardware_agc_available() {
-            let enable_hw = enable && prefer_hardware;
-            if !self.handle.runtime.enable_builtin_agc(enable_hw) {
-                return Err(AudioError::OperationFailed("enable_builtin_agc failed".to_string()));
-            }
-        }
-        Ok(())
+        let options = AudioProcessingOptions {
+            auto_gain_control: enable,
+            prefer_hardware_processing: prefer_hardware,
+            ..*self.handle.processing_options.lock()
+        };
+        self.configure_audio_processing(options)
     }
 
     /// Enables or disables noise suppression.
+    ///
+    /// This is a convenience method equivalent to calling `configure_audio_processing`
+    /// with the `noise_suppression` and `prefer_hardware_processing` fields changed,
+    /// so the state reported by [`active_ns_type`] stays in sync.
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable NS, `false` to disable
     /// * `prefer_hardware` - `true` to prefer hardware NS on supported devices
+    ///
+    /// [`active_ns_type`]: Self::active_ns_type
     pub fn set_noise_suppression(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        if self.is_hardware_ns_available() {
-            let enable_hw = enable && prefer_hardware;
-            if !self.handle.runtime.enable_builtin_ns(enable_hw) {
-                return Err(AudioError::OperationFailed("enable_builtin_ns failed".to_string()));
-            }
-        }
-        Ok(())
+        let options = AudioProcessingOptions {
+            noise_suppression: enable,
+            prefer_hardware_processing: prefer_hardware,
+            ..*self.handle.processing_options.lock()
+        };
+        self.configure_audio_processing(options)
     }
 }
 
