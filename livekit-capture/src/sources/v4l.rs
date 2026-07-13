@@ -24,7 +24,7 @@ use livekit::webrtc::video_frame::{I420Buffer, VideoFrame};
 use thiserror::Error;
 #[cfg(target_os = "linux")]
 use v4l::{
-    buffer::Type as V4lBufferType,
+    buffer::{Flags as V4lBufferFlags, Type as V4lBufferType},
     capability::Flags as V4lCapabilityFlags,
     context,
     format::{Format as V4lFormat, FourCC},
@@ -124,7 +124,7 @@ pub struct V4lFrame {
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read from the camera backend.
     pub read_wall_time_us: u64,
-    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    /// Validated V4L2 capture timestamp translated to UNIX-epoch microseconds, when available.
     pub sensor_timestamp_us: Option<u64>,
     /// Whether conversion from the source format to I420 was needed.
     pub used_conversion: bool,
@@ -211,8 +211,9 @@ impl V4lCaptureSession {
         let format = self.format;
         let (buffer, metadata) = self.stream.next().map_err(v4l_error)?;
         let read_wall_time_us = unix_time_us_now().unwrap_or(fallback_wall_time_us);
-        let backend_capture_timestamp = monotonic_to_wallclock(metadata.timestamp);
-        let capture_wall_time_us = select_capture_wall_time_us(
+        let backend_capture_timestamp =
+            v4l_timestamp_to_wallclock(metadata.timestamp, v4l_timestamp_clock(metadata.flags));
+        let (capture_wall_time_us, backend_capture_timestamp_us) = select_capture_timestamps_us(
             backend_capture_timestamp,
             fallback_wall_time_us,
             read_wall_time_us,
@@ -242,7 +243,7 @@ impl V4lCaptureSession {
             backend_capture_timestamp,
             capture_wall_time_us,
             read_wall_time_us,
-            sensor_timestamp_us: None,
+            sensor_timestamp_us: backend_capture_timestamp_us,
             used_conversion: format.frame_format != CaptureFrameFormat::I420,
             used_decode_path,
         })
@@ -1112,15 +1113,15 @@ fn validate_len(source: &[u8], expected: usize, label: &'static str) -> Result<(
 }
 
 #[cfg(any(target_os = "linux", test))]
-fn select_capture_wall_time_us(
+fn select_capture_timestamps_us(
     backend_capture_timestamp: Option<Duration>,
     fallback_wall_time_us: u64,
     read_wall_time_us: u64,
-) -> u64 {
-    backend_capture_timestamp
+) -> (u64, Option<u64>) {
+    let backend_capture_timestamp_us = backend_capture_timestamp
         .and_then(|timestamp| u64::try_from(timestamp.as_micros()).ok())
-        .and_then(|timestamp_us| validate_capture_timestamp_us(timestamp_us, read_wall_time_us))
-        .unwrap_or(fallback_wall_time_us)
+        .and_then(|timestamp_us| validate_capture_timestamp_us(timestamp_us, read_wall_time_us));
+    (backend_capture_timestamp_us.unwrap_or(fallback_wall_time_us), backend_capture_timestamp_us)
 }
 
 #[cfg(any(target_os = "linux", test))]
@@ -1138,16 +1139,74 @@ fn v4l_error(error: std::io::Error) -> V4lError {
     V4lError::Camera(error.to_string())
 }
 
+#[cfg(any(target_os = "linux", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum V4lTimestampClock {
+    Unknown,
+    Monotonic,
+    Copy,
+    Unsupported,
+}
+
 #[cfg(target_os = "linux")]
-fn monotonic_to_wallclock(timestamp: v4l::Timestamp) -> Option<Duration> {
-    let frame_monotonic = Duration::from(timestamp);
-    if frame_monotonic.is_zero() {
+fn v4l_timestamp_clock(flags: V4lBufferFlags) -> V4lTimestampClock {
+    let timestamp_type = flags.bits() & V4lBufferFlags::TIMESTAMP_MASK.bits();
+    if timestamp_type == V4lBufferFlags::TIMESTAMP_MONOTONIC.bits() {
+        V4lTimestampClock::Monotonic
+    } else if timestamp_type == V4lBufferFlags::TIMESTAMP_COPY.bits() {
+        V4lTimestampClock::Copy
+    } else if timestamp_type == V4lBufferFlags::TIMESTAMP_UNKNOWN.bits() {
+        V4lTimestampClock::Unknown
+    } else {
+        V4lTimestampClock::Unsupported
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn v4l_timestamp_to_wallclock(
+    timestamp: v4l::Timestamp,
+    clock: V4lTimestampClock,
+) -> Option<Duration> {
+    let frame_timestamp = Duration::from(timestamp);
+    if frame_timestamp.is_zero() {
         return None;
     }
 
     let monotonic_now = clock_time(libc::CLOCK_MONOTONIC)?;
     let wall_now = clock_time(libc::CLOCK_REALTIME)?;
-    let frame_age = monotonic_now.checked_sub(frame_monotonic)?;
+    timestamp_to_wallclock(frame_timestamp, clock, monotonic_now, wall_now)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn timestamp_to_wallclock(
+    frame_timestamp: Duration,
+    clock: V4lTimestampClock,
+    monotonic_now: Duration,
+    wall_now: Duration,
+) -> Option<Duration> {
+    if frame_timestamp.is_zero() {
+        return None;
+    }
+
+    match clock {
+        V4lTimestampClock::Monotonic => {
+            monotonic_timestamp_to_wallclock(frame_timestamp, monotonic_now, wall_now)
+        }
+        V4lTimestampClock::Unknown => {
+            monotonic_timestamp_to_wallclock(frame_timestamp, monotonic_now, wall_now)
+                .or(Some(frame_timestamp))
+        }
+        V4lTimestampClock::Copy | V4lTimestampClock::Unsupported => None,
+    }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn monotonic_timestamp_to_wallclock(
+    frame_timestamp: Duration,
+    monotonic_now: Duration,
+    wall_now: Duration,
+) -> Option<Duration> {
+    let frame_age = monotonic_now.checked_sub(frame_timestamp)?;
     wall_now.checked_sub(frame_age)
 }
 
@@ -1199,23 +1258,72 @@ mod tests {
 
     #[test]
     fn ignores_stream_relative_capture_timestamp() {
-        let selected =
-            select_capture_wall_time_us(Some(Duration::from_micros(10)), 10_000_000, 10_000_000);
+        let (selected, backend) =
+            select_capture_timestamps_us(Some(Duration::from_micros(10)), 10_000_000, 10_000_000);
         assert_eq!(selected, 10_000_000);
+        assert_eq!(backend, None);
     }
 
     #[test]
     fn accepts_recent_backend_capture_timestamp() {
         let read_us = 20_000_000;
         let recent = Duration::from_micros(read_us - 1_000);
-        assert_eq!(select_capture_wall_time_us(Some(recent), 42, read_us), read_us - 1_000);
+        assert_eq!(
+            select_capture_timestamps_us(Some(recent), 42, read_us),
+            (read_us - 1_000, Some(read_us - 1_000))
+        );
     }
 
     #[test]
     fn ignores_backend_capture_timestamp_older_than_max_age() {
         let read_us = 20_000_000;
         let stale = Duration::from_micros(read_us - MAX_CAPTURE_TIMESTAMP_AGE_US - 1);
-        assert_eq!(select_capture_wall_time_us(Some(stale), 42, read_us), 42);
+        assert_eq!(select_capture_timestamps_us(Some(stale), 42, read_us), (42, None));
+    }
+
+    #[test]
+    fn converts_monotonic_v4l_timestamp_to_wallclock() {
+        let converted = timestamp_to_wallclock(
+            Duration::from_millis(9_980),
+            V4lTimestampClock::Monotonic,
+            Duration::from_secs(10),
+            Duration::from_secs(100),
+        );
+        assert_eq!(converted, Some(Duration::from_millis(99_980)));
+    }
+
+    #[test]
+    fn infers_unknown_v4l_timestamp_clock() {
+        let monotonic = timestamp_to_wallclock(
+            Duration::from_millis(9_980),
+            V4lTimestampClock::Unknown,
+            Duration::from_secs(10),
+            Duration::from_secs(100),
+        );
+        let realtime = timestamp_to_wallclock(
+            Duration::from_millis(99_980),
+            V4lTimestampClock::Unknown,
+            Duration::from_secs(10),
+            Duration::from_secs(100),
+        );
+
+        assert_eq!(monotonic, Some(Duration::from_millis(99_980)));
+        assert_eq!(realtime, Some(Duration::from_millis(99_980)));
+    }
+
+    #[test]
+    fn rejects_copied_and_unsupported_v4l_timestamps() {
+        for clock in [V4lTimestampClock::Copy, V4lTimestampClock::Unsupported] {
+            assert_eq!(
+                timestamp_to_wallclock(
+                    Duration::from_secs(1),
+                    clock,
+                    Duration::from_secs(2),
+                    Duration::from_secs(100),
+                ),
+                None
+            );
+        }
     }
 
     #[test]
