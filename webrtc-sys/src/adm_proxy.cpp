@@ -297,6 +297,20 @@ int32_t AdmProxy::RegisterAudioCallback(webrtc::AudioTransport* transport) {
   if (platform_adm_) {
     platform_adm_->RegisterAudioCallback(transport);
   }
+#if defined(__ANDROID__)
+  else {
+    // On Android the platform ADM is created lazily (EnsurePlatformAdmCreated),
+    // so it usually does not exist yet when WebRTC performs this one-time
+    // callback registration. If the app later constructs PlatformAudio, the
+    // platform ADM is created and started but never receives audio_transport_,
+    // so it runs indefinitely writing silence with no error reported anywhere.
+    // Log this otherwise-silent condition to make it diagnosable.
+    RTC_LOG(LS_WARNING)
+        << "AdmProxy::RegisterAudioCallback() - platform_adm_ is null on "
+        << "Android; audio transport will not reach the platform ADM if it is "
+        << "created later. This causes total silence for PlatformAudio.";
+  }
+#endif
   return 0;
 }
 
