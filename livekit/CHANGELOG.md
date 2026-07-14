@@ -257,6 +257,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.52 (2026-07-14)
+
+### Fixes
+
+- Make some fields public for data track types
+- Refactor data tracks E2EE interface
+- refactor: extract data-stream logic and shared types into new `livekit-common` and `livekit-data-stream` crates (public API unchanged; types are re-exported from `livekit`)
+- Use concrete type for data track manager output events
+- Add an opt-in zero-playout-delay mode for native video subscribers, expose it through the `local_video` subscriber's `--low-latency` flag, and isolate subscriber diagnostics from frame-driven video rendering.
+
 ## 0.7.51 (2026-07-09)
 
 ### Fixes

@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.69"
+version = "0.12.70"
 edition.workspace = true
 license.workspace = true
 description = "FFI interface for bindings in other languages"
