@@ -161,7 +161,7 @@ exec cargo run --bin uniffi-bindgen generate \
 [tasks.install-tera]
 private = true
 install_crate = { crate_name = "teracli", binary = "tera", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/chevdor/tera-cli", "--tag", "v0.5.1"]
+install_crate_args = ["--git", "https://github.com/chevdor/tera-cli", "--tag", "v0.5.0"]
 
 [tasks.tera]
 private = true
@@ -533,7 +533,7 @@ run_task = "swift-package-flow"
 #              → same AAR flow, published to ~/.m2/repository (Maven Local).
 
 # Enforce a size budget on the arm64-v8a native library an Android user actually
-# downloads. arm64-v8a is the primary shipping arch, so it's the most meaningful 
+# downloads. arm64-v8a is the primary shipping arch, so it's the most meaningful
 # proxy for "how much does this dep cost an end user".
 # Measured on the stripped .so inside the release AAR (AGP strips debug symbols
 # during assemble; the raw target/ artifact is larger and not what ships).
