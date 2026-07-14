@@ -3801,6 +3801,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 
 [[package]]
+name = "libargus-sys"
+version = "0.1.0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4061,11 +4068,11 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "cc",
  "dispatch2",
  "gstreamer",
  "gstreamer-app",
  "image",
+ "libargus-sys",
  "libc",
  "livekit",
  "log",
