@@ -59,6 +59,11 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra"));
     if tegra_lib_dir.exists() {
         println!("cargo:rustc-link-search=native={}", tegra_lib_dir.display());
+    } else {
+        println!(
+            "cargo:warning=Tegra library directory not found at {}; set JETSON_TEGRA_LIB_DIR to override",
+            tegra_lib_dir.display()
+        );
     }
     println!("cargo:rustc-link-search=native=/usr/lib/aarch64-linux-gnu");
 
