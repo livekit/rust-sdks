@@ -811,13 +811,18 @@ where
     }
 
     let keyframe_requests_forwarded = Arc::new(AtomicU64::new(0));
+    let pacing_stop = EncodedIngressStop::new();
     let ingress = EncodedIngress::new(
         capture_track,
-        KeyframeRequestLogger::new(source, source_label, keyframe_requests_forwarded.clone()),
+        PacedEncodedSource::new(
+            KeyframeRequestLogger::new(source, source_label, keyframe_requests_forwarded.clone()),
+            pacing_stop.clone(),
+        ),
     );
     let stop = ingress.stop_handle();
     let signal_task = tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
+        pacing_stop.stop();
         stop.stop();
         shutdown_source();
     });
@@ -850,7 +855,6 @@ where
     S: EncodedAccessUnitSource,
 {
     let stop = ingress.stop_handle();
-    let mut pacer = AccessUnitPacer::default();
     let mut captured = 0;
     let mut dropped = 0;
     let mut frame_counter = 0_u32;
@@ -880,7 +884,6 @@ where
         if captured % 300 == 0 {
             log::info!("Published {captured} encoded access units");
         }
-        pacer.sleep_after_capture(&capture, &stop);
     }
     diagnostics.finish();
 
@@ -930,8 +933,9 @@ struct AccessUnitPacer {
 }
 
 impl AccessUnitPacer {
-    fn sleep_after_capture(&mut self, capture: &EncodedIngressCapture, stop: &EncodedIngressStop) {
-        let Some(mut remaining) = self.delay_after_capture(capture, Instant::now()) else {
+    fn sleep_before_access_unit(&mut self, timestamp_us: i64, stop: &EncodedIngressStop) {
+        let Some(mut remaining) = self.delay_before_access_unit(timestamp_us, Instant::now())
+        else {
             return;
         };
 
@@ -942,20 +946,16 @@ impl AccessUnitPacer {
         }
     }
 
-    fn delay_after_capture(
-        &mut self,
-        capture: &EncodedIngressCapture,
-        now: Instant,
-    ) -> Option<Duration> {
+    fn delay_before_access_unit(&mut self, timestamp_us: i64, now: Instant) -> Option<Duration> {
         let (Some(start_timestamp_us), Some(start_wall_time)) =
             (self.start_timestamp_us, self.start_wall_time)
         else {
-            self.start_timestamp_us = Some(capture.timestamp_us);
+            self.start_timestamp_us = Some(timestamp_us);
             self.start_wall_time = Some(now);
             return None;
         };
 
-        let elapsed_us = capture.timestamp_us.saturating_sub(start_timestamp_us);
+        let elapsed_us = timestamp_us.saturating_sub(start_timestamp_us);
         if elapsed_us <= 0 {
             return None;
         }
@@ -967,6 +967,51 @@ impl AccessUnitPacer {
         }
 
         Some(target.saturating_duration_since(now).min(MAX_PUBLISH_PACE_SLEEP))
+    }
+}
+
+/// Paces encoded access units before they are submitted to [`EncodedIngress`].
+struct PacedEncodedSource<S> {
+    source: S,
+    pacer: AccessUnitPacer,
+    stop: EncodedIngressStop,
+    awaiting_initial_keyframe: bool,
+}
+
+impl<S> PacedEncodedSource<S> {
+    fn new(source: S, stop: EncodedIngressStop) -> Self {
+        Self { source, pacer: AccessUnitPacer::default(), stop, awaiting_initial_keyframe: true }
+    }
+}
+
+impl<S> EncodedAccessUnitSource for PacedEncodedSource<S>
+where
+    S: EncodedAccessUnitSource,
+{
+    type Error = S::Error;
+
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
+        let Some(access_unit) = self.source.next_access_unit()? else {
+            return Ok(None);
+        };
+
+        if self.awaiting_initial_keyframe {
+            if access_unit.frame_type != EncodedFrameType::Key {
+                return Ok(Some(access_unit));
+            }
+            self.awaiting_initial_keyframe = false;
+        }
+
+        self.pacer.sleep_before_access_unit(access_unit.timestamp_us, &self.stop);
+        Ok(Some(access_unit))
+    }
+
+    fn request_keyframe(&mut self) {
+        self.source.request_keyframe();
+    }
+
+    fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
+        self.source.update_rate_control(rate_control);
     }
 }
 
@@ -1333,6 +1378,24 @@ fn current_time_us() -> i64 {
     duration.as_micros().min(i64::MAX as u128) as i64
 }
 
+#[cfg(test)]
+mod pacing_tests {
+    use super::*;
+
+    #[test]
+    fn access_unit_pacer_delays_when_source_runs_ahead_of_timestamps() {
+        let mut pacer = AccessUnitPacer::default();
+        let now = Instant::now();
+
+        assert_eq!(pacer.delay_before_access_unit(1_000_000, now), None);
+        assert_eq!(
+            pacer.delay_before_access_unit(1_033_333, now),
+            Some(Duration::from_micros(33_333))
+        );
+        assert_eq!(pacer.delay_before_access_unit(2_000_000, now), Some(MAX_PUBLISH_PACE_SLEEP));
+    }
+}
+
 #[cfg(all(test, feature = "gstreamer"))]
 mod tests {
     use super::*;
@@ -1397,19 +1460,6 @@ mod tests {
     }
 
     #[test]
-    fn access_unit_pacer_delays_when_source_runs_ahead_of_timestamps() {
-        let mut pacer = AccessUnitPacer::default();
-        let now = Instant::now();
-        let first = encoded_capture(1_000_000);
-        let second = encoded_capture(1_033_333);
-        let distant = encoded_capture(2_000_000);
-
-        assert_eq!(pacer.delay_after_capture(&first, now), None);
-        assert_eq!(pacer.delay_after_capture(&second, now), Some(Duration::from_micros(33_333)));
-        assert_eq!(pacer.delay_after_capture(&distant, now), Some(MAX_PUBLISH_PACE_SLEEP));
-    }
-
-    #[test]
     fn keyframe_request_logger_rate_limits_forwarding() {
         let mut logger = KeyframeRequestLogger::new((), "test", Arc::new(AtomicU64::new(0)));
         let now = Instant::now();
@@ -1417,10 +1467,6 @@ mod tests {
         assert!(logger.should_forward(now));
         assert!(!logger.should_forward(now + MIN_KEYFRAME_REQUEST_INTERVAL / 2));
         assert!(logger.should_forward(now + MIN_KEYFRAME_REQUEST_INTERVAL));
-    }
-
-    fn encoded_capture(timestamp_us: i64) -> EncodedIngressCapture {
-        EncodedIngressCapture { timestamp_us, frame_type: EncodedFrameType::Delta, payload_len: 1 }
     }
 
     #[test]

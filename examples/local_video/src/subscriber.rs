@@ -454,7 +454,7 @@ impl LatencyCsvWriter {
         let receive_timestamp_us = current_timestamp_us();
         let elapsed_s =
             receive_timestamp_us.saturating_sub(self.start_timestamp_us) as f64 / 1_000_000.0;
-        let latency_ms = receive_timestamp_us.saturating_sub(user_timestamp_us) as f64 / 1_000.0;
+        let latency_ms = latency_csv_value(receive_timestamp_us, user_timestamp_us);
         let frame_id = metadata.frame_id.map(|frame_id| frame_id.to_string()).unwrap_or_default();
         let width = frame.buffer.width();
         let height = frame.buffer.height();
@@ -462,7 +462,7 @@ impl LatencyCsvWriter {
         let mut writer = self.writer.lock();
         let write_result = writeln!(
             writer,
-            "{elapsed_s:.6},{frame_id},{user_timestamp_us},{receive_timestamp_us},{latency_ms:.3},{width},{height}"
+            "{elapsed_s:.6},{frame_id},{user_timestamp_us},{receive_timestamp_us},{latency_ms},{width},{height}"
         )
         .and_then(|_| writer.flush());
         if let Err(err) = write_result {
@@ -472,6 +472,13 @@ impl LatencyCsvWriter {
 
         true
     }
+}
+
+fn latency_csv_value(receive_timestamp_us: u64, user_timestamp_us: u64) -> String {
+    receive_timestamp_us
+        .checked_sub(user_timestamp_us)
+        .map(|latency_us| format!("{:.3}", latency_us as f64 / 1_000.0))
+        .unwrap_or_else(|| "NA".to_string())
 }
 
 fn record_received_frame_sample(
@@ -966,6 +973,12 @@ mod tests {
                 "1280x720 29.6fps H264 NVDEC 1.2mbps Simulcast",
             ]
         );
+    }
+
+    #[test]
+    fn latency_csv_marks_negative_clock_skew_unavailable() {
+        assert_eq!(latency_csv_value(1_000, 500), "0.500");
+        assert_eq!(latency_csv_value(999, 1_000), "NA");
     }
 }
 
