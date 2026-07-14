@@ -138,7 +138,10 @@ impl VideoCaptureTrack {
             payload,
             timestamp_us: access_unit.timestamp_us,
             frame_type: access_unit.frame_type.into(),
-            resolution: VideoResolution { width: access_unit.width, height: access_unit.height },
+            resolution: VideoResolution {
+                width: access_unit.width,
+                height: access_unit.height,
+            },
             frame_metadata,
         };
         self.source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)

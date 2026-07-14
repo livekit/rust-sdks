@@ -109,7 +109,7 @@ pub struct RawVideoFrame {
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read, in microseconds.
     pub read_wall_time_us: u64,
-    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    /// Backend capture timestamp translated to UNIX-epoch microseconds, when available.
     pub sensor_timestamp_us: Option<u64>,
     /// Whether the backend converted the source buffer before publishing.
     pub used_conversion: bool,
@@ -133,7 +133,7 @@ pub struct NativeVideoFrame {
     pub capture_wall_time_us: u64,
     /// Wall-clock timestamp recorded after the frame was read, in microseconds.
     pub read_wall_time_us: u64,
-    /// Sensor timestamp translated to UNIX-epoch microseconds, when available.
+    /// Backend capture timestamp translated to UNIX-epoch microseconds, when available.
     pub sensor_timestamp_us: Option<u64>,
 }
 
