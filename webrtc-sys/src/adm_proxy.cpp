@@ -131,6 +131,17 @@ bool AdmProxy::EnsurePlatformAdmCreated() {
     return false;
   }
 
+  // Backfill the audio callback registration. WebRTC performs its one-time
+  // RegisterAudioCallback() early -- typically before the app constructs
+  // PlatformAudio and triggers this lazy creation -- so audio_transport_ was
+  // captured then but never delivered to the platform ADM. Without this the
+  // platform ADM runs with no transport wired up and writes silence.
+  if (audio_transport_) {
+    platform_adm_->RegisterAudioCallback(audio_transport_);
+    RTC_LOG(LS_VERBOSE) << "AdmProxy: backfilled audio transport to newly "
+                        << "created Android platform ADM";
+  }
+
   return true;
 }
 #endif
@@ -300,15 +311,14 @@ int32_t AdmProxy::RegisterAudioCallback(webrtc::AudioTransport* transport) {
 #if defined(__ANDROID__)
   else {
     // On Android the platform ADM is created lazily (EnsurePlatformAdmCreated),
-    // so it usually does not exist yet when WebRTC performs this one-time
-    // callback registration. If the app later constructs PlatformAudio, the
-    // platform ADM is created and started but never receives audio_transport_,
-    // so it runs indefinitely writing silence with no error reported anywhere.
-    // Log this otherwise-silent condition to make it diagnosable.
-    RTC_LOG(LS_WARNING)
-        << "AdmProxy::RegisterAudioCallback() - platform_adm_ is null on "
-        << "Android; audio transport will not reach the platform ADM if it is "
-        << "created later. This causes total silence for PlatformAudio.";
+    // so it usually does not exist yet at this one-time registration. The
+    // transport is retained in audio_transport_ and backfilled to the platform
+    // ADM when it is created; until then only the synthetic ADM is wired, which
+    // is the correct state for synthetic-only usage.
+    RTC_LOG(LS_INFO)
+        << "AdmProxy::RegisterAudioCallback() - platform_adm_ not yet created "
+        << "on Android; audio transport retained and will be backfilled when "
+        << "the platform ADM is created.";
   }
 #endif
   return 0;
