@@ -565,12 +565,11 @@ rule ResumeDrainsQueue {
     ensures: ResumeAttemptSucceeded(engine)
     @guidance
         -- Step 6: the resume has fully recovered; drain the signal queue.
-        -- spec<->code: `resume_finalize` also calls `session.finish_resume()`
-        -- here, emitting a participant-reconcile event to the Room (external
-        -- boundary): participants absent from every update received since the
-        -- resume began (a superset of the server's post-resume snapshot) left
-        -- while the link was down and their disconnection is synthesized —
-        -- their DISCONNECTED update died with the previous connection.
+        -- spec<->code: `resume_finalize` also hands the Room (external
+        -- boundary) the participant identities seen since the resume began —
+        -- a superset of the server's post-resume snapshot — and the Room
+        -- synthesizes disconnects for known participants absent from it,
+        -- whose DISCONNECTED update died with the previous connection.
         -- Participant state itself is below this spec's altitude.
 }
 

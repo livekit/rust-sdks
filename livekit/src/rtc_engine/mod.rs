@@ -689,9 +689,6 @@ impl EngineInner {
             SessionEvent::ParticipantUpdate { updates } => {
                 let _ = self.engine_tx.send(EngineEvent::ParticipantUpdate { updates });
             }
-            SessionEvent::ParticipantReconcile { seen_identities } => {
-                let _ = self.engine_tx.send(EngineEvent::ParticipantReconcile { seen_identities });
-            }
             SessionEvent::SpeakersChanged { speakers } => {
                 let _ = self.engine_tx.send(EngineEvent::SpeakersChanged { speakers });
             }
@@ -1173,10 +1170,14 @@ impl EngineInner {
         // should now reach the server. Mirrors `client.setReconnected()`.
         session.signal_client().set_reconnected().await;
 
-        // Reconcile participant state: anyone who left while the signal link
-        // was down never got their DISCONNECTED update delivered to us, and
-        // the room must synthesize it from the resume-time snapshot.
-        session.finish_resume();
+        // Anyone who left while the signal link was down never got their
+        // DISCONNECTED update delivered to us; the room synthesizes those
+        // disconnects from the identities seen since the resume began. Sent
+        // from this task — the same producer that sends `Resumed` next — so
+        // they reach the application before `Reconnected`.
+        if let Some(seen_identities) = session.finish_resume() {
+            let _ = self.engine_tx.send(EngineEvent::ParticipantReconcile { seen_identities });
+        }
         Ok(())
     }
 }

@@ -988,11 +988,9 @@ impl RoomSession {
 
     async fn on_engine_event(self: &Arc<Self>, event: EngineEvent) -> RoomResult<()> {
         match event {
-            EngineEvent::ParticipantUpdate { updates } => {
-                self.handle_participant_update(updates, false)
-            }
+            EngineEvent::ParticipantUpdate { updates } => self.handle_participant_update(updates),
             EngineEvent::ParticipantReconcile { seen_identities } => {
-                self.reconcile_absent_participants(&seen_identities)
+                self.reconcile_absent_participants(seen_identities.iter().map(String::as_str))
             }
             EngineEvent::MediaTrack { track, stream, transceiver } => {
                 self.handle_media_track(track, stream, transceiver)
@@ -1151,23 +1149,23 @@ impl RoomSession {
         true
     }
 
-    /// Synthesize the disconnection of every known remote participant whose
-    /// identity is not in `seen_identities`. Used when a state sync makes the
-    /// set of present participants authoritative (resume, full restart, room
-    /// move): a participant who left while our signal link was down never got
-    /// its DISCONNECTED update delivered to us, so without this the room
-    /// would keep a ghost entry (and never emit `ParticipantDisconnected`).
-    fn reconcile_absent_participants(self: &Arc<Self>, seen_identities: &HashSet<String>) {
+    /// Synthesize the disconnection of every known remote participant missing
+    /// from `present`, for syncs where the server's participant list is
+    /// authoritative (post-resume reconcile, room move): a participant who
+    /// left while our signal link was down never got its DISCONNECTED update
+    /// delivered to us, and would otherwise stay in the room forever.
+    fn reconcile_absent_participants<'a>(self: &Arc<Self>, present: impl Iterator<Item = &'a str>) {
+        let present: HashSet<&str> = present.collect();
         let missing: Vec<RemoteParticipant> = self
             .remote_participants
             .read()
             .values()
-            .filter(|p| !seen_identities.contains(p.identity().as_str()))
+            .filter(|p| !present.contains(p.identity().as_str()))
             .cloned()
             .collect();
         for participant in missing {
             log::info!(
-                "synthesizing disconnect for participant absent from state sync: {}",
+                "synthesizing disconnect for absent participant: {}",
                 participant.identity()
             );
             self.clone().handle_participant_disconnect(participant);
@@ -1177,21 +1175,7 @@ impl RoomSession {
     /// Update the participants inside a Room.
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
-    ///
-    /// When `authoritative` is true, `updates` is a complete listing of the
-    /// room's participants (join response after a restart, room move) and
-    /// known remote participants absent from it are disconnected.
-    fn handle_participant_update(
-        self: &Arc<Self>,
-        updates: Vec<proto::ParticipantInfo>,
-        authoritative: bool,
-    ) {
-        if authoritative {
-            let present: HashSet<String> =
-                updates.iter().map(|pi| pi.identity.clone()).collect();
-            self.reconcile_absent_participants(&present);
-        }
-
+    fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
         // only update non-disconnected participants to refresh info
         let mut participants: Vec<Participant> = Vec::new();
         for pi in updates {
@@ -1592,9 +1576,12 @@ impl RoomSession {
                 participants: vec![Participant::Local(self.local_participant.clone())],
             });
         }
-        // The moved-to room's participant list is authoritative: anyone we
-        // knew from the old room who isn't in it must be disconnected.
-        self.handle_participant_update(moved.other_participants, true);
+        // Participants we knew from the old room that are absent from the
+        // moved-to room have left it.
+        self.reconcile_absent_participants(
+            moved.other_participants.iter().map(|pi| pi.identity.as_str()),
+        );
+        self.handle_participant_update(moved.other_participants);
         if let Some(room) = moved.room {
             self.handle_room_update(room);
         }
@@ -1733,7 +1720,7 @@ impl RoomSession {
     ) {
         self.local_participant.update_info(join_response.participant.unwrap()); // The sid may have changed
 
-        self.handle_participant_update(join_response.other_participants, true);
+        self.handle_participant_update(join_response.other_participants);
         self.handle_room_update(join_response.room.unwrap());
 
         let _ = tx.send(());

@@ -123,15 +123,6 @@ pub enum SessionEvent {
     ParticipantUpdate {
         updates: Vec<proto::ParticipantInfo>,
     },
-    /// Emitted when a signal resume has fully recovered: `seen_identities` is
-    /// the union of every participant mentioned in updates since the resume
-    /// began — a superset of the full snapshot the server sends on resume.
-    /// Any known participant absent from it left while we were offline (its
-    /// DISCONNECTED update died with the previous connection), so the room
-    /// must synthesize its disconnection.
-    ParticipantReconcile {
-        seen_identities: HashSet<String>,
-    },
     Data {
         // None when the data comes from the ServerSDK (So no real participant)
         participant_sid: Option<ParticipantSid>,
@@ -411,22 +402,17 @@ struct SessionInner {
     participant_info: SessionParticipantInfo,
 
     /// `Some` while a signal resume is in flight: accumulates the identity of
-    /// every participant mentioned in `Update`s received since the resume
-    /// began. Because the server sends a full participant snapshot right
-    /// after the `ReconnectResponse`, this is a superset of the room's actual
-    /// participants by the time the resume settles — when the engine
-    /// finalizes the resume, [`SessionInner::finish_resume`] turns it into a
-    /// [`SessionEvent::ParticipantReconcile`]. (The snapshot cannot simply be
-    /// tagged as it arrives: the server may interleave delayed/batched
-    /// updates around it, so no single `Update` is identifiable as the
-    /// snapshot client-side.)
+    /// every participant mentioned in `Update`s since the resume began. The
+    /// server sends a full participant snapshot right after the
+    /// `ReconnectResponse` but may interleave delayed/batched updates around
+    /// it, so no single `Update` is identifiable as the snapshot — the union
+    /// is what's guaranteed to cover everyone still in the room once the
+    /// resume settles (see [`RtcSession::finish_resume`]).
     resume_seen_identities: Mutex<Option<HashSet<String>>>,
 
     /// Test-only: drop incoming DISCONNECTED participant entries, simulating
-    /// an SFU that fails to (re)deliver disconnect updates — e.g. a resume
-    /// handled without the previous connection's state, where the update sent
-    /// while the client was offline is gone for good. Lets tests exercise the
-    /// resume-time participant reconciliation deterministically.
+    /// an SFU that fails to (re)deliver disconnect updates. Lets tests
+    /// exercise the resume-time participant reconciliation deterministically.
     #[cfg(feature = "__lk-e2e-test")]
     drop_disconnected_updates: AtomicBool,
 
@@ -827,11 +813,15 @@ impl RtcSession {
         self.inner.restart_publisher().await
     }
 
-    /// Must be called once a resume started with [`Self::restart`] has fully
-    /// recovered: emits the [`SessionEvent::ParticipantReconcile`] that lets
-    /// the room drop participants who left while the signal link was down.
-    pub fn finish_resume(&self) {
-        self.inner.finish_resume();
+    /// Ends the resume-time accumulation started by [`Self::restart`],
+    /// returning the participant identities seen since. The post-resume
+    /// snapshot arrived several round trips before the PeerConnections
+    /// finished reconnecting, so this is a superset of the room's current
+    /// participants: any known participant absent from it left while the
+    /// signal link was down and its disconnection must be synthesized.
+    /// Returns `None` if no resume was in flight.
+    pub fn finish_resume(&self) -> Option<HashSet<String>> {
+        self.inner.resume_seen_identities.lock().take()
     }
 
     /// Test-only: drop incoming DISCONNECTED participant entries, simulating
@@ -2153,10 +2143,9 @@ impl SessionInner {
     /// This reconnection if more seemless compared to the full reconnection implemented in
     /// ['RTCEngine']
     async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
-        // Must start accumulating before the signal client reconnects: once
-        // `restart` returns, the resumed stream immediately starts delivering
-        // events (including the server's post-resume participant snapshot) on
-        // a concurrent task.
+        // Start accumulating before the signal client reconnects: once
+        // `restart` returns, the resumed stream immediately delivers events
+        // (including the post-resume participant snapshot) on a concurrent task.
         *self.resume_seen_identities.lock() = Some(HashSet::new());
         let reconnect_response = self.signal_client.restart().await?;
         log::debug!("received reconnect response: {:?}", reconnect_response);
@@ -2177,18 +2166,6 @@ impl SessionInner {
         }
 
         Ok(reconnect_response)
-    }
-
-    /// Ends the resume-time accumulation started by [`Self::restart`] and
-    /// hands the seen-set to the room. By the time the engine calls this the
-    /// resumed stream has long since delivered the server's participant
-    /// snapshot (sent right after the ReconnectResponse, several round trips
-    /// before the PeerConnections finish reconnecting), so the set covers
-    /// every participant actually in the room.
-    fn finish_resume(&self) {
-        if let Some(seen_identities) = self.resume_seen_identities.lock().take() {
-            let _ = self.emitter.send(SessionEvent::ParticipantReconcile { seen_identities });
-        }
     }
 
     async fn restart_publisher(&self) -> EngineResult<()> {
