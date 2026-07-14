@@ -332,6 +332,117 @@ async fn test_dynacast() -> Result<()> {
     Ok(())
 }
 
+/// Verifies dynacast with a publisher that does not provide RTP send encodings.
+///
+/// WebRTC creates a single default encoding without a RID in this case. The SFU
+/// addresses that layer as low quality, so the publisher should still be able
+/// to pause and resume it from low-quality `SubscribedQualityUpdate` messages.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_dynacast_without_video_send_encodings() -> Result<()> {
+    let mut pub_room_opts = RoomOptions::default();
+    pub_room_opts.dynacast = true;
+    let pub_options = TestRoomOptions { room: pub_room_opts, ..Default::default() };
+    let sub_options = TestRoomOptions::default();
+
+    let mut rooms = test_rooms_with_options([pub_options, sub_options]).await?;
+    let (pub_room, _pub_events) = rooms.remove(0);
+    let (_sub_room, mut sub_events) = rooms.remove(0);
+
+    let pub_room = Arc::new(pub_room);
+    let solid_params = SolidColorParams { width: 1280, height: 720, luma: 128 };
+    let mut solid_track = SolidColorTrack::new(pub_room.clone(), solid_params);
+    solid_track.publish_without_video_send_encodings(VideoCodec::VP8).await?;
+
+    let sub_publication: RemoteTrackPublication = timeout(Duration::from_secs(15), async {
+        loop {
+            let Some(event) = sub_events.recv().await else {
+                return Err(anyhow!("Event channel closed before TrackSubscribed"));
+            };
+            if let RoomEvent::TrackSubscribed { publication, .. } = event {
+                return Ok(publication);
+            }
+        }
+    })
+    .await??;
+
+    let pub_video_track = publisher_video_track(&pub_room)?;
+
+    let layers = wait_for_layers(
+        &pub_video_track,
+        "no encodings baseline",
+        Duration::from_secs(15),
+        |layers| layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+    )
+    .await?;
+    assert_eq!(layers.len(), 1, "expected one default layer, got {:?}", layers);
+    assert!(
+        layers[0].rid.is_empty(),
+        "expected WebRTC-created default encoding to have no RID, got {:?}",
+        layers
+    );
+
+    drop(sub_publication);
+
+    log::info!("dynacast no-encodings test: applying LOW=false quality update");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, false)])
+        .map_err(|e| anyhow!("failed to disable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && !layers[0].active,
+        "expected default layer to be inactive after LOW=false update, got {:?}",
+        layers
+    );
+
+    log::info!("dynacast no-encodings test: applying LOW=true quality update");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, true)])
+        .map_err(|e| anyhow!("failed to enable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+        "expected default layer to be active after LOW=true update, got {:?}",
+        layers
+    );
+
+    log::info!("dynacast no-encodings test: applying HIGH=false quality update");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::High, false)])
+        .map_err(|e| anyhow!("failed to apply unrelated high quality update: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+        "expected default layer to ignore HIGH-only update, got {:?}",
+        layers
+    );
+
+    log::info!("dynacast no-encodings test: applying LOW=false quality update again");
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, false)])
+        .map_err(|e| anyhow!("failed to disable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && !layers[0].active,
+        "expected default layer to be inactive after second LOW=false update, got {:?}",
+        layers
+    );
+
+    pub_video_track
+        .set_publishing_layers_for_test(&[(PublishingLayerQuality::Low, true)])
+        .map_err(|e| anyhow!("failed to re-enable rid-less layer: {}", e))?;
+    let layers = pub_video_track.publishing_layers();
+    assert!(
+        layers.len() == 1 && layers[0].rid.is_empty() && layers[0].active,
+        "expected default layer to be active before cleanup, got {:?}",
+        layers
+    );
+
+    solid_track.unpublish().await?;
+
+    Ok(())
+}
+
 /// Verifies that dynacast only publishes video tracks requested by subscribers.
 ///
 /// A single publisher publishes three simulcast VP8 video tracks while two subscribers manually

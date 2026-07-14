@@ -26,18 +26,6 @@ impl<T> TakeCell<T> {
         Self { value: Arc::new(RwLock::new(Some(value))) }
     }
 
-    /// Take ownership of the value in the cell if it matches some predicate.
-    ///
-    /// This method will only take the value if the provided predicate returns `true` when called with the current value.
-    /// If the predicate returns `false` or the value has already been taken, this method returns `None`.
-    pub(crate) fn take_if_raw(&self, predicate: impl FnOnce(&T) -> bool) -> Option<T> {
-        if self.value.read().as_ref().map_or(false, |v| predicate(v)) {
-            self.take()
-        } else {
-            None
-        }
-    }
-
     /// Take ownership of the value in the cell. If the value has,
     /// already been taken, the result is `None`.
     pub fn take(&self) -> Option<T> {
@@ -81,14 +69,6 @@ mod tests {
         assert_eq!(cell.take(), Some(1));
         assert_eq!(cell.take(), None);
         assert_eq!(cell.is_taken(), true);
-    }
-
-    #[test]
-    fn test_take_if_raw() {
-        let cell = TakeCell::new(1);
-        assert_eq!(cell.take_if_raw(|value| *value == 2), None);
-        assert_eq!(cell.take_if_raw(|value| *value == 1), Some(1));
-        assert_eq!(cell.take_if_raw(|value| *value == 1), None);
     }
 
     #[test]

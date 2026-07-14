@@ -27,7 +27,7 @@ pub use ffi::AudioFrameInfo;
 pub trait AudioMixerSource {
     fn ssrc(&self) -> i32;
     fn preferred_sample_rate(&self) -> u32;
-    fn get_audio_frame_with_info(&self, target_sample_rate: u32) -> Option<AudioFrame>;
+    fn get_audio_frame_with_info(&self, target_sample_rate: u32) -> Option<AudioFrame<'_>>;
 }
 
 struct AudioMixerSourceImpl<T> {

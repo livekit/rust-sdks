@@ -45,6 +45,8 @@ webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
 class PeerConnectionFactory {
  public:
   explicit PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime);
+  PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
+                        bool zero_playout_delay);
   ~PeerConnectionFactory();
 
   std::shared_ptr<PeerConnection> create_peer_connection(
@@ -70,6 +72,7 @@ class PeerConnectionFactory {
 
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
   std::shared_ptr<AudioDeviceController> audio_device() const;
+  bool zero_playout_delay_enabled() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
@@ -80,4 +83,6 @@ class PeerConnectionFactory {
 };
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_zero_playout_delay();
 }  // namespace livekit_ffi
