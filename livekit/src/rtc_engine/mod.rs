@@ -18,7 +18,7 @@ use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
 use parking_lot::{RwLock, RwLockReadGuard};
-use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
@@ -113,6 +113,12 @@ pub struct EngineOptions {
 pub enum EngineEvent {
     ParticipantUpdate {
         updates: Vec<proto::ParticipantInfo>,
+    },
+    /// A signal resume fully recovered; any known participant whose identity
+    /// is not in `seen_identities` left the room while the signal link was
+    /// down and its disconnection must be synthesized.
+    ParticipantReconcile {
+        seen_identities: HashSet<String>,
     },
     MediaTrack {
         track: MediaStreamTrack,
@@ -437,6 +443,13 @@ impl RtcEngine {
             .fail_transport_during_next_resume
             .store(true, std::sync::atomic::Ordering::Release);
     }
+
+    /// Test-only: drop incoming DISCONNECTED participant entries on the current
+    /// session, simulating an SFU that fails to (re)deliver disconnect updates.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_disconnected_updates(&self, enabled: bool) {
+        self.session().drop_disconnected_updates(enabled);
+    }
 }
 
 impl EngineInner {
@@ -675,6 +688,9 @@ impl EngineInner {
             }
             SessionEvent::ParticipantUpdate { updates } => {
                 let _ = self.engine_tx.send(EngineEvent::ParticipantUpdate { updates });
+            }
+            SessionEvent::ParticipantReconcile { seen_identities } => {
+                let _ = self.engine_tx.send(EngineEvent::ParticipantReconcile { seen_identities });
             }
             SessionEvent::SpeakersChanged { speakers } => {
                 let _ = self.engine_tx.send(EngineEvent::SpeakersChanged { speakers });
@@ -1156,6 +1172,11 @@ impl EngineInner {
         // has fully recovered, so deferred subscription updates / mutes / etc.
         // should now reach the server. Mirrors `client.setReconnected()`.
         session.signal_client().set_reconnected().await;
+
+        // Reconcile participant state: anyone who left while the signal link
+        // was down never got their DISCONNECTED update delivered to us, and
+        // the room must synthesize it from the resume-time snapshot.
+        session.finish_resume();
         Ok(())
     }
 }

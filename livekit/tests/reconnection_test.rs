@@ -129,6 +129,144 @@ async fn test_resume_failure_escalates_to_full_reconnect() -> Result<()> {
     assert_recovers(room, events, SimulateScenario::DisconnectSignalOnResume).await
 }
 
+// A participant disconnects while our signal link is down: the SFU broadcast
+// its DISCONNECTED update into our dead socket, so it is lost. (Modern OSS
+// servers replay recent disconnects on resume from a bounded per-connection
+// cache — sendDisconnectUpdatesForReconnect — but that is best-effort: it is
+// an LRU keyed off a last-seen-signal heuristic and does not exist where the
+// resume is served without the previous connection's state, as observed on
+// LiveKit Cloud. The `drop_disconnected_updates` fault simulates that loss.)
+// On resume the server sends a full participant snapshot; the room must
+// notice the participant is absent from it and synthesize
+// ParticipantDisconnected — otherwise `remote_participants` keeps a ghost
+// entry forever and the application never learns the participant left.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_resume_synthesizes_disconnect_for_participant_that_left() -> Result<()> {
+    let api_key = env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| "devkey".into());
+    let api_secret = env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| "secret".into());
+    let server_url = env::var("LIVEKIT_URL").unwrap_or_else(|_| "ws://localhost:7880".into());
+
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = |identity: &str| {
+        AccessToken::with_api_key(&api_key, &api_secret)
+            .with_ttl(Duration::from_secs(30 * 60))
+            .with_grants(VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() })
+            .with_identity(identity)
+            .with_name(identity)
+            .to_jwt()
+    };
+
+    // Three participants: the observer (whose view we assert on), the leaver
+    // (disconnects mid-test), and a witness who stays — proving the
+    // reconciliation only removes participants who actually left.
+    let (observer, mut events) =
+        Room::connect(&server_url, &token("observer")?, RoomOptions::default()).await?;
+    let (leaver, _leaver_events) =
+        Room::connect(&server_url, &token("leaver")?, RoomOptions::default()).await?;
+    let (_witness, mut witness_events) =
+        Room::connect(&server_url, &token("witness")?, RoomOptions::default()).await?;
+
+    // Wait until the observer knows both remote participants.
+    let saw_joins = async {
+        let mut pending: std::collections::HashSet<&str> =
+            ["leaver", "witness"].into_iter().collect();
+        while let Some(event) = events.recv().await {
+            if let RoomEvent::ParticipantConnected(p) = event {
+                pending.remove(p.identity().as_str());
+                if pending.is_empty() {
+                    return Ok(());
+                }
+            }
+        }
+        bail!("event stream ended before all participants joined");
+    };
+    timeout(Duration::from_secs(15), saw_joins).await??;
+    let sid_before = observer.local_participant().sid();
+
+    // From here on the observer never receives an explicit DISCONNECTED
+    // entry, exactly as if every delivery (and resume-time replay) attempt of
+    // the leaver's disconnect had been lost with a dead connection.
+    observer.drop_disconnected_updates(true);
+
+    // The leaver leaves; the witness confirms the server processed it (so the
+    // resume snapshot below no longer contains the leaver).
+    leaver.close().await?;
+    let saw_leave = async {
+        while let Some(event) = witness_events.recv().await {
+            if let RoomEvent::ParticipantDisconnected(p) = event {
+                if p.identity().as_str() == "leaver" {
+                    return Ok(());
+                }
+            }
+        }
+        bail!("witness event stream ended before the leaver's disconnect was broadcast");
+    };
+    timeout(Duration::from_secs(15), saw_leave).await??;
+
+    // Sanity: the observer still holds the ghost entry.
+    assert!(
+        observer.remote_participants().keys().any(|identity| identity.as_str() == "leaver"),
+        "observer should still hold the (stale) leaver before resuming"
+    );
+
+    // Resume the signal connection. The post-resume participant snapshot no
+    // longer lists the leaver, and the reconciliation at the end of the
+    // resume must synthesize its ParticipantDisconnected.
+    observer
+        .simulate_scenario(SimulateScenario::SignalReconnect)
+        .await
+        .map_err(|e| anyhow!("simulate_scenario failed: {e:?}"))?;
+
+    let observe = async {
+        let mut reconnected = false;
+        let mut leaver_disconnected = false;
+        while let Some(event) = events.recv().await {
+            match event {
+                RoomEvent::Reconnected => reconnected = true,
+                RoomEvent::ParticipantDisconnected(p) => {
+                    if p.identity().as_str() == "leaver" {
+                        leaver_disconnected = true;
+                    } else {
+                        bail!(
+                            "reconciliation disconnected a participant that never left: {}",
+                            p.identity()
+                        );
+                    }
+                }
+                RoomEvent::Disconnected { reason } => {
+                    bail!("observer disconnected during resume: {reason:?}");
+                }
+                _ => {}
+            }
+            if reconnected && leaver_disconnected {
+                return Ok(());
+            }
+        }
+        bail!("event stream ended before ParticipantDisconnected was synthesized");
+    };
+    timeout(Duration::from_secs(30), observe).await??;
+
+    let remaining = observer.remote_participants();
+    assert!(
+        !remaining.keys().any(|identity| identity.as_str() == "leaver"),
+        "remote_participants must not keep a ghost entry for a participant that left"
+    );
+    assert!(
+        remaining.keys().any(|identity| identity.as_str() == "witness"),
+        "reconciliation must keep participants that are still in the room"
+    );
+    // An unchanged local sid proves this recovered via resume — a full
+    // reconnect (which clears participants anyway) would assign a new one and
+    // would not exercise the resume-time reconciliation under test.
+    assert_eq!(
+        observer.local_participant().sid(),
+        sid_before,
+        "expected the lightweight resume path, but the session was fully restarted"
+    );
+    Ok(())
+}
+
 /// A minimal TCP proxy in front of the signalling server that can be killed.
 /// Sending `true` on the returned channel closes the in-flight connection and
 /// stops accepting, so the client's reconnect attempts all fail (connection
