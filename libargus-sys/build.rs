@@ -17,6 +17,7 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(libargus_available)");
     println!("cargo:rerun-if-env-changed=JETSON_MULTIMEDIA_API_DIR");
+    println!("cargo:rerun-if-env-changed=JETSON_TEGRA_LIB_DIR");
 
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
@@ -53,7 +54,9 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=nvargus_socketclient");
     println!("cargo:rustc-link-lib=dylib=nvbufsurface");
 
-    let tegra_lib_dir = PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra");
+    let tegra_lib_dir = std::env::var_os("JETSON_TEGRA_LIB_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra"));
     if tegra_lib_dir.exists() {
         println!("cargo:rustc-link-search=native={}", tegra_lib_dir.display());
     }
