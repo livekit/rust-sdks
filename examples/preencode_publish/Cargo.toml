@@ -12,7 +12,7 @@ gstreamer = ["dep:gstreamer", "livekit-capture/gstreamer"]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 env_logger = { workspace = true }
-gstreamer = { workspace = true, optional = true }
+gstreamer = { version = "0.25.2", optional = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-capture = { workspace = true, features = ["rtsp", "tcpsink"] }
