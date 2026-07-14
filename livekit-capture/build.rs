@@ -12,54 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(livekit_capture_argus)");
-    println!("cargo:rerun-if-env-changed=JETSON_MULTIMEDIA_API_DIR");
 
-    if std::env::var_os("CARGO_FEATURE_LIBARGUS").is_none() {
-        return;
+    // `libargus-sys` sets `DEP_LK_ARGUS_AVAILABLE` (via its `links` metadata)
+    // when the native Argus shim was compiled and linked for this target.
+    if std::env::var_os("DEP_LK_ARGUS_AVAILABLE").is_some() {
+        println!("cargo:rustc-cfg=livekit_capture_argus");
     }
-
-    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    if target_os != "linux" || target_arch != "aarch64" {
-        return;
-    }
-
-    let mmapi_root = std::env::var_os("JETSON_MULTIMEDIA_API_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/usr/src/jetson_multimedia_api"));
-    let argus_include = mmapi_root.join("argus/include");
-    let mmapi_include = mmapi_root.join("include");
-
-    if !argus_include.exists() || !mmapi_include.exists() {
-        println!(
-            "cargo:warning=Argus headers not found under {}; skipping libargus capture shim",
-            mmapi_root.display()
-        );
-        return;
-    }
-
-    println!("cargo:rerun-if-changed=src/sources/lk_argus.cpp");
-
-    cc::Build::new()
-        .cpp(true)
-        .file("src/sources/lk_argus.cpp")
-        .include(&argus_include)
-        .include(&mmapi_include)
-        .flag("-std=c++14")
-        .flag("-Wno-deprecated-declarations")
-        .compile("lk_argus");
-
-    println!("cargo:rustc-cfg=livekit_capture_argus");
-    println!("cargo:rustc-link-lib=dylib=nvargus_socketclient");
-    println!("cargo:rustc-link-lib=dylib=nvbufsurface");
-
-    let tegra_lib_dir = PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra");
-    if tegra_lib_dir.exists() {
-        println!("cargo:rustc-link-search=native={}", tegra_lib_dir.display());
-    }
-    println!("cargo:rustc-link-search=native=/usr/lib/aarch64-linux-gnu");
 }

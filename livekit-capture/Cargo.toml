@@ -58,13 +58,10 @@ avfoundation = [
     "objc2-foundation/objc2-core-foundation",
 ]
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
-libargus = []
+libargus = ["dep:libargus-sys"]
 rtsp = ["dep:base64", "dep:md-5"]
 tcpsink = []
 v4l = ["dep:image", "dep:libc", "dep:v4l", "dep:yuv-sys"]
-
-[build-dependencies]
-cc = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = { version = "0.3.1", default-features = false, features = ["std"], optional = true }
@@ -77,3 +74,4 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = { version = "0.2", optional = true }
 v4l = { version = "0.14", default-features = false, features = ["v4l2"], optional = true }
+libargus-sys = { workspace = true, optional = true }

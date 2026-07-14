@@ -14,7 +14,7 @@
 //
 // C shim around NVIDIA libargus for MIPI CSI camera capture on Jetson.
 //
-// Exposes a simple C API for the Rust FFI in argus.rs:
+// Exposes a simple C API for the Rust FFI in lib.rs:
 //   lk_argus_create_session  - open sensor, configure ISP, start repeating capture
 //   lk_argus_acquire_frame   - dequeue next frame, return NvBufSurface DMA fd
 //   lk_argus_release_frame   - release frame back to Argus buffer pool

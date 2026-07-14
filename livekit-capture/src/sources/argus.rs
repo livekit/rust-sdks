@@ -36,37 +36,10 @@ use std::time::Instant;
 use std::{ffi::c_int, ffi::c_void};
 
 #[cfg(livekit_capture_argus)]
-extern "C" {
-    fn lk_argus_create_session(
-        sensor_index: c_int,
-        width: c_int,
-        height: c_int,
-        fps: c_int,
-    ) -> *mut c_void;
-
-    fn lk_argus_destroy_session(session: *mut c_void);
-
-    fn lk_argus_acquire_frame_with_metadata(
-        session: *mut c_void,
-        sensor_timestamp_ns: *mut u64,
-        acquire_wait_ns: *mut u64,
-        blit_ns: *mut u64,
-    ) -> c_int;
-
-    fn lk_argus_copy_frame_to_i420(
-        session: *mut c_void,
-        dmabuf_fd: c_int,
-        dst_y: *mut u8,
-        dst_stride_y: c_int,
-        dst_u: *mut u8,
-        dst_stride_u: c_int,
-        dst_v: *mut u8,
-        dst_stride_v: c_int,
-        copy_to_i420_ns: *mut u64,
-    ) -> c_int;
-
-    fn lk_argus_release_frame(session: *mut c_void);
-}
+use libargus_sys::{
+    lk_argus_acquire_frame_with_metadata, lk_argus_copy_frame_to_i420, lk_argus_create_session,
+    lk_argus_destroy_session, lk_argus_release_frame,
+};
 
 /// Options used to open a Jetson Argus capture session.
 #[derive(Debug, Clone, PartialEq, Eq)]
