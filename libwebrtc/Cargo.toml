@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.40"
+version = "0.3.41"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true

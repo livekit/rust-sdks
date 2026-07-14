@@ -165,6 +165,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.38 (2026-07-14)
+
+### Fixes
+
+- Fix `PeerContext` forward-declaration in `jsep.h` from `class` to `struct` to match the cxx bridge definition, resolving LNK2019 linker errors on windows-msvc - #1154
+- Add an opt-in zero-playout-delay mode for native video subscribers, expose it through the `local_video` subscriber's `--low-latency` flag, and isolate subscriber diagnostics from frame-driven video rendering.
+
 ## 0.3.37 (2026-07-09)
 
 ### Fixes

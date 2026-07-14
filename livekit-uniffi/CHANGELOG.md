@@ -1,3 +1,9 @@
+## 0.1.5 (2026-07-14)
+
+### Features
+
+- Expose data tracks core functionality
+
 ## 0.1.4 (2026-07-09)
 
 ### Features
