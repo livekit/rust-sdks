@@ -20,6 +20,15 @@ pub struct VideoResolution {
     pub height: u32,
 }
 
+/// Encoder rate-control target requested by WebRTC for a pre-encoded source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EncodedRateControl {
+    /// Target bitrate in bits per second.
+    pub target_bitrate_bps: u64,
+    /// Target frame rate in frames per second.
+    pub framerate_fps: f64,
+}
+
 impl Default for VideoResolution {
     // Default to 720p
     fn default() -> Self {
@@ -51,7 +60,7 @@ pub mod native {
     use crate::native::packet_trailer::PacketTrailerHandler;
     #[cfg(target_os = "linux")]
     use crate::video_frame::FrameMetadata;
-    use crate::video_frame::{VideoBuffer, VideoFrame};
+    use crate::video_frame::{EncodedVideoFrame, VideoBuffer, VideoFrame};
 
     #[derive(Clone)]
     pub struct NativeVideoSource {
@@ -75,8 +84,31 @@ pub mod native {
             Self { handle: vs_imp::NativeVideoSource::new(resolution, is_screencast) }
         }
 
+        /// Creates a source for pre-encoded access units: no raw black-frame
+        /// keepalive is injected before the first capture.
+        pub fn new_encoded(resolution: VideoResolution) -> Self {
+            Self { handle: vs_imp::NativeVideoSource::new_encoded(resolution) }
+        }
+
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
+        }
+
+        /// Captures one pre-encoded video access unit.
+        pub fn capture_encoded_frame(&self, frame: &EncodedVideoFrame<'_>) -> bool {
+            self.handle.capture_encoded_frame(frame)
+        }
+
+        /// Returns and clears the pending keyframe request raised by the
+        /// pass-through encoder (PLI/FIR or reconfiguration).
+        pub fn take_keyframe_request(&self) -> bool {
+            self.handle.take_keyframe_request()
+        }
+
+        /// Returns and clears the pending rate-control target raised by the
+        /// pass-through encoder.
+        pub fn take_rate_control_request(&self) -> Option<EncodedRateControl> {
+            self.handle.take_rate_control_request()
         }
 
         /// Captures a Jetson DMA-buffer backed video frame.
