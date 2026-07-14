@@ -10,8 +10,8 @@ repository.workspace = true
 [dependencies]
 base64 = { workspace = true, optional = true }
 bytes = { workspace = true }
-gstreamer = { workspace = true, optional = true }
-gstreamer-app = { workspace = true, optional = true }
+gstreamer = { version = "0.25.2", optional = true }
+gstreamer-app = { version = "0.25.2", optional = true }
 image = { workspace = true, optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
