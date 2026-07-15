@@ -17,29 +17,13 @@
 pub mod device;
 pub mod dmabuf;
 pub mod encoded;
-mod error;
 pub mod source;
 pub mod sources;
-pub(crate) mod time;
 pub mod track;
 
-pub use device::{
-    CaptureBackend, CaptureDeviceInfo, CaptureDeviceQueryError, CaptureDeviceSelector,
-    CaptureFormat, CaptureFormatRequest, CaptureFrameFormat, CapturePath, CaptureResolution,
-};
-pub use dmabuf::{DmaBufFrame, DmaBufPixelFormat, DmaBufPlane};
-pub use encoded::{
-    ingress::{
-        EncodedAccessUnitSource, EncodedIngress, EncodedIngressCapture, EncodedIngressError,
-        EncodedIngressStop,
-    },
-    CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
-    EncodedPayload, EncodedRateControl, EncodedVideoCodec, EncodedWireFormat,
-    H264PacketizationMode, OwnedEncodedAccessUnit,
-};
+mod error;
+pub(crate) mod time;
+
 pub use error::CaptureError;
-pub use source::{
-    CaptureFrame, CaptureFrameSource, EncodedCaptureFrameSource, EncodedFrameSourceError,
-    NativeVideoFrame, RawVideoFrame,
-};
+pub use source::{CaptureFrame, CaptureFrameSource};
 pub use track::VideoCaptureTrack;
