@@ -26,4 +26,3 @@ pub(crate) mod time;
 
 pub use error::CaptureError;
 pub use source::{CaptureFrame, CaptureFrameSource};
-pub use track::VideoCaptureTrack;

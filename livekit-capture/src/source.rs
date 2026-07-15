@@ -14,14 +14,17 @@
 
 use std::{error::Error, fmt};
 
-use livekit::webrtc::video_frame::{native::NativeBuffer, I420Buffer, VideoFrame};
+use livekit::webrtc::{
+    video_frame::{native::NativeBuffer, I420Buffer, VideoFrame},
+    video_source::native::NativeVideoSource,
+};
 
 use crate::{
     device::{CaptureFormat, CaptureFrameFormat, CapturePath},
     dmabuf::DmaBufFrame,
     encoded::{ingress::EncodedAccessUnitSource, OwnedEncodedAccessUnit},
     error::CaptureError,
-    track::VideoCaptureTrack,
+    track::NativeVideoSourceExt,
 };
 
 /// Uncompressed CPU-accessible video frame buffer produced by a capture source.
@@ -80,23 +83,25 @@ impl CaptureFrame {
             Self::Encoded(_) => CapturePath::Encoded,
         }
     }
+}
 
+impl CaptureFrame {
     /// Publishes this frame into a LiveKit capture track.
-    pub fn publish_to(&self, track: &VideoCaptureTrack) -> Result<(), CaptureError> {
+    pub fn capture_to(&self, source: &NativeVideoSource) -> Result<(), CaptureError> {
         match self {
             Self::Native(frame) => {
-                track.capture_frame(&frame.frame);
+                source.capture_frame(&frame.frame);
                 Ok(())
             }
             Self::Raw(frame) => {
-                track.capture_frame(&frame.frame);
+                source.capture_frame(&frame.frame);
                 Ok(())
             }
             #[cfg(target_os = "linux")]
-            Self::DmaBuf(frame) => track.capture_dmabuf(frame),
+            Self::DmaBuf(frame) => source.capture_dmabuf(frame),
             #[cfg(not(target_os = "linux"))]
             Self::DmaBuf(_) => Err(CaptureError::UnsupportedPlatform("DMA-BUF capture")),
-            Self::Encoded(access_unit) => track.capture_encoded(&access_unit.as_access_unit()),
+            Self::Encoded(access_unit) => source.capture_encoded(&access_unit.as_access_unit()),
         }
     }
 }
