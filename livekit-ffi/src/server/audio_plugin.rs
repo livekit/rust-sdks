@@ -53,7 +53,7 @@ pub(crate) struct AudioFilterInitTask {
 impl AudioFilterInitTask {
     /// Initializes each registered plugin in sequence.
     pub async fn run(self) {
-        let plugins = REGISTERED_PLUGINS.iter().map(|entry| entry.value().clone());
+        let plugins: Vec<_> = REGISTERED_PLUGINS.iter().map(|entry| entry.value().clone()).collect();
         for plugin in plugins {
             plugin.initialize(&self.url, &self.token).await;
         }
