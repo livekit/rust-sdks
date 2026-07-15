@@ -76,6 +76,16 @@ jobs:
             exit 0
           fi
 
+          # --- Skip knope's release PR ---
+          # The release PR consumes changesets (deletes .changeset/*.md and bumps
+          # versions) rather than adding one, so it would always false-positive.
+          # It is always opened from the 'knope/release' branch (see release.yml).
+          if [ "$PR_BRANCH" = "knope/release" ]; then
+            echo "knope release PR - changeset not required"
+            delete_comment
+            exit 0
+          fi
+
           # --- Get changed files ---
           CHANGED_FILES=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
 
