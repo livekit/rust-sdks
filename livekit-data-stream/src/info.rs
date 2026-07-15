@@ -16,8 +16,10 @@ use chrono::{DateTime, Utc};
 use livekit_common::EncryptionType;
 use std::collections::HashMap;
 
-use crate::types::{ByteHeader, ContentHeader, Header, OperationType, TextHeader};
-use crate::utils::StreamError;
+use crate::{
+    types::{ByteHeader, ContentHeader, Header, OperationType, TextHeader},
+    utils::StreamError,
+};
 
 /// Information about a byte data stream.
 #[derive(Clone, Debug)]

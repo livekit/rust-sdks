@@ -22,15 +22,19 @@ use livekit_protocol as proto;
 use std::{path::Path, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::info::{ByteStreamInfo, TextStreamInfo};
-use crate::types::{ByteHeader, CompressionType, ContentHeader, Header, StreamId, TextHeader};
-use crate::utf8_chunk::Utf8AwareChunkExt;
-use crate::utils::{SendError, StreamError, StreamResult};
+use crate::{
+    info::{ByteStreamInfo, TextStreamInfo},
+    types::{ByteHeader, CompressionType, ContentHeader, Header, StreamId, TextHeader},
+    utf8_chunk::Utf8AwareChunkExt,
+    utils::{SendError, StreamError, StreamResult},
+};
 
-use super::constants;
-use super::raw_stream::{RawStream, RawStreamOpenOptions};
-use super::stream_writer::{ByteStreamWriter, TextStreamWriter};
-use super::{StreamByteOptions, StreamTextOptions};
+use super::{
+    constants,
+    raw_stream::{RawStream, RawStreamOpenOptions},
+    stream_writer::{ByteStreamWriter, TextStreamWriter},
+    StreamByteOptions, StreamTextOptions,
+};
 
 /// Generates a random stream identifier (UUID v4).
 fn create_random_uuid() -> String {
@@ -448,11 +452,9 @@ fn build_byte_header(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::somewhat_compressible;
-    use crate::outgoing::StreamWriter;
+    use crate::{backend::somewhat_compressible, outgoing::StreamWriter};
     use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
-    use std::collections::HashMap;
-    use std::sync::Mutex as StdMutex;
+    use std::{collections::HashMap, sync::Mutex as StdMutex};
 
     // --- Fake recipient registry ---------------------------------------------------------
 

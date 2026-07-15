@@ -19,8 +19,10 @@ use std::path::Path;
 use tokio::io::AsyncReadExt;
 
 use super::constants;
-use crate::types::Header;
-use crate::utils::{SendError, StreamError, StreamProgress, StreamResult};
+use crate::{
+    types::Header,
+    utils::{SendError, StreamError, StreamProgress, StreamResult},
+};
 
 pub(crate) struct RawStreamOpenOptions {
     pub(crate) header: Header,

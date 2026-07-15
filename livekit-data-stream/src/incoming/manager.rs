@@ -14,19 +14,24 @@
 
 use bytes::Bytes;
 use livekit_common::{EncryptionType, ParticipantIdentity};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio::sync::watch;
-
-use crate::info::AnyStreamInfo;
-use crate::types::{Chunk, CompressionType, Header, Packet, StreamId, Trailer};
-use crate::utils::{StreamError, StreamProgress, StreamResult};
-
-use super::events::{
-    ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamOpened, TrailerReceived,
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    watch,
 };
-use super::stream_reader::AnyStreamReader;
+
+use crate::{
+    info::AnyStreamInfo,
+    types::{Chunk, CompressionType, Header, Packet, StreamId, Trailer},
+    utils::{StreamError, StreamProgress, StreamResult},
+};
+
+use super::{
+    events::{
+        ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamOpened, TrailerReceived,
+    },
+    stream_reader::AnyStreamReader,
+};
 
 struct Descriptor {
     progress: StreamProgress,
@@ -471,12 +476,13 @@ impl ManagerInner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::incoming::StreamReader;
-    use crate::info::TextStreamInfo;
-    use crate::test_utils::pseudo_random_text;
-    use crate::types::{ByteHeader, StreamId, TextHeader};
-    use futures_util::io::AsyncReadExt;
-    use futures_util::Stream;
+    use crate::{
+        incoming::StreamReader,
+        info::TextStreamInfo,
+        test_utils::pseudo_random_text,
+        types::{ByteHeader, StreamId, TextHeader},
+    };
+    use futures_util::{io::AsyncReadExt, Stream};
     use std::collections::HashMap;
 
     const SENDER: &str = "alice";

@@ -15,8 +15,10 @@
 use from_variants::FromVariants;
 use livekit_common::ParticipantIdentity;
 
-use crate::incoming::AnyStreamReader;
-use crate::types::{Chunk, Packet, Trailer};
+use crate::{
+    incoming::AnyStreamReader,
+    types::{Chunk, Packet, Trailer},
+};
 
 pub struct PacketReceived {
     pub packet: Packet,

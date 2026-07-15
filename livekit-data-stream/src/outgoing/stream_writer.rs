@@ -15,10 +15,12 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::info::{ByteStreamInfo, TextStreamInfo};
-use crate::outgoing::{constants::STREAM_CHUNK_SIZE_BYTES, raw_stream::RawStream};
-use crate::utf8_chunk::Utf8AwareChunkExt;
-use crate::utils::StreamResult;
+use crate::{
+    info::{ByteStreamInfo, TextStreamInfo},
+    outgoing::{constants::STREAM_CHUNK_SIZE_BYTES, raw_stream::RawStream},
+    utf8_chunk::Utf8AwareChunkExt,
+    utils::StreamResult,
+};
 
 /// Writer for an open data stream.
 pub trait StreamWriter<'a> {
