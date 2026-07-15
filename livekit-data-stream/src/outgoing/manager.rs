@@ -870,6 +870,37 @@ mod tests {
         assert!(matches!(result, Err(StreamError::HeaderTooLarge)));
     }
 
+    /// Builds a minimal text header carrying the given attributes.
+    fn header_with_attributes(attributes: HashMap<String, String>) -> Header {
+        Header {
+            stream_id: "s1".into(),
+            timestamp: 0,
+            topic: "chat".to_string(),
+            mime_type: constants::TEXT_MIME_TYPE.to_owned(),
+            total_length: None,
+            attributes,
+            content_header: Some(ContentHeader::TextHeader(TextHeader::default())),
+            inline_content: None,
+            compression: CompressionType::None,
+        }
+    }
+
+    #[test]
+    fn enforce_header_size_accepts_small_header() {
+        // A minimal header serializes well under the MTU budget, so it is accepted.
+        let header = header_with_attributes(HashMap::new());
+        assert!(enforce_header_size(&header, &[]).is_ok());
+    }
+
+    #[test]
+    fn enforce_header_size_rejects_large_header() {
+        // A giant attribute value pushes the serialized header past the MTU budget.
+        let mut attributes = HashMap::new();
+        attributes.insert("big".to_string(), "x".repeat(20_000));
+        let header = header_with_attributes(attributes);
+        assert!(matches!(enforce_header_size(&header, &[]), Err(StreamError::HeaderTooLarge)));
+    }
+
     // Regression test for CLT-2773: dropping a `RawStream` on a thread that has
     // no Tokio runtime in TLS (e.g. the .NET GC finalizer thread in the Unity
     // SDK) used to panic because `Drop` called `tokio::spawn` unconditionally.
