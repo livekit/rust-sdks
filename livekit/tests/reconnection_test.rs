@@ -151,7 +151,11 @@ async fn test_resume_synthesizes_disconnect_for_participant_that_left() -> Resul
     let token = |identity: &str| {
         AccessToken::with_api_key(&api_key, &api_secret)
             .with_ttl(Duration::from_secs(30 * 60))
-            .with_grants(VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() })
+            .with_grants(VideoGrants {
+                room_join: true,
+                room: room_name.clone(),
+                ..Default::default()
+            })
             .with_identity(identity)
             .with_name(identity)
             .to_jwt()
