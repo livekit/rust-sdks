@@ -202,8 +202,7 @@ async fn test_data_stream_compress_false() -> Result<()> {
     let expected = payload.clone();
 
     let send = async move {
-        let options = StreamByteOptions::new_with_topic("some-topic")
-            .with_compress(false); // <= Explictly disable compression
+        let options = StreamByteOptions::new_with_topic("some-topic").with_compress(false); // <= Explictly disable compression
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, false, "is_compressed was not false");
         assert_eq!(stream_info.is_inline, false, "is_inline was not false");
