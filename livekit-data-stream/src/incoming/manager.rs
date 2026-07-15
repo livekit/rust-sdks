@@ -211,22 +211,24 @@ impl Manager {
                 InputEvent::PacketReceived(PacketReceived { packet, participant_identity }) => {
                     match packet {
                         Packet::Header { header, encryption_type } => {
-                            self.on_header(header, participant_identity, encryption_type).await
+                            self.handle_header(header, participant_identity, encryption_type).await
                         }
                         Packet::Chunk { chunk, encryption_type } => {
-                            self.on_chunk(chunk, participant_identity, encryption_type).await
+                            self.handle_chunk(chunk, participant_identity, encryption_type).await
                         }
-                        Packet::Trailer(trailer) => self.on_trailer(trailer, participant_identity),
+                        Packet::Trailer(trailer) => {
+                            self.handle_trailer(trailer, participant_identity)
+                        }
                     }
                 }
-                InputEvent::AbortStreamsFrom(identity) => self.on_abort(identity),
+                InputEvent::AbortStreamsFrom(identity) => self.handle_abort(identity),
                 InputEvent::Shutdown => break,
             }
         }
     }
 
     /// Handles an incoming header packet.
-    async fn on_header(
+    async fn handle_header(
         &mut self,
         mut header: Header,
         participant_identity: ParticipantIdentity,
@@ -319,7 +321,7 @@ impl Manager {
     }
 
     /// Handles an incoming chunk packet.
-    async fn on_chunk(
+    async fn handle_chunk(
         &mut self,
         chunk: Chunk,
         participant_identity: ParticipantIdentity,
@@ -424,7 +426,7 @@ impl Manager {
     }
 
     /// Handles an incoming trailer packet.
-    fn on_trailer(&mut self, trailer: Trailer, participant_identity: ParticipantIdentity) {
+    fn handle_trailer(&mut self, trailer: Trailer, participant_identity: ParticipantIdentity) {
         let id = trailer.stream_id.clone();
         if !self.is_internal(&id) {
             let _ = self
@@ -457,7 +459,7 @@ impl Manager {
     /// Called when a remote participant disconnects: any streams it had in flight to
     /// this receiver are terminated so their readers observe an error rather than
     /// hanging forever waiting for chunks that will never arrive.
-    fn on_abort(&mut self, identity: ParticipantIdentity) {
+    fn handle_abort(&mut self, identity: ParticipantIdentity) {
         self.inner.close_matching_streams_with_error(|_id, descriptor| {
             if descriptor.sender_identity == identity {
                 let reason = format!(
