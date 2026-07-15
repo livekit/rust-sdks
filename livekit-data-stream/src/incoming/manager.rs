@@ -326,13 +326,12 @@ impl Manager {
             }
             descriptor.last_chunk_index = Some(chunk.chunk_index);
 
-            let is_text = descriptor.is_text;
             // Confine the decompressor borrow so we can re-borrow `inner` afterwards.
             let result: StreamResult<(u64, Bytes)> = {
                 match decompressor.push(&chunk.content).await {
                     Ok(decompressed) => {
                         let uncompressed_byte_count = decompressed.len() as u64;
-                        let yielded = if is_text {
+                        let yielded = if descriptor.is_text {
                             decompressor.reframe_text(decompressed)
                         } else {
                             Bytes::from(decompressed)
