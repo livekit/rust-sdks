@@ -427,7 +427,7 @@ impl Manager {
     /// this receiver are terminated so their readers observe an error rather than
     /// hanging forever waiting for chunks that will never arrive.
     fn on_abort(&mut self, identity: ParticipantIdentity) {
-        self.inner.close_streams_with_error(|_id, descriptor| {
+        self.inner.close_matching_streams_with_error(|_id, descriptor| {
             if descriptor.sender_identity == identity {
                 let reason = format!(
                     "Participant {} unexpectedly disconnected in the middle of sending data",
@@ -472,7 +472,7 @@ impl ManagerInner {
         }
     }
 
-    fn close_streams_with_error(
+    fn close_matching_streams_with_error(
         &mut self,
         checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
     ) {
