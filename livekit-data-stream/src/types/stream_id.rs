@@ -16,7 +16,7 @@ use std::fmt::Display;
 
 /// A wrapped identifier for a data stream.
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct StreamId(pub String);
+pub struct StreamId(String);
 
 impl From<String> for StreamId {
     fn from(value: String) -> Self {
