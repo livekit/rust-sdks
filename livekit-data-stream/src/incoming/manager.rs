@@ -33,6 +33,9 @@ use super::{
     stream_reader::AnyStreamReader,
 };
 
+/// Max data stream payload size, defaults to 5gb
+const DEFAULT_MAX_PAYLOAD_BYTE_LENGTH: usize = (5e9) as usize;
+
 struct Descriptor {
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
@@ -60,16 +63,22 @@ struct Descriptor {
 /// identically across every async backend the SDK supports.
 struct DeflateDecompressState {
     decoder: async_compression::futures::write::DeflateDecoder<Vec<u8>>,
+    /// Number of bytes which have been pushed into the compressor
+    pushed_bytes: usize,
+    /// Max number of bytes which the compressor can take in before erroring
+    max_byte_length: usize,
     /// Decompressed text bytes not yet yielded because they end mid-codepoint.
     pending_text: Vec<u8>,
 }
 
 impl DeflateDecompressState {
-    fn new() -> Self {
+    fn new(max_byte_length: usize) -> Self {
         // The `deflate` algorithm is raw DEFLATE (no zlib header/checksum), matching the wire
         // contract.
         Self {
             decoder: async_compression::futures::write::DeflateDecoder::new(Vec::new()),
+            pushed_bytes: 0,
+            max_byte_length,
             pending_text: Vec::new(),
         }
     }
@@ -78,7 +87,15 @@ impl DeflateDecompressState {
     /// decompressed output produced so far.
     async fn push(&mut self, input: &[u8]) -> StreamResult<Vec<u8>> {
         use futures_util::io::AsyncWriteExt;
+
+        // Make sure that the max byte length hasn't been hit
+        self.pushed_bytes += input.len();
+        if self.pushed_bytes > self.max_byte_length {
+            return Err(StreamError::PayloadTooLarge);
+        }
+
         self.decoder.write_all(input).await.map_err(|_| StreamError::Decompression)?;
+
         // Flush so all currently-decodable output lands in the inner `Vec`.
         self.decoder.flush().await.map_err(|_| StreamError::Decompression)?;
         Ok(std::mem::take(self.decoder.get_mut()))
@@ -153,6 +170,9 @@ pub struct Manager {
     /// Topics whose streams are handled internally by the SDK (e.g. RPC) and never surfaced as
     /// application events. Supplied by the host crate so this crate stays decoupled from RPC.
     reserved_topics: Vec<&'static str>,
+
+    /// Max number of bytes that a data stream can contain before it is deemed to be malicious
+    max_payload_byte_length: usize,
 }
 
 #[derive(Default)]
@@ -163,12 +183,20 @@ struct ManagerInner {
 impl Manager {
     pub fn new(
         reserved_topics: Vec<&'static str>,
+        max_payload_byte_length: Option<usize>,
     ) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
         // Unbounded: inbound wire packets must never be dropped (a dropped chunk is an
         // unrecoverable `MissedChunk`) and must not head-of-line-block the engine event loop.
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
-        let manager = Self { inner: ManagerInner::default(), reserved_topics, input_rx, output_tx };
+        let manager = Self {
+            inner: ManagerInner::default(),
+            input_rx,
+            output_tx,
+
+            reserved_topics,
+            max_payload_byte_length: max_payload_byte_length.unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
+        };
         (manager, ManagerInput::new(input_tx), output_rx)
     }
 
@@ -267,7 +295,7 @@ impl Manager {
             sender_identity: participant_identity,
             is_internal,
             is_text,
-            decompressor: is_compressed.then(DeflateDecompressState::new),
+            decompressor: is_compressed.then(|| DeflateDecompressState::new(self.max_payload_byte_length)),
             last_chunk_index: None,
         };
         self.inner.open_streams.insert(id, descriptor);
@@ -595,7 +623,11 @@ mod tests {
 
     impl Harness {
         fn new(reserved_topics: Vec<&'static str>) -> Self {
-            let (manager, input, output_rx) = Manager::new(reserved_topics);
+            Self::new_with_max_payload_length(reserved_topics, None)
+        }
+
+        fn new_with_max_payload_length(reserved_topics: Vec<&'static str>, max_payload_byte_length: Option<usize>) -> Self {
+            let (manager, input, output_rx) = Manager::new(reserved_topics, max_payload_byte_length);
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
@@ -924,6 +956,38 @@ mod tests {
             encryption_type: EncryptionType::None,
         });
         assert!(matches!(read_text(reader).await, Err(StreamError::MissedChunk)));
+    }
+
+    #[tokio::test]
+    async fn v2_max_payload_size_breached() {
+        let text = pseudo_random_text(60_000);
+        let compressed = deflate_raw(text.as_bytes()).await;
+
+        // Use a max payload size one byte below the size of the compressed data
+        let max_payload_size = compressed.len() - 1;
+        let mut h = Harness::new_with_max_payload_length(vec![], Some(max_payload_size));
+
+        // Feed all data in
+        h.send_packet(Packet::Header {
+            header: text_header(
+                "s1",
+                Some(text.len() as u64),
+                HashMap::new(),
+                None,
+                CompressionType::DeflateRaw,
+            ),
+            encryption_type: EncryptionType::None,
+        });
+        let (reader, _) = h.next_opened().await;
+        for (i, byte_chunk) in compressed.chunks(15_000).enumerate() {
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", i as u64, byte_chunk.to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+        }
+
+        // And make sure a PayloadTooLarge error gets raised
+        assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
     }
 
     // --- progress() ----------------------------------------------------------------------

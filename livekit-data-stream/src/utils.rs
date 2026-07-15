@@ -65,6 +65,9 @@ pub enum StreamError {
     #[error("stream header exceeds maximum size")]
     HeaderTooLarge,
 
+    #[error("stream payload exceeds maximum size")]
+    PayloadTooLarge,
+
     #[error("decompression failed")]
     Decompression,
 }
