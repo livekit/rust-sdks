@@ -117,14 +117,26 @@ impl DeflateDecompressState {
     }
 }
 
-/// One-shot deflate-raw decompression of a complete (inline) payload.
-async fn inflate_raw(data: &[u8]) -> StreamResult<Vec<u8>> {
+/// Batch size used to incrementally pull decompressed output from an inline payload.
+const INFLATE_BATCH_BYTE_LENGTH: usize = 16 * 1024;
+
+async fn inflate_raw(data: &[u8], max_byte_length: usize) -> StreamResult<Vec<u8>> {
     use futures_util::io::AsyncReadExt;
     let mut decoder = async_compression::futures::bufread::DeflateDecoder::new(
         futures_util::io::Cursor::new(data),
     );
     let mut out = Vec::new();
-    decoder.read_to_end(&mut out).await.map_err(|_| StreamError::Decompression)?;
+    let mut batch = [0u8; INFLATE_BATCH_BYTE_LENGTH];
+    loop {
+        let n = decoder.read(&mut batch).await.map_err(|_| StreamError::Decompression)?;
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(&batch[..n]);
+        if out.len() > max_byte_length {
+            return Err(StreamError::PayloadTooLarge);
+        }
+    }
     Ok(out)
 }
 
@@ -265,7 +277,7 @@ impl Manager {
         // packets will follow, so we never register an open descriptor.
         if let Some(content) = inline_content {
             let content = if is_compressed {
-                match inflate_raw(&content).await {
+                match inflate_raw(&content, self.max_payload_byte_length).await {
                     Ok(decompressed) => decompressed,
                     Err(error) => {
                         // Defensive: a conforming sender never sends a compressed stream we
@@ -862,6 +874,27 @@ mod tests {
         });
         let (reader, _) = h.next_opened().await;
         assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(payload));
+    }
+
+    #[tokio::test]
+    async fn v2_inline_compressed_max_payload_size_breached() {
+        // A tiny compressed inline payload that inflates far past the configured cap must be
+        // rejected (decompression-bomb guard on the inline path).
+        let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+        let text = pseudo_random_text(50_000);
+        let compressed = deflate_raw(text.as_bytes()).await;
+        h.send_packet(Packet::Header {
+            header: text_header(
+                "s1",
+                Some(text.len() as u64),
+                HashMap::new(),
+                Some(compressed),
+                CompressionType::DeflateRaw,
+            ),
+            encryption_type: EncryptionType::None,
+        });
+        let (reader, _) = h.next_opened().await;
+        assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
     }
 
     // --- v2 multi-packet compressed ------------------------------------------------------
