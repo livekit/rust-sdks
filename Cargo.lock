@@ -3988,6 +3988,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-capture"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "livekit",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "livekit-common"
 version = "0.1.0"
 dependencies = [
