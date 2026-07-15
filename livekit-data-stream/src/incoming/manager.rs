@@ -44,7 +44,6 @@ struct Descriptor {
     decompressor: Option<DeflateDecompressState>,
     /// Highest chunk index processed so far (compressed streams; for dedup/gap detection).
     last_chunk_index: Option<u64>,
-    // TODO(ladvoc): keep track of open time.
 }
 
 /// Streaming deflate-raw decompressor state for one compressed stream.
