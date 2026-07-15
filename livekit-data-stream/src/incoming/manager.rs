@@ -63,8 +63,8 @@ struct Descriptor {
 /// identically across every async backend the SDK supports.
 struct DeflateDecompressState {
     decoder: async_compression::futures::write::DeflateDecoder<Vec<u8>>,
-    /// Number of bytes which have been pushed into the compressor
-    pushed_bytes: usize,
+    /// Number of bytes which have been emitted by the compressor
+    output_bytes_length: usize,
     /// Max number of bytes which the compressor can take in before erroring
     max_byte_length: usize,
     /// Decompressed text bytes not yet yielded because they end mid-codepoint.
@@ -77,7 +77,7 @@ impl DeflateDecompressState {
         // contract.
         Self {
             decoder: async_compression::futures::write::DeflateDecoder::new(Vec::new()),
-            pushed_bytes: 0,
+            output_bytes_length: 0,
             max_byte_length,
             pending_text: Vec::new(),
         }
@@ -88,17 +88,18 @@ impl DeflateDecompressState {
     async fn push(&mut self, input: &[u8]) -> StreamResult<Vec<u8>> {
         use futures_util::io::AsyncWriteExt;
 
-        // Make sure that the max byte length hasn't been hit
-        self.pushed_bytes += input.len();
-        if self.pushed_bytes > self.max_byte_length {
-            return Err(StreamError::PayloadTooLarge);
-        }
-
         self.decoder.write_all(input).await.map_err(|_| StreamError::Decompression)?;
 
         // Flush so all currently-decodable output lands in the inner `Vec`.
         self.decoder.flush().await.map_err(|_| StreamError::Decompression)?;
-        Ok(std::mem::take(self.decoder.get_mut()))
+
+        let output_bytes = std::mem::take(self.decoder.get_mut());
+        self.output_bytes_length += output_bytes.len();
+        if self.output_bytes_length > self.max_byte_length {
+            return Err(StreamError::PayloadTooLarge);
+        }
+
+        Ok(output_bytes)
     }
 
     /// Appends `decompressed` text bytes and returns the longest valid-UTF-8 prefix,
@@ -195,7 +196,8 @@ impl Manager {
             output_tx,
 
             reserved_topics,
-            max_payload_byte_length: max_payload_byte_length.unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
+            max_payload_byte_length: max_payload_byte_length
+                .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
         };
         (manager, ManagerInput::new(input_tx), output_rx)
     }
@@ -295,7 +297,8 @@ impl Manager {
             sender_identity: participant_identity,
             is_internal,
             is_text,
-            decompressor: is_compressed.then(|| DeflateDecompressState::new(self.max_payload_byte_length)),
+            decompressor: is_compressed
+                .then(|| DeflateDecompressState::new(self.max_payload_byte_length)),
             last_chunk_index: None,
         };
         self.inner.open_streams.insert(id, descriptor);
@@ -626,8 +629,12 @@ mod tests {
             Self::new_with_max_payload_length(reserved_topics, None)
         }
 
-        fn new_with_max_payload_length(reserved_topics: Vec<&'static str>, max_payload_byte_length: Option<usize>) -> Self {
-            let (manager, input, output_rx) = Manager::new(reserved_topics, max_payload_byte_length);
+        fn new_with_max_payload_length(
+            reserved_topics: Vec<&'static str>,
+            max_payload_byte_length: Option<usize>,
+        ) -> Self {
+            let (manager, input, output_rx) =
+                Manager::new(reserved_topics, max_payload_byte_length);
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
@@ -964,8 +971,7 @@ mod tests {
         let compressed = deflate_raw(text.as_bytes()).await;
 
         // Use a max payload size one byte below the size of the compressed data
-        let max_payload_size = compressed.len() - 1;
-        let mut h = Harness::new_with_max_payload_length(vec![], Some(max_payload_size));
+        let mut h = Harness::new_with_max_payload_length(vec![], Some(50_000 /* less than 60k */));
 
         // Feed all data in
         h.send_packet(Packet::Header {
