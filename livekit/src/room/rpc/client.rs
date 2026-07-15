@@ -209,12 +209,9 @@ impl RpcClientManager {
             .insert(ATTR_RESPONSE_TIMEOUT_MS.to_string(), response_timeout.as_millis().to_string());
         attributes.insert(ATTR_VERSION.to_string(), RPC_VERSION_V2.to_string());
 
-        let options = StreamTextOptions {
-            topic: RPC_REQUEST_TOPIC.to_string(),
-            attributes,
-            destination_identities: vec![ParticipantIdentity(destination_identity.to_string())],
-            ..Default::default()
-        };
+        let options = StreamTextOptions::new_with_topic(RPC_REQUEST_TOPIC)
+            .with_attributes(attributes)
+            .with_destination_identity(destination_identity);
 
         transport
             .send_text(payload, options)

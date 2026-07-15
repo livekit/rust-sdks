@@ -199,12 +199,9 @@ impl RpcServerManager {
                 let mut attributes = HashMap::new();
                 attributes.insert(ATTR_REQUEST_ID.to_string(), request_id.clone());
 
-                let options = StreamTextOptions {
-                    topic: RPC_RESPONSE_TOPIC.to_string(),
-                    attributes,
-                    destination_identities: vec![caller_identity.clone()],
-                    ..Default::default()
-                };
+                let options = StreamTextOptions::new_with_topic(RPC_RESPONSE_TOPIC)
+                    .with_attributes(attributes)
+                    .with_destination_identity(caller_identity.clone());
 
                 if let Err(e) = transport.send_text(&response_payload, options).await {
                     log::error!("Failed to send RPC v2 response stream: {:?}", e);
