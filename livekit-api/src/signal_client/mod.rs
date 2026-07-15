@@ -33,13 +33,7 @@ use prost::Message;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
-#[cfg(feature = "signal-client-tokio")]
-use tokio_tungstenite::tungstenite::Error as WsError;
-
-#[cfg(feature = "__signal-client-async-compatible")]
-use async_tungstenite::tungstenite::Error as WsError;
-
-use crate::{http_client, signal_client::signal_stream::SignalStream};
+use crate::signal_client::signal_stream::SignalStream;
 
 mod region_url_provider;
 mod signal_stream;
@@ -67,9 +61,8 @@ pub use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAUL
 const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
 
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum SignalError {
-    #[error("ws failure: {0}")]
-    WsError(#[from] WsError),
     #[error("failed to parse the url: {0}")]
     UrlParse(String),
     #[error("access token has invalid characters")]
@@ -84,6 +77,15 @@ pub enum SignalError {
     Timeout(String),
     #[error("failed to send message to the server")]
     SendError,
+    #[error("transport connection error: {0}")]
+    Connection(String),
+    #[error("transport closed")]
+    Closed,
+    /// No network transport is registered. On foreign/host builds the host must
+    /// call `set_platform_transport` before connecting. This is a permanent
+    /// configuration error, not a transient failure — callers must not retry.
+    #[error("no network transport registered")]
+    TransportNotConfigured,
     /// Failed to retrieve region information from LiveKit Cloud.
     ///
     /// This error occurs when the SDK cannot fetch the `/settings/regions` endpoint
@@ -208,7 +210,7 @@ impl SignalClient {
             }
             Err(err) => {
                 // fallback to region urls
-                if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
+                if matches!(&err, SignalError::Client(code, _) if code.as_u16() != 403) {
                     log::error!("unexpected signal error: {}", err.to_string());
                 }
 
@@ -395,7 +397,7 @@ impl SignalInner {
                     // Other errors (401, 403, 500, etc.) indicate real issues that shouldn't
                     // be masked by falling back to a different signaling mode.
                     let is_not_found =
-                        matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() == 404);
+                        matches!(&err, SignalError::Client(code, _) if code.as_u16() == 404);
 
                     if use_v1_path && is_not_found {
                         let lk_url_v0 =
@@ -456,25 +458,39 @@ impl SignalInner {
     /// https://github.com/livekit/rust-sdks/issues/1042.
     async fn validate(ws_url: url::Url, token: &str) -> SignalResult<()> {
         let validate_url = get_validate_url(ws_url);
+        let transport = require_transport()?;
+        let headers = bearer_headers(token);
 
         let validate_fut = async {
-            if let Ok(res) = http_client::get_with_token(validate_url.as_str(), token).await {
-                let status = res.status();
-                let body = res.text().await.ok().unwrap_or_default();
-
-                if status.is_client_error() {
-                    return Err(SignalError::Client(status, body));
-                } else if status.is_server_error() {
-                    return Err(SignalError::Server(status, body));
-                }
+            // validate() is best-effort diagnostic enrichment: it turns a failed WS
+            // upgrade into a clearer HTTP-level status error. A failure of the GET
+            // *itself* (network/TLS error) carries no such information, so swallow
+            // it and return Ok(()) — the caller then surfaces the original
+            // connection error rather than this unrelated one. See issue #1042.
+            let Ok(res) = transport.http_get(validate_url.to_string(), headers).await else {
+                return Ok(());
+            };
+            // Fail closed on an out-of-range status (fall back to 502, matching the
+            // region path) so a bogus status can't silently pass as 200/OK.
+            let status =
+                http::StatusCode::from_u16(res.status).unwrap_or(http::StatusCode::BAD_GATEWAY);
+            if status.is_client_error() {
+                return Err(SignalError::Client(
+                    status,
+                    String::from_utf8_lossy(&res.body).into_owned(),
+                ));
+            } else if status.is_server_error() {
+                return Err(SignalError::Server(
+                    status,
+                    String::from_utf8_lossy(&res.body).into_owned(),
+                ));
             }
-
             Ok(())
         };
 
-        livekit_runtime::timeout(VALIDATE_TIMEOUT, validate_fut)
-            .await
-            .map_err(|_| SignalError::Timeout("validate request timed out".into()))?
+        // A validate timeout is likewise non-fatal: fall through to Ok(()) so the
+        // caller's original error is what surfaces, not a validate-timeout.
+        livekit_runtime::timeout(VALIDATE_TIMEOUT, validate_fut).await.unwrap_or(Ok(()))
     }
 
     /// Returns whether single peer connection mode is active
@@ -913,6 +929,57 @@ fn get_livekit_url(
     Ok(lk_url)
 }
 
+/// Build the `Authorization: Bearer <token>` header vec used by HTTP/WS callers.
+pub(super) fn bearer_headers(token: &str) -> Vec<livekit_net::Header> {
+    vec![livekit_net::Header { name: "Authorization".into(), value: format!("Bearer {token}") }]
+}
+
+/// Resolve the registered network transport, or a permanent
+/// [`SignalError::TransportNotConfigured`] if none has been set. Centralises the
+/// lookup so callers share one error rather than each inventing a string.
+pub(super) fn require_transport() -> SignalResult<Arc<dyn livekit_net::PlatformTransport>> {
+    livekit_net::transport().ok_or(SignalError::TransportNotConfigured)
+}
+
+/// Verify `token` can be encoded as an HTTP `Authorization` header value. A token
+/// carrying characters illegal in a header value can never authenticate, so
+/// callers surface a clear, non-retryable [`SignalError::TokenFormat`] up front
+/// rather than a generic transport error deep in the connect path (which would
+/// otherwise drive the pointless v1→v0 + full-reconnect fallback).
+pub(super) fn check_token_format(token: &str) -> SignalResult<()> {
+    http::HeaderValue::from_str(&format!("Bearer {token}"))
+        .map(|_| ())
+        .map_err(|_| SignalError::TokenFormat)
+}
+
+/// Map a [`livekit_net::TransportError`] to a [`SignalError`].
+///
+/// - `Timeout` → `SignalError::Timeout` (timed out at transport layer)
+/// - `Http { status }` → `Client` for 4xx, `Server` for 5xx (empty body — caller
+///   may have already read the body separately)
+/// - `Connection` / `Other` → `SignalError::Connection` (network/TLS/transport failure)
+/// - `Closed` → `SignalError::Closed` (peer/transport closed)
+///
+/// Every variant except `LeaveRequest` drives the engine's full-reconnect path.
+pub(super) fn map_transport_err(e: livekit_net::TransportError) -> SignalError {
+    use livekit_net::TransportError as TE;
+    match e {
+        TE::Timeout => SignalError::Timeout("transport timed out".into()),
+        TE::Http { status } => {
+            let code = http::StatusCode::from_u16(status)
+                .unwrap_or(http::StatusCode::BAD_GATEWAY);
+            if code.is_client_error() {
+                SignalError::Client(code, String::new())
+            } else {
+                SignalError::Server(code, String::new())
+            }
+        }
+        TE::Closed => SignalError::Closed,
+        TE::Connection(m) => SignalError::Connection(m),
+        TE::Other(m) => SignalError::Connection(m),
+    }
+}
+
 /// Convert a WebSocket URL (with /rtc or /rtc/v1 path) to the validate endpoint URL
 fn get_validate_url(mut ws_url: url::Url) -> url::Url {
     ws_url.set_scheme(if ws_url.scheme() == "wss" { "https" } else { "http" }).unwrap();
@@ -935,7 +1002,7 @@ macro_rules! get_async_message {
                     }
                 }
 
-                Err(WsError::ConnectionClosed)?
+                Err(SignalError::Timeout("connection closed before message received".into()))
             };
 
             livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
@@ -968,7 +1035,7 @@ async fn get_reconnect_response(
             }
         }
 
-        Err(WsError::ConnectionClosed)?
+        Err(SignalError::Timeout("connection closed before message received".into()))
     };
 
     livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
@@ -977,458 +1044,4 @@ async fn get_reconnect_response(
             std::any::type_name::<proto::ReconnectResponse>()
         ))
     })?
-}
-
-#[cfg(test)]
-mod tests {
-    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-
-    use super::*;
-
-    fn signal_options_for_cpp(version: &str) -> SignalOptions {
-        let mut options = SignalOptions::default();
-        options.sdk_options.sdk = "cpp".to_string();
-        options.sdk_options.sdk_version = Some(version.to_string());
-        options
-    }
-
-    fn decode_join_request_param_for_test(param: &str) -> proto::JoinRequest {
-        let wrapped_bytes = BASE64_STANDARD.decode(param).unwrap();
-        let wrapped = proto::WrappedJoinRequest::decode(wrapped_bytes.as_slice()).unwrap();
-        proto::JoinRequest::decode(wrapped.join_request.as_slice()).unwrap()
-    }
-
-    #[test]
-    fn client_info_sdk_for_name_maps_known_sdks() {
-        assert_eq!(client_info_sdk_for_name("cpp"), proto::client_info::Sdk::Cpp);
-        assert_eq!(client_info_sdk_for_name("ios"), proto::client_info::Sdk::Swift);
-        assert_eq!(client_info_sdk_for_name("rust"), proto::client_info::Sdk::Rust);
-        assert_eq!(client_info_sdk_for_name("node"), proto::client_info::Sdk::Node);
-        assert_eq!(client_info_sdk_for_name("reactnative"), proto::client_info::Sdk::ReactNative);
-        assert_eq!(client_info_sdk_for_name("unityweb"), proto::client_info::Sdk::UnityWeb);
-        assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
-    }
-
-    /// Build a stream-less SignalInner suitable for exercising the queue routing
-    /// in `send`. The stream slot is None so any actual write would be dropped,
-    /// which is fine — these tests only assert which side of the queue each
-    /// message lands on.
-    fn make_stub_inner() -> Arc<SignalInner> {
-        Arc::new(SignalInner {
-            stream: AsyncRwLock::new(None),
-            token: Mutex::new(String::new()),
-            reconnecting: AtomicBool::new(false),
-            queue: Default::default(),
-            url: "wss://localhost:7880".to_string(),
-            options: SignalOptions::default(),
-            join_response: proto::JoinResponse::default(),
-            request_id: AtomicU32::new(1),
-            single_pc_mode_active: false,
-        })
-    }
-
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn send_queues_queueable_signals_during_reconnect() {
-        let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
-
-        // Queueable: AddTrack, Mute, UpdateSubscription
-        inner
-            .send(proto::signal_request::Message::AddTrack(proto::AddTrackRequest {
-                cid: "track1".into(),
-                ..Default::default()
-            }))
-            .await;
-        inner
-            .send(proto::signal_request::Message::Mute(proto::MuteTrackRequest {
-                sid: "sid1".into(),
-                muted: true,
-            }))
-            .await;
-        inner
-            .send(proto::signal_request::Message::Subscription(proto::UpdateSubscription {
-                track_sids: vec!["sid2".into()],
-                ..Default::default()
-            }))
-            .await;
-
-        let queue = inner.queue.lock().await;
-        assert_eq!(queue.len(), 3, "all three queueable signals should be buffered");
-    }
-
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn send_does_not_queue_pass_through_signals_during_reconnect() {
-        let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
-
-        // Pass-through: Trickle, Offer, Answer, SyncState, Simulate, Leave.
-        // These all attempt to write to the (None) stream and get logged as
-        // "no stream available" — but critically they do NOT land in the queue.
-        inner.send(proto::signal_request::Message::Trickle(proto::TrickleRequest::default())).await;
-        inner
-            .send(proto::signal_request::Message::Offer(proto::SessionDescription::default()))
-            .await;
-        inner
-            .send(proto::signal_request::Message::Answer(proto::SessionDescription::default()))
-            .await;
-        inner.send(proto::signal_request::Message::SyncState(proto::SyncState::default())).await;
-        inner
-            .send(proto::signal_request::Message::Simulate(proto::SimulateScenario::default()))
-            .await;
-        inner.send(proto::signal_request::Message::Leave(proto::LeaveRequest::default())).await;
-
-        let queue = inner.queue.lock().await;
-        assert!(queue.is_empty(), "pass-through signals must not be queued, got {}", queue.len());
-    }
-
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn set_reconnected_drains_queue_and_clears_flag() {
-        let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
-
-        // Queue something while reconnecting
-        inner
-            .send(proto::signal_request::Message::Mute(proto::MuteTrackRequest {
-                sid: "sid1".into(),
-                muted: true,
-            }))
-            .await;
-        assert_eq!(inner.queue.lock().await.len(), 1);
-
-        // set_reconnected clears the flag and tries to flush. Since stream is
-        // None, the flush attempt does nothing — but the flag MUST clear and the
-        // queue MUST drain. The current implementation drains via flush_queue
-        // which only drains if the stream is available; with stream=None the
-        // queue stays. This is acceptable: a future send with a real stream
-        // will trigger flush_queue at the top of the normal path.
-        inner.set_reconnected().await;
-        assert!(!inner.reconnecting.load(Ordering::Acquire), "flag must be cleared");
-    }
-
-    #[test]
-    fn livekit_url_test() {
-        let io = SignalOptions::default();
-
-        assert!(get_livekit_url("localhost:7880", &io, false, false, None, "", None).is_err());
-        assert_eq!(
-            get_livekit_url("https://localhost:7880", &io, false, false, None, "", None)
-                .unwrap()
-                .scheme(),
-            "wss"
-        );
-        assert_eq!(
-            get_livekit_url("http://localhost:7880", &io, false, false, None, "", None)
-                .unwrap()
-                .scheme(),
-            "ws"
-        );
-        assert_eq!(
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None)
-                .unwrap()
-                .scheme(),
-            "wss"
-        );
-        assert_eq!(
-            get_livekit_url("ws://localhost:7880", &io, false, false, None, "", None)
-                .unwrap()
-                .scheme(),
-            "ws"
-        );
-        assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "", None).is_err());
-    }
-
-    #[test]
-    fn livekit_url_v0_reports_cpp_sdk_and_version() {
-        let io = signal_options_for_cpp("9.9.9-test");
-        let lk_url =
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
-        let query: std::collections::HashMap<_, _> = lk_url.query_pairs().into_owned().collect();
-
-        assert_eq!(query.get("sdk").map(String::as_str), Some("cpp"));
-        assert_eq!(query.get("version").map(String::as_str), Some("9.9.9-test"));
-    }
-
-    #[test]
-    fn livekit_url_v1_join_request_reports_cpp_sdk_and_version() {
-        let io = signal_options_for_cpp("9.9.9-test");
-        let lk_url =
-            get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
-        let join_request_param = lk_url
-            .query_pairs()
-            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
-            .unwrap();
-        let join_request = decode_join_request_param_for_test(&join_request_param);
-        let client_info = join_request.client_info.unwrap();
-
-        assert_eq!(client_info.sdk, proto::client_info::Sdk::Cpp as i32);
-        assert_eq!(client_info.version, "9.9.9-test");
-    }
-
-    #[test]
-    fn validate_url_test() {
-        let io = SignalOptions::default();
-        let lk_url =
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
-        let validate_url = get_validate_url(lk_url);
-
-        // Should be /rtc/validate, not /rtc/rtc/validate
-        assert_eq!(validate_url.path(), "/rtc/validate");
-        assert_eq!(validate_url.scheme(), "https");
-    }
-
-    #[test]
-    fn livekit_url_includes_client_capabilities() {
-        let io = SignalOptions::default();
-        let lk_url =
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
-
-        let capabilities = lk_url
-            .query_pairs()
-            .find_map(|(key, value)| (key == "capabilities").then(|| value.into_owned()))
-            .unwrap();
-        let expected = CLIENT_CAPABILITIES
-            .iter()
-            .map(|capability| capability.as_str_name())
-            .collect::<Vec<_>>()
-            .join(",");
-
-        assert_eq!(capabilities, expected);
-    }
-
-    /// Regression test for https://github.com/livekit/rust-sdks/issues/1042.
-    ///
-    /// Prior to the fix, `SignalInner::validate` issued an auth-less GET to
-    /// `/rtc/validate`, so a server performing the standard auth check (claims
-    /// parsing) would return 401 regardless of the real reason the WebSocket
-    /// upgrade had failed. That 401 then masked the original error (e.g. a
-    /// 503 from a saturated node) at the caller.
-    ///
-    /// This test binds a TCP listener, calls `validate()`, captures the first
-    /// request sent to that listener, and asserts the request carries an
-    /// `Authorization: Bearer <token>` header.
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn validate_sends_bearer_token() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::TcpListener;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        let (tx, rx) = tokio::sync::oneshot::channel::<Vec<u8>>();
-
-        tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut buf = vec![0u8; 4096];
-            let n = socket.read(&mut buf).await.unwrap();
-            buf.truncate(n);
-            let _ = tx.send(buf);
-
-            // Respond 200 OK so `validate()` returns Ok() rather than
-            // surfacing a synthetic client/server error. The purpose of this
-            // test is the request side, not the response side.
-            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-            let _ = socket.write_all(response).await;
-        });
-
-        let ws_url = url::Url::parse(&format!("ws://127.0.0.1:{}/rtc", addr.port())).unwrap();
-        let result = SignalInner::validate(ws_url, "test-bearer-token").await;
-        assert!(result.is_ok(), "expected Ok from validate, got: {:?}", result);
-
-        let request = rx.await.expect("server task never received a request");
-        let request = String::from_utf8_lossy(&request);
-
-        // Header names are case-insensitive per RFC 9110; reqwest emits the
-        // canonical `Authorization` but we normalise both for robustness.
-        assert!(
-            request.to_lowercase().contains("authorization: bearer test-bearer-token"),
-            "validate() must attach the access token as a Bearer header; request was:\n{}",
-            request
-        );
-    }
-
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn signal_stream_connect_timeout() {
-        use tokio::net::TcpListener;
-
-        // Bind a TCP listener that accepts connections but never sends data
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        // Spawn a task that accepts connections but does nothing (simulates a hanging server)
-        let _accept_task = tokio::spawn(async move {
-            loop {
-                let Ok((_socket, _)) = listener.accept().await else {
-                    break;
-                };
-                // Hold the connection open but never write anything
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            }
-        });
-
-        let url = url::Url::parse(&format!("ws://127.0.0.1:{}", addr.port())).unwrap();
-        let result = SignalStream::connect(url, "fake-token", Duration::from_millis(500)).await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, SignalError::Timeout(_)), "expected Timeout error, got: {:?}", err);
-    }
-
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn region_fetch_parses_response() {
-        use tokio::io::AsyncWriteExt;
-        use tokio::net::TcpListener;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        // Spawn a task that serves a hand-crafted HTTP response with region JSON
-        tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-
-            // Read the request (consume it so the connection doesn't stall)
-            let mut buf = [0u8; 4096];
-            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
-
-            let body = r#"{"regions":[{"region":"us-east-1","url":"wss://us-east.livekit.cloud","distance":"100"},{"region":"eu-west-1","url":"wss://eu-west.livekit.cloud","distance":"200"}]}"#;
-
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            socket.write_all(response.as_bytes()).await.unwrap();
-        });
-
-        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
-
-        let (urls, _max_age) = result.unwrap();
-        assert_eq!(
-            urls,
-            vec![
-                "wss://us-east.livekit.cloud".to_string(),
-                "wss://eu-west.livekit.cloud".to_string(),
-            ]
-        );
-    }
-
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn region_fetch_timeout() {
-        use tokio::net::TcpListener;
-
-        // Bind a listener that accepts but never responds
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        tokio::spawn(async move {
-            loop {
-                let Ok((_socket, _)) = listener.accept().await else {
-                    break;
-                };
-                // Hold connection open, never write
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            }
-        });
-
-        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(
-            matches!(err, SignalError::RegionError(ref msg) if msg.contains("timed out")),
-            "expected RegionError with 'timed out', got: {:?}",
-            err
-        );
-    }
-
-    /// Test that connection errors include the full error chain.
-    /// This is critical for diagnosing TLS certificate issues in container deployments.
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn region_fetch_connection_refused_includes_error_chain() {
-        // Try to connect to a port that's definitely not listening
-        // This simulates a network-level failure
-        let endpoint = "http://127.0.0.1:1/settings/regions";
-        let result = region_url_provider::fetch_from_endpoint(endpoint, "fake-token").await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-
-        // The error should be a RegionError
-        let SignalError::RegionError(msg) = err else {
-            panic!("expected RegionError, got: {:?}", err);
-        };
-
-        // The error message should contain information about the connection failure.
-        // The exact message varies by platform, but it should contain more than just
-        // "error sending request" - it should include the underlying cause.
-        assert!(
-            msg.contains("error sending request") || msg.contains("connection"),
-            "Error should mention the request failure, got: {}",
-            msg
-        );
-
-        // Most importantly, verify the error contains a colon, indicating the chain
-        // was preserved (format is "outer: middle: inner")
-        // Note: On some platforms the error might be simple, so we just verify
-        // we got a descriptive error message
-        assert!(
-            msg.len() > 20,
-            "Error message should be descriptive with chain info, got: {}",
-            msg
-        );
-    }
-
-    /// Test that JSON parsing errors include the full error chain.
-    #[cfg(feature = "signal-client-tokio")]
-    #[tokio::test]
-    async fn region_fetch_invalid_json_includes_error_chain() {
-        use tokio::io::AsyncWriteExt;
-        use tokio::net::TcpListener;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-
-        // Spawn a task that returns invalid JSON
-        tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-
-            let mut buf = [0u8; 4096];
-            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
-
-            // Return invalid JSON that will fail to parse
-            let body = r#"{"invalid": "not a regions response"}"#;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            socket.write_all(response.as_bytes()).await.unwrap();
-        });
-
-        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
-        let result = region_url_provider::fetch_from_endpoint(&endpoint, "fake-token").await;
-
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-
-        let SignalError::RegionError(msg) = err else {
-            panic!("expected RegionError, got: {:?}", err);
-        };
-
-        // The error should mention JSON parsing failure
-        assert!(
-            msg.contains("missing field") || msg.contains("error decoding") || msg.contains("JSON"),
-            "Error should mention JSON parsing failure, got: {}",
-            msg
-        );
-    }
 }

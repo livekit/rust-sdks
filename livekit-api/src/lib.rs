@@ -23,29 +23,17 @@ mod jwt_provider;
 #[cfg(any(feature = "services-tokio", feature = "services-async"))]
 pub mod services;
 
-#[cfg(any(
-    feature = "signal-client-tokio",
-    feature = "signal-client-async",
-    feature = "signal-client-dispatcher"
-))]
+#[cfg(feature = "signal-client")]
 pub mod signal_client;
 
-#[cfg(any(
-    feature = "signal-client-tokio",
-    feature = "signal-client-async",
-    feature = "signal-client-dispatcher",
-    feature = "services-tokio",
-    feature = "services-async"
-))]
+#[cfg(any(feature = "services-tokio", feature = "services-async"))]
 mod http_client;
 
 // Region-discovery helpers shared by the signaling region provider
 // (signal_client::region_url_provider) and the API failover region cache
 // (services::failover).
 #[cfg(any(
-    feature = "signal-client-tokio",
-    feature = "signal-client-async",
-    feature = "signal-client-dispatcher",
+    feature = "signal-client",
     feature = "services-tokio",
     feature = "services-async"
 ))]

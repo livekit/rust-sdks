@@ -3953,18 +3953,18 @@ dependencies = [
 name = "livekit-api"
 version = "0.5.6"
 dependencies = [
- "async-tungstenite",
+ "async-trait",
  "base64 0.21.7",
  "bytes",
  "device-info",
  "flate2",
  "futures",
- "futures-util",
  "hmac",
  "http 1.4.0",
  "isahc",
  "jsonwebtoken",
  "livekit-common",
+ "livekit-net",
  "livekit-protocol",
  "livekit-runtime",
  "log",
@@ -3974,7 +3974,6 @@ dependencies = [
  "prost 0.12.6",
  "rand 0.9.3",
  "reqwest",
- "rustls-native-certs",
  "scopeguard",
  "serde",
  "serde_json",
@@ -3982,8 +3981,6 @@ dependencies = [
  "signature",
  "thiserror 2.0.18",
  "tokio",
- "tokio-rustls",
- "tokio-tungstenite",
  "url",
 ]
 

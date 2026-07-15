@@ -72,6 +72,16 @@ impl PlatformConnection for NativeConnection {
                 Some(Err(WsError::Protocol(ProtocolError::ResetWithoutClosingHandshake))) => {
                     return Ok(None)
                 }
+                // TLS connection closed without close_notify - treat as normal close.
+                // Happens when the server closes the connection abruptly.
+                Some(Err(WsError::Io(ref io_err)))
+                    if io_err.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
+                    return Ok(None)
+                }
+                Some(Err(WsError::ConnectionClosed)) | Some(Err(WsError::AlreadyClosed)) => {
+                    return Ok(None)
+                }
                 Some(Err(e)) => return Err(TransportError::Connection(e.to_string())),
             }
         }
