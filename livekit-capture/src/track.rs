@@ -14,17 +14,15 @@
 
 use livekit::{
     options::{TrackPublishOptions, VideoEncoderBackend},
-    prelude::LocalVideoTrack,
     webrtc::{
-        video_frame::{EncodedVideoFrame, FrameMetadata, VideoBuffer, VideoFrame},
-        video_source::{native::NativeVideoSource, RtcVideoSource, VideoResolution},
+        video_frame::{EncodedVideoFrame, FrameMetadata},
+        video_source::{native::NativeVideoSource, VideoResolution},
     },
 };
 
 use crate::{
     encoded::{
-        CodecSpecific, EncodedAccessUnit, EncodedLayerInfo, EncodedPayload, EncodedRateControl,
-        EncodedVideoCodec,
+        CodecSpecific, EncodedAccessUnit, EncodedLayerInfo, EncodedPayload, EncodedVideoCodec,
     },
     error::CaptureError,
 };
