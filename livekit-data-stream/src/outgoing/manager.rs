@@ -534,14 +534,12 @@ mod tests {
     }
 
     fn text_opts(topic: &str, dests: &[&str]) -> StreamTextOptions {
-        StreamTextOptions::default()
-            .with_topic(topic.to_string())
+        StreamTextOptions::new_with_topic(topic)
             .with_destination_identities(ids(dests))
     }
 
     fn byte_opts(topic: &str, dests: &[&str]) -> StreamByteOptions {
-        StreamByteOptions::default()
-            .with_topic(topic.to_string())
+        StreamByteOptions::new_with_topic(topic)
             .with_destination_identities(ids(dests))
     }
 

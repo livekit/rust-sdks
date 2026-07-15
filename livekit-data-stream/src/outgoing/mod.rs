@@ -28,7 +28,7 @@ mod stream_writer;
 pub use stream_writer::{ByteStreamWriter, StreamWriter, TextStreamWriter};
 
 /// Options used when opening an outgoing byte data stream.
-#[derive(Clone, Default, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamByteOptions {
     pub topic: String,
     pub attributes: HashMap<String, String>,
@@ -45,6 +45,19 @@ pub struct StreamByteOptions {
 }
 
 impl StreamByteOptions {
+    pub fn new_with_topic(topic: impl Into<String>) -> Self {
+        Self {
+            topic: topic.into(),
+            attributes: HashMap::new(),
+            destination_identities: vec![],
+            id: None,
+            mime_type: None,
+            name: None,
+            total_length: None,
+            compress: None,
+        }
+    }
+
     /// Sets the topic the stream is published to.
     pub fn with_topic(mut self, topic: String) -> Self {
         self.topic = topic;
@@ -103,7 +116,7 @@ impl StreamByteOptions {
 }
 
 /// Options used when opening an outgoing text data stream.
-#[derive(Clone, Default, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StreamTextOptions {
     pub topic: String,
     pub attributes: HashMap<String, String>,
@@ -122,6 +135,21 @@ pub struct StreamTextOptions {
 }
 
 impl StreamTextOptions {
+    pub fn new_with_topic(topic: impl Into<String>) -> Self {
+        Self {
+            topic: topic.into(),
+            attributes: HashMap::new(),
+            destination_identities: vec![],
+            id: None,
+            operation_type: None,
+            version: None,
+            reply_to_stream_id: None,
+            attached_stream_ids: vec![],
+            generated: None,
+            compress: None,
+        }
+    }
+
     /// Sets the topic the stream is published to.
     pub fn with_topic(mut self, topic: String) -> Self {
         self.topic = topic;
