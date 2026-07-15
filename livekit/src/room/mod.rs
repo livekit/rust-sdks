@@ -396,6 +396,28 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct RoomDataStreamOptions {
+    max_payload_byte_length: Option<usize>,
+}
+
+impl Default for RoomDataStreamOptions {
+    fn default() -> Self {
+        Self { max_payload_byte_length: None }
+    }
+}
+
+impl RoomDataStreamOptions {
+    /// Maximum size of a data stream payload. Defaults to 5gb.
+    ///
+    /// If a data stream payload goes above this size, then a [`StreamError::PayloadTooLarge`] will
+    /// be thrown.
+    pub fn with_max_payload_byte_length(mut self, byte_length: usize) -> Self {
+        self.max_payload_byte_length = Some(byte_length);
+        self
+    }
+}
+
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
@@ -414,6 +436,7 @@ pub struct RoomOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    pub data_stream: RoomDataStreamOptions,
 }
 
 impl Default for RoomOptions {
@@ -436,6 +459,7 @@ impl Default for RoomOptions {
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: true,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            data_stream: Default::default(),
         }
     }
 }
@@ -682,7 +706,10 @@ impl Room {
             dt::remote::Manager::new(remote_dt_options);
 
         let (incoming_stream_manager, incoming_data_stream_input, incoming_output) =
-            ds::incoming::Manager::new(INTERNAL_DATA_STREAM_TOPICS.into());
+            ds::incoming::Manager::new(
+                INTERNAL_DATA_STREAM_TOPICS.into(),
+                options.data_stream.max_payload_byte_length,
+            );
         let (outgoing_stream_manager, packet_rx) = ds::outgoing::Manager::new();
 
         let room_info = join_response.room.unwrap();
