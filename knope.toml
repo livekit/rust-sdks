@@ -128,10 +128,10 @@ versioned_files = [
   "Cargo.lock",
 ]
 changelog = "livekit-uniffi/CHANGELOG.md"
-# Asset marker tells knope to create a draft release; uniffi-packages.yml
-# picks it up, builds the Swift xcframework, and publishes via PR + draft
-# release on livekit/livekit-uniffi-xcframework.
-assets = "marker"
+# No `assets` marker: knope publishes the release + tag directly, and
+# uniffi-packages.yml reacts to the published release to build/publish the Swift
+# and Android wrapper packages. (Re-add the marker if the release itself needs
+# to host assets, e.g. the Dart/Flutter cdylibs.)
 scopes = ["uniffi", "livekit-uniffi"]
 
 [packages.livekit-wakeword]
