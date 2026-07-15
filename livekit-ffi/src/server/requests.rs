@@ -17,13 +17,13 @@ use std::{slice, sync::Arc};
 use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
-    register_audio_filter_plugin,
     webrtc::{native::apm, native::audio_resampler, prelude::*},
     AudioFilterPlugin, SimulateScenario,
 };
 use parking_lot::Mutex;
 
 use super::{
+    audio_plugin::register_audio_filter_plugin,
     audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
     platform_audio, resampler,

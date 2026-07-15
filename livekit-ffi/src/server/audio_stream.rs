@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -21,14 +22,18 @@ use livekit::webrtc::{
     audio_stream::native::{NativeAudioStream, NativeAudioStreamOptions},
     prelude::*,
 };
-use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
+use livekit::{AudioFilterAudioStream, AudioFilterStreamInfo};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
-use super::audio_plugin::AudioStreamKind;
+use super::audio_plugin::{registered_audio_filter_plugin, AudioStreamKind, FfiAudioFilterPlugin};
 use super::room::FfiRoom;
 use super::{room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+
+/// How long a stream waits for its audio filter to initialize before falling
+/// back to unfiltered audio.
+const AUDIO_FILTER_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct FfiAudioStream {
     pub handle_id: FfiHandleId,
@@ -36,6 +41,73 @@ pub struct FfiAudioStream {
 
     #[allow(dead_code)]
     self_dropped_tx: oneshot::Sender<()>, // Close the stream on drop
+}
+
+/// Wraps `native_stream` with the requested audio filter, if any.
+///
+/// Waits for the filter plugin to finish initializing (it runs in the
+/// background, see [`AudioFilterInitTask`]), falling back to the unfiltered
+/// stream if initialization fails or times out.
+async fn resolve_audio_stream(
+    filter: Option<Arc<FfiAudioFilterPlugin>>,
+    filter_options: String,
+    stream_info: Option<AudioFilterStreamInfo>,
+    native_stream: NativeAudioStream,
+    input_sample_rate: u32,
+    output_sample_rate: u32,
+    num_channels: u32,
+) -> AudioStreamKind {
+    let (Some(filter), Some(stream_info)) = (filter, stream_info) else {
+        return AudioStreamKind::Native(native_stream);
+    };
+
+    match tokio::time::timeout(AUDIO_FILTER_INIT_TIMEOUT, filter.wait_until_initialized()).await {
+        Ok(Ok(())) => (),
+        Ok(Err(e)) => {
+            log::error!(
+                "audio filter failed to initialize. it will not be enabled for this session: {e}"
+            );
+            return AudioStreamKind::Native(native_stream);
+        }
+        Err(_) => {
+            log::error!(
+                "audio filter did not finish initializing within {AUDIO_FILTER_INIT_TIMEOUT:?}. it will not be enabled for this session."
+            );
+            return AudioStreamKind::Native(native_stream);
+        }
+    }
+
+    // The create entry point, like `on_load`, may block.
+    let session = tokio::task::spawn_blocking(move || {
+        filter.plugin.clone().new_session(
+            input_sample_rate,
+            output_sample_rate,
+            filter_options,
+            stream_info,
+        )
+    })
+    .await;
+
+    match session {
+        Ok(Some(session)) => AudioStreamKind::Filtered(AudioFilterAudioStream::new(
+            native_stream,
+            session,
+            Duration::from_millis(10),
+            input_sample_rate,
+            output_sample_rate,
+            num_channels,
+        )),
+        Ok(None) => {
+            log::error!(
+                "failed to initialize the audio filter. it will not be enabled for this session."
+            );
+            AudioStreamKind::Native(native_stream)
+        }
+        Err(join_err) => {
+            log::error!("audio filter session creation panicked. it will not be enabled for this session: {join_err}");
+            AudioStreamKind::Native(native_stream)
+        }
+    }
 }
 
 impl FfiHandle for FfiAudioStream {}
@@ -110,7 +182,7 @@ impl FfiAudioStream {
                 // the WebRTC sink at the codec's native rate to skip
                 // resampling — the filter handles rate conversion.
                 let input_sample_rate =
-                    if audio_filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
+                    if audio_filter.as_ref().is_some_and(|f| f.plugin.supports_separate_rates()) {
                         ffi_track.track.codec_clock_rate().unwrap_or(48000)
                     } else {
                         output_sample_rate
@@ -123,47 +195,36 @@ impl FfiAudioStream {
                     options,
                 );
 
-                let stream = if let Some(audio_filter) = &audio_filter {
-                    let session = audio_filter.clone().new_session(
+                let filter_options = new_stream.audio_filter_options.unwrap_or_default();
+                let stream_info = info.as_ref().map(|i| i.stream_info.clone());
+                let handle_dropped_rx = server.watch_handle_dropped(new_stream.track_handle);
+                let frame_size_ms = new_stream.frame_size_ms;
+
+                let handle = server.async_runtime.spawn(async move {
+                    let stream = resolve_audio_stream(
+                        audio_filter,
+                        filter_options,
+                        stream_info,
+                        native_stream,
                         input_sample_rate,
                         output_sample_rate,
-                        new_stream.audio_filter_options.unwrap_or("".into()),
-                        info.as_ref().map(|i| i.stream_info.clone()).unwrap(),
-                    );
-
-                    match session {
-                        Some(session) => {
-                            let stream = AudioFilterAudioStream::new(
-                                native_stream,
-                                session,
-                                Duration::from_millis(10),
-                                input_sample_rate,
-                                output_sample_rate,
-                                num_channels,
-                            );
-                            AudioStreamKind::Filtered(stream)
-                        }
-                        None => {
-                            log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
-                            AudioStreamKind::Native(native_stream)
-                        }
-                    }
-                } else {
-                    AudioStreamKind::Native(native_stream)
-                };
-
-                let handle = server.async_runtime.spawn(Self::native_audio_stream_task(
-                    server,
-                    handle_id,
-                    stream,
-                    self_dropped_rx,
-                    server.watch_handle_dropped(new_stream.track_handle),
-                    true,
-                    info,
-                    new_stream.frame_size_ms,
-                    output_sample_rate.try_into().unwrap(),
-                    num_channels.try_into().unwrap(),
-                ));
+                        num_channels,
+                    )
+                    .await;
+                    Self::native_audio_stream_task(
+                        server,
+                        handle_id,
+                        stream,
+                        self_dropped_rx,
+                        handle_dropped_rx,
+                        true,
+                        info,
+                        frame_size_ms,
+                        output_sample_rate.try_into().unwrap(),
+                        num_channels.try_into().unwrap(),
+                    )
+                    .await;
+                });
                 server.watch_panic(handle);
                 Ok::<FfiAudioStream, FfiError>(audio_stream)
             }
@@ -288,43 +349,32 @@ impl FfiAudioStream {
                 });
 
                 let input_sample_rate =
-                    if filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
+                    if filter.as_ref().is_some_and(|f| f.plugin.supports_separate_rates()) {
                         track.codec_clock_rate().unwrap_or(48000) as i32
                     } else {
                         output_sample_rate
                     };
 
-                let (mut audio_filter_session, info) = match &filter {
-                    Some(filter) => match &request.audio_filter_options {
-                        Some(options) => {
-                            let stream_info = AudioFilterStreamInfo {
-                                url: url.clone(),
-                                room_id: room_sid.clone().into(),
-                                room_name: room_name.clone(),
-                                participant_identity: participant_identity.clone().into(),
-                                participant_id: participant_id.clone().into(),
-                                track_id: track.sid().into(),
-                            };
+                // Filtering requires both a module and options.
+                let (track_filter, info) = match (&filter, &request.audio_filter_options) {
+                    (Some(filter), Some(_)) => {
+                        let stream_info = AudioFilterStreamInfo {
+                            url: url.clone(),
+                            room_id: room_sid.clone().into(),
+                            room_name: room_name.clone(),
+                            participant_identity: participant_identity.clone().into(),
+                            participant_id: participant_id.clone().into(),
+                            track_id: track.sid().into(),
+                        };
 
-                            let info = AudioFilterInfo {
-                                stream_info,
-                                room_handle: ffi_participant.room.handle_id,
-                            };
+                        let info = AudioFilterInfo {
+                            stream_info,
+                            room_handle: ffi_participant.room.handle_id,
+                        };
 
-                            let session = filter.clone().new_session(
-                                input_sample_rate as u32,
-                                output_sample_rate as u32,
-                                &options,
-                                info.stream_info.clone(),
-                            );
-                            if session.is_none() {
-                                log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
-                            }
-                            (session, Some(info))
-                        }
-                        None => (None, None),
-                    },
-                    None => (None, None),
+                        (Some(filter.clone()), Some(info))
+                    }
+                    _ => (None, None),
                 };
 
                 let native_stream = NativeAudioStream::with_options(
@@ -334,21 +384,21 @@ impl FfiAudioStream {
                     options,
                 );
 
-                let stream = if let Some(session) = audio_filter_session.take() {
-                    let stream = AudioFilterAudioStream::new(
+                let filter_options = request.audio_filter_options.clone().unwrap_or_default();
+                let stream_info = info.as_ref().map(|i| i.stream_info.clone());
+                let frame_size_ms = request.frame_size_ms;
+
+                server.async_runtime.spawn(async move {
+                    let stream = resolve_audio_stream(
+                        track_filter,
+                        filter_options,
+                        stream_info,
                         native_stream,
-                        session,
-                        Duration::from_millis(10),
                         input_sample_rate as u32,
                         output_sample_rate as u32,
                         num_channels as u32,
-                    );
-                    AudioStreamKind::Filtered(stream)
-                } else {
-                    AudioStreamKind::Native(native_stream)
-                };
-
-                server.async_runtime.spawn(async move {
+                    )
+                    .await;
                     Self::native_audio_stream_task(
                         server,
                         stream_handle,
@@ -357,7 +407,7 @@ impl FfiAudioStream {
                         handle_dropped_rx,
                         false,
                         info,
-                        request.frame_size_ms,
+                        frame_size_ms,
                         output_sample_rate.try_into().unwrap(),
                         num_channels.try_into().unwrap(),
                     )

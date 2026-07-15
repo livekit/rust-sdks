@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::{prelude::*, registered_audio_filter_plugins, PluginError};
+use livekit::prelude::*;
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
@@ -27,6 +27,7 @@ use super::FfiDataBuffer;
 use crate::server::data_track::FfiRemoteDataTrack;
 use crate::{
     proto,
+    server::audio_plugin::AudioFilterInitTask,
     server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
     server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
@@ -134,7 +135,6 @@ impl FfiRoom {
     ) -> proto::ConnectResponse {
         let async_id = server.resolve_async_id(connect.request_async_id);
 
-        let req = connect.clone();
         let mut options: RoomOptions = connect.options.into();
 
         {
@@ -148,33 +148,11 @@ impl FfiRoom {
         let connect = async move {
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
-                    // initialize audio filters
-                    let result = server
-                        .async_runtime
-                        .spawn_blocking(move || {
-                            for filter in registered_audio_filter_plugins().into_iter() {
-                                filter.on_load(&req.url, &req.token)?;
-                            }
-                            Ok::<(), PluginError>(())
-                        })
-                        .await;
-
-                    // Filter failures are non-fatal: keep the RTC session alive, just
-                    // without the filter enabled.
-                    match result {
-                        Ok(Ok(())) => (),
-                        Ok(Err(e)) => {
-                            let hint = match &e {
-                                PluginError::OnLoad(_) => " — ensure you are connecting to LiveKit Cloud and that the filter is configured correctly",
-                                PluginError::Library(_) => " — the filter dylib could not be loaded",
-                                PluginError::NotImplemented(_) => " — the filter dylib is missing a required entry point",
-                            };
-                            log::error!("audio filter disabled, continuing without it: {e}{hint}");
-                        }
-                        Err(join_err) => {
-                            log::error!("audio filter disabled, on_load task panicked: {join_err}");
-                        }
+                    let filter_init = AudioFilterInitTask {
+                        url: connect.url.clone(),
+                        token: connect.token.clone(),
                     };
+                    server.async_runtime.spawn(filter_init.run());
 
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
