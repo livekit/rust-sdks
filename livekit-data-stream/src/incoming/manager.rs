@@ -427,20 +427,17 @@ impl Manager {
     /// this receiver are terminated so their readers observe an error rather than
     /// hanging forever waiting for chunks that will never arrive.
     fn on_abort(&mut self, identity: ParticipantIdentity) {
-        let inner = &mut self.inner;
-        let ids: Vec<StreamId> = inner
-            .open_streams
-            .iter()
-            .filter(|(_, descriptor)| descriptor.sender_identity == identity)
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in ids {
-            let reason = format!(
-                "Participant {} unexpectedly disconnected in the middle of sending data",
-                identity
-            );
-            inner.close_stream_with_error(&id, StreamError::AbnormalEnd(reason));
-        }
+        self.inner.close_streams_with_error(|_id, descriptor| {
+            if descriptor.sender_identity == identity {
+                let reason = format!(
+                    "Participant {} unexpectedly disconnected in the middle of sending data",
+                    identity
+                );
+                Err(StreamError::AbnormalEnd(reason))
+            } else {
+                Ok(())
+            }
+        });
     }
 }
 
@@ -473,6 +470,19 @@ impl ManagerInner {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
         }
+    }
+
+    fn close_streams_with_error(
+        &mut self,
+        checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
+    ) {
+        self.open_streams.retain(|id, descriptor| match checker(id, &descriptor) {
+            Ok(_) => true,
+            Err(error) => {
+                let _ = descriptor.chunk_tx.send(Err(error));
+                false
+            }
+        });
     }
 }
 
