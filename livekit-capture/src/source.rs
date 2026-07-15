@@ -41,13 +41,6 @@ pub struct RawVideoFrame {
     pub used_conversion: bool,
 }
 
-impl RawVideoFrame {
-    /// Returns the decoded I420 video frame.
-    pub fn video_frame(&self) -> &VideoFrame<I420Buffer> {
-        &self.frame
-    }
-}
-
 /// Platform-native uncompressed video frame buffer produced by a capture source.
 #[derive(Debug)]
 pub struct NativeVideoFrame {
@@ -61,13 +54,6 @@ pub struct NativeVideoFrame {
     pub read_wall_time_us: u64,
     /// Backend capture timestamp translated to UNIX-epoch microseconds, when available.
     pub sensor_timestamp_us: Option<u64>,
-}
-
-impl NativeVideoFrame {
-    /// Returns the native video frame.
-    pub fn video_frame(&self) -> &VideoFrame<NativeBuffer> {
-        &self.frame
-    }
 }
 
 /// Frame produced by a capture source.
