@@ -1,10 +1,22 @@
 # livekit-capture
 
 `livekit-capture` provides shared capture types and publishing helpers for the
-LiveKit Rust SDK. It supports decoded frames, native buffers, Linux DMA-BUF
-frames, and pre-encoded video access units.
+LiveKit Rust SDK.
 
-Concrete capture sources are optional and are introduced behind crate features.
+## Supported capture sources
+
+Concrete capture sources are optional and are introduced behind crate features:
+
+- [ ] `avfoundation`
+- [ ] `gstreamer`
+- [ ] `libargus`
+- [ ] `rtsp`
+- [ ] `tcpsink`
+- [ ] `v41`
+
+<!-- TODO: check-off as each is implemented -->
+
+Enable the feature(s) required for your application. None are enabled by default.
 
 ## Core entry points
 
