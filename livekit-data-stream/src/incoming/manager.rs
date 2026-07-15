@@ -92,7 +92,10 @@ impl DeflateDecompressState {
             Ok(_) => self.pending_text.len(),
             Err(e) => e.valid_up_to(),
         };
-        Bytes::from(self.pending_text.drain(..valid).collect::<Vec<u8>>())
+        let mut before = std::mem::take(&mut self.pending_text);
+        let after = before.split_off(valid);
+        self.pending_text = after;
+        Bytes::from(before)
     }
 }
 
