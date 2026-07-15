@@ -534,13 +534,11 @@ mod tests {
     }
 
     fn text_opts(topic: &str, dests: &[&str]) -> StreamTextOptions {
-        StreamTextOptions::new_with_topic(topic)
-            .with_destination_identities(ids(dests))
+        StreamTextOptions::new_with_topic(topic).with_destination_identities(ids(dests))
     }
 
     fn byte_opts(topic: &str, dests: &[&str]) -> StreamByteOptions {
-        StreamByteOptions::new_with_topic(topic)
-            .with_destination_identities(ids(dests))
+        StreamByteOptions::new_with_topic(topic).with_destination_identities(ids(dests))
     }
 
     fn header(p: &proto::DataPacket) -> &proto::data_stream::Header {

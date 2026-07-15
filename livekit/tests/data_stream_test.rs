@@ -14,12 +14,12 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    crate::common::test_rooms,
+    crate::common::{test_rooms, test_rooms_with_options, TestRoomOptions},
     anyhow::{anyhow, Ok, Result},
     chrono::{TimeDelta, Utc},
     livekit::{
-        data_stream::backend::pseudo_random_text, RoomEvent, StreamByteOptions, StreamReader,
-        StreamTextOptions,
+        data_stream::backend::pseudo_random_text, RoomDataStreamOptions, RoomEvent, RoomOptions,
+        StreamByteOptions, StreamError, StreamReader, StreamTextOptions,
     },
     rand::{rngs::StdRng, RngCore, SeedableRng},
     std::time::Duration,
@@ -39,7 +39,7 @@ async fn test_send_bytes() -> Result<()> {
     const BYTES_TO_SEND: &[u8] = &[0xFA; 16];
 
     let send_text = async move {
-        let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
+        let options = StreamByteOptions::new_with_topic("some-topic");
         let stream_info =
             sending_room.local_participant().send_bytes(BYTES_TO_SEND, options).await?;
 
@@ -92,7 +92,7 @@ async fn test_send_large_compressible_text() -> Result<()> {
     let expected = text.clone();
 
     let send = async move {
-        let options = StreamTextOptions { topic: "some-topic".into(), ..Default::default() };
+        let options = StreamTextOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_text(&text, options).await?;
         assert_eq!(stream_info.is_compressed, true);
         assert_eq!(stream_info.is_inline, false);
@@ -131,7 +131,7 @@ async fn test_send_large_incompressible_random_bytes() -> Result<()> {
     let expected = payload.clone();
 
     let send = async move {
-        let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
+        let options = StreamByteOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, false, "is_compressed was not false");
         assert_eq!(stream_info.is_inline, false, "is_inline was not false");
@@ -166,7 +166,7 @@ async fn test_send_large_bytes() -> Result<()> {
     let expected = payload.clone();
 
     let send = async move {
-        let options = StreamByteOptions { topic: "some-topic".into(), ..Default::default() };
+        let options = StreamByteOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, true, "is_compressed was not true");
         assert_eq!(stream_info.is_inline, true, "is_inline was not true");
@@ -202,11 +202,8 @@ async fn test_data_stream_compress_false() -> Result<()> {
     let expected = payload.clone();
 
     let send = async move {
-        let options = StreamByteOptions {
-            topic: "some-topic".into(),
-            compress: Some(false), // <= Explictly disable compression
-            ..Default::default()
-        };
+        let options = StreamByteOptions::new_with_topic("some-topic")
+            .with_compress(false); // <= Explictly disable compression
         let stream_info = sending_room.local_participant().send_bytes(&payload, options).await?;
         assert_eq!(stream_info.is_compressed, false, "is_compressed was not false");
         assert_eq!(stream_info.is_inline, false, "is_inline was not false");
@@ -229,6 +226,63 @@ async fn test_data_stream_compress_false() -> Result<()> {
     Ok(())
 }
 
+/// End-to-end validation of the receiver-side max-payload guard: the receiving room is
+/// configured with a tiny `max_payload_byte_length`, and the sender pushes a large,
+/// compressible text (chunked + deflate-raw on the wire). As the receiver decompresses, the
+/// running total blows past the limit, so its reader must terminate with
+/// [`StreamError::PayloadTooLarge`] rather than yielding the full payload.
+#[cfg(feature = "__lk-e2e-test")]
+#[tokio::test]
+async fn test_receiver_rejects_oversized_payload() -> Result<()> {
+    // Cap the receiver's accepted (decompressed) payload well below what the sender will emit.
+    const MAX_PAYLOAD_BYTES: usize = 1_000;
+
+    let mut receiver_options = RoomOptions::default();
+    receiver_options.data_stream =
+        RoomDataStreamOptions::default().with_max_payload_byte_length(MAX_PAYLOAD_BYTES);
+
+    // Order matters: index 0 is the size-capped receiver, index 1 is the default sender.
+    let mut rooms =
+        test_rooms_with_options([receiver_options.into(), TestRoomOptions::default()]).await?;
+    let (_, mut receiving_event_rx) = rooms.remove(0);
+    let (sending_room, _) = rooms.remove(0);
+
+    // ~50 KB of deterministic pseudo-random lowercase: compresses under its raw size and spans
+    // multiple chunks, so the receiver takes the streaming-decompress path where the guard lives.
+    let text = pseudo_random_text(50_000);
+
+    let send = async move {
+        let options = StreamTextOptions::new_with_topic("some-topic");
+        // The send succeeds locally; rejection happens on the receiver as it decompresses.
+        let stream_info = sending_room.local_participant().send_text(&text, options).await?;
+        // Guard the test's premise: it only exercises the limit if the stream is actually sent
+        // compressed and multi-packet (not inlined).
+        assert_eq!(stream_info.is_compressed, true, "expected a compressed stream");
+        assert_eq!(stream_info.is_inline, false, "expected a chunked (non-inline) stream");
+        Ok(())
+    };
+    let receive = async move {
+        while let Some(event) = receiving_event_rx.recv().await {
+            let RoomEvent::TextStreamOpened { reader, topic, .. } = event else {
+                continue;
+            };
+            assert_eq!(topic, "some-topic");
+            let reader = reader.take().ok_or_else(|| anyhow!("Failed to take reader"))?;
+            let result = reader.read_all().await;
+            assert!(
+                matches!(result, Err(StreamError::PayloadTooLarge)),
+                "expected StreamError::PayloadTooLarge, got {:?}",
+                result
+            );
+            break;
+        }
+        Ok(())
+    };
+
+    timeout(Duration::from_secs(10), async { try_join!(send, receive) }).await??;
+    Ok(())
+}
+
 #[cfg(feature = "__lk-e2e-test")]
 #[tokio::test]
 async fn test_send_text() -> Result<()> {
@@ -240,7 +294,7 @@ async fn test_send_text() -> Result<()> {
     const TEXT_TO_SEND: &str = "some-text";
 
     let send_text = async move {
-        let options = StreamTextOptions { topic: "some-topic".into(), ..Default::default() };
+        let options = StreamTextOptions::new_with_topic("some-topic");
         let stream_info = sending_room.local_participant().send_text(TEXT_TO_SEND, options).await?;
 
         assert!(!stream_info.id.is_empty());
