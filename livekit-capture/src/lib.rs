@@ -29,4 +29,3 @@ pub use encoded::{
     H264PacketizationMode, OwnedEncodedAccessUnit,
 };
 pub use error::CaptureError;
-pub use track::VideoCaptureTrack;

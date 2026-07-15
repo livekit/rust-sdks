@@ -21,12 +21,12 @@ use std::{
     },
 };
 
-use livekit::webrtc::video_frame::FrameMetadata;
+use livekit::webrtc::{video_frame::FrameMetadata, video_source::native::NativeVideoSource};
 
 use crate::{
     encoded::{EncodedFrameType, EncodedRateControl, OwnedEncodedAccessUnit},
     error::CaptureError,
-    track::VideoCaptureTrack,
+    track::NativeVideoSourceExt,
 };
 
 /// Source of owned encoded access units.
@@ -109,16 +109,21 @@ impl EncodedIngressStop {
 /// Pulls encoded access units from a source and forwards them into a video track.
 #[derive(Debug)]
 pub struct EncodedIngress<S> {
-    track: VideoCaptureTrack,
-    source: S,
+    rtc_source: NativeVideoSource,
+    capture_source: S,
     stop: EncodedIngressStop,
     awaiting_initial_keyframe: bool,
 }
 
 impl<S> EncodedIngress<S> {
     /// Creates an encoded ingress runner.
-    pub fn new(track: VideoCaptureTrack, source: S) -> Self {
-        Self { track, source, stop: EncodedIngressStop::new(), awaiting_initial_keyframe: true }
+    pub fn new(rtc_source: NativeVideoSource, capture_source: S) -> Self {
+        Self {
+            rtc_source,
+            capture_source,
+            stop: EncodedIngressStop::new(),
+            awaiting_initial_keyframe: true,
+        }
     }
 
     /// Returns a cancellation handle for this runner.
@@ -126,24 +131,24 @@ impl<S> EncodedIngress<S> {
         self.stop.clone()
     }
 
-    /// Returns the capture track used by this runner.
-    pub fn track(&self) -> &VideoCaptureTrack {
-        &self.track
+    /// Returns the RTC source used by this runner.
+    pub fn rtc_source(&self) -> &NativeVideoSource {
+        &self.rtc_source
     }
 
     /// Returns the underlying encoded source.
     pub fn source(&self) -> &S {
-        &self.source
+        &self.capture_source
     }
 
     /// Returns the underlying encoded source mutably.
     pub fn source_mut(&mut self) -> &mut S {
-        &mut self.source
+        &mut self.capture_source
     }
 
     /// Consumes this runner and returns its parts.
-    pub fn into_parts(self) -> (VideoCaptureTrack, S) {
-        (self.track, self.source)
+    pub fn into_parts(self) -> (NativeVideoSource, S) {
+        (self.rtc_source, self.capture_source)
     }
 }
 
@@ -182,16 +187,16 @@ where
         &mut self,
         frame_metadata: impl FnOnce(&OwnedEncodedAccessUnit) -> Option<FrameMetadata>,
     ) -> Result<Option<EncodedIngressCapture>, EncodedIngressError<S::Error>> {
-        if let Some(rate_control) = self.track.take_rate_control_request() {
-            self.source.update_rate_control(rate_control);
+        if let Some(rate_control) = self.rtc_source.take_rate_control_request() {
+            self.capture_source.update_rate_control(rate_control);
         }
-        if self.track.take_keyframe_request() {
-            self.source.request_keyframe();
+        if self.rtc_source.take_keyframe_request() {
+            self.capture_source.request_keyframe();
         }
 
         let access_unit = loop {
             let Some(access_unit) =
-                self.source.next_access_unit().map_err(EncodedIngressError::Source)?
+                self.capture_source.next_access_unit().map_err(EncodedIngressError::Source)?
             else {
                 return Ok(None);
             };
@@ -203,7 +208,7 @@ where
         };
 
         let frame_metadata = frame_metadata(&access_unit);
-        self.track
+        self.rtc_source
             .capture_encoded_with_metadata(&access_unit.as_access_unit(), frame_metadata)
             .map_err(EncodedIngressError::Capture)?;
         Ok(Some(EncodedIngressCapture {
@@ -274,8 +279,8 @@ mod tests {
         )
     }
 
-    fn encoded_track() -> VideoCaptureTrack {
-        VideoCaptureTrack::new_encoded("test", VideoResolution { width: 640, height: 480 })
+    fn rtc_source() -> NativeVideoSource {
+        NativeVideoSource::new_encoded(VideoResolution { width: 640, height: 480 })
     }
 
     #[test]
@@ -285,7 +290,7 @@ mod tests {
             access_unit(2, EncodedFrameType::Delta),
             access_unit(3, EncodedFrameType::Key),
         ]);
-        let mut ingress = EncodedIngress::new(encoded_track(), source);
+        let mut ingress = EncodedIngress::new(rtc_source(), source);
 
         let capture = ingress
             .capture_next()
@@ -302,7 +307,7 @@ mod tests {
             access_unit(1, EncodedFrameType::Key),
             access_unit(2, EncodedFrameType::Delta),
         ]);
-        let mut ingress = EncodedIngress::new(encoded_track(), source);
+        let mut ingress = EncodedIngress::new(rtc_source(), source);
 
         let first = ingress.capture_next().unwrap().unwrap();
         let second = ingress.capture_next().unwrap().unwrap();
