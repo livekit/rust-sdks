@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Capture helpers for publishing decoded, DMA-BUF, and encoded video with LiveKit.
+#![doc = include_str!("../README.md")]
 
 pub mod device;
 pub mod dmabuf;
