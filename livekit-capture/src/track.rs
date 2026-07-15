@@ -29,7 +29,6 @@ use crate::{
     error::CaptureError,
 };
 
-pub use crate::device::CapturePath;
 #[cfg(target_os = "linux")]
 use crate::dmabuf::DmaBufFrame;
 
