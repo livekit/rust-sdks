@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::info::{AnyStreamInfo, ByteStreamInfo, TextStreamInfo};
-use crate::utils::{StreamError, StreamProgress, StreamResult};
+use crate::{
+    info::{AnyStreamInfo, ByteStreamInfo, TextStreamInfo},
+    utils::{StreamError, StreamProgress, StreamResult},
+};
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use std::{
@@ -21,8 +23,10 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
-use tokio::sync::watch;
+use tokio::sync::{
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+    watch,
+};
 use tokio_stream::wrappers::WatchStream;
 
 /// Reader for an incoming data stream.
