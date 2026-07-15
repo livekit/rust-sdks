@@ -24,7 +24,7 @@ use livekit::{
     },
 };
 
-use crate::error::CaptureError;
+use crate::{error::CaptureError, primitives::VideoResolution};
 
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
@@ -219,10 +219,8 @@ pub struct EncodedAccessUnit<'a> {
     pub timestamp_us: i64,
     /// Encoded frame type.
     pub frame_type: EncodedFrameType,
-    /// Encoded frame width in pixels.
-    pub width: u32,
-    /// Encoded frame height in pixels.
-    pub height: u32,
+    /// Encoded frame dimensions in pixels.
+    pub dimensions: VideoResolution,
     /// Optional layer identifiers.
     pub layers: EncodedLayerInfo,
     /// Optional codec-specific metadata.
@@ -240,10 +238,8 @@ pub struct OwnedEncodedAccessUnit {
     pub timestamp_us: i64,
     /// Encoded frame type.
     pub frame_type: EncodedFrameType,
-    /// Encoded frame width in pixels.
-    pub width: u32,
-    /// Encoded frame height in pixels.
-    pub height: u32,
+    /// Encoded frame dimensions in pixels.
+    pub dimensions: VideoResolution,
     /// Optional layer identifiers.
     pub layers: EncodedLayerInfo,
     /// Optional codec-specific metadata.
@@ -257,16 +253,14 @@ impl OwnedEncodedAccessUnit {
         payload: impl Into<Bytes>,
         timestamp_us: i64,
         frame_type: EncodedFrameType,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Self {
         Self {
             codec,
             payload: payload.into(),
             timestamp_us,
             frame_type,
-            width,
-            height,
+            dimensions,
             layers: EncodedLayerInfo::default(),
             codec_specific: CodecSpecific::None,
         }
@@ -279,8 +273,7 @@ impl OwnedEncodedAccessUnit {
             payload: EncodedPayload::Contiguous(&self.payload),
             timestamp_us: self.timestamp_us,
             frame_type: self.frame_type,
-            width: self.width,
-            height: self.height,
+            dimensions: self.dimensions,
             layers: self.layers,
             codec_specific: self.codec_specific.clone(),
         }
@@ -293,8 +286,7 @@ impl OwnedEncodedAccessUnit {
             payload: Bytes::from(access_unit.payload.to_vec()),
             timestamp_us: access_unit.timestamp_us,
             frame_type: access_unit.frame_type,
-            width: access_unit.width,
-            height: access_unit.height,
+            dimensions: access_unit.dimensions,
             layers: access_unit.layers,
             codec_specific: access_unit.codec_specific.clone(),
         }
@@ -308,16 +300,14 @@ impl<'a> EncodedAccessUnit<'a> {
         payload: &'a [u8],
         timestamp_us: i64,
         frame_type: EncodedFrameType,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Self {
         Self {
             codec,
             payload: EncodedPayload::Contiguous(payload),
             timestamp_us,
             frame_type,
-            width,
-            height,
+            dimensions,
             layers: EncodedLayerInfo::default(),
             codec_specific: CodecSpecific::None,
         }
@@ -327,28 +317,25 @@ impl<'a> EncodedAccessUnit<'a> {
     pub fn from_h264_nalus(
         nal_units: &[&[u8]],
         timestamp_us: i64,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
-        Self::from_nalus(EncodedVideoCodec::H264, nal_units, timestamp_us, width, height)
+        Self::from_nalus(EncodedVideoCodec::H264, nal_units, timestamp_us, dimensions)
     }
 
     /// Creates an H.265 access unit from raw NAL-unit payloads.
     pub fn from_h265_nalus(
         nal_units: &[&[u8]],
         timestamp_us: i64,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
-        Self::from_nalus(EncodedVideoCodec::H265, nal_units, timestamp_us, width, height)
+        Self::from_nalus(EncodedVideoCodec::H265, nal_units, timestamp_us, dimensions)
     }
 
     fn from_nalus(
         codec: EncodedVideoCodec,
         nal_units: &[&[u8]],
         timestamp_us: i64,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
         let is_key = is_keyframe_nalus(codec, nal_units)?;
         Ok(EncodedAccessUnit {
@@ -356,8 +343,7 @@ impl<'a> EncodedAccessUnit<'a> {
             payload: EncodedPayload::Owned(annex_b_payload(nal_units)?),
             timestamp_us,
             frame_type: if is_key { EncodedFrameType::Key } else { EncodedFrameType::Delta },
-            width,
-            height,
+            dimensions,
             layers: EncodedLayerInfo::default(),
             codec_specific: CodecSpecific::default_for(codec),
         })
@@ -473,7 +459,9 @@ mod tests {
     fn h264_nal_helper_assembles_annex_b_and_detects_keyframe() {
         let sps = [0x67, 1, 2, 3];
         let idr = [0x65, 4, 5, 6];
-        let au = EncodedAccessUnit::from_h264_nalus(&[&sps, &idr], 10, 640, 480).unwrap();
+        let au =
+            EncodedAccessUnit::from_h264_nalus(&[&sps, &idr], 10, VideoResolution::new(640, 480))
+                .unwrap();
 
         assert_eq!(au.codec, EncodedVideoCodec::H264);
         assert_eq!(au.frame_type, EncodedFrameType::Key);
@@ -489,14 +477,25 @@ mod tests {
         let sps = [0x42, 1, 2];
         let pps = [0x44, 1, 2];
         let idr_w_radl = [19 << 1, 1, 3];
-        let idr_without_headers =
-            EncodedAccessUnit::from_h265_nalus(&[&vps, &idr_w_radl], 10, 640, 480).unwrap();
-        let key =
-            EncodedAccessUnit::from_h265_nalus(&[&vps, &sps, &pps, &idr_w_radl], 10, 640, 480)
-                .unwrap();
+        let idr_without_headers = EncodedAccessUnit::from_h265_nalus(
+            &[&vps, &idr_w_radl],
+            10,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
+        let key = EncodedAccessUnit::from_h265_nalus(
+            &[&vps, &sps, &pps, &idr_w_radl],
+            10,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let cra = [21 << 1, 1, 3];
-        let cra_with_headers =
-            EncodedAccessUnit::from_h265_nalus(&[&vps, &sps, &pps, &cra], 10, 640, 480).unwrap();
+        let cra_with_headers = EncodedAccessUnit::from_h265_nalus(
+            &[&vps, &sps, &pps, &cra],
+            10,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
 
         assert_eq!(idr_without_headers.codec, EncodedVideoCodec::H265);
         assert_eq!(idr_without_headers.frame_type, EncodedFrameType::Delta);
@@ -506,7 +505,9 @@ mod tests {
 
     #[test]
     fn h265_rejects_too_short_nal_header() {
-        let err = EncodedAccessUnit::from_h265_nalus(&[&[0x26]], 10, 640, 480).unwrap_err();
+        let err =
+            EncodedAccessUnit::from_h265_nalus(&[&[0x26]], 10, VideoResolution::new(640, 480))
+                .unwrap_err();
         assert_eq!(err, CaptureError::H265NalTooShort);
     }
 
@@ -524,8 +525,7 @@ mod tests {
             Bytes::from_static(&[1, 2, 3]),
             10,
             EncodedFrameType::Delta,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         );
 
         let borrowed = owned.as_access_unit();

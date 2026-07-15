@@ -233,10 +233,8 @@ where
 mod tests {
     use std::{collections::VecDeque, error::Error, fmt};
 
-    use livekit::webrtc::video_source::VideoResolution;
-
     use super::*;
-    use crate::encoded::EncodedVideoCodec;
+    use crate::{encoded::EncodedVideoCodec, primitives::VideoResolution};
 
     #[derive(Debug)]
     struct FakeSourceError;
@@ -274,13 +272,12 @@ mod tests {
             vec![1, 2, 3],
             timestamp_us,
             frame_type,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         )
     }
 
     fn rtc_source() -> NativeVideoSource {
-        NativeVideoSource::new_encoded(VideoResolution { width: 640, height: 480 })
+        NativeVideoSource::new_encoded(VideoResolution::new(640, 480).into())
     }
 
     #[test]

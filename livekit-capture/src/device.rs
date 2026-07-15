@@ -14,8 +14,9 @@
 
 use std::fmt;
 
-use livekit::webrtc::video_source::VideoResolution;
 use thiserror::Error;
+
+use crate::primitives::VideoResolution;
 
 /// Capture backend used by a source implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -195,33 +196,11 @@ impl std::str::FromStr for CaptureFrameFormat {
 #[error("unknown capture frame format")]
 pub struct CaptureFrameFormatParseError;
 
-/// Pixel dimensions for a capture format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CaptureResolution {
-    /// Frame width in pixels.
-    pub width: u32,
-    /// Frame height in pixels.
-    pub height: u32,
-}
-
-impl CaptureResolution {
-    /// Creates a capture resolution.
-    pub const fn new(width: u32, height: u32) -> Self {
-        Self { width, height }
-    }
-}
-
-impl From<CaptureResolution> for VideoResolution {
-    fn from(value: CaptureResolution) -> Self {
-        Self { width: value.width, height: value.height }
-    }
-}
-
 /// Raw-frame capture format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CaptureFormat {
     /// Frame dimensions.
-    pub resolution: CaptureResolution,
+    pub resolution: VideoResolution,
     /// Frame rate in frames per second.
     pub frame_rate: u32,
     /// Frame format.
@@ -231,7 +210,7 @@ pub struct CaptureFormat {
 impl CaptureFormat {
     /// Creates a raw-frame capture format.
     pub const fn new(
-        resolution: CaptureResolution,
+        resolution: VideoResolution,
         frame_rate: u32,
         frame_format: CaptureFrameFormat,
     ) -> Self {
@@ -252,7 +231,7 @@ pub enum CaptureFormatRequest {
     /// Prefer the highest frame rate, optionally constrained by resolution and frame format.
     HighestFrameRate {
         /// Optional resolution constraint.
-        resolution: Option<CaptureResolution>,
+        resolution: Option<VideoResolution>,
         /// Optional frame format constraint.
         frame_format: Option<CaptureFrameFormat>,
     },

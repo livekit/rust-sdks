@@ -17,6 +17,7 @@
 pub mod device;
 pub mod dmabuf;
 pub mod encoded;
+pub mod primitives;
 pub mod source;
 pub mod sources;
 pub mod track;

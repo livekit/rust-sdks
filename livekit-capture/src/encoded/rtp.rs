@@ -21,6 +21,7 @@ use crate::{
         OwnedEncodedAccessUnit,
     },
     error::CaptureError,
+    primitives::VideoResolution,
 };
 
 /// Parsed RTP packet header and payload.
@@ -174,8 +175,7 @@ pub struct RtpDepacketizerStats {
 #[derive(Debug, Clone)]
 pub struct RtpAccessUnitAssembler {
     codec: EncodedVideoCodec,
-    width: u32,
-    height: u32,
+    dimensions: VideoResolution,
     timestamp_mapper: RtpTimestampMapper,
     expected_sequence_number: Option<u16>,
     current: Option<PartialAccessUnit>,
@@ -221,8 +221,7 @@ impl RtpAccessUnitAssembler {
         codec: EncodedVideoCodec,
         clock_rate: u32,
         start_timestamp_us: i64,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Result<Self, RtpDepacketizerError> {
         if clock_rate == 0 {
             return Err(RtpDepacketizerError::InvalidClockRate);
@@ -230,8 +229,7 @@ impl RtpAccessUnitAssembler {
 
         Ok(Self {
             codec,
-            width,
-            height,
+            dimensions,
             timestamp_mapper: RtpTimestampMapper::new(clock_rate, start_timestamp_us),
             expected_sequence_number: None,
             current: None,
@@ -654,13 +652,8 @@ impl RtpAccessUnitAssembler {
         }
 
         let nal_units = current.nal_units.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let access_unit = access_unit_from_nalus(
-            self.codec,
-            &nal_units,
-            current.timestamp_us,
-            self.width,
-            self.height,
-        )?;
+        let access_unit =
+            access_unit_from_nalus(self.codec, &nal_units, current.timestamp_us, self.dimensions)?;
         Ok(self.gate_on_keyframe(access_unit))
     }
 
@@ -679,8 +672,7 @@ impl RtpAccessUnitAssembler {
             Bytes::from(current.payload),
             current.timestamp_us,
             current.frame_type.unwrap_or(EncodedFrameType::Delta),
-            self.width,
-            self.height,
+            self.dimensions,
         );
         access_unit.codec_specific = CodecSpecific::default_for(self.codec);
         Ok(self.gate_on_keyframe(access_unit))
@@ -1164,8 +1156,13 @@ mod tests {
 
     #[test]
     fn assembles_h264_fu_a() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::H264,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x7c, 0x85, 1, 2]);
         let end = rtp_packet(11, 12_000, true, &[0x7c, 0x45, 3, 4]);
 
@@ -1176,8 +1173,13 @@ mod tests {
 
     #[test]
     fn sequence_gap_recovers_h264_at_next_keyframe() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::H264,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x7c, 0x85, 1, 2]);
         let delta = rtp_packet(12, 15_000, true, &[0x41, 1, 2]);
         let key = rtp_packet(13, 18_000, true, &[0x65, 3, 4]);
@@ -1200,8 +1202,13 @@ mod tests {
 
     #[test]
     fn marker_with_open_h264_fragment_drops_access_unit() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::H264,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x7c, 0x85, 1, 2]);
         let truncated = rtp_packet(11, 12_000, true, &[0x7c, 0x05, 3, 4]);
         let key = rtp_packet(12, 15_000, true, &[0x65, 5, 6]);
@@ -1222,8 +1229,13 @@ mod tests {
 
     #[test]
     fn drops_h264_fu_continuation_without_start() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::H264, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::H264,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let continuation = rtp_packet(10, 12_000, false, &[0x7c, 0x05, 1, 2]);
         let key = rtp_packet(11, 15_000, true, &[0x65, 3, 4]);
 
@@ -1237,8 +1249,13 @@ mod tests {
 
     #[test]
     fn assembles_vp8_fragments() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP8,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x10, 0x00, 1, 2]);
         let end = rtp_packet(11, 12_000, true, &[0x00, 3, 4]);
 
@@ -1251,8 +1268,13 @@ mod tests {
 
     #[test]
     fn drops_vp8_mid_frame_start() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP8,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let mid_frame = rtp_packet(10, 12_000, true, &[0x00, 1, 2]);
         let key = rtp_packet(11, 15_000, true, &[0x10, 0x00, 3, 4]);
 
@@ -1266,8 +1288,13 @@ mod tests {
 
     #[test]
     fn assembles_vp9_single_layer_frame() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(10, 12_000, true, &[0x0c, 0x82, 1, 2]);
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
@@ -1278,8 +1305,13 @@ mod tests {
 
     #[test]
     fn assembles_vp9_non_flexible_layer_descriptor() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(10, 12_000, true, &[0x2c, 0x10, 7, 0x82, 1, 2]);
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
@@ -1289,8 +1321,13 @@ mod tests {
 
     #[test]
     fn assembles_vp9_single_layer_scalability_structure() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(
             10,
             12_000,
@@ -1314,8 +1351,13 @@ mod tests {
 
     #[test]
     fn assembles_vp9_descriptor_keyframe_from_prediction_bit() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(
             10,
             12_000,
@@ -1338,8 +1380,13 @@ mod tests {
 
     #[test]
     fn assembles_vp9_predicted_frame_as_delta() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         // P is set and the payload is an inter frame: must not classify as Key.
         let packet = rtp_packet(10, 12_000, true, &[0x4c, 0x86, 1, 2]);
 
@@ -1350,8 +1397,13 @@ mod tests {
 
     #[test]
     fn vp9_bitstream_keyframe_overrides_predicted_bit() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         // P is set but the uncompressed header says KEY_FRAME.
         let packet = rtp_packet(10, 12_000, true, &[0x4c, 0x82, 1, 2]);
 
@@ -1381,8 +1433,13 @@ mod tests {
 
     #[test]
     fn rejects_vp9_multi_layer_scalability_structure() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(10, 12_000, true, &[0x0e, 0x20, 0x82, 1, 2]);
 
         let err = assembler.push(&packet).unwrap_err();
@@ -1391,8 +1448,13 @@ mod tests {
 
     #[test]
     fn drops_vp9_mid_frame_start() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let mid_frame = rtp_packet(10, 12_000, true, &[0x04, 0x82, 1, 2]);
         let key = rtp_packet(11, 15_000, true, &[0x0c, 0x82, 3, 4]);
 
@@ -1406,8 +1468,13 @@ mod tests {
 
     #[test]
     fn rejects_vp9_flexible_mode() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP9, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP9,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(10, 12_000, true, &[0x1c, 0xa2, 1, 2]);
 
         let err = assembler.push(&packet).unwrap_err();
@@ -1416,8 +1483,13 @@ mod tests {
 
     #[test]
     fn assembles_av1_temporal_unit() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::AV1,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(10, 12_000, true, &av1_sequence_and_frame_rtp_payload(0x10));
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
@@ -1428,8 +1500,13 @@ mod tests {
 
     #[test]
     fn av1_sequence_header_before_inter_frame_is_delta() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::AV1,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(10, 12_000, true, &av1_sequence_and_frame_rtp_payload(0x38));
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
@@ -1439,8 +1516,13 @@ mod tests {
 
     #[test]
     fn assembles_fragmented_av1_obu() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::AV1,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x50, 0x30, 0x38]);
         let end = rtp_packet(11, 12_000, true, &[0x90, 2, 3]);
 
@@ -1452,8 +1534,13 @@ mod tests {
 
     #[test]
     fn assembles_av1_obu_payload_with_size_field() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::AV1,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let packet = rtp_packet(10, 12_000, true, &[0x10, 0x30, 0x38, 2, 3]);
 
         let access_unit = assembler.push(&packet).unwrap().unwrap();
@@ -1463,8 +1550,13 @@ mod tests {
 
     #[test]
     fn marker_with_open_av1_fragment_drops_frame() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::AV1,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         // Y is set, so the OBU fragment is unterminated when the marker closes it.
         let truncated = rtp_packet(10, 12_000, true, &[0x50, 0x30, 1]);
         let key = rtp_packet(11, 15_000, true, &av1_sequence_and_frame_rtp_payload(0x10));
@@ -1482,8 +1574,13 @@ mod tests {
 
     #[test]
     fn drops_av1_fragment_continuation_without_start() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::AV1, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::AV1,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         // Z is set: this continues an OBU whose start was never received.
         let continuation = rtp_packet(10, 12_000, true, &[0x90, 2, 3]);
         let key = rtp_packet(11, 15_000, true, &av1_sequence_and_frame_rtp_payload(0x10));
@@ -1498,8 +1595,13 @@ mod tests {
 
     #[test]
     fn sequence_gap_recovers_vp8_at_next_keyframe() {
-        let mut assembler =
-            RtpAccessUnitAssembler::new(EncodedVideoCodec::VP8, 90_000, 0, 640, 480).unwrap();
+        let mut assembler = RtpAccessUnitAssembler::new(
+            EncodedVideoCodec::VP8,
+            90_000,
+            0,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let start = rtp_packet(10, 12_000, false, &[0x10, 0x00, 1, 2]);
         let delta = rtp_packet(12, 15_000, true, &[0x10, 0x01, 3, 4]);
         let key = rtp_packet(13, 18_000, true, &[0x10, 0x00, 5, 6]);

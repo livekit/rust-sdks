@@ -22,6 +22,7 @@ use crate::{
         EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     error::CaptureError,
+    primitives::VideoResolution,
 };
 
 /// Upper bound on bytes buffered while waiting for an access-unit boundary.
@@ -57,8 +58,7 @@ pub struct AnnexBAccessUnitParser {
     scan_cursor: usize,
     next_timestamp_us: i64,
     frame_interval_us: i64,
-    width: u32,
-    height: u32,
+    dimensions: VideoResolution,
 }
 
 /// H.264/AVC length-prefixed parser state.
@@ -72,8 +72,7 @@ pub(crate) struct AvcAccessUnitParser {
     nal_length_size: u8,
     next_timestamp_us: i64,
     frame_interval_us: i64,
-    width: u32,
-    height: u32,
+    dimensions: VideoResolution,
 }
 
 impl AnnexBAccessUnitParser {
@@ -82,8 +81,7 @@ impl AnnexBAccessUnitParser {
         codec: EncodedVideoCodec,
         start_timestamp_us: i64,
         frame_interval_us: i64,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Result<Self, CaptureError> {
         match codec {
             EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => {}
@@ -99,8 +97,7 @@ impl AnnexBAccessUnitParser {
             scan_cursor: 0,
             next_timestamp_us: start_timestamp_us,
             frame_interval_us,
-            width,
-            height,
+            dimensions,
         })
     }
 
@@ -186,8 +183,7 @@ impl AnnexBAccessUnitParser {
             self.codec,
             Bytes::from(access_unit),
             timestamp_us,
-            self.width,
-            self.height,
+            self.dimensions,
         )
         .map(Some)
     }
@@ -209,8 +205,7 @@ impl AvcAccessUnitParser {
         nal_length_size: u8,
         start_timestamp_us: i64,
         frame_interval_us: i64,
-        width: u32,
-        height: u32,
+        dimensions: VideoResolution,
     ) -> Result<Self, CaptureError> {
         validate_avc_nal_length_size(nal_length_size)?;
 
@@ -221,8 +216,7 @@ impl AvcAccessUnitParser {
             nal_length_size,
             next_timestamp_us: start_timestamp_us,
             frame_interval_us,
-            width,
-            height,
+            dimensions,
         })
     }
 
@@ -315,14 +309,8 @@ impl AvcAccessUnitParser {
         self.scan_cursor -= byte_len;
         let timestamp_us = self.next_timestamp_us;
         self.next_timestamp_us = self.next_timestamp_us.saturating_add(self.frame_interval_us);
-        access_unit_from_h264_avc(
-            &access_unit,
-            self.nal_length_size,
-            timestamp_us,
-            self.width,
-            self.height,
-        )
-        .map(Some)
+        access_unit_from_h264_avc(&access_unit, self.nal_length_size, timestamp_us, self.dimensions)
+            .map(Some)
     }
 }
 
@@ -377,11 +365,10 @@ pub(crate) fn access_unit_from_h264_avc(
     payload: &[u8],
     nal_length_size: u8,
     timestamp_us: i64,
-    width: u32,
-    height: u32,
+    dimensions: VideoResolution,
 ) -> Result<OwnedEncodedAccessUnit, CaptureError> {
     let nals = avc_nalus(payload, nal_length_size)?;
-    access_unit_from_nalus(EncodedVideoCodec::H264, &nals, timestamp_us, width, height)
+    access_unit_from_nalus(EncodedVideoCodec::H264, &nals, timestamp_us, dimensions)
 }
 
 /// Creates an access unit from an Annex-B buffer.
@@ -389,8 +376,7 @@ pub fn access_unit_from_annex_b(
     codec: EncodedVideoCodec,
     payload: Bytes,
     timestamp_us: i64,
-    width: u32,
-    height: u32,
+    dimensions: VideoResolution,
 ) -> Result<OwnedEncodedAccessUnit, CaptureError> {
     if payload.is_empty() {
         return Err(CaptureError::EmptyPayload);
@@ -402,7 +388,7 @@ pub fn access_unit_from_annex_b(
         EncodedFrameType::Delta
     };
     let mut access_unit =
-        OwnedEncodedAccessUnit::new(codec, payload, timestamp_us, frame_type, width, height);
+        OwnedEncodedAccessUnit::new(codec, payload, timestamp_us, frame_type, dimensions);
     access_unit.codec_specific = CodecSpecific::default_for(codec);
     Ok(access_unit)
 }
@@ -412,11 +398,10 @@ pub fn access_unit_from_nalus(
     codec: EncodedVideoCodec,
     nal_units: &[&[u8]],
     timestamp_us: i64,
-    width: u32,
-    height: u32,
+    dimensions: VideoResolution,
 ) -> Result<OwnedEncodedAccessUnit, CaptureError> {
     let payload = Bytes::from(annex_b_payload(nal_units)?);
-    access_unit_from_annex_b(codec, payload, timestamp_us, width, height)
+    access_unit_from_annex_b(codec, payload, timestamp_us, dimensions)
 }
 
 /// Returns true when an Annex-B access unit contains an intra/key picture.
@@ -623,7 +608,7 @@ mod tests {
     #[test]
     fn access_unit_from_avc_converts_length_prefixed_nals() {
         let bytes = [0, 0, 0, 4, 0x67, 1, 2, 3, 0, 0, 0, 3, 0x65, 4, 5];
-        let au = access_unit_from_h264_avc(&bytes, 4, 10, 640, 480).unwrap();
+        let au = access_unit_from_h264_avc(&bytes, 4, 10, VideoResolution::new(640, 480)).unwrap();
 
         assert_eq!(au.codec, EncodedVideoCodec::H264);
         assert_eq!(au.frame_type, EncodedFrameType::Key);
@@ -633,7 +618,7 @@ mod tests {
     #[test]
     fn access_unit_from_avc_supports_two_byte_lengths() {
         let bytes = [0, 2, 0x61, 1];
-        let au = access_unit_from_h264_avc(&bytes, 2, 10, 640, 480).unwrap();
+        let au = access_unit_from_h264_avc(&bytes, 2, 10, VideoResolution::new(640, 480)).unwrap();
 
         assert_eq!(au.frame_type, EncodedFrameType::Delta);
         assert_eq!(au.payload.as_ref(), &[0, 0, 0, 1, 0x61, 1]);
@@ -641,15 +626,22 @@ mod tests {
 
     #[test]
     fn access_unit_from_avc_rejects_truncated_nal() {
-        let err = access_unit_from_h264_avc(&[0, 0, 0, 3, 0x65], 4, 10, 640, 480).unwrap_err();
+        let err =
+            access_unit_from_h264_avc(&[0, 0, 0, 3, 0x65], 4, 10, VideoResolution::new(640, 480))
+                .unwrap_err();
 
         assert_eq!(err, CaptureError::InvalidEncodedData("truncated AVC NAL unit"));
     }
 
     #[test]
     fn parser_flushes_final_access_unit() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 100, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H264,
+            100,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         assert!(parser.push(&[0, 0, 1, 0x65, 1, 2]).unwrap().is_none());
         let au = parser.flush().unwrap().unwrap();
         assert_eq!(au.timestamp_us, 100);
@@ -658,8 +650,13 @@ mod tests {
 
     #[test]
     fn parser_splits_at_next_access_unit_delimiter() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 100, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H264,
+            100,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let stream =
             [0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x65, 1, 2, 0, 0, 1, 0x09, 0x10, 0, 0, 1, 0x41, 3];
 
@@ -674,7 +671,8 @@ mod tests {
 
     #[test]
     fn avc_parser_splits_at_next_access_unit_delimiter() {
-        let mut parser = AvcAccessUnitParser::new(4, 100, 33_333, 640, 480).unwrap();
+        let mut parser =
+            AvcAccessUnitParser::new(4, 100, 33_333, VideoResolution::new(640, 480)).unwrap();
         let stream = [
             0, 0, 0, 2, 0x09, 0x10, 0, 0, 0, 3, 0x65, 1, 2, 0, 0, 0, 2, 0x09, 0x10, 0, 0, 0, 2,
             0x41, 3,
@@ -691,8 +689,13 @@ mod tests {
 
     #[test]
     fn splits_aud_less_h264_stream_per_frame() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H264,
+            0,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let stream = [
             0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1e, // SPS
             0, 0, 0, 1, 0x68, 0xce, // PPS
@@ -718,8 +721,13 @@ mod tests {
 
     #[test]
     fn keeps_multi_slice_h264_access_unit_together() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H264,
+            0,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let stream = [
             0, 0, 1, 0x65, 0x88, 0x11, // IDR slice, first_mb_in_slice == 0
             0, 0, 1, 0x65, 0x21, 0x22, // IDR slice, first_mb_in_slice != 0
@@ -738,8 +746,13 @@ mod tests {
 
     #[test]
     fn splits_aud_less_h265_stream_per_frame() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H265, 0, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H265,
+            0,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let stream = [
             0, 0, 0, 1, 0x40, 0x01, 0x0c, // VPS
             0, 0, 0, 1, 0x42, 0x01, 0x02, // SPS
@@ -762,8 +775,13 @@ mod tests {
 
     #[test]
     fn keeps_multi_slice_h265_access_unit_together() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H265, 0, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H265,
+            0,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let stream = [
             0, 0, 1, 0x26, 0x01, 0xaf,
             0x11, // IDR slice, first_slice_segment_in_pic_flag == 1
@@ -784,8 +802,13 @@ mod tests {
 
     #[test]
     fn groups_parameter_sets_with_following_frame() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H264,
+            0,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let stream = [
             0, 0, 1, 0x67, 0x42, 0x1e, // SPS
             0, 0, 1, 0x68, 0xce, // PPS
@@ -851,7 +874,15 @@ mod tests {
             0, 0, 0, 1, 0x41, 0x9a, 0x04, 0x00, // P, first_mb_in_slice == 0
         ];
         assert_chunked_matches_one_shot(
-            || AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap(),
+            || {
+                AnnexBAccessUnitParser::new(
+                    EncodedVideoCodec::H264,
+                    0,
+                    33_333,
+                    VideoResolution::new(640, 480),
+                )
+                .unwrap()
+            },
             &h264_annex_b,
             4,
         );
@@ -866,7 +897,15 @@ mod tests {
             0, 0, 1, 0x02, 0x01, 0xd0, 0x0a, // TRAIL_R
         ];
         assert_chunked_matches_one_shot(
-            || AnnexBAccessUnitParser::new(EncodedVideoCodec::H265, 0, 33_333, 640, 480).unwrap(),
+            || {
+                AnnexBAccessUnitParser::new(
+                    EncodedVideoCodec::H265,
+                    0,
+                    33_333,
+                    VideoResolution::new(640, 480),
+                )
+                .unwrap()
+            },
             &h265_annex_b,
             3,
         );
@@ -880,7 +919,7 @@ mod tests {
             0, 0, 0, 3, 0x41, 0x9a, 0x03, // P
         ];
         assert_chunked_matches_one_shot(
-            || AvcAccessUnitParser::new(4, 0, 33_333, 640, 480).unwrap(),
+            || AvcAccessUnitParser::new(4, 0, 33_333, VideoResolution::new(640, 480)).unwrap(),
             &h264_avc,
             3,
         );
@@ -888,8 +927,13 @@ mod tests {
 
     #[test]
     fn rejects_pending_access_unit_over_size_cap() {
-        let mut parser =
-            AnnexBAccessUnitParser::new(EncodedVideoCodec::H264, 0, 33_333, 640, 480).unwrap();
+        let mut parser = AnnexBAccessUnitParser::new(
+            EncodedVideoCodec::H264,
+            0,
+            33_333,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         assert!(parser.push(&[0, 0, 1, 0x65, 0x88]).unwrap().is_none());
 
         let err = parser.push(&vec![0xff; MAX_PENDING_ACCESS_UNIT_BYTES]).unwrap_err();
@@ -901,7 +945,8 @@ mod tests {
 
     #[test]
     fn avc_rejects_pending_access_unit_over_size_cap() {
-        let mut parser = AvcAccessUnitParser::new(4, 0, 33_333, 640, 480).unwrap();
+        let mut parser =
+            AvcAccessUnitParser::new(4, 0, 33_333, VideoResolution::new(640, 480)).unwrap();
         let nal_len = (MAX_PENDING_ACCESS_UNIT_BYTES + 1) as u32;
         assert!(parser.push(&nal_len.to_be_bytes()).unwrap().is_none());
 

@@ -16,7 +16,7 @@ use livekit::{
     options::{TrackPublishOptions, VideoEncoderBackend},
     webrtc::{
         video_frame::{EncodedVideoFrame, FrameMetadata},
-        video_source::{native::NativeVideoSource, VideoResolution},
+        video_source::native::NativeVideoSource,
     },
 };
 
@@ -110,7 +110,7 @@ impl NativeVideoSourceExt for NativeVideoSource {
             payload,
             timestamp_us: access_unit.timestamp_us,
             frame_type: access_unit.frame_type.into(),
-            resolution: VideoResolution { width: access_unit.width, height: access_unit.height },
+            resolution: access_unit.dimensions.into(),
             frame_metadata,
         };
         self.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
@@ -150,7 +150,7 @@ fn validate_encoded_access_unit(access_unit: &EncodedAccessUnit<'_>) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::encoded::EncodedFrameType;
+    use crate::{encoded::EncodedFrameType, primitives::VideoResolution};
 
     #[test]
     fn accepts_vp8_vp9_and_av1_access_units() {
@@ -160,8 +160,7 @@ mod tests {
                 &[1, 2, 3],
                 0,
                 EncodedFrameType::Key,
-                640,
-                480,
+                VideoResolution::new(640, 480),
             );
 
             assert!(validate_encoded_access_unit(&access_unit).is_ok());
@@ -175,8 +174,7 @@ mod tests {
             &[],
             0,
             EncodedFrameType::Key,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         );
 
         assert_eq!(validate_encoded_access_unit(&access_unit), Err(CaptureError::EmptyPayload));
@@ -189,8 +187,7 @@ mod tests {
             &[1, 2, 3],
             0,
             EncodedFrameType::Key,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         );
         access_unit.codec_specific = CodecSpecific::default_for(EncodedVideoCodec::AV1);
 
@@ -204,8 +201,7 @@ mod tests {
             &[1, 2, 3],
             0,
             EncodedFrameType::Key,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         );
         access_unit.layers = EncodedLayerInfo { spatial_id: None, temporal_id: Some(1) };
 
@@ -222,8 +218,7 @@ mod tests {
             &[1, 2, 3],
             0,
             EncodedFrameType::Key,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         );
         access_unit.codec_specific = CodecSpecific::VP8 { temporal_id: Some(1), layer_sync: true };
 
