@@ -1,21 +1,23 @@
 name: UniFFI packages
 
-# Orchestrates per-language wrapper-package publishing on knope draft releases
-# for the livekit-uniffi crate. Resolves the source tag once, then delegates
-# to per-language reusable workflows (uniffi-swift.yml today; uniffi-kotlin.yml
-# / uniffi-python.yml would slot in as additional jobs).
-#
-# Trigger pattern mirrors ffi-builds.yml: every push to main checks for a
-# draft release with prefix `livekit-uniffi/v`; workflow_dispatch allows
-# manual runs with an explicit tag.
+# Orchestrates per-language wrapper-package publishing for the livekit-uniffi
+# crate. Resolves the source tag once, delegates to per-language reusable
+# workflows (uniffi-swift.yml today; uniffi-kotlin.yml / uniffi-python.yml
+# would slot in as additional jobs), then publishes the GitHub release once
+# every leg succeeds. Called from release.yml when a release PR merges;
+# workflow_dispatch is the manual/recovery path.
 
 on:
-  push:
-    branches: ["main"]
+  workflow_call:
+    inputs:
+      dry_run:
+        description: "Build artifacts but skip release upload/PR."
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g., livekit-uniffi/v0.0.7). Required if no draft release exists."
+        description: "Release tag (e.g., livekit-uniffi/v0.0.7). Overrides resolution from the crate version."
         required: false
         type: string
       dry_run:
@@ -26,9 +28,6 @@ on:
 permissions:
   contents: read
 
-env:
-  TAG_PREFIX: livekit-uniffi/v
-
 jobs:
   resolve-tag:
     runs-on: ubuntu-latest
@@ -38,23 +37,11 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - id: get-tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          MANUAL_TAG="${{ inputs.tag_name }}"
-          if [ -n "$MANUAL_TAG" ]; then
-            TAG="$MANUAL_TAG"
-            echo "Using manually provided tag: '$TAG'"
-          else
-            TAG=$(gh release list --repo "${{ github.repository }}" \
-              --json 'isDraft,tagName' \
-              --jq "[.[] | select(.isDraft and (.tagName | startswith(\"${TAG_PREFIX}\")))] | first | .tagName // empty")
-            echo "Resolved livekit-uniffi draft release tag: '${TAG:-<none>}'"
-          fi
-          echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
-          # Strip the "livekit-uniffi/v" prefix to get the hosting-repo tag (e.g., 0.0.7)
-          VERSION="${TAG#${TAG_PREFIX}}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        uses: ./.github/actions/resolve-release-tag
+        with:
+          package: livekit-uniffi
+          manifest-path: livekit-uniffi/Cargo.toml
+          tag-name: ${{ inputs.tag_name }}
 
   swift:
     needs: resolve-tag
@@ -92,3 +79,20 @@ jobs:
       version: ${{ needs.resolve-tag.outputs.version }}
       tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
       dry_run: ${{ inputs.dry_run || false }}
+
+  # The knope draft release stays draft until every leg has succeeded, so a
+  # failed leg leaves it as a retry marker (re-run via workflow_dispatch).
+  # Publishing also makes the cdylib assets publicly downloadable — draft
+  # assets aren't reachable at releases/download URLs.
+  finalize:
+    name: Publish GH release
+    needs: [resolve-tag, swift, android, cdylib]
+    if: success() && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ needs.resolve-tag.outputs.tag_name }}" --repo "${{ github.repository }}" --draft=false

@@ -13,13 +13,21 @@
 # limitations under the License.
 
 name: FFI
+# Builds the livekit-ffi library for every platform and attaches the zips to
+# the crate's GitHub release. Called from release.yml when a release PR
+# merges; workflow_dispatch is the manual/recovery path.
 on:
-  push:
-    branches: ["main"]
+  workflow_call:
+    inputs:
+      dry_run:
+        description: "Dry run: build artifacts but skip release upload/publish."
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g. livekit-ffi/v0.12.49). Takes precedence over draft release lookup and creates a draft release."
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). Overrides resolution from the crate version."
         required: false
         type: string
       dry_run:
@@ -42,28 +50,24 @@ jobs:
   get-tag:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
       - name: "Resolve tag"
-        run: |
-          MANUAL_TAG="${{ inputs.tag_name }}"
-          if [ -n "$MANUAL_TAG" ]; then
-            echo "Using manually provided tag: '${MANUAL_TAG}'"
-            gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
-            echo "tag_name=${MANUAL_TAG}" >> $GITHUB_OUTPUT
-          else
-            TAG=$(gh release list --repo ${{ github.repository }} --json 'isDraft,tagName' --jq '[.[] | select(.isDraft and (.tagName | startswith("livekit-ffi/")))] | first | .tagName // empty')
-            echo "Resolved FFI draft release tag: '${TAG:-}'"
-            echo "tag_name=${TAG:-}" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GH_TOKEN: ${{ github.token }}
         id: get-tag
+        uses: ./.github/actions/resolve-release-tag
+        with:
+          package: livekit-ffi
+          manifest-path: livekit-ffi/Cargo.toml
+          tag-name: ${{ inputs.tag_name }}
     outputs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
 
   build:
+    needs: get-tag
+    # Nothing to build when the current version is already released — except
+    # on dry runs, which exist to exercise the builds themselves.
+    if: needs.get-tag.outputs.tag_name != '' || inputs.dry_run == true
     env:
       CARGO_PROFILE_DIR: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'debug' || 'release' }}
       CARGO_RUST_PROFILE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'dev' || 'release' }}
@@ -292,7 +296,12 @@ jobs:
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
+      - name: Ensure release exists
+        uses: ./.github/actions/ensure-release
+        with:
+          tag-name: ${{ needs.get-tag.outputs.tag_name }}
+
       - name: Upload artifacts and publish release
         run: |
-          gh release upload ${{ needs.get-tag.outputs.tag_name }} ${{ github.workspace }}/ffi-builds/*
+          gh release upload ${{ needs.get-tag.outputs.tag_name }} ${{ github.workspace }}/ffi-builds/* --clobber
           gh release edit ${{ needs.get-tag.outputs.tag_name }} --draft=false

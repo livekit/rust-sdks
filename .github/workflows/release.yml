@@ -17,8 +17,18 @@ permissions:
   contents: write
 
 jobs:
-  publish-crates:
+  # Single gate for "a release was actually cut": the Knope release PR merged,
+  # or this is a manual dispatch. Every other job `needs:` this one, so the
+  # condition lives in exactly one place and skip-cascade handles the rest.
+  release-gate:
+    name: Release gate
     if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "::notice title=Release gate::Release cut or manual dispatch."
+
+  publish-crates:
+    needs: release-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -43,8 +53,23 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
 
   call-node-ffi:
-    name: Call Node FFI Builds
-    if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
+    name: Node FFI Builds
+    needs: release-gate
     uses: ./.github/workflows/node-builds.yml
     with:
       dry_run: ${{ inputs.dry_run || false }}
+
+  call-ffi:
+    name: FFI Builds
+    needs: release-gate
+    uses: ./.github/workflows/ffi-builds.yml
+    with:
+      dry_run: ${{ inputs.dry_run || false }}
+
+  call-uniffi:
+    name: UniFFI Packages
+    needs: release-gate
+    uses: ./.github/workflows/uniffi-packages.yml
+    with:
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
