@@ -1033,7 +1033,7 @@ async fn room_task(
     let present_state = Arc::new(Mutex::new(ActualState { reconnecting: false }));
 
     while let Some(event) = next_room_event(&mut events, &mut close_rx).await {
-        let debug = format!("{:?}", event);
+        let event_for_debug = event.clone();
         let inner = inner.clone();
         let present_state = present_state.clone();
         let (tx, rx) = oneshot::channel();
@@ -1046,7 +1046,7 @@ async fn room_task(
         tokio::select! {
             _ = rx => {},
             _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                log::error!("signal_event taking too much time: {}", debug);
+                log::error!("signal_event taking too much time: {:?}", event_for_debug);
             }
         }
 
