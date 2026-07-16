@@ -1,5 +1,5 @@
 ---
-"livekit-api": patch
+livekit-api: patch
 ---
 
 Compress initial offer in URL for single PC mode

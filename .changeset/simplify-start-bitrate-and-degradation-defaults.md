@@ -1,5 +1,5 @@
 ---
-"livekit": patch
+livekit: patch
 ---
 
 Simplify x-google-start-bitrate logic and update degradation preference defaults

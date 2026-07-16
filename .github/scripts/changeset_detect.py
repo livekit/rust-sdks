@@ -34,6 +34,7 @@ Output (JSON on stdout):
     "required":          [pkg, ...],         # direct + downstream (full closure)
     "present":           [[pkg, bump], ...], # bumps already in the changeset
     "missing":           [pkg, ...],         # required packages not yet covered
+    "invalid":           [{...}, ...],       # bump lines in a format knope would ignore
     "changeset_content": str,               # a changeset prefilled with `missing`
   }
 """
@@ -45,6 +46,10 @@ import subprocess
 import sys
 
 BUMP_ORDER = {"patch": 0, "minor": 1, "major": 2}
+
+# Knope only recognizes unquoted `package: bump` lines in changeset front
+# matter; quoted names (the JS changesets convention) are silently ignored.
+VALID_BUMP_LINE = re.compile(r"^([A-Za-z0-9_-]+):\s*(patch|minor|major)$")
 
 
 def emit(data):
@@ -66,9 +71,15 @@ def load_knope_packages():
 def parse_present_bumps(changeset_files, knope_packages):
     """Parse the highest bump declared per package across the PR's changeset files.
 
-    Changeset front matter looks like:  "livekit-api": patch
+    Valid front-matter lines use knope's format:  livekit-api: patch
+
+    Returns (present, invalid). `present` maps package -> highest declared
+    bump. `invalid` lists lines that clearly intend to declare a bump but are
+    in a format knope would silently ignore (e.g. the quoted JS-changesets
+    convention, `"livekit-api": patch`), as {file, line, content, fixed}.
     """
     present = {}
+    invalid = []
     for filepath in changeset_files:
         try:
             with open(filepath) as f:
@@ -78,17 +89,26 @@ def parse_present_bumps(changeset_files, knope_packages):
         match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
         if not match:
             continue
-        for line in match.group(1).strip().split("\n"):
-            line = line.strip()
+        for offset, raw_line in enumerate(match.group(1).split("\n")):
+            line = raw_line.strip()
             if ":" not in line:
                 continue
             pkg, bump = line.split(":", 1)
             pkg = pkg.strip().strip('"').strip("'").strip()
             bump = bump.strip().strip('"').strip("'").strip()
-            if bump in BUMP_ORDER and pkg in knope_packages:
-                if pkg not in present or BUMP_ORDER[bump] > BUMP_ORDER[present[pkg]]:
-                    present[pkg] = bump
-    return present
+            if bump not in BUMP_ORDER or pkg not in knope_packages:
+                continue
+            if not VALID_BUMP_LINE.match(line):
+                invalid.append({
+                    "file": filepath,
+                    "line": offset + 2,  # front matter starts on line 2
+                    "content": line,
+                    "fixed": f"{pkg}: {bump}",
+                })
+                continue
+            if pkg not in present or BUMP_ORDER[bump] > BUMP_ORDER[present[pkg]]:
+                present[pkg] = bump
+    return present, invalid
 
 
 def build_reverse_dep_graph(meta, knope_packages):
@@ -135,7 +155,7 @@ def build_changeset_content(missing, pr_title=None, pr_number=None, pr_author=No
     pr_author = pr_author if pr_author is not None else os.environ.get("PR_AUTHOR", "")
     lines = ["---"]
     for pkg in missing:
-        lines.append(f'"{pkg}": patch')
+        lines.append(f"{pkg}: patch")
     lines.extend(["---", "", f"{pr_title} - #{pr_number} (@{pr_author})"])
     return "\n".join(lines)
 
@@ -197,7 +217,7 @@ def main():
     changeset_files = read_lines("CHANGESET_FILES")
 
     knope_packages = load_knope_packages()
-    present = parse_present_bumps(changeset_files, knope_packages)
+    present, invalid = parse_present_bumps(changeset_files, knope_packages)
 
     try:
         meta = load_cargo_metadata()
@@ -206,11 +226,14 @@ def main():
             "error": str(e),
             "direct": [], "downstream": [], "required": [],
             "present": sorted(present.items()), "missing": [],
+            "invalid": invalid,
             "changeset_content": "",
         })
         return  # emit calls sys.exit, but guard against falling through
 
-    emit(detect(meta, knope_packages, changed_files, present))
+    result = detect(meta, knope_packages, changed_files, present)
+    result["invalid"] = invalid
+    emit(result)
 
 
 if __name__ == "__main__":
