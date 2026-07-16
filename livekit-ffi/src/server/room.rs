@@ -1013,7 +1013,7 @@ struct ActualState {
     reconnecting: bool,
 }
 
-/// Forward events to the ffi client
+/// Wait for the next [`RoomEvent`] or a close signal, returning `None` on shutdown.
 async fn next_room_event(
     events: &mut mpsc::UnboundedReceiver<RoomEvent>,
     close_rx: &mut broadcast::Receiver<()>,
