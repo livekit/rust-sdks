@@ -1682,11 +1682,16 @@ impl RoomSession {
     }
 
     fn handle_disconnected(self: &Arc<Self>, reason: DisconnectReason) {
-        if self.update_connection_state(ConnectionState::Disconnected) {
-            self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
+        if !self.update_connection_state(ConnectionState::Disconnected) {
+            return;
         }
 
-        log::info!("disconnected from room with reason: {:?}", reason);
+        self.dispatcher.dispatch(&RoomEvent::Disconnected { reason });
+        log::info!(
+            "Disconnected from room \"{}\" with reason: {:?}",
+            self.info.read().name,
+            reason
+        );
         if reason != DisconnectReason::ClientInitiated {
             livekit_runtime::spawn({
                 let inner = self.clone();

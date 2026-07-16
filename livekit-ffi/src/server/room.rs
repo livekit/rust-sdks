@@ -1013,7 +1013,17 @@ struct ActualState {
     reconnecting: bool,
 }
 
-/// Forward events to the ffi client
+/// Wait for the next [`RoomEvent`] or a close signal, returning `None` on shutdown.
+async fn next_room_event(
+    events: &mut mpsc::UnboundedReceiver<RoomEvent>,
+    close_rx: &mut broadcast::Receiver<()>,
+) -> Option<RoomEvent> {
+    tokio::select! {
+        event = events.recv() => event,
+        _ = close_rx.recv() => None,
+    }
+}
+
 async fn room_task(
     server: &'static FfiServer,
     inner: Arc<RoomInner>,
@@ -1022,32 +1032,25 @@ async fn room_task(
 ) {
     let present_state = Arc::new(Mutex::new(ActualState { reconnecting: false }));
 
-    loop {
+    while let Some(event) = next_room_event(&mut events, &mut close_rx).await {
+        let event_for_debug = event.clone();
+        let inner = inner.clone();
+        let present_state = present_state.clone();
+        let (tx, rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            forward_event(server, &inner, event, present_state).await;
+            let _ = tx.send(());
+        });
+
+        // Monitor sync/async blockings
         tokio::select! {
-            Some(event) = events.recv() => {
-                let debug = format!("{:?}", event);
-                let inner = inner.clone();
-                let present_state = present_state.clone();
-                let (tx, rx) = oneshot::channel();
-                let task = tokio::spawn(async move {
-                    forward_event(server, &inner, event, present_state).await;
-                    let _ = tx.send(());
-                });
-
-                // Monitor sync/async blockings
-                tokio::select! {
-                    _ = rx => {},
-                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                        log::error!("signal_event taking too much time: {}", debug);
-                    }
-                }
-
-                let _ = server.watch_panic(task).await;
-            },
-            _ = close_rx.recv() => {
-                break;
+            _ = rx => {},
+            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                log::error!("signal_event taking too much time: {:?}", event_for_debug);
             }
-        };
+        }
+
+        let _ = server.watch_panic(task).await;
     }
 
     let _ = server.send_event(
@@ -1652,4 +1655,25 @@ fn build_initial_states(
         },
         remote_infos,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn closed_event_channel_ends_room_event_stream() {
+        let (event_tx, mut events) = mpsc::unbounded_channel();
+        let (_close_tx, mut close_rx) = broadcast::channel(1);
+        drop(event_tx);
+
+        let event = tokio::time::timeout(
+            Duration::from_secs(1),
+            next_room_event(&mut events, &mut close_rx),
+        )
+        .await
+        .expect("closed room event channel should end the event stream");
+
+        assert!(event.is_none());
+    }
 }
