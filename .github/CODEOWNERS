@@ -6,6 +6,7 @@
 /docker/ @pham-tuan-binh
 /libwebrtc/ @cloudwebrtc
 /livekit-datatrack/ @ladvoc @1egoman
+/livekit-data-stream/ @ladvoc @1egoman
 /livekit-ffi-node-bindings/ @lukasIO @1egoman
 /livekit-ffi/ @xianshijing-lk @MaxHeimbrock @stephen-derosa @alan-george-lk
 /livekit-uniffi/ @ladvoc @pblazej
