@@ -120,8 +120,8 @@ versioned_files = [
 ]
 changelog = "livekit-uniffi/CHANGELOG.md"
 # Asset marker tells knope to create a draft release; uniffi-packages.yml
-# picks it up, builds the Swift xcframework, and publishes via PR + draft
-# release on livekit/livekit-uniffi-xcframework.
+# (called from release.yml) attaches the raw cdylibs, publishes the per-
+# language wrapper packages, and then publishes the release.
 assets = "marker"
 scopes = ["uniffi", "livekit-uniffi"]
 
