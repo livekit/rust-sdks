@@ -1,0 +1,46 @@
+name: Ensure release exists
+description: >
+  Create a draft release for the given tag if no release (draft or published)
+  exists yet. Run right before uploading assets: by then the Knope bot has
+  normally created the draft for a merged release PR, so creating one here is
+  only the fallback and we avoid racing the bot into duplicate drafts. The
+  calling job needs `contents: write` — drafts are invisible to read-only
+  tokens, which would cause a duplicate to be created. Requires the
+  repository to be checked out first.
+
+inputs:
+  tag-name:
+    description: "Tag of the release to ensure."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Check for existing release
+      id: lookup
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag-name }}
+      run: |
+        COUNT=$(gh release list --repo "$REPO" --limit 100 \
+          --json 'tagName' \
+          --jq "[.[] | select(.tagName == \"$TAG\")] | length")
+        if [ "$COUNT" -eq 0 ]; then
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "Release for '$TAG' already exists."
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create draft release
+      if: steps.lookup.outputs.exists == 'false'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag-name }}
+      run: |
+        echo "::warning title=Ensure release::No release exists for '$TAG'; creating draft release."
+        gh release create "$TAG" --repo "$REPO" --draft --title "$TAG" --generate-notes
