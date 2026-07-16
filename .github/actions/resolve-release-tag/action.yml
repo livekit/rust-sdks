@@ -1,0 +1,83 @@
+name: Resolve release tag
+description: >
+  Determine the release tag for a package: `<package>/v<version>` from the
+  manifest (the Knope tag format), or the explicit `tag-name` if given.
+  Outputs an empty `tag_name` when the computed tag is already published, so
+  callers can skip their release jobs. Requires the repository to be checked
+  out first.
+
+inputs:
+  package:
+    description: "Package name as configured in knope.toml (tag format is '<package>/v<version>')."
+    required: true
+  manifest-path:
+    description: "Path to the package's Cargo.toml, used to read the current version."
+    required: true
+  tag-name:
+    description: "Explicit tag to use, bypassing version resolution and the already-published check."
+    required: false
+    default: ""
+
+outputs:
+  tag_name:
+    description: "Tag to release; empty if the current version is already published."
+    value: ${{ steps.emit.outputs.tag_name }}
+  version:
+    description: "Version portion of the tag (e.g. 0.1.5); empty if tag_name is empty."
+    value: ${{ steps.emit.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Determine tag
+      id: tag
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        MANIFEST_PATH: ${{ inputs.manifest-path }}
+        MANUAL_TAG: ${{ inputs.tag-name }}
+      run: |
+        if [ -n "$MANUAL_TAG" ]; then
+          echo "::notice title=Release tag::Using manually provided tag: '$MANUAL_TAG'"
+          echo "tag_name=${MANUAL_TAG}" >> "$GITHUB_OUTPUT"
+        else
+          if ! VERSION=$(python3 -c 'import tomllib, sys; print(tomllib.load(open(sys.argv[1], "rb"))["package"]["version"])' "$MANIFEST_PATH"); then
+            echo "::error title=Release tag::Failed to read package version from '$MANIFEST_PATH'"
+            exit 1
+          fi
+          echo "tag_name=${PACKAGE}/v${VERSION}" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Check for existing published release
+      id: check
+      if: inputs.tag-name == ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ steps.tag.outputs.tag_name }}
+      run: |
+        PUBLISHED_COUNT=$(gh release list --repo "$REPO" --limit 100 \
+          --json 'tagName,isDraft' \
+          --jq "[.[] | select(.tagName == \"$TAG\" and (.isDraft | not))] | length")
+        if [ "$PUBLISHED_COUNT" -gt 0 ]; then
+          echo "::notice title=Release tag::Release '$TAG' is already published; nothing to do."
+          echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice title=Release tag::Resolved release tag: '$TAG'"
+          echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Emit outputs
+      id: emit
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.package }}
+        TAG: ${{ steps.tag.outputs.tag_name }}
+        UP_TO_DATE: ${{ steps.check.outputs.up_to_date }}
+      run: |
+        if [ "$UP_TO_DATE" = "true" ]; then
+          TAG=""
+        fi
+        echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "version=${TAG#"${PACKAGE}/v"}" >> "$GITHUB_OUTPUT"
