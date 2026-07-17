@@ -14,7 +14,8 @@
 
 use chrono::{DateTime, Utc};
 use livekit_common::EncryptionType;
-use std::collections::HashMap;
+use parking_lot::RwLock;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     types::{ByteHeader, ContentHeader, Header, OperationType, TextHeader},
@@ -32,8 +33,6 @@ pub struct ByteStreamInfo {
     pub timestamp: DateTime<Utc>,
     /// Total expected size in bytes, if known.
     pub total_length: Option<u64>,
-    /// Additional attributes as needed for your application.
-    pub attributes: HashMap<String, String>,
     /// The MIME type of the stream data.
     pub mime_type: String,
     /// The name of the file being sent.
@@ -46,6 +45,20 @@ pub struct ByteStreamInfo {
     /// Test-only: expose whether the byte stream was sent inline on the header packet
     #[cfg(feature = "test-utils")]
     pub is_inline: bool,
+
+    /// Internal map of attributes which can be updated when new values are received in the trailer
+    /// packet.
+    attributes_map: Arc<RwLock<HashMap<String, String>>>,
+}
+
+impl ByteStreamInfo {
+    /// Additional attributes as needed for your application.
+    ///
+    /// Returns an owned snapshot of the attributes as of this call; attributes may still be
+    /// updated when the trailer packet arrives, so re-call to observe later values.
+    pub fn attributes(&self) -> HashMap<String, String> {
+        self.attributes_map.read().clone()
+    }
 }
 
 /// Information about a text data stream.
@@ -59,8 +72,6 @@ pub struct TextStreamInfo {
     pub timestamp: DateTime<Utc>,
     /// Total expected size in bytes, if known.
     pub total_length: Option<u64>,
-    /// Additional attributes as needed for your application.
-    pub attributes: HashMap<String, String>,
     /// The MIME type of the stream data.
     pub mime_type: String,
     pub operation_type: OperationType,
@@ -76,6 +87,20 @@ pub struct TextStreamInfo {
     /// Test-only: expose whether the byte stream was sent inline on the header packet
     #[cfg(feature = "test-utils")]
     pub is_inline: bool,
+
+    /// Internal map of attributes, which can be updated when new values are received in the
+    /// trailer packet.
+    attributes_map: Arc<RwLock<HashMap<String, String>>>,
+}
+
+impl TextStreamInfo {
+    /// Additional attributes as needed for your application.
+    ///
+    /// Returns an owned snapshot of the attributes as of this call; attributes may still be
+    /// updated when the trailer packet arrives, so re-call to observe later values.
+    pub fn attributes(&self) -> HashMap<String, String> {
+        self.attributes_map.read().clone()
+    }
 }
 
 // MARK: - Type conversion
@@ -124,7 +149,7 @@ impl ByteStreamInfo {
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
                 .unwrap_or_else(|| Utc::now()),
             total_length: header.total_length,
-            attributes: header.attributes,
+            attributes_map: Arc::new(RwLock::new(header.attributes)),
             mime_type: header.mime_type,
             name: byte_header.name,
             encryption_type,
@@ -152,7 +177,7 @@ impl TextStreamInfo {
             timestamp: DateTime::<Utc>::from_timestamp_millis(header.timestamp)
                 .unwrap_or_else(|| Utc::now()),
             total_length: header.total_length,
-            attributes: header.attributes,
+            attributes_map: Arc::new(RwLock::new(header.attributes)),
             mime_type: header.mime_type,
             operation_type: text_header.operation_type,
             version: text_header.version,
@@ -186,6 +211,7 @@ impl AnyStreamInfo {
         pub fn id(self: &Self) -> &str;
         pub fn total_length(self: &Self) -> Option<u64>;
         pub fn encryption_type(self: &Self) -> EncryptionType;
+        pub(crate) fn attributes_map(self: &Self) -> Arc<RwLock<HashMap<String, String>>>;
     );
 }
 
@@ -195,6 +221,9 @@ macro_rules! stream_info {
         pub(crate) fn id(&self) -> &str { &self.id }
         pub(crate) fn total_length(&self) -> Option<u64> { self.total_length }
         pub(crate) fn encryption_type(&self) -> EncryptionType { self.encryption_type }
+        pub(crate) fn attributes_map(self: &Self) -> Arc<RwLock<HashMap<String, String>>> {
+            self.attributes_map.clone()
+        }
     };
 }
 

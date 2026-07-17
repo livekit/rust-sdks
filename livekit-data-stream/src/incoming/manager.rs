@@ -14,6 +14,7 @@
 
 use bytes::Bytes;
 use livekit_common::{EncryptionType, ParticipantIdentity};
+use parking_lot::RwLock;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{
     mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -52,6 +53,9 @@ struct Descriptor {
     decompressor: Option<DeflateDecompressState>,
     /// Highest chunk index processed so far (compressed streams; for dedup/gap detection).
     last_chunk_index: Option<u64>,
+    /// Map of all attributes associated with string, so that any attributes within the trailer can
+    /// be stored after stream creation.
+    attributes_map: Arc<RwLock<HashMap<String, String>>>,
 }
 
 /// Streaming deflate-raw decompressor state for one compressed stream.
@@ -261,6 +265,7 @@ impl Manager {
         let is_text = matches!(info, AnyStreamInfo::Text(_));
         let bytes_total = info.total_length();
         let stream_encryption_type = info.encryption_type();
+        let attributes_map = info.attributes_map();
 
         if self.inner.open_streams.contains_key(&id) {
             log::error!("Stream '{}' already open", id);
@@ -314,6 +319,7 @@ impl Manager {
             decompressor: is_compressed
                 .then(|| DeflateDecompressState::new(self.max_payload_byte_length)),
             last_chunk_index: None,
+            attributes_map,
         };
         self.inner.open_streams.insert(id, descriptor);
     }
@@ -450,6 +456,12 @@ impl Manager {
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
             return;
         };
+
+        // Move over any attributes from the trailer into the stream-scoped attribute list.
+        {
+            let mut attributes_write = descriptor.attributes_map.write();
+            attributes_write.extend(trailer.attributes);
+        }
 
         if !match descriptor.progress.bytes_total {
             Some(total) => descriptor.progress.bytes_processed >= total,
@@ -703,7 +715,7 @@ mod tests {
         });
         let (reader, identity) = h.next_opened().await;
         assert_eq!(identity.as_str(), SENDER);
-        assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
+        assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
         h.send_packet(Packet::Chunk {
             chunk: chunk("s1", 0, text.as_bytes().to_vec()),
             encryption_type: EncryptionType::None,
@@ -752,7 +764,7 @@ mod tests {
             attrs(&[("hello", "world"), ("foo", "updated")]),
         )));
         // NOTE: trailer-attribute merging is asserted via the reader info after close.
-        let info_attrs = text_info(&reader).attributes.clone();
+        let info_attrs = text_info(&reader).attributes().clone();
         assert_eq!(read_text(reader).await.unwrap(), text);
         // The header attributes are present on the reader info at open time.
         assert_eq!(info_attrs.get("baz"), Some(&"quux".to_string()));
@@ -822,7 +834,7 @@ mod tests {
             encryption_type: EncryptionType::None,
         });
         let (reader, _) = h.next_opened().await;
-        assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
+        assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
         // No chunk/trailer packets are fed.
         assert_eq!(read_text(reader).await.unwrap(), text);
     }
@@ -854,7 +866,7 @@ mod tests {
             encryption_type: EncryptionType::None,
         });
         let (reader, _) = h.next_opened().await;
-        assert_eq!(text_info(&reader).attributes.get("foo"), Some(&"bar".to_string()));
+        assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
         assert_eq!(read_text(reader).await.unwrap(), text);
     }
 

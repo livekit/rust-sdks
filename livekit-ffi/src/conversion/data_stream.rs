@@ -23,12 +23,12 @@ use std::path::PathBuf;
 impl From<TextStreamInfo> for proto::TextStreamInfo {
     fn from(info: TextStreamInfo) -> Self {
         Self {
+            attributes: info.attributes(),
             stream_id: info.id,
             timestamp: info.timestamp.timestamp_millis(),
             mime_type: info.mime_type,
             topic: info.topic,
             total_length: info.total_length,
-            attributes: info.attributes,
             operation_type: proto::text_stream_info::OperationType::from(info.operation_type)
                 .into(),
             version: Some(info.version),
@@ -43,12 +43,12 @@ impl From<TextStreamInfo> for proto::TextStreamInfo {
 impl From<ByteStreamInfo> for proto::ByteStreamInfo {
     fn from(info: ByteStreamInfo) -> Self {
         Self {
+            attributes: info.attributes(),
             stream_id: info.id,
             timestamp: info.timestamp.timestamp_millis(),
             mime_type: info.mime_type,
             topic: info.topic,
             total_length: info.total_length,
-            attributes: info.attributes,
             name: info.name,
             encryption_type: info.encryption_type.into(),
         }

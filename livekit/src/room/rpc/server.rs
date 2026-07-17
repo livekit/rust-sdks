@@ -138,15 +138,19 @@ impl RpcServerManager {
         caller_identity: ParticipantIdentity,
         transport: &(impl RpcTransport + 'static),
     ) {
-        let attrs = &reader.info().attributes;
+        let (request_id, method, response_timeout, version) = {
+            let attrs = &reader.info().attributes();
 
-        let request_id = attrs.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
-        let method = attrs.get(ATTR_METHOD).cloned().unwrap_or_default();
-        let response_timeout_ms: u64 =
-            attrs.get(ATTR_RESPONSE_TIMEOUT_MS).and_then(|v| v.parse().ok()).unwrap_or(15000);
-        let version: u32 = attrs.get(ATTR_VERSION).and_then(|v| v.parse().ok()).unwrap_or(0);
+            let request_id = attrs.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
+            let method = attrs.get(ATTR_METHOD).cloned().unwrap_or_default();
+            let response_timeout_ms: u64 =
+                attrs.get(ATTR_RESPONSE_TIMEOUT_MS).and_then(|v| v.parse().ok()).unwrap_or(15000);
+            let version: u32 = attrs.get(ATTR_VERSION).and_then(|v| v.parse().ok()).unwrap_or(0);
 
-        let response_timeout = Duration::from_millis(response_timeout_ms);
+            let response_timeout = Duration::from_millis(response_timeout_ms);
+
+            (request_id, method, response_timeout, version)
+        };
 
         // Send ACK immediately (always v1 packet)
         if let Err(e) = self.publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
