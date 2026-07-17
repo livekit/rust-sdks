@@ -10,6 +10,7 @@ members = [
     "livekit-uniffi",
     "livekit-datatrack",
     "livekit-ffi-node-bindings",
+    "livekit-capture",
     "livekit-runtime",
     "livekit-wakeword",
     "libwebrtc",
@@ -49,6 +50,7 @@ device-info = { version = "0.1.1", path = "device-info" }
 imgproc = { version = "0.3.19", path = "imgproc" }
 libwebrtc = { version = "0.3.41", path = "libwebrtc" }
 livekit = { version = "0.7.52", path = "livekit" }
+livekit-capture = { version = "0.1.0", path = "livekit-capture" }
 livekit-api = { version = "0.5.5", path = "livekit-api" }
 livekit-ffi = { version = "0.12.70", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.11", path = "livekit-datatrack" }
