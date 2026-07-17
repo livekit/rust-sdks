@@ -1,0 +1,8 @@
+[package]
+name = "token_source"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+livekit = { path = "../../livekit", features = ["rustls-tls-native-roots"]}
