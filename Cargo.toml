@@ -35,6 +35,7 @@ members = [
     "examples/save_to_disk",
     "examples/screensharing",
     "examples/send_bytes",
+    "examples/token_source",
     "examples/webhooks",
 ]
 
