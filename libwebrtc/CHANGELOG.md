@@ -139,6 +139,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.42 (2026-07-17)
+
+### Features
+
+- fix compiler warnings in libwebrtc
+- Add a pre-encoded video publish path: a passthrough video encoder and encoded video frame buffer in webrtc-sys, and `EncodedVideoFrame`/`EncodedVideoCodec`/`EncodedFrameType` publish APIs with a `VideoEncoderBackend::PreEncoded` backend in libwebrtc. WebRTC rate-control targets and keyframe requests are forwarded to encoded sources, and pre-encoded AV1 and H265 access units are validated on ingest.
+
 ## 0.3.41 (2026-07-14)
 
 ### Fixes

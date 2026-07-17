@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.5.6 (2026-07-17)
+
+### Fixes
+
+- Add deployment field documentation for agent dispatch
+
+#### Compress initial offer in URL for single PC mode
+
+Apply compression to the initial offer when sending it in the JoinRequest URL, reducing URL size and improving connection performance on slow networks.
+
 ## 0.5.5 (2026-07-09)
 
 ### Features
