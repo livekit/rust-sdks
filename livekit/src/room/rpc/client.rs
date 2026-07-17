@@ -272,7 +272,8 @@ impl RpcClientManager {
     /// on the `lk.rpc_response` topic. Error responses always arrive
     /// as v1 packets and are handled by `handle_response`.
     pub(crate) async fn handle_v2_response_stream(&self, reader: TextStreamReader) {
-        let request_id = reader.info().attributes.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
+        let request_id =
+            reader.info().attributes().get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
 
         if request_id.is_empty() {
             log::error!("RPC v2 response stream missing request_id attribute");
