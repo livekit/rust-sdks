@@ -316,6 +316,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.71 (2026-07-17)
+
+### Fixes
+
+- Emit room EOS when the underlying LiveKit room event channel closes after a server-initiated disconnect, and ignore duplicate disconnect events during teardown.
+- Don't log an expected publisher data channel close as unexpected - #1224 (@longcw)
+
 ## 0.12.70 (2026-07-14)
 
 ### Fixes

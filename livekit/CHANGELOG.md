@@ -257,6 +257,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.53 (2026-07-17)
+
+### Features
+
+- Add a pre-encoded video publish path: a passthrough video encoder and encoded video frame buffer in webrtc-sys, and `EncodedVideoFrame`/`EncodedVideoCodec`/`EncodedFrameType` publish APIs with a `VideoEncoderBackend::PreEncoded` backend in libwebrtc. WebRTC rate-control targets and keyframe requests are forwarded to encoded sources, and pre-encoded AV1 and H265 access units are validated on ingest.
+
+### Fixes
+
+- Emit room EOS when the underlying LiveKit room event channel closes after a server-initiated disconnect, and ignore duplicate disconnect events during teardown.
+- Don't log an expected publisher data channel close as unexpected - #1224 (@longcw)
+
+#### Simplify x-google-start-bitrate logic and update degradation preference defaults
+
+- Start bitrate: use min(90% of target, 1 Mbps) instead of adaptive network hints
+- Remove slow connection detection and network quality hints on reconnect
+- Default degradation preference by track source:
+  - Camera: MaintainFramerate (smoother video)
+  - Screenshare: MaintainResolution (clarity for text/UI)
+  - Other: Balanced
+
 ## 0.7.52 (2026-07-14)
 
 ### Fixes
