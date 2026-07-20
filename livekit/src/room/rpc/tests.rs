@@ -25,7 +25,7 @@ use chrono::Utc;
 use livekit_api::signal_client::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 use livekit_common::RemoteParticipantRegistry;
 use livekit_protocol as proto;
-use parking_lot::Mutex as ParkingMutex;
+use parking_lot::{Mutex as ParkingMutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -131,7 +131,7 @@ impl RpcTransport for MockTransport {
             topic: options.topic,
             timestamp: Utc::now(),
             total_length: Some(text.len() as u64),
-            attributes: options.attributes,
+            attributes_map: Arc::new(RwLock::new(options.attributes)),
             mime_type: "text/plain".to_string(),
             operation_type: OperationType::Create,
             version: 0,
@@ -139,9 +139,7 @@ impl RpcTransport for MockTransport {
             attached_stream_ids: vec![],
             generated: false,
             encryption_type: EncryptionType::None,
-            #[cfg(feature = "__lk-e2e-test")]
             is_compressed: false,
-            #[cfg(feature = "__lk-e2e-test")]
             is_inline: false,
         })
     }
@@ -183,7 +181,7 @@ fn make_text_reader(
             topic: topic.to_string(),
             timestamp: Utc::now(),
             total_length: Some(text.len() as u64),
-            attributes,
+            attributes_map: Arc::new(RwLock::new(attributes)),
             mime_type: "text/plain".to_string(),
             operation_type: OperationType::Create,
             version: 0,
@@ -191,9 +189,7 @@ fn make_text_reader(
             attached_stream_ids: vec![],
             generated: false,
             encryption_type: EncryptionType::None,
-            #[cfg(feature = "__lk-e2e-test")]
             is_compressed: false,
-            #[cfg(feature = "__lk-e2e-test")]
             is_inline: false,
         },
         rx,
