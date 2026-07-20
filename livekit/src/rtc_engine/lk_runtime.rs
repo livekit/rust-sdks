@@ -100,8 +100,30 @@ pub struct WebRtcRuntimeInitializedError;
 pub struct LkRuntime {
     pc_factory: PeerConnectionFactory,
     zero_playout_delay: bool,
+    active_rtc_sessions: Mutex<usize>,
     /// Keep last so it drops after `pc_factory`; see [`RuntimeTeardownGuard`].
     _teardown_guard: RuntimeTeardownGuard,
+}
+
+/// Keeps the runtime's audio transport alive while an RTC session can use it.
+///
+/// Dropping the last guard synchronously stops ADM workers and detaches their
+/// callback before the final session's peer transports can be reclaimed.
+pub(crate) struct ActiveRtcSessionGuard {
+    runtime: Arc<LkRuntime>,
+}
+
+impl Drop for ActiveRtcSessionGuard {
+    fn drop(&mut self) {
+        let mut active_sessions = self.runtime.active_rtc_sessions.lock();
+        debug_assert!(*active_sessions > 0);
+        *active_sessions = active_sessions.saturating_sub(1);
+        if *active_sessions == 0 {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.runtime.shutdown_audio_io();
+            log::debug!("last RTC session released; audio I/O shut down");
+        }
+    }
 }
 
 impl Debug for LkRuntime {
@@ -151,6 +173,7 @@ impl LkRuntime {
             let new_runtime = Arc::new(Self {
                 pc_factory,
                 zero_playout_delay,
+                active_rtc_sessions: Mutex::new(0),
                 _teardown_guard: RuntimeTeardownGuard::new(generation),
             });
             state.runtime = Arc::downgrade(&new_runtime);
@@ -177,6 +200,14 @@ impl LkRuntime {
 
     pub fn pc_factory(&self) -> &PeerConnectionFactory {
         &self.pc_factory
+    }
+
+    /// Registers an RTC session that may own the factory's audio transport.
+    pub(crate) fn register_rtc_session(self: &Arc<Self>) -> ActiveRtcSessionGuard {
+        let mut active_sessions = self.active_rtc_sessions.lock();
+        *active_sessions += 1;
+        log::debug!("registered RTC session (active={})", *active_sessions);
+        ActiveRtcSessionGuard { runtime: self.clone() }
     }
 
     // ===== Device Management Methods =====

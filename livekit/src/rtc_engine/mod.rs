@@ -17,7 +17,7 @@ use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
-use parking_lot::{RwLock, RwLockReadGuard};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard};
 use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
@@ -32,7 +32,7 @@ use crate::{
     prelude::LocalTrack,
     room::DisconnectReason,
     rtc_engine::{
-        lk_runtime::LkRuntime,
+        lk_runtime::{ActiveRtcSessionGuard, LkRuntime},
         rtc_session::{RtcSession, SessionEvent, SessionEvents},
     },
     DataPacketKind,
@@ -254,6 +254,7 @@ struct EngineInner {
     // factory accross multiple Rtc sessions
     #[allow(dead_code)]
     lk_runtime: Arc<LkRuntime>,
+    active_rtc_session: Mutex<Option<ActiveRtcSessionGuard>>,
     engine_tx: EngineEmitter,
     options: EngineOptions,
 
@@ -467,6 +468,7 @@ impl EngineInner {
                 let lk_runtime = lk_runtime.clone();
                 let e2ee_manager = e2ee_manager.clone();
                 async move {
+                    let active_rtc_session = lk_runtime.register_rtc_session();
                     let (session, join_response, session_events) =
                         RtcSession::connect(url, token, options.clone(), e2ee_manager).await?;
                     session.wait_pc_connection().await?;
@@ -474,6 +476,7 @@ impl EngineInner {
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
                     let inner = Arc::new(Self {
                         lk_runtime,
+                        active_rtc_session: Mutex::new(Some(active_rtc_session)),
                         engine_tx,
                         close_notifier: Arc::new(Notify::new()),
                         running_handle: RwLock::new(EngineHandle {
@@ -772,9 +775,14 @@ impl EngineInner {
             }
         }
 
-        // Do not retain the closed RtcSession merely for stats. Its peer
-        // transports must drop before this close returns so their audio
-        // transports cannot outlive the room and race a capture callback.
+        // Stop and detach the shared ADM before dropping the final live
+        // RtcSession. Otherwise its AudioTransportImpl can be reclaimed while
+        // CaptureWorkerThread still has the callback. Other concurrent sessions
+        // keep their own guard, so this only shuts audio down at count zero.
+        let active_rtc_session = self.active_rtc_session.lock().take();
+        drop(active_rtc_session);
+
+        // Do not retain the closed RtcSession merely for stats.
         self.running_handle.write().session.take();
         drop(session);
         log::debug!("released closed RtcSession and peer transports");
