@@ -90,7 +90,8 @@ pub struct TextStreamInfo {
 
     /// Internal map of attributes, which can be updated when new values are received in the
     /// trailer packet.
-    attributes_map: Arc<RwLock<HashMap<String, String>>>,
+    #[doc(hidden)]
+    pub attributes_map: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl TextStreamInfo {

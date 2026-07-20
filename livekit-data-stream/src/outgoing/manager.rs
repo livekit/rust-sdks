@@ -778,7 +778,7 @@ mod tests {
         assert_eq!(info.name, "unknown");
         assert_eq!(info.mime_type, "application/octet-stream");
         assert_eq!(info.total_length, Some(payload.len() as u64));
-        assert_eq!(info.attributes.get("foo"), Some(&"bar".to_string()));
+        assert_eq!(info.attributes().get("foo"), Some(&"bar".to_string()));
     }
 
     // --- Mixed room ----------------------------------------------------------------------
