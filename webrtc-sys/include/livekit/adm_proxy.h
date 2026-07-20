@@ -84,8 +84,8 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   /// Releases a reference to the Platform ADM.
   ///
   /// When the reference count reaches zero, platform audio I/O is stopped and
-  /// the proxy returns to synthetic mode. The ADM and transport callback remain
-  /// available for a later acquire.
+  /// the proxy returns to synthetic mode. The ADM remains available and its
+  /// transport callback is restored on a later acquire.
   void ReleasePlatformAdm();
 
   /// Returns the current reference count for the Platform ADM.
@@ -235,9 +235,9 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Must be called with mutex_ held.
   void SwitchRecordingAdmIfNeeded();
 
-  // Stops platform capture/playout without detaching its callback or touching
-  // synthetic mode. This is the reusable release path; terminal teardown uses
-  // StopAudioIO(). Must be called with mutex_ held.
+  // Stops platform capture/playout and detaches its callback without touching
+  // synthetic mode. The proxy retains the callback pointer for reacquire;
+  // terminal teardown uses StopAudioIO(). Must be called with mutex_ held.
   void StopPlatformAudioIO();
 
 #if defined(__ANDROID__)

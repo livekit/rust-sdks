@@ -215,7 +215,7 @@ void AdmProxy::ReleasePlatformAdm() {
   if (platform_adm_ref_count_ == 0) {
     StopPlatformAudioIO();
     RTC_LOG(LS_VERBOSE)
-        << "AdmProxy: platform ADM released; audio I/O stopped with callback retained";
+        << "AdmProxy: platform ADM released; audio I/O stopped and callback detached";
     SwitchPlayoutModeIfNeeded();
     SwitchRecordingAdmIfNeeded();
   }
@@ -314,12 +314,12 @@ void AdmProxy::StopPlatformAudioIO() {
 
   if (platform_adm_) {
     // This is a reusable quiesce, not terminal factory shutdown. Stop/join the
-    // platform workers, but retain the callback so a later acquire can resume
-    // frame delivery on the same runtime.
+    // platform workers before detaching their callback. Keep audio_transport_
+    // in the proxy so AcquirePlatformAdm() can restore the binding.
     platform_adm_->StopRecording();
     platform_adm_->StopPlayout();
-    // platform_adm_ is kept alive for re-acquire and iOS compatibility; see
-    // ReleasePlatformAdm().
+    platform_adm_->RegisterAudioCallback(nullptr);
+    // platform_adm_ is kept alive for re-acquire and iOS compatibility.
   }
 }
 
