@@ -52,17 +52,11 @@ impl TokenSourceSandbox {
         return TokenSourceSandbox { sandbox_id };
     }
     pub async fn fetch(self) ->  TokenSourceResult<TokenSourceResponse> {
-        let http_client = reqwest::Client::new();
-        let response = http_client
-            .post("https://cloud-api.livekit.io/api/v2/sandbox/connection-details")
-            .header("X-Sandbox-ID", self.sandbox_id)
-            .send()
-            .await?;
+        let token_source_endpoint = TokenSourceEndpoint::new(
+            "https://cloud-api.livekit.io/api/v2/sandbox/connection-details".to_string(),
+            ("X-Sandbox-ID".to_string(), self.sandbox_id)
+        );
         
-        let connection_details = response.json::<TokenSourceResponse>().await?;
-
-        return Ok(
-            connection_details
-        )
+        return token_source_endpoint.fetch().await;
     }
 }
