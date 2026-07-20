@@ -1,5 +1,3 @@
-use thiserror::Error;
-
 #[derive(Debug, thiserror::Error)]
 pub enum TokenSourceError {
     #[error("failed to fetch token: {0}")]
