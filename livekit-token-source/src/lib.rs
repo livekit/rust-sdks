@@ -13,7 +13,7 @@ impl TokenSourceLiteral {
     pub fn new(response: TokenSourceResponse) -> TokenSourceLiteral {
         TokenSourceLiteral { result: Ok(response) }
     }
-    pub fn fetch(&self) -> &TokenSourceResult<TokenSourceResponse> { &self.result }
+    pub fn fetch(self) -> TokenSourceResult<TokenSourceResponse> { self.result }
 }
 
 pub struct TokenSourceSandbox {
