@@ -5,4 +5,4 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-livekit = { path = "../../livekit", features = ["rustls-tls-native-roots"]}
+livekit-token-source = { version = "0.1.0", path = "../../livekit-token-source" }

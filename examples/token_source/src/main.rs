@@ -1,4 +1,4 @@
-use livekit::token_source::{TokenSourceLiteral, TokenSourceResponse};
+use livekit_token_source::{TokenSourceLiteral, TokenSourceResponse};
 
 fn main() {
     println!("Hello, world!");
@@ -6,10 +6,10 @@ fn main() {
         server_url: "Hello Max".to_string(),
         participant_token: "Hello Max".to_string()
     });
-    match test.result {
+    match test.fetch() {
         Ok(response) => {
-            let url = response.server_url;
-            let token = response.participant_token;
+            let url = &response.server_url;
+            let token = &response.participant_token;
             println!("The response is server_url: {url} and token: {token}");
         },
         Err(error) => {
