@@ -155,6 +155,22 @@ bool AdmProxy::AcquirePlatformAdm() {
   }
 #endif
 
+  // WebRTC may call AdmProxy::Terminate() when the last peer connection's
+  // audio engine closes even though the factory and this proxy remain alive.
+  // PlatformAudio can be acquired before the next peer connection calls
+  // AdmProxy::Init(), so make the retained platform ADM usable here.
+  if (!platform_adm_->Initialized()) {
+    const int32_t init_result = platform_adm_->Init();
+    if (init_result != 0) {
+      RTC_LOG(LS_ERROR)
+          << "AdmProxy::AcquirePlatformAdm() - Platform ADM reinitialization failed with error="
+          << init_result;
+      return false;
+    }
+    RTC_LOG(LS_VERBOSE)
+        << "AdmProxy: reinitialized retained platform ADM after Terminate()";
+  }
+
   const int old_ref_count = platform_adm_ref_count_;
 
   // A lazily created ADM (Android) has not seen the factory's original
@@ -364,8 +380,35 @@ int32_t AdmProxy::RegisterAudioCallback(webrtc::AudioTransport* transport) {
 }
 
 int32_t AdmProxy::Init() {
-  // Init is a no-op - Platform ADM is created lazily via AcquirePlatformAdm()
-  return 0;
+  webrtc::MutexLock lock(&mutex_);
+
+  int32_t result = 0;
+  if (synthetic_adm_ && !synthetic_adm_->Initialized()) {
+    result = synthetic_adm_->Init();
+  }
+  if (platform_adm_ && !platform_adm_->Initialized()) {
+    const int32_t platform_result = platform_adm_->Init();
+    if (result == 0) {
+      result = platform_result;
+    }
+  }
+
+  // RegisterAudioCallback() can precede Init() when WebRTC recreates its audio
+  // engine on a retained factory. Restore that binding after reinitialization.
+  if (result == 0 && audio_transport_) {
+    if (synthetic_adm_) {
+      result = synthetic_adm_->RegisterAudioCallback(audio_transport_);
+    }
+    if (platform_adm_) {
+      const int32_t platform_result =
+          platform_adm_->RegisterAudioCallback(audio_transport_);
+      if (result == 0) {
+        result = platform_result;
+      }
+    }
+  }
+
+  return result;
 }
 
 int32_t AdmProxy::Terminate() {
