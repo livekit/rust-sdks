@@ -294,7 +294,7 @@ void AdmProxy::SwitchPlayoutModeIfNeeded() {
 }
 
 void AdmProxy::SwitchRecordingAdmIfNeeded() {
-  if (!recording_) return;
+  if (!recording_ || audio_capture_pause_count_ > 0) return;
 
   // Stop platform ADM recording (only one that supports recording)
   if (platform_adm_) platform_adm_->StopRecording();
@@ -328,6 +328,7 @@ void AdmProxy::StopAudioIO() {
 
   recording_ = false;
   playing_ = false;
+  audio_capture_pause_count_ = 0;
   recording_initialized_ = false;
   playout_initialized_ = false;
 
@@ -350,6 +351,28 @@ void AdmProxy::StopAudioIO() {
   audio_transport_ = nullptr;
   RTC_LOG(LS_VERBOSE)
       << "AdmProxy: terminal audio shutdown completed; callbacks detached";
+}
+
+void AdmProxy::PauseAudioCapture() {
+  webrtc::MutexLock lock(&mutex_);
+  ++audio_capture_pause_count_;
+  if (audio_capture_pause_count_ == 1 && platform_adm_) {
+    platform_adm_->StopRecording();
+  }
+}
+
+void AdmProxy::ResumeAudioCapture() {
+  webrtc::MutexLock lock(&mutex_);
+  if (audio_capture_pause_count_ <= 0) {
+    RTC_LOG(LS_WARNING)
+        << "AdmProxy::ResumeAudioCapture() called without a matching pause";
+    return;
+  }
+
+  --audio_capture_pause_count_;
+  if (audio_capture_pause_count_ == 0) {
+    SwitchRecordingAdmIfNeeded();
+  }
 }
 
 // =============================================================================

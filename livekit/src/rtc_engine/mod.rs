@@ -369,6 +369,10 @@ impl RtcEngine {
     pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
         // We don't need to wait for the reconnection
         let session = self.inner.running_handle.read().session();
+        // AudioTransportImpl stores raw AudioSender pointers. Stop and join the
+        // capture worker while WebRTC removes a sender so it cannot dispatch a
+        // frame through an entry being destroyed.
+        let _capture_pause = self.inner.lk_runtime.pause_audio_capture();
         session.remove_track(sender) // TODO(theomonnom): Ignore errors where this
                                      // RtpSender is bound to the old session. (Can
                                      // happen on bad timing and it is safe to ignore)

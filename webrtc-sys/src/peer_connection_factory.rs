@@ -95,6 +95,10 @@ pub mod ffi {
 
         fn shutdown_audio_io(self: &PeerConnectionFactory);
 
+        fn pause_audio_capture(self: &PeerConnectionFactory);
+
+        fn resume_audio_capture(self: &PeerConnectionFactory);
+
         fn create_peer_connection(
             self: &PeerConnectionFactory,
             config: RtcConfiguration,

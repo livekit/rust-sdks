@@ -113,6 +113,18 @@ pub(crate) struct ActiveRtcSessionGuard {
     runtime: Arc<LkRuntime>,
 }
 
+/// Keeps platform capture stopped while WebRTC's audio sender list mutates.
+pub(crate) struct AudioCapturePauseGuard<'a> {
+    runtime: &'a LkRuntime,
+}
+
+impl Drop for AudioCapturePauseGuard<'_> {
+    fn drop(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.runtime.pc_factory.resume_audio_capture();
+    }
+}
+
 impl Drop for ActiveRtcSessionGuard {
     fn drop(&mut self) {
         let mut active_sessions = self.runtime.active_rtc_sessions.lock();
@@ -208,6 +220,13 @@ impl LkRuntime {
         *active_sessions += 1;
         log::debug!("registered RTC session (active={})", *active_sessions);
         ActiveRtcSessionGuard { runtime: self.clone() }
+    }
+
+    /// Stops capture until the returned guard is dropped.
+    pub(crate) fn pause_audio_capture(&self) -> AudioCapturePauseGuard<'_> {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.pc_factory.pause_audio_capture();
+        AudioCapturePauseGuard { runtime: self }
     }
 
     // ===== Device Management Methods =====

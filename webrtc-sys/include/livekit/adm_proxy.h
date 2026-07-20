@@ -101,6 +101,15 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   /// threads cannot deliver frames into transports that are being destroyed.
   void StopAudioIO();
 
+  /// Stops and joins platform capture while audio sender registrations change.
+  ///
+  /// Calls nest; capture resumes only after the matching final
+  /// ResumeAudioCapture().
+  void PauseAudioCapture();
+
+  /// Releases one audio capture pause and resumes capture when fully unpaused.
+  void ResumeAudioCapture();
+
   // ===========================================================================
   // Recording/Playout Control
   // ===========================================================================
@@ -271,6 +280,7 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   bool recording_initialized_ = false;
   bool playing_ = false;
   bool recording_ = false;
+  int audio_capture_pause_count_ = 0;
 
   // Control flags
   // When false (default), recording operations are no-ops (NativeAudioSource mode)

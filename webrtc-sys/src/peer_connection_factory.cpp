@@ -216,6 +216,22 @@ void PeerConnectionFactory::shutdown_audio_io() const {
   });
 }
 
+void PeerConnectionFactory::pause_audio_capture() const {
+  rtc_runtime_->worker_thread()->BlockingCall([this] {
+    if (adm_proxy_) {
+      adm_proxy_->PauseAudioCapture();
+    }
+  });
+}
+
+void PeerConnectionFactory::resume_audio_capture() const {
+  rtc_runtime_->worker_thread()->BlockingCall([this] {
+    if (adm_proxy_) {
+      adm_proxy_->ResumeAudioCapture();
+    }
+  });
+}
+
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
   return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
 }

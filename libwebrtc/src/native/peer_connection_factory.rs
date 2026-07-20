@@ -339,6 +339,16 @@ impl PeerConnectionFactory {
     pub fn shutdown_audio_io(&self) {
         self.sys_handle.shutdown_audio_io();
     }
+
+    /// Stops and joins platform capture while audio senders are being removed.
+    pub fn pause_audio_capture(&self) {
+        self.sys_handle.pause_audio_capture();
+    }
+
+    /// Resumes platform capture after audio sender removal completes.
+    pub fn resume_audio_capture(&self) {
+        self.sys_handle.resume_audio_capture();
+    }
 }
 
 #[cfg(test)]
