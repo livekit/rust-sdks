@@ -829,6 +829,38 @@ mod tests {
             });
             assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
         }
+
+        #[tokio::test]
+        async fn v1_trailer_attributes_merged_after_close() {
+            let mut h = Harness::new(vec![]);
+            let text = "hello world";
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    attrs(&[("foo", "bar"), ("baz", "quux")]),
+                    None,
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            let info = text_info(&reader).clone();
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, text.as_bytes().to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer_with_attrs(
+                "s1",
+                attrs(&[("hello", "world"), ("foo", "updated")]),
+            )));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+            // The trailer attributes are merged into the stream's attributes, overriding the header's.
+            let merged = info.attributes();
+            assert_eq!(merged.get("baz"), Some(&"quux".to_string()));
+            assert_eq!(merged.get("hello"), Some(&"world".to_string()));
+            assert_eq!(merged.get("foo"), Some(&"updated".to_string()));
+        }
     }
 
     // --- v2 inline -----------------------------------------------------------------------
@@ -923,6 +955,23 @@ mod tests {
             });
             let (reader, _) = h.next_opened().await;
             assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
+
+        #[tokio::test]
+        async fn v2_inline_zero_length_text() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(0),
+                    HashMap::new(),
+                    Some(vec![]), // present-but-empty inline payload
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(read_text(reader).await.unwrap(), "");
         }
     }
 
@@ -1038,7 +1087,8 @@ mod tests {
             let compressed = deflate_raw(text.as_bytes()).await;
 
             // Use a max payload size one byte below the size of the compressed data
-            let mut h = Harness::new_with_max_payload_length(vec![], Some(50_000 /* less than 60k */));
+            let mut h =
+                Harness::new_with_max_payload_length(vec![], Some(50_000 /* less than 60k */));
 
             // Feed all data in
             h.send_packet(Packet::Header {
@@ -1072,7 +1122,12 @@ mod tests {
             assert!(pieces.len() >= 2, "expected multi-packet compressed stream");
 
             h.send_packet(Packet::Header {
-                header: byte_header("s1", Some(data.len() as u64), None, CompressionType::DeflateRaw),
+                header: byte_header(
+                    "s1",
+                    Some(data.len() as u64),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
                 encryption_type: EncryptionType::None,
             });
             let (reader, _) = h.next_opened().await;
@@ -1084,6 +1139,193 @@ mod tests {
             }
             h.send_packet(Packet::Trailer(trailer("s1")));
             assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(data));
+        }
+
+        #[tokio::test]
+        async fn v2_compressed_errors_when_too_few_bytes() {
+            let mut h = Harness::new(vec![]);
+            let text = "hello world"; // 11 bytes decompressed
+            let compressed = deflate_raw(text.as_bytes()).await;
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(16), // more than the decompressed payload
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, compressed),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            // The receiver counts DECOMPRESSED bytes against totalLength.
+            assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
+        }
+
+        #[tokio::test]
+        async fn v2_compressed_errors_when_too_many_bytes() {
+            let mut h = Harness::new(vec![]);
+            let text = "hello world"; // 11 bytes decompressed
+            let compressed = deflate_raw(text.as_bytes()).await;
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(5), // fewer than the decompressed payload
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, compressed),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert!(matches!(read_text(reader).await, Err(StreamError::LengthExceeded)));
+        }
+
+        #[tokio::test]
+        async fn v2_compressed_duplicate_chunk_dropped() {
+            let mut h = Harness::new(vec![]);
+            let text = pseudo_random_text(60_000);
+            let compressed = deflate_raw(text.as_bytes()).await;
+            let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
+            assert!(pieces.len() >= 2);
+
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, pieces[0].to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            // A replayed chunk (e.g. reconnect logic) must be dropped, not fed to the stateful
+            // decompressor a second time.
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, pieces[0].to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            for (i, piece) in pieces.iter().enumerate().skip(1) {
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", i as u64, piece.to_vec()),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+        }
+
+        #[tokio::test]
+        async fn v2_compressed_text_reframes_multibyte_utf8() {
+            let mut h = Harness::new(vec![]);
+            let text = "😀你好世界 café — ¡ñandú! ".repeat(500);
+            let compressed = deflate_raw(text.as_bytes()).await;
+            // Split the compressed bytes at an arbitrary midpoint: the decompressor's output at the
+            // seam can land mid-codepoint, exercising the UTF-8 reframing stage.
+            let split = compressed.len() / 2;
+
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64), // NOTE: byte length
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, compressed[..split].to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 1, compressed[split..].to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+        }
+
+        #[tokio::test]
+        async fn v2_unknown_compression_type_is_ignored() {
+            let mut h = Harness::new(vec![]);
+            // A compression type from a future protocol version arrives at the proto layer; the
+            // receiver can't decode it, so per the spec's defensive-drop behavior (mirroring the web
+            // SDK) the stream must be ignored rather than delivered as if uncompressed.
+            let proto_header = livekit_protocol::data_stream::Header {
+                stream_id: "s1".to_string(),
+                timestamp: 0,
+                topic: "topic".to_string(),
+                mime_type: "text/plain".to_string(),
+                total_length: Some(11),
+                content_header: Some(
+                    livekit_protocol::data_stream::header::ContentHeader::TextHeader(
+                        livekit_protocol::data_stream::TextHeader::default(),
+                    ),
+                ),
+                compression: 99, // <== HERE, potential future compression value
+                inline_content: None,
+                ..Default::default()
+            };
+            h.send_packet(Packet::Header {
+                header: Header::from(proto_header),
+                encryption_type: EncryptionType::None,
+            });
+            // A well-formed second stream: if the bogus stream was correctly dropped, this is the
+            // next (and only) stream to open.
+            h.send_packet(Packet::Header {
+                header: text_header("s2", Some(2), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(
+                text_info(&reader).id,
+                "s2",
+                "a stream with an unrecognized compression type must be dropped"
+            );
+        }
+
+        #[tokio::test]
+        async fn v2_compressed_merges_trailer_attributes() {
+            let mut h = Harness::new(vec![]);
+            let text = "hello world";
+            let compressed = deflate_raw(text.as_bytes()).await;
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    attrs(&[("foo", "bar")]),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            let info = text_info(&reader).clone();
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, compressed),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer_with_attrs("s1", attrs(&[("hello", "world")]))));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+            let merged = info.attributes();
+            assert_eq!(merged.get("foo"), Some(&"bar".to_string()));
+            assert_eq!(merged.get("hello"), Some(&"world".to_string()));
         }
     }
 
@@ -1102,7 +1344,9 @@ mod tests {
         }
 
         /// Drains a progress stream to completion (the stream ends when the sender closes).
-        async fn collect_progress(stream: impl Stream<Item = StreamProgress>) -> Vec<StreamProgress> {
+        async fn collect_progress(
+            stream: impl Stream<Item = StreamProgress>,
+        ) -> Vec<StreamProgress> {
             use futures_util::StreamExt;
             let mut stream = std::pin::pin!(stream);
             let mut out = Vec::new();
@@ -1208,4 +1452,93 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn empty_chunks_are_ignored() {
+        let mut h = Harness::new(vec![]);
+        let text = "hello world";
+        h.send_packet(Packet::Header {
+            header: text_header(
+                "s1",
+                Some(text.len() as u64),
+                HashMap::new(),
+                None,
+                CompressionType::None,
+            ),
+            encryption_type: EncryptionType::None,
+        });
+        let (reader, _) = h.next_opened().await;
+        // An empty chunk must not count against totalLength or corrupt the stream.
+        h.send_packet(Packet::Chunk {
+            chunk: chunk("s1", 0, vec![]),
+            encryption_type: EncryptionType::None,
+        });
+        h.send_packet(Packet::Chunk {
+            chunk: chunk("s1", 1, text.as_bytes().to_vec()),
+            encryption_type: EncryptionType::None,
+        });
+        h.send_packet(Packet::Trailer(trailer("s1")));
+        assert_eq!(read_text(reader).await.unwrap(), text);
+    }
+
+    #[tokio::test]
+    async fn trailer_with_reason_errors_abnormal_end() {
+        let mut h = Harness::new(vec![]);
+        h.send_packet(Packet::Header {
+            header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+            encryption_type: EncryptionType::None,
+        });
+        let (reader, _) = h.next_opened().await;
+        h.send_packet(Packet::Chunk {
+            chunk: chunk("s1", 0, b"hello".to_vec()),
+            encryption_type: EncryptionType::None,
+        });
+        h.send_packet(Packet::Trailer(Trailer {
+            stream_id: StreamId::from("s1"),
+            reason: "cancelled".to_string(),
+            attributes: HashMap::new(),
+        }));
+        assert!(
+            matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(r)) if r == "cancelled")
+        );
+    }
+
+    #[tokio::test]
+    async fn text_stream_with_attachments_round_trips() {
+        let mut h = Harness::new(vec![]);
+        let text = "hello world";
+
+        // Text stream whose header references an attachment stream id, body inline.
+        let text_hdr =
+            TextHeader { attached_stream_ids: vec![StreamId::from("att1")], ..Default::default() };
+        h.send_packet(Packet::Header {
+            header: Header {
+                stream_id: StreamId::from("s1"),
+                timestamp: 0,
+                topic: "topic".to_string(),
+                mime_type: "text/plain".to_string(),
+                total_length: Some(text.len() as u64),
+                attributes: HashMap::new(),
+                content_header: Some(text_hdr.into()),
+                inline_content: Some(text.as_bytes().to_vec()),
+                compression: CompressionType::None,
+            },
+            encryption_type: EncryptionType::None,
+        });
+        let (text_reader, _) = h.next_opened().await;
+        assert_eq!(text_info(&text_reader).attached_stream_ids, vec!["att1".to_string()]);
+        assert_eq!(read_text(text_reader).await.unwrap(), text);
+
+        // The attachment arrives as its own byte stream under the referenced id.
+        h.send_packet(Packet::Header {
+            header: byte_header("att1", Some(3), None, CompressionType::None),
+            encryption_type: EncryptionType::None,
+        });
+        let (byte_reader, _) = h.next_opened().await;
+        h.send_packet(Packet::Chunk {
+            chunk: chunk("att1", 0, vec![1, 2, 3]),
+            encryption_type: EncryptionType::None,
+        });
+        h.send_packet(Packet::Trailer(trailer("att1")));
+        assert_eq!(read_bytes(byte_reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3]));
+    }
 }
