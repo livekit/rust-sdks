@@ -146,6 +146,10 @@ pub enum CompressionType {
     None,
     /// DEFLATE_RAW = DEFLATE without header+checksum/trailer
     DeflateRaw,
+    /// A compression type this SDK version doesn't recognize (i.e. from a future protocol
+    /// version). Streams carrying it cannot be decoded and are dropped on receive; the send
+    /// path never constructs this variant.
+    Unrecognized,
 }
 
 impl From<proto::CompressionType> for CompressionType {
@@ -161,7 +165,8 @@ impl From<CompressionType> for proto::CompressionType {
     fn from(value: CompressionType) -> Self {
         match value {
             CompressionType::DeflateRaw => Self::DeflateRaw,
-            CompressionType::None => Self::None,
+            // `Unrecognized` only arises from decoding a foreign header and is never sent.
+            CompressionType::None | CompressionType::Unrecognized => Self::None,
         }
     }
 }
@@ -189,7 +194,13 @@ pub struct Header {
 
 impl From<proto::Header> for Header {
     fn from(value: proto::Header) -> Self {
-        let compression: CompressionType = value.compression().into();
+        // Don't use the prost `compression()` accessor here: it silently maps out-of-range
+        // values (a compression type from a future protocol version) to the default `None`,
+        // which would make the receiver deliver still-compressed bytes as content. Preserve
+        // unknown values as `Unrecognized` so the incoming manager can drop the stream.
+        let compression = proto::CompressionType::try_from(value.compression)
+            .map(CompressionType::from)
+            .unwrap_or(CompressionType::Unrecognized);
         let content_header: Option<ContentHeader> =
             value.content_header.map(|content_header| content_header.into());
         Self {

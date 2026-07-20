@@ -251,6 +251,18 @@ impl Manager {
         encryption_type: EncryptionType,
     ) {
         let is_internal = self.is_internal_topic(&header.topic);
+
+        // A compression type from a future protocol version can't be decoded; drop the stream
+        // (a conforming sender never sends compression a recipient didn't advertise support for,
+        // so this is a defensive backstop).
+        if header.compression == CompressionType::Unrecognized {
+            log::warn!(
+                "Stream '{}' received with an unrecognized compression type, dropping",
+                header.stream_id
+            );
+            return;
+        }
+
         // Read the v2 signals before `try_from_with_encryption` consumes the header.
         let inline_content = header.inline_content.take();
         let is_compressed = header.compression == CompressionType::DeflateRaw;
