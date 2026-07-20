@@ -24,5 +24,12 @@ impl TokenSourceSandbox {
     pub fn new(sandbox_id: String) -> TokenSourceSandbox { 
         TokenSourceSandbox { sandbox_id }  
     }
-    // pub async fn fetch ... 
+    pub async fn fetch(self) ->  TokenSourceResult<TokenSourceResponse> {
+        Ok(
+            TokenSourceResponse {
+                server_url: "Hello Sandbox".to_string(),
+                participant_token: "Hello Sandbox".to_string()
+            }
+        )
+    }
 }
