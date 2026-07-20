@@ -32,7 +32,7 @@ use crate::{
     prelude::LocalTrack,
     room::DisconnectReason,
     rtc_engine::{
-        lk_runtime::{ActiveRtcSessionGuard, LkRuntime},
+        lk_runtime::{ActiveRtcSessionGuard, AudioCapturePauseGuard, LkRuntime},
         rtc_session::{RtcSession, SessionEvent, SessionEvents},
     },
     DataPacketKind,
@@ -376,6 +376,11 @@ impl RtcEngine {
         session.remove_track(sender) // TODO(theomonnom): Ignore errors where this
                                      // RtpSender is bound to the old session. (Can
                                      // happen on bad timing and it is safe to ignore)
+    }
+
+    /// Stops capture until the returned guard is dropped.
+    pub(crate) fn pause_audio_capture(&self) -> AudioCapturePauseGuard<'_> {
+        self.inner.lk_runtime.pause_audio_capture()
     }
 
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {

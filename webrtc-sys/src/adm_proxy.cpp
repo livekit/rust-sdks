@@ -328,7 +328,6 @@ void AdmProxy::StopAudioIO() {
 
   recording_ = false;
   playing_ = false;
-  audio_capture_pause_count_ = 0;
   recording_initialized_ = false;
   playout_initialized_ = false;
 
