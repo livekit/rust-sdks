@@ -512,6 +512,17 @@ mod tests {
             .add("noCompression", CLIENT_PROTOCOL_DATA_STREAM_V2, &[])
     }
 
+    /// A room where every participant is v2 AND advertises the compression capability.
+    fn all_v2_capable_room() -> FakeRegistry {
+        FakeRegistry::new()
+            .add(
+                "alice",
+                CLIENT_PROTOCOL_DATA_STREAM_V2,
+                &[ClientCapability::CompressionDeflateRaw],
+            )
+            .add("bob", CLIENT_PROTOCOL_DATA_STREAM_V2, &[ClientCapability::CompressionDeflateRaw])
+    }
+
     // --- Capture harness -----------------------------------------------------------------
 
     type Sent = Arc<StdMutex<Vec<proto::DataPacket>>>;
@@ -567,6 +578,20 @@ mod tests {
         match p.value.as_ref().unwrap() {
             proto::data_packet::Value::StreamTrailer(t) => assert_eq!(t.reason, ""),
             _ => panic!("expected stream trailer"),
+        }
+    }
+
+    /// Uniform random bytes — genuinely incompressible (unlike `pseudo_random_text`'s ascii).
+    fn random_bytes(len: usize) -> Vec<u8> {
+        use rand::{rngs::StdRng, Rng, SeedableRng};
+        let mut rng = StdRng::seed_from_u64(0xdead_beef);
+        (0..len).map(|_| rng.random::<u8>()).collect()
+    }
+
+    fn text_content_header(h: &proto::data_stream::Header) -> &proto::data_stream::TextHeader {
+        match h.content_header.as_ref().unwrap() {
+            proto::data_stream::header::ContentHeader::TextHeader(t) => t,
+            _ => panic!("expected text header"),
         }
     }
 
@@ -626,122 +651,437 @@ mod tests {
             assert_eq!(chunk(&p[1]).content, vec![0, 1, 2, 3]);
             assert_trailer(&p[2]);
         }
+
+        #[tokio::test]
+        async fn pre_v2_empty_text_sends_header_and_trailer() {
+            let (m, sent) = setup();
+            m.send_text("", text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
+            // A well-formed (if contentless) stream: header declaring zero length, then the trailer.
+            let p = sent.lock().unwrap().clone();
+            assert_eq!(p.len(), 2);
+            assert_eq!(header(&p[0]).total_length, Some(0));
+            assert_trailer(&p[1]);
+        }
     }
 
     mod room_with_all_data_streams_v2_participants {
         use super::*;
 
-        #[tokio::test]
-        async fn v2_short_compressible_text_inlines_compressed() {
-            let (m, sent) = setup();
-            let text = "hello hello compressible world";
-            m.send_text(text, text_opts("chat", &["alice", "bob"]), &all_v2_room()).await.unwrap();
-            let p = sent.lock().unwrap().clone();
-            assert_eq!(p.len(), 1);
-            let h = header(&p[0]);
-            assert!(is_text_header(h));
-            assert_eq!(h.compression, deflate_raw_i32());
-            let inline = h.inline_content.as_ref().unwrap();
-            assert_ne!(inline.as_slice(), text.as_bytes()); // compressed, not raw
+        mod send_text {
+            use super::*;
+
+            #[tokio::test]
+            async fn v2_short_compressible_text_inlines_compressed() {
+                let (m, sent) = setup();
+                let text = "hello hello compressible world";
+                m.send_text(text, text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1);
+                let h = header(&p[0]);
+                assert!(is_text_header(h));
+                assert_eq!(h.compression, deflate_raw_i32());
+                let inline = h.inline_content.as_ref().unwrap();
+                assert_ne!(inline.as_slice(), text.as_bytes()); // compressed, not raw
+            }
+
+            #[tokio::test]
+            async fn v2_short_incompressible_text_inlines_raw() {
+                let (m, sent) = setup();
+                m.send_text("short", text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1);
+                let h = header(&p[0]);
+                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), b"short");
+            }
+
+            #[tokio::test]
+            async fn v2_no_compression_cap_inlines_raw() {
+                let (m, sent) = setup();
+                let text = "hello hello compressible world";
+                m.send_text(text, text_opts("chat", &["noCompression"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1); // inline (gated on protocol) still happens
+                let h = header(&p[0]);
+                assert_eq!(h.compression, none_i32()); // compression gated off by missing cap
+                assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
+            }
+
+            #[tokio::test]
+            async fn v2_large_highly_compressible_text_still_inlines() {
+                let (m, sent) = setup();
+                let text = "hello world".repeat(20_000);
+                m.send_text(&text, text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1);
+                let h = header(&p[0]);
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert!(h.inline_content.as_ref().unwrap().len() < text.len());
+            }
+
+            #[tokio::test]
+            async fn v2_somewhat_compressible_text_is_compressed_multipacket() {
+                let (m, sent) = setup();
+                let text = somewhat_compressible(50_000);
+                m.send_text(&text, text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                let h = header(&p[0]);
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert!(h.inline_content.is_none());
+                let chunks: Vec<_> = p[1..p.len() - 1].iter().map(chunk).collect();
+                // Multi-packet, but fewer chunks than an uncompressed send would need (ceil(len/15000)).
+                let uncompressed_chunks = text.len().div_ceil(constants::STREAM_CHUNK_SIZE_BYTES);
+                assert!(chunks.len() >= 2);
+                assert!(chunks.len() < uncompressed_chunks);
+                assert_eq!(chunks[0].content.len(), constants::STREAM_CHUNK_SIZE_BYTES); // first chunk is full MTU
+                let total: usize = chunks.iter().map(|c| c.content.len()).sum();
+                assert!(total < text.len()); // compressed
+                assert_trailer(p.last().unwrap());
+            }
+
+            #[tokio::test]
+            async fn v2_compress_false_short_inlines_raw() {
+                let (m, sent) = setup();
+                let text = "hello hello compressible world";
+                let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
+                m.send_text(text, opts, &all_v2_room()).await.unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1);
+                let h = header(&p[0]);
+                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
+            }
+
+            #[tokio::test]
+            async fn v2_compress_false_large_is_uncompressed_multipacket() {
+                let (m, sent) = setup();
+                let text = "B".repeat(50_000);
+                let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
+                m.send_text(&text, opts, &all_v2_room()).await.unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 6); // header + 4 chunks + trailer
+                assert_eq!(header(&p[0]).compression, none_i32());
+                assert_eq!(chunk(&p[1]).content.len(), 15_000);
+            }
+
+            #[tokio::test]
+            async fn v2_send_text_with_attachments_never_inlines() {
+                let (m, sent) = setup();
+                let opts = text_opts("chat", &["alice", "bob"]).with_attached_stream_id("att1");
+                m.send_text("hello hello compressible world", opts, &all_v2_room()).await.unwrap();
+                let p = sent.lock().unwrap().clone();
+                // Attachments disable the single-packet path even when every recipient is v2.
+                assert_eq!(p.len(), 3); // header + 1 chunk + trailer
+                let h = header(&p[0]);
+                assert!(h.inline_content.is_none());
+                assert_eq!(text_content_header(h).attached_stream_ids, vec!["att1".to_string()]);
+                assert_trailer(&p[2]);
+            }
+
+            #[tokio::test]
+            async fn v2_large_text_to_uncapable_recipient_is_uncompressed_multipacket() {
+                let (m, sent) = setup();
+                let text = "A".repeat(40_000);
+                m.send_text(&text, text_opts("chat", &["noCompression"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                // Inline is attempted (recipient is v2) but the raw payload overflows the MTU, and
+                // compression is gated off by the missing capability — so this falls back to an
+                // uncompressed multi-packet stream split at STREAM_CHUNK_SIZE_BYTES.
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 5);
+                let h = header(&p[0]);
+                assert_eq!(h.compression, none_i32());
+                assert!(h.inline_content.is_none());
+                assert_eq!(chunk(&p[1]).content.len(), 15_000);
+                assert_eq!(chunk(&p[2]).content.len(), 15_000);
+                assert_eq!(chunk(&p[3]).content.len(), 10_000);
+                assert_trailer(&p[4]);
+            }
+
+            #[tokio::test]
+            async fn v2_empty_text_sends_single_inline_packet() {
+                let (m, sent) = setup();
+                m.send_text("", text_opts("chat", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1);
+                let h = header(&p[0]);
+                // Deflate framing can't shrink an empty payload, so the raw (empty) bytes are kept.
+                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.inline_content.as_deref(), Some(&[][..]));
+                assert_eq!(h.total_length, Some(0));
+            }
+        }
+
+        mod send_bytes {
+            use super::*;
+
+            #[tokio::test]
+            async fn v2_send_bytes_short_incompressible_inlines_raw() {
+                let (m, sent) = setup();
+                m.send_bytes([0u8, 1, 2, 3], byte_opts("blob", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1);
+                let h = header(&p[0]);
+                // Tiny payload doesn't shrink under DEFLATE framing, so it's sent raw.
+                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), &[0u8, 1, 2, 3]);
+            }
+
+            #[tokio::test]
+            async fn v2_send_bytes_no_compression_cap_inlines_raw() {
+                let (m, sent) = setup();
+                let payload = "hello hello compressible world".as_bytes();
+                m.send_bytes(payload, byte_opts("blob", &["noCompression"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1); // inline is gated on clientProtocol alone
+                let h = header(&p[0]);
+                assert_eq!(h.compression, none_i32()); // compression gated off by the missing cap
+                assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), payload);
+            }
+
+            #[tokio::test]
+            async fn v2_send_bytes_large_highly_compressible_inlines() {
+                let (m, sent) = setup();
+                let payload = vec![0x01u8; 50_000];
+                m.send_bytes(&payload, byte_opts("blob", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1); // compresses well under the MTU, so it still goes inline
+                let h = header(&p[0]);
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert!(h.inline_content.as_ref().unwrap().len() < payload.len());
+                assert_eq!(h.total_length, Some(50_000)); // always the PRE-compression length
+            }
+
+            #[tokio::test]
+            async fn v2_send_bytes_somewhat_compressible_is_compressed_multipacket() {
+                let (m, sent) = setup();
+                let payload = somewhat_compressible(50_000).into_bytes();
+                m.send_bytes(&payload, byte_opts("blob", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let p = sent.lock().unwrap().clone();
+                let h = header(&p[0]);
+                assert!(is_byte_header(h));
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert!(h.inline_content.is_none());
+                let chunks: Vec<_> = p[1..p.len() - 1].iter().map(chunk).collect();
+                assert!(chunks.len() >= 2);
+                assert!(chunks.len() < payload.len().div_ceil(constants::STREAM_CHUNK_SIZE_BYTES));
+                assert_eq!(chunks[0].content.len(), constants::STREAM_CHUNK_SIZE_BYTES);
+                assert_trailer(p.last().unwrap());
+            }
+
+            #[tokio::test]
+            async fn v2_send_bytes_compress_false_large_is_uncompressed_multipacket() {
+                let (m, sent) = setup();
+                let payload = vec![0x07u8; 40_000];
+                let opts = byte_opts("blob", &["alice", "bob"]).with_compress(false);
+                m.send_bytes(&payload, opts, &all_v2_room()).await.unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 5); // header + 15k/15k/10k chunks + trailer
+                let h = header(&p[0]);
+                assert_eq!(h.compression, none_i32());
+                assert!(h.inline_content.is_none());
+                assert_eq!(chunk(&p[1]).content.len(), 15_000);
+                assert_eq!(chunk(&p[2]).content.len(), 15_000);
+                assert_eq!(chunk(&p[3]).content.len(), 10_000);
+                assert!(chunk(&p[3]).content.iter().all(|b| *b == 0x07));
+                assert_trailer(&p[4]);
+            }
+
+            #[tokio::test]
+            async fn v2_send_bytes_short_compressible_inlines_compressed() {
+                let (m, sent) = setup();
+                let payload = "hello hello compressible world".as_bytes().to_vec();
+                let mut opts = byte_opts("blob", &["alice", "bob"]);
+                opts.attributes.insert("foo".to_string(), "bar".to_string());
+                let info = m.send_bytes(&payload, opts, &all_v2_room()).await.unwrap();
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 1);
+                let h = header(&p[0]);
+                assert!(is_byte_header(h));
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert_ne!(h.inline_content.as_ref().unwrap().as_slice(), payload.as_slice());
+                assert_eq!(info.name, "unknown");
+                assert_eq!(info.mime_type, "application/octet-stream");
+                assert_eq!(info.total_length, Some(payload.len() as u64));
+                assert_eq!(info.attributes().get("foo"), Some(&"bar".to_string()));
+            }
+        }
+
+        mod send_file {
+            use super::*;
+
+            async fn write_temp_file(bytes: &[u8]) -> std::path::PathBuf {
+                let path =
+                    std::env::temp_dir().join(format!("lk_ds_test_{}.bin", create_random_uuid()));
+                tokio::fs::write(&path, bytes).await.unwrap();
+                path
+            }
+
+            #[tokio::test]
+            async fn send_file_never_inlines_and_compresses_when_eligible() {
+                let (m, sent) = setup();
+                let path = write_temp_file(&vec![0x01u8; 10_000]).await;
+                m.send_file(&path, byte_opts("file", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let _ = tokio::fs::remove_file(&path).await;
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 3); // header + 1 chunk + trailer, NOT inline
+                let h = header(&p[0]);
+                assert!(is_byte_header(h));
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert!(h.inline_content.is_none());
+                assert!(chunk(&p[1]).content.len() < 10_000); // compressed
+                assert_trailer(&p[2]);
+            }
+
+            #[tokio::test]
+            async fn send_file_uncompressed_splits_at_mtu() {
+                let (m, sent) = setup();
+                let path = write_temp_file(&vec![0x07u8; 20_000]).await;
+                m.send_file(&path, byte_opts("file", &[]).with_compress(false), &all_v2_room())
+                    .await
+                    .unwrap();
+                let _ = tokio::fs::remove_file(&path).await;
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 4); // header + 15000 + 5000 + trailer
+                assert_eq!(header(&p[0]).compression, none_i32());
+                assert_eq!(chunk(&p[1]).content.len(), 15_000);
+                assert_eq!(chunk(&p[2]).content.len(), 5_000);
+                assert_eq!(chunk(&p[2]).chunk_index, 1);
+                assert_trailer(&p[3]);
+            }
+
+            #[tokio::test]
+            async fn send_file_incompressible_compressed_expands() {
+                let (m, sent) = setup();
+                let data = random_bytes(50_000);
+                let path = write_temp_file(&data).await;
+                m.send_file(&path, byte_opts("file", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let _ = tokio::fs::remove_file(&path).await;
+
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 6); // header + 4 chunks + trailer
+                let h = header(&p[0]);
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(chunk(&p[1]).content.len(), 15_000);
+                // Deflate adds slight overhead on incompressible data — the accepted trade-off for
+                // streaming the file instead of buffering it to make an inline/compression decision.
+                let total: usize =
+                    p[1..p.len() - 1].iter().map(|packet| chunk(packet).content.len()).sum();
+                assert!(total > data.len());
+                assert_trailer(p.last().unwrap());
+            }
+
+            #[tokio::test]
+            async fn send_file_to_no_compression_recipient_is_uncompressed() {
+                let (m, sent) = setup();
+                let path = write_temp_file(&vec![0x07u8; 10_000]).await;
+                m.send_file(&path, byte_opts("file", &["noCompression"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let _ = tokio::fs::remove_file(&path).await;
+
+                // v2 recipient without the compression capability in a v2 room: uncompressed
+                // multi-packet (and never inline).
+                let p = sent.lock().unwrap().clone();
+                assert_eq!(p.len(), 3);
+                let h = header(&p[0]);
+                assert!(is_byte_header(h));
+                assert_eq!(h.compression, none_i32());
+                assert!(h.inline_content.is_none());
+                let c = chunk(&p[1]);
+                assert_eq!(c.content.len(), 10_000);
+                assert!(c.content.iter().all(|b| *b == 0x07));
+                assert_trailer(&p[2]);
+            }
+
+            #[tokio::test]
+            async fn send_file_empty_file() {
+                let (m, sent) = setup();
+                let path = write_temp_file(&[]).await;
+                m.send_file(&path, byte_opts("file", &["alice", "bob"]), &all_v2_room())
+                    .await
+                    .unwrap();
+                let _ = tokio::fs::remove_file(&path).await;
+
+                // An empty file still produces a well-formed compressed stream: a header declaring zero
+                // length, the deflate stream's final block, and a trailer.
+                let p = sent.lock().unwrap().clone();
+                let h = header(&p[0]);
+                assert!(is_byte_header(h));
+                assert_eq!(h.total_length, Some(0));
+                assert_eq!(h.compression, deflate_raw_i32());
+                assert_trailer(p.last().unwrap());
+            }
         }
 
         #[tokio::test]
-        async fn v2_short_incompressible_text_inlines_raw() {
+        async fn v2_broadcast_all_capable_inlines_compressed() {
             let (m, sent) = setup();
-            m.send_text("short", text_opts("chat", &["alice", "bob"]), &all_v2_room()).await.unwrap();
+            // No destinations: eligibility is evaluated over every remote participant.
+            m.send_text(
+                "hello hello compressible world",
+                text_opts("chat", &[]),
+                &all_v2_capable_room(),
+            )
+            .await
+            .unwrap();
+            let p = sent.lock().unwrap().clone();
+            assert_eq!(p.len(), 1);
+            assert_eq!(header(&p[0]).compression, deflate_raw_i32());
+        }
+
+        #[tokio::test]
+        async fn v2_broadcast_with_uncapable_member_inlines_raw() {
+            let (m, sent) = setup();
+            let text = "hello hello compressible world";
+            // all_v2_room includes "noCompression": inline still applies, compression does not.
+            m.send_text(text, text_opts("chat", &[]), &all_v2_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
             let h = header(&p[0]);
             assert_eq!(h.compression, none_i32());
-            assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), b"short");
-        }
-
-        #[tokio::test]
-        async fn v2_no_compression_cap_inlines_raw() {
-            let (m, sent) = setup();
-            let text = "hello hello compressible world";
-            m.send_text(text, text_opts("chat", &["noCompression"]), &all_v2_room()).await.unwrap();
-            let p = sent.lock().unwrap().clone();
-            assert_eq!(p.len(), 1); // inline (gated on protocol) still happens
-            let h = header(&p[0]);
-            assert_eq!(h.compression, none_i32()); // compression gated off by missing cap
             assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
         }
 
         #[tokio::test]
-        async fn v2_large_highly_compressible_text_still_inlines() {
+        async fn empty_room_broadcast_is_v2_eligible() {
             let (m, sent) = setup();
-            let text = "hello world".repeat(20_000);
-            m.send_text(&text, text_opts("chat", &["alice", "bob"]), &all_v2_room()).await.unwrap();
+            // Nobody to receive it, so nothing gates the v2 fast path.
+            m.send_text(
+                "hello hello compressible world",
+                text_opts("chat", &[]),
+                &FakeRegistry::new(),
+            )
+            .await
+            .unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
-            let h = header(&p[0]);
-            assert_eq!(h.compression, deflate_raw_i32());
-            assert!(h.inline_content.as_ref().unwrap().len() < text.len());
-        }
-
-        #[tokio::test]
-        async fn v2_somewhat_compressible_text_is_compressed_multipacket() {
-            let (m, sent) = setup();
-            let text = somewhat_compressible(50_000);
-            m.send_text(&text, text_opts("chat", &["alice", "bob"]), &all_v2_room()).await.unwrap();
-            let p = sent.lock().unwrap().clone();
-            let h = header(&p[0]);
-            assert_eq!(h.compression, deflate_raw_i32());
-            assert!(h.inline_content.is_none());
-            let chunks: Vec<_> = p[1..p.len() - 1].iter().map(chunk).collect();
-            // Multi-packet, but fewer chunks than an uncompressed send would need (ceil(len/15000)).
-            let uncompressed_chunks = text.len().div_ceil(constants::STREAM_CHUNK_SIZE_BYTES);
-            assert!(chunks.len() >= 2);
-            assert!(chunks.len() < uncompressed_chunks);
-            assert_eq!(chunks[0].content.len(), constants::STREAM_CHUNK_SIZE_BYTES); // first chunk is full MTU
-            let total: usize = chunks.iter().map(|c| c.content.len()).sum();
-            assert!(total < text.len()); // compressed
-            assert_trailer(p.last().unwrap());
-        }
-
-        #[tokio::test]
-        async fn v2_compress_false_short_inlines_raw() {
-            let (m, sent) = setup();
-            let text = "hello hello compressible world";
-            let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
-            m.send_text(text, opts, &all_v2_room()).await.unwrap();
-            let p = sent.lock().unwrap().clone();
-            assert_eq!(p.len(), 1);
-            let h = header(&p[0]);
-            assert_eq!(h.compression, none_i32());
-            assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
-        }
-
-        #[tokio::test]
-        async fn v2_compress_false_large_is_uncompressed_multipacket() {
-            let (m, sent) = setup();
-            let text = "B".repeat(50_000);
-            let opts = text_opts("chat", &["alice", "bob"]).with_compress(false);
-            m.send_text(&text, opts, &all_v2_room()).await.unwrap();
-            let p = sent.lock().unwrap().clone();
-            assert_eq!(p.len(), 6); // header + 4 chunks + trailer
-            assert_eq!(header(&p[0]).compression, none_i32());
-            assert_eq!(chunk(&p[1]).content.len(), 15_000);
-        }
-
-        #[tokio::test]
-        async fn v2_send_bytes_short_compressible_inlines_compressed() {
-            let (m, sent) = setup();
-            let payload = "hello hello compressible world".as_bytes().to_vec();
-            let mut opts = byte_opts("blob", &["alice", "bob"]);
-            opts.attributes.insert("foo".to_string(), "bar".to_string());
-            let info = m.send_bytes(&payload, opts, &all_v2_room()).await.unwrap();
-            let p = sent.lock().unwrap().clone();
-            assert_eq!(p.len(), 1);
-            let h = header(&p[0]);
-            assert!(is_byte_header(h));
-            assert_eq!(h.compression, deflate_raw_i32());
-            assert_ne!(h.inline_content.as_ref().unwrap().as_slice(), payload.as_slice());
-            assert_eq!(info.name, "unknown");
-            assert_eq!(info.mime_type, "application/octet-stream");
-            assert_eq!(info.total_length, Some(payload.len() as u64));
-            assert_eq!(info.attributes().get("foo"), Some(&"bar".to_string()));
+            assert_eq!(header(&p[0]).compression, deflate_raw_i32());
         }
     }
 
@@ -823,49 +1163,6 @@ mod tests {
         assert_eq!(p.len(), 3);
         assert_trailer(&p[2]);
     }
-
-    mod send_file {
-        use super::*;
-
-        async fn write_temp_file(bytes: &[u8]) -> std::path::PathBuf {
-            let path = std::env::temp_dir().join(format!("lk_ds_test_{}.bin", create_random_uuid()));
-            tokio::fs::write(&path, bytes).await.unwrap();
-            path
-        }
-
-        #[tokio::test]
-        async fn send_file_never_inlines_and_compresses_when_eligible() {
-            let (m, sent) = setup();
-            let path = write_temp_file(&vec![0x01u8; 10_000]).await;
-            m.send_file(&path, byte_opts("file", &["alice", "bob"]), &all_v2_room()).await.unwrap();
-            let _ = tokio::fs::remove_file(&path).await;
-            let p = sent.lock().unwrap().clone();
-            assert_eq!(p.len(), 3); // header + 1 chunk + trailer, NOT inline
-            let h = header(&p[0]);
-            assert!(is_byte_header(h));
-            assert_eq!(h.compression, deflate_raw_i32());
-            assert!(h.inline_content.is_none());
-            assert!(chunk(&p[1]).content.len() < 10_000); // compressed
-            assert_trailer(&p[2]);
-        }
-
-        #[tokio::test]
-        async fn send_file_uncompressed_splits_at_mtu() {
-            let (m, sent) = setup();
-            let path = write_temp_file(&vec![0x07u8; 20_000]).await;
-            m.send_file(&path, byte_opts("file", &[]), &pre_v2_room()).await.unwrap();
-            let _ = tokio::fs::remove_file(&path).await;
-            let p = sent.lock().unwrap().clone();
-            assert_eq!(p.len(), 4); // header + 15000 + 5000 + trailer
-            assert_eq!(header(&p[0]).compression, none_i32());
-            assert_eq!(chunk(&p[1]).content.len(), 15_000);
-            assert_eq!(chunk(&p[2]).content.len(), 5_000);
-            assert_eq!(chunk(&p[2]).chunk_index, 1);
-            assert_trailer(&p[3]);
-        }
-    }
-
-    // --- Header size limit ---------------------------------------------------------------
 
     mod header_size_limit {
         use super::*;
@@ -953,5 +1250,65 @@ mod tests {
         let drop_thread = std::thread::spawn(move || drop(raw_stream));
 
         drop_thread.join().expect("Dropping RawStream on a non-Tokio thread must not panic");
+    }
+
+    // --- Additional spec-conformance cases ------------------------------------------------
+
+    mod stream_text_bytes {
+        use super::*;
+
+        #[tokio::test]
+        async fn stream_bytes_multi_write_splits_at_mtu() {
+            let (m, sent) = setup();
+            let writer = m.stream_bytes(byte_opts("blob", &[])).await.unwrap();
+            writer.write(&vec![0x01u8; 20_000]).await.unwrap();
+            writer.write(&vec![0x01u8; 20_000]).await.unwrap();
+            writer.close().await.unwrap();
+
+            // Each write splits into a 15k + 5k chunk; indices are contiguous ACROSS writes.
+            let p = sent.lock().unwrap().clone();
+            assert_eq!(p.len(), 6); // header + 4 chunks + trailer
+            for (i, expected_len) in [15_000usize, 5_000, 15_000, 5_000].iter().enumerate() {
+                let c = chunk(&p[i + 1]);
+                assert_eq!(c.chunk_index, i as u64);
+                assert_eq!(c.content.len(), *expected_len);
+                assert!(c.content.iter().all(|b| *b == 0x01));
+            }
+            assert_trailer(&p[5]);
+        }
+
+        #[tokio::test]
+        async fn stream_text_oversized_attributes_errors() {
+            let (m, sent) = setup();
+            let mut opts = text_opts("chat", &[]);
+            opts.attributes.insert("big".to_string(), "x".repeat(20_000));
+            let result = m.stream_text(opts).await;
+            assert!(matches!(result, Err(StreamError::HeaderTooLarge)));
+            // The error must be raised before anything hits the wire.
+            assert!(sent.lock().unwrap().is_empty());
+        }
+
+        #[tokio::test]
+        async fn stream_text_splits_on_utf8_boundaries_at_mtu() {
+            let (m, sent) = setup();
+            // 14 999 single-byte chars put the 4-byte emoji straddling the 15 000-byte MTU boundary.
+            let text = format!("{}😀{}", "a".repeat(14_999), "b".repeat(10));
+            let writer = m.stream_text(text_opts("chat", &[])).await.unwrap();
+            writer.write(&text).await.unwrap();
+            writer.close().await.unwrap();
+
+            let p = sent.lock().unwrap().clone();
+            assert_eq!(p.len(), 4); // header + 2 chunks + trailer
+            let first = chunk(&p[1]);
+            let second = chunk(&p[2]);
+            // The split backs off below the MTU rather than bisecting the emoji, so each chunk
+            // decodes independently.
+            assert_eq!(first.content.len(), 14_999);
+            let first_str =
+                std::str::from_utf8(&first.content).expect("chunk 0 must be valid UTF-8");
+            let second_str =
+                std::str::from_utf8(&second.content).expect("chunk 1 must be valid UTF-8");
+            assert_eq!(format!("{first_str}{second_str}"), text);
+        }
     }
 }
