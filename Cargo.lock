@@ -4091,6 +4091,7 @@ dependencies = [
 name = "livekit-token-source"
 version = "0.1.0"
 dependencies = [
+ "reqwest",
  "thiserror 2.0.18",
 ]
 
@@ -7394,6 +7395,7 @@ name = "token_source"
 version = "0.1.0"
 dependencies = [
  "livekit-token-source",
+ "tokio",
 ]
 
 [[package]]

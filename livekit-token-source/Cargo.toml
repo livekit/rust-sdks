@@ -9,3 +9,4 @@ readme = "README.md"
 
 [dependencies]
 thiserror = { workspace = true }
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }

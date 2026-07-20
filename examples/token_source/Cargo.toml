@@ -6,3 +6,4 @@ publish = false
 
 [dependencies]
 livekit-token-source = { version = "0.1.0", path = "../../livekit-token-source" }
+tokio = { workspace = true }
