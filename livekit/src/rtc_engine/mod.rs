@@ -18,7 +18,12 @@ use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard};
-use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow,
+    fmt::Debug,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
@@ -250,10 +255,10 @@ impl EngineHandle {
 }
 
 struct EngineInner {
-    // Keep a strong reference to LkRuntime to avoid creating a new RtcRuntime or PeerConnection
-    // factory accross multiple Rtc sessions
-    #[allow(dead_code)]
-    lk_runtime: Arc<LkRuntime>,
+    // ActiveRtcSessionGuard keeps the runtime alive while a session can use it.
+    // Keep only a weak reference here so detached engine tasks cannot retain a
+    // closed runtime and its peer connection factory indefinitely.
+    lk_runtime: Weak<LkRuntime>,
     active_rtc_session: Mutex<Option<ActiveRtcSessionGuard>>,
     engine_tx: EngineEmitter,
     options: EngineOptions,
@@ -372,15 +377,16 @@ impl RtcEngine {
         // AudioTransportImpl stores raw AudioSender pointers. Stop and join the
         // capture worker while WebRTC removes a sender so it cannot dispatch a
         // frame through an entry being destroyed.
-        let _capture_pause = self.inner.lk_runtime.pause_audio_capture();
+        let _capture_pause =
+            self.inner.lk_runtime.upgrade().map(|runtime| runtime.pause_audio_capture());
         session.remove_track(sender) // TODO(theomonnom): Ignore errors where this
                                      // RtpSender is bound to the old session. (Can
                                      // happen on bad timing and it is safe to ignore)
     }
 
     /// Stops capture until the returned guard is dropped.
-    pub(crate) fn pause_audio_capture(&self) -> AudioCapturePauseGuard<'_> {
-        self.inner.lk_runtime.pause_audio_capture()
+    pub(crate) fn pause_audio_capture(&self) -> Option<AudioCapturePauseGuard> {
+        self.inner.lk_runtime.upgrade().map(|runtime| runtime.pause_audio_capture())
     }
 
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
@@ -484,7 +490,7 @@ impl EngineInner {
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
                     let inner = Arc::new(Self {
-                        lk_runtime,
+                        lk_runtime: Arc::downgrade(&lk_runtime),
                         active_rtc_session: Mutex::new(Some(active_rtc_session)),
                         engine_tx,
                         close_notifier: Arc::new(Notify::new()),

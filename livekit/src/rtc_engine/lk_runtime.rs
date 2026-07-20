@@ -114,11 +114,11 @@ pub(crate) struct ActiveRtcSessionGuard {
 }
 
 /// Keeps platform capture stopped while WebRTC's audio sender list mutates.
-pub(crate) struct AudioCapturePauseGuard<'a> {
-    runtime: &'a LkRuntime,
+pub(crate) struct AudioCapturePauseGuard {
+    runtime: Arc<LkRuntime>,
 }
 
-impl Drop for AudioCapturePauseGuard<'_> {
+impl Drop for AudioCapturePauseGuard {
     fn drop(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         self.runtime.pc_factory.resume_audio_capture();
@@ -193,16 +193,6 @@ impl LkRuntime {
         }
     }
 
-    /// Invalidates the process-wide runtime for a completed SDK lifecycle.
-    ///
-    /// Existing owners keep the old runtime alive until they drop. The next
-    /// [`instance`](Self::instance) call waits on the teardown gate before
-    /// constructing a fresh peer connection factory.
-    pub fn reset_instance() {
-        LK_RUNTIME.lock().runtime = Weak::new();
-        log::debug!("invalidated shared LkRuntime instance");
-    }
-
     /// Blocks until every previously created runtime has finished tearing down,
     /// or `timeout` elapses.
     ///
@@ -233,10 +223,10 @@ impl LkRuntime {
     }
 
     /// Stops capture until the returned guard is dropped.
-    pub(crate) fn pause_audio_capture(&self) -> AudioCapturePauseGuard<'_> {
+    pub(crate) fn pause_audio_capture(self: &Arc<Self>) -> AudioCapturePauseGuard {
         #[cfg(not(target_arch = "wasm32"))]
         self.pc_factory.pause_audio_capture();
-        AudioCapturePauseGuard { runtime: self }
+        AudioCapturePauseGuard { runtime: self.clone() }
     }
 
     // ===== Device Management Methods =====

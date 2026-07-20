@@ -24,10 +24,10 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
+use livekit::prelude::DisconnectReason;
 use livekit::webrtc::{
     native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
 };
-use livekit::{prelude::DisconnectReason, rtc_engine::lk_runtime::LkRuntime};
 use parking_lot::{deadlock, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};
 
@@ -179,13 +179,13 @@ impl FfiServer {
         *self.config.lock() = None; // Invalidate the config
         self.ffi_handles.clear();
         self.handle_dropped_txs.clear();
-        LkRuntime::reset_instance();
 
-        // Clearing the handles releases the last FFI-held runtime references,
-        // while reset_instance prevents a closed room retained by an external
-        // task from contaminating the next FFI lifecycle. dispose()
-        // intentionally does not block; `LkRuntime::instance()` waits for the
-        // invalidated runtime's teardown before constructing the next one.
+        // Note: clearing the handles above releases the last FFI-held
+        // references to the shared LkRuntime, but its teardown may complete
+        // asynchronously on another thread. dispose() intentionally does not
+        // block on it; `LkRuntime::instance()` waits for any in-flight
+        // teardown before constructing the next runtime, so a subsequent
+        // initialize cannot overlap it.
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
