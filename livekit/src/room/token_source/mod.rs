@@ -1,18 +1,28 @@
 pub struct TokenSourceLiteral {
-    // pub result: TokenSourceResponse
-    pub result: TokenSourceResult<TokenSourceResponse>
-    // pub a: i32,
+    result: TokenSourceResult<TokenSourceResponse>
 }
 
 impl TokenSourceLiteral {
-    pub fn new() -> TokenSourceLiteral {
-        // TokenSourceLiteral {result: TokenSourceResponse::new()}
-        TokenSourceLiteral {
-            // result: Ok(TokenSourceResponse::new())
-            result: Err(TokenSourceError::ErrorA)
-        }
+    pub fn new(response: TokenSourceResponse) -> TokenSourceLiteral {
+        TokenSourceLiteral { result: Ok(response) }
+    }
+    pub fn fetch(&self) -> &TokenSourceResult<TokenSourceResponse> { &self.result }
+}
+
+pub struct TokenSourceSandbox {
+    sandbox_id: String
+}
+
+impl TokenSourceSandbox {
+    pub fn new(sandbox_id: String) -> TokenSourceSandbox { 
+        TokenSourceSandbox { sandbox_id }  
+    }
+    pub async fn fetch(&self) -> &TokenSourceResult<TokenSourceResponse> {
+        
     }
 }
+
+// ================================================================================
 
 pub struct TokenSourceResponse {
     pub server_url: String,
@@ -20,8 +30,8 @@ pub struct TokenSourceResponse {
 }
 
 impl TokenSourceResponse {
-    pub fn new() -> TokenSourceResponse {
-        TokenSourceResponse{server_url: "abc".to_string(), participant_token: "def".to_string()}
+    pub fn new(server_url: String, participant_token: String) -> TokenSourceResponse {
+        TokenSourceResponse{server_url: server_url, participant_token: participant_token}
     }
 }
 

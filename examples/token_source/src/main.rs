@@ -1,8 +1,11 @@
-use livekit::token_source::{TokenSourceLiteral};
+use livekit::token_source::{TokenSourceLiteral, TokenSourceResponse};
 
 fn main() {
     println!("Hello, world!");
-    let test = TokenSourceLiteral::new();
+    let test = TokenSourceLiteral::new(TokenSourceResponse{
+        server_url: "Hello Max".to_string(),
+        participant_token: "Hello Max".to_string()
+    });
     match test.result {
         Ok(response) => {
             let url = response.server_url;
