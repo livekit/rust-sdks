@@ -100,7 +100,7 @@ impl RpcTransport for SessionTransport {
             .signal_client()
             .join_response()
             .server_info
-            .and_then(|info| info.version.is_empty().then(|| info.version))
+            .and_then(|info| (!info.version.is_empty()).then(|| info.version))
     }
 }
 
