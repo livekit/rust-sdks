@@ -193,6 +193,16 @@ impl LkRuntime {
         }
     }
 
+    /// Invalidates the process-wide runtime for a completed SDK lifecycle.
+    ///
+    /// Existing owners keep the old runtime alive until they drop. The next
+    /// [`instance`](Self::instance) call waits on the teardown gate before
+    /// constructing a fresh peer connection factory.
+    pub fn reset_instance() {
+        LK_RUNTIME.lock().runtime = Weak::new();
+        log::debug!("invalidated shared LkRuntime instance");
+    }
+
     /// Blocks until every previously created runtime has finished tearing down,
     /// or `timeout` elapses.
     ///
