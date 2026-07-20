@@ -264,7 +264,13 @@ impl Manager {
         }
 
         // Read the v2 signals before `try_from_with_encryption` consumes the header.
-        let inline_content = header.inline_content.take();
+        // Under test-utils, clone rather than take so the header still carries the
+        // inline content when the info's `is_inline` diagnostic is computed from it.
+        let inline_content = if cfg!(feature = "test-utils") {
+            header.inline_content.clone()
+        } else {
+            header.inline_content.take()
+        };
         let is_compressed = header.compression == CompressionType::DeflateRaw;
 
         let Ok(info) = AnyStreamInfo::try_from_with_encryption(header, encryption_type)
