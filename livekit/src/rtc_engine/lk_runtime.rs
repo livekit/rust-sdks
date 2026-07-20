@@ -14,7 +14,10 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::{Arc, Weak},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Weak,
+    },
     time::Duration,
 };
 
@@ -41,18 +44,21 @@ lazy_static! {
 
 /// How long to wait for a previous runtime's teardown before giving up.
 const RUNTIME_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// Tracks a live [`LkRuntime`] in [`LK_RUNTIME_TEARDOWN_GATE`].
 ///
 /// Must be the *last* field of [`LkRuntime`]: struct fields drop in
 /// declaration order, so this guard's `Drop` (which opens the gate) only runs
 /// after `pc_factory` has been fully destroyed.
-struct RuntimeTeardownGuard;
+struct RuntimeTeardownGuard {
+    generation: u64,
+}
 
 impl RuntimeTeardownGuard {
-    fn new() -> Self {
+    fn new(generation: u64) -> Self {
         *LK_RUNTIME_TEARDOWN_GATE.0.lock() += 1;
-        Self
+        Self { generation }
     }
 }
 
@@ -61,6 +67,7 @@ impl Drop for RuntimeTeardownGuard {
         let (lock, cv) = &*LK_RUNTIME_TEARDOWN_GATE;
         let mut live = lock.lock();
         *live = live.saturating_sub(1);
+        log::debug!("LkRuntime generation {} teardown completed", self.generation);
         cv.notify_all();
     }
 }
@@ -130,7 +137,8 @@ impl LkRuntime {
                      old runtime may still be shutting down"
                 );
             }
-            log::debug!("LkRuntime::new()");
+            let generation = NEXT_RUNTIME_GENERATION.fetch_add(1, Ordering::Relaxed);
+            log::debug!("LkRuntime::new(generation={generation})");
             let zero_playout_delay = state.zero_playout_delay;
             #[cfg(not(target_arch = "wasm32"))]
             let pc_factory = if zero_playout_delay {
@@ -143,7 +151,7 @@ impl LkRuntime {
             let new_runtime = Arc::new(Self {
                 pc_factory,
                 zero_playout_delay,
-                _teardown_guard: RuntimeTeardownGuard::new(),
+                _teardown_guard: RuntimeTeardownGuard::new(generation),
             });
             state.runtime = Arc::downgrade(&new_runtime);
             new_runtime
@@ -373,8 +381,9 @@ impl LkRuntime {
 
     /// Releases a reference to the Platform ADM.
     ///
-    /// When the reference count reaches zero, the Platform ADM is terminated
-    /// and the proxy returns to synthetic mode.
+    /// When the reference count reaches zero, platform audio I/O is stopped and
+    /// the proxy returns to synthetic mode. The ADM remains available for a
+    /// later acquire.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn release_platform_adm(&self) {
         self.pc_factory.release_platform_adm()

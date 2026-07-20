@@ -155,12 +155,26 @@ bool AdmProxy::AcquirePlatformAdm() {
   }
 #endif
 
-  int old_ref_count = platform_adm_ref_count_;
+  const int old_ref_count = platform_adm_ref_count_;
+
+  // A lazily created ADM (Android) has not seen the factory's original
+  // RegisterAudioCallback() call. Rebind on every inactive -> active
+  // transition as a lifecycle invariant; the ADM is stopped here, so
+  // AudioDeviceBuffer accepts the callback update.
+  if (old_ref_count == 0 && audio_transport_ &&
+      platform_adm_->RegisterAudioCallback(audio_transport_) != 0) {
+    RTC_LOG(LS_ERROR)
+        << "AdmProxy::AcquirePlatformAdm() - Failed to bind audio transport";
+    return false;
+  }
+
   platform_adm_ref_count_++;
 
   // If this is the first acquisition and playout/recording is enabled,
   // we may need to switch from synthetic mode to platform ADM
   if (old_ref_count == 0) {
+    RTC_LOG(LS_VERBOSE)
+        << "AdmProxy: platform ADM acquired; audio transport is bound";
     SwitchPlayoutModeIfNeeded();
     SwitchRecordingAdmIfNeeded();
   }
@@ -184,6 +198,8 @@ void AdmProxy::ReleasePlatformAdm() {
   // This avoids iOS KVO race conditions from re-creating the ADM.
   if (platform_adm_ref_count_ == 0) {
     StopPlatformAudioIO();
+    RTC_LOG(LS_VERBOSE)
+        << "AdmProxy: platform ADM released; audio I/O stopped with callback retained";
     SwitchPlayoutModeIfNeeded();
     SwitchRecordingAdmIfNeeded();
   }
@@ -281,14 +297,11 @@ void AdmProxy::StopPlatformAudioIO() {
   recording_ = false;
 
   if (platform_adm_) {
-    // Stop capture/playout first: StopRecording()/StopPlayout() join the
-    // platform worker threads. Only then detach the callback -
-    // AudioDeviceBuffer refuses RegisterAudioCallback() while media is active,
-    // so detaching before stopping would silently fail and leave the transport
-    // attached.
+    // This is a reusable quiesce, not terminal factory shutdown. Stop/join the
+    // platform workers, but retain the callback so a later acquire can resume
+    // frame delivery on the same runtime.
     platform_adm_->StopRecording();
     platform_adm_->StopPlayout();
-    platform_adm_->RegisterAudioCallback(nullptr);
     // platform_adm_ is kept alive for re-acquire and iOS compatibility; see
     // ReleasePlatformAdm().
   }
@@ -319,6 +332,8 @@ void AdmProxy::StopAudioIO() {
   }
 
   audio_transport_ = nullptr;
+  RTC_LOG(LS_VERBOSE)
+      << "AdmProxy: terminal audio shutdown completed; callbacks detached";
 }
 
 // =============================================================================
