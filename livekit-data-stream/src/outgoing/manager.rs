@@ -123,7 +123,7 @@ impl Manager {
         // Compress once up front when eligible (the deflate work happens at most once, cached in
         // the returned `Vec`), then decide whether it's worth using.
         let use_compression = can_compress
-            && maybe_compressed.collect().await.is_ok_and(|c| c.len() < text_bytes.len());
+            && maybe_compressed.as_bytes().await.is_ok_and(|c| c.len() < text_bytes.len());
 
         // 1. Inline single-packet attempt (no attachments; all recipients are >= v2).
         let (mut header, text_header) = if use_compression {
@@ -131,7 +131,7 @@ impl Manager {
                 &options,
                 stream_id.clone(),
                 Some(total_length),
-                Some(maybe_compressed.collect().await?.to_owned()),
+                Some(maybe_compressed.as_bytes().await?.to_owned()),
                 CompressionType::DeflateRaw,
             )
         } else {
@@ -167,7 +167,7 @@ impl Manager {
         let info = TextStreamInfo::from_headers(header, text_header);
         let mut stream = RawStream::open(open_options).await?;
         if use_compression {
-            let compressed_bytes = maybe_compressed.collect().await?;
+            let compressed_bytes = maybe_compressed.as_bytes().await?;
             stream.write_raw_chunks(compressed_bytes).await?;
         } else {
             for chunk in text_bytes.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
@@ -214,7 +214,7 @@ impl Manager {
         // Compress once up front when eligible (the deflate work happens at most once, cached in
         // the returned `Vec`), then decide whether it's worth using.
         let use_compression =
-            can_compress && maybe_compressed.collect().await.is_ok_and(|c| c.len() < bytes.len());
+            can_compress && maybe_compressed.as_bytes().await.is_ok_and(|c| c.len() < bytes.len());
 
         // 1. Inline single-packet attempt (if all recipients are >= v2).
         let (mut header, byte_header) = if use_compression {
@@ -223,7 +223,7 @@ impl Manager {
                 stream_id.clone(),
                 name.clone(),
                 Some(total_length), // NOTE: this is purposely always uncompressed length
-                Some(maybe_compressed.collect().await?.to_owned()),
+                Some(maybe_compressed.as_bytes().await?.to_owned()),
                 CompressionType::DeflateRaw,
             )
         } else {
@@ -258,7 +258,7 @@ impl Manager {
         let info = ByteStreamInfo::from_headers(header, byte_header);
         let mut stream = RawStream::open(open_options).await?;
         if use_compression {
-            let compressed_bytes = maybe_compressed.collect().await?;
+            let compressed_bytes = maybe_compressed.as_bytes().await?;
             stream.write_raw_chunks(compressed_bytes).await?;
         } else {
             stream.write_raw_chunks(bytes).await?;
@@ -354,7 +354,7 @@ impl<Reader: futures_util::io::AsyncRead + Unpin> MaybeCollectedAsyncReader<Read
         Self::Reader(reader)
     }
 
-    async fn collect(&mut self) -> Result<&[u8], std::io::Error> {
+    async fn as_bytes(&mut self) -> Result<&[u8], std::io::Error> {
         use futures_util::io::AsyncReadExt;
         match self {
             Self::Collected(_) => { /* no-op, handled below */ }
