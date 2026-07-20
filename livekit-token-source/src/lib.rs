@@ -5,6 +5,8 @@ mod response;
 pub use response::TokenSourceResponse;
 pub use response::TokenSourceResult;
 
+use crate::error::TokenSourceError;
+
 pub struct TokenSourceLiteral {
     result: TokenSourceResult<TokenSourceResponse>
 }
@@ -12,29 +14,41 @@ pub struct TokenSourceLiteral {
 impl TokenSourceLiteral {
     pub fn new(response: TokenSourceResponse) -> TokenSourceLiteral {
         return TokenSourceLiteral { result: Ok(response) };
-        // return TokenSourceLiteral { result: Err(error::TokenSourceError::ErrorA) }
     }
-    pub fn fetch(self) -> TokenSourceResult<TokenSourceResponse> { return self.result; }
+    pub fn fetch(&self) -> &TokenSourceResult<TokenSourceResponse> { return &self.result; }
 }
 
 pub struct TokenSourceEndpoint {
     endpoint_url: String,
-    header: (String, String)
+    header: (String, String),
+    http_client: reqwest::Client,
 }
 
 impl TokenSourceEndpoint {
     pub fn new(endpoint_url: String, header: (String, String)) -> TokenSourceEndpoint {
-        return TokenSourceEndpoint{endpoint_url, header};
+        let http_client = reqwest::Client::new();
+        
+        return TokenSourceEndpoint{
+            endpoint_url, 
+            header,
+            http_client
+        };
     }
 
-    pub async fn fetch(self) -> TokenSourceResult<TokenSourceResponse> {
-        let http_client = reqwest::Client::new();
-        let response = http_client
-            .post(self.endpoint_url)
-            .header(self.header.0, self.header.1)
+    pub async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
+        let response = self.http_client
+            .post(self.endpoint_url.as_str())
+            .header(self.header.0.as_str(), self.header.1.as_str())
             .send()
             .await?;
         
+        if !response.status().is_success() {
+            return Err(TokenSourceError::Server { 
+                status: response.status().as_u16(), 
+                body: response.text().await.unwrap_or_default() 
+            });
+        }  
+
         let connection_details = response.json::<TokenSourceResponse>().await?;
 
         return Ok(
@@ -44,19 +58,21 @@ impl TokenSourceEndpoint {
 }
 
 pub struct TokenSourceSandbox {
-    sandbox_id: String
+    token_source_endpoint: TokenSourceEndpoint
 }
 
 impl TokenSourceSandbox {
     pub fn new(sandbox_id: String) -> TokenSourceSandbox { 
-        return TokenSourceSandbox { sandbox_id };
-    }
-    pub async fn fetch(self) ->  TokenSourceResult<TokenSourceResponse> {
         let token_source_endpoint = TokenSourceEndpoint::new(
             "https://cloud-api.livekit.io/api/v2/sandbox/connection-details".to_string(),
-            ("X-Sandbox-ID".to_string(), self.sandbox_id)
+            ("X-Sandbox-ID".to_string(), sandbox_id)
         );
         
-        return token_source_endpoint.fetch().await;
+        return TokenSourceSandbox { 
+            token_source_endpoint
+        };
+    }
+    pub async fn fetch(&self) ->  TokenSourceResult<TokenSourceResponse> {
+        return self.token_source_endpoint.fetch().await;
     }
 }
