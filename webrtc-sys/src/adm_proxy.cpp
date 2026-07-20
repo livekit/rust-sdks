@@ -367,16 +367,46 @@ int32_t AdmProxy::ActiveAudioLayer(AudioLayer* audioLayer) const {
 
 int32_t AdmProxy::RegisterAudioCallback(webrtc::AudioTransport* transport) {
   webrtc::MutexLock lock(&mutex_);
-  audio_transport_ = transport;
 
-  // Register with both ADMs so they're ready when we switch modes
+  // WebRTC unregisters the callback before destroying its AudioTransportImpl.
+  // AudioDeviceBuffer rejects callback changes while media is active, so stop
+  // and join both ADMs before forwarding a null callback. Otherwise the capture
+  // worker can keep calling the transport after WebRTC has destroyed it.
+  if (!transport) {
+    recording_ = false;
+    playing_ = false;
+    recording_initialized_ = false;
+    playout_initialized_ = false;
+    if (platform_adm_) {
+      platform_adm_->StopRecording();
+      platform_adm_->StopPlayout();
+    }
+    if (synthetic_adm_) {
+      synthetic_adm_->StopRecording();
+      synthetic_adm_->StopPlayout();
+    }
+  }
+
+  int32_t result = 0;
   if (synthetic_adm_) {
-    synthetic_adm_->RegisterAudioCallback(transport);
+    result = synthetic_adm_->RegisterAudioCallback(transport);
   }
   if (platform_adm_) {
-    platform_adm_->RegisterAudioCallback(transport);
+    const int32_t platform_result =
+        platform_adm_->RegisterAudioCallback(transport);
+    if (result == 0) {
+      result = platform_result;
+    }
   }
-  return 0;
+
+  if (result == 0) {
+    audio_transport_ = transport;
+    if (!transport) {
+      RTC_LOG(LS_VERBOSE)
+          << "AdmProxy: audio transport unregistered after worker shutdown";
+    }
+  }
+  return result;
 }
 
 int32_t AdmProxy::Init() {
