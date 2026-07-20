@@ -595,13 +595,6 @@ mod tests {
         }
     }
 
-    fn deflate_raw_i32() -> i32 {
-        CompressionType::DeflateRaw as i32
-    }
-    fn none_i32() -> i32 {
-        CompressionType::None as i32
-    }
-
     mod room_with_pre_data_streams_v2_participants {
         use super::*;
 
@@ -614,7 +607,7 @@ mod tests {
             let h = header(&p[0]);
             assert!(is_text_header(h));
             assert_eq!(h.topic, "chat");
-            assert_eq!(h.compression, none_i32());
+            assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
             assert!(h.inline_content.is_none());
             let c = chunk(&p[1]);
             assert_eq!(c.chunk_index, 0);
@@ -629,7 +622,7 @@ mod tests {
             m.send_text(&text, text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 5); // header + 3 chunks + trailer
-            assert_eq!(header(&p[0]).compression, none_i32());
+            assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::None);
             assert_eq!(chunk(&p[1]).content.len(), 15_000);
             assert_eq!(chunk(&p[2]).content.len(), 15_000);
             assert_eq!(chunk(&p[3]).content.len(), 10_000);
@@ -646,7 +639,7 @@ mod tests {
             assert_eq!(p.len(), 3);
             let h = header(&p[0]);
             assert!(is_byte_header(h));
-            assert_eq!(h.compression, none_i32());
+            assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
             assert!(h.inline_content.is_none());
             assert_eq!(chunk(&p[1]).content, vec![0, 1, 2, 3]);
             assert_trailer(&p[2]);
@@ -681,7 +674,7 @@ mod tests {
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
                 assert!(is_text_header(h));
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 let inline = h.inline_content.as_ref().unwrap();
                 assert_ne!(inline.as_slice(), text.as_bytes()); // compressed, not raw
             }
@@ -695,7 +688,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
-                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
                 assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), b"short");
             }
 
@@ -709,7 +702,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1); // inline (gated on protocol) still happens
                 let h = header(&p[0]);
-                assert_eq!(h.compression, none_i32()); // compression gated off by missing cap
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None); // compression gated off by missing cap
                 assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
             }
 
@@ -723,7 +716,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert!(h.inline_content.as_ref().unwrap().len() < text.len());
             }
 
@@ -736,7 +729,7 @@ mod tests {
                     .unwrap();
                 let p = sent.lock().unwrap().clone();
                 let h = header(&p[0]);
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert!(h.inline_content.is_none());
                 let chunks: Vec<_> = p[1..p.len() - 1].iter().map(chunk).collect();
                 // Multi-packet, but fewer chunks than an uncompressed send would need (ceil(len/15000)).
@@ -758,7 +751,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
-                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
                 assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
             }
 
@@ -770,7 +763,7 @@ mod tests {
                 m.send_text(&text, opts, &all_v2_room()).await.unwrap();
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 6); // header + 4 chunks + trailer
-                assert_eq!(header(&p[0]).compression, none_i32());
+                assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::None);
                 assert_eq!(chunk(&p[1]).content.len(), 15_000);
             }
 
@@ -801,7 +794,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 5);
                 let h = header(&p[0]);
-                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
                 assert!(h.inline_content.is_none());
                 assert_eq!(chunk(&p[1]).content.len(), 15_000);
                 assert_eq!(chunk(&p[2]).content.len(), 15_000);
@@ -819,7 +812,7 @@ mod tests {
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
                 // Deflate framing can't shrink an empty payload, so the raw (empty) bytes are kept.
-                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
                 assert_eq!(h.inline_content.as_deref(), Some(&[][..]));
                 assert_eq!(h.total_length, Some(0));
             }
@@ -838,7 +831,7 @@ mod tests {
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
                 // Tiny payload doesn't shrink under DEFLATE framing, so it's sent raw.
-                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
                 assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), &[0u8, 1, 2, 3]);
             }
 
@@ -852,7 +845,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1); // inline is gated on clientProtocol alone
                 let h = header(&p[0]);
-                assert_eq!(h.compression, none_i32()); // compression gated off by the missing cap
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None); // compression gated off by the missing cap
                 assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), payload);
             }
 
@@ -866,7 +859,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 1); // compresses well under the MTU, so it still goes inline
                 let h = header(&p[0]);
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert!(h.inline_content.as_ref().unwrap().len() < payload.len());
                 assert_eq!(h.total_length, Some(50_000)); // always the PRE-compression length
             }
@@ -881,7 +874,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 let h = header(&p[0]);
                 assert!(is_byte_header(h));
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert!(h.inline_content.is_none());
                 let chunks: Vec<_> = p[1..p.len() - 1].iter().map(chunk).collect();
                 assert!(chunks.len() >= 2);
@@ -899,7 +892,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 5); // header + 15k/15k/10k chunks + trailer
                 let h = header(&p[0]);
-                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
                 assert!(h.inline_content.is_none());
                 assert_eq!(chunk(&p[1]).content.len(), 15_000);
                 assert_eq!(chunk(&p[2]).content.len(), 15_000);
@@ -919,7 +912,7 @@ mod tests {
                 assert_eq!(p.len(), 1);
                 let h = header(&p[0]);
                 assert!(is_byte_header(h));
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert_ne!(h.inline_content.as_ref().unwrap().as_slice(), payload.as_slice());
                 assert_eq!(info.name, "unknown");
                 assert_eq!(info.mime_type, "application/octet-stream");
@@ -950,7 +943,7 @@ mod tests {
                 assert_eq!(p.len(), 3); // header + 1 chunk + trailer, NOT inline
                 let h = header(&p[0]);
                 assert!(is_byte_header(h));
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert!(h.inline_content.is_none());
                 assert!(chunk(&p[1]).content.len() < 10_000); // compressed
                 assert_trailer(&p[2]);
@@ -966,7 +959,7 @@ mod tests {
                 let _ = tokio::fs::remove_file(&path).await;
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 4); // header + 15000 + 5000 + trailer
-                assert_eq!(header(&p[0]).compression, none_i32());
+                assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::None);
                 assert_eq!(chunk(&p[1]).content.len(), 15_000);
                 assert_eq!(chunk(&p[2]).content.len(), 5_000);
                 assert_eq!(chunk(&p[2]).chunk_index, 1);
@@ -986,7 +979,7 @@ mod tests {
                 let p = sent.lock().unwrap().clone();
                 assert_eq!(p.len(), 6); // header + 4 chunks + trailer
                 let h = header(&p[0]);
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert_eq!(chunk(&p[1]).content.len(), 15_000);
                 // Deflate adds slight overhead on incompressible data — the accepted trade-off for
                 // streaming the file instead of buffering it to make an inline/compression decision.
@@ -1011,7 +1004,7 @@ mod tests {
                 assert_eq!(p.len(), 3);
                 let h = header(&p[0]);
                 assert!(is_byte_header(h));
-                assert_eq!(h.compression, none_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
                 assert!(h.inline_content.is_none());
                 let c = chunk(&p[1]);
                 assert_eq!(c.content.len(), 10_000);
@@ -1034,7 +1027,7 @@ mod tests {
                 let h = header(&p[0]);
                 assert!(is_byte_header(h));
                 assert_eq!(h.total_length, Some(0));
-                assert_eq!(h.compression, deflate_raw_i32());
+                assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
                 assert_trailer(p.last().unwrap());
             }
         }
@@ -1052,7 +1045,10 @@ mod tests {
             .unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
-            assert_eq!(header(&p[0]).compression, deflate_raw_i32());
+            assert_eq!(
+                header(&p[0]).compression(),
+                proto::data_stream::CompressionType::DeflateRaw
+            );
         }
 
         #[tokio::test]
@@ -1064,7 +1060,7 @@ mod tests {
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
             let h = header(&p[0]);
-            assert_eq!(h.compression, none_i32());
+            assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
             assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
         }
 
@@ -1081,7 +1077,10 @@ mod tests {
             .unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
-            assert_eq!(header(&p[0]).compression, deflate_raw_i32());
+            assert_eq!(
+                header(&p[0]).compression(),
+                proto::data_stream::CompressionType::DeflateRaw
+            );
         }
     }
 
@@ -1094,7 +1093,7 @@ mod tests {
             m.send_text("hello world", text_opts("chat", &[]), &mixed_room()).await.unwrap();
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 3);
-            assert_eq!(header(&p[0]).compression, none_i32());
+            assert_eq!(header(&p[0]).compression(), proto::data_stream::CompressionType::None);
             assert!(header(&p[0]).inline_content.is_none());
             assert_eq!(chunk(&p[1]).content, b"hello world");
         }
@@ -1107,7 +1106,7 @@ mod tests {
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
             let h = header(&p[0]);
-            assert_eq!(h.compression, deflate_raw_i32());
+            assert_eq!(h.compression(), proto::data_stream::CompressionType::DeflateRaw);
             assert_ne!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
         }
 
@@ -1121,7 +1120,7 @@ mod tests {
             let p = sent.lock().unwrap().clone();
             assert_eq!(p.len(), 1);
             let h = header(&p[0]);
-            assert_eq!(h.compression, none_i32());
+            assert_eq!(h.compression(), proto::data_stream::CompressionType::None);
             assert_eq!(h.inline_content.as_ref().unwrap().as_slice(), text.as_bytes());
         }
     }
@@ -1135,7 +1134,7 @@ mod tests {
         assert_eq!(sent.lock().unwrap().len(), 1);
         let h0 = sent.lock().unwrap()[0].clone();
         assert!(is_text_header(header(&h0)));
-        assert_eq!(header(&h0).compression, none_i32());
+        assert_eq!(header(&h0).compression(), proto::data_stream::CompressionType::None);
         assert!(header(&h0).inline_content.is_none());
 
         writer.write("hello world").await.unwrap();
@@ -1153,7 +1152,10 @@ mod tests {
         let (m, sent) = setup();
         let writer = m.stream_bytes(byte_opts("blob", &["noCompression"])).await.unwrap();
         assert_eq!(sent.lock().unwrap().len(), 1);
-        assert_eq!(header(&sent.lock().unwrap()[0]).compression, none_i32());
+        assert_eq!(
+            header(&sent.lock().unwrap()[0]).compression(),
+            proto::data_stream::CompressionType::None
+        );
 
         writer.write(&[0u8, 1, 2, 3]).await.unwrap();
         assert_eq!(chunk(&sent.lock().unwrap()[1]).content, vec![0, 1, 2, 3]);
