@@ -767,20 +767,21 @@ impl EngineInner {
             {
                 *self.closed_session_stats.write() = Some(stats);
             }
+        }
 
+        // Stop and detach the shared ADM before RtcSession::close tears down
+        // the final session's native peer transports. Other concurrent sessions
+        // keep their own guard, so this only shuts audio down at count zero.
+        let active_rtc_session = self.active_rtc_session.lock().take();
+        drop(active_rtc_session);
+
+        if let Some(session) = session.as_ref() {
             session.close(reason).await;
             if let Some((engine_task, close_tx)) = engine_task {
                 let _ = close_tx.send(());
                 let _ = engine_task.await;
             }
         }
-
-        // Stop and detach the shared ADM before dropping the final live
-        // RtcSession. Otherwise its AudioTransportImpl can be reclaimed while
-        // CaptureWorkerThread still has the callback. Other concurrent sessions
-        // keep their own guard, so this only shuts audio down at count zero.
-        let active_rtc_session = self.active_rtc_session.lock().take();
-        drop(active_rtc_session);
 
         // Do not retain the closed RtcSession merely for stats.
         self.running_handle.write().session.take();
