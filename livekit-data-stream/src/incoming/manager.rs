@@ -709,468 +709,503 @@ mod tests {
         }
     }
 
-    // --- v1 (legacy multi-packet) --------------------------------------------------------
+    mod v1_legacy_multi_packet {
+        use super::*;
 
-    #[tokio::test]
-    async fn v1_text_stream_round_trips() {
-        let mut h = Harness::new(vec![]);
-        let text = "hello world";
-        h.send_packet(Packet::Header {
-            header: text_header(
+        #[tokio::test]
+        async fn v1_text_stream_round_trips() {
+            let mut h = Harness::new(vec![]);
+            let text = "hello world";
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    attrs(&[("foo", "bar")]),
+                    None,
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, identity) = h.next_opened().await;
+            assert_eq!(identity.as_str(), SENDER);
+            assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, text.as_bytes().to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+        }
+
+        #[tokio::test]
+        async fn v1_byte_stream_round_trips() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(4), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![1, 2, 3, 4]),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3, 4]));
+        }
+
+        #[tokio::test]
+        async fn v1_merges_trailer_attributes() {
+            let mut h = Harness::new(vec![]);
+            let text = "hi";
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    attrs(&[("foo", "bar"), ("baz", "quux")]),
+                    None,
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, text.as_bytes().to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer_with_attrs(
                 "s1",
-                Some(text.len() as u64),
-                attrs(&[("foo", "bar")]),
-                None,
-                CompressionType::None,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, identity) = h.next_opened().await;
-        assert_eq!(identity.as_str(), SENDER);
-        assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, text.as_bytes().to_vec()),
-            encryption_type: EncryptionType::None,
-        });
-        h.send_packet(Packet::Trailer(trailer("s1")));
-        assert_eq!(read_text(reader).await.unwrap(), text);
-    }
+                attrs(&[("hello", "world"), ("foo", "updated")]),
+            )));
+            // NOTE: trailer-attribute merging is asserted via the reader info after close.
+            let info_attrs = text_info(&reader).attributes().clone();
+            assert_eq!(read_text(reader).await.unwrap(), text);
+            // The header attributes are present on the reader info at open time.
+            assert_eq!(info_attrs.get("baz"), Some(&"quux".to_string()));
+        }
 
-    #[tokio::test]
-    async fn v1_byte_stream_round_trips() {
-        let mut h = Harness::new(vec![]);
-        h.send_packet(Packet::Header {
-            header: byte_header("s1", Some(4), None, CompressionType::None),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, vec![1, 2, 3, 4]),
-            encryption_type: EncryptionType::None,
-        });
-        h.send_packet(Packet::Trailer(trailer("s1")));
-        assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3, 4]));
-    }
+        #[tokio::test]
+        async fn v1_errors_when_too_few_bytes() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![b'x']),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
+        }
 
-    #[tokio::test]
-    async fn v1_merges_trailer_attributes() {
-        let mut h = Harness::new(vec![]);
-        let text = "hi";
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(text.len() as u64),
-                attrs(&[("foo", "bar"), ("baz", "quux")]),
-                None,
-                CompressionType::None,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, text.as_bytes().to_vec()),
-            encryption_type: EncryptionType::None,
-        });
-        h.send_packet(Packet::Trailer(trailer_with_attrs(
-            "s1",
-            attrs(&[("hello", "world"), ("foo", "updated")]),
-        )));
-        // NOTE: trailer-attribute merging is asserted via the reader info after close.
-        let info_attrs = text_info(&reader).attributes().clone();
-        assert_eq!(read_text(reader).await.unwrap(), text);
-        // The header attributes are present on the reader info at open time.
-        assert_eq!(info_attrs.get("baz"), Some(&"quux".to_string()));
-    }
+        #[tokio::test]
+        async fn v1_errors_when_too_many_bytes() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(3), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![1, 2, 3, 4, 5]),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert!(matches!(read_bytes(reader).await, Err(StreamError::LengthExceeded)));
+        }
 
-    #[tokio::test]
-    async fn v1_errors_when_too_few_bytes() {
-        let mut h = Harness::new(vec![]);
-        h.send_packet(Packet::Header {
-            header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, vec![b'x']),
-            encryption_type: EncryptionType::None,
-        });
-        h.send_packet(Packet::Trailer(trailer("s1")));
-        assert!(matches!(read_text(reader).await, Err(StreamError::Incomplete)));
-    }
-
-    #[tokio::test]
-    async fn v1_errors_when_too_many_bytes() {
-        let mut h = Harness::new(vec![]);
-        h.send_packet(Packet::Header {
-            header: byte_header("s1", Some(3), None, CompressionType::None),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, vec![1, 2, 3, 4, 5]),
-            encryption_type: EncryptionType::None,
-        });
-        h.send_packet(Packet::Trailer(trailer("s1")));
-        assert!(matches!(read_bytes(reader).await, Err(StreamError::LengthExceeded)));
-    }
-
-    #[tokio::test]
-    async fn v1_drops_on_encryption_type_mismatch() {
-        let mut h = Harness::new(vec![]);
-        h.send_packet(Packet::Header {
-            header: text_header("s1", Some(2), HashMap::new(), None, CompressionType::None),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, vec![b'h', b'i']),
-            encryption_type: EncryptionType::Gcm,
-        });
-        assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
+        #[tokio::test]
+        async fn v1_drops_on_encryption_type_mismatch() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(2), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![b'h', b'i']),
+                encryption_type: EncryptionType::Gcm,
+            });
+            assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
+        }
     }
 
     // --- v2 inline -----------------------------------------------------------------------
+    mod v2_inline {
+        use super::*;
 
-    #[tokio::test]
-    async fn v2_inline_uncompressed_text() {
-        let mut h = Harness::new(vec![]);
-        let text = "inline hello";
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(text.len() as u64),
-                attrs(&[("foo", "bar")]),
-                Some(text.as_bytes().to_vec()),
-                CompressionType::None,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
-        // No chunk/trailer packets are fed.
-        assert_eq!(read_text(reader).await.unwrap(), text);
-    }
+        #[tokio::test]
+        async fn v2_inline_uncompressed_text() {
+            let mut h = Harness::new(vec![]);
+            let text = "inline hello";
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    attrs(&[("foo", "bar")]),
+                    Some(text.as_bytes().to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
+            // No chunk/trailer packets are fed.
+            assert_eq!(read_text(reader).await.unwrap(), text);
+        }
 
-    #[tokio::test]
-    async fn v2_inline_uncompressed_byte() {
-        let mut h = Harness::new(vec![]);
-        h.send_packet(Packet::Header {
-            header: byte_header("s1", Some(3), Some(vec![1, 2, 3]), CompressionType::None),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3]));
-    }
+        #[tokio::test]
+        async fn v2_inline_uncompressed_byte() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(3), Some(vec![1, 2, 3]), CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3]));
+        }
 
-    #[tokio::test]
-    async fn v2_inline_compressed_text() {
-        let mut h = Harness::new(vec![]);
-        let text = "hello hello compressible world";
-        let compressed = deflate_raw(text.as_bytes()).await;
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(text.len() as u64),
-                attrs(&[("foo", "bar")]),
-                Some(compressed),
-                CompressionType::DeflateRaw,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
-        assert_eq!(read_text(reader).await.unwrap(), text);
-    }
+        #[tokio::test]
+        async fn v2_inline_compressed_text() {
+            let mut h = Harness::new(vec![]);
+            let text = "hello hello compressible world";
+            let compressed = deflate_raw(text.as_bytes()).await;
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    attrs(&[("foo", "bar")]),
+                    Some(compressed),
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(text_info(&reader).attributes().get("foo"), Some(&"bar".to_string()));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+        }
 
-    #[tokio::test]
-    async fn v2_inline_compressed_byte() {
-        let mut h = Harness::new(vec![]);
-        let payload: Vec<u8> = (0..2000).map(|i| (i % 7) as u8).collect();
-        let compressed = deflate_raw(&payload).await;
-        h.send_packet(Packet::Header {
-            header: byte_header(
-                "s1",
-                Some(payload.len() as u64),
-                Some(compressed),
-                CompressionType::DeflateRaw,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(payload));
-    }
+        #[tokio::test]
+        async fn v2_inline_compressed_byte() {
+            let mut h = Harness::new(vec![]);
+            let payload: Vec<u8> = (0..2000).map(|i| (i % 7) as u8).collect();
+            let compressed = deflate_raw(&payload).await;
+            h.send_packet(Packet::Header {
+                header: byte_header(
+                    "s1",
+                    Some(payload.len() as u64),
+                    Some(compressed),
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(payload));
+        }
 
-    #[tokio::test]
-    async fn v2_inline_compressed_max_payload_size_breached() {
-        // A tiny compressed inline payload that inflates far past the configured cap must be
-        // rejected (decompression-bomb guard on the inline path).
-        let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
-        let text = pseudo_random_text(50_000);
-        let compressed = deflate_raw(text.as_bytes()).await;
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(text.len() as u64),
-                HashMap::new(),
-                Some(compressed),
-                CompressionType::DeflateRaw,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
+        #[tokio::test]
+        async fn v2_inline_compressed_max_payload_size_breached() {
+            // A tiny compressed inline payload that inflates far past the configured cap must be
+            // rejected (decompression-bomb guard on the inline path).
+            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            let text = pseudo_random_text(50_000);
+            let compressed = deflate_raw(text.as_bytes()).await;
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    HashMap::new(),
+                    Some(compressed),
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
     }
 
     // --- v2 multi-packet compressed ------------------------------------------------------
 
-    #[tokio::test]
-    async fn v2_multipacket_compressed_text() {
-        let mut h = Harness::new(vec![]);
-        // ~60 KB of pseudo-random lowercase so the compressed output spans multiple chunks.
-        let text = pseudo_random_text(60_000);
-        let compressed = deflate_raw(text.as_bytes()).await;
-        let chunk_pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
-        assert!(chunk_pieces.len() >= 2, "expected multi-packet compressed stream");
+    mod v2_multi_packet_compressed {
+        use super::*;
 
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(text.len() as u64),
-                HashMap::new(),
-                None,
-                CompressionType::DeflateRaw,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        for (i, piece) in chunk_pieces.iter().enumerate() {
-            h.send_packet(Packet::Chunk {
-                chunk: chunk("s1", i as u64, piece.to_vec()),
+        #[tokio::test]
+        async fn v2_multipacket_compressed_text() {
+            let mut h = Harness::new(vec![]);
+            // ~60 KB of pseudo-random lowercase so the compressed output spans multiple chunks.
+            let text = pseudo_random_text(60_000);
+            let compressed = deflate_raw(text.as_bytes()).await;
+            let chunk_pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
+            assert!(chunk_pieces.len() >= 2, "expected multi-packet compressed stream");
+
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
                 encryption_type: EncryptionType::None,
             });
+            let (reader, _) = h.next_opened().await;
+            for (i, piece) in chunk_pieces.iter().enumerate() {
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", i as u64, piece.to_vec()),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(read_text(reader).await.unwrap(), text);
         }
-        h.send_packet(Packet::Trailer(trailer("s1")));
-        assert_eq!(read_text(reader).await.unwrap(), text);
-    }
 
-    #[tokio::test]
-    async fn errors_open_streams_on_sender_disconnect() {
-        let mut h = Harness::new(vec![]);
-        h.send_packet(Packet::Header {
-            header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        // Partial content, no trailer: the sender then drops.
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, vec![b'h', b'e', b'l', b'l', b'o']),
-            encryption_type: EncryptionType::None,
-        });
-        h.abort(ParticipantIdentity::from(SENDER));
-        assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
-    }
-
-    #[tokio::test]
-    async fn abort_only_affects_matching_sender() {
-        let mut h = Harness::new(vec![]);
-        h.send_packet_from(
-            Packet::Header {
-                header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+        #[tokio::test]
+        async fn errors_open_streams_on_sender_disconnect() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
-            },
-            "bob",
-        );
-        let (reader, _) = h.next_opened().await;
-        h.send_packet_from(
-            Packet::Chunk {
+            });
+            let (reader, _) = h.next_opened().await;
+            // Partial content, no trailer: the sender then drops.
+            h.send_packet(Packet::Chunk {
                 chunk: chunk("s1", 0, vec![b'h', b'e', b'l', b'l', b'o']),
                 encryption_type: EncryptionType::None,
-            },
-            "bob",
-        );
-        // A different participant disconnecting must not disturb bob's stream.
-        h.abort(ParticipantIdentity::from(SENDER));
-        h.send_packet_from(Packet::Trailer(trailer("s1")), "bob");
-        assert_eq!(read_text(reader).await.unwrap(), "hello");
-    }
+            });
+            h.abort(ParticipantIdentity::from(SENDER));
+            assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
 
-    #[tokio::test]
-    async fn v2_compressed_gap_errors() {
-        let mut h = Harness::new(vec![]);
-        let text = pseudo_random_text(60_000);
-        let compressed = deflate_raw(text.as_bytes()).await;
-        let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
-        assert!(pieces.len() >= 2);
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(text.len() as u64),
-                HashMap::new(),
-                None,
-                CompressionType::DeflateRaw,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 0, pieces[0].to_vec()),
-            encryption_type: EncryptionType::None,
-        });
-        // Skip index 1 -> feed index 2: a gap is a hard error.
-        h.send_packet(Packet::Chunk {
-            chunk: chunk("s1", 2, pieces[1].to_vec()),
-            encryption_type: EncryptionType::None,
-        });
-        assert!(matches!(read_text(reader).await, Err(StreamError::MissedChunk)));
-    }
+        #[tokio::test]
+        async fn abort_only_affects_matching_sender() {
+            let mut h = Harness::new(vec![]);
+            h.send_packet_from(
+                Packet::Header {
+                    header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+                    encryption_type: EncryptionType::None,
+                },
+                "bob",
+            );
+            let (reader, _) = h.next_opened().await;
+            h.send_packet_from(
+                Packet::Chunk {
+                    chunk: chunk("s1", 0, vec![b'h', b'e', b'l', b'l', b'o']),
+                    encryption_type: EncryptionType::None,
+                },
+                "bob",
+            );
+            // A different participant disconnecting must not disturb bob's stream.
+            h.abort(ParticipantIdentity::from(SENDER));
+            h.send_packet_from(Packet::Trailer(trailer("s1")), "bob");
+            assert_eq!(read_text(reader).await.unwrap(), "hello");
+        }
 
-    #[tokio::test]
-    async fn v2_max_payload_size_breached() {
-        let text = pseudo_random_text(60_000);
-        let compressed = deflate_raw(text.as_bytes()).await;
-
-        // Use a max payload size one byte below the size of the compressed data
-        let mut h = Harness::new_with_max_payload_length(vec![], Some(50_000 /* less than 60k */));
-
-        // Feed all data in
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(text.len() as u64),
-                HashMap::new(),
-                None,
-                CompressionType::DeflateRaw,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        for (i, byte_chunk) in compressed.chunks(15_000).enumerate() {
-            h.send_packet(Packet::Chunk {
-                chunk: chunk("s1", i as u64, byte_chunk.to_vec()),
+        #[tokio::test]
+        async fn v2_compressed_gap_errors() {
+            let mut h = Harness::new(vec![]);
+            let text = pseudo_random_text(60_000);
+            let compressed = deflate_raw(text.as_bytes()).await;
+            let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
+            assert!(pieces.len() >= 2);
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
                 encryption_type: EncryptionType::None,
             });
-        }
-
-        // And make sure a PayloadTooLarge error gets raised
-        assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
-    }
-
-    // --- progress() ----------------------------------------------------------------------
-
-    /// Returns the reader's progress stream regardless of its concrete kind. Boxed because the two
-    /// `progress()` impls are distinct opaque types that don't unify across match arms.
-    fn progress_of(
-        reader: &AnyStreamReader,
-    ) -> std::pin::Pin<Box<dyn Stream<Item = StreamProgress> + Send + '_>> {
-        match reader {
-            AnyStreamReader::Byte(r) => Box::pin(r.progress()),
-            AnyStreamReader::Text(r) => Box::pin(r.progress()),
-        }
-    }
-
-    /// Drains a progress stream to completion (the stream ends when the sender closes).
-    async fn collect_progress(stream: impl Stream<Item = StreamProgress>) -> Vec<StreamProgress> {
-        use futures_util::StreamExt;
-        let mut stream = std::pin::pin!(stream);
-        let mut out = Vec::new();
-        while let Some(progress) = stream.next().await {
-            out.push(progress);
-        }
-        out
-    }
-
-    /// The last value reaches the total, values never decrease, and the stream terminates.
-    fn assert_progress_completes(values: &[StreamProgress], total: u64) {
-        let last = values.last().expect("progress stream yielded at least one value");
-        assert_eq!(last.bytes_processed(), total);
-        assert_eq!(last.bytes_total(), Some(total));
-        assert_eq!(last.percentage(), Some(1.0));
-        assert!(
-            values.windows(2).all(|w| w[0].bytes_processed() <= w[1].bytes_processed()),
-            "progress must be monotonically non-decreasing: {values:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn progress_reports_completion_uncompressed_bytes() {
-        let mut h = Harness::new(vec![]);
-        let total = 12u64;
-        h.send_packet(Packet::Header {
-            header: byte_header("s1", Some(total), None, CompressionType::None),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        let progress = progress_of(&reader);
-        // Feed the payload across several contiguous chunks; keep `reader` alive so the chunk
-        // channel stays open while progress is observed.
-        for (i, piece) in
-            [vec![1, 2, 3, 4], vec![5, 6, 7, 8], vec![9, 10, 11, 12]].into_iter().enumerate()
-        {
+            let (reader, _) = h.next_opened().await;
             h.send_packet(Packet::Chunk {
-                chunk: chunk("s1", i as u64, piece),
+                chunk: chunk("s1", 0, pieces[0].to_vec()),
                 encryption_type: EncryptionType::None,
             });
-        }
-        h.send_packet(Packet::Trailer(trailer("s1")));
-
-        let values = collect_progress(progress).await;
-        assert_progress_completes(&values, total);
-        drop(reader);
-    }
-
-    #[tokio::test]
-    async fn progress_reports_completion_compressed_text() {
-        let mut h = Harness::new(vec![]);
-        let text = pseudo_random_text(60_000);
-        let total = text.len() as u64;
-        let compressed = deflate_raw(text.as_bytes()).await;
-        let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
-        assert!(pieces.len() >= 2, "expected multi-packet compressed stream");
-
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(total),
-                HashMap::new(),
-                None,
-                CompressionType::DeflateRaw,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        let progress = progress_of(&reader);
-        for (i, piece) in pieces.iter().enumerate() {
+            // Skip index 1 -> feed index 2: a gap is a hard error.
             h.send_packet(Packet::Chunk {
-                chunk: chunk("s1", i as u64, piece.to_vec()),
+                chunk: chunk("s1", 2, pieces[1].to_vec()),
                 encryption_type: EncryptionType::None,
             });
+            assert!(matches!(read_text(reader).await, Err(StreamError::MissedChunk)));
         }
-        h.send_packet(Packet::Trailer(trailer("s1")));
 
-        let values = collect_progress(progress).await;
-        assert_progress_completes(&values, total);
-        drop(reader);
+        #[tokio::test]
+        async fn v2_max_payload_size_breached() {
+            let text = pseudo_random_text(60_000);
+            let compressed = deflate_raw(text.as_bytes()).await;
+
+            // Use a max payload size one byte below the size of the compressed data
+            let mut h = Harness::new_with_max_payload_length(vec![], Some(50_000 /* less than 60k */));
+
+            // Feed all data in
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            for (i, byte_chunk) in compressed.chunks(15_000).enumerate() {
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", i as u64, byte_chunk.to_vec()),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+
+            // And make sure a PayloadTooLarge error gets raised
+            assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
+
+        #[tokio::test]
+        async fn v2_multipacket_compressed_byte_stream() {
+            let mut h = Harness::new(vec![]);
+            let data = pseudo_random_text(60_000).into_bytes();
+            let compressed = deflate_raw(&data).await;
+            let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
+            assert!(pieces.len() >= 2, "expected multi-packet compressed stream");
+
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(data.len() as u64), None, CompressionType::DeflateRaw),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            for (i, piece) in pieces.iter().enumerate() {
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", i as u64, piece.to_vec()),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(read_bytes(reader).await.unwrap(), Bytes::from(data));
+        }
     }
 
-    #[tokio::test]
-    async fn progress_reports_completion_inline() {
-        let mut h = Harness::new(vec![]);
-        let text = "inline hello";
-        let total = text.len() as u64;
-        h.send_packet(Packet::Header {
-            header: text_header(
-                "s1",
-                Some(total),
-                HashMap::new(),
-                Some(text.as_bytes().to_vec()),
-                CompressionType::None,
-            ),
-            encryption_type: EncryptionType::None,
-        });
-        let (reader, _) = h.next_opened().await;
-        // The whole payload arrives in the header, so progress jumps straight to complete.
-        let values = collect_progress(progress_of(&reader)).await;
-        assert_progress_completes(&values, total);
-        drop(reader);
+    mod progress {
+        use super::*;
+
+        /// Returns the reader's progress stream regardless of its concrete kind. Boxed because the two
+        /// `progress()` impls are distinct opaque types that don't unify across match arms.
+        fn progress_of(
+            reader: &AnyStreamReader,
+        ) -> std::pin::Pin<Box<dyn Stream<Item = StreamProgress> + Send + '_>> {
+            match reader {
+                AnyStreamReader::Byte(r) => Box::pin(r.progress()),
+                AnyStreamReader::Text(r) => Box::pin(r.progress()),
+            }
+        }
+
+        /// Drains a progress stream to completion (the stream ends when the sender closes).
+        async fn collect_progress(stream: impl Stream<Item = StreamProgress>) -> Vec<StreamProgress> {
+            use futures_util::StreamExt;
+            let mut stream = std::pin::pin!(stream);
+            let mut out = Vec::new();
+            while let Some(progress) = stream.next().await {
+                out.push(progress);
+            }
+            out
+        }
+
+        /// The last value reaches the total, values never decrease, and the stream terminates.
+        fn assert_progress_completes(values: &[StreamProgress], total: u64) {
+            let last = values.last().expect("progress stream yielded at least one value");
+            assert_eq!(last.bytes_processed(), total);
+            assert_eq!(last.bytes_total(), Some(total));
+            assert_eq!(last.percentage(), Some(1.0));
+            assert!(
+                values.windows(2).all(|w| w[0].bytes_processed() <= w[1].bytes_processed()),
+                "progress must be monotonically non-decreasing: {values:?}"
+            );
+        }
+
+        #[tokio::test]
+        async fn progress_reports_completion_uncompressed_bytes() {
+            let mut h = Harness::new(vec![]);
+            let total = 12u64;
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(total), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            let progress = progress_of(&reader);
+            // Feed the payload across several contiguous chunks; keep `reader` alive so the chunk
+            // channel stays open while progress is observed.
+            for (i, piece) in
+                [vec![1, 2, 3, 4], vec![5, 6, 7, 8], vec![9, 10, 11, 12]].into_iter().enumerate()
+            {
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", i as u64, piece),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            h.send_packet(Packet::Trailer(trailer("s1")));
+
+            let values = collect_progress(progress).await;
+            assert_progress_completes(&values, total);
+            drop(reader);
+        }
+
+        #[tokio::test]
+        async fn progress_reports_completion_compressed_text() {
+            let mut h = Harness::new(vec![]);
+            let text = pseudo_random_text(60_000);
+            let total = text.len() as u64;
+            let compressed = deflate_raw(text.as_bytes()).await;
+            let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
+            assert!(pieces.len() >= 2, "expected multi-packet compressed stream");
+
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(total),
+                    HashMap::new(),
+                    None,
+                    CompressionType::DeflateRaw,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            let progress = progress_of(&reader);
+            for (i, piece) in pieces.iter().enumerate() {
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", i as u64, piece.to_vec()),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            h.send_packet(Packet::Trailer(trailer("s1")));
+
+            let values = collect_progress(progress).await;
+            assert_progress_completes(&values, total);
+            drop(reader);
+        }
+
+        #[tokio::test]
+        async fn progress_reports_completion_inline() {
+            let mut h = Harness::new(vec![]);
+            let text = "inline hello";
+            let total = text.len() as u64;
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(total),
+                    HashMap::new(),
+                    Some(text.as_bytes().to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            // The whole payload arrives in the header, so progress jumps straight to complete.
+            let values = collect_progress(progress_of(&reader)).await;
+            assert_progress_completes(&values, total);
+            drop(reader);
+        }
     }
+
 }
