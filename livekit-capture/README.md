@@ -6,8 +6,9 @@ ingest source.
 
 ## Library entry points
 
-- `VideoCaptureTrack::new` for decoded-frame publishing and
-  `VideoCaptureTrack::new_encoded` for pre-encoded passthrough (no raw
+- `track::NativeVideoSourceExt` — extension methods on the RTC-level
+  `NativeVideoSource` for capturing pre-encoded access units. Use
+  `NativeVideoSource::new_encoded` for pre-encoded passthrough (no raw
   keepalive frames, so the sender starts directly on the passthrough encoder).
 - `EncodedIngress` — the pre-encoded pump used when the caller manages its
   own source: `capture_next()` reports each published access unit,
@@ -26,6 +27,6 @@ ingest source.
 `GStreamerAppSinkEncodedSource` implements `EncodedAccessUnitSource` on top of
 an `appsink` producing H.264 (Annex-B or AVC), H.265 Annex-B, VP8, VP9, or
 AV1 access units. Feed it to `EncodedIngress` together with a
-`VideoCaptureTrack::new_encoded` track, then publish the track with
-`VideoCaptureTrack::encoded_publish_options(codec)` so the sender uses the
-pre-encoded passthrough encoder.
+`NativeVideoSource::new_encoded` RTC source, then publish a local video track
+created from that source with `track::encoded_publish_options(codec)` so the
+sender uses the pre-encoded passthrough encoder.
