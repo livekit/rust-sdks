@@ -9,6 +9,12 @@ repository.workspace = true
 
 [dependencies]
 bytes = { workspace = true }
+gstreamer = { version = "0.25.2", optional = true }
+gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+
+[features]
+default = []
+gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]

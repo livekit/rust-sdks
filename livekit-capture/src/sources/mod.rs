@@ -12,21 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Helpers for publishing pre-encoded video with LiveKit.
+//! Optional capture sources that feed the shared capture paths.
 
-pub mod encoded;
-mod error;
-pub mod sources;
-pub mod track;
-
-pub use encoded::{
-    ingress::{
-        EncodedAccessUnitSource, EncodedIngress, EncodedIngressCapture, EncodedIngressError,
-        EncodedIngressStop,
-    },
-    CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
-    EncodedPayload, EncodedRateControl, EncodedVideoCodec, EncodedWireFormat,
-    H264PacketizationMode, OwnedEncodedAccessUnit,
-};
-pub use error::CaptureError;
-pub use track::VideoCaptureTrack;
+#[cfg(feature = "gstreamer")]
+pub mod gstreamer;
