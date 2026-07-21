@@ -14,6 +14,8 @@
 
 use thiserror::Error;
 
+use crate::encoded::{EncodedVideoCodec, EncodedWireFormat};
+
 /// Error returned by capture helpers.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum CaptureError {
@@ -26,9 +28,15 @@ pub enum CaptureError {
     /// Access unit carries layering metadata the passthrough cannot forward.
     #[error("unsupported layered encoding: {0}")]
     UnsupportedLayeredEncoding(&'static str),
+    /// Codec is represented by the API but not yet supported by native passthrough.
+    #[error("encoded passthrough does not support {0:?} yet")]
+    UnsupportedCodec(EncodedVideoCodec),
     /// Encoded payload or transport data is malformed.
     #[error("invalid encoded data: {0}")]
     InvalidEncodedData(&'static str),
+    /// Wire format is represented by the API but not supported by this source.
+    #[error("encoded wire format is not supported by this source: {0:?}")]
+    UnsupportedWireFormat(EncodedWireFormat),
     /// Capture backend is not available on this platform.
     #[error("{0} is not supported on this platform")]
     UnsupportedPlatform(&'static str),

@@ -14,6 +14,12 @@
 
 //! Helpers for publishing pre-encoded video with LiveKit.
 
+pub mod encoded;
 mod error;
 
+pub use encoded::{
+    CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
+    EncodedPayload, EncodedRateControl, EncodedVideoCodec, EncodedWireFormat,
+    H264PacketizationMode, OwnedEncodedAccessUnit,
+};
 pub use error::CaptureError;
