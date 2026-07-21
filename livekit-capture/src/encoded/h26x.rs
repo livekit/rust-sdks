@@ -32,6 +32,7 @@ const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
 /// `push` appends bytes and returns at most one completed access unit; call
 /// `drain` repeatedly to pull further access units already buffered, and
 /// `flush` once at end of stream to emit the final pending access unit.
+#[cfg(test)]
 pub(crate) trait AccessUnitParser {
     /// Appends bytes and returns the next complete access unit, if any.
     fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError>;
@@ -62,7 +63,7 @@ pub struct AnnexBAccessUnitParser {
 }
 
 /// H.264/AVC length-prefixed parser state.
-#[cfg(any(feature = "tcpsink", test))]
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub(crate) struct AvcAccessUnitParser {
     pending: Vec<u8>,
@@ -194,6 +195,7 @@ impl AnnexBAccessUnitParser {
     }
 }
 
+#[cfg(test)]
 impl AccessUnitParser for AnnexBAccessUnitParser {
     fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
         AnnexBAccessUnitParser::push(self, bytes)
@@ -204,7 +206,7 @@ impl AccessUnitParser for AnnexBAccessUnitParser {
     }
 }
 
-#[cfg(any(feature = "tcpsink", test))]
+#[cfg(test)]
 impl AvcAccessUnitParser {
     /// Creates a parser for H.264/AVC length-prefixed byte streams.
     pub(crate) fn new(
@@ -328,7 +330,7 @@ impl AvcAccessUnitParser {
     }
 }
 
-#[cfg(any(feature = "tcpsink", test))]
+#[cfg(test)]
 impl AccessUnitParser for AvcAccessUnitParser {
     fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
         AvcAccessUnitParser::push(self, bytes)
@@ -376,7 +378,7 @@ pub fn annex_b_nalus(bytes: &[u8]) -> Result<Vec<&[u8]>, CaptureError> {
 }
 
 /// Creates an Annex-B access unit from H.264/AVC length-prefixed NAL units.
-pub(crate) fn access_unit_from_h264_avc(
+pub fn access_unit_from_h264_avc(
     payload: &[u8],
     nal_length_size: u8,
     timestamp_us: i64,
@@ -439,7 +441,7 @@ fn access_unit_split_index(
     }
 }
 
-#[cfg(any(feature = "tcpsink", test))]
+#[cfg(test)]
 fn avc_access_unit_split_index(
     bytes: &[u8],
     ranges: &[Range<usize>],
