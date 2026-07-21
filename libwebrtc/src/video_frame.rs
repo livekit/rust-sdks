@@ -301,6 +301,12 @@ impl I420Buffer {
         Self::with_strides(width, height, width, (width + 1) / 2, (width + 1) / 2)
     }
 
+    /// Like [`I420Buffer::new`], but with the pixel data initialized to black
+    /// (Y=0, U=V=128) instead of left uninitialized.
+    pub fn new_black(width: u32, height: u32) -> I420Buffer {
+        vf_imp::I420Buffer::new_black(width, height, width, (width + 1) / 2, (width + 1) / 2)
+    }
+
     pub fn chroma_width(&self) -> u32 {
         self.handle.chroma_width()
     }
@@ -624,4 +630,18 @@ pub mod web {
     pub struct WebGlBuffer {}
 
     impl VideoFrameBuffer for WebGlBuffer {}
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::I420Buffer;
+
+    #[test]
+    fn new_black_initializes_every_plane() {
+        let buffer = I420Buffer::new_black(64, 32);
+        let (data_y, data_u, data_v) = buffer.data();
+        assert!(data_y.iter().all(|&px| px == 0));
+        assert!(data_u.iter().all(|&px| px == 128));
+        assert!(data_v.iter().all(|&px| px == 128));
+    }
 }
