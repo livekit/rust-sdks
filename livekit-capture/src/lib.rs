@@ -19,6 +19,10 @@ mod error;
 pub mod track;
 
 pub use encoded::{
+    ingress::{
+        EncodedAccessUnitSource, EncodedIngress, EncodedIngressCapture, EncodedIngressError,
+        EncodedIngressStop,
+    },
     CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
     EncodedPayload, EncodedRateControl, EncodedVideoCodec, EncodedWireFormat,
     H264PacketizationMode, OwnedEncodedAccessUnit,

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod h26x;
+pub mod ingress;
 
 use bytes::Bytes;
 use livekit::{
