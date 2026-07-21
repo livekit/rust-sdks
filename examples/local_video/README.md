@@ -182,6 +182,8 @@ Subscriber flags (in addition to the common connection flags above):
 - `--display-timestamp`: Show detailed frame ID, publisher timestamp, subscriber timing stages, and end-to-end latency in the separate diagnostics window. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
 - `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
 
+The subscriber reports two render boundaries. `frame draw encoded` is the CPU time immediately after the WGPU draw command is recorded; it does not mean that the command has been submitted or executed. `frame GPU complete` is when the subscriber observes completion of the GPU submission containing that draw. This measurement does not include surface presentation, compositor queuing, display scanout, or physical pixel illumination, so use an OS presentation API or optical measurement when those later boundaries matter. Exposure-to-GPU measurements across different publisher and subscriber hosts also require synchronized system clocks (for example, NTP or PTP).
+
 Notes:
 - If the active video track is unsubscribed or unpublished, the app clears its state and will automatically attach to the next matching video track when it appears.
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
