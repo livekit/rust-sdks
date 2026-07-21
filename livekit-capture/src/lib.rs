@@ -13,3 +13,7 @@
 // limitations under the License.
 
 //! Helpers for publishing pre-encoded video with LiveKit.
+
+mod error;
+
+pub use error::CaptureError;
