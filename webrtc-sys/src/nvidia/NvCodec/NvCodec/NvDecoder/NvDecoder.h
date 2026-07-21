@@ -330,6 +330,11 @@ private:
     std::vector<uint8_t *> m_vpFrame;
     // timestamps of decoded frames
     std::vector<int64_t> m_vTimestamp;
+    // Timestamp of the packet currently being parsed. WebRTC submits one
+    // complete access unit per Decode() call, so the force-zero-latency decode
+    // callback can preserve the RTP timestamp without waiting for display
+    // reordering.
+    int64_t m_nCurrentTimestamp = 0;
     int m_nDecodedFrame = 0, m_nDecodedFrameReturned = 0;
     int m_nDecodePicCnt = 0, m_nPicNumInDecodeOrder[MAX_FRM_CNT];
     CUVIDSEIMESSAGEINFO *m_pCurrSEIMessage = NULL;

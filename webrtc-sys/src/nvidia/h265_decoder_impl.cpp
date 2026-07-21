@@ -1,12 +1,11 @@
 #include "h265_decoder_impl.h"
 
-#include <api/video/i420_buffer.h>
 #include <api/video/video_codec_type.h>
 #include <modules/video_coding/include/video_error_codes.h>
-#include <third_party/libyuv/include/libyuv/convert.h>
 
 #include "NvDecoder/NvDecoder.h"
 #include "Utils/NvCodecUtils.h"
+#include "nvidia_nv12_video_frame_buffer.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 
@@ -28,8 +27,7 @@ NvidiaH265DecoderImpl::NvidiaH265DecoderImpl(CUcontext context)
     : cu_context_(context),
       decoder_(nullptr),
       is_configured_decoder_(false),
-      decoded_complete_callback_(nullptr),
-      buffer_pool_(false) {}
+      decoded_complete_callback_(nullptr) {}
 
 NvidiaH265DecoderImpl::~NvidiaH265DecoderImpl() { Release(); }
 
@@ -63,9 +61,11 @@ bool NvidiaH265DecoderImpl::Configure(const Settings& settings) {
   int maxWidth = 4096;
   int maxHeight = 4096;
 
-  decoder_ = std::make_unique<NvDecoder>(
-      cu_context_, false, cudaVideoCodec_HEVC, true, false, nullptr, nullptr,
-      false, maxWidth, maxHeight);
+  // WebRTC's real-time encoders produce I/P-only streams, so decode and
+  // display order match and NVDEC can emit directly from its decode callback.
+  decoder_ = std::make_shared<NvDecoder>(
+      cu_context_, true, cudaVideoCodec_HEVC, true, true, nullptr, nullptr,
+      false, maxWidth, maxHeight, 1000, true);
   return true;
 }
 
@@ -76,7 +76,7 @@ int32_t NvidiaH265DecoderImpl::RegisterDecodeCompleteCallback(
 }
 
 int32_t NvidiaH265DecoderImpl::Release() {
-  buffer_pool_.Release();
+  decoder_.reset();
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -102,12 +102,15 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
-  int nFrameReturned = 0;
-  do {
-    nFrameReturned = decoder_->Decode(
-        input_image.data(), static_cast<int>(input_image.size()),
-        CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
-  } while (nFrameReturned == 0);
+  const int nFrameReturned = decoder_->Decode(
+      input_image.data(), static_cast<int>(input_image.size()),
+      CUVID_PKT_TIMESTAMP, input_image.RtpTimestamp());
+
+  // A packet may only contain sequence metadata. Do not replay it: NVDEC will
+  // emit the next complete picture from its decode callback.
+  if (nFrameReturned == 0) {
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
 
   is_configured_decoder_ = true;
 
@@ -124,26 +127,19 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
 
   for (int i = 0; i < nFrameReturned; i++) {
     int64_t timeStamp;
-    uint8_t* pFrame = decoder_->GetFrame(&timeStamp);
-
-    webrtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
-        buffer_pool_.CreateI420Buffer(decoder_->GetWidth(),
-                                      decoder_->GetHeight());
-
-    int result = libyuv::NV12ToI420(
-        pFrame, decoder_->GetDeviceFramePitch(),
-        pFrame + decoder_->GetHeight() * decoder_->GetDeviceFramePitch(),
-        decoder_->GetDeviceFramePitch(), i420_buffer->MutableDataY(),
-        i420_buffer->StrideY(), i420_buffer->MutableDataU(),
-        i420_buffer->StrideU(), i420_buffer->MutableDataV(),
-        i420_buffer->StrideV(), decoder_->GetWidth(), decoder_->GetHeight());
-
-    if (result) {
-      RTC_LOG(LS_INFO) << "libyuv::NV12ToI420 failed. error:" << result;
+    uint8_t* pFrame = decoder_->GetLockedFrame(&timeStamp);
+    if (!pFrame) {
+      RTC_LOG(LS_ERROR) << "NVDEC returned an empty locked H265 frame";
+      return WEBRTC_VIDEO_CODEC_ERROR;
     }
 
+    auto native_buffer = webrtc::make_ref_counted<
+        livekit::NvidiaNv12VideoFrameBuffer>(
+        decoder_, pFrame, cu_context_, decoder_->GetWidth(),
+        decoder_->GetHeight(), decoder_->GetDeviceFramePitch());
+
     VideoFrame decoded_frame = VideoFrame::Builder()
-                                   .set_video_frame_buffer(i420_buffer)
+                                   .set_video_frame_buffer(native_buffer)
                                    .set_timestamp_rtp(static_cast<uint32_t>(
                                        timeStamp))
                                    .set_color_space(color_space)
@@ -158,5 +154,3 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
 }
 
 }  // end namespace webrtc
-
-

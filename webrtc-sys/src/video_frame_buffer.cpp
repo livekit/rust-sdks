@@ -16,9 +16,34 @@
 
 #include "livekit/video_frame_buffer.h"
 
+#include <cstring>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 #include "api/make_ref_counted.h"
 
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+#include "nvidia/nvidia_nv12_video_frame_buffer.h"
+#endif
+
 namespace livekit_ffi {
+namespace {
+
+void CloseOwnedFd(int fd) {
+  if (fd < 0) {
+    return;
+  }
+#if defined(_WIN32)
+  _close(fd);
+#else
+  close(fd);
+#endif
+}
+
+}  // namespace
 
 VideoFrameBuffer::VideoFrameBuffer(
     webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer)
@@ -38,6 +63,86 @@ unsigned int VideoFrameBuffer::height() const {
 
 std::unique_ptr<I420Buffer> VideoFrameBuffer::to_i420() const {
   return std::make_unique<I420Buffer>(buffer_->ToI420());
+}
+
+bool native_buffer_is_cuda_nv12(const VideoFrameBuffer& buffer) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  return livekit::NvidiaNv12VideoFrameBuffer::FromNative(
+             buffer.get().get()) != nullptr;
+#else
+  return false;
+#endif
+}
+
+uint32_t cuda_nv12_stride(const VideoFrameBuffer& buffer) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  auto* cuda =
+      livekit::NvidiaNv12VideoFrameBuffer::FromNative(buffer.get().get());
+  return cuda ? static_cast<uint32_t>(cuda->pitch()) : 0;
+#else
+  return 0;
+#endif
+}
+
+uint64_t cuda_nv12_device_uuid_low(const VideoFrameBuffer& buffer) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  auto* cuda =
+      livekit::NvidiaNv12VideoFrameBuffer::FromNative(buffer.get().get());
+  uint64_t value = 0;
+  if (cuda) {
+    std::memcpy(&value, cuda->device_uuid().data(), sizeof(value));
+  }
+  return value;
+#else
+  return 0;
+#endif
+}
+
+uint64_t cuda_nv12_device_uuid_high(const VideoFrameBuffer& buffer) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  auto* cuda =
+      livekit::NvidiaNv12VideoFrameBuffer::FromNative(buffer.get().get());
+  uint64_t value = 0;
+  if (cuda) {
+    std::memcpy(&value, cuda->device_uuid().data() + sizeof(value),
+                sizeof(value));
+  }
+  return value;
+#else
+  return 0;
+#endif
+}
+
+std::unique_ptr<CudaNv12RenderTarget> new_cuda_nv12_render_target(
+    const VideoFrameBuffer& buffer,
+    int memory_fd,
+    uint64_t allocation_size,
+    uint32_t destination_pitch,
+    uint64_t uv_offset,
+    int semaphore_fd) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  auto* cuda =
+      livekit::NvidiaNv12VideoFrameBuffer::FromNative(buffer.get().get());
+  if (cuda) {
+    return livekit::CreateCudaNv12RenderTarget(
+        *cuda, memory_fd, allocation_size, destination_pitch, uv_offset,
+        semaphore_fd);
+  }
+#endif
+  CloseOwnedFd(memory_fd);
+  CloseOwnedFd(semaphore_fd);
+  return nullptr;
+}
+
+bool cuda_nv12_copy_to(const VideoFrameBuffer& buffer,
+                       CudaNv12RenderTarget& target) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  auto* cuda =
+      livekit::NvidiaNv12VideoFrameBuffer::FromNative(buffer.get().get());
+  return cuda && livekit::CopyCudaNv12ToRenderTarget(*cuda, target);
+#else
+  return false;
+#endif
 }
 
 // const_cast is valid here because we take the ownership on the rust side

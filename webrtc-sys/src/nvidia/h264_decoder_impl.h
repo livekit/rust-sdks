@@ -10,7 +10,6 @@
 #include <common_video/h264/h264_bitstream_parser.h>
 #include <common_video/h264/pps_parser.h>
 #include <common_video/h264/sps_parser.h>
-#include <common_video/include/video_frame_buffer_pool.h>
 #include <cuda.h>
 #include <media/base/codec.h>
 
@@ -42,13 +41,12 @@ class NvidiaH264DecoderImpl : public VideoDecoder {
 
  private:
   CUcontext cu_context_;
-  std::unique_ptr<NvDecoder> decoder_;
+  std::shared_ptr<NvDecoder> decoder_;
   bool is_configured_decoder_;
 
   Settings settings_;
 
   DecodedImageCallback* decoded_complete_callback_ = nullptr;
-  webrtc::VideoFrameBufferPool buffer_pool_;
   H264BitstreamParserEx h264_bitstream_parser_;
 };
 

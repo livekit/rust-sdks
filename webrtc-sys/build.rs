@@ -291,6 +291,7 @@ fn main() {
                         .file("src/nvidia/h265_encoder_impl.cpp")
                         .file("src/nvidia/h264_decoder_impl.cpp")
                         .file("src/nvidia/h265_decoder_impl.cpp")
+                        .file("src/nvidia/nvidia_nv12_video_frame_buffer.cpp")
                         .file("src/nvidia/nvidia_decoder_factory.cpp")
                         .file("src/nvidia/nvidia_encoder_factory.cpp")
                         .file("src/nvidia/cuda_context.cpp")

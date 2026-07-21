@@ -560,10 +560,98 @@ impl NV12Buffer {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     use std::fmt::Debug;
+    #[cfg(target_os = "linux")]
+    use std::os::fd::OwnedFd;
+
+    #[cfg(target_os = "linux")]
+    use thiserror::Error;
 
     use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
 
     new_buffer_type!(NativeBuffer, Native, as_native);
+
+    /// A borrowed NVIDIA NVDEC frame stored as NV12 in CUDA device memory.
+    #[cfg(target_os = "linux")]
+    pub struct CudaNv12Frame<'a> {
+        pub(crate) buffer: &'a vf_imp::NativeBuffer,
+    }
+
+    /// A CUDA import of a Vulkan external-memory staging buffer.
+    #[cfg(target_os = "linux")]
+    pub struct CudaNv12RenderTarget {
+        pub(crate) handle: vf_imp::CudaNv12RenderTarget,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl std::fmt::Debug for CudaNv12RenderTarget {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.debug_struct("CudaNv12RenderTarget").finish_non_exhaustive()
+        }
+    }
+
+    /// An error while importing or copying a CUDA NV12 render target.
+    #[derive(Debug, Error)]
+    #[cfg(target_os = "linux")]
+    pub enum CudaInteropError {
+        /// CUDA could not import the external Vulkan memory or semaphore.
+        #[error("CUDA could not import the Vulkan render target")]
+        ExternalImport,
+        /// The frame could not be copied into the imported target.
+        #[error("CUDA could not copy the NV12 frame into the render target")]
+        Copy,
+    }
+
+    #[cfg(target_os = "linux")]
+    impl CudaNv12Frame<'_> {
+        /// Returns the visible frame width in pixels.
+        pub fn width(&self) -> u32 {
+            self.buffer.width()
+        }
+
+        /// Returns the visible frame height in pixels.
+        pub fn height(&self) -> u32 {
+            self.buffer.height()
+        }
+
+        /// Returns the CUDA allocation pitch shared by the luma and chroma planes.
+        pub fn pitch(&self) -> u32 {
+            self.buffer.cuda_nv12_stride()
+        }
+
+        /// Returns the UUID of the CUDA device which owns this frame.
+        pub fn device_uuid(&self) -> [u8; 16] {
+            self.buffer.cuda_nv12_device_uuid()
+        }
+
+        /// Imports an owned Vulkan buffer and semaphore file descriptor into CUDA.
+        pub fn create_render_target(
+            &self,
+            memory_fd: OwnedFd,
+            allocation_size: u64,
+            destination_pitch: u32,
+            uv_offset: u64,
+            semaphore_fd: OwnedFd,
+        ) -> Result<CudaNv12RenderTarget, CudaInteropError> {
+            self.buffer
+                .new_cuda_nv12_render_target(
+                    memory_fd,
+                    allocation_size,
+                    destination_pitch,
+                    uv_offset,
+                    semaphore_fd,
+                )
+                .map(|handle| CudaNv12RenderTarget { handle })
+                .ok_or(CudaInteropError::ExternalImport)
+        }
+
+        /// Copies this frame into an imported render target and signals its semaphore.
+        pub fn copy_to(&self, target: &mut CudaNv12RenderTarget) -> Result<(), CudaInteropError> {
+            self.buffer
+                .copy_cuda_nv12_to(&mut target.handle)
+                .then_some(())
+                .ok_or(CudaInteropError::Copy)
+        }
+    }
 
     impl NativeBuffer {
         /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
@@ -583,6 +671,12 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+
+        /// Returns a CUDA NV12 view when this native frame came from NVIDIA NVDEC.
+        #[cfg(target_os = "linux")]
+        pub fn cuda_nv12(&self) -> Option<CudaNv12Frame<'_>> {
+            self.handle.cuda_nv12()
         }
     }
 
