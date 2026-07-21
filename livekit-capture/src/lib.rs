@@ -16,6 +16,7 @@
 
 pub mod encoded;
 mod error;
+pub mod track;
 
 pub use encoded::{
     CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
@@ -23,3 +24,4 @@ pub use encoded::{
     H264PacketizationMode, OwnedEncodedAccessUnit,
 };
 pub use error::CaptureError;
+pub use track::VideoCaptureTrack;
