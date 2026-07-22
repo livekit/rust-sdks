@@ -1279,7 +1279,6 @@ mod tests {
         assert_eq!(capabilities, expected);
     }
 
-
     // -----------------------------------------------------------------------
     // From<TransportError> for SignalError unit tests (pure mapping, no transport needed)
     // -----------------------------------------------------------------------
@@ -1341,11 +1340,7 @@ mod tests {
     fn from_transport_err_closed_yields_closed() {
         use livekit_net::TransportError;
         let err = SignalError::from(TransportError::Closed);
-        assert!(
-            matches!(err, SignalError::Closed),
-            "expected Closed, got {:?}",
-            err
-        );
+        assert!(matches!(err, SignalError::Closed), "expected Closed, got {:?}", err);
     }
 
     // Region + validate + stream behaviour, driven by the shared mock transport.
@@ -1393,10 +1388,7 @@ mod tests {
     /// dead code and driven a pointless reconnect loop on an unusable token).
     #[test]
     fn token_with_invalid_header_chars_yields_token_format() {
-        assert!(matches!(
-            super::check_token_format("bad\ntoken"),
-            Err(SignalError::TokenFormat)
-        ));
+        assert!(matches!(super::check_token_format("bad\ntoken"), Err(SignalError::TokenFormat)));
         assert!(super::check_token_format("eyJhbGciOi.valid.token").is_ok());
     }
 

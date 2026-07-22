@@ -61,13 +61,12 @@ pub(super) async fn connect_ws(
     let ws_stream = if let Ok(proxy_url) = proxy_env {
         if !proxy_url.is_empty() {
             log::info!("Using proxy: {}", proxy_url);
-            let proxy_url = url::Url::parse(&proxy_url).map_err(|e| {
-                TransportError::Connection(format!("Invalid proxy URL: {}", e))
-            })?;
+            let proxy_url = url::Url::parse(&proxy_url)
+                .map_err(|e| TransportError::Connection(format!("Invalid proxy URL: {}", e)))?;
 
-            let host = url.host_str().ok_or_else(|| {
-                TransportError::Connection("Target URL has no host".into())
-            })?;
+            let host = url
+                .host_str()
+                .ok_or_else(|| TransportError::Connection("Target URL has no host".into()))?;
 
             let port = url.port_or_known_default().ok_or_else(|| {
                 TransportError::Connection(
@@ -75,9 +74,9 @@ pub(super) async fn connect_ws(
                 )
             })?;
 
-            let proxy_host = proxy_url.host_str().ok_or_else(|| {
-                TransportError::Connection("Proxy URL has no host".into())
-            })?;
+            let proxy_host = proxy_url
+                .host_str()
+                .ok_or_else(|| TransportError::Connection("Proxy URL has no host".into()))?;
 
             let proxy_port = proxy_url.port_or_known_default().unwrap_or(80);
             let proxy_addr = format!("{}:{}", proxy_host, proxy_port);
@@ -90,17 +89,14 @@ pub(super) async fn connect_ws(
             if let Some(password) = proxy_url.password() {
                 use base64::Engine as _;
                 let auth = format!("{}:{}", proxy_url.username(), password);
-                let auth = format!(
-                    "Basic {}",
-                    base64::engine::general_purpose::STANDARD.encode(auth)
-                );
+                let auth =
+                    format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(auth));
                 proxy_auth_header = Some(auth);
             }
 
             // Send CONNECT request
             let target = format!("{}:{}", host, port);
-            let mut connect_req =
-                format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n", target, target);
+            let mut connect_req = format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n", target, target);
 
             // Add proxy authorization if needed
             if let Some(auth) = proxy_auth_header {
@@ -142,9 +138,10 @@ pub(super) async fn connect_ws(
 
             // Parse status line
             let response_str = String::from_utf8_lossy(&response);
-            let status_line = response_str.lines().next().ok_or_else(|| {
-                TransportError::Connection("Invalid proxy response".into())
-            })?;
+            let status_line = response_str
+                .lines()
+                .next()
+                .ok_or_else(|| TransportError::Connection("Invalid proxy response".into()))?;
 
             // Check status code
             if !status_line.contains("200") {
@@ -184,8 +181,7 @@ pub(super) async fn connect_ws(
                         )));
                     }
                     let total = cert_result.certs.len();
-                    let (added, ignored) =
-                        root_store.add_parsable_certificates(cert_result.certs);
+                    let (added, ignored) = root_store.add_parsable_certificates(cert_result.certs);
                     log::debug!(
                         "Added {added}/{total} native root certificates ({ignored} ignored)"
                     );
@@ -194,23 +190,14 @@ pub(super) async fn connect_ws(
                         .with_root_certificates(root_store)
                         .with_no_client_auth();
 
-                    let server_name =
-                        ServerName::try_from(host.to_owned()).map_err(|_| {
-                            TransportError::Connection(format!(
-                                "Invalid DNS name: {}",
-                                host
-                            ))
-                        })?;
+                    let server_name = ServerName::try_from(host.to_owned()).map_err(|_| {
+                        TransportError::Connection(format!("Invalid DNS name: {}", host))
+                    })?;
 
                     let connector = TlsConnector::from(Arc::new(tls_config));
-                    let tls_stream = connector
-                        .connect(server_name, proxy_stream)
-                        .await
-                        .map_err(|e| {
-                            TransportError::Connection(format!(
-                                "TLS connection error: {}",
-                                e
-                            ))
+                    let tls_stream =
+                        connector.connect(server_name, proxy_stream).await.map_err(|e| {
+                            TransportError::Connection(format!("TLS connection error: {}", e))
                         })?;
 
                     MaybeTlsStream::Rustls(tls_stream)
@@ -229,23 +216,18 @@ pub(super) async fn connect_ws(
             };
 
             // Now perform WebSocket handshake over the established connection
-            let (ws_stream, _) =
-                tokio_tungstenite::client_async_with_config(request, stream, None)
-                    .await
-                    .map_err(map_ws_err)?;
+            let (ws_stream, _) = tokio_tungstenite::client_async_with_config(request, stream, None)
+                .await
+                .map_err(map_ws_err)?;
             ws_stream
         } else {
             // Proxy var is empty, connect directly
-            let (ws_stream, _) = connect_async(request)
-                .await
-                .map_err(map_ws_err)?;
+            let (ws_stream, _) = connect_async(request).await.map_err(map_ws_err)?;
             ws_stream
         }
     } else {
         // No proxy env var set, connect directly
-        let (ws_stream, _) = connect_async(request)
-            .await
-            .map_err(map_ws_err)?;
+        let (ws_stream, _) = connect_async(request).await.map_err(map_ws_err)?;
         ws_stream
     };
 

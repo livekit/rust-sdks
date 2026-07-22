@@ -82,9 +82,7 @@ impl WsClient for MockTransport {
         };
         // vec is popped from the end, so push the last frame first
         let frames = vec![pong.encode_to_vec()];
-        Ok(WsConnectResult {
-            connection: Arc::new(MockConn { outbound: AsyncMutex::new(frames) }),
-        })
+        Ok(WsConnectResult { connection: Arc::new(MockConn { outbound: AsyncMutex::new(frames) }) })
     }
 }
 
@@ -106,7 +104,11 @@ impl livekit_net::HttpClient for MockTransport {
                 && h.value.len() > "Bearer ".len()
         });
         if !has_bearer {
-            return Ok(HttpResponse { status: 401, headers: vec![], body: b"missing bearer".to_vec() });
+            return Ok(HttpResponse {
+                status: 401,
+                headers: vec![],
+                body: b"missing bearer".to_vec(),
+            });
         }
 
         // Rule 2: dispatch on URL.
@@ -118,7 +120,11 @@ impl livekit_net::HttpClient for MockTransport {
         }
         if url.contains("badjson") {
             // Return non-JSON body to exercise the serde parse-error path.
-            return Ok(HttpResponse { status: 200, headers: vec![], body: b"this is not json".to_vec() });
+            return Ok(HttpResponse {
+                status: 200,
+                headers: vec![],
+                body: b"this is not json".to_vec(),
+            });
         }
         if url.contains("/settings/regions") {
             // Serve a canned RegionUrlResponse JSON for region discovery tests.

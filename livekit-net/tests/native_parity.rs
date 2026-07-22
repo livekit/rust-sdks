@@ -25,10 +25,7 @@ async fn spawn_http_once(status_line: &'static str, body: &'static str) -> u16 {
         let (mut sock, _) = listener.accept().await.unwrap();
         let mut buf = [0u8; 1024];
         let _ = sock.read(&mut buf).await;
-        let resp = format!(
-            "{status_line}\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        );
+        let resp = format!("{status_line}\r\nContent-Length: {}\r\n\r\n{body}", body.len());
         sock.write_all(resp.as_bytes()).await.unwrap();
     });
     port
@@ -51,10 +48,7 @@ async fn ws_send_recv_roundtrip() {
     });
 
     let t = livekit_net::testing::native_ws_client();
-    let result = t
-        .connect(format!("ws://127.0.0.1:{port}"), vec![], 5000)
-        .await
-        .unwrap();
+    let result = t.connect(format!("ws://127.0.0.1:{port}"), vec![], 5000).await.unwrap();
     let conn = result.connection;
     conn.send(b"ping".to_vec()).await.unwrap();
     let echoed = conn.recv().await.unwrap();
@@ -99,15 +93,17 @@ Content-Length: 0
     });
 
     let t = livekit_net::testing::native_ws_client();
-    let result = t
-        .connect(format!("ws://127.0.0.1:{port}"), vec![], 5000)
-        .await;
+    let result = t.connect(format!("ws://127.0.0.1:{port}"), vec![], 5000).await;
 
     match result {
         Err(livekit_net::TransportError::Http { status }) => {
             assert_eq!(status, 404, "expected HTTP 404, got {status}");
         }
-        Ok(_) => panic!("expected Err(TransportError::Http {{ status: 404 }}), but connect succeeded"),
-        Err(other) => panic!("expected Err(TransportError::Http {{ status: 404 }}), got Err({:?})", other),
+        Ok(_) => {
+            panic!("expected Err(TransportError::Http {{ status: 404 }}), but connect succeeded")
+        }
+        Err(other) => {
+            panic!("expected Err(TransportError::Http {{ status: 404 }}), got Err({:?})", other)
+        }
     }
 }

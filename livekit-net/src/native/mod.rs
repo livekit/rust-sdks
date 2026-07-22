@@ -54,20 +54,18 @@ impl WsClient for NativeTransport {
         let parsed =
             url::Url::parse(&url).map_err(|e| TransportError::Connection(e.to_string()))?;
 
-        #[cfg(feature = "__native-tokio")]
-        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         #[cfg(feature = "__native-async")]
         use async_tungstenite::tungstenite::client::IntoClientRequest;
+        #[cfg(feature = "__native-tokio")]
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
         let mut request = parsed
             .clone()
             .into_client_request()
             .map_err(|e| TransportError::Connection(e.to_string()))?;
         for h in &headers {
-            let name: http::header::HeaderName = h
-                .name
-                .parse()
-                .map_err(|_| TransportError::Other("bad header name".into()))?;
+            let name: http::header::HeaderName =
+                h.name.parse().map_err(|_| TransportError::Other("bad header name".into()))?;
             let value = http::header::HeaderValue::from_str(&h.value)
                 .map_err(|_| TransportError::Other("bad header value".into()))?;
             request.headers_mut().insert(name, value);
@@ -77,28 +75,26 @@ impl WsClient for NativeTransport {
             #[cfg(feature = "__native-tokio")]
             let ws = self::proxy::connect_ws(request, &parsed).await?;
             #[cfg(feature = "__native-async")]
-            let (ws, _) = async_tungstenite::async_std::connect_async(request)
-                .await
-                .map_err(|e: async_tungstenite::tungstenite::Error| {
+            let (ws, _) = async_tungstenite::async_std::connect_async(request).await.map_err(
+                |e: async_tungstenite::tungstenite::Error| {
                     use async_tungstenite::tungstenite::Error;
                     match e {
-                        Error::Http(resp) => TransportError::Http { status: resp.status().as_u16() },
+                        Error::Http(resp) => {
+                            TransportError::Http { status: resp.status().as_u16() }
+                        }
                         other => TransportError::Connection(other.to_string()),
                     }
-                })?;
+                },
+            )?;
             Ok::<_, TransportError>(ws)
         };
 
-        let ws = livekit_runtime::timeout(
-            std::time::Duration::from_millis(timeout_ms),
-            connect_fut,
-        )
-        .await
-        .map_err(|_| TransportError::Timeout)??;
+        let ws =
+            livekit_runtime::timeout(std::time::Duration::from_millis(timeout_ms), connect_fut)
+                .await
+                .map_err(|_| TransportError::Timeout)??;
 
-        Ok(WsConnectResult {
-            connection: Arc::new(self::connection::NativeConnection::new(ws)),
-        })
+        Ok(WsConnectResult { connection: Arc::new(self::connection::NativeConnection::new(ws)) })
     }
 }
 
@@ -124,23 +120,19 @@ impl HttpClient for NativeTransport {
             if let Some(body) = body {
                 req = req.body(body);
             }
-            let res = req
-                .send()
-                .await
-                .map_err(|e| TransportError::Connection(error_chain(&e)))?;
+            let res = req.send().await.map_err(|e| TransportError::Connection(error_chain(&e)))?;
             let status = res.status().as_u16();
             let resp_headers = res
                 .headers()
                 .iter()
                 .filter_map(|(n, v)| {
-                    v.to_str().ok().map(|v| Header { name: n.as_str().to_string(), value: v.to_string() })
+                    v.to_str()
+                        .ok()
+                        .map(|v| Header { name: n.as_str().to_string(), value: v.to_string() })
                 })
                 .collect();
-            let body = res
-                .bytes()
-                .await
-                .map_err(|e| TransportError::Other(e.to_string()))?
-                .to_vec();
+            let body =
+                res.bytes().await.map_err(|e| TransportError::Other(e.to_string()))?.to_vec();
             Ok(HttpResponse { status, headers: resp_headers, body })
         }
         #[cfg(feature = "__native-async")]
@@ -166,14 +158,14 @@ impl HttpClient for NativeTransport {
                 .headers()
                 .iter()
                 .filter_map(|(n, v)| {
-                    v.to_str().ok().map(|v| Header { name: n.as_str().to_string(), value: v.to_string() })
+                    v.to_str()
+                        .ok()
+                        .map(|v| Header { name: n.as_str().to_string(), value: v.to_string() })
                 })
                 .collect();
             use isahc::AsyncReadResponseExt;
             let mut body = Vec::new();
-            res.copy_to(&mut body)
-                .await
-                .map_err(|e| TransportError::Other(e.to_string()))?;
+            res.copy_to(&mut body).await.map_err(|e| TransportError::Other(e.to_string()))?;
             Ok(HttpResponse { status, headers: resp_headers, body })
         }
     }

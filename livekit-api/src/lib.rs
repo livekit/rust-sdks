@@ -32,11 +32,7 @@ mod http_client;
 // Region-discovery helpers shared by the signaling region provider
 // (signal_client::region_url_provider) and the API failover region cache
 // (services::failover).
-#[cfg(any(
-    feature = "signal-client",
-    feature = "services-tokio",
-    feature = "services-async"
-))]
+#[cfg(any(feature = "signal-client", feature = "services-tokio", feature = "services-async"))]
 mod region;
 
 #[cfg(feature = "webhooks")]

@@ -20,16 +20,16 @@ use futures_util::{
 use livekit_runtime::TcpStream;
 use tokio::sync::Mutex;
 
-#[cfg(feature = "__native-tokio")]
-use tokio_tungstenite::{
-    tungstenite::{error::ProtocolError, Error as WsError, Message},
-    MaybeTlsStream, WebSocketStream,
-};
 #[cfg(feature = "__native-async")]
 use async_tungstenite::{
     async_std::ClientStream as MaybeTlsStream,
     tungstenite::{error::ProtocolError, Error as WsError, Message},
     WebSocketStream,
+};
+#[cfg(feature = "__native-tokio")]
+use tokio_tungstenite::{
+    tungstenite::{error::ProtocolError, Error as WsError, Message},
+    MaybeTlsStream, WebSocketStream,
 };
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;

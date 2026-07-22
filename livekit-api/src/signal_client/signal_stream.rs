@@ -75,8 +75,7 @@ impl SignalStream {
 
         let (emitter, events) = mpsc::unbounded_channel();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
-        let write_handle =
-            livekit_runtime::spawn(Self::write_task(internal_rx, conn.clone()));
+        let write_handle = livekit_runtime::spawn(Self::write_task(internal_rx, conn.clone()));
         let read_handle =
             livekit_runtime::spawn(Self::read_task(internal_tx.clone(), conn, emitter));
 
@@ -166,4 +165,3 @@ impl SignalStream {
         }
     }
 }
-

@@ -82,11 +82,7 @@ pub trait HttpClient: Send + Sync {
 #[async_trait::async_trait]
 pub trait HttpClientExt: HttpClient {
     /// Perform a GET.
-    async fn get(
-        &self,
-        url: String,
-        headers: Vec<Header>,
-    ) -> Result<HttpResponse, TransportError> {
+    async fn get(&self, url: String, headers: Vec<Header>) -> Result<HttpResponse, TransportError> {
         self.request(HttpMethod::Get, url, headers, None).await
     }
 
