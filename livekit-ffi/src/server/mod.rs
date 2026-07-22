@@ -159,16 +159,19 @@ impl FfiServer {
         self.config.lock().is_some()
     }
 
+    /// Snapshot of all currently-stored rooms.
+    pub fn list_rooms(&self) -> Vec<room::FfiRoom> {
+        self.ffi_handles
+            .iter()
+            .filter_map(|h| h.value().downcast_ref::<room::FfiRoom>().cloned())
+            .collect()
+    }
+
     pub async fn dispose(&'static self) {
         log::debug!("disposing ffi server");
 
         // Close all rooms
-        let mut rooms = Vec::new();
-        for handle in self.ffi_handles.iter_mut() {
-            if let Some(handle) = handle.value().downcast_ref::<room::FfiRoom>() {
-                rooms.push(handle.clone());
-            }
-        }
+        let rooms = self.list_rooms();
 
         for room in rooms {
             room.close(self, DisconnectReason::ClientInitiated).await;

@@ -872,6 +872,12 @@ impl Room {
         self.inner.info.read().name.clone()
     }
 
+    /// The current signalling token (the initial token, or the latest
+    /// refreshed one). Used to (re-)authenticate audio filter plugins.
+    pub fn token(&self) -> String {
+        self.inner.rtc_engine.session().signal_client().token()
+    }
+
     pub fn metadata(&self) -> String {
         self.inner.info.read().metadata.clone()
     }
