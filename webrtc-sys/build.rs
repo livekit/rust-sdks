@@ -96,9 +96,9 @@ fn main() {
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
         "src/audio_mixer.cpp",
+        "src/av1_bitstream.cpp",
         "src/packet_trailer.cpp",
         "src/packet_trailer_av1.cpp",
-        "src/jetson/jetson_av1_bitstream.cpp",
     ]);
 
     if is_desktop {
@@ -289,6 +289,7 @@ fn main() {
                         .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
                         .file("src/nvidia/h264_encoder_impl.cpp")
                         .file("src/nvidia/h265_encoder_impl.cpp")
+                        .file("src/nvidia/av1_encoder_impl.cpp")
                         .file("src/nvidia/h264_decoder_impl.cpp")
                         .file("src/nvidia/h265_decoder_impl.cpp")
                         .file("src/nvidia/nvidia_decoder_factory.cpp")

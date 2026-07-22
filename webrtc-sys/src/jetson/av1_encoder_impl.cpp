@@ -26,7 +26,7 @@
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/scalability_mode.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
-#include "jetson_av1_bitstream.h"
+#include "../av1_bitstream.h"
 #include "livekit/dmabuf_video_frame_buffer.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
