@@ -152,7 +152,9 @@ dependencies = ["build", "locate-lib"]
 script_runner = "@duckscript"
 script = """
 out_dir = join_path ${PACKAGES_DIR} ${LANG}
-exec cargo run --bin uniffi-bindgen generate \
+# `--features cli` builds the bindgen bin (gated off library builds so the
+# shipped cdylib/staticlib don't carry uniffi's CLI machinery).
+exec cargo run --features cli --bin uniffi-bindgen generate \
     --language ${LANG} \
     --out-dir ${out_dir} \
     --library ${LIB_PATH}
