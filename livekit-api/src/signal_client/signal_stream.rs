@@ -101,7 +101,10 @@ impl SignalStream {
         url: url::Url,
         token: &str,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
-        log::info!("connecting to {}", url);
+        let mut log_url = url.clone();
+        log_url.set_query(None);
+        log::info!("connecting to {}", log_url);
+        log::debug!("connecting to {}", url);
         let mut request = url.clone().into_client_request()?;
         let auth_header = HeaderValue::from_str(&format!("Bearer {token}"))
             .map_err(|_| SignalError::TokenFormat)?;
