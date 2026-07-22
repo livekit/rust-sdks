@@ -183,6 +183,8 @@ impl From<&str> for DataTrackOptions {
 
 /// An error that can occur when publishing a data track.
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum PublishError {
     /// Local participant does not have permission to publish data tracks.
     ///
@@ -248,6 +250,7 @@ impl PushFrameError {
 
 /// Reason why a data track frame could not be pushed.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum PushFrameErrorReason {
     /// Track is no longer published.
     TrackUnpublished,

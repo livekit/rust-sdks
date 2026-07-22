@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use crate::imp::video_frame as vf_imp;
+use crate::{imp::video_frame as vf_imp, video_source::VideoResolution};
 
 #[derive(Debug, Error)]
 pub enum SinkError {
@@ -69,6 +69,71 @@ pub struct FrameMetadata {
     /// features are also active); oversize payloads are dropped on the send
     /// side rather than truncated.
     pub user_data: Option<Vec<u8>>,
+}
+
+/// Codec carried by a pre-encoded video access unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EncodedVideoCodec {
+    /// H.264/AVC video.
+    H264,
+    /// H.265/HEVC video.
+    H265,
+    /// VP8 video.
+    VP8,
+    /// VP9 video.
+    VP9,
+    /// AV1 video.
+    AV1,
+}
+
+/// Frame type of a pre-encoded video access unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodedFrameType {
+    /// A key frame.
+    Key,
+    /// A delta frame.
+    Delta,
+}
+
+/// A pre-encoded video access unit ready for passthrough publishing.
+#[derive(Debug, Clone)]
+pub struct EncodedVideoFrame<'a> {
+    /// Encoded video codec.
+    pub codec: EncodedVideoCodec,
+    /// Encoded access-unit payload.
+    pub payload: &'a [u8],
+    /// Capture timestamp in microseconds.
+    pub timestamp_us: i64,
+    /// Encoded frame type.
+    pub frame_type: EncodedFrameType,
+    /// Encoded frame resolution in pixels.
+    pub resolution: VideoResolution,
+    /// Optional metadata to attach through packet trailers.
+    pub frame_metadata: Option<FrameMetadata>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<EncodedVideoCodec> for webrtc_sys::video_track::ffi::EncodedVideoCodec {
+    fn from(value: EncodedVideoCodec) -> Self {
+        match value {
+            EncodedVideoCodec::H264 => Self::H264,
+            EncodedVideoCodec::H265 => Self::H265,
+            EncodedVideoCodec::VP8 => Self::VP8,
+            EncodedVideoCodec::VP9 => Self::VP9,
+            EncodedVideoCodec::AV1 => Self::AV1,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<EncodedFrameType> for webrtc_sys::video_track::ffi::EncodedFrameType {
+    fn from(value: EncodedFrameType) -> Self {
+        match value {
+            EncodedFrameType::Key => Self::Key,
+            EncodedFrameType::Delta => Self::Delta,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::{prelude::*, registered_audio_filter_plugins};
+use livekit::{prelude::*, registered_audio_filter_plugins, PluginError};
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
@@ -153,22 +153,27 @@ impl FfiRoom {
                         .async_runtime
                         .spawn_blocking(move || {
                             for filter in registered_audio_filter_plugins().into_iter() {
-                                filter.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
+                                filter.on_load(&req.url, &req.token)?;
                             }
-                            Ok::<(), String>(())
+                            Ok::<(), PluginError>(())
                         })
-                        .await
-                        .map_err(|e| e.to_string());
+                        .await;
+
+                    // Filter failures are non-fatal: keep the RTC session alive, just
+                    // without the filter enabled.
                     match result {
-                        Err(e) | Ok(Err(e)) => {
-                            log::warn!("error while initializing audio filter: {}", e);
-                            log::error!(
-                                "audio filter cannot be enabled: ensure you are connecting to LiveKit Cloud and that the filter is properly configured"
-                            );
-                            // Skip returning an error here to keep the rtc session alive
-                            // But in this case, the filter isn't enabled in the session.
+                        Ok(Ok(())) => (),
+                        Ok(Err(e)) => {
+                            let hint = match &e {
+                                PluginError::OnLoad(_) => " — ensure you are connecting to LiveKit Cloud and that the filter is configured correctly",
+                                PluginError::Library(_) => " — the filter dylib could not be loaded",
+                                PluginError::NotImplemented(_) => " — the filter dylib is missing a required entry point",
+                            };
+                            log::error!("audio filter disabled, continuing without it: {e}{hint}");
                         }
-                        Ok(Ok(_)) => (),
+                        Err(join_err) => {
+                            log::error!("audio filter disabled, on_load task panicked: {join_err}");
+                        }
                     };
 
                     // Successfully connected to the room
@@ -1008,7 +1013,17 @@ struct ActualState {
     reconnecting: bool,
 }
 
-/// Forward events to the ffi client
+/// Wait for the next [`RoomEvent`] or a close signal, returning `None` on shutdown.
+async fn next_room_event(
+    events: &mut mpsc::UnboundedReceiver<RoomEvent>,
+    close_rx: &mut broadcast::Receiver<()>,
+) -> Option<RoomEvent> {
+    tokio::select! {
+        event = events.recv() => event,
+        _ = close_rx.recv() => None,
+    }
+}
+
 async fn room_task(
     server: &'static FfiServer,
     inner: Arc<RoomInner>,
@@ -1017,32 +1032,25 @@ async fn room_task(
 ) {
     let present_state = Arc::new(Mutex::new(ActualState { reconnecting: false }));
 
-    loop {
+    while let Some(event) = next_room_event(&mut events, &mut close_rx).await {
+        let event_for_debug = event.clone();
+        let inner = inner.clone();
+        let present_state = present_state.clone();
+        let (tx, rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            forward_event(server, &inner, event, present_state).await;
+            let _ = tx.send(());
+        });
+
+        // Monitor sync/async blockings
         tokio::select! {
-            Some(event) = events.recv() => {
-                let debug = format!("{:?}", event);
-                let inner = inner.clone();
-                let present_state = present_state.clone();
-                let (tx, rx) = oneshot::channel();
-                let task = tokio::spawn(async move {
-                    forward_event(server, &inner, event, present_state).await;
-                    let _ = tx.send(());
-                });
-
-                // Monitor sync/async blockings
-                tokio::select! {
-                    _ = rx => {},
-                    _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                        log::error!("signal_event taking too much time: {}", debug);
-                    }
-                }
-
-                let _ = server.watch_panic(task).await;
-            },
-            _ = close_rx.recv() => {
-                break;
+            _ = rx => {},
+            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                log::error!("signal_event taking too much time: {:?}", event_for_debug);
             }
-        };
+        }
+
+        let _ = server.watch_panic(task).await;
     }
 
     let _ = server.send_event(
@@ -1647,4 +1655,25 @@ fn build_initial_states(
         },
         remote_infos,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn closed_event_channel_ends_room_event_stream() {
+        let (event_tx, mut events) = mpsc::unbounded_channel();
+        let (_close_tx, mut close_rx) = broadcast::channel(1);
+        drop(event_tx);
+
+        let event = tokio::time::timeout(
+            Duration::from_secs(1),
+            next_room_event(&mut events, &mut close_rx),
+        )
+        .await
+        .expect("closed room event channel should end the event stream");
+
+        assert!(event.is_none());
+    }
 }

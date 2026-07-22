@@ -165,6 +165,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.39 (2026-07-17)
+
+### Features
+
+- Add a pre-encoded video publish path: a passthrough video encoder and encoded video frame buffer in webrtc-sys, and `EncodedVideoFrame`/`EncodedVideoCodec`/`EncodedFrameType` publish APIs with a `VideoEncoderBackend::PreEncoded` backend in libwebrtc. WebRTC rate-control targets and keyframe requests are forwarded to encoded sources, and pre-encoded AV1 and H265 access units are validated on ingest.
+
+## 0.3.38 (2026-07-14)
+
+### Fixes
+
+- Fix `PeerContext` forward-declaration in `jsep.h` from `class` to `struct` to match the cxx bridge definition, resolving LNK2019 linker errors on windows-msvc - #1154
+- Add an opt-in zero-playout-delay mode for native video subscribers, expose it through the `local_video` subscriber's `--low-latency` flag, and isolate subscriber diagnostics from frame-driven video rendering.
+
+## 0.3.37 (2026-07-09)
+
+### Fixes
+
+- Fix malformed RTC error handling
+
+## 0.3.36 (2026-06-30)
+
+### Features
+
+#### Add `MaintainFramerateAndResolution` to `DegradationPreference` enum to align with WebRTC M144.
+
+- `MAINTAIN_FRAMERATE_AND_RESOLUTION` is now the recommended value (replaces deprecated `DISABLED`)
+- `DISABLED` is deprecated but still supported for backwards compatibility
+- Both values map to the same behavior: maintain framerate and resolution, dropping frames if needed
+
+### Fixes
+
+- Fix AV1 subscriber decode when packet trailers are enabled.
+
 ## 0.3.35 (2026-06-17)
 
 ### Fixes

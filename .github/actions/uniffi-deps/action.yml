@@ -1,0 +1,12 @@
+name: Install Common Deps for UniFFI Tasks
+runs:
+  using: composite
+  steps:
+    - name: Install cargo-make
+      uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2.82.4
+      with: { tool: cargo-make@0.37 }
+    - name: Install tera-cli
+      uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2.82.4
+      with: { tool: tera-cli@0.5.0 }
+    # ^ This would be installed by the cargo-make file automatically, but this ensures
+    # it is already available and downloads binary distribution (no need to build from source).

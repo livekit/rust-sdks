@@ -60,6 +60,11 @@ impl MockTransport {
         self
     }
 
+    fn with_server_version(mut self, version: Option<&str>) -> Self {
+        self.server_ver = version.map(str::to_string);
+        self
+    }
+
     /// Wait until at least one packet has been sent.
     async fn wait_for_packet(&self) {
         self.packet_sent.notified().await;
@@ -743,6 +748,34 @@ async fn test_v2_response_stream_resolves_caller() {
 
     let result: Result<String, RpcError> = rx.await.unwrap();
     assert_eq!(result.unwrap(), "stream-result");
+}
+
+// =========================================================================
+// Server version check tests
+// =========================================================================
+
+/// A server older than the minimum required version is rejected with
+/// UNSUPPORTED_SERVER before any request is sent.
+#[tokio::test]
+async fn test_server_below_minimum_version_rejected() {
+    let client = RpcClientManager::new();
+    let transport = MockTransport::new()
+        .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+        .with_server_version(Some("1.7.9"));
+
+    let result = client
+        .perform_rpc(
+            PerformRpcData::new("dest", "greet")
+                .with_payload("hi")
+                .with_response_timeout(Duration::from_millis(50)),
+            &transport,
+        )
+        .await;
+
+    let err = result.unwrap_err();
+    assert_eq!(err.code, RpcErrorCode::UnsupportedServer as u32);
+    assert!(transport.packets().is_empty());
+    assert!(transport.texts().is_empty());
 }
 
 /// Verify unregistered method returns UNSUPPORTED_METHOD error via v2 path.

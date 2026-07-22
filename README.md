@@ -165,7 +165,7 @@ match event {
 ![](https://github.com/livekit/rust-sdks/blob/main/examples/images/simple-room-demo.gif)
 
 - [basic room](https://github.com/livekit/rust-sdks/tree/main/examples/basic_room): simple example connecting to a room.
-- [wgpu_room](https://github.com/livekit/rust-sdks/tree/main/examples/wgpu_room): complete example app with video rendering using wgpu and egui.
+- [rust-dev-client](https://github.com/livekit-examples/rust-dev-client): complete example app with video rendering using wgpu and egui (maintained in a separate repository).
 - [mobile](https://github.com/livekit/rust-sdks/tree/main/examples/mobile): mobile app targeting iOS and Android
 - [play_from_disk](https://github.com/livekit/rust-sdks/tree/main/examples/play_from_disk): publish audio from a wav file
 - [save_to_disk](https://github.com/livekit/rust-sdks/tree/main/examples/save_to_disk): save received audio to a wav file

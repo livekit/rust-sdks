@@ -644,21 +644,23 @@ fn drive_channels(
 }
 
 impl eframe::App for VideoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = root_ui.ctx().clone();
+
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
 
-        register_repaint_context(&self.shared, ctx);
+        register_repaint_context(&self.shared, &ctx);
 
         if let Some((width, height)) = video_size(&self.shared) {
-            self.viewport.set_video_size(ctx, width, height);
+            self.viewport.set_video_size(&ctx, width, height);
         }
 
-        let channel_values = self.channels.as_ref().map(|targets| drive_channels(ctx, targets));
+        let channel_values = self.channels.as_ref().map(|targets| drive_channels(&ctx, targets));
 
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(root_ui, |ui| {
             ui.ctx().request_repaint();
 
             let size =
@@ -680,7 +682,7 @@ impl eframe::App for VideoApp {
         egui::Area::new("publisher_overlay".into())
             .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
             .interactable(false)
-            .show(ctx, |ui| {
+            .show(&ctx, |ui| {
                 let Some(lines) = publisher_overlay_lines(
                     &self.shared,
                     &mut self.timing_overlay_state,
@@ -708,7 +710,7 @@ impl eframe::App for VideoApp {
             });
 
         if let Some(values) = channel_values {
-            paint_channel_controls(ctx, &values);
+            paint_channel_controls(&ctx, &values);
         }
 
         ctx.request_repaint_after(viewport_aspect::VIDEO_REPAINT_INTERVAL);
@@ -927,8 +929,8 @@ impl CallbackTrait for YuvPaintCallback {
 
             let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("yuv_pipeline_layout"),
-                bind_group_layouts: &[&bind_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_layout)],
+                immediate_size: 0,
             });
 
             let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -965,7 +967,7 @@ impl CallbackTrait for YuvPaintCallback {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -976,7 +978,7 @@ impl CallbackTrait for YuvPaintCallback {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                 ..Default::default()
             });
 

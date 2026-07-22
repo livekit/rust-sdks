@@ -413,6 +413,9 @@ struct SessionInner {
     dt_packet_tx: DataTrackSendQueue,
 
     closed: AtomicBool,
+    // Set on a terminal disconnect (server `Leave{Disconnect}`) so the publisher
+    // data-channel close it triggers isn't logged as unexpected
+    disconnecting: AtomicBool,
     emitter: SessionEmitter,
 
     options: EngineOptions,
@@ -468,6 +471,7 @@ struct SessionHandle {
 }
 
 impl RtcSession {
+    /// Connect to a LiveKit room.
     pub async fn connect(
         url: &str,
         token: &str,
@@ -617,6 +621,7 @@ impl RtcSession {
             sub_data_track_dc: Mutex::new(None),
             dt_packet_tx,
             closed: Default::default(),
+            disconnecting: Default::default(),
             emitter,
             options,
             negotiation_debouncer: Default::default(),
@@ -642,7 +647,10 @@ impl RtcSession {
                 let Some(inner) = weak_inner.upgrade() else {
                     return;
                 };
-                if !inner.closed.load(Ordering::Acquire) && inner.publisher_pc.is_connected() {
+                if !inner.closed.load(Ordering::Acquire)
+                    && !inner.disconnecting.load(Ordering::Acquire)
+                    && inner.publisher_pc.is_connected()
+                {
                     log::error!("publisher data channel '{}' closed unexpectedly", label);
                 }
             })));
@@ -1876,6 +1884,11 @@ impl SessionInner {
         action: proto::leave_request::Action,
         retry_now: bool,
     ) {
+        // A terminal disconnect (e.g. room deleted) closes the publisher data channels
+        // from the remote side; flag it so that close isn't logged as unexpected
+        if action == proto::leave_request::Action::Disconnect {
+            self.disconnecting.store(true, Ordering::Release);
+        }
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
