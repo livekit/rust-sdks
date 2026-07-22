@@ -15,7 +15,7 @@
 use bmrng::unbounded::UnboundedRequestSender;
 use livekit_common::ParticipantIdentity;
 use livekit_protocol as proto;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 use tokio::io::AsyncReadExt;
 
 use super::constants;
@@ -143,11 +143,15 @@ impl RawStream {
         Ok(())
     }
 
-    pub(crate) async fn close(&mut self, reason: Option<&str>) -> StreamResult<()> {
+    pub(crate) async fn close(
+        &mut self,
+        reason: Option<&str>,
+        attributes: Option<HashMap<String, String>>,
+    ) -> StreamResult<()> {
         if self.is_closed {
             Err(StreamError::AlreadyClosed)?
         }
-        let mut packet = Self::create_trailer_packet(&self.id, reason);
+        let mut packet = Self::create_trailer_packet(&self.id, reason, attributes);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
@@ -199,10 +203,15 @@ impl RawStream {
         }
     }
 
-    pub(crate) fn create_trailer_packet(id: &str, reason: Option<&str>) -> proto::DataPacket {
+    pub(crate) fn create_trailer_packet(
+        id: &str,
+        reason: Option<&str>,
+        attributes: Option<HashMap<String, String>>,
+    ) -> proto::DataPacket {
         let trailer = proto::data_stream::Trailer {
             stream_id: id.to_string(),
             reason: reason.unwrap_or_default().to_owned(),
+            attributes: attributes.unwrap_or_default(),
             ..Default::default()
         };
         proto::DataPacket {
@@ -220,7 +229,7 @@ impl Drop for RawStream {
         if self.is_closed {
             return;
         }
-        let mut packet = Self::create_trailer_packet(&self.id, None);
+        let mut packet = Self::create_trailer_packet(&self.id, None, None);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }

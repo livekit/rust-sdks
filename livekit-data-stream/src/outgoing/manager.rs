@@ -179,7 +179,7 @@ impl Manager {
                 stream.write_chunk(chunk).await?;
             }
         }
-        stream.close(None).await?;
+        stream.close(None, None).await?;
         Ok(info)
     }
 
@@ -271,7 +271,7 @@ impl Manager {
         } else {
             stream.write_raw_chunks(bytes).await?;
         }
-        stream.close(None).await?;
+        stream.close(None, None).await?;
         Ok(info)
     }
 
@@ -315,7 +315,7 @@ impl Manager {
         let info = ByteStreamInfo::from_headers(header, byte_header);
         let mut stream = RawStream::open(open_options).await?;
         stream.write_file(path, should_compress).await?;
-        stream.close(None).await?;
+        stream.close(None, None).await?;
         Ok(info)
     }
 }
@@ -1323,6 +1323,39 @@ mod tests {
                 assert!(c.content.iter().all(|b| *b == 0x01));
             }
             assert_trailer(&p[5]);
+        }
+
+        #[tokio::test]
+        async fn close_with_options_sends_trailer_attributes() {
+            let (m, sent) = setup();
+            let writer = m.stream_text(text_opts("chat", &[])).await.unwrap();
+            writer.write("hello").await.unwrap();
+            let attributes = HashMap::from([("result".to_string(), "ok".to_string())]);
+            writer.close_with_options(None, Some(attributes.clone())).await.unwrap();
+
+            let p = sent.lock().unwrap().clone();
+            let trailer = match p.last().unwrap().value.as_ref().unwrap() {
+                proto::data_packet::Value::StreamTrailer(t) => t,
+                _ => panic!("expected stream trailer"),
+            };
+            assert_eq!(trailer.reason, "");
+            assert_eq!(trailer.attributes, attributes);
+        }
+
+        #[tokio::test]
+        async fn close_with_options_sends_reason_and_attributes() {
+            let (m, sent) = setup();
+            let writer = m.stream_text(text_opts("chat", &[])).await.unwrap();
+            let attributes = HashMap::from([("cause".to_string(), "cancelled".to_string())]);
+            writer.close_with_options(Some("aborted"), Some(attributes.clone())).await.unwrap();
+
+            let p = sent.lock().unwrap().clone();
+            let trailer = match p.last().unwrap().value.as_ref().unwrap() {
+                proto::data_packet::Value::StreamTrailer(t) => t,
+                _ => panic!("expected stream trailer"),
+            };
+            assert_eq!(trailer.reason, "aborted");
+            assert_eq!(trailer.attributes, attributes);
         }
 
         #[tokio::test]
