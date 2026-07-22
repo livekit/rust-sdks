@@ -291,7 +291,9 @@ impl Manager {
             .await
             .map(|metadata| metadata.len())
             .map_err(StreamError::from)?;
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+        let name = options.name.clone().unwrap_or_else(|| {
+            path.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned()
+        });
         let stream_id: StreamId = options.id.clone().unwrap_or_else(create_random_uuid).into();
         let dests = options.destination_identities.clone();
 
