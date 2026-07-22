@@ -215,6 +215,26 @@ impl I420Buffer {
         }
     }
 
+    pub fn new_black(
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_u: u32,
+        stride_v: u32,
+    ) -> vf::I420Buffer {
+        vf::I420Buffer {
+            handle: I420Buffer {
+                sys_handle: vfb_sys::ffi::new_black_i420_buffer(
+                    width.try_into().unwrap(),
+                    height.try_into().unwrap(),
+                    stride_y.try_into().unwrap(),
+                    stride_u.try_into().unwrap(),
+                    stride_v.try_into().unwrap(),
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         unsafe { &*recursive_cast!(&*self.sys_handle, i420_to_yuv8, yuv8_to_yuv, yuv_to_vfb) }
     }
