@@ -268,6 +268,13 @@ export declare class TextStreamReaderEOS extends Message<TextStreamReaderEOS> {
    */
   error?: StreamError;
 
+  /**
+   * Final stream attributes, including any delivered in the stream trailer.
+   *
+   * @generated from field: map<string, string> attributes = 2;
+   */
+  attributes: { [key: string]: string };
+
   constructor(data?: PartialMessage<TextStreamReaderEOS>);
 
   static readonly runtime: typeof proto2;
@@ -643,6 +650,13 @@ export declare class ByteStreamReaderEOS extends Message<ByteStreamReaderEOS> {
    * @generated from field: optional livekit.proto.StreamError error = 1;
    */
   error?: StreamError;
+
+  /**
+   * Final stream attributes, including any delivered in the stream trailer.
+   *
+   * @generated from field: map<string, string> attributes = 2;
+   */
+  attributes: { [key: string]: string };
 
   constructor(data?: PartialMessage<ByteStreamReaderEOS>);
 
@@ -1226,6 +1240,13 @@ export declare class ByteStreamWriterCloseRequest extends Message<ByteStreamWrit
    */
   requestAsyncId?: bigint;
 
+  /**
+   * Attributes to attach to the stream trailer.
+   *
+   * @generated from field: map<string, string> attributes = 4;
+   */
+  attributes: { [key: string]: string };
+
   constructor(data?: PartialMessage<ByteStreamWriterCloseRequest>);
 
   static readonly runtime: typeof proto2;
@@ -1536,6 +1557,13 @@ export declare class TextStreamWriterCloseRequest extends Message<TextStreamWrit
    * @generated from field: optional uint64 request_async_id = 3;
    */
   requestAsyncId?: bigint;
+
+  /**
+   * Attributes to attach to the stream trailer.
+   *
+   * @generated from field: map<string, string> attributes = 4;
+   */
+  attributes: { [key: string]: string };
 
   constructor(data?: PartialMessage<TextStreamWriterCloseRequest>);
 

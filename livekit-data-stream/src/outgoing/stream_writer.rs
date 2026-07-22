@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -46,6 +46,14 @@ pub trait StreamWriter<'a> {
     fn close_with_reason(
         self,
         reason: &str,
+    ) -> impl std::future::Future<Output = StreamResult<()>> + Send;
+
+    /// Closes the stream, optionally specifying a closure reason (abnormal
+    /// closure) and attributes to attach to the stream trailer.
+    fn close_with_options(
+        self,
+        reason: Option<&str>,
+        attributes: Option<HashMap<String, String>>,
     ) -> impl std::future::Future<Output = StreamResult<()>> + Send;
 }
 
@@ -92,11 +100,19 @@ impl<'a> StreamWriter<'a> for ByteStreamWriter {
     }
 
     async fn close(self) -> StreamResult<()> {
-        self.stream.lock().await.close(None).await
+        self.stream.lock().await.close(None, None).await
     }
 
     async fn close_with_reason(self, reason: &str) -> StreamResult<()> {
-        self.stream.lock().await.close(Some(reason)).await
+        self.stream.lock().await.close(Some(reason), None).await
+    }
+
+    async fn close_with_options(
+        self,
+        reason: Option<&str>,
+        attributes: Option<HashMap<String, String>>,
+    ) -> StreamResult<()> {
+        self.stream.lock().await.close(reason, attributes).await
     }
 }
 
@@ -117,10 +133,18 @@ impl<'a> StreamWriter<'a> for TextStreamWriter {
     }
 
     async fn close(self) -> StreamResult<()> {
-        self.stream.lock().await.close(None).await
+        self.stream.lock().await.close(None, None).await
     }
 
     async fn close_with_reason(self, reason: &str) -> StreamResult<()> {
-        self.stream.lock().await.close(Some(reason)).await
+        self.stream.lock().await.close(Some(reason), None).await
+    }
+
+    async fn close_with_options(
+        self,
+        reason: Option<&str>,
+        attributes: Option<HashMap<String, String>>,
+    ) -> StreamResult<()> {
+        self.stream.lock().await.close(reason, attributes).await
     }
 }

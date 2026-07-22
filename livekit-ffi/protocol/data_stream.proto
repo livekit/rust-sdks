@@ -64,6 +64,8 @@ message TextStreamReaderChunkReceived {
 
 message TextStreamReaderEOS {
     optional StreamError error = 1;
+    // Final stream attributes, including any delivered in the stream trailer.
+    map<string, string> attributes = 2;
 }
 
 // MARK: - Byte stream reader
@@ -136,6 +138,8 @@ message ByteStreamReaderChunkReceived {
 
 message ByteStreamReaderEOS {
     optional StreamError error = 1;
+    // Final stream attributes, including any delivered in the stream trailer.
+    map<string, string> attributes = 2;
 }
 
 // MARK: - Send file
@@ -257,6 +261,8 @@ message ByteStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
     optional string reason = 2;
     optional uint64 request_async_id = 3;
+    // Attributes to attach to the stream trailer.
+    map<string, string> attributes = 4;
 }
 message ByteStreamWriterCloseResponse {
     required uint64 async_id = 1;
@@ -313,6 +319,8 @@ message TextStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
     optional string reason = 2;
     optional uint64 request_async_id = 3;
+    // Attributes to attach to the stream trailer.
+    map<string, string> attributes = 4;
 }
 message TextStreamWriterCloseResponse {
     required uint64 async_id = 1;
