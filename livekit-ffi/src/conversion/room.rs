@@ -27,7 +27,7 @@ use livekit::{
         native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
-    RoomInfo,
+    RoomDataStreamOptions, RoomInfo,
 };
 use std::time::Duration;
 
@@ -300,6 +300,14 @@ impl From<proto::RoomOptions> for RoomOptions {
             value.single_peer_connection.unwrap_or(options.single_peer_connection);
         options.connect_timeout =
             value.connect_timeout_ms.map(Duration::from_millis).unwrap_or(options.connect_timeout);
+        if let Some(data_stream) = value.data_stream {
+            let mut data_stream_options = RoomDataStreamOptions::default();
+            if let Some(max_payload_byte_length) = data_stream.max_payload_byte_length {
+                data_stream_options = data_stream_options
+                    .with_max_payload_byte_length(max_payload_byte_length as usize);
+            }
+            options.data_stream = data_stream_options;
+        }
         options
     }
 }
