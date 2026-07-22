@@ -42,6 +42,11 @@ pub struct StreamByteOptions {
     /// Whether to deflate-raw compress the payload when all recipients support it.
     /// Defaults to `true` (compression opt-out). Ignored by the incremental `stream_bytes`.
     pub compress: Option<bool>,
+    /// The identity the stream's packets are attributed to. If unspecified, the packets carry
+    /// no explicit identity and the server attributes them to the sending participant. Only
+    /// participants with the appropriate permission (e.g. agents) may impersonate another
+    /// identity.
+    pub sender_identity: Option<ParticipantIdentity>,
 }
 
 impl StreamByteOptions {
@@ -55,6 +60,7 @@ impl StreamByteOptions {
             name: None,
             total_length: None,
             compress: None,
+            sender_identity: None,
         }
     }
 
@@ -113,6 +119,12 @@ impl StreamByteOptions {
         self.compress = Some(compress);
         self
     }
+    /// Sets the identity the stream's packets are attributed to. Only participants with the
+    /// appropriate permission (e.g. agents) may impersonate another identity.
+    pub fn with_sender_identity(mut self, identity: impl Into<ParticipantIdentity>) -> Self {
+        self.sender_identity = Some(identity.into());
+        self
+    }
 }
 
 /// Options used when opening an outgoing text data stream.
@@ -132,6 +144,11 @@ pub struct StreamTextOptions {
     /// Whether to deflate-raw compress the payload when all recipients support it.
     /// Defaults to `true` (compression opt-out). Ignored by the incremental `stream_text`.
     pub compress: Option<bool>,
+    /// The identity the stream's packets are attributed to. If unspecified, the packets carry
+    /// no explicit identity and the server attributes them to the sending participant. Only
+    /// participants with the appropriate permission (e.g. agents) may impersonate another
+    /// identity.
+    pub sender_identity: Option<ParticipantIdentity>,
 }
 
 impl StreamTextOptions {
@@ -147,6 +164,7 @@ impl StreamTextOptions {
             attached_stream_ids: vec![],
             generated: None,
             compress: None,
+            sender_identity: None,
         }
     }
 
@@ -218,6 +236,12 @@ impl StreamTextOptions {
     /// Defaults to `true` (compression opt-out).
     pub fn with_compress(mut self, compress: bool) -> Self {
         self.compress = Some(compress);
+        self
+    }
+    /// Sets the identity the stream's packets are attributed to. Only participants with the
+    /// appropriate permission (e.g. agents) may impersonate another identity.
+    pub fn with_sender_identity(mut self, identity: impl Into<ParticipantIdentity>) -> Self {
+        self.sender_identity = Some(identity.into());
         self
     }
 }

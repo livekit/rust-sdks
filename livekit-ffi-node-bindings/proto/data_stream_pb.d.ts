@@ -1846,6 +1846,13 @@ export declare class StreamTextOptions extends Message<StreamTextOptions> {
    */
   compress?: boolean;
 
+  /**
+   * Identity the stream's packets are attributed to; requires permission to impersonate.
+   *
+   * @generated from field: optional string sender_identity = 11;
+   */
+  senderIdentity?: string;
+
   constructor(data?: PartialMessage<StreamTextOptions>);
 
   static readonly runtime: typeof proto2;
@@ -1904,6 +1911,13 @@ export declare class StreamByteOptions extends Message<StreamByteOptions> {
    * @generated from field: optional bool compress = 8;
    */
   compress?: boolean;
+
+  /**
+   * Identity the stream's packets are attributed to; requires permission to impersonate.
+   *
+   * @generated from field: optional string sender_identity = 9;
+   */
+  senderIdentity?: string;
 
   constructor(data?: PartialMessage<StreamByteOptions>);
 

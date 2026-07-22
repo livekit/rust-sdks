@@ -73,6 +73,7 @@ impl From<proto::StreamTextOptions> for StreamTextOptions {
             attached_stream_ids: options.attached_stream_ids,
             generated: options.generated,
             compress: options.compress,
+            sender_identity: options.sender_identity.map(|id| id.into()),
         }
     }
 }
@@ -92,6 +93,7 @@ impl From<proto::StreamByteOptions> for StreamByteOptions {
             mime_type: options.mime_type,
             total_length: options.total_length,
             compress: options.compress,
+            sender_identity: options.sender_identity.map(|id| id.into()),
         }
     }
 }

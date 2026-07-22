@@ -65,6 +65,7 @@ impl Manager {
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: dests,
+            sender_identity: options.sender_identity.clone(),
             packet_tx: self.packet_tx.clone(),
         };
         let writer = TextStreamWriter::new(
@@ -91,6 +92,7 @@ impl Manager {
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: dests,
+            sender_identity: options.sender_identity.clone(),
             packet_tx: self.packet_tx.clone(),
         };
         let writer = ByteStreamWriter::new(
@@ -149,8 +151,10 @@ impl Manager {
             && options.attached_stream_ids.is_empty()
             && header_packet_fits(&proto_header, &options.destination_identities)
         {
-            let packet =
+            let mut packet =
                 RawStream::create_header_packet(proto_header, options.destination_identities);
+            packet.participant_identity =
+                options.sender_identity.map(|id| id.into()).unwrap_or_default();
             RawStream::send_packet(&self.packet_tx, packet).await?;
             return Ok(TextStreamInfo::from_headers(header, text_header));
         }
@@ -162,6 +166,7 @@ impl Manager {
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: options.destination_identities,
+            sender_identity: options.sender_identity,
             packet_tx: self.packet_tx.clone(),
         };
         let info = TextStreamInfo::from_headers(header, text_header);
@@ -240,8 +245,10 @@ impl Manager {
         let proto_header = header.clone().into();
         if eligibility.inline && header_packet_fits(&proto_header, &options.destination_identities)
         {
-            let packet =
+            let mut packet =
                 RawStream::create_header_packet(proto_header, options.destination_identities);
+            packet.participant_identity =
+                options.sender_identity.map(|id| id.into()).unwrap_or_default();
             RawStream::send_packet(&self.packet_tx, packet).await?;
             return Ok(ByteStreamInfo::from_headers(header, byte_header));
         }
@@ -253,6 +260,7 @@ impl Manager {
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: options.destination_identities,
+            sender_identity: options.sender_identity,
             packet_tx: self.packet_tx.clone(),
         };
         let info = ByteStreamInfo::from_headers(header, byte_header);
@@ -299,6 +307,7 @@ impl Manager {
         let open_options = RawStreamOpenOptions {
             header: header.clone(),
             destination_identities: dests,
+            sender_identity: options.sender_identity.clone(),
             packet_tx: self.packet_tx.clone(),
         };
         let info = ByteStreamInfo::from_headers(header, byte_header);
@@ -1125,6 +1134,40 @@ mod tests {
         }
     }
 
+    // --- Sender identity ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn stream_text_with_sender_identity_stamps_every_packet() {
+        let (m, sent) = setup();
+        let opts = text_opts("chat", &[]).with_sender_identity("impostor");
+        let writer = m.stream_text(opts).await.unwrap();
+        writer.write("hello").await.unwrap();
+        writer.close().await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 3);
+        assert!(p.iter().all(|pkt| pkt.participant_identity == "impostor"));
+    }
+
+    #[tokio::test]
+    async fn send_text_inline_with_sender_identity_stamps_packet() {
+        let (m, sent) = setup();
+        let opts =
+            text_opts("chat", &["alice", "bob"]).with_sender_identity("impostor");
+        m.send_text("hello hello compressible world", opts, &all_v2_room()).await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].participant_identity, "impostor");
+    }
+
+    #[tokio::test]
+    async fn packets_carry_no_identity_when_sender_identity_unset() {
+        let (m, sent) = setup();
+        let writer = m.stream_text(text_opts("chat", &[])).await.unwrap();
+        writer.close().await.unwrap();
+        let p = sent.lock().unwrap().clone();
+        assert!(p.iter().all(|pkt| pkt.participant_identity.is_empty()));
+    }
+
     // --- Incremental writers never compress or inline ------------------------------------
 
     #[tokio::test]
@@ -1243,6 +1286,7 @@ mod tests {
             RawStream::open(RawStreamOpenOptions {
                 header,
                 destination_identities: vec![],
+                sender_identity: None,
                 packet_tx,
             })
             .await
