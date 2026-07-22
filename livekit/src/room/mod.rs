@@ -72,7 +72,6 @@ pub mod participant;
 pub mod publication;
 pub mod rpc;
 pub mod track;
-pub mod token_source;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
