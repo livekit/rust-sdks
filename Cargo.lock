@@ -2307,6 +2307,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
 
 [[package]]
+name = "fec_test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger 0.11.10",
+ "futures",
+ "livekit",
+ "livekit-api",
+ "livekit-protocol",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "filetime"
 version = "0.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
