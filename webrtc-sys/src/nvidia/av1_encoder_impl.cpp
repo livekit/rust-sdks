@@ -315,13 +315,13 @@ int32_t NvidiaAV1EncoderImpl::Encode(
         continue;
       }
 
-      livekit::av1::StripIvfFrameHeaderIfPresent(&packet);
+      livekit::av1::NormalizeForRtp(&packet);
       if (packet.empty()) {
         RTC_LOG(LS_ERROR)
-            << "NVIDIA AV1 NVENC packet contained only IVF framing; skipping.";
+            << "NVIDIA AV1 NVENC packet contained no transferable OBUs "
+               "after RTP normalization; skipping.";
         continue;
       }
-      livekit::av1::ConvertAnnexBToLowOverheadIfPresent(&packet);
 
       std::vector<uint8_t> sequence_header;
       if (livekit::av1::ExtractSequenceHeaderObu(
