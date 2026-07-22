@@ -30,7 +30,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Dynacast
 - [x] Hardware video enc/dec
   - [x] H.264, H.265 using VideoToolbox (MacOS/iOS)
-  - [x] H.264, H.265 on NVidia discrete GPUs (Linux)
+  - [x] H.264, H.265, AV1 on NVidia discrete GPUs (Linux)
   - [x] H.264, H.265 on AMD CPUs & GPUs (Linux)
   - [x] H.264, H.265, AV1 on NVidia Jetson (Linux)
 - Supported Platforms
@@ -171,6 +171,29 @@ match event {
 - [save_to_disk](https://github.com/livekit/rust-sdks/tree/main/examples/save_to_disk): save received audio to a wav file
 
 ## Building
+
+### Linux
+
+Building on Ubuntu 24 x86_64:
+
+```
+# install required libs
+sudo apt install -y \
+  libglib2.0-dev build-essential clang \
+  libclang-dev libc6-dev pkg-config libjpeg-turbo8-dev
+
+# install cuda-toolkit if you have an Nvidia GPU and want to use NVENC for video encoding
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
+sudo apt update
+sudo apt install -y cuda-toolkit
+
+# ensure CUDA_HOME env var is set
+export CUDA_HOME="$(dirname "$(dirname "$(sudo find /usr/local /usr -path '*/include/cuda.h' -print 2>/dev/null | grep -v '/linux/' | sort -V | tail -1)")")"
+
+cargo build
+  
+```
 
 ### MacOS
 
