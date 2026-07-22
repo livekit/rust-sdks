@@ -25,6 +25,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use crate::region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
+use livekit_net::HttpClientExt;
 
 /// Process-wide region cache for the signaling path. Persisting it here (rather
 /// than on a per-connection object) means it survives across reconnect attempts
@@ -167,13 +168,13 @@ pub(crate) async fn fetch_from_endpoint(
     endpoint_url: &str,
     token: &str,
 ) -> SignalResult<(Vec<String>, Option<Duration>)> {
-    let transport = super::require_transport()?;
+    let http = super::require_http_client()?;
     let headers = super::bearer_headers(token);
     let endpoint_url = endpoint_url.to_string();
 
     let fetch_fut = async {
-        let res = transport
-            .http_get(endpoint_url, headers)
+        let res = http
+            .get(endpoint_url, headers)
             .await
             .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
         let status =

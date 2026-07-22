@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ pub struct Header {
     pub value: String,
 }
 
-/// The result of an HTTP GET performed by the transport.
+/// The result of an HTTP request performed by the transport.
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
     pub status: u16,

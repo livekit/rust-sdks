@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 #![cfg(feature = "__native")]
 
-use livekit_net::Header;
+use livekit_net::{Header, HttpClientExt};
 
 // A hand-rolled one-shot HTTP server avoids adding a web-framework dep.
 async fn spawn_http_once(status_line: &'static str, body: &'static str) -> u16 {
@@ -50,7 +50,7 @@ async fn ws_send_recv_roundtrip() {
         }
     });
 
-    let t = livekit_net::testing::native_transport();
+    let t = livekit_net::testing::native_ws_client();
     let result = t
         .connect(format!("ws://127.0.0.1:{port}"), vec![], 5000)
         .await
@@ -65,9 +65,9 @@ async fn ws_send_recv_roundtrip() {
 #[tokio::test]
 async fn http_get_returns_status_and_body() {
     let port = spawn_http_once("HTTP/1.1 200 OK", "hello").await;
-    let t = livekit_net::testing::native_transport();
+    let t = livekit_net::testing::native_http_client();
     let res = t
-        .http_get(
+        .get(
             format!("http://127.0.0.1:{port}/settings/regions"),
             vec![Header { name: "Authorization".into(), value: "Bearer x".into() }],
         )
@@ -98,7 +98,7 @@ Content-Length: 0
         sock.write_all(resp.as_bytes()).await.unwrap();
     });
 
-    let t = livekit_net::testing::native_transport();
+    let t = livekit_net::testing::native_ws_client();
     let result = t
         .connect(format!("ws://127.0.0.1:{port}"), vec![], 5000)
         .await;

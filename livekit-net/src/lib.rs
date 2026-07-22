@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,30 +18,60 @@ mod types;
 #[cfg(feature = "__native")]
 mod native;
 
-pub use transport::{PlatformConnectResult, PlatformConnection, PlatformTransport};
+pub use transport::{
+    HttpClient, HttpClientExt, HttpMethod, WsClient, WsConnectResult, WsConnection,
+};
 pub use types::{Header, HttpResponse, TransportError};
 
 use std::sync::{Arc, OnceLock};
 
-static REGISTERED: OnceLock<Arc<dyn PlatformTransport>> = OnceLock::new();
+static WS: OnceLock<Arc<dyn WsClient>> = OnceLock::new();
+static HTTP: OnceLock<Arc<dyn HttpClient>> = OnceLock::new();
 
-/// Register the process-wide transport. Call once at startup, before the first
-/// `connect`. A later call is ignored (first registration wins).
-pub fn set_transport(t: Arc<dyn PlatformTransport>) {
-    let _ = REGISTERED.set(t);
+/// Register the process-wide WebSocket client. Call once at startup, before the
+/// first `connect`. A later call is ignored (first registration wins).
+///
+/// Independent of [`set_http_client`]: a consumer that only needs HTTP (e.g. a
+/// token source) can register that alone, and vice versa.
+pub fn set_ws_client(c: Arc<dyn WsClient>) {
+    let _ = WS.set(c);
 }
 
-/// Resolve the process-wide transport.
+/// Register the process-wide HTTP client. Call once at startup, before the first
+/// request. A later call is ignored (first registration wins).
+pub fn set_http_client(c: Arc<dyn HttpClient>) {
+    let _ = HTTP.set(c);
+}
+
+/// Resolve the process-wide WebSocket client.
 ///
-/// Returns the explicitly registered transport if any; otherwise, on native
-/// builds, the built-in [`NativeTransport`]; otherwise `None`.
-pub fn transport() -> Option<Arc<dyn PlatformTransport>> {
-    if let Some(t) = REGISTERED.get() {
-        return Some(Arc::clone(t));
+/// Returns the explicitly registered client if any; otherwise, on native builds,
+/// the built-in native client; otherwise `None`.
+pub fn ws_client() -> Option<Arc<dyn WsClient>> {
+    if let Some(c) = WS.get() {
+        return Some(Arc::clone(c));
     }
     #[cfg(feature = "__native")]
     {
-        Some(native::native_default())
+        Some(native::native_ws_client())
+    }
+    #[cfg(not(feature = "__native"))]
+    {
+        None
+    }
+}
+
+/// Resolve the process-wide HTTP client.
+///
+/// Returns the explicitly registered client if any; otherwise, on native builds,
+/// the built-in native client; otherwise `None`.
+pub fn http_client() -> Option<Arc<dyn HttpClient>> {
+    if let Some(c) = HTTP.get() {
+        return Some(Arc::clone(c));
+    }
+    #[cfg(feature = "__native")]
+    {
+        Some(native::native_http_client())
     }
     #[cfg(not(feature = "__native"))]
     {
@@ -51,10 +81,14 @@ pub fn transport() -> Option<Arc<dyn PlatformTransport>> {
 
 #[cfg(feature = "__native")]
 pub mod testing {
-    use crate::PlatformTransport;
+    use crate::{HttpClient, WsClient};
     use std::sync::Arc;
-    /// Construct a fresh NativeTransport for tests (bypasses the global registry).
-    pub fn native_transport() -> Arc<dyn PlatformTransport> {
+    /// A fresh native WebSocket client for tests (bypasses the global registry).
+    pub fn native_ws_client() -> Arc<dyn WsClient> {
+        Arc::new(crate::native::NativeTransport)
+    }
+    /// A fresh native HTTP client for tests (bypasses the global registry).
+    pub fn native_http_client() -> Arc<dyn HttpClient> {
         Arc::new(crate::native::NativeTransport)
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,9 @@
 mod connection;
 mod proxy;
 
-use crate::{Header, HttpResponse, PlatformConnectResult, PlatformTransport, TransportError};
+use crate::{
+    Header, HttpClient, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult,
+};
 use std::sync::Arc;
 
 fn error_chain(e: &dyn std::error::Error) -> String {
@@ -29,22 +31,26 @@ fn error_chain(e: &dyn std::error::Error) -> String {
     msg
 }
 
+/// The built-in native transport. One stateless type implements both [`WsClient`]
+/// and [`HttpClient`]; the registry hands out a fresh `Arc` per trait.
 pub struct NativeTransport;
 
-pub(crate) fn native_default() -> Arc<dyn PlatformTransport> {
-    use std::sync::OnceLock;
-    static DEFAULT: OnceLock<Arc<NativeTransport>> = OnceLock::new();
-    DEFAULT.get_or_init(|| Arc::new(NativeTransport)).clone()
+pub(crate) fn native_ws_client() -> Arc<dyn WsClient> {
+    Arc::new(NativeTransport)
+}
+
+pub(crate) fn native_http_client() -> Arc<dyn HttpClient> {
+    Arc::new(NativeTransport)
 }
 
 #[async_trait::async_trait]
-impl PlatformTransport for NativeTransport {
+impl WsClient for NativeTransport {
     async fn connect(
         &self,
         url: String,
         headers: Vec<Header>,
         timeout_ms: u64,
-    ) -> Result<PlatformConnectResult, TransportError> {
+    ) -> Result<WsConnectResult, TransportError> {
         let parsed =
             url::Url::parse(&url).map_err(|e| TransportError::Connection(e.to_string()))?;
 
@@ -90,21 +96,33 @@ impl PlatformTransport for NativeTransport {
         .await
         .map_err(|_| TransportError::Timeout)??;
 
-        Ok(PlatformConnectResult {
+        Ok(WsConnectResult {
             connection: Arc::new(self::connection::NativeConnection::new(ws)),
         })
     }
+}
 
-    async fn http_get(
+#[async_trait::async_trait]
+impl HttpClient for NativeTransport {
+    async fn request(
         &self,
+        method: HttpMethod,
         url: String,
         headers: Vec<Header>,
+        body: Option<Vec<u8>>,
     ) -> Result<HttpResponse, TransportError> {
         #[cfg(feature = "__native-tokio")]
         {
-            let mut req = reqwest::Client::new().get(&url);
+            let client = reqwest::Client::new();
+            let mut req = match method {
+                HttpMethod::Get => client.get(&url),
+                HttpMethod::Post => client.post(&url),
+            };
             for h in &headers {
                 req = req.header(&h.name, &h.value);
+            }
+            if let Some(body) = body {
+                req = req.body(body);
             }
             let res = req
                 .send()
@@ -127,12 +145,18 @@ impl PlatformTransport for NativeTransport {
         }
         #[cfg(feature = "__native-async")]
         {
-            let mut builder = isahc::Request::get(&url);
+            // Pass the verb as a &str so we never name a `http::Method` type:
+            // isahc bundles its own `http` version, distinct from the workspace's.
+            let http_method = match method {
+                HttpMethod::Get => "GET",
+                HttpMethod::Post => "POST",
+            };
+            let mut builder = isahc::Request::builder().method(http_method).uri(&url);
             for h in &headers {
                 builder = builder.header(h.name.as_str(), h.value.as_str());
             }
             let request = builder
-                .body(())
+                .body(body.unwrap_or_default())
                 .map_err(|e| TransportError::Other(e.to_string()))?;
             let mut res = isahc::send_async(request)
                 .await

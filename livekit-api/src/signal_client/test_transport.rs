@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@
 //! MockConn::recv() yields one canned `proto::SignalResponse { Pong }` frame
 //! and then returns `Ok(None)`.
 //!
-//! MockTransport::http_get dispatches deterministically on the request inputs:
+//! MockTransport::request dispatches deterministically on the request inputs:
 //!
 //! 1. If the request has NO `Authorization: Bearer <non-empty>` header →
 //!    returns 401. This means any test that expects `Ok` from `validate()` or
@@ -35,8 +35,7 @@
 //!    - otherwise (validate or any other endpoint) → 200 + empty body
 
 use livekit_net::{
-    Header, HttpResponse, PlatformConnectResult, PlatformConnection, PlatformTransport,
-    TransportError,
+    Header, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult, WsConnection,
 };
 use livekit_protocol as proto;
 use prost::Message as _;
@@ -52,7 +51,7 @@ pub struct MockConn {
 }
 
 #[async_trait::async_trait]
-impl PlatformConnection for MockConn {
+impl WsConnection for MockConn {
     async fn send(&self, _frame: Vec<u8>) -> Result<(), TransportError> {
         Ok(())
     }
@@ -71,27 +70,32 @@ impl PlatformConnection for MockConn {
 pub struct MockTransport;
 
 #[async_trait::async_trait]
-impl PlatformTransport for MockTransport {
+impl WsClient for MockTransport {
     async fn connect(
         &self,
         _url: String,
         _headers: Vec<Header>,
         _timeout_ms: u64,
-    ) -> Result<PlatformConnectResult, TransportError> {
+    ) -> Result<WsConnectResult, TransportError> {
         let pong = proto::SignalResponse {
             message: Some(proto::signal_response::Message::PongResp(proto::Pong::default())),
         };
         // vec is popped from the end, so push the last frame first
         let frames = vec![pong.encode_to_vec()];
-        Ok(PlatformConnectResult {
+        Ok(WsConnectResult {
             connection: Arc::new(MockConn { outbound: AsyncMutex::new(frames) }),
         })
     }
+}
 
-    async fn http_get(
+#[async_trait::async_trait]
+impl livekit_net::HttpClient for MockTransport {
+    async fn request(
         &self,
+        _method: HttpMethod,
         url: String,
         headers: Vec<Header>,
+        _body: Option<Vec<u8>>,
     ) -> Result<HttpResponse, TransportError> {
         // Rule 1: require a non-empty Bearer token.
         // Any test that expects Ok() from validate() or fetch_from_endpoint()
@@ -136,6 +140,7 @@ static INSTALL: Once = Once::new();
 /// Safe to call from multiple tests — subsequent calls are no-ops.
 pub fn install_mock_transport() {
     INSTALL.call_once(|| {
-        livekit_net::set_transport(Arc::new(MockTransport));
+        livekit_net::set_ws_client(Arc::new(MockTransport));
+        livekit_net::set_http_client(Arc::new(MockTransport));
     });
 }

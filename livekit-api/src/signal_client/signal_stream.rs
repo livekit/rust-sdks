@@ -30,7 +30,7 @@ enum InternalMessage {
     Close,
 }
 
-/// SignalStream holds the WebSocket connection (via `PlatformConnection`).
+/// SignalStream holds the WebSocket connection (via `WsConnection`).
 ///
 /// It is replaced by [SignalClient] at each reconnection.
 #[derive(Debug)]
@@ -57,7 +57,7 @@ impl SignalStream {
         // failure that the caller would pointlessly retry.
         super::check_token_format(token)?;
 
-        let transport = super::require_transport()?;
+        let transport = super::require_ws_client()?;
 
         let headers = super::bearer_headers(token);
 
@@ -70,8 +70,7 @@ impl SignalStream {
             transport.connect(url.to_string(), headers, connect_timeout.as_millis() as u64),
         )
         .await
-        .map_err(|_| SignalError::Timeout("signal connection timed out".into()))?
-        .map_err(super::map_transport_err)?
+        .map_err(|_| SignalError::Timeout("signal connection timed out".into()))??
         .connection;
 
         let (emitter, events) = mpsc::unbounded_channel();
@@ -107,7 +106,7 @@ impl SignalStream {
     /// It is also responsible for closing the connection.
     async fn write_task(
         mut internal_rx: mpsc::Receiver<InternalMessage>,
-        conn: Arc<dyn livekit_net::PlatformConnection>,
+        conn: Arc<dyn livekit_net::WsConnection>,
     ) {
         while let Some(msg) = internal_rx.recv().await {
             match msg {
@@ -118,7 +117,7 @@ impl SignalStream {
                         // A send failure is a broken/closed socket, not a timeout —
                         // map it through the shared taxonomy so callers branching on
                         // Connection vs Timeout take the right path.
-                        let _ = response_chn.send(Err(super::map_transport_err(err)));
+                        let _ = response_chn.send(Err(err.into()));
                         break;
                     }
 
@@ -135,7 +134,7 @@ impl SignalStream {
     /// and dispatch them through the EventEmitter.
     async fn read_task(
         internal_tx: mpsc::Sender<InternalMessage>,
-        conn: Arc<dyn livekit_net::PlatformConnection>,
+        conn: Arc<dyn livekit_net::WsConnection>,
         emitter: mpsc::UnboundedSender<Box<proto::signal_response::Message>>,
     ) {
         loop {

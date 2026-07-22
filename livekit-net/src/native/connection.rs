@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{PlatformConnection, TransportError};
+use crate::{TransportError, WsConnection};
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
@@ -47,7 +47,7 @@ impl NativeConnection {
 }
 
 #[async_trait::async_trait]
-impl PlatformConnection for NativeConnection {
+impl WsConnection for NativeConnection {
     async fn send(&self, frame: Vec<u8>) -> Result<(), TransportError> {
         self.writer
             .lock()

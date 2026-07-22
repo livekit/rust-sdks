@@ -34,6 +34,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
 use crate::signal_client::signal_stream::SignalStream;
+use livekit_net::HttpClientExt;
 
 mod region_url_provider;
 mod signal_stream;
@@ -85,8 +86,9 @@ pub enum SignalError {
     #[error("transport closed")]
     Closed,
     /// No network transport is registered. On foreign/host builds the host must
-    /// call `set_platform_transport` before connecting. This is a permanent
-    /// configuration error, not a transient failure — callers must not retry.
+    /// call `livekit_net::set_ws_client` / `set_http_client` before connecting.
+    /// This is a permanent configuration error, not a transient failure — callers
+    /// must not retry.
     #[error("no network transport registered")]
     TransportNotConfigured,
     /// Failed to retrieve region information from LiveKit Cloud.
@@ -461,7 +463,7 @@ impl SignalInner {
     /// https://github.com/livekit/rust-sdks/issues/1042.
     async fn validate(ws_url: url::Url, token: &str) -> SignalResult<()> {
         let validate_url = get_validate_url(ws_url);
-        let transport = require_transport()?;
+        let http = require_http_client()?;
         let headers = bearer_headers(token);
 
         let validate_fut = async {
@@ -470,7 +472,7 @@ impl SignalInner {
             // *itself* (network/TLS error) carries no such information, so swallow
             // it and return Ok(()) — the caller then surfaces the original
             // connection error rather than this unrelated one. See issue #1042.
-            let Ok(res) = transport.http_get(validate_url.to_string(), headers).await else {
+            let Ok(res) = http.get(validate_url.to_string(), headers).await else {
                 return Ok(());
             };
             // Fail closed on an out-of-range status (fall back to 502, matching the
@@ -937,11 +939,17 @@ pub(super) fn bearer_headers(token: &str) -> Vec<livekit_net::Header> {
     vec![livekit_net::Header { name: "Authorization".into(), value: format!("Bearer {token}") }]
 }
 
-/// Resolve the registered network transport, or a permanent
+/// Resolve the registered WebSocket client, or a permanent
 /// [`SignalError::TransportNotConfigured`] if none has been set. Centralises the
 /// lookup so callers share one error rather than each inventing a string.
-pub(super) fn require_transport() -> SignalResult<Arc<dyn livekit_net::PlatformTransport>> {
-    livekit_net::transport().ok_or(SignalError::TransportNotConfigured)
+pub(super) fn require_ws_client() -> SignalResult<Arc<dyn livekit_net::WsClient>> {
+    livekit_net::ws_client().ok_or(SignalError::TransportNotConfigured)
+}
+
+/// Resolve the registered HTTP client, or a permanent
+/// [`SignalError::TransportNotConfigured`] if none has been set.
+pub(super) fn require_http_client() -> SignalResult<Arc<dyn livekit_net::HttpClient>> {
+    livekit_net::http_client().ok_or(SignalError::TransportNotConfigured)
 }
 
 /// Verify `token` can be encoded as an HTTP `Authorization` header value. A token
@@ -955,7 +963,8 @@ pub(super) fn check_token_format(token: &str) -> SignalResult<()> {
         .map_err(|_| SignalError::TokenFormat)
 }
 
-/// Map a [`livekit_net::TransportError`] to a [`SignalError`].
+/// Map a [`livekit_net::TransportError`] onto a [`SignalError`], so transport
+/// failures cascade up with `?`/`.into()`.
 ///
 /// - `Timeout` → `SignalError::Timeout` (timed out at transport layer)
 /// - `Http { status }` → `Client` for 4xx, `Server` for 5xx (empty body — caller
@@ -964,22 +973,24 @@ pub(super) fn check_token_format(token: &str) -> SignalResult<()> {
 /// - `Closed` → `SignalError::Closed` (peer/transport closed)
 ///
 /// Every variant except `LeaveRequest` drives the engine's full-reconnect path.
-pub(super) fn map_transport_err(e: livekit_net::TransportError) -> SignalError {
-    use livekit_net::TransportError as TE;
-    match e {
-        TE::Timeout => SignalError::Timeout("transport timed out".into()),
-        TE::Http { status } => {
-            let code = http::StatusCode::from_u16(status)
-                .unwrap_or(http::StatusCode::BAD_GATEWAY);
-            if code.is_client_error() {
-                SignalError::Client(code, String::new())
-            } else {
-                SignalError::Server(code, String::new())
+impl From<livekit_net::TransportError> for SignalError {
+    fn from(e: livekit_net::TransportError) -> Self {
+        use livekit_net::TransportError as TE;
+        match e {
+            TE::Timeout => SignalError::Timeout("transport timed out".into()),
+            TE::Http { status } => {
+                let code =
+                    http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::BAD_GATEWAY);
+                if code.is_client_error() {
+                    SignalError::Client(code, String::new())
+                } else {
+                    SignalError::Server(code, String::new())
+                }
             }
+            TE::Closed => SignalError::Closed,
+            TE::Connection(m) => SignalError::Connection(m),
+            TE::Other(m) => SignalError::Connection(m),
         }
-        TE::Closed => SignalError::Closed,
-        TE::Connection(m) => SignalError::Connection(m),
-        TE::Other(m) => SignalError::Connection(m),
     }
 }
 
@@ -1270,13 +1281,13 @@ mod tests {
 
 
     // -----------------------------------------------------------------------
-    // map_transport_err unit tests (pure function, no transport needed)
+    // From<TransportError> for SignalError unit tests (pure mapping, no transport needed)
     // -----------------------------------------------------------------------
 
     #[test]
-    fn map_transport_err_http_401_yields_client_error() {
+    fn from_transport_err_http_401_yields_client_error() {
         use livekit_net::TransportError;
-        let err = map_transport_err(TransportError::Http { status: 401 });
+        let err = SignalError::from(TransportError::Http { status: 401 });
         match err {
             SignalError::Client(code, _) => {
                 assert_eq!(code.as_u16(), 401);
@@ -1286,9 +1297,9 @@ mod tests {
     }
 
     #[test]
-    fn map_transport_err_http_503_yields_server_error() {
+    fn from_transport_err_http_503_yields_server_error() {
         use livekit_net::TransportError;
-        let err = map_transport_err(TransportError::Http { status: 503 });
+        let err = SignalError::from(TransportError::Http { status: 503 });
         match err {
             SignalError::Server(code, _) => {
                 assert_eq!(code.as_u16(), 503);
@@ -1298,16 +1309,16 @@ mod tests {
     }
 
     #[test]
-    fn map_transport_err_timeout_yields_timeout() {
+    fn from_transport_err_timeout_yields_timeout() {
         use livekit_net::TransportError;
-        let err = map_transport_err(TransportError::Timeout);
+        let err = SignalError::from(TransportError::Timeout);
         assert!(matches!(err, SignalError::Timeout(_)), "expected Timeout, got {:?}", err);
     }
 
     #[test]
-    fn map_transport_err_connection_yields_connection() {
+    fn from_transport_err_connection_yields_connection() {
         use livekit_net::TransportError;
-        let err = map_transport_err(TransportError::Connection("conn failed".into()));
+        let err = SignalError::from(TransportError::Connection("conn failed".into()));
         assert!(
             matches!(&err, SignalError::Connection(m) if m == "conn failed"),
             "expected Connection, got {:?}",
@@ -1316,9 +1327,9 @@ mod tests {
     }
 
     #[test]
-    fn map_transport_err_other_yields_connection() {
+    fn from_transport_err_other_yields_connection() {
         use livekit_net::TransportError;
-        let err = map_transport_err(TransportError::Other("something went wrong".into()));
+        let err = SignalError::from(TransportError::Other("something went wrong".into()));
         assert!(
             matches!(&err, SignalError::Connection(m) if m == "something went wrong"),
             "expected Connection, got {:?}",
@@ -1327,9 +1338,9 @@ mod tests {
     }
 
     #[test]
-    fn map_transport_err_closed_yields_closed() {
+    fn from_transport_err_closed_yields_closed() {
         use livekit_net::TransportError;
-        let err = map_transport_err(TransportError::Closed);
+        let err = SignalError::from(TransportError::Closed);
         assert!(
             matches!(err, SignalError::Closed),
             "expected Closed, got {:?}",
