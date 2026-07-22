@@ -27,11 +27,15 @@ use crate::{
 pub(crate) struct RawStreamOpenOptions {
     pub(crate) header: Header,
     pub(crate) destination_identities: Vec<ParticipantIdentity>,
+    /// Identity the stream's packets are attributed to; empty means the server attributes
+    /// them to the sending participant.
+    pub(crate) sender_identity: Option<ParticipantIdentity>,
     pub(crate) packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
 }
 
 pub(crate) struct RawStream {
     id: String,
+    sender_identity: Option<ParticipantIdentity>,
     progress: StreamProgress,
     is_closed: bool,
     /// Request channel for sending packets.
@@ -43,12 +47,16 @@ impl RawStream {
         let id = options.header.stream_id.to_string();
         let bytes_total = options.header.total_length;
 
-        let packet =
+        let mut packet =
             Self::create_header_packet(options.header.into(), options.destination_identities);
+        if let Some(sender_identity) = options.sender_identity.as_ref() {
+            packet.participant_identity = sender_identity.clone().into();
+        }
         Self::send_packet(&options.packet_tx, packet).await?;
 
         Ok(Self {
             id,
+            sender_identity: options.sender_identity,
             progress: StreamProgress { bytes_total, ..Default::default() },
             is_closed: false,
             packet_tx: options.packet_tx,
@@ -56,7 +64,10 @@ impl RawStream {
     }
 
     pub(crate) async fn write_chunk(&mut self, bytes: &[u8]) -> StreamResult<()> {
-        let packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
+        let mut packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
+        if let Some(sender_identity) = self.sender_identity.as_ref() {
+            packet.participant_identity = sender_identity.clone().into();
+        }
         Self::send_packet(&self.packet_tx, packet).await?;
         self.progress.bytes_processed += bytes.len() as u64;
         self.progress.chunk_index += 1;
@@ -136,7 +147,10 @@ impl RawStream {
         if self.is_closed {
             Err(StreamError::AlreadyClosed)?
         }
-        let packet = Self::create_trailer_packet(&self.id, reason);
+        let mut packet = Self::create_trailer_packet(&self.id, reason);
+        if let Some(sender_identity) = self.sender_identity.as_ref() {
+            packet.participant_identity = sender_identity.clone().into();
+        }
         Self::send_packet(&self.packet_tx, packet).await?;
         self.is_closed = true;
         Ok(())
@@ -206,7 +220,10 @@ impl Drop for RawStream {
         if self.is_closed {
             return;
         }
-        let packet = Self::create_trailer_packet(&self.id, None);
+        let mut packet = Self::create_trailer_packet(&self.id, None);
+        if let Some(sender_identity) = self.sender_identity.as_ref() {
+            packet.participant_identity = sender_identity.clone().into();
+        }
         let packet_tx = self.packet_tx.clone();
         // Use try_current() instead of assuming a Tokio runtime exists.
         // The drop can run on a non-Tokio thread (e.g. a GC finalizer in

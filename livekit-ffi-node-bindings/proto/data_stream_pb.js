@@ -675,6 +675,7 @@ const StreamTextOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 8, name: "attached_stream_ids", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 9, name: "generated", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
     { no: 10, name: "compress", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 11, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ],
 );
 
@@ -692,6 +693,7 @@ const StreamByteOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 6, name: "mime_type", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 7, name: "total_length", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 8, name: "compress", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 9, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ],
 );
 

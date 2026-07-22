@@ -2400,10 +2400,14 @@ async fn outgoing_data_stream_task(
     loop {
         tokio::select! {
             Ok((packet, responder)) = packet_rx.recv() => {
+                // A packet stamped with an explicit sender identity (impersonation, e.g. an
+                // agent attributing a stream to another participant) must be sent raw so the
+                // session doesn't overwrite the identity with the local participant's.
+                let is_raw_packet = !packet.participant_identity.is_empty();
                 // Bridge the engine error into the data-stream crate's opaque `SendError`
                 // (the crate only needs to know whether the send failed).
                 let result = engine
-                    .publish_data(packet, DataPacketKind::Reliable, false)
+                    .publish_data(packet, DataPacketKind::Reliable, is_raw_packet)
                     .await
                     .map_err(|_| SendError);
                 let _ = responder.respond(result);
