@@ -75,6 +75,12 @@ pub enum SignalError {
     Client(StatusCode, String),
     #[error("server error: {0} - {1}")]
     Server(StatusCode, String),
+    /// HTTP status from a WebSocket upgrade, kept separate from the authoritative
+    /// `rtc/validate` result in [`Client`](Self::Client)/[`Server`](Self::Server).
+    /// Retryable: the engine escalates a handshake status to a full reconnect,
+    /// whereas `Client(401|403)` is a terminal auth failure.
+    #[error("handshake error: {status}")]
+    Handshake { status: StatusCode },
     #[error("failed to decode messages from server: {0}")]
     ProtoParse(#[from] prost::DecodeError),
     #[error("{0}")]
@@ -215,7 +221,7 @@ impl SignalClient {
             }
             Err(err) => {
                 // fallback to region urls
-                if matches!(&err, SignalError::Client(code, _) if code.as_u16() != 403) {
+                if matches!(&err, SignalError::Handshake { status } if status.as_u16() != 403) {
                     log::error!("unexpected signal error: {}", err.to_string());
                 }
 
@@ -398,11 +404,11 @@ impl SignalInner {
                         return Err(err);
                     }
 
-                    // Only fallback to v0 if the v1 endpoint returned 404 (not found).
-                    // Other errors (401, 403, 500, etc.) indicate real issues that shouldn't
-                    // be masked by falling back to a different signaling mode.
+                    // Only fall back to v0 on a 404 (v1 endpoint absent). Other statuses
+                    // are real issues that shouldn't be masked by switching signaling mode.
+                    // The 404 is a WebSocket upgrade status, so it arrives as `Handshake`.
                     let is_not_found =
-                        matches!(&err, SignalError::Client(code, _) if code.as_u16() == 404);
+                        matches!(&err, SignalError::Handshake { status } if status.as_u16() == 404);
 
                     if use_v1_path && is_not_found {
                         let lk_url_v0 =
@@ -978,15 +984,11 @@ impl From<livekit_net::TransportError> for SignalError {
         use livekit_net::TransportError as TE;
         match e {
             TE::Timeout => SignalError::Timeout("transport timed out".into()),
-            TE::Http { status } => {
-                let code =
-                    http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::BAD_GATEWAY);
-                if code.is_client_error() {
-                    SignalError::Client(code, String::new())
-                } else {
-                    SignalError::Server(code, String::new())
-                }
-            }
+            // Only a failed WebSocket upgrade yields `Http`; it maps to `Handshake`,
+            // leaving `Client`/`Server` for the authoritative `validate()` result.
+            TE::Http { status } => SignalError::Handshake {
+                status: http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::BAD_GATEWAY),
+            },
             TE::Closed => SignalError::Closed,
             TE::Connection(m) => SignalError::Connection(m),
             TE::Other(m) => SignalError::Connection(m),
@@ -1283,27 +1285,28 @@ mod tests {
     // From<TransportError> for SignalError unit tests (pure mapping, no transport needed)
     // -----------------------------------------------------------------------
 
+    // A WS-handshake status maps to `Handshake`, never `Client`/`Server`.
     #[test]
-    fn from_transport_err_http_401_yields_client_error() {
+    fn from_transport_err_http_401_yields_handshake_error() {
         use livekit_net::TransportError;
         let err = SignalError::from(TransportError::Http { status: 401 });
         match err {
-            SignalError::Client(code, _) => {
-                assert_eq!(code.as_u16(), 401);
+            SignalError::Handshake { status } => {
+                assert_eq!(status.as_u16(), 401);
             }
-            other => panic!("expected Client, got {:?}", other),
+            other => panic!("expected Handshake, got {:?}", other),
         }
     }
 
     #[test]
-    fn from_transport_err_http_503_yields_server_error() {
+    fn from_transport_err_http_503_yields_handshake_error() {
         use livekit_net::TransportError;
         let err = SignalError::from(TransportError::Http { status: 503 });
         match err {
-            SignalError::Server(code, _) => {
-                assert_eq!(code.as_u16(), 503);
+            SignalError::Handshake { status } => {
+                assert_eq!(status.as_u16(), 503);
             }
-            other => panic!("expected Server, got {:?}", other),
+            other => panic!("expected Handshake, got {:?}", other),
         }
     }
 
