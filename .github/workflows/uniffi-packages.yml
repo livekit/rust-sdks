@@ -46,14 +46,27 @@ jobs:
             TAG="$MANUAL_TAG"
             echo "Using manually provided tag: '$TAG'"
           else
-            TAG=$(gh release list --repo "${{ github.repository }}" \
-              --json 'isDraft,tagName' \
-              --jq "[.[] | select(.isDraft and (.tagName | startswith(\"${TAG_PREFIX}\")))] | first | .tagName // empty")
+            # Select the draft matching the version knope bumped in Cargo.toml —
+            # not "first" — so leftover stranded drafts and gh release list
+            # ordering can't cause the wrong version to be published. Retry to
+            # absorb the release-list API's propagation lag; a release with no
+            # livekit-uniffi changes has no matching draft and skips everything.
+            VERSION=$(grep -m1 '^version = ' livekit-uniffi/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+            WANT="${TAG_PREFIX}${VERSION}"
+            TAG=""
+            for i in $(seq 1 6); do
+              if [ "$(gh release view "$WANT" --repo "${{ github.repository }}" --json isDraft --jq '.isDraft' 2>/dev/null)" = "true" ]; then
+                TAG="$WANT"
+                break
+              fi
+              echo "livekit-uniffi draft ${WANT} not found yet (attempt ${i}); retrying..."
+              sleep 10
+            done
             echo "Resolved livekit-uniffi draft release tag: '${TAG:-<none>}'"
           fi
           echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
           # Strip the "livekit-uniffi/v" prefix to get the hosting-repo tag (e.g., 0.0.7)
-          VERSION="${TAG#${TAG_PREFIX}}"
+          VERSION="${TAG#"${TAG_PREFIX}"}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
   swift:
@@ -92,3 +105,18 @@ jobs:
       version: ${{ needs.resolve-tag.outputs.version }}
       tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
       dry_run: ${{ inputs.dry_run || false }}
+
+  # Publish the draft once every package has succeeded and the cdylibs are
+  # attached. Publishing the draft is what creates the git tag, so it's gated on
+  # all three packages — the release isn't tagged unless everything published.
+  finalize:
+    needs: [resolve-tag, swift, android, cdylib]
+    if: ${{ needs.resolve-tag.outputs.tag_name != '' && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ needs.resolve-tag.outputs.tag_name }}" --repo "${{ github.repository }}" --draft=false
