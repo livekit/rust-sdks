@@ -52,6 +52,9 @@ pub mod video_stream;
 //#[cfg(test)]
 //mod tests;
 
+#[cfg(test)]
+mod audio_filter_tests;
+
 #[derive(Clone)]
 pub struct FfiConfig {
     pub callback_fn: Arc<dyn Fn(FfiEvent) + Send + Sync>,
