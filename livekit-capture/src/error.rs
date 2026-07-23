@@ -34,6 +34,9 @@ pub enum CaptureError {
     /// Encoded payload or transport data is malformed.
     #[error("invalid encoded data: {0}")]
     InvalidEncodedData(&'static str),
+    /// Pixel frame data is malformed.
+    #[error("invalid pixel frame: {0}")]
+    InvalidPixelFrame(&'static str),
     /// Wire format is represented by the API but not supported by this source.
     #[error("encoded wire format is not supported by this source: {0:?}")]
     UnsupportedWireFormat(EncodedWireFormat),

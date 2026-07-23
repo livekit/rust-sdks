@@ -14,7 +14,12 @@ gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
 default = []
+demo = []
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]

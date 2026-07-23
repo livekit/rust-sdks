@@ -12,12 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Helpers for publishing pre-encoded video with LiveKit.
+//! Capture sources and helpers for publishing video with LiveKit.
 
 pub mod encoded;
 mod error;
+pub mod pump;
+pub mod source;
 pub mod sources;
 pub mod track;
+
+pub use pump::{
+    RunningVideoPump, VideoPump, VideoPumpError, VideoPumpExit, VideoPumpStats, VideoPumpStop,
+};
+pub use source::{
+    EncodedVideoSource, PixelVideoData, PixelVideoFrame, PixelVideoSource, RateControl,
+    SourceError, VideoResolution, VideoSource,
+};
+#[cfg(feature = "demo")]
+pub use sources::demo::{DemoSource, DemoSourceConfig};
 
 pub use encoded::{
     ingress::{

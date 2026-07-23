@@ -14,5 +14,8 @@
 
 //! Optional capture sources that feed the shared capture paths.
 
+#[cfg(feature = "demo")]
+pub mod demo;
+
 #[cfg(feature = "gstreamer")]
 pub mod gstreamer;
