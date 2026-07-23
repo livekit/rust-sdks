@@ -1,0 +1,13 @@
+[package]
+name = "livekit-token-source"
+description = "Token sources for the LiveKit Rust SDK"
+version = "0.1.0"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
+serde = { workspace = true, features = ["derive"] }
+thiserror = { workspace = true }

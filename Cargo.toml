@@ -9,6 +9,7 @@ members = [
     "livekit-ffi",
     "livekit-uniffi",
     "livekit-datatrack",
+    "livekit-token-source",
     "livekit-ffi-node-bindings",
     "livekit-runtime",
     "livekit-wakeword",
@@ -35,6 +36,7 @@ members = [
     "examples/save_to_disk",
     "examples/screensharing",
     "examples/send_bytes",
+    "examples/token_source",
     "examples/webhooks",
 ]
 
@@ -52,6 +54,7 @@ livekit = { version = "0.7.53", path = "livekit" }
 livekit-api = { version = "0.5.6", path = "livekit-api" }
 livekit-ffi = { version = "0.12.71", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.11", path = "livekit-datatrack" }
+livekit-token-source = { version = "0.1.0", path = "livekit-token-source" }
 livekit-common = { version = "0.1.0", path = "livekit-common" }
 livekit-data-stream = { version = "0.1.0", path = "livekit-data-stream" }
 livekit-protocol = { version = "0.7.10", path = "livekit-protocol" }
@@ -80,6 +83,10 @@ prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
 rand = "0.9"
+# No TLS backend in the base; each consumer selects one via a reqwest feature
+# (e.g. livekit-token-source enables rustls-tls-native-roots). Kept at 0.12 to
+# match livekit-api, whose `http = "1.1"` tracks reqwest's http version.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde = "1"
 serde_json = "1.0"
 thiserror = "2"
