@@ -306,6 +306,9 @@ impl From<proto::RoomOptions> for RoomOptions {
                 data_stream_options = data_stream_options
                     .with_max_payload_byte_length(max_payload_byte_length as usize);
             }
+            if data_stream.use_legacy_client_implementation.unwrap_or(false) {
+                data_stream_options = data_stream_options.with_legacy_client_implementation(true);
+            }
             options.data_stream = data_stream_options;
         }
         options
