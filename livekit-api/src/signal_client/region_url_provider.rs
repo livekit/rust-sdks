@@ -19,14 +19,13 @@ use std::{
     time::Duration,
 };
 
-use http::header::{HeaderMap, HeaderValue, AUTHORIZATION, CACHE_CONTROL};
 use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::http_client;
 use crate::region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
+use livekit_net::HttpClientExt;
 
 /// Process-wide region cache for the signaling path. Persisting it here (rather
 /// than on a per-connection object) means it survives across reconnect attempts
@@ -169,30 +168,34 @@ pub(crate) async fn fetch_from_endpoint(
     endpoint_url: &str,
     token: &str,
 ) -> SignalResult<(Vec<String>, Option<Duration>)> {
+    let http = super::require_http_client()?;
+    let headers = super::bearer_headers(token);
+    let endpoint_url = endpoint_url.to_string();
+
     let fetch_fut = async {
-        let client = http_client::Client::new();
-        let mut headers = HeaderMap::new();
-        headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
-        let res = client
-            .get(endpoint_url)
-            .headers(headers)
-            .send()
+        let res = http
+            .get(endpoint_url, headers)
             .await
             .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
-
-        if !res.status().is_success() {
-            return Err(SignalError::Client(res.status(), res.text().await.unwrap_or_default()));
+        let status =
+            http::StatusCode::from_u16(res.status).unwrap_or(http::StatusCode::BAD_GATEWAY);
+        if !status.is_success() {
+            return Err(SignalError::Client(
+                status,
+                String::from_utf8_lossy(&res.body).into_owned(),
+            ));
         }
 
-        // Read the cache lifetime before `json()` consumes the response.
-        let max_age =
-            res.headers().get(CACHE_CONTROL).and_then(|v| v.to_str().ok()).and_then(parse_max_age);
+        // Cache lifetime from the server's `Cache-Control: max-age`, if present.
+        let max_age = res
+            .headers
+            .iter()
+            .find(|h| h.name.eq_ignore_ascii_case("cache-control"))
+            .and_then(|h| parse_max_age(&h.value));
 
-        let res = res
-            .json::<RegionsResponse>()
-            .await
+        let parsed: RegionsResponse = serde_json::from_slice(&res.body)
             .map_err(|e| SignalError::RegionError(error_with_chain(&e)))?;
-        Ok((res.regions.into_iter().map(|i| i.url).collect(), max_age))
+        Ok((parsed.regions.into_iter().map(|i| i.url).collect(), max_age))
     };
 
     livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)

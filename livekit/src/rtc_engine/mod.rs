@@ -1189,9 +1189,9 @@ fn leave_disconnect_reason(err: &EngineError) -> Option<DisconnectReason> {
 ///
 /// We key on `SignalError::Client(401|403)`, which is produced by the server's
 /// `rtc/validate` probe (see [`super`]'s `SignalInner::validate`) — an
-/// authoritative classification. We deliberately do NOT key on the raw
-/// `WsError::Http` upgrade status, because that can be a fabricated 401 masking a
-/// transient server error (e.g. a 503 from a saturated node), which IS
+/// authoritative classification. We deliberately do NOT key on a raw WebSocket
+/// upgrade status (`SignalError::Handshake`), because that can be a fabricated 401
+/// masking a transient server error (e.g. a 503 from a saturated node), which IS
 /// retryable. A resume that hits a raw 401 simply escalates to a full reconnect,
 /// whose connect path runs `validate()` and surfaces the authoritative status.
 fn auth_failure_reason(err: &EngineError) -> Option<DisconnectReason> {
