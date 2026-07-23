@@ -9,7 +9,7 @@ readme = "README.md"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "_livekit_token_source"
+# name = "_livekit_token_source"
 
 [dependencies]
 reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
