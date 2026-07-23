@@ -24,9 +24,12 @@
 
 namespace livekit_ffi {
 
+class RtcRuntime;
+
 class AudioDeviceController {
  public:
-  explicit AudioDeviceController(webrtc::scoped_refptr<AdmProxy> adm_proxy);
+  AudioDeviceController(std::shared_ptr<RtcRuntime> rtc_runtime,
+                        webrtc::scoped_refptr<AdmProxy> adm_proxy);
 
   // Device enumeration
   int16_t playout_devices() const;
@@ -77,6 +80,9 @@ class AudioDeviceController {
   bool is_platform_adm_active() const;
 
  private:
+  // The AdmProxy marshals its calls onto the runtime's worker thread, keep
+  // the runtime (and its threads) alive as long as Rust can reach the proxy
+  std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
 };
 

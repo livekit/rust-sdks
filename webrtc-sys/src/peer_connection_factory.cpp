@@ -103,7 +103,8 @@ PeerConnectionFactory::PeerConnectionFactory(
     return webrtc::make_ref_counted<livekit_ffi::AdmProxy>(
         env_, rtc_runtime_->worker_thread());
   });
-  audio_device_ = std::make_shared<AudioDeviceController>(adm_proxy_);
+  audio_device_ =
+      std::make_shared<AudioDeviceController>(rtc_runtime_, adm_proxy_);
 
   dependencies.adm = adm_proxy_;
 
