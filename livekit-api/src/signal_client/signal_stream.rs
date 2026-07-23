@@ -50,7 +50,7 @@ impl SignalStream {
         token: &str,
         connect_timeout: Duration,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
-        log::info!("connecting to {}", url);
+        log::info!("connecting to {}", livekit_net::redact_url(&url));
 
         // Reject a malformed token before touching the transport, so it surfaces
         // as a non-retryable TokenFormat error rather than a generic connection

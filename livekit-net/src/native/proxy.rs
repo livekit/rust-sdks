@@ -60,9 +60,9 @@ pub(super) async fn connect_ws(
     // Connect directly or through proxy
     let ws_stream = if let Ok(proxy_url) = proxy_env {
         if !proxy_url.is_empty() {
-            log::info!("Using proxy: {}", proxy_url);
             let proxy_url = url::Url::parse(&proxy_url)
                 .map_err(|e| TransportError::Connection(format!("Invalid proxy URL: {}", e)))?;
+            log::info!("Using proxy: {}", crate::redact_url(&proxy_url));
 
             let host = url
                 .host_str()

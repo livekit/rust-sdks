@@ -25,6 +25,18 @@ pub use types::{Header, HttpResponse, TransportError};
 
 use std::sync::{Arc, OnceLock};
 
+/// Render a URL for logging with secrets stripped: userinfo (`user:password@`)
+/// and the query string (which can carry an access token). Keeps scheme, host,
+/// port, and path.
+pub fn redact_url(url: &url::Url) -> String {
+    let mut u = url.clone();
+    let _ = u.set_username("");
+    let _ = u.set_password(None);
+    u.set_query(None);
+    u.set_fragment(None);
+    u.to_string()
+}
+
 static WS: OnceLock<Arc<dyn WsClient>> = OnceLock::new();
 static HTTP: OnceLock<Arc<dyn HttpClient>> = OnceLock::new();
 
@@ -90,5 +102,29 @@ pub mod testing {
     /// A fresh native HTTP client for tests (bypasses the global registry).
     pub fn native_http_client() -> Arc<dyn HttpClient> {
         Arc::new(crate::native::NativeTransport)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_url;
+
+    #[test]
+    fn redact_url_strips_proxy_credentials() {
+        let u = url::Url::parse("http://user:s3cret@proxy.example.com:8080/path").unwrap();
+        let out = redact_url(&u);
+        assert_eq!(out, "http://proxy.example.com:8080/path");
+        assert!(!out.contains("s3cret") && !out.contains("user"));
+    }
+
+    #[test]
+    fn redact_url_strips_query_token() {
+        let u = url::Url::parse(
+            "wss://sfu.example.com/rtc/v1?access_token=abc.def.ghi&join_request=CAES",
+        )
+        .unwrap();
+        let out = redact_url(&u);
+        assert_eq!(out, "wss://sfu.example.com/rtc/v1");
+        assert!(!out.contains("abc.def.ghi") && !out.contains("CAES"));
     }
 }
