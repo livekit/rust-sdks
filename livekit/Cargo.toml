@@ -59,6 +59,9 @@ base64 = "0.22"
 [dev-dependencies]
 # Enable data-stream test constructors (e.g. TextStreamReader::new_for_test) for our test suites.
 livekit-data-stream = { workspace = true, features = ["test-utils"] }
+# Async test runtime + timers, needed by the peer_transport deadlock reproducer.
+# (rt/time are already built elsewhere in the workspace, so no new crates enter the lockfile.)
+tokio = { version = "1", features = ["rt", "macros", "time"] }
 anyhow = "1.0.99"
 test-log = "0.2.18"
 test-case = "3.3"
