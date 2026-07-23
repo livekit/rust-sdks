@@ -15,7 +15,7 @@ publish = false
 livekit-protocol = { workspace = true }
 livekit-api = { workspace = true }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
-uniffi = { workspace = true, features = ["cli", "scaffolding-ffi-buffer-fns", "tokio"] }
+uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns", "tokio"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
 tokio-util =  "0.7.18"
@@ -31,6 +31,11 @@ uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "90f2c
 camino = { version = "1", optional = true }
 
 [features]
+# Enables the `uniffi-bindgen` bin (uniffi's CLI: clap + the bindings backends).
+# Tooling-only — kept off library builds so the shipped cdylib/staticlib don't
+# carry the bindgen machinery. Enable it when running the bin:
+# `cargo run --features cli --bin uniffi-bindgen generate ...`.
+cli = ["uniffi/cli"]
 # Enables the `uniffi-bindgen-dart` bin. Not enabled for library builds.
 dart-bindgen = ["dep:uniffi-dart", "dep:camino"]
 
@@ -40,6 +45,7 @@ uniffi = { workspace = true, features = ["build", "scaffolding-ffi-buffer-fns"] 
 [[bin]]
 name = "uniffi-bindgen"
 path = "bindgen.rs"
+required-features = ["cli"]
 
 [[bin]]
 name = "uniffi-bindgen-dart"
