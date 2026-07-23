@@ -17,7 +17,7 @@ use std::{slice, sync::Arc};
 use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
-    register_audio_filter_plugin, registered_audio_filter_plugin,
+    register_audio_filter_plugin,
     webrtc::{native::apm, native::audio_resampler, prelude::*},
     AudioFilterPlugin, SimulateScenario,
 };
@@ -1050,24 +1050,16 @@ fn on_load_audio_filter_plugin(
         }
     };
 
-    // A re-registration of the same module id means already-connected rooms
-    // were `on_load`'d for it on their first registration; re-running below
-    // would call the plugin's `on_load` a second time for them. Skip it so
-    // the host doesn't depend on plugins being idempotent.
-    let is_new = registered_audio_filter_plugin(&request.module_id).is_none();
-
     register_audio_filter_plugin(request.module_id, plugin.clone());
-
-    if !is_new {
-        return Ok(proto::LoadAudioFilterPluginResponse { error: None });
-    }
 
     // `on_load` is normally called for every registered plugin when a room
     // connects, but that is a one-time snapshot: a plugin registered *after*
     // a room has already connected would otherwise never be initialized for
     // it (its `create` would then fail because the connection was never
     // authenticated). Run `on_load` now for any already-connected rooms so
-    // registration order doesn't matter.
+    // registration order doesn't matter. `on_load` is expected to be
+    // idempotent (it is already called once per connected room), so a repeat
+    // registration re-running it here is harmless.
     for room in server.list_rooms() {
         let plugin = plugin.clone();
         let url = room.inner.url();
