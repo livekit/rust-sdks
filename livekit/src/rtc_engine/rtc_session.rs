@@ -401,6 +401,21 @@ struct SessionInner {
 
     participant_info: SessionParticipantInfo,
 
+    /// `Some` while a signal resume is in flight: accumulates the identity of
+    /// every participant mentioned in `Update`s since the resume began. The
+    /// server sends a full participant snapshot right after the
+    /// `ReconnectResponse` but may interleave delayed/batched updates around
+    /// it, so no single `Update` is identifiable as the snapshot — the union
+    /// is what's guaranteed to cover everyone still in the room once the
+    /// resume settles (see [`RtcSession::finish_resume`]).
+    resume_seen_identities: Mutex<Option<HashSet<String>>>,
+
+    /// Test-only: drop incoming DISCONNECTED participant entries, simulating
+    /// an SFU that fails to (re)deliver disconnect updates. Lets tests
+    /// exercise the resume-time participant reconciliation deterministically.
+    #[cfg(feature = "__lk-e2e-test")]
+    drop_disconnected_updates: AtomicBool,
+
     dc_emitter: mpsc::UnboundedSender<DataChannelEvent>,
 
     // Keep a strong reference to the subscriber datachannels,
@@ -615,6 +630,9 @@ impl RtcSession {
             next_packet_sequence: 1.into(),
             packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             participant_info,
+            resume_seen_identities: Mutex::new(None),
+            #[cfg(feature = "__lk-e2e-test")]
+            drop_disconnected_updates: Default::default(),
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
@@ -800,6 +818,24 @@ impl RtcSession {
 
     pub async fn restart_publisher(&self) -> EngineResult<()> {
         self.inner.restart_publisher().await
+    }
+
+    /// Ends the resume-time accumulation started by [`Self::restart`],
+    /// returning the participant identities seen since. The post-resume
+    /// snapshot arrived several round trips before the PeerConnections
+    /// finished reconnecting, so this is a superset of the room's current
+    /// participants: any known participant absent from it left while the
+    /// signal link was down and its disconnection must be synthesized.
+    /// Returns `None` if no resume was in flight.
+    pub fn finish_resume(&self) -> Option<HashSet<String>> {
+        self.inner.resume_seen_identities.lock().take()
+    }
+
+    /// Test-only: drop incoming DISCONNECTED participant entries, simulating
+    /// an SFU that fails to (re)deliver disconnect updates.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_disconnected_updates(&self, enabled: bool) {
+        self.inner.drop_disconnected_updates.store(enabled, Ordering::Release);
     }
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
@@ -1370,12 +1406,22 @@ impl SessionInner {
                 );
             }
             proto::signal_response::Message::Update(mut update) => {
+                #[cfg(feature = "__lk-e2e-test")]
+                if self.drop_disconnected_updates.load(Ordering::Acquire) {
+                    update.participants.retain(|pi| {
+                        pi.state != proto::participant_info::State::Disconnected as i32
+                    });
+                }
+
                 let local_participant_identity = self.participant_info.identity.as_str().into();
                 if let Ok(event) = dt::remote::event_from_participant_update(
                     &mut update,
                     local_participant_identity,
                 ) {
                     _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
+                }
+                if let Some(seen) = self.resume_seen_identities.lock().as_mut() {
+                    seen.extend(update.participants.iter().map(|pi| pi.identity.clone()));
                 }
                 let _ = self
                     .emitter
@@ -2109,6 +2155,10 @@ impl SessionInner {
     /// This reconnection if more seemless compared to the full reconnection implemented in
     /// ['RTCEngine']
     async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
+        // Start accumulating before the signal client reconnects: once
+        // `restart` returns, the resumed stream immediately delivers events
+        // (including the post-resume participant snapshot) on a concurrent task.
+        *self.resume_seen_identities.lock() = Some(HashSet::new());
         let reconnect_response = self.signal_client.restart().await?;
         log::debug!("received reconnect response: {:?}", reconnect_response);
 
