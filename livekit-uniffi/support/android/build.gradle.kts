@@ -2,8 +2,8 @@ import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.plugins.signing.SigningExtension
 
 plugins {
-    id("com.android.library") version "8.2.2"
-    id("org.jetbrains.kotlin.android") version "1.9.22"
+    id("com.android.library") version "8.13.2"
+    id("org.jetbrains.kotlin.android") version "1.9.25"
     `maven-publish`
     signing
     id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
@@ -59,9 +59,9 @@ android {
 }
 
 dependencies {
-    implementation("androidx.annotation:annotation:1.9.0")
-    implementation("net.java.dev.jna:jna:5.16.0@aar")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    implementation("androidx.annotation:annotation:1.10.0")
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 }
 
 afterEvaluate {
