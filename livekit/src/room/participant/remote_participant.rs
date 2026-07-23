@@ -25,8 +25,8 @@ use livekit_runtime::timeout;
 use parking_lot::Mutex;
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
-    TrackKind,
+    ClientCapability, ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
+    ParticipantState, TrackKind,
 };
 use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
 
@@ -86,6 +86,7 @@ impl RemoteParticipant {
         auto_subscribe: bool,
         permission: Option<proto::ParticipantPermission>,
         client_protocol: i32,
+        capabilities: Vec<ClientCapability>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -101,6 +102,7 @@ impl RemoteParticipant {
                 joined_at,
                 permission,
                 client_protocol,
+                capabilities,
             ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
@@ -575,6 +577,11 @@ impl RemoteParticipant {
 
     pub fn client_protocol(&self) -> i32 {
         self.inner.info.read().client_protocol
+    }
+
+    /// The capabilities this remote participant's client advertised at join.
+    pub fn capabilities(&self) -> Vec<ClientCapability> {
+        self.inner.info.read().capabilities.clone()
     }
 
     pub fn is_encrypted(&self) -> bool {

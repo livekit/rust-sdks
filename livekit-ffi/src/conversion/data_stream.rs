@@ -23,12 +23,12 @@ use std::path::PathBuf;
 impl From<TextStreamInfo> for proto::TextStreamInfo {
     fn from(info: TextStreamInfo) -> Self {
         Self {
+            attributes: info.attributes(),
             stream_id: info.id,
             timestamp: info.timestamp.timestamp_millis(),
             mime_type: info.mime_type,
             topic: info.topic,
             total_length: info.total_length,
-            attributes: info.attributes,
             operation_type: proto::text_stream_info::OperationType::from(info.operation_type)
                 .into(),
             version: Some(info.version),
@@ -43,12 +43,12 @@ impl From<TextStreamInfo> for proto::TextStreamInfo {
 impl From<ByteStreamInfo> for proto::ByteStreamInfo {
     fn from(info: ByteStreamInfo) -> Self {
         Self {
+            attributes: info.attributes(),
             stream_id: info.id,
             timestamp: info.timestamp.timestamp_millis(),
             mime_type: info.mime_type,
             topic: info.topic,
             total_length: info.total_length,
-            attributes: info.attributes,
             name: info.name,
             encryption_type: info.encryption_type.into(),
         }
@@ -72,6 +72,8 @@ impl From<proto::StreamTextOptions> for StreamTextOptions {
             reply_to_stream_id: options.reply_to_stream_id,
             attached_stream_ids: options.attached_stream_ids,
             generated: options.generated,
+            compress: options.compress,
+            sender_identity: options.sender_identity.map(|id| id.into()),
         }
     }
 }
@@ -90,6 +92,8 @@ impl From<proto::StreamByteOptions> for StreamByteOptions {
             name: options.name,
             mime_type: options.mime_type,
             total_length: options.total_length,
+            compress: options.compress,
+            sender_identity: options.sender_identity.map(|id| id.into()),
         }
     }
 }

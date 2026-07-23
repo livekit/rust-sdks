@@ -21,8 +21,10 @@ mod tests;
 pub use client::RpcClientManager;
 pub use server::{HandleRequestOptions, RpcServerManager};
 
-use crate::data_stream::{StreamResult, StreamTextOptions, TextStreamInfo};
+use crate::data_stream::api::{StreamResult, StreamTextOptions, TextStreamInfo};
 use crate::room::id::ParticipantIdentity;
+use crate::room::participant::ClientCapability;
+use livekit_common::RemoteParticipantRegistry;
 use livekit_protocol::RpcError as RpcError_Proto;
 use std::{error::Error, fmt::Display, future::Future, time::Duration};
 
@@ -45,7 +47,7 @@ pub(crate) const ATTR_VERSION: &str = "lk.rpc_request_version";
 ///
 /// Decouples the RPC managers from concrete engine/session types,
 /// enabling in-memory unit testing with a mock transport.
-pub(crate) trait RpcTransport: Send + Sync {
+pub(crate) trait RpcTransport: RemoteParticipantRegistry {
     /// Send a data packet (used for v1 RPC packets and ACKs).
     fn publish_data(
         &self,
@@ -59,15 +61,26 @@ pub(crate) trait RpcTransport: Send + Sync {
         options: StreamTextOptions,
     ) -> impl Future<Output = StreamResult<TextStreamInfo>> + Send;
 
-    /// Look up a remote participant's client_protocol value.
-    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32;
-
     /// Get the server version string, if available.
     fn server_version(&self) -> Option<String>;
 }
 
 /// Production implementation of `RpcTransport` backed by a `RoomSession`.
 pub(crate) struct SessionTransport(pub(crate) std::sync::Arc<super::RoomSession>);
+
+impl RemoteParticipantRegistry for SessionTransport {
+    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
+        self.0.remote_client_protocol(identity)
+    }
+
+    fn remote_capabilities(&self, identity: &ParticipantIdentity) -> Vec<ClientCapability> {
+        self.0.remote_capabilities(identity)
+    }
+
+    fn remote_identities(&self) -> Vec<ParticipantIdentity> {
+        self.0.remote_identities()
+    }
+}
 
 impl RpcTransport for SessionTransport {
     async fn publish_data(
@@ -86,11 +99,7 @@ impl RpcTransport for SessionTransport {
         text: &str,
         options: StreamTextOptions,
     ) -> StreamResult<TextStreamInfo> {
-        self.0.outgoing_stream_manager.send_text(text, options).await
-    }
-
-    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
-        self.0.get_remote_client_protocol(identity)
+        self.0.outgoing_stream_manager.send_text(text, options, self.0.as_ref()).await
     }
 
     fn server_version(&self) -> Option<String> {

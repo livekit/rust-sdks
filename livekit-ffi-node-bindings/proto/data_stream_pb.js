@@ -121,6 +121,7 @@ const TextStreamReaderEOS = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.TextStreamReaderEOS",
   () => [
     { no: 1, name: "error", kind: "message", T: StreamError, opt: true },
+    { no: 2, name: "attributes", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ],
 );
 
@@ -258,6 +259,7 @@ const ByteStreamReaderEOS = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.ByteStreamReaderEOS",
   () => [
     { no: 1, name: "error", kind: "message", T: StreamError, opt: true },
+    { no: 2, name: "attributes", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ],
 );
 
@@ -466,6 +468,7 @@ const ByteStreamWriterCloseRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "writer_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 4, name: "attributes", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ],
 );
 
@@ -584,6 +587,7 @@ const TextStreamWriterCloseRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "writer_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 4, name: "attributes", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ],
 );
 
@@ -674,6 +678,8 @@ const StreamTextOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 7, name: "reply_to_stream_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 8, name: "attached_stream_ids", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 9, name: "generated", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 10, name: "compress", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 11, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ],
 );
 
@@ -690,6 +696,8 @@ const StreamByteOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 5, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 6, name: "mime_type", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 7, name: "total_length", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 8, name: "compress", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 9, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ],
 );
 

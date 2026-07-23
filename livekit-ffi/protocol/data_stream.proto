@@ -64,6 +64,8 @@ message TextStreamReaderChunkReceived {
 
 message TextStreamReaderEOS {
     optional StreamError error = 1;
+    // Final stream attributes, including any delivered in the stream trailer.
+    map<string, string> attributes = 2;
 }
 
 // MARK: - Byte stream reader
@@ -136,6 +138,8 @@ message ByteStreamReaderChunkReceived {
 
 message ByteStreamReaderEOS {
     optional StreamError error = 1;
+    // Final stream attributes, including any delivered in the stream trailer.
+    map<string, string> attributes = 2;
 }
 
 // MARK: - Send file
@@ -257,6 +261,8 @@ message ByteStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
     optional string reason = 2;
     optional uint64 request_async_id = 3;
+    // Attributes to attach to the stream trailer.
+    map<string, string> attributes = 4;
 }
 message ByteStreamWriterCloseResponse {
     required uint64 async_id = 1;
@@ -313,6 +319,8 @@ message TextStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
     optional string reason = 2;
     optional uint64 request_async_id = 3;
+    // Attributes to attach to the stream trailer.
+    map<string, string> attributes = 4;
 }
 message TextStreamWriterCloseResponse {
     required uint64 async_id = 1;
@@ -371,7 +379,9 @@ message StreamTextOptions {
     optional string reply_to_stream_id = 7;
     repeated string attached_stream_ids = 8;
     optional bool generated = 9;
-
+    optional bool compress = 10;
+    // Identity the stream's packets are attributed to; requires permission to impersonate.
+    optional string sender_identity = 11;
 }
 message StreamByteOptions {
     required string topic = 1;
@@ -381,6 +391,9 @@ message StreamByteOptions {
     optional string name = 5;
     optional string mime_type = 6;
     optional uint64 total_length = 7;
+    optional bool compress = 8;
+    // Identity the stream's packets are attributed to; requires permission to impersonate.
+    optional string sender_identity = 9;
 }
 
 // Error pertaining to a stream.

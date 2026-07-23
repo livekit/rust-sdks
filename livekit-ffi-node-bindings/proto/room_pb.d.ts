@@ -2003,6 +2003,49 @@ export declare class RtcConfig extends Message<RtcConfig> {
 }
 
 /**
+ * Options controlling data stream behavior for the room.
+ *
+ * @generated from message livekit.proto.RoomDataStreamOptions
+ */
+export declare class RoomDataStreamOptions extends Message<RoomDataStreamOptions> {
+  /**
+   * Maximum decompressed payload size in bytes accepted for a single incoming
+   * data stream. Streams exceeding this limit terminate with an error on the
+   * receiving side. Unset falls back to the SDK default.
+   *
+   * @generated from field: optional uint64 max_payload_byte_length = 1;
+   */
+  maxPayloadByteLength?: bigint;
+
+  /**
+   * Temporary migration aid for SDKs that still implement data streams in
+   * their own client-side code on top of the FFI instead of using the FFI
+   * data stream API. When true, this client does not advertise data streams
+   * v2 support: ClientInfo.client_protocol is capped at 1 (DATA_STREAM_RPC),
+   * so remote clients will not use v2-only behavior toward this client.
+   * Defaults to false (v2 advertised). Will be removed once all FFI
+   * consumers migrate.
+   *
+   * @generated from field: optional bool use_legacy_client_implementation = 2;
+   */
+  useLegacyClientImplementation?: boolean;
+
+  constructor(data?: PartialMessage<RoomDataStreamOptions>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.RoomDataStreamOptions";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoomDataStreamOptions;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RoomDataStreamOptions;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RoomDataStreamOptions;
+
+  static equals(a: RoomDataStreamOptions | PlainMessage<RoomDataStreamOptions> | undefined, b: RoomDataStreamOptions | PlainMessage<RoomDataStreamOptions> | undefined): boolean;
+}
+
+/**
  * @generated from message livekit.proto.RoomOptions
  */
 export declare class RoomOptions extends Message<RoomOptions> {
@@ -2057,6 +2100,13 @@ export declare class RoomOptions extends Message<RoomOptions> {
    * @generated from field: optional uint64 connect_timeout_ms = 9;
    */
   connectTimeoutMs?: bigint;
+
+  /**
+   * data stream behavior for this room
+   *
+   * @generated from field: optional livekit.proto.RoomDataStreamOptions data_stream = 10;
+   */
+  dataStream?: RoomDataStreamOptions;
 
   constructor(data?: PartialMessage<RoomOptions>);
 
