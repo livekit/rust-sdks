@@ -28,13 +28,19 @@
 //! Requires a C compiler (`cc`) on PATH to build a minimal test plugin.
 
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
+use livekit::prelude::DisconnectReason;
 use livekit_api::access_token::{AccessToken, VideoGrants};
 
-use crate::{proto, server::requests, FFI_SERVER};
+use crate::{
+    proto,
+    server::{requests, room::FfiRoom},
+    FFI_SERVER,
+};
 
 /// A minimal audio-filter plugin. Its `on_load` appends the options JSON it
 /// receives (which embeds the room url + token) to the file named by
@@ -83,6 +89,29 @@ fn build_test_plugin(dir: &Path) -> PathBuf {
     out
 }
 
+struct ConnectedRoom(FfiRoom);
+
+impl ConnectedRoom {
+    fn new(room: FfiRoom) -> Self {
+        room.ready_for_room_event();
+        Self(room)
+    }
+
+    fn handle_id(&self) -> u64 {
+        self.0.inner.handle_id
+    }
+}
+
+impl Drop for ConnectedRoom {
+    fn drop(&mut self) {
+        let handle_id = self.handle_id();
+        FFI_SERVER
+            .async_runtime
+            .block_on(self.0.close(&FFI_SERVER, DisconnectReason::ClientInitiated));
+        FFI_SERVER.drop_handle(handle_id);
+    }
+}
+
 #[test]
 #[ignore = "requires a live LiveKit server (LK_TEST_URL / LK_TEST_API_KEY / LK_TEST_API_SECRET) and a C compiler"]
 fn on_load_runs_for_plugin_registered_after_connect() {
@@ -99,6 +128,7 @@ fn on_load_runs_for_plugin_registered_after_connect() {
 
     let token = AccessToken::with_api_key(&api_key, &api_secret)
         .with_grants(VideoGrants {
+            room_join: true,
             room: "livekit-ffi-af-late-reg".to_string(),
             ..Default::default()
         })
@@ -109,14 +139,21 @@ fn on_load_runs_for_plugin_registered_after_connect() {
     // Connect a room. `connect` returns immediately and drives the actual
     // connection on the server runtime; the room is stored in the handle map
     // once connected, so poll `list_rooms()` rather than the event callback.
+    let existing_room_handles: HashSet<_> =
+        FFI_SERVER.list_rooms().into_iter().map(|room| room.inner.handle_id).collect();
     let _ = crate::server::room::FfiRoom::connect(
         &FFI_SERVER,
         proto::ConnectRequest { url: url.clone(), token, ..Default::default() },
     );
 
-    let room = wait_for(Duration::from_secs(15), || FFI_SERVER.list_rooms().into_iter().next())
-        .expect("room did not connect within 15s");
-    let room_handle = room.inner.handle_id;
+    let room = wait_for(Duration::from_secs(15), || {
+        FFI_SERVER
+            .list_rooms()
+            .into_iter()
+            .find(|room| !existing_room_handles.contains(&room.inner.handle_id))
+    })
+    .expect("room did not connect within 15s");
+    let room = ConnectedRoom::new(room);
 
     // Sanity: the plugin must not be registered yet, and thus no on_load.
     assert!(!log_path.exists() || read_log(&log_path).is_empty());
@@ -157,16 +194,8 @@ fn on_load_runs_for_plugin_registered_after_connect() {
         "on_load ran but not for the connected room's url; got: {logged}"
     );
 
-    // Cleanup: disconnect the room.
-    let _ = requests::handle_request(
-        &FFI_SERVER,
-        proto::FfiRequest {
-            message: Some(proto::ffi_request::Message::Disconnect(proto::DisconnectRequest {
-                room_handle,
-                ..Default::default()
-            })),
-        },
-    );
+    // Cleanup waits for the room to close and removes its FFI handle.
+    drop(room);
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
