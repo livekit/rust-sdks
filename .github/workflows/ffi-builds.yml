@@ -203,6 +203,15 @@ jobs:
           cd livekit-ffi
           cargo rustc --crate-type staticlib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
+      - name: Strip iOS release archive
+        if: ${{ matrix.platform == 'ios' }}
+        run: |
+          if [ "$CARGO_RUST_PROFILE" = "release" ]; then
+            archive="target/${{ matrix.target }}/$CARGO_PROFILE_DIR/${{ matrix.dylib }}"
+            xcrun strip -S "$archive"
+            xcrun ranlib "$archive"
+          fi
+
       - name: Build (Windows)
         if: ${{ matrix.platform == 'windows' }}
         run: |
