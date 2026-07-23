@@ -223,6 +223,20 @@ export declare class DataTrackInfo extends Message<DataTrackInfo> {
    */
   usesE2ee?: boolean;
 
+  /**
+   * Schema associated with frames sent on the track, if any.
+   *
+   * @generated from field: optional livekit.proto.DataTrackSchemaId schema = 4;
+   */
+  schema?: DataTrackSchemaId;
+
+  /**
+   * Encoding of frames sent on the track, if specified.
+   *
+   * @generated from field: optional livekit.proto.DataTrackFrameEncoding frame_encoding = 5;
+   */
+  frameEncoding?: DataTrackFrameEncoding;
+
   constructor(data?: PartialMessage<DataTrackInfo>);
 
   static readonly runtime: typeof proto2;
@@ -400,6 +414,20 @@ export declare class DataTrackOptions extends Message<DataTrackOptions> {
    * @generated from field: required string name = 1;
    */
   name?: string;
+
+  /**
+   * Schema describing frames sent on the track.
+   *
+   * @generated from field: optional livekit.proto.DataTrackSchemaId schema = 2;
+   */
+  schema?: DataTrackSchemaId;
+
+  /**
+   * Encoding of frames sent on the track.
+   *
+   * @generated from field: optional livekit.proto.DataTrackFrameEncoding frame_encoding = 3;
+   */
+  frameEncoding?: DataTrackFrameEncoding;
 
   constructor(data?: PartialMessage<DataTrackOptions>);
 
@@ -1126,5 +1154,417 @@ export declare class DataTrackStreamEOS extends Message<DataTrackStreamEOS> {
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackStreamEOS;
 
   static equals(a: DataTrackStreamEOS | PlainMessage<DataTrackStreamEOS> | undefined, b: DataTrackStreamEOS | PlainMessage<DataTrackStreamEOS> | undefined): boolean;
+}
+
+/**
+ * Encoding used to interpret a data track schema definition.
+ *
+ * @generated from message livekit.proto.DataTrackSchemaEncoding
+ */
+export declare class DataTrackSchemaEncoding extends Message<DataTrackSchemaEncoding> {
+  /**
+   * @generated from oneof livekit.proto.DataTrackSchemaEncoding.encoding
+   */
+  encoding: {
+    /**
+     * @generated from field: livekit.proto.DataTrackSchemaEncoding.WellKnownSchemaEncoding well_known = 1;
+     */
+    value: DataTrackSchemaEncoding_WellKnownSchemaEncoding;
+    case: "wellKnown";
+  } | {
+    /**
+     * Identifier of a custom encoding not covered by the well-known cases.
+     * This must be non-empty and no longer than 25 characters.
+     *
+     * @generated from field: string custom = 2;
+     */
+    value: string;
+    case: "custom";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<DataTrackSchemaEncoding>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DataTrackSchemaEncoding";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DataTrackSchemaEncoding;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DataTrackSchemaEncoding;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackSchemaEncoding;
+
+  static equals(a: DataTrackSchemaEncoding | PlainMessage<DataTrackSchemaEncoding> | undefined, b: DataTrackSchemaEncoding | PlainMessage<DataTrackSchemaEncoding> | undefined): boolean;
+}
+
+/**
+ * Well-known encoding for a schema definition.
+ *
+ * @generated from enum livekit.proto.DataTrackSchemaEncoding.WellKnownSchemaEncoding
+ */
+export declare enum DataTrackSchemaEncoding_WellKnownSchemaEncoding {
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF = 1;
+   */
+  PROTOBUF = 1,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER = 2;
+   */
+  FLATBUFFER = 2,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG = 3;
+   */
+  ROS1_MSG = 3,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG = 4;
+   */
+  ROS2_MSG = 4,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL = 5;
+   */
+  ROS2_IDL = 5,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL = 6;
+   */
+  OMG_IDL = 6,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA = 7;
+   */
+  JSON_SCHEMA = 7,
+}
+
+/**
+ * Encoding used for frames sent on a data track.
+ *
+ * @generated from message livekit.proto.DataTrackFrameEncoding
+ */
+export declare class DataTrackFrameEncoding extends Message<DataTrackFrameEncoding> {
+  /**
+   * @generated from oneof livekit.proto.DataTrackFrameEncoding.encoding
+   */
+  encoding: {
+    /**
+     * @generated from field: livekit.proto.DataTrackFrameEncoding.WellKnownFrameEncoding well_known = 1;
+     */
+    value: DataTrackFrameEncoding_WellKnownFrameEncoding;
+    case: "wellKnown";
+  } | {
+    /**
+     * Identifier of a custom encoding not covered by the well-known cases.
+     * This must be non-empty and no longer than 25 characters.
+     *
+     * @generated from field: string custom = 2;
+     */
+    value: string;
+    case: "custom";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<DataTrackFrameEncoding>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DataTrackFrameEncoding";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DataTrackFrameEncoding;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DataTrackFrameEncoding;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackFrameEncoding;
+
+  static equals(a: DataTrackFrameEncoding | PlainMessage<DataTrackFrameEncoding> | undefined, b: DataTrackFrameEncoding | PlainMessage<DataTrackFrameEncoding> | undefined): boolean;
+}
+
+/**
+ * Well-known encoding for frame payloads.
+ *
+ * @generated from enum livekit.proto.DataTrackFrameEncoding.WellKnownFrameEncoding
+ */
+export declare enum DataTrackFrameEncoding_WellKnownFrameEncoding {
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_ROS1 = 1;
+   */
+  ROS1 = 1,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_CDR = 2;
+   */
+  CDR = 2,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_PROTOBUF = 3;
+   */
+  PROTOBUF = 3,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_FLATBUFFER = 4;
+   */
+  FLATBUFFER = 4,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_CBOR = 5;
+   */
+  CBOR = 5,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_MSGPACK = 6;
+   */
+  MSGPACK = 6,
+
+  /**
+   * @generated from enum value: WELL_KNOWN_FRAME_ENCODING_JSON = 7;
+   */
+  JSON = 7,
+}
+
+/**
+ * Uniquely identifies a data track schema.
+ *
+ * @generated from message livekit.proto.DataTrackSchemaId
+ */
+export declare class DataTrackSchemaId extends Message<DataTrackSchemaId> {
+  /**
+   * Name component of the schema identifier.
+   *
+   * @generated from field: required string name = 1;
+   */
+  name?: string;
+
+  /**
+   * Encoding of the schema definition.
+   *
+   * @generated from field: optional livekit.proto.DataTrackSchemaEncoding encoding = 2;
+   */
+  encoding?: DataTrackSchemaEncoding;
+
+  constructor(data?: PartialMessage<DataTrackSchemaId>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DataTrackSchemaId";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DataTrackSchemaId;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DataTrackSchemaId;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackSchemaId;
+
+  static equals(a: DataTrackSchemaId | PlainMessage<DataTrackSchemaId> | undefined, b: DataTrackSchemaId | PlainMessage<DataTrackSchemaId> | undefined): boolean;
+}
+
+/**
+ * Define (store) a schema definition for the local participant.
+ *
+ * @generated from message livekit.proto.DefineSchemaRequest
+ */
+export declare class DefineSchemaRequest extends Message<DefineSchemaRequest> {
+  /**
+   * @generated from field: required uint64 local_participant_handle = 1;
+   */
+  localParticipantHandle?: bigint;
+
+  /**
+   * @generated from field: required livekit.proto.DataTrackSchemaId schema_id = 2;
+   */
+  schemaId?: DataTrackSchemaId;
+
+  /**
+   * @generated from field: required string definition = 3;
+   */
+  definition?: string;
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<DefineSchemaRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DefineSchemaRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DefineSchemaRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DefineSchemaRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DefineSchemaRequest;
+
+  static equals(a: DefineSchemaRequest | PlainMessage<DefineSchemaRequest> | undefined, b: DefineSchemaRequest | PlainMessage<DefineSchemaRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.DefineSchemaResponse
+ */
+export declare class DefineSchemaResponse extends Message<DefineSchemaResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<DefineSchemaResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DefineSchemaResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DefineSchemaResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DefineSchemaResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DefineSchemaResponse;
+
+  static equals(a: DefineSchemaResponse | PlainMessage<DefineSchemaResponse> | undefined, b: DefineSchemaResponse | PlainMessage<DefineSchemaResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.DefineSchemaCallback
+ */
+export declare class DefineSchemaCallback extends Message<DefineSchemaCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  /**
+   * Present if the schema could not be defined.
+   *
+   * @generated from field: optional string error = 2;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<DefineSchemaCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DefineSchemaCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DefineSchemaCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DefineSchemaCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DefineSchemaCallback;
+
+  static equals(a: DefineSchemaCallback | PlainMessage<DefineSchemaCallback> | undefined, b: DefineSchemaCallback | PlainMessage<DefineSchemaCallback> | undefined): boolean;
+}
+
+/**
+ * Retrieve a schema definition previously stored by a participant.
+ *
+ * @generated from message livekit.proto.GetSchemaRequest
+ */
+export declare class GetSchemaRequest extends Message<GetSchemaRequest> {
+  /**
+   * @generated from field: required uint64 local_participant_handle = 1;
+   */
+  localParticipantHandle?: bigint;
+
+  /**
+   * @generated from field: required livekit.proto.DataTrackSchemaId schema_id = 2;
+   */
+  schemaId?: DataTrackSchemaId;
+
+  /**
+   * Identity of the participant who owns the schema.
+   *
+   * @generated from field: required string participant_identity = 3;
+   */
+  participantIdentity?: string;
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<GetSchemaRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GetSchemaRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetSchemaRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetSchemaRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetSchemaRequest;
+
+  static equals(a: GetSchemaRequest | PlainMessage<GetSchemaRequest> | undefined, b: GetSchemaRequest | PlainMessage<GetSchemaRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.GetSchemaResponse
+ */
+export declare class GetSchemaResponse extends Message<GetSchemaResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<GetSchemaResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GetSchemaResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetSchemaResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetSchemaResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetSchemaResponse;
+
+  static equals(a: GetSchemaResponse | PlainMessage<GetSchemaResponse> | undefined, b: GetSchemaResponse | PlainMessage<GetSchemaResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.GetSchemaCallback
+ */
+export declare class GetSchemaCallback extends Message<GetSchemaCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  /**
+   * The schema definition, present on success.
+   *
+   * @generated from field: optional string definition = 2;
+   */
+  definition?: string;
+
+  /**
+   * Present if the schema could not be retrieved.
+   *
+   * @generated from field: optional string error = 3;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<GetSchemaCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GetSchemaCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetSchemaCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetSchemaCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetSchemaCallback;
+
+  static equals(a: GetSchemaCallback | PlainMessage<GetSchemaCallback> | undefined, b: GetSchemaCallback | PlainMessage<GetSchemaCallback> | undefined): boolean;
 }
 

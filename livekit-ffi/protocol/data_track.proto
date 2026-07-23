@@ -30,6 +30,10 @@ message DataTrackInfo {
   required string sid = 2;
   // Whether or not frames sent on the track use end-to-end encryption.
   required bool uses_e2ee = 3;
+  // Schema associated with frames sent on the track, if any.
+  optional DataTrackSchemaId schema = 4;
+  // Encoding of frames sent on the track, if specified.
+  optional DataTrackFrameEncoding frame_encoding = 5;
 }
 
 // A frame published on a data track.
@@ -110,6 +114,10 @@ message DataTrackOptions {
   // Must not be empty and must be unique per publisher.
   //
   required string name = 1;
+  // Schema describing frames sent on the track.
+  optional DataTrackSchemaId schema = 2;
+  // Encoding of frames sent on the track.
+  optional DataTrackFrameEncoding frame_encoding = 3;
 }
 
 // Publish a data track
@@ -245,4 +253,93 @@ message DataTrackStreamEOS {
   // Present if stream ended before any frames were emitted due to subscription establishment failing.
   // Absent if the stream ended normally (i.e., due to the track being unpublished).
   optional SubscribeDataTrackError error = 1;
+}
+
+// MARK: - Schemas
+
+// Encoding used to interpret a data track schema definition.
+message DataTrackSchemaEncoding {
+  // Well-known encoding for a schema definition.
+  enum WellKnownSchemaEncoding {
+    WELL_KNOWN_SCHEMA_ENCODING_UNSPECIFIED = 0;
+    WELL_KNOWN_SCHEMA_ENCODING_PROTOBUF = 1;
+    WELL_KNOWN_SCHEMA_ENCODING_FLATBUFFER = 2;
+    WELL_KNOWN_SCHEMA_ENCODING_ROS1_MSG = 3;
+    WELL_KNOWN_SCHEMA_ENCODING_ROS2_MSG = 4;
+    WELL_KNOWN_SCHEMA_ENCODING_ROS2_IDL = 5;
+    WELL_KNOWN_SCHEMA_ENCODING_OMG_IDL = 6;
+    WELL_KNOWN_SCHEMA_ENCODING_JSON_SCHEMA = 7;
+  }
+
+  oneof encoding {
+    WellKnownSchemaEncoding well_known = 1;
+    // Identifier of a custom encoding not covered by the well-known cases.
+    // This must be non-empty and no longer than 25 characters.
+    string custom = 2;
+  }
+}
+
+// Encoding used for frames sent on a data track.
+message DataTrackFrameEncoding {
+  // Well-known encoding for frame payloads.
+  enum WellKnownFrameEncoding {
+    WELL_KNOWN_FRAME_ENCODING_UNSPECIFIED = 0;
+    WELL_KNOWN_FRAME_ENCODING_ROS1 = 1;
+    WELL_KNOWN_FRAME_ENCODING_CDR = 2;
+    WELL_KNOWN_FRAME_ENCODING_PROTOBUF = 3;
+    WELL_KNOWN_FRAME_ENCODING_FLATBUFFER = 4;
+    WELL_KNOWN_FRAME_ENCODING_CBOR = 5;
+    WELL_KNOWN_FRAME_ENCODING_MSGPACK = 6;
+    WELL_KNOWN_FRAME_ENCODING_JSON = 7;
+  }
+
+  oneof encoding {
+    WellKnownFrameEncoding well_known = 1;
+    // Identifier of a custom encoding not covered by the well-known cases.
+    // This must be non-empty and no longer than 25 characters.
+    string custom = 2;
+  }
+}
+
+// Uniquely identifies a data track schema.
+message DataTrackSchemaId {
+  // Name component of the schema identifier.
+  required string name = 1;
+  // Encoding of the schema definition.
+  optional DataTrackSchemaEncoding encoding = 2;
+}
+
+// Define (store) a schema definition for the local participant.
+message DefineSchemaRequest {
+  required uint64 local_participant_handle = 1;
+  required DataTrackSchemaId schema_id = 2;
+  required string definition = 3;
+  optional uint64 request_async_id = 4;
+}
+message DefineSchemaResponse {
+  required uint64 async_id = 1;
+}
+message DefineSchemaCallback {
+  required uint64 async_id = 1;
+  // Present if the schema could not be defined.
+  optional string error = 2;
+}
+
+// Retrieve a schema definition previously stored by a participant.
+message GetSchemaRequest {
+  required uint64 local_participant_handle = 1;
+  required DataTrackSchemaId schema_id = 2;
+  // Identity of the participant who owns the schema.
+  required string participant_identity = 3;
+  optional uint64 request_async_id = 4;
+}
+message GetSchemaResponse {
+  required uint64 async_id = 1;
+}
+message GetSchemaCallback {
+  required uint64 async_id = 1;
+  // The schema definition, present on success.
+  optional string definition = 2;
+  // Present if the schema could not be retrieved.
+  optional string error = 3;
 }

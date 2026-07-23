@@ -134,6 +134,8 @@ impl Manager {
             handle,
             name: event.options.name,
             uses_e2ee: self.encryption_provider.is_some(),
+            schema: event.options.schema,
+            frame_encoding: event.options.frame_encoding,
         };
         _ = self.event_out_tx.send(event.into()).await;
     }
@@ -286,6 +288,8 @@ impl Manager {
                         handle: info.pub_handle,
                         name: info.name.clone(),
                         uses_e2ee: info.uses_e2ee,
+                        schema: info.schema.clone(),
+                        frame_encoding: info.frame_encoding.clone(),
                     };
                     _ = state_tx.send(PublishState::Republishing);
                     _ = self.event_out_tx.send(event.into()).await;
@@ -543,6 +547,8 @@ mod tests {
                             pub_handle,
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
+                            schema: None,
+                            frame_encoding: None,
                         };
                         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
                         _ = input.send(event.into());
@@ -622,6 +628,8 @@ mod tests {
             pub_handle: handle,
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -652,6 +660,8 @@ mod tests {
             pub_handle: event.handle,
             name: "secure".into(),
             uses_e2ee: true,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -692,6 +702,8 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -717,6 +729,8 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -746,6 +760,8 @@ mod tests {
                 pub_handle: event.handle,
                 name: name.into(),
                 uses_e2ee: false,
+                schema: None,
+                frame_encoding: None,
             };
             let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
             input.send(event.into()).unwrap();
@@ -785,6 +801,8 @@ mod tests {
             pub_handle: event.handle,
             name: "active".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();
