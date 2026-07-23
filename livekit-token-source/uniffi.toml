@@ -1,0 +1,5 @@
+[bindings.csharp]
+# Generated API types default to `internal`, so they're only visible inside the bindings'
+# own assembly. Emit them `public` so Unity scripts in other assemblies can use them
+# (create TokenSourceLiteral, call Fetch, read TokenSourceResponse, catch TokenSourceException).
+access_modifier = "public"

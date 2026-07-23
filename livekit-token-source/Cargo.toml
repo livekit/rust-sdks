@@ -7,7 +7,12 @@ edition.workspace = true
 repository.workspace = true
 readme = "README.md"
 
+[lib]
+crate-type = ["cdylib", "lib"]
+# name = "_livekit_token_source"
+
 [dependencies]
 reqwest = { workspace = true, features = ["rustls-tls-native-roots"] }
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
+uniffi = { workspace = true, features = ["tokio", "scaffolding-ffi-buffer-fns"] }
