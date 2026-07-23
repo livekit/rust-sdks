@@ -2,6 +2,8 @@
 livekit-net: minor
 livekit-api: major
 livekit: major
+livekit-ffi: patch
+livekit-uniffi: patch
 ---
 
 Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
