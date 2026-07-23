@@ -10,8 +10,8 @@ use livekit::prelude::*;
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
-use log::{debug, info};
-use parking_lot::Mutex;
+use log::{debug, info, warn};
+use parking_lot::{Condvar, Mutex};
 use std::{
     collections::{HashMap, VecDeque},
     env,
@@ -20,6 +20,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
+    thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -475,12 +476,134 @@ impl AtomicVideoSize {
     }
 }
 
-/// Carried from prepare into the WGPU paint callback to stamp the paint boundary.
+/// Carried from prepare into the WGPU paint callback to stamp render boundaries.
 #[derive(Clone, Copy, Debug)]
 struct PendingPaintSample {
     frame_id: Option<u32>,
     capture_timestamp_us: u64,
     prepare_timestamp_us: u64,
+}
+
+const GPU_POLL_TIMEOUT: Duration = Duration::from_millis(5);
+const GPU_POLL_QUEUE_EMPTY_RETRY_DELAY: Duration = Duration::from_micros(100);
+
+#[derive(Default)]
+struct GpuCompletionPollState {
+    pending: usize,
+    shutdown: bool,
+}
+
+#[derive(Default)]
+struct GpuCompletionPollShared {
+    state: Mutex<GpuCompletionPollState>,
+    wake: Condvar,
+}
+
+impl GpuCompletionPollShared {
+    fn begin_probe(self: &Arc<Self>) -> GpuCompletionProbe {
+        self.state.lock().pending += 1;
+        self.wake.notify_one();
+        GpuCompletionProbe { shared: Some(self.clone()) }
+    }
+
+    fn request_shutdown(&self) {
+        self.state.lock().shutdown = true;
+        self.wake.notify_one();
+    }
+}
+
+struct GpuCompletionProbe {
+    shared: Option<Arc<GpuCompletionPollShared>>,
+}
+
+impl GpuCompletionProbe {
+    fn inactive() -> Self {
+        Self { shared: None }
+    }
+}
+
+impl Drop for GpuCompletionProbe {
+    fn drop(&mut self) {
+        let Some(shared) = self.shared.take() else {
+            return;
+        };
+
+        let mut state = shared.state.lock();
+        state.pending = state.pending.saturating_sub(1);
+        if state.pending == 0 {
+            shared.wake.notify_one();
+        }
+    }
+}
+
+struct GpuCompletionPoller {
+    shared: Arc<GpuCompletionPollShared>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl GpuCompletionPoller {
+    fn new(device: wgpu::Device) -> Self {
+        let shared = Arc::new(GpuCompletionPollShared::default());
+        let worker_shared = shared.clone();
+        let worker = thread::Builder::new()
+            .name("local-video-gpu-completion".to_string())
+            .spawn(move || poll_gpu_completions(device, worker_shared))
+            .map_err(|err| warn!("Unable to start GPU-completion polling thread: {err}"))
+            .ok();
+        Self { shared, worker }
+    }
+
+    fn begin_probe(&self) -> GpuCompletionProbe {
+        if self.worker.is_some() {
+            self.shared.begin_probe()
+        } else {
+            GpuCompletionProbe::inactive()
+        }
+    }
+}
+
+impl Drop for GpuCompletionPoller {
+    fn drop(&mut self) {
+        self.shared.request_shutdown();
+        if let Some(worker) = self.worker.take() {
+            if worker.join().is_err() {
+                warn!("GPU-completion polling thread panicked during shutdown");
+            }
+        }
+    }
+}
+
+fn poll_gpu_completions(device: wgpu::Device, shared: Arc<GpuCompletionPollShared>) {
+    let mut poll_error_logged = false;
+    loop {
+        {
+            let mut state = shared.state.lock();
+            while state.pending == 0 && !state.shutdown {
+                shared.wake.wait(&mut state);
+            }
+            if state.shutdown {
+                return;
+            }
+        }
+
+        let result = device
+            .poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(GPU_POLL_TIMEOUT) });
+        match result {
+            Ok(status) if status.is_queue_empty() => {
+                // The paint callback runs just before eframe submits. If the worker wins
+                // that race, briefly back off and wait for the containing submission.
+                thread::sleep(GPU_POLL_QUEUE_EMPTY_RETRY_DELAY);
+            }
+            Ok(_) | Err(wgpu::PollError::Timeout) => {}
+            Err(err) => {
+                if !poll_error_logged {
+                    warn!("Unable to poll GPU completion: {err}");
+                    poll_error_logged = true;
+                }
+                thread::sleep(GPU_POLL_TIMEOUT);
+            }
+        }
+    }
 }
 
 struct PendingPaintSampleSlot {
@@ -833,6 +956,22 @@ mod tests {
         let low_latency_args =
             Args::try_parse_from(["subscriber", "--low-latency"]).expect("flag should parse");
         assert!(low_latency_args.low_latency);
+    }
+
+    #[test]
+    fn gpu_completion_poll_state_tracks_probes_and_shutdown() {
+        let shared = Arc::new(GpuCompletionPollShared::default());
+        let first = shared.begin_probe();
+        let second = shared.begin_probe();
+        assert_eq!(shared.state.lock().pending, 2);
+
+        drop(first);
+        assert_eq!(shared.state.lock().pending, 1);
+        drop(second);
+        assert_eq!(shared.state.lock().pending, 0);
+
+        shared.request_shutdown();
+        assert!(shared.state.lock().shutdown);
     }
 
     #[test]
@@ -1734,6 +1873,7 @@ struct YuvGpuState {
     dims: (u32, u32),
     yuv_layout: u32,
     pending_paint_sample: PendingPaintSampleSlot,
+    gpu_completion_poller: GpuCompletionPoller,
     cpu_upload_logged: bool,
     #[cfg(target_os = "macos")]
     native_resources: Option<macos_native_video::NativeFrameResources>,
@@ -2025,6 +2165,7 @@ impl CallbackTrait for YuvPaintCallback {
                 dims: (0, 0),
                 yuv_layout: 0,
                 pending_paint_sample: PendingPaintSampleSlot::new(),
+                gpu_completion_poller: GpuCompletionPoller::new(device.clone()),
                 cpu_upload_logged: false,
                 #[cfg(target_os = "macos")]
                 native_resources: None,
@@ -2271,19 +2412,26 @@ impl CallbackTrait for YuvPaintCallback {
             return;
         }
 
-        let painted_sample = state.pending_paint_sample.take();
+        let draw_sample = state.pending_paint_sample.take();
 
         render_pass.set_pipeline(&state.pipeline);
         render_pass.set_bind_group(0, &state.bind_group, &[]);
         render_pass.draw(0..3, 0..1);
 
-        if let Some(sample) = painted_sample {
-            self.subscriber_timing.record_frame_painted(
+        if let Some(sample) = draw_sample {
+            let completion_token = self.subscriber_timing.record_frame_draw_encoded(
                 sample.capture_timestamp_us,
                 sample.frame_id,
                 sample.prepare_timestamp_us,
                 current_timestamp_us(),
             );
+            let completion_probe = state.gpu_completion_poller.begin_probe();
+            let subscriber_timing = self.subscriber_timing.clone();
+            render_pass.on_submitted_work_done(move || {
+                subscriber_timing
+                    .record_frame_gpu_complete(completion_token, current_timestamp_us());
+                drop(completion_probe);
+            });
         }
     }
 }
