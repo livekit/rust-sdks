@@ -1,12 +1,8 @@
----
-livekit-net: minor
-livekit-api: major
-livekit: major
-livekit-ffi: patch
-livekit-uniffi: patch
----
+## 0.1.1 (2026-07-23)
 
-Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
+### Features
+
+#### Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
 
 The signalling WebSocket and the two pre-connect HTTP GETs (validate, region discovery) now go through pluggable transport traits (`WsClient` for the WebSocket, `HttpClient` for request/response) resolved from a process-global registry with independent slots — a consumer can bring only HTTP, or only WebSocket. The new `livekit-net` crate owns the WebSocket/HTTP/TLS stack behind those traits and ships native (tokio / async-std) backends. Native builds are unchanged in behavior.
 
