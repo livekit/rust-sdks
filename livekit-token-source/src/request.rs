@@ -12,23 +12,31 @@ use std::collections::HashMap;
 ///     ..Default::default()
 /// };
 /// ```
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, uniffi::Record)]
 pub struct TokenSourceFetchOptions {
     /// The name of the room being requested when generating credentials.
+    #[uniffi(default)]
     pub room_name: Option<String>,
     /// The name of the participant being requested when generating credentials.
+    #[uniffi(default)]
     pub participant_name: Option<String>,
     /// The identity of the participant being requested when generating credentials.
+    #[uniffi(default)]
     pub participant_identity: Option<String>,
     /// The metadata of the participant being requested when generating credentials.
+    #[uniffi(default)]
     pub participant_metadata: Option<String>,
     /// The attributes of the participant being requested when generating credentials.
+    #[uniffi(default)]
     pub participant_attributes: Option<HashMap<String, String>>,
     /// The name of the agent to dispatch into the room.
+    #[uniffi(default)]
     pub agent_name: Option<String>,
     /// The metadata to pass to the dispatched agent.
+    #[uniffi(default)]
     pub agent_metadata: Option<String>,
     /// Optional deployment to target. Leave empty to target the production deployment.
+    #[uniffi(default)]
     pub agent_deployment: Option<String>,
 }
 
