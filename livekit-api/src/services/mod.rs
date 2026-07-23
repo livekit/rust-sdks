@@ -17,6 +17,7 @@ use std::fmt::{Debug, Display};
 
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use thiserror::Error;
+use url::Url;
 
 use crate::access_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
 
