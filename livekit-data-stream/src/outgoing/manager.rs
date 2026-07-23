@@ -1153,8 +1153,7 @@ mod tests {
     #[tokio::test]
     async fn send_text_inline_with_sender_identity_stamps_packet() {
         let (m, sent) = setup();
-        let opts =
-            text_opts("chat", &["alice", "bob"]).with_sender_identity("impostor");
+        let opts = text_opts("chat", &["alice", "bob"]).with_sender_identity("impostor");
         m.send_text("hello hello compressible world", opts, &all_v2_room()).await.unwrap();
         let p = sent.lock().unwrap().clone();
         assert_eq!(p.len(), 1);
