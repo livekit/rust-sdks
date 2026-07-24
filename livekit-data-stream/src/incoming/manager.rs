@@ -296,6 +296,11 @@ impl Manager {
                 .into(),
         );
 
+        if bytes_total.is_some_and(|total| total > self.max_payload_byte_length as u64) {
+            let _ = chunk_tx.send(Err(StreamError::PayloadTooLarge));
+            return;
+        }
+
         // Inline single-packet stream: synthesize the complete content now; no chunk/trailer
         // packets will follow, so we never register an open descriptor.
         if let Some(content) = inline_content {
@@ -310,6 +315,10 @@ impl Manager {
                     }
                 }
             } else {
+                if content.len() > self.max_payload_byte_length {
+                    let _ = chunk_tx.send(Err(StreamError::PayloadTooLarge));
+                    return;
+                }
                 content
             };
             // The whole payload arrives at once, so publish a single completed progress update.
@@ -449,11 +458,14 @@ impl Manager {
 
         descriptor.progress.chunk_index += 1;
         descriptor.progress.bytes_processed += chunk.content.len() as u64;
+        let bytes_processed = descriptor.progress.bytes_processed;
+        let bytes_total = descriptor.progress.bytes_total;
 
-        if match descriptor.progress.bytes_total {
-            Some(total) => descriptor.progress.bytes_processed > total,
-            None => false,
-        } {
+        if bytes_processed > self.max_payload_byte_length as u64 {
+            inner.close_stream_with_error(&id, StreamError::PayloadTooLarge);
+            return;
+        }
+        if bytes_total.is_some_and(|total| bytes_processed > total) {
             inner.close_stream_with_error(&id, StreamError::LengthExceeded);
             return;
         }
@@ -822,6 +834,53 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn v1_max_payload_size_breached_with_unknown_total() {
+            // A stream with no declared total must still be bounded by the receiver's cap.
+            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", None, None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            for i in 0..3 {
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", i, vec![0u8; 400]),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            assert!(matches!(read_bytes(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
+
+        #[tokio::test]
+        async fn v1_max_payload_size_fast_fails_on_declared_total() {
+            // A header declaring a total above the cap is rejected before any chunks arrive.
+            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(2_000), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert!(matches!(read_bytes(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
+
+        #[tokio::test]
+        async fn v1_payload_exactly_at_max_payload_size_succeeds() {
+            // The cap is inclusive: a payload of exactly max_payload_byte_length is accepted.
+            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", Some(1_000), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, vec![7u8; 1_000]),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(read_bytes(reader).await.unwrap().len(), 1_000);
+        }
+
+        #[tokio::test]
         async fn v1_drops_on_encryption_type_mismatch() {
             let mut h = Harness::new(vec![]);
             h.send_packet(Packet::Header {
@@ -961,6 +1020,19 @@ mod tests {
             });
             let (reader, _) = h.next_opened().await;
             assert!(matches!(read_text(reader).await, Err(StreamError::PayloadTooLarge)));
+        }
+
+        #[tokio::test]
+        async fn v2_inline_uncompressed_max_payload_size_breached() {
+            // The cap applies to uncompressed inline payloads too. No declared total, so the
+            // inline content check (not the header fast-fail) is what trips.
+            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            h.send_packet(Packet::Header {
+                header: byte_header("s1", None, Some(vec![0u8; 2_000]), CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert!(matches!(read_bytes(reader).await, Err(StreamError::PayloadTooLarge)));
         }
 
         #[tokio::test]
