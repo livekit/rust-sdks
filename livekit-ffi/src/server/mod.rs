@@ -176,8 +176,16 @@ impl FfiServer {
 
         self.logger.set_capture_logs(false);
 
-        // Drop all handles
         *self.config.lock() = None; // Invalidate the config
+        self.ffi_handles.clear();
+        self.handle_dropped_txs.clear();
+
+        // Note: clearing the handles above releases the last FFI-held
+        // references to the shared LkRuntime, but its teardown may complete
+        // asynchronously on another thread. dispose() intentionally does not
+        // block on it; `LkRuntime::instance()` waits for any in-flight
+        // teardown before constructing the next runtime, so a subsequent
+        // initialize cannot overlap it.
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {

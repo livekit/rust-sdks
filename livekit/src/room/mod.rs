@@ -1097,6 +1097,11 @@ impl RoomSession {
     async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
 
+        // AudioTransportImpl stores raw AudioSender pointers. Keep capture
+        // stopped through unpublish, peer transport close, and task teardown so
+        // delayed sender cleanup cannot race CaptureWorkerThread.
+        let _capture_pause = self.rtc_engine.pause_audio_capture();
+
         // remove published tracks
         for (sid, _) in self.local_participant.track_publications().iter() {
             let _ = self.local_participant.unpublish_track(sid).await;

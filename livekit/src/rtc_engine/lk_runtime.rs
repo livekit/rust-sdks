@@ -14,12 +14,16 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::{Arc, Weak},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Weak,
+    },
+    time::Duration,
 };
 
 use lazy_static::lazy_static;
 use libwebrtc::prelude::*;
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use thiserror::Error;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -27,6 +31,45 @@ use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<LkRuntimeState> = Mutex::new(LkRuntimeState::default());
+
+    /// Number of [`LkRuntime`] instances created but not yet fully dropped.
+    ///
+    /// Unlike [`LK_RUNTIME`] (whose [`Weak`] stops upgrading the instant the
+    /// strong count hits zero, i.e. *before* `Drop` runs), this only reaches
+    /// zero once teardown - peer connection factory destruction, ADM
+    /// termination, capture/render worker-thread joins - has fully completed.
+    static ref LK_RUNTIME_TEARDOWN_GATE: (Mutex<usize>, Condvar) =
+        (Mutex::new(0), Condvar::new());
+}
+
+/// How long to wait for a previous runtime's teardown before giving up.
+const RUNTIME_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(10);
+static NEXT_RUNTIME_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// Tracks a live [`LkRuntime`] in [`LK_RUNTIME_TEARDOWN_GATE`].
+///
+/// Must be the *last* field of [`LkRuntime`]: struct fields drop in
+/// declaration order, so this guard's `Drop` (which opens the gate) only runs
+/// after `pc_factory` has been fully destroyed.
+struct RuntimeTeardownGuard {
+    generation: u64,
+}
+
+impl RuntimeTeardownGuard {
+    fn new(generation: u64) -> Self {
+        *LK_RUNTIME_TEARDOWN_GATE.0.lock() += 1;
+        Self { generation }
+    }
+}
+
+impl Drop for RuntimeTeardownGuard {
+    fn drop(&mut self) {
+        let (lock, cv) = &*LK_RUNTIME_TEARDOWN_GATE;
+        let mut live = lock.lock();
+        *live = live.saturating_sub(1);
+        log::debug!("LkRuntime generation {} teardown completed", self.generation);
+        cv.notify_all();
+    }
 }
 
 #[derive(Default)]
@@ -57,6 +100,42 @@ pub struct WebRtcRuntimeInitializedError;
 pub struct LkRuntime {
     pc_factory: PeerConnectionFactory,
     zero_playout_delay: bool,
+    active_rtc_sessions: Mutex<usize>,
+    /// Keep last so it drops after `pc_factory`; see [`RuntimeTeardownGuard`].
+    _teardown_guard: RuntimeTeardownGuard,
+}
+
+/// Keeps the runtime's audio transport alive while an RTC session can use it.
+///
+/// Dropping the last guard synchronously stops ADM workers and detaches their
+/// callback before the final session's peer transports can be reclaimed.
+pub(crate) struct ActiveRtcSessionGuard {
+    runtime: Arc<LkRuntime>,
+}
+
+/// Keeps platform capture stopped while WebRTC's audio sender list mutates.
+pub(crate) struct AudioCapturePauseGuard {
+    runtime: Arc<LkRuntime>,
+}
+
+impl Drop for AudioCapturePauseGuard {
+    fn drop(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.runtime.pc_factory.resume_audio_capture();
+    }
+}
+
+impl Drop for ActiveRtcSessionGuard {
+    fn drop(&mut self) {
+        let mut active_sessions = self.runtime.active_rtc_sessions.lock();
+        debug_assert!(*active_sessions > 0);
+        *active_sessions = active_sessions.saturating_sub(1);
+        if *active_sessions == 0 {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.runtime.shutdown_audio_io();
+            log::debug!("last RTC session released; audio I/O shut down");
+        }
+    }
 }
 
 impl Debug for LkRuntime {
@@ -78,7 +157,22 @@ impl LkRuntime {
         if let Some(lk_runtime) = state.runtime.upgrade() {
             lk_runtime
         } else {
-            log::debug!("LkRuntime::new()");
+            // The previous runtime's strong count may have just reached zero
+            // while its `Drop` (factory + ADM teardown, including joining the
+            // platform capture/render worker threads) is still running on
+            // another thread. Creating a new factory/ADM concurrently with
+            // that teardown races platform audio/device state, so wait for it
+            // to finish first. Holding the `LK_RUNTIME` lock here is safe: the
+            // dropping thread only touches the teardown gate, never this lock.
+            if !Self::wait_for_teardown(RUNTIME_TEARDOWN_TIMEOUT) {
+                log::error!(
+                    "LkRuntime::instance() timed out after {RUNTIME_TEARDOWN_TIMEOUT:?} waiting \
+                     for a previous runtime to tear down; continuing anyway - audio I/O from the \
+                     old runtime may still be shutting down"
+                );
+            }
+            let generation = NEXT_RUNTIME_GENERATION.fetch_add(1, Ordering::Relaxed);
+            log::debug!("LkRuntime::new(generation={generation})");
             let zero_playout_delay = state.zero_playout_delay;
             #[cfg(not(target_arch = "wasm32"))]
             let pc_factory = if zero_playout_delay {
@@ -88,14 +182,51 @@ impl LkRuntime {
             };
             #[cfg(target_arch = "wasm32")]
             let pc_factory = PeerConnectionFactory::default();
-            let new_runtime = Arc::new(Self { pc_factory, zero_playout_delay });
+            let new_runtime = Arc::new(Self {
+                pc_factory,
+                zero_playout_delay,
+                active_rtc_sessions: Mutex::new(0),
+                _teardown_guard: RuntimeTeardownGuard::new(generation),
+            });
             state.runtime = Arc::downgrade(&new_runtime);
             new_runtime
         }
     }
 
+    /// Blocks until every previously created runtime has finished tearing down,
+    /// or `timeout` elapses.
+    ///
+    /// Returns `true` once no runtime teardown is in flight, `false` on
+    /// timeout. Used by [`instance`](Self::instance) before constructing a new
+    /// runtime, so that no factory/ADM teardown from a previous lifecycle
+    /// overlaps the next one's startup.
+    pub(crate) fn wait_for_teardown(timeout: Duration) -> bool {
+        let (lock, cv) = &*LK_RUNTIME_TEARDOWN_GATE;
+        let mut live = lock.lock();
+        if *live == 0 {
+            return true;
+        }
+        log::debug!("waiting for {} previous LkRuntime teardown(s) to complete", *live);
+        !cv.wait_while_for(&mut live, |live| *live > 0, timeout).timed_out()
+    }
+
     pub fn pc_factory(&self) -> &PeerConnectionFactory {
         &self.pc_factory
+    }
+
+    /// Registers an RTC session that may own the factory's audio transport.
+    pub(crate) fn register_rtc_session(self: &Arc<Self>) -> ActiveRtcSessionGuard {
+        let mut active_sessions = self.active_rtc_sessions.lock();
+        *active_sessions += 1;
+        log::debug!("registered RTC session (active={})", *active_sessions);
+        ActiveRtcSessionGuard { runtime: self.clone() }
+    }
+
+    /// Stops capture until the returned guard is dropped.
+    pub(crate) fn pause_audio_capture(self: &Arc<Self>) -> AudioCapturePauseGuard {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.pc_factory.pause_audio_capture();
+        AudioCapturePauseGuard { runtime: self.clone() }
     }
 
     // ===== Device Management Methods =====
@@ -300,8 +431,9 @@ impl LkRuntime {
 
     /// Releases a reference to the Platform ADM.
     ///
-    /// When the reference count reaches zero, the Platform ADM is terminated
-    /// and the proxy returns to synthetic mode.
+    /// When the reference count reaches zero, platform audio I/O is stopped and
+    /// the proxy returns to synthetic mode. The ADM remains available for a
+    /// later acquire.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn release_platform_adm(&self) {
         self.pc_factory.release_platform_adm()
@@ -317,6 +449,12 @@ impl LkRuntime {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn is_platform_adm_active(&self) -> bool {
         self.pc_factory.is_platform_adm_active()
+    }
+
+    /// Stops platform/synthetic audio I/O before runtime teardown.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn shutdown_audio_io(&self) {
+        self.pc_factory.shutdown_audio_io();
     }
 }
 
@@ -348,5 +486,7 @@ mod tests {
 impl Drop for LkRuntime {
     fn drop(&mut self) {
         log::debug!("LkRuntime::drop()");
+        #[cfg(not(target_arch = "wasm32"))]
+        self.shutdown_audio_io();
     }
 }
