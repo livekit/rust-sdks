@@ -1,0 +1,223 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use bytes::{Bytes, BytesMut};
+use futures_util::StreamExt;
+use livekit_data_stream::{api as ds_api, backend as ds};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::Mutex;
+use tokio_util::sync::{CancellationToken, DropGuard};
+
+use super::common::{decode_data_packet, ByteStreamInfo, DataStreamError, TextStreamInfo};
+use ds_api::StreamReader as _;
+
+/// Receives inbound data-stream packets and processes them on the incoming manager's actor loop,
+/// surfacing opened readers through a foreign delegate.
+///
+/// Mirrors [`crate::data_track::remote::RemoteDataTrackManager`]: `handle_packet_received` is a
+/// cheap synchronous enqueue (safe to call from a native data-channel callback), while
+/// decompression and reassembly happen on the spawned `run` task in packet order.
+#[derive(uniffi::Object)]
+pub struct IncomingDataStreamManager {
+    input: ds::incoming::ManagerInput,
+    _guard: DropGuard,
+}
+
+/// Delegate for receiving output events from [`IncomingDataStreamManager`].
+///
+/// Only stream-open events are surfaced. The manager's deprecated v1 raw chunk/trailer
+/// notifications are intentionally not forwarded over the FFI boundary.
+#[uniffi::export(with_foreign)]
+pub trait IncomingDataStreamManagerDelegate: Send + Sync {
+    /// A byte stream was opened by `identity` and is ready to be read.
+    fn on_byte_stream_opened(&self, reader: Arc<ByteStreamReader>, identity: String);
+
+    /// A text stream was opened by `identity` and is ready to be read.
+    fn on_text_stream_opened(&self, reader: Arc<TextStreamReader>, identity: String);
+}
+
+#[uniffi::export]
+impl IncomingDataStreamManager {
+    #[uniffi::constructor]
+    pub fn new(delegate: Arc<dyn IncomingDataStreamManagerDelegate>, max_payload_byte_length: Option<usize>) -> Arc<Self> {
+        let token = CancellationToken::new();
+        // No reserved topics: RPC routing is a concern of the `livekit` crate, not this FFI layer.
+        let (manager, input, output) = ds::incoming::Manager::new(vec![], max_payload_byte_length);
+
+        let rt = crate::runtime::runtime();
+        rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
+        let delegate_forward = DelegateForwardTask { output, delegate, token: token.clone() };
+        rt.spawn(delegate_forward.run());
+        rt.spawn(manager.run());
+
+        Self { input, _guard: token.drop_guard() }.into()
+    }
+
+    /// Handles an encoded [`livekit_protocol::DataPacket`] received over the data channel.
+    ///
+    /// Fire-and-forget: the packet is decoded and enqueued in order; processing happens on the
+    /// manager's run loop. Non-data-stream or undecodable packets are ignored.
+    pub fn handle_packet_received(&self, packet: Bytes) {
+        if let Some(event) = decode_data_packet(&packet) {
+            let _ = self.input.send(event.into());
+        }
+    }
+}
+
+/// Reader for an incoming byte data stream.
+#[derive(uniffi::Object)]
+pub struct ByteStreamReader {
+    info: ByteStreamInfo,
+    inner: Mutex<ds_api::ByteStreamReader>,
+}
+
+impl ByteStreamReader {
+    fn new(reader: ds_api::ByteStreamReader) -> Self {
+        Self { info: reader.info().clone().into(), inner: Mutex::new(reader) }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl ByteStreamReader {
+    /// Information about the underlying stream.
+    pub fn info(&self) -> ByteStreamInfo {
+        self.info.clone()
+    }
+
+    /// Returns the next chunk, or `None` once the stream has closed.
+    pub async fn next(&self) -> Result<Option<Bytes>, DataStreamError> {
+        Ok(self.inner.lock().await.next().await.transpose()?)
+    }
+
+    /// Reads every chunk, concatenating them into a single buffer returned once the stream closes.
+    pub async fn read_all(&self) -> Result<Bytes, DataStreamError> {
+        let mut reader = self.inner.lock().await;
+        let mut buffer = BytesMut::new();
+        while let Some(chunk) = reader.next().await {
+            buffer.extend_from_slice(&chunk?);
+        }
+        Ok(buffer.freeze())
+    }
+
+    /// Streams the contents to a file as chunks arrive, returning the written path.
+    ///
+    /// `directory` defaults to the system temp dir; `name_override` defaults to the stream name.
+    pub async fn write_to_file(
+        &self,
+        directory: Option<String>,
+        name_override: Option<String>,
+    ) -> Result<String, DataStreamError> {
+        use tokio::io::AsyncWriteExt as _;
+        let directory = directory.map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        let name = name_override.unwrap_or_else(|| self.info.name.clone());
+        let path = directory.join(name);
+
+        let mut reader = self.inner.lock().await;
+        let mut file = tokio::fs::File::create(&path).await.map_err(ds_api::StreamError::Io)?;
+        while let Some(chunk) = reader.next().await {
+            file.write_all(&chunk?).await.map_err(ds_api::StreamError::Io)?;
+        }
+        file.flush().await.map_err(ds_api::StreamError::Io)?;
+        Ok(path.to_string_lossy().into_owned())
+    }
+}
+
+/// Reader for an incoming text data stream.
+#[derive(uniffi::Object)]
+pub struct TextStreamReader {
+    info: TextStreamInfo,
+    inner: Mutex<ds_api::TextStreamReader>,
+}
+
+impl TextStreamReader {
+    fn new(reader: ds_api::TextStreamReader) -> Self {
+        Self { info: reader.info().clone().into(), inner: Mutex::new(reader) }
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl TextStreamReader {
+    /// Information about the underlying stream.
+    pub fn info(&self) -> TextStreamInfo {
+        self.info.clone()
+    }
+
+    /// Returns the next chunk, or `None` once the stream has closed.
+    pub async fn next(&self) -> Result<Option<String>, DataStreamError> {
+        Ok(self.inner.lock().await.next().await.transpose()?)
+    }
+
+    /// Reads every chunk, concatenating them into a single string returned once the stream closes.
+    pub async fn read_all(&self) -> Result<String, DataStreamError> {
+        let mut reader = self.inner.lock().await;
+        let mut result = String::new();
+        while let Some(chunk) = reader.next().await {
+            result.push_str(&chunk?);
+        }
+        Ok(result)
+    }
+}
+
+/// Forwards manager output events to the foreign [`IncomingDataStreamManagerDelegate`].
+struct DelegateForwardTask {
+    output: UnboundedReceiver<ds::incoming::OutputEvent>,
+    delegate: Arc<dyn IncomingDataStreamManagerDelegate>,
+    token: CancellationToken,
+}
+
+impl DelegateForwardTask {
+    async fn run(mut self) {
+        loop {
+            tokio::select! {
+                _ = self.token.cancelled() => break,
+                event = self.output.recv() => match event {
+                    Some(event) => self.forward_event(event),
+                    None => break,
+                }
+            }
+        }
+    }
+
+    fn forward_event(&self, event: ds::incoming::OutputEvent) {
+        match event {
+            ds::incoming::OutputEvent::StreamOpened(ds::incoming::StreamOpened {
+                stream_reader,
+                participant_identity,
+            }) => {
+                let identity = participant_identity.to_string();
+                match stream_reader {
+                    ds_api::AnyStreamReader::Byte(reader) => {
+                        let reader = Arc::new(ByteStreamReader::new(reader));
+                        self.delegate.on_byte_stream_opened(reader, identity);
+                    }
+                    ds_api::AnyStreamReader::Text(reader) => {
+                        let reader = Arc::new(TextStreamReader::new(reader));
+                        self.delegate.on_text_stream_opened(reader, identity);
+                    }
+                }
+            }
+            // Deprecated v1 raw chunk/trailer notifications are not surfaced over the FFI boundary.
+            ds::incoming::OutputEvent::ChunkReceived(_)
+            | ds::incoming::OutputEvent::TrailerReceived(_) => {}
+        }
+    }
+}
+
+async fn shutdown_forward_task(input: ds::incoming::ManagerInput, token: CancellationToken) {
+    token.cancelled().await;
+    let _ = input.send(ds::incoming::InputEvent::Shutdown);
+}
