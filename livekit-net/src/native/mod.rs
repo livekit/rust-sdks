@@ -109,7 +109,12 @@ impl HttpClient for NativeTransport {
     ) -> Result<HttpResponse, TransportError> {
         #[cfg(feature = "__native-tokio")]
         {
-            let client = reqwest::Client::new();
+            // One process-wide client: reqwest pools connections per client, so a
+            // per-request client would redo TCP/TLS setup (and root-store loading)
+            // on every call.
+            static CLIENT: std::sync::LazyLock<reqwest::Client> =
+                std::sync::LazyLock::new(reqwest::Client::new);
+            let client = &*CLIENT;
             let mut req = match method {
                 HttpMethod::Get => client.get(&url),
                 HttpMethod::Post => client.post(&url),
