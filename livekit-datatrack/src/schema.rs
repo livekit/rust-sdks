@@ -374,8 +374,8 @@ mod tests {
     fn test_validate_schema_custom() {
         assert_eq!(
             validate_schema(
-                Some(&DataTrackFrameEncoding::Custom("my-frame".to_string())),
-                Some(&DataTrackSchemaEncoding::Custom("my-encoding".to_string()))
+                Some(&DataTrackFrameEncoding::Custom("my-frame-encoding".to_string())),
+                Some(&DataTrackSchemaEncoding::Custom("my-schema-encoding".to_string()))
             ),
             Ok(())
         );
@@ -386,6 +386,14 @@ mod tests {
         assert_eq!(
             validate_schema(None, Some(&DataTrackSchemaEncoding::Protobuf)),
             Err(DataTrackSchemaError::MissingFrameEncoding)
+        );
+    }
+
+    #[test]
+    fn test_validate_schema_missing_schema_id() {
+        assert_eq!(
+            validate_schema(Some(&DataTrackFrameEncoding::Protobuf), None),
+            Err(DataTrackSchemaError::MissingSchemaId)
         );
     }
 
