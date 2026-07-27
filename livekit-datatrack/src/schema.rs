@@ -82,6 +82,7 @@ impl DataTrackSchemaId {
 #[non_exhaustive]
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum DataTrackSchemaEncoding {
     /// Protocol Buffer IDL, describes [`Protobuf`] encoded frames.
     ///
@@ -132,6 +133,7 @@ pub enum DataTrackSchemaEncoding {
 #[non_exhaustive]
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum DataTrackFrameEncoding {
     /// ROS 1, must be described by a [`Ros1Msg`] schema.
     ///
