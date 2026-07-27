@@ -57,6 +57,7 @@ const PublishDataTrackErrorCode = /*@__PURE__*/ proto2.makeEnum(
     {no: 7, name: "PUBLISH_DATA_TRACK_ERROR_CODE_LIMIT_REACHED", localName: "LIMIT_REACHED"},
     {no: 8, name: "PUBLISH_DATA_TRACK_ERROR_CODE_PROTOCOL_ERROR", localName: "PROTOCOL_ERROR"},
     {no: 9, name: "PUBLISH_DATA_TRACK_ERROR_CODE_INTERNAL", localName: "INTERNAL"},
+    {no: 10, name: "PUBLISH_DATA_TRACK_ERROR_CODE_INVALID_SCHEMA", localName: "INVALID_SCHEMA"},
   ],
 );
 

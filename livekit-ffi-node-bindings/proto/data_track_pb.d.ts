@@ -124,6 +124,11 @@ export declare enum PublishDataTrackErrorCode {
    * @generated from enum value: PUBLISH_DATA_TRACK_ERROR_CODE_INTERNAL = 9;
    */
   INTERNAL = 9,
+
+  /**
+   * @generated from enum value: PUBLISH_DATA_TRACK_ERROR_CODE_INVALID_SCHEMA = 10;
+   */
+  INVALID_SCHEMA = 10,
 }
 
 /**
