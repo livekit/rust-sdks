@@ -14,6 +14,7 @@
 
 use livekit_protocol as proto;
 use std::sync::Arc;
+use thiserror::Error;
 
 /// Identifier for a data track schema.
 ///
@@ -169,6 +170,69 @@ pub enum DataTrackFrameEncoding {
     Custom(String),
 }
 
+#[derive(Debug, Error, PartialEq)]
+pub enum DataTrackSchemaError {
+    /// Frame encoding is required when providing schema ID.
+    #[error("Frame encoding is required when providing schema ID")]
+    MissingFrameEncoding,
+
+    /// Schema ID is required for frame encoding that is not self-describing.
+    #[error("Schema ID is required for frame encoding that is not self-describing")]
+    MissingSchemaId,
+
+    /// Specified schema and frame encodings are incompatible.
+    #[error("Specified schema and frame encodings are incompatible")]
+    Incompatible,
+}
+
+/// Validates that the given frame and schema encodings are compatible.
+pub(crate) fn validate_schema(
+    frame_encoding: Option<&DataTrackFrameEncoding>,
+    schema_encoding: Option<&DataTrackSchemaEncoding>,
+) -> Result<(), DataTrackSchemaError> {
+    match (frame_encoding, schema_encoding) {
+        (None, Some(_)) => Err(DataTrackSchemaError::MissingFrameEncoding),
+        (Some(frame_encoding), None) => match frame_encoding.is_self_describing() {
+            Some(false) => Err(DataTrackSchemaError::MissingSchemaId),
+            _ => Ok(()),
+        },
+        (Some(frame_encoding), Some(schema_encoding)) => {
+            match frame_encoding.is_described_by(schema_encoding) {
+                Some(false) => Err(DataTrackSchemaError::Incompatible),
+                _ => Ok(()),
+            }
+        }
+        (None, None) => Ok(()), // Not using schema metadata
+    }
+}
+
+impl DataTrackFrameEncoding {
+    /// Returns whether the frame encoding is self-describing (i.e. requires no schema).
+    fn is_self_describing(&self) -> Option<bool> {
+        match self {
+            Self::Cbor | Self::Msgpack | Self::Json => Some(true),
+            Self::Other | Self::Custom(_) => None, // Cannot be validated
+            _ => Some(false),
+        }
+    }
+
+    /// Returns whether the frame encoding can be described by the given schema encoding.
+    fn is_described_by(&self, schema_encoding: &DataTrackSchemaEncoding) -> Option<bool> {
+        use DataTrackSchemaEncoding as SchemaEncoding;
+        match (self, schema_encoding) {
+            (Self::Ros1, SchemaEncoding::Ros1Msg)
+            | (Self::Cdr, SchemaEncoding::Ros2Msg)
+            | (Self::Cdr, SchemaEncoding::Ros2Idl)
+            | (Self::Cdr, SchemaEncoding::OmgIdl)
+            | (Self::Protobuf, SchemaEncoding::Protobuf)
+            | (Self::Flatbuffer, SchemaEncoding::Flatbuffer)
+            | (Self::Json, SchemaEncoding::JsonSchema) => Some(true),
+            (Self::Other, _) | (Self::Custom(_), _) => None, // Cannot be validated
+            _ => Some(false),
+        }
+    }
+}
+
 impl From<proto::DataTrackSchemaId> for DataTrackSchemaId {
     fn from(msg: proto::DataTrackSchemaId) -> Self {
         let encoding = msg.encoding.map(Into::into).unwrap_or(DataTrackSchemaEncoding::Other);
@@ -277,5 +341,61 @@ impl fake::Dummy<fake::Faker> for DataTrackSchemaId {
         let name: String = Faker.fake_with_rng(rng);
         let encoding: DataTrackSchemaEncoding = Faker.fake_with_rng(rng);
         Self::new(name, encoding)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_schema_not_specified() {
+        assert_eq!(validate_schema(None, None), Ok(()));
+    }
+
+    #[test]
+    fn test_validate_schema_self_describing() {
+        assert_eq!(validate_schema(Some(&DataTrackFrameEncoding::Json), None), Ok(()));
+    }
+
+    #[test]
+    fn test_validate_schema_compatible_encodings() {
+        assert_eq!(
+            validate_schema(
+                Some(&DataTrackFrameEncoding::Cdr),
+                Some(&DataTrackSchemaEncoding::Ros2Idl)
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn test_validate_schema_custom() {
+        assert_eq!(
+            validate_schema(
+                Some(&DataTrackFrameEncoding::Custom("my-frame".to_string())),
+                Some(&DataTrackSchemaEncoding::Custom("my-encoding".to_string()))
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn test_validate_schema_missing_frame_encoding() {
+        assert_eq!(
+            validate_schema(None, Some(&DataTrackSchemaEncoding::Protobuf)),
+            Err(DataTrackSchemaError::MissingFrameEncoding)
+        );
+    }
+
+    #[test]
+    fn test_validate_schema_incompatible() {
+        assert_eq!(
+            validate_schema(
+                Some(&DataTrackFrameEncoding::Json),
+                Some(&DataTrackSchemaEncoding::Protobuf)
+            ),
+            Err(DataTrackSchemaError::Incompatible)
+        );
     }
 }

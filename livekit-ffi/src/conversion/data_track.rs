@@ -192,6 +192,7 @@ impl From<&PublishError> for proto::PublishDataTrackErrorCode {
             PublishError::NotAllowed => Self::NotAllowed,
             PublishError::InvalidName => Self::InvalidName,
             PublishError::LimitReached => Self::LimitReached,
+            PublishError::InvalidSchema(_) => Self::InvalidSchema,
             PublishError::Internal(_) => Self::Internal,
         }
     }

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    api::{DataTrack, DataTrackFrame, DataTrackInfo, InternalError},
+    api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackSchemaError, InternalError},
     schema::{DataTrackFrameEncoding, DataTrackSchemaId},
     track::DataTrackInner,
 };
@@ -228,6 +228,10 @@ pub enum PublishError {
     /// Cannot publish data track when the room is disconnected.
     #[error("Room disconnected")]
     Disconnected,
+
+    /// Schema metadata is invalid.
+    #[error(transparent)]
+    InvalidSchema(DataTrackSchemaError),
 
     /// Internal error, please report on GitHub.
     #[error(transparent)]

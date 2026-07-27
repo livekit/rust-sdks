@@ -108,6 +108,14 @@ impl Manager {
     }
 
     async fn on_publish_request(&mut self, event: PublishRequest) {
+        if let Err(error) = crate::schema::validate_schema(
+            event.options.frame_encoding.as_ref(),
+            event.options.schema.as_ref().map(|id| id.encoding()),
+        ) {
+            _ = event.result_tx.send(Err(PublishError::InvalidSchema(error)));
+            return;
+        }
+
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return;
