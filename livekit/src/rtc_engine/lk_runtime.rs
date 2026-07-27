@@ -14,7 +14,10 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::{Arc, Weak},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Weak,
+    },
 };
 
 use lazy_static::lazy_static;
@@ -28,6 +31,8 @@ use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 lazy_static! {
     static ref LK_RUNTIME: Mutex<LkRuntimeState> = Mutex::new(LkRuntimeState::default());
 }
+
+static FLEXFEC_CONFIGURED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Default)]
 struct LkRuntimeState {
@@ -96,6 +101,45 @@ impl LkRuntime {
 
     pub fn pc_factory(&self) -> &PeerConnectionFactory {
         &self.pc_factory
+    }
+
+    /// Enables the FlexFEC field trials and configures the fixed rate FEC
+    /// controller. The field trials only take effect when called before the
+    /// peer connection factory exists (i.e. before the first room of the
+    /// process is connected); the protection parameters can be updated at
+    /// any time.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn configure_flexfec(options: &crate::room::options::FlexFecOptions) {
+        use libwebrtc::native::fec_controller;
+
+        if !fec_controller::enable_flexfec_field_trials() {
+            log::warn!(
+                "FlexFEC field trials could not be applied: the peer connection factory \
+                 already exists. FlexFEC must be configured on the first room connection \
+                 of the process, only the protection parameters will be updated"
+            );
+        }
+        FLEXFEC_CONFIGURED.store(true, Ordering::Relaxed);
+        Self::set_flexfec_options(options);
+    }
+
+    /// Whether FlexFEC was requested for this process.
+    pub(crate) fn is_flexfec_configured() -> bool {
+        FLEXFEC_CONFIGURED.load(Ordering::Relaxed)
+    }
+
+    /// Updates the FlexFEC protection parameters, effective for all current
+    /// and future video send streams of the process.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn set_flexfec_options(options: &crate::room::options::FlexFecOptions) {
+        use libwebrtc::native::fec_controller;
+
+        fec_controller::set_fec_controller_config(fec_controller::FecControllerConfig {
+            enabled: true,
+            fec_rate: options.fec_rate(),
+            max_fec_frames: options.max_fec_frames.clamp(1, 48),
+            bursty_mask: options.bursty_mask,
+        });
     }
 
     // ===== Device Management Methods =====

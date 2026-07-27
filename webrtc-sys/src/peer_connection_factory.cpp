@@ -34,7 +34,9 @@
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/audio/audio_device.h"
 #include "api/audio_options.h"
+#include "api/field_trials.h"
 #include "livekit/adm_proxy.h"
+#include "livekit/fec_controller.h"
 #include "livekit/audio_track.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
@@ -55,21 +57,49 @@ constexpr char kForcePlayoutDelayValue[] = "min_ms:0,max_ms:0";
 
 class ZeroPlayoutDelayFieldTrials final : public webrtc::FieldTrialsView {
  public:
+  explicit ZeroPlayoutDelayFieldTrials(
+      std::unique_ptr<webrtc::FieldTrialsView> base = nullptr)
+      : base_(std::move(base)) {}
+
   std::string Lookup(absl::string_view key) const override {
-    return key == "WebRTC-ForcePlayoutDelay" ? kForcePlayoutDelayValue : "";
+    if (key == "WebRTC-ForcePlayoutDelay") {
+      return kForcePlayoutDelayValue;
+    }
+    return base_ ? base_->Lookup(key) : "";
   }
 
   std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
-    return std::make_unique<ZeroPlayoutDelayFieldTrials>();
+    return std::make_unique<ZeroPlayoutDelayFieldTrials>(
+        base_ ? base_->CreateCopy() : nullptr);
   }
+
+ private:
+  std::unique_ptr<webrtc::FieldTrialsView> base_;
 };
 
-webrtc::Environment CreateEnvironment(bool zero_playout_delay) {
-  if (zero_playout_delay) {
-    return webrtc::CreateEnvironment(
-        std::make_unique<ZeroPlayoutDelayFieldTrials>());
+// Builds the environment shared by the factory and its dependencies,
+// applying field trials configured via set_field_trials and the
+// LK_WEBRTC_FIELD_TRIALS environment variable.
+webrtc::Environment CreateFactoryEnvironment(bool zero_playout_delay) {
+  webrtc::EnvironmentFactory factory;
+  std::unique_ptr<webrtc::FieldTrialsView> field_trials;
+  std::string trials = FecGlobalState::Instance().BuildFieldTrialsString();
+  if (!trials.empty()) {
+    field_trials = webrtc::FieldTrials::Create(trials);
+    if (field_trials) {
+      RTC_LOG(LS_INFO) << "using field trials: " << trials;
+    } else {
+      RTC_LOG(LS_ERROR) << "invalid field trials string, ignoring: " << trials;
+    }
   }
-  return webrtc::CreateEnvironment();
+  if (zero_playout_delay) {
+    field_trials = std::make_unique<ZeroPlayoutDelayFieldTrials>(
+        std::move(field_trials));
+  }
+  if (field_trials) {
+    factory.Set(std::move(field_trials));
+  }
+  return factory.Create();
 }
 
 }  // namespace
@@ -84,7 +114,7 @@ PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     bool zero_playout_delay)
     : rtc_runtime_(rtc_runtime),
-      env_(CreateEnvironment(zero_playout_delay)) {
+      env_(CreateFactoryEnvironment(zero_playout_delay)) {
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
@@ -114,6 +144,11 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
+
+  // replaces FecControllerDefault for video send streams, behaves the same
+  // as no FEC until enabled via set_fec_controller_config
+  dependencies.fec_controller_factory = std::make_unique<LkFecControllerFactory>();
+  FecGlobalState::Instance().MarkFactoryCreated();
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =
