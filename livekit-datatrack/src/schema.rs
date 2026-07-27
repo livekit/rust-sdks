@@ -170,6 +170,7 @@ pub enum DataTrackFrameEncoding {
     Custom(String),
 }
 
+/// An error that can occur when validating data track schema metadata.
 #[derive(Debug, Error, PartialEq)]
 pub enum DataTrackSchemaError {
     /// Frame encoding is required when providing schema ID.
