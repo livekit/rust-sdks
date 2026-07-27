@@ -76,6 +76,15 @@ versioned_files = [
 changelog = "livekit-api/CHANGELOG.md"
 scopes = ["livekit-api"]
 
+[packages.livekit-net]
+versioned_files = [
+  "livekit-net/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-net" },
+]
+changelog = "livekit-net/CHANGELOG.md"
+scopes = ["livekit-net"]
+
 [packages.libwebrtc]
 versioned_files = [
   "libwebrtc/Cargo.toml",

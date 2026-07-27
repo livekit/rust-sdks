@@ -1,38 +1,40 @@
-#include "h265_encoder_impl.h"
+#include "av1_encoder_impl.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
-#include <string>
+#include <utility>
 
+#include "../av1_bitstream.h"
 #include "i420_buffer_cuda.h"
-#include "absl/strings/match.h"
-#include "absl/types/optional.h"
 #include "api/video/video_codec_constants.h"
-#include "api/video_codecs/scalability_mode.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
-#include "modules/video_coding/svc/create_scalability_structure.h"
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
-#include "modules/video_coding/utility/simulcast_utility.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/metrics.h"
-#include "third_party/libyuv/include/libyuv/convert.h"
-#include "third_party/libyuv/include/libyuv/scale.h"
 
 namespace webrtc {
 
 // Used by histograms. Values of entries should not be changed.
-enum H265EncoderImplEvent {
-  kH265EncoderEventInit = 0,
-  kH265EncoderEventError = 1,
-  kH265EncoderEventMax = 16,
+enum AV1EncoderImplEvent {
+  kAV1EncoderEventInit = 0,
+  kAV1EncoderEventError = 1,
+  kAV1EncoderEventMax = 16,
 };
 
-NvidiaH265EncoderImpl::NvidiaH265EncoderImpl(
+namespace {
+
+uint32_t ClampToUint32(uint64_t value) {
+  return static_cast<uint32_t>(
+      std::min<uint64_t>(value, std::numeric_limits<uint32_t>::max()));
+}
+
+}  // namespace
+
+NvidiaAV1EncoderImpl::NvidiaAV1EncoderImpl(
     const webrtc::Environment& env,
     CUcontext context,
     CUmemorytype memory_type,
@@ -48,30 +50,33 @@ NvidiaH265EncoderImpl::NvidiaH265EncoderImpl(
   RTC_CHECK_NE(cu_memory_type_, CU_MEMORYTYPE_HOST);
 }
 
-NvidiaH265EncoderImpl::~NvidiaH265EncoderImpl() {
+NvidiaAV1EncoderImpl::~NvidiaAV1EncoderImpl() {
   Release();
 }
 
-void NvidiaH265EncoderImpl::ReportInit() {
-  if (has_reported_init_)
+void NvidiaAV1EncoderImpl::ReportInit() {
+  if (has_reported_init_) {
     return;
-  RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.H265EncoderImpl.Event",
-                            kH265EncoderEventInit, kH265EncoderEventMax);
+  }
+  RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.AV1EncoderImpl.Event",
+                            kAV1EncoderEventInit, kAV1EncoderEventMax);
   has_reported_init_ = true;
 }
 
-void NvidiaH265EncoderImpl::ReportError() {
-  if (has_reported_error_)
+void NvidiaAV1EncoderImpl::ReportError() {
+  if (has_reported_error_) {
     return;
-  RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.H265EncoderImpl.Event",
-                            kH265EncoderEventError, kH265EncoderEventMax);
+  }
+  RTC_HISTOGRAM_ENUMERATION("WebRTC.Video.AV1EncoderImpl.Event",
+                            kAV1EncoderEventError, kAV1EncoderEventMax);
   has_reported_error_ = true;
 }
 
-int32_t NvidiaH265EncoderImpl::InitEncode(
+int32_t NvidiaAV1EncoderImpl::InitEncode(
     const VideoCodec* inst,
     const VideoEncoder::Settings& settings) {
-  if (!inst || inst->codecType != kVideoCodecH265) {
+  (void)settings;
+  if (!inst || inst->codecType != kVideoCodecAV1) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
@@ -83,6 +88,16 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
+  if (inst->numberOfSimulcastStreams > 1) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
+  const auto scalability_mode = inst->GetScalabilityMode();
+  if (scalability_mode.has_value() &&
+      *scalability_mode != ScalabilityMode::kL1T1) {
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
 
   int32_t release_ret = Release();
   if (release_ret != WEBRTC_VIDEO_CODEC_OK) {
@@ -91,6 +106,12 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
   }
 
   codec_ = *inst;
+  sent_decodable_keyframe_ = false;
+  cached_sequence_header_obu_.clear();
+  svc_controller_ = ScalableVideoControllerNoLayering();
+  if (!codec_.GetScalabilityMode().has_value()) {
+    codec_.SetScalabilityMode(ScalabilityMode::kL1T1);
+  }
 
   if (codec_.numberOfSimulcastStreams == 0) {
     codec_.simulcastStream[0].width = codec_.width;
@@ -106,7 +127,8 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
 
   configuration_.sending = false;
   configuration_.frame_dropping_on = codec_.GetFrameDropEnabled();
-  configuration_.key_frame_interval = 0;
+  configuration_.key_frame_interval =
+      std::max<int>(1, static_cast<int>(codec_.maxFramerate)) * 2;
 
   configuration_.width = codec_.width;
   configuration_.height = codec_.height;
@@ -117,6 +139,7 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
 
   const CUresult result = cuCtxSetCurrent(cu_context_);
   if (result != CUDA_SUCCESS) {
+    ReportError();
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
@@ -129,6 +152,7 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
     }
   } catch (const NVENCException& e) {
     RTC_LOG(LS_ERROR) << "Failed Initialize NvEncoder " << e.what();
+    ReportError();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -136,7 +160,7 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
   nv_encode_config_.version = NV_ENC_CONFIG_VER;
   nv_initialize_params_.encodeConfig = &nv_encode_config_;
 
-  GUID encodeGuid = NV_ENC_CODEC_HEVC_GUID;
+  GUID encodeGuid = NV_ENC_CODEC_AV1_GUID;
   GUID presetGuid = NV_ENC_PRESET_P4_GUID;
 
   encoder_->CreateDefaultEncoderParams(&nv_initialize_params_, encodeGuid,
@@ -148,17 +172,29 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
   nv_initialize_params_.frameRateDen = 1;
   nv_initialize_params_.bufferFormat = nv_format_;
 
-  nv_encode_config_.profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+  nv_encode_config_.profileGUID = NV_ENC_AV1_PROFILE_MAIN_GUID;
   nv_encode_config_.gopLength = NVENC_INFINITE_GOPLENGTH;
   nv_encode_config_.frameIntervalP = 1;
+  nv_encode_config_.encodeCodecConfig.av1Config.level =
+      NV_ENC_LEVEL_AV1_AUTOSELECT;
+  nv_encode_config_.encodeCodecConfig.av1Config.tier = NV_ENC_TIER_AV1_0;
+  nv_encode_config_.encodeCodecConfig.av1Config.chromaFormatIDC = 1;
+  nv_encode_config_.encodeCodecConfig.av1Config.inputPixelBitDepthMinus8 = 0;
+  nv_encode_config_.encodeCodecConfig.av1Config.pixelBitDepthMinus8 = 0;
+  nv_encode_config_.encodeCodecConfig.av1Config.idrPeriod =
+      NVENC_INFINITE_GOPLENGTH;
+  nv_encode_config_.encodeCodecConfig.av1Config.repeatSeqHdr = 1;
+  nv_encode_config_.encodeCodecConfig.av1Config.maxTemporalLayersMinus1 = 0;
   nv_encode_config_.rcParams.version = NV_ENC_RC_PARAMS_VER;
   nv_encode_config_.rcParams.rateControlMode = NV_ENC_PARAMS_RC_CBR;
   nv_encode_config_.rcParams.averageBitRate = configuration_.target_bps;
-  nv_encode_config_.rcParams.vbvBufferSize =
-      (nv_encode_config_.rcParams.averageBitRate *
+  const uint64_t vbv_buffer_size =
+      (static_cast<uint64_t>(nv_encode_config_.rcParams.averageBitRate) *
        nv_initialize_params_.frameRateDen /
        nv_initialize_params_.frameRateNum) *
       5;
+  nv_encode_config_.rcParams.vbvBufferSize =
+      ClampToUint32(vbv_buffer_size);
   nv_encode_config_.rcParams.vbvInitialDelay =
       nv_encode_config_.rcParams.vbvBufferSize;
 
@@ -166,13 +202,15 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
     encoder_->CreateEncoder(&nv_initialize_params_);
   } catch (const NVENCException& e) {
     RTC_LOG(LS_ERROR) << "Failed Initialize NvEncoder " << e.what();
+    ReportError();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
-  RTC_LOG(LS_INFO) << "NVIDIA H265/HEVC NVENC initialized: "
-                   << codec_.width << "x" << codec_.height
-                   << " @ " << codec_.maxFramerate << "fps, target_bps="
-                   << configuration_.target_bps;
+  RTC_LOG(LS_INFO) << "NVIDIA AV1 NVENC initialized: " << codec_.width << "x"
+                   << codec_.height << " @ " << codec_.maxFramerate
+                   << "fps, target_bps=" << configuration_.target_bps;
+
+  ReportInit();
 
   SimulcastRateAllocator init_allocator(env_, codec_);
   VideoBitrateAllocation allocation =
@@ -182,13 +220,13 @@ int32_t NvidiaH265EncoderImpl::InitEncode(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH265EncoderImpl::RegisterEncodeCompleteCallback(
+int32_t NvidiaAV1EncoderImpl::RegisterEncodeCompleteCallback(
     EncodedImageCallback* callback) {
   encoded_image_callback_ = callback;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH265EncoderImpl::Release() {
+int32_t NvidiaAV1EncoderImpl::Release() {
   if (encoder_) {
     encoder_->DestroyEncoder();
     encoder_ = nullptr;
@@ -200,7 +238,7 @@ int32_t NvidiaH265EncoderImpl::Release() {
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH265EncoderImpl::Encode(
+int32_t NvidiaAV1EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
   if (!encoder_) {
@@ -230,13 +268,13 @@ int32_t NvidiaH265EncoderImpl::Encode(
   if (configuration_.key_frame_request && configuration_.sending) {
     is_keyframe_needed = true;
   }
-
-  bool send_key_frame =
-      is_keyframe_needed ||
-      (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
-  if (send_key_frame) {
-    is_keyframe_needed = true;
-    configuration_.key_frame_request = false;
+  if (frame_types && !frame_types->empty()) {
+    if ((*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
+      is_keyframe_needed = true;
+    }
+    if ((*frame_types)[0] == VideoFrameType::kEmptyFrame) {
+      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+    }
   }
 
   RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
@@ -246,10 +284,8 @@ int32_t NvidiaH265EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
-  if (frame_types != nullptr) {
-    if ((*frame_types)[0] == VideoFrameType::kEmptyFrame) {
-      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
-    }
+  if (!sent_decodable_keyframe_) {
+    is_keyframe_needed = true;
   }
 
   try {
@@ -267,21 +303,65 @@ int32_t NvidiaH265EncoderImpl::Encode(
       pic_params.encodePicFlags = NV_ENC_PIC_FLAG_FORCEINTRA |
                                   NV_ENC_PIC_FLAG_FORCEIDR |
                                   NV_ENC_PIC_FLAG_OUTPUT_SPSPPS;
-      configuration_.key_frame_request = false;
     }
-
-    current_encoding_is_keyframe_ = is_keyframe_needed;
 
     std::vector<std::vector<uint8_t>> bit_stream;
     encoder_->EncodeFrame(bit_stream, &pic_params);
 
     for (std::vector<uint8_t>& packet : bit_stream) {
-      int32_t result = ProcessEncodedFrame(packet, input_frame);
+      if (packet.empty()) {
+        RTC_LOG(LS_WARNING)
+            << "NVIDIA AV1 NVENC returned empty packet; skipping output.";
+        continue;
+      }
+
+      livekit::av1::NormalizeForRtp(&packet);
+      if (packet.empty()) {
+        RTC_LOG(LS_ERROR)
+            << "NVIDIA AV1 NVENC packet contained no transferable OBUs "
+               "after RTP normalization; skipping.";
+        continue;
+      }
+
+      std::vector<uint8_t> sequence_header;
+      if (livekit::av1::ExtractSequenceHeaderObu(
+              packet.data(), packet.size(), &sequence_header)) {
+        cached_sequence_header_obu_ = std::move(sequence_header);
+      }
+
+      const bool treat_as_keyframe = is_keyframe_needed;
+      if (treat_as_keyframe) {
+        livekit::av1::EnsureSequenceHeaderOnKeyframe(
+            &packet, cached_sequence_header_obu_);
+      }
+
+      if (!livekit::av1::IsWebRtcParseable(packet.data(), packet.size())) {
+        RTC_LOG(LS_ERROR)
+            << "NVIDIA AV1 NVENC bitstream is not parseable by WebRTC; "
+               "dropping frame (size="
+            << packet.size() << ").";
+        continue;
+      }
+
+      if (treat_as_keyframe &&
+          livekit::av1::HasSequenceHeaderObu(packet.data(), packet.size())) {
+        sent_decodable_keyframe_ = true;
+        configuration_.key_frame_request = false;
+      } else if (!sent_decodable_keyframe_) {
+        RTC_LOG(LS_WARNING)
+            << "NVIDIA AV1 NVENC keyframe missing sequence header OBU; "
+               "continuing to force keyframes.";
+        configuration_.key_frame_request = true;
+      } else if (is_keyframe_needed) {
+        configuration_.key_frame_request = false;
+      }
+
+      int32_t result =
+          ProcessEncodedFrame(packet, input_frame, treat_as_keyframe);
       if (result != WEBRTC_VIDEO_CODEC_OK) {
         return result;
       }
     }
-    current_encoding_is_keyframe_ = false;
   } catch (const NVENCException& e) {
     RTC_LOG(LS_ERROR) << "Failed EncodeFrame NvEncoder " << e.what();
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
@@ -290,22 +370,23 @@ int32_t NvidiaH265EncoderImpl::Encode(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-int32_t NvidiaH265EncoderImpl::ProcessEncodedFrame(
-    std::vector<uint8_t>& packet,
-    const ::webrtc::VideoFrame& inputFrame) {
+int32_t NvidiaAV1EncoderImpl::ProcessEncodedFrame(
+    const std::vector<uint8_t>& packet,
+    const ::webrtc::VideoFrame& input_frame,
+    bool is_keyframe) {
   encoded_image_._encodedWidth = encoder_->GetEncodeWidth();
   encoded_image_._encodedHeight = encoder_->GetEncodeHeight();
-  encoded_image_.SetRtpTimestamp(inputFrame.rtp_timestamp());
+  encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
   encoded_image_.SetSimulcastIndex(0);
-  encoded_image_.ntp_time_ms_ = inputFrame.ntp_time_ms();
-  encoded_image_.capture_time_ms_ = inputFrame.render_time_ms();
-  encoded_image_.rotation_ = inputFrame.rotation();
+  encoded_image_.ntp_time_ms_ = input_frame.ntp_time_ms();
+  encoded_image_.capture_time_ms_ = input_frame.render_time_ms();
+  encoded_image_.rotation_ = input_frame.rotation();
   encoded_image_.content_type_ = VideoContentType::UNSPECIFIED;
   encoded_image_.timing_.flags = VideoSendTiming::kInvalid;
   encoded_image_._frameType =
-      current_encoding_is_keyframe_ ? VideoFrameType::kVideoFrameKey
-                                    : VideoFrameType::kVideoFrameDelta;
-  encoded_image_.SetColorSpace(inputFrame.color_space());
+      is_keyframe ? VideoFrameType::kVideoFrameKey
+                  : VideoFrameType::kVideoFrameDelta;
+  encoded_image_.SetColorSpace(input_frame.color_space());
 
   encoded_image_.SetEncodedData(
       EncodedImageBuffer::Create(packet.data(), packet.size()));
@@ -314,7 +395,20 @@ int32_t NvidiaH265EncoderImpl::ProcessEncodedFrame(
   encoded_image_.qp_ = -1;
 
   CodecSpecificInfo codecInfo;
-  codecInfo.codecType = kVideoCodecH265;
+  codecInfo.codecType = kVideoCodecAV1;
+  codecInfo.end_of_picture = true;
+  codecInfo.scalability_mode = ScalabilityMode::kL1T1;
+
+  std::vector<ScalableVideoController::LayerFrameConfig> layer_frames =
+      svc_controller_.NextFrameConfig(/*restart=*/is_keyframe);
+  if (!layer_frames.empty()) {
+    const ScalableVideoController::LayerFrameConfig& layer_frame =
+        layer_frames.front();
+    codecInfo.generic_frame_info = svc_controller_.OnEncodeDone(layer_frame);
+    if (layer_frame.IsKeyframe()) {
+      codecInfo.template_structure = svc_controller_.DependencyStructure();
+    }
+  }
 
   const auto result =
       encoded_image_callback_->OnEncodedImage(encoded_image_, &codecInfo);
@@ -326,10 +420,10 @@ int32_t NvidiaH265EncoderImpl::ProcessEncodedFrame(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-VideoEncoder::EncoderInfo NvidiaH265EncoderImpl::GetEncoderInfo() const {
+VideoEncoder::EncoderInfo NvidiaAV1EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
   info.supports_native_handle = false;
-  info.implementation_name = "NVIDIA H265 Encoder";
+  info.implementation_name = "NVIDIA AV1 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
@@ -337,7 +431,7 @@ VideoEncoder::EncoderInfo NvidiaH265EncoderImpl::GetEncoderInfo() const {
   return info;
 }
 
-void NvidiaH265EncoderImpl::SetRates(
+void NvidiaAV1EncoderImpl::SetRates(
     const RateControlParameters& parameters) {
   if (!encoder_) {
     RTC_LOG(LS_WARNING) << "SetRates() while uninitialized.";
@@ -371,7 +465,7 @@ void NvidiaH265EncoderImpl::SetRates(
   }
 }
 
-void NvidiaH265EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
+void NvidiaAV1EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
   if (send_stream && !sending) {
     key_frame_request = true;
   }
@@ -379,4 +473,3 @@ void NvidiaH265EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
 }
 
 }  // namespace webrtc
-

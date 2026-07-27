@@ -81,7 +81,11 @@ impl NativeVideoSource {
         if raw_keepalive {
             livekit_runtime::spawn({
                 let source = source.clone();
-                let i420 = I420Buffer::new(resolution.width, resolution.height);
+                // This buffer reaches the encoder without any plane ever being
+                // written, so it must be black-initialized: `I420Buffer::new`
+                // leaves the pixel data uninitialized and would leak recycled
+                // heap memory to subscribers in the first keyframes.
+                let i420 = I420Buffer::new_black(resolution.width, resolution.height);
                 async move {
                     let mut interval = interval(Duration::from_millis(100)); // 10 fps
 
