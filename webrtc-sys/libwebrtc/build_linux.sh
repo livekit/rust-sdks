@@ -75,7 +75,7 @@ git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --i
 git apply "$COMMAND_DIR/patches/fix_license_json_parsing.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+#git apply "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 # Disable CREL (compact relocations). Chromium's build enables experimental
@@ -113,7 +113,7 @@ args="is_debug=$debug  \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
   use_llvm_libatomic=false \
-  use_custom_libcxx=false \
+  use_custom_libcxx=true \
   use_custom_libcxx_for_host=false \
   use_clang_modules=false \
   rtc_include_tests=false \
