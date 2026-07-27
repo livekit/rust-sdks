@@ -167,6 +167,7 @@ pub struct SignalOptions {
     pub connect_timeout: Duration,
     /// Advertise only legacy data stream support: caps ClientInfo.client_protocol at
     /// [`CLIENT_PROTOCOL_DATA_STREAM_RPC`] instead of [`CLIENT_PROTOCOL_DATA_STREAM_V2`].
+    #[doc(hidden)]
     pub use_legacy_data_streams: bool,
 }
 
