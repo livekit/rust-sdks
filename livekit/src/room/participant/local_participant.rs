@@ -1050,8 +1050,7 @@ impl LocalParticipant {
     ///   the caller is responsible for ensuring it is well-formed.
     ///
     pub async fn define_schema(&self, id: DataTrackSchemaId, definition: String) -> RoomResult<()> {
-        self.store_data_blob(id.into(), definition.into()).await?;
-        Ok(())
+        self.store_data_blob(id.into(), definition.into()).await
     }
 
     /// Retrieves the definition for a data track schema.
@@ -1085,7 +1084,7 @@ impl LocalParticipant {
     const DATA_BLOB_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
     /// Stores an arbitrary blob of data on the server, keyed by `key`.
-    async fn store_data_blob(&self, key: proto::DataBlobKey, contents: Bytes) -> EngineResult<()> {
+    async fn store_data_blob(&self, key: proto::DataBlobKey, contents: Bytes) -> RoomResult<()> {
         let blob = proto::DataBlob { key: Some(key), contents: contents.into() };
 
         let session = self.inner.rtc_engine.session();
@@ -1102,24 +1101,21 @@ impl LocalParticipant {
             .send_request(proto::signal_request::Message::StoreDataBlobRequest(request))
             .await;
 
-        let response = timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
+        timeout(Self::DATA_BLOB_REQUEST_TIMEOUT, async {
             tokio::select! {
                 _ = store_ok_response => Ok(()),
                 error = store_error_response => Err(error),
             }
         })
         .await
-        .map_err(|_| {
-            EngineError::Signal(SignalError::Timeout("store data blob timed out".into()))
-        })?;
-
-        match response {
-            Ok(()) => Ok(()),
-            Err(error) => Err(EngineError::Internal(
-                format!("store data blob request failed ({:?}): {}", error.reason(), error.message)
-                    .into(),
-            )),
-        }
+        .map_err(|_| RoomError::Internal("store data blob timed out".into()))?
+        .map_err(|error| {
+            RoomError::Internal(format!(
+                "store data blob request failed ({:?}): {}",
+                error.reason(),
+                error.message
+            ))
+        })
     }
 
     /// Retrieves a blob of data previously stored by `participant` under `key`.
