@@ -117,7 +117,7 @@ pub enum DataTrackSchemaEncoding {
     /// An application-specific encoding identified by the contained string.
     ///
     /// Prefer using one of the well-known encodings unless the format is not enumerated.
-    /// The identifier must be non-empty and no longer than 25 characters.
+    /// The identifier must be non-empty and not exceed the server's length limit.
     ///
     Custom(String),
 }
@@ -165,7 +165,7 @@ pub enum DataTrackFrameEncoding {
     /// An application-specific encoding identified by the contained string.
     ///
     /// Prefer using one of the well-known encodings unless the format is not enumerated.
-    /// The identifier must be non-empty and no longer than 25 characters.
+    /// The identifier must be non-empty and not exceed the server's length limit.
     ///
     Custom(String),
 }
