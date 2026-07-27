@@ -128,6 +128,8 @@ PeerConnectionFactory::PeerConnectionFactory(
 PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
 
+  shutdown_audio_io();
+
   peer_factory_ = nullptr;
   audio_device_ = nullptr;
   rtc_runtime_->worker_thread()->BlockingCall(
@@ -204,6 +206,30 @@ std::shared_ptr<AudioDeviceController> PeerConnectionFactory::audio_device() con
 bool PeerConnectionFactory::zero_playout_delay_enabled() const {
   return env_.field_trials().Lookup("WebRTC-ForcePlayoutDelay") ==
          kForcePlayoutDelayValue;
+}
+
+void PeerConnectionFactory::shutdown_audio_io() const {
+  rtc_runtime_->worker_thread()->BlockingCall([this] {
+    if (adm_proxy_) {
+      adm_proxy_->StopAudioIO();
+    }
+  });
+}
+
+void PeerConnectionFactory::pause_audio_capture() const {
+  rtc_runtime_->worker_thread()->BlockingCall([this] {
+    if (adm_proxy_) {
+      adm_proxy_->PauseAudioCapture();
+    }
+  });
+}
+
+void PeerConnectionFactory::resume_audio_capture() const {
+  rtc_runtime_->worker_thread()->BlockingCall([this] {
+    if (adm_proxy_) {
+      adm_proxy_->ResumeAudioCapture();
+    }
+  });
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {

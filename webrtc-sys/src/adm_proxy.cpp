@@ -71,6 +71,9 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
 AdmProxy::~AdmProxy() {
   RTC_LOG(LS_VERBOSE) << "AdmProxy::~AdmProxy()";
 
+  StopAudioIO();
+
+  webrtc::MutexLock lock(&mutex_);
   if (synthetic_adm_) {
     synthetic_adm_->Terminate();
     synthetic_adm_ = nullptr;
@@ -152,12 +155,42 @@ bool AdmProxy::AcquirePlatformAdm() {
   }
 #endif
 
-  int old_ref_count = platform_adm_ref_count_;
+  // WebRTC may call AdmProxy::Terminate() when the last peer connection's
+  // audio engine closes even though the factory and this proxy remain alive.
+  // PlatformAudio can be acquired before the next peer connection calls
+  // AdmProxy::Init(), so make the retained platform ADM usable here.
+  if (!platform_adm_->Initialized()) {
+    const int32_t init_result = platform_adm_->Init();
+    if (init_result != 0) {
+      RTC_LOG(LS_ERROR)
+          << "AdmProxy::AcquirePlatformAdm() - Platform ADM reinitialization failed with error="
+          << init_result;
+      return false;
+    }
+    RTC_LOG(LS_VERBOSE)
+        << "AdmProxy: reinitialized retained platform ADM after Terminate()";
+  }
+
+  const int old_ref_count = platform_adm_ref_count_;
+
+  // A lazily created ADM (Android) has not seen the factory's original
+  // RegisterAudioCallback() call. Rebind on every inactive -> active
+  // transition as a lifecycle invariant; the ADM is stopped here, so
+  // AudioDeviceBuffer accepts the callback update.
+  if (old_ref_count == 0 && audio_transport_ &&
+      platform_adm_->RegisterAudioCallback(audio_transport_) != 0) {
+    RTC_LOG(LS_ERROR)
+        << "AdmProxy::AcquirePlatformAdm() - Failed to bind audio transport";
+    return false;
+  }
+
   platform_adm_ref_count_++;
 
   // If this is the first acquisition and playout/recording is enabled,
   // we may need to switch from synthetic mode to platform ADM
   if (old_ref_count == 0) {
+    RTC_LOG(LS_VERBOSE)
+        << "AdmProxy: platform ADM acquired; audio transport is bound";
     SwitchPlayoutModeIfNeeded();
     SwitchRecordingAdmIfNeeded();
   }
@@ -180,6 +213,9 @@ void AdmProxy::ReleasePlatformAdm() {
   // Note: We do NOT terminate the Platform ADM - it stays alive until destructor.
   // This avoids iOS KVO race conditions from re-creating the ADM.
   if (platform_adm_ref_count_ == 0) {
+    StopPlatformAudioIO();
+    RTC_LOG(LS_VERBOSE)
+        << "AdmProxy: platform ADM released; audio I/O stopped and callback detached";
     SwitchPlayoutModeIfNeeded();
     SwitchRecordingAdmIfNeeded();
   }
@@ -258,7 +294,7 @@ void AdmProxy::SwitchPlayoutModeIfNeeded() {
 }
 
 void AdmProxy::SwitchRecordingAdmIfNeeded() {
-  if (!recording_) return;
+  if (!recording_ || audio_capture_pause_count_ > 0) return;
 
   // Stop platform ADM recording (only one that supports recording)
   if (platform_adm_) platform_adm_->StopRecording();
@@ -270,6 +306,71 @@ void AdmProxy::SwitchRecordingAdmIfNeeded() {
     adm->StartRecording();
   } else {
     recording_ = false;
+  }
+}
+
+void AdmProxy::StopPlatformAudioIO() {
+  recording_ = false;
+
+  if (platform_adm_) {
+    // This is a reusable quiesce, not terminal factory shutdown. Stop/join the
+    // platform workers before detaching their callback. Keep audio_transport_
+    // in the proxy so AcquirePlatformAdm() can restore the binding.
+    platform_adm_->StopRecording();
+    platform_adm_->StopPlayout();
+    platform_adm_->RegisterAudioCallback(nullptr);
+    // platform_adm_ is kept alive for re-acquire and iOS compatibility.
+  }
+}
+
+void AdmProxy::StopAudioIO() {
+  webrtc::MutexLock lock(&mutex_);
+
+  recording_ = false;
+  playing_ = false;
+  recording_initialized_ = false;
+  playout_initialized_ = false;
+
+  // Stop before detaching: AudioDeviceBuffer refuses RegisterAudioCallback()
+  // while media is active, so the detach only takes effect once
+  // capture/playout worker threads have been stopped (and joined).
+  if (platform_adm_) {
+    platform_adm_->StopRecording();
+    platform_adm_->StopPlayout();
+    platform_adm_->RegisterAudioCallback(nullptr);
+  }
+
+  if (synthetic_adm_) {
+    synthetic_adm_->StopRecording();
+    synthetic_adm_->StopPlayout();
+    synthetic_adm_->RegisterAudioCallback(nullptr);
+    // synthetic_adm_ is kept alive until ~AdmProxy() / Terminate().
+  }
+
+  audio_transport_ = nullptr;
+  RTC_LOG(LS_VERBOSE)
+      << "AdmProxy: terminal audio shutdown completed; callbacks detached";
+}
+
+void AdmProxy::PauseAudioCapture() {
+  webrtc::MutexLock lock(&mutex_);
+  ++audio_capture_pause_count_;
+  if (audio_capture_pause_count_ == 1 && platform_adm_) {
+    platform_adm_->StopRecording();
+  }
+}
+
+void AdmProxy::ResumeAudioCapture() {
+  webrtc::MutexLock lock(&mutex_);
+  if (audio_capture_pause_count_ <= 0) {
+    RTC_LOG(LS_WARNING)
+        << "AdmProxy::ResumeAudioCapture() called without a matching pause";
+    return;
+  }
+
+  --audio_capture_pause_count_;
+  if (audio_capture_pause_count_ == 0) {
+    SwitchRecordingAdmIfNeeded();
   }
 }
 
@@ -288,26 +389,84 @@ int32_t AdmProxy::ActiveAudioLayer(AudioLayer* audioLayer) const {
 
 int32_t AdmProxy::RegisterAudioCallback(webrtc::AudioTransport* transport) {
   webrtc::MutexLock lock(&mutex_);
-  audio_transport_ = transport;
 
-  // Register with both ADMs so they're ready when we switch modes
+  // WebRTC unregisters the callback before destroying its AudioTransportImpl.
+  // AudioDeviceBuffer rejects callback changes while media is active, so stop
+  // and join both ADMs before forwarding a null callback. Otherwise the capture
+  // worker can keep calling the transport after WebRTC has destroyed it.
+  if (!transport) {
+    recording_ = false;
+    playing_ = false;
+    recording_initialized_ = false;
+    playout_initialized_ = false;
+    if (platform_adm_) {
+      platform_adm_->StopRecording();
+      platform_adm_->StopPlayout();
+    }
+    if (synthetic_adm_) {
+      synthetic_adm_->StopRecording();
+      synthetic_adm_->StopPlayout();
+    }
+  }
+
+  int32_t result = 0;
   if (synthetic_adm_) {
-    synthetic_adm_->RegisterAudioCallback(transport);
+    result = synthetic_adm_->RegisterAudioCallback(transport);
   }
   if (platform_adm_) {
-    platform_adm_->RegisterAudioCallback(transport);
+    const int32_t platform_result =
+        platform_adm_->RegisterAudioCallback(transport);
+    if (result == 0) {
+      result = platform_result;
+    }
   }
-  return 0;
+
+  if (result == 0) {
+    audio_transport_ = transport;
+    if (!transport) {
+      RTC_LOG(LS_VERBOSE)
+          << "AdmProxy: audio transport unregistered after worker shutdown";
+    }
+  }
+  return result;
 }
 
 int32_t AdmProxy::Init() {
-  // Init is a no-op - Platform ADM is created lazily via AcquirePlatformAdm()
-  return 0;
+  webrtc::MutexLock lock(&mutex_);
+
+  int32_t result = 0;
+  if (synthetic_adm_ && !synthetic_adm_->Initialized()) {
+    result = synthetic_adm_->Init();
+  }
+  if (platform_adm_ && !platform_adm_->Initialized()) {
+    const int32_t platform_result = platform_adm_->Init();
+    if (result == 0) {
+      result = platform_result;
+    }
+  }
+
+  // RegisterAudioCallback() can precede Init() when WebRTC recreates its audio
+  // engine on a retained factory. Restore that binding after reinitialization.
+  if (result == 0 && audio_transport_) {
+    if (synthetic_adm_) {
+      result = synthetic_adm_->RegisterAudioCallback(audio_transport_);
+    }
+    if (platform_adm_) {
+      const int32_t platform_result =
+          platform_adm_->RegisterAudioCallback(audio_transport_);
+      if (result == 0) {
+        result = platform_result;
+      }
+    }
+  }
+
+  return result;
 }
 
 int32_t AdmProxy::Terminate() {
-  webrtc::MutexLock lock(&mutex_);
+  StopAudioIO();
 
+  webrtc::MutexLock lock(&mutex_);
   int32_t result = 0;
   if (synthetic_adm_) {
     result = synthetic_adm_->Terminate();
@@ -554,11 +713,20 @@ int32_t AdmProxy::StopRecording() {
   webrtc::MutexLock lock(&mutex_);
   recording_ = false;
 
-  auto* adm = recording_adm();
-  if (adm) {
-    return adm->StopRecording();
+  int32_t result = 0;
+  if (platform_adm_) {
+    const int32_t platform_result = platform_adm_->StopRecording();
+    if (result == 0) {
+      result = platform_result;
+    }
   }
-  return 0;
+  if (synthetic_adm_) {
+    const int32_t synthetic_result = synthetic_adm_->StopRecording();
+    if (result == 0) {
+      result = synthetic_result;
+    }
+  }
+  return result;
 }
 
 bool AdmProxy::Recording() const {

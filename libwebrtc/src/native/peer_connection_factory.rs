@@ -331,6 +331,24 @@ impl PeerConnectionFactory {
     pub fn is_platform_adm_active(&self) -> bool {
         self.sys_handle.audio_device().is_platform_adm_active()
     }
+
+    /// Stops platform/synthetic audio I/O and detaches WebRTC callbacks.
+    ///
+    /// Call before tearing down peer connections so capture worker threads
+    /// cannot deliver frames into transports that are being destroyed.
+    pub fn shutdown_audio_io(&self) {
+        self.sys_handle.shutdown_audio_io();
+    }
+
+    /// Stops and joins platform capture while audio senders are being removed.
+    pub fn pause_audio_capture(&self) {
+        self.sys_handle.pause_audio_capture();
+    }
+
+    /// Resumes platform capture after audio sender removal completes.
+    pub fn resume_audio_capture(&self) {
+        self.sys_handle.resume_audio_capture();
+    }
 }
 
 #[cfg(test)]

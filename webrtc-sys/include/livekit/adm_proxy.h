@@ -83,8 +83,9 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
   /// Releases a reference to the Platform ADM.
   ///
-  /// When the reference count reaches zero, the Platform ADM is terminated
-  /// and the proxy returns to synthetic mode.
+  /// When the reference count reaches zero, platform audio I/O is stopped and
+  /// the proxy returns to synthetic mode. The ADM remains available and its
+  /// transport callback is restored on a later acquire.
   void ReleasePlatformAdm();
 
   /// Returns the current reference count for the Platform ADM.
@@ -92,6 +93,22 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
   /// Returns true if Platform ADM is currently active (ref_count > 0).
   bool is_platform_adm_active() const;
+
+  /// Stops platform and synthetic audio I/O and detaches the WebRTC
+  /// AudioTransport callback.
+  ///
+  /// Call before tearing down the peer connection factory so capture worker
+  /// threads cannot deliver frames into transports that are being destroyed.
+  void StopAudioIO();
+
+  /// Stops and joins platform capture while audio sender registrations change.
+  ///
+  /// Calls nest; capture resumes only after the matching final
+  /// ResumeAudioCapture().
+  void PauseAudioCapture();
+
+  /// Releases one audio capture pause and resumes capture when fully unpaused.
+  void ResumeAudioCapture();
 
   // ===========================================================================
   // Recording/Playout Control
@@ -227,6 +244,11 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Must be called with mutex_ held.
   void SwitchRecordingAdmIfNeeded();
 
+  // Stops platform capture/playout and detaches its callback without touching
+  // synthetic mode. The proxy retains the callback pointer for reacquire;
+  // terminal teardown uses StopAudioIO(). Must be called with mutex_ held.
+  void StopPlatformAudioIO();
+
 #if defined(__ANDROID__)
   // Lazily creates the Platform ADM on Android.
   // Must be called with mutex_ held.
@@ -258,6 +280,7 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   bool recording_initialized_ = false;
   bool playing_ = false;
   bool recording_ = false;
+  int audio_capture_pause_count_ = 0;
 
   // Control flags
   // When false (default), recording operations are no-ops (NativeAudioSource mode)
