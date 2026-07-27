@@ -1,6 +1,6 @@
 [package]
 name = "livekit-net"
-version = "0.1.0"
+version = "0.1.1"
 license.workspace = true
 description = "Pluggable, host-providable network transport for LiveKit signalling"
 edition.workspace = true
