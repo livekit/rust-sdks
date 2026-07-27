@@ -212,7 +212,7 @@ impl DataTrackFrameEncoding {
     fn is_self_describing(&self) -> Option<bool> {
         match self {
             Self::Cbor | Self::Msgpack | Self::Json => Some(true),
-            Self::Other | Self::Custom(_) => None, // Cannot be validated
+            Self::Other | Self::Custom(_) => None, // Cannot be determined
             _ => Some(false),
         }
     }
@@ -228,7 +228,7 @@ impl DataTrackFrameEncoding {
             | (Self::Protobuf, SchemaEncoding::Protobuf)
             | (Self::Flatbuffer, SchemaEncoding::Flatbuffer)
             | (Self::Json, SchemaEncoding::JsonSchema) => Some(true),
-            (Self::Other, _) | (Self::Custom(_), _) => None, // Cannot be validated
+            (Self::Other, _) | (Self::Custom(_), _) => None, // Cannot be determined
             _ => Some(false),
         }
     }
