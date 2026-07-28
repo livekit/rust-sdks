@@ -1,11 +1,25 @@
 # livekit-capture
 
-Helpers for publishing pre-encoded video with the LiveKit Rust SDK. The
-optional `gstreamer` feature turns a GStreamer `appsink` into an encoded
-ingest source.
+Capture sources and helpers for publishing video with the LiveKit Rust SDK.
+The optional `gstreamer` feature turns a GStreamer `appsink` into an encoded
+ingest source; the `demo` feature adds a synthetic pixel source for testing.
 
 ## Library entry points
 
+- `source::PixelVideoSource` and `source::EncodedVideoSource` — the
+  libwebrtc-free traits a capture backend implements: pixel sources produce
+  frames published through the WebRTC encoder, encoded sources produce
+  access units published as passthrough. Both traits are object-safe and
+  implemented for `Box<dyn ...>`, so sources can be constructed dynamically
+  and driven through the same pumps.
+- `pump::PixelPump<S>` and `pump::EncodedPump<S>` — bridge a source into a
+  publishable RTC track: each builds the matching `NativeVideoSource`,
+  derives publish options (`EncodedPump` selects the passthrough encoder),
+  and runs the capture loop on a plain thread. Encoded pumps forward
+  downstream keyframe and rate-control requests back to the source and drop
+  pre-roll deltas until the first keyframe. Both spawn into the same
+  `pump::RunningPump`, so an application supervises running pumps of either
+  kind uniformly (`stop()`, `join_async()`, stats).
 - `track::NativeVideoSourceExt` — extension methods on the RTC-level
   `NativeVideoSource` for capturing pre-encoded access units. Use
   `NativeVideoSource::new_encoded` for pre-encoded passthrough (no raw

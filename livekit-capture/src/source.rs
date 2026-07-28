@@ -15,9 +15,14 @@
 //! Video capture source traits and types.
 //!
 //! Everything in this module is independent of libwebrtc: sources produce
-//! crate-owned frame types and receive crate-owned feedback types. The
-//! [`VideoPump`](crate::pump::VideoPump) bridges a source into an RTC track
-//! and mediates all communication with the WebRTC stack.
+//! crate-owned frame types and receive crate-owned feedback types. The pumps
+//! in [`pump`](crate::pump) bridge a source into an RTC track and mediate all
+//! communication with the WebRTC stack.
+//!
+//! Both source traits are object-safe, and `Box<dyn ...>` boxes implement
+//! them, so applications that construct sources dynamically can drive a
+//! [`PixelPump<Box<dyn PixelVideoSource>>`](crate::pump::PixelPump) while
+//! applications that know their source statically pay for no type erasure.
 
 use std::{error::Error, fmt};
 
@@ -140,43 +145,40 @@ pub trait EncodedVideoSource: Send {
     fn update_rate_control(&mut self, _target: RateControl) {}
 }
 
-/// A video capture source of either kind.
-///
-/// This is the unit of dynamic instantiation: backend constructors convert
-/// into it, and [`VideoPump::new`](crate::pump::VideoPump::new) consumes it,
-/// so applications can build any configured source with one type.
-pub enum VideoSource {
-    /// Source of pixel frames, published through the WebRTC encoder.
-    Pixel(Box<dyn PixelVideoSource>),
-    /// Source of pre-encoded access units, published as passthrough.
-    Encoded(Box<dyn EncodedVideoSource>),
-}
-
-impl VideoSource {
-    /// Wraps a pixel video source.
-    pub fn pixel(source: impl PixelVideoSource + 'static) -> Self {
-        Self::Pixel(Box::new(source))
+impl<S: PixelVideoSource + ?Sized> PixelVideoSource for Box<S> {
+    fn resolution(&self) -> VideoResolution {
+        (**self).resolution()
     }
 
-    /// Wraps an encoded video source.
-    pub fn encoded(source: impl EncodedVideoSource + 'static) -> Self {
-        Self::Encoded(Box::new(source))
-    }
-
-    /// Nominal output resolution of the underlying source.
-    pub fn resolution(&self) -> VideoResolution {
-        match self {
-            Self::Pixel(source) => source.resolution(),
-            Self::Encoded(source) => source.resolution(),
-        }
+    fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError> {
+        (**self).next_frame()
     }
 }
 
-impl fmt::Debug for VideoSource {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Pixel(_) => f.debug_tuple("Pixel").finish_non_exhaustive(),
-            Self::Encoded(_) => f.debug_tuple("Encoded").finish_non_exhaustive(),
-        }
+impl<S: EncodedVideoSource + ?Sized> EncodedVideoSource for Box<S> {
+    fn resolution(&self) -> VideoResolution {
+        (**self).resolution()
+    }
+
+    fn codec(&self) -> EncodedVideoCodec {
+        (**self).codec()
+    }
+
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+        (**self).next_access_unit()
+    }
+
+    fn request_keyframe(&mut self) {
+        (**self).request_keyframe()
+    }
+
+    fn update_rate_control(&mut self, target: RateControl) {
+        (**self).update_rate_control(target)
     }
 }
+
+// Object safety is part of these traits' contract: dynamic applications box
+// sources at their edge and drive them through the same generic pumps.
+const _: () = {
+    fn _assert_object_safe(_: &dyn PixelVideoSource, _: &dyn EncodedVideoSource) {}
+};

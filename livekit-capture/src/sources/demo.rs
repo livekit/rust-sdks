@@ -22,7 +22,7 @@ use std::{
 use bytes::Bytes;
 
 use crate::source::{
-    PixelVideoData, PixelVideoFrame, PixelVideoSource, SourceError, VideoResolution, VideoSource,
+    PixelVideoData, PixelVideoFrame, PixelVideoSource, SourceError, VideoResolution,
 };
 
 /// Colors the demo source cycles through, as `(r, g, b)`.
@@ -152,12 +152,6 @@ impl PixelVideoSource for DemoSource {
                 stride_v: width.div_ceil(2),
             },
         }))
-    }
-}
-
-impl From<DemoSource> for VideoSource {
-    fn from(source: DemoSource) -> Self {
-        Self::pixel(source)
     }
 }
 

@@ -22,11 +22,11 @@ pub mod sources;
 pub mod track;
 
 pub use pump::{
-    RunningVideoPump, VideoPump, VideoPumpError, VideoPumpExit, VideoPumpStats, VideoPumpStop,
+    EncodedPump, PixelPump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump,
 };
 pub use source::{
     EncodedVideoSource, PixelVideoData, PixelVideoFrame, PixelVideoSource, RateControl,
-    SourceError, VideoResolution, VideoSource,
+    SourceError, VideoResolution,
 };
 #[cfg(feature = "demo")]
 pub use sources::demo::{DemoSource, DemoSourceConfig};

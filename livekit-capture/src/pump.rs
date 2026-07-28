@@ -14,15 +14,22 @@
 
 //! Pumps frames from a capture source into an RTC video source.
 //!
-//! [`VideoPump`] is the bridge between the libwebrtc-free source traits in
-//! [`source`](crate::source) and a publishable RTC track: it builds the
-//! matching [`NativeVideoSource`], converts crate-owned frame types at the
-//! boundary, and forwards downstream keyframe and rate-control requests back
-//! to encoded sources.
+//! [`PixelPump`] and [`EncodedPump`] are the bridges between the
+//! libwebrtc-free source traits in [`source`](crate::source) and a
+//! publishable RTC track: each builds the matching [`NativeVideoSource`],
+//! converts crate-owned frame types at the boundary, and — for encoded
+//! sources — forwards downstream keyframe and rate-control requests back to
+//! the producer.
+//!
+//! Both pumps are generic over a concrete source, so statically-known
+//! sources pay for no type erasure. Applications that construct sources
+//! dynamically box them at their edge (`PixelPump<Box<dyn
+//! PixelVideoSource>>`); both pumps spawn into the same [`RunningPump`], so
+//! running pumps of either kind are handled uniformly.
 
 use std::{
     any::Any,
-    io,
+    fmt, io,
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -48,7 +55,7 @@ use crate::{
     error::CaptureError,
     source::{
         EncodedVideoSource, PixelVideoData, PixelVideoFrame, PixelVideoSource, RateControl,
-        SourceError, VideoResolution, VideoSource,
+        SourceError, VideoResolution,
     },
 };
 
@@ -66,7 +73,7 @@ impl From<VideoResolution> for RtcVideoResolution {
 
 /// Error returned by a pump run.
 #[derive(Debug, Error)]
-pub enum VideoPumpError {
+pub enum PumpError {
     /// The capture source failed.
     #[error("capture source failed")]
     Source(#[from] SourceError),
@@ -80,7 +87,7 @@ pub enum VideoPumpError {
 
 /// Why a pump run ended successfully.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VideoPumpExit {
+pub enum PumpExit {
     /// The stop handle was fired.
     Stopped,
     /// The source reached the end of its stream.
@@ -90,22 +97,21 @@ pub enum VideoPumpExit {
 /// Statistics returned when a pump run ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct VideoPumpStats {
+pub struct PumpStats {
     /// Number of frames or access units captured.
     pub frames_captured: u64,
     /// Why the run ended.
-    pub exit: VideoPumpExit,
+    pub exit: PumpExit,
 }
 
-/// Cancellation handle for a [`VideoPump`].
+/// Cancellation handle for a pump.
 ///
-/// Cheap to clone; wire it to a shutdown signal and call
-/// [`VideoPumpStop::stop`] from any thread to make the pump return after the
-/// frame in flight.
+/// Cheap to clone; wire it to a shutdown signal and call [`PumpStop::stop`]
+/// from any thread to make the pump return after the frame in flight.
 #[derive(Debug, Clone, Default)]
-pub struct VideoPumpStop(Arc<AtomicBool>);
+pub struct PumpStop(Arc<AtomicBool>);
 
-impl VideoPumpStop {
+impl PumpStop {
     /// Creates an un-stopped handle.
     pub fn new() -> Self {
         Self::default()
@@ -116,40 +122,29 @@ impl VideoPumpStop {
         self.0.store(true, Ordering::Release);
     }
 
-    /// Returns true once [`VideoPumpStop::stop`] has been called.
+    /// Returns true once [`PumpStop::stop`] has been called.
     pub fn is_stopped(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
 }
 
-/// Pumps a [`VideoSource`] into an RTC video source.
-///
-/// The pump owns every libwebrtc interaction: it builds the RTC source
-/// appropriate for the capture source kind, derives the matching publish
-/// options, converts frames at the boundary, and polls downstream keyframe
-/// and rate-control requests, forwarding them to encoded sources as
-/// crate-owned types.
-#[derive(Debug)]
-pub struct VideoPump {
-    source: VideoSource,
+/// Pumps a [`PixelVideoSource`] into an RTC video source, publishing frames
+/// through the WebRTC encoder.
+pub struct PixelPump<S: PixelVideoSource> {
+    source: S,
     rtc_source: NativeVideoSource,
-    stop: VideoPumpStop,
+    stop: PumpStop,
 }
 
-impl VideoPump {
-    /// Creates a pump for a capture source, building the matching RTC source.
+impl<S: PixelVideoSource> PixelPump<S> {
+    /// Creates a pump for a pixel source, building the matching RTC source.
     ///
-    /// For pixel sources this must be called from the context of the async
-    /// runtime driving the SDK, because the RTC source spawns its keepalive
-    /// task at construction. The pump itself runs on plain threads.
-    pub fn new(source: impl Into<VideoSource>) -> Self {
-        let source = source.into();
-        let resolution = source.resolution().into();
-        let rtc_source = match &source {
-            VideoSource::Pixel(_) => NativeVideoSource::new(resolution, false),
-            VideoSource::Encoded(_) => NativeVideoSource::new_encoded(resolution),
-        };
-        Self { source, rtc_source, stop: VideoPumpStop::new() }
+    /// This must be called from the context of the async runtime driving the
+    /// SDK, because the RTC source spawns its keepalive task at construction.
+    /// The pump itself runs on plain threads.
+    pub fn new(source: S) -> Self {
+        let rtc_source = NativeVideoSource::new(source.resolution().into(), false);
+        Self { source, rtc_source, stop: PumpStop::new() }
     }
 
     /// Returns the RTC source to create the local track with.
@@ -157,56 +152,195 @@ impl VideoPump {
         RtcVideoSource::Native(self.rtc_source.clone())
     }
 
-    /// Returns publish options appropriate for the source kind.
+    /// Returns publish options appropriate for a pixel source.
     pub fn publish_options(&self) -> TrackPublishOptions {
-        match &self.source {
-            VideoSource::Pixel(_) => TrackPublishOptions::default(),
-            VideoSource::Encoded(source) => TrackPublishOptions {
-                video_codec: source.codec().into(),
-                video_encoder: VideoEncoderBackend::PreEncoded,
-                simulcast: false,
-                ..Default::default()
-            },
-        }
+        TrackPublishOptions::default()
     }
 
     /// Returns a cancellation handle for this pump.
-    pub fn stop_handle(&self) -> VideoPumpStop {
+    pub fn stop_handle(&self) -> PumpStop {
         self.stop.clone()
+    }
+
+    /// Returns the underlying capture source.
+    pub fn source(&self) -> &S {
+        &self.source
+    }
+
+    /// Returns the underlying capture source mutably.
+    pub fn source_mut(&mut self) -> &mut S {
+        &mut self.source
     }
 
     /// Runs the pump on the calling thread until the source ends, a failure,
     /// or the stop handle fires.
     ///
     /// Sources block, so callers on an async runtime should run this on a
-    /// dedicated thread (see [`VideoPump::spawn`]) or a blocking pool.
-    pub fn run(self) -> Result<VideoPumpStats, VideoPumpError> {
-        match self.source {
-            VideoSource::Pixel(source) => run_pixel(source, &self.rtc_source, &self.stop),
-            VideoSource::Encoded(source) => run_encoded(source, &self.rtc_source, &self.stop),
-        }
+    /// dedicated thread (see [`PixelPump::spawn`]) or a blocking pool.
+    pub fn run(mut self) -> Result<PumpStats, PumpError> {
+        let mut frames_captured = 0;
+        let exit = loop {
+            if self.stop.is_stopped() {
+                break PumpExit::Stopped;
+            }
+            let Some(frame) = self.source.next_frame()? else {
+                break PumpExit::EndOfStream;
+            };
+            capture_pixel_frame(&self.rtc_source, &frame)?;
+            frames_captured += 1;
+        };
+        Ok(PumpStats { frames_captured, exit })
     }
 
     /// Runs the pump on a dedicated thread.
     ///
     /// Panics on the pump thread are caught and reported as
-    /// [`VideoPumpError::Panicked`] when the pump is joined.
-    pub fn spawn(self) -> io::Result<RunningVideoPump> {
+    /// [`PumpError::Panicked`] when the pump is joined.
+    pub fn spawn(self) -> io::Result<RunningPump>
+    where
+        S: 'static,
+    {
         let stop = self.stop_handle();
-        let (finished_tx, finished_rx) = tokio::sync::watch::channel(false);
-
-        let thread = thread::Builder::new().name("lk-video-pump".to_owned()).spawn(move || {
-            let result = catch_unwind(AssertUnwindSafe(|| self.run()))
-                .unwrap_or_else(|panic| Err(VideoPumpError::Panicked(panic_message(&*panic))));
-            let _ = finished_tx.send(true);
-            result
-        })?;
-
-        Ok(RunningVideoPump { stop, thread, finished: finished_rx })
+        spawn_pump(stop, move || self.run())
     }
 }
 
-/// Renders a panic payload for [`VideoPumpError::Panicked`].
+impl<S: PixelVideoSource> fmt::Debug for PixelPump<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PixelPump")
+            .field("rtc_source", &self.rtc_source)
+            .field("stop", &self.stop)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Pumps an [`EncodedVideoSource`] into an RTC video source, publishing
+/// access units as passthrough.
+///
+/// Downstream keyframe requests (PLI/FIR, late subscriber) and rate-control
+/// targets are polled between access units and forwarded to the source.
+/// Pre-roll delta frames are dropped until the first keyframe, since
+/// decoding can only start at a keyframe.
+pub struct EncodedPump<S: EncodedVideoSource> {
+    source: S,
+    rtc_source: NativeVideoSource,
+    stop: PumpStop,
+}
+
+impl<S: EncodedVideoSource> EncodedPump<S> {
+    /// Creates a pump for an encoded source, building the matching RTC
+    /// source.
+    pub fn new(source: S) -> Self {
+        let rtc_source = NativeVideoSource::new_encoded(source.resolution().into());
+        Self { source, rtc_source, stop: PumpStop::new() }
+    }
+
+    /// Returns the RTC source to create the local track with.
+    pub fn rtc_source(&self) -> RtcVideoSource {
+        RtcVideoSource::Native(self.rtc_source.clone())
+    }
+
+    /// Returns publish options for encoded passthrough.
+    pub fn publish_options(&self) -> TrackPublishOptions {
+        TrackPublishOptions {
+            video_codec: self.source.codec().into(),
+            video_encoder: VideoEncoderBackend::PreEncoded,
+            simulcast: false,
+            ..Default::default()
+        }
+    }
+
+    /// Returns a cancellation handle for this pump.
+    pub fn stop_handle(&self) -> PumpStop {
+        self.stop.clone()
+    }
+
+    /// Returns the underlying capture source.
+    pub fn source(&self) -> &S {
+        &self.source
+    }
+
+    /// Returns the underlying capture source mutably.
+    pub fn source_mut(&mut self) -> &mut S {
+        &mut self.source
+    }
+
+    /// Runs the pump on the calling thread until the source ends, a failure,
+    /// or the stop handle fires.
+    ///
+    /// Sources block, so callers on an async runtime should run this on a
+    /// dedicated thread (see [`EncodedPump::spawn`]) or a blocking pool.
+    pub fn run(mut self) -> Result<PumpStats, PumpError> {
+        let mut frames_captured = 0;
+        let mut awaiting_initial_keyframe = true;
+        let exit = loop {
+            if self.stop.is_stopped() {
+                break PumpExit::Stopped;
+            }
+            if let Some(target) = self.rtc_source.take_rate_control_request() {
+                self.source.update_rate_control(target.into());
+            }
+            if self.rtc_source.take_keyframe_request() {
+                self.source.request_keyframe();
+            }
+
+            let Some(access_unit) = self.source.next_access_unit()? else {
+                break PumpExit::EndOfStream;
+            };
+
+            // Drop pre-roll deltas: decoding can only start at a keyframe.
+            if awaiting_initial_keyframe && access_unit.frame_type != EncodedFrameType::Key {
+                continue;
+            }
+            awaiting_initial_keyframe = false;
+
+            capture_access_unit(&self.rtc_source, &access_unit)?;
+            frames_captured += 1;
+        };
+        Ok(PumpStats { frames_captured, exit })
+    }
+
+    /// Runs the pump on a dedicated thread.
+    ///
+    /// Panics on the pump thread are caught and reported as
+    /// [`PumpError::Panicked`] when the pump is joined.
+    pub fn spawn(self) -> io::Result<RunningPump>
+    where
+        S: 'static,
+    {
+        let stop = self.stop_handle();
+        spawn_pump(stop, move || self.run())
+    }
+}
+
+impl<S: EncodedVideoSource> fmt::Debug for EncodedPump<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EncodedPump")
+            .field("rtc_source", &self.rtc_source)
+            .field("stop", &self.stop)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Spawns a pump run on a dedicated thread, wiring panic capture and the
+/// completion signal shared by both pump kinds.
+fn spawn_pump(
+    stop: PumpStop,
+    run: impl FnOnce() -> Result<PumpStats, PumpError> + Send + 'static,
+) -> io::Result<RunningPump> {
+    let (finished_tx, finished_rx) = tokio::sync::watch::channel(false);
+
+    let thread = thread::Builder::new().name("lk-video-pump".to_owned()).spawn(move || {
+        let result = catch_unwind(AssertUnwindSafe(run))
+            .unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))));
+        let _ = finished_tx.send(true);
+        result
+    })?;
+
+    Ok(RunningPump { stop, thread, finished: finished_rx })
+}
+
+/// Renders a panic payload for [`PumpError::Panicked`].
 fn panic_message(panic: &(dyn Any + Send)) -> String {
     if let Some(message) = panic.downcast_ref::<&str>() {
         (*message).to_owned()
@@ -217,21 +351,21 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
     }
 }
 
-/// A [`VideoPump`] running on a dedicated thread.
+/// A pump of either kind running on a dedicated thread.
 ///
 /// Stopping takes effect between frames: a source blocked waiting for its
 /// next frame finishes that wait before the pump observes the signal.
 #[derive(Debug)]
-pub struct RunningVideoPump {
-    stop: VideoPumpStop,
-    thread: thread::JoinHandle<Result<VideoPumpStats, VideoPumpError>>,
+pub struct RunningPump {
+    stop: PumpStop,
+    thread: thread::JoinHandle<Result<PumpStats, PumpError>>,
     /// Flipped to true by the pump thread just before it exits.
     finished: tokio::sync::watch::Receiver<bool>,
 }
 
-impl RunningVideoPump {
+impl RunningPump {
     /// Returns a cancellation handle for the pump.
-    pub fn stop_handle(&self) -> VideoPumpStop {
+    pub fn stop_handle(&self) -> PumpStop {
         self.stop.clone()
     }
 
@@ -247,16 +381,13 @@ impl RunningVideoPump {
 
     /// Waits for the pump thread to exit.
     ///
-    /// Panics on the pump thread are reported as
-    /// [`VideoPumpError::Panicked`].
-    pub fn join(self) -> Result<VideoPumpStats, VideoPumpError> {
-        self.thread
-            .join()
-            .unwrap_or_else(|panic| Err(VideoPumpError::Panicked(panic_message(&*panic))))
+    /// Panics on the pump thread are reported as [`PumpError::Panicked`].
+    pub fn join(self) -> Result<PumpStats, PumpError> {
+        self.thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 
     /// Signals the pump to stop and waits for its thread to exit.
-    pub fn stop_and_join(self) -> Result<VideoPumpStats, VideoPumpError> {
+    pub fn stop_and_join(self) -> Result<PumpStats, PumpError> {
         self.stop();
         self.join()
     }
@@ -267,8 +398,8 @@ impl RunningVideoPump {
     /// safe to hold across long stretches — for example in a `select!` that
     /// supervises every running pump — and works under any async runtime,
     /// not just tokio. Panics on the pump thread are reported as
-    /// [`VideoPumpError::Panicked`].
-    pub async fn join_async(mut self) -> Result<VideoPumpStats, VideoPumpError> {
+    /// [`PumpError::Panicked`].
+    pub async fn join_async(mut self) -> Result<PumpStats, PumpError> {
         // An error means the sender dropped, which also implies the pump
         // thread is done; either way the join below returns promptly.
         let _ = self.finished.wait_for(|finished| *finished).await;
@@ -277,63 +408,10 @@ impl RunningVideoPump {
 
     /// Signals the pump to stop and waits for its thread to exit without
     /// blocking the async runtime.
-    pub async fn stop_and_join_async(self) -> Result<VideoPumpStats, VideoPumpError> {
+    pub async fn stop_and_join_async(self) -> Result<PumpStats, PumpError> {
         self.stop();
         self.join_async().await
     }
-}
-
-fn run_pixel(
-    mut source: Box<dyn PixelVideoSource>,
-    rtc_source: &NativeVideoSource,
-    stop: &VideoPumpStop,
-) -> Result<VideoPumpStats, VideoPumpError> {
-    let mut frames_captured = 0;
-    let exit = loop {
-        if stop.is_stopped() {
-            break VideoPumpExit::Stopped;
-        }
-        let Some(frame) = source.next_frame()? else {
-            break VideoPumpExit::EndOfStream;
-        };
-        capture_pixel_frame(rtc_source, &frame)?;
-        frames_captured += 1;
-    };
-    Ok(VideoPumpStats { frames_captured, exit })
-}
-
-fn run_encoded(
-    mut source: Box<dyn EncodedVideoSource>,
-    rtc_source: &NativeVideoSource,
-    stop: &VideoPumpStop,
-) -> Result<VideoPumpStats, VideoPumpError> {
-    let mut frames_captured = 0;
-    let mut awaiting_initial_keyframe = true;
-    let exit = loop {
-        if stop.is_stopped() {
-            break VideoPumpExit::Stopped;
-        }
-        if let Some(target) = rtc_source.take_rate_control_request() {
-            source.update_rate_control(target.into());
-        }
-        if rtc_source.take_keyframe_request() {
-            source.request_keyframe();
-        }
-
-        let Some(access_unit) = source.next_access_unit()? else {
-            break VideoPumpExit::EndOfStream;
-        };
-
-        // Drop pre-roll deltas: decoding can only start at a keyframe.
-        if awaiting_initial_keyframe && access_unit.frame_type != EncodedFrameType::Key {
-            continue;
-        }
-        awaiting_initial_keyframe = false;
-
-        capture_access_unit(rtc_source, &access_unit)?;
-        frames_captured += 1;
-    };
-    Ok(VideoPumpStats { frames_captured, exit })
 }
 
 fn capture_pixel_frame(
@@ -529,9 +607,28 @@ mod tests {
         let _guard = runtime.enter();
 
         let source = FakePixelSource::new([pixel_frame(1), pixel_frame(2), pixel_frame(3)]);
-        let stats = VideoPump::new(VideoSource::pixel(source)).run().unwrap();
+        let stats = PixelPump::new(source).run().unwrap();
         assert_eq!(stats.frames_captured, 3);
-        assert_eq!(stats.exit, VideoPumpExit::EndOfStream);
+        assert_eq!(stats.exit, PumpExit::EndOfStream);
+    }
+
+    #[test]
+    fn boxed_sources_drive_generic_pumps() {
+        let runtime = runtime_context();
+        let _guard = runtime.enter();
+
+        // The dynamic-instantiation pattern: box at the edge, same pumps.
+        let source: Box<dyn PixelVideoSource> =
+            Box::new(FakePixelSource::new([pixel_frame(1), pixel_frame(2)]));
+        let stats = PixelPump::new(source).run().unwrap();
+        assert_eq!(stats.frames_captured, 2);
+
+        let source: Box<dyn EncodedVideoSource> =
+            Box::new(FakeEncodedSource::new([access_unit(1, EncodedFrameType::Key)]));
+        let pump = EncodedPump::new(source);
+        assert_eq!(pump.publish_options().video_encoder, VideoEncoderBackend::PreEncoded);
+        let stats = pump.run().unwrap();
+        assert_eq!(stats.frames_captured, 1);
     }
 
     #[test]
@@ -551,10 +648,10 @@ mod tests {
         let runtime = runtime_context();
         let _guard = runtime.enter();
 
-        let running = VideoPump::new(VideoSource::pixel(PanickingSource)).spawn().unwrap();
+        let running = PixelPump::new(PanickingSource).spawn().unwrap();
         let error = running.join().unwrap_err();
         assert!(
-            matches!(&error, VideoPumpError::Panicked(message) if message.contains("source exploded"))
+            matches!(&error, PumpError::Panicked(message) if message.contains("source exploded"))
         );
     }
 
@@ -576,11 +673,11 @@ mod tests {
         let runtime = runtime_context();
         let _guard = runtime.enter();
 
-        let running = VideoPump::new(VideoSource::pixel(EndlessSource)).spawn().unwrap();
+        let running = PixelPump::new(EndlessSource).spawn().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         let stats = running.stop_and_join().unwrap();
         assert!(stats.frames_captured > 0);
-        assert_eq!(stats.exit, VideoPumpExit::Stopped);
+        assert_eq!(stats.exit, PumpExit::Stopped);
     }
 
     #[test]
@@ -592,8 +689,8 @@ mod tests {
         let PixelVideoData::I420 { y, .. } = &mut frame.data;
         *y = Bytes::from(vec![128; 8]);
 
-        let result = VideoPump::new(VideoSource::pixel(FakePixelSource::new([frame]))).run();
-        assert!(matches!(result, Err(VideoPumpError::Capture(CaptureError::InvalidPixelFrame(_)))));
+        let result = PixelPump::new(FakePixelSource::new([frame])).run();
+        assert!(matches!(result, Err(PumpError::Capture(CaptureError::InvalidPixelFrame(_)))));
     }
 
     #[tokio::test]
@@ -611,7 +708,7 @@ mod tests {
             }
         }
 
-        let running = VideoPump::new(VideoSource::pixel(EndlessSource)).spawn().unwrap();
+        let running = PixelPump::new(EndlessSource).spawn().unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         let stats = running.stop_and_join_async().await.unwrap();
         assert!(stats.frames_captured > 0);
@@ -625,7 +722,7 @@ mod tests {
             access_unit(3, EncodedFrameType::Key),
             access_unit(4, EncodedFrameType::Delta),
         ]);
-        let stats = VideoPump::new(VideoSource::encoded(source)).run().unwrap();
+        let stats = EncodedPump::new(source).run().unwrap();
         assert_eq!(stats.frames_captured, 2);
     }
 
@@ -634,13 +731,13 @@ mod tests {
         let mut unit = access_unit(1, EncodedFrameType::Key);
         unit.payload = Bytes::new();
 
-        let result = VideoPump::new(VideoSource::encoded(FakeEncodedSource::new([unit]))).run();
-        assert!(matches!(result, Err(VideoPumpError::Capture(CaptureError::EmptyPayload))));
+        let result = EncodedPump::new(FakeEncodedSource::new([unit])).run();
+        assert!(matches!(result, Err(PumpError::Capture(CaptureError::EmptyPayload))));
     }
 
     #[test]
     fn encoded_publish_options_use_passthrough() {
-        let pump = VideoPump::new(VideoSource::encoded(FakeEncodedSource::new([])));
+        let pump = EncodedPump::new(FakeEncodedSource::new([]));
         let options = pump.publish_options();
         assert_eq!(options.video_encoder, VideoEncoderBackend::PreEncoded);
         assert!(!options.simulcast);
