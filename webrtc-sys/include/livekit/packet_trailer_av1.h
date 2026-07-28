@@ -18,9 +18,9 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
-#include "api/array_view.h"
 #include "api/frame_transformer_interface.h"
 #include "livekit/packet_trailer.h"
 
@@ -36,8 +36,8 @@ bool IsAv1Frame(const webrtc::TransformableFrameInterface& frame);
 /// [`PacketTrailerTransformer`]). The OBU is placed after any temporal
 /// delimiter and sequence header OBUs so it is not mistaken for frame data.
 std::vector<uint8_t> InsertTrailerObu(
-    webrtc::ArrayView<const uint8_t> data,
-    webrtc::ArrayView<const uint8_t> trailer);
+    std::span<const uint8_t> data,
+    std::span<const uint8_t> trailer);
 
 /// Extracts and removes a LiveKit packet-trailer metadata OBU from an AV1
 /// temporal unit.
@@ -46,7 +46,7 @@ std::vector<uint8_t> InsertTrailerObu(
 /// frame data with the metadata OBU removed. Otherwise `out_data` receives
 /// an unchanged copy of `data` and `std::nullopt` is returned.
 std::optional<PacketTrailerMetadata> ExtractTrailer(
-    webrtc::ArrayView<const uint8_t> data,
+    std::span<const uint8_t> data,
     std::vector<uint8_t>& out_data);
 
 }  // namespace av1
