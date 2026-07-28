@@ -12,9 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Error types shared across capture paths.
+
+use std::{error::Error as StdError, fmt};
+
 use thiserror::Error;
 
 use crate::encoded::{EncodedVideoCodec, EncodedWireFormat};
+
+/// Error returned by a capture source.
+///
+/// Backend-specific errors are type-erased so sources stay usable as trait
+/// objects; the wrapped error remains reachable for display and through
+/// [`StdError::source`].
+#[derive(Debug)]
+pub struct SourceError(Box<dyn StdError + Send + Sync>);
+
+impl SourceError {
+    /// Wraps a backend error.
+    pub fn new(error: impl Into<Box<dyn StdError + Send + Sync>>) -> Self {
+        Self(error.into())
+    }
+}
+
+impl fmt::Display for SourceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl StdError for SourceError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        self.0.source()
+    }
+}
 
 /// Error returned by capture helpers.
 #[derive(Debug, Error, PartialEq, Eq)]

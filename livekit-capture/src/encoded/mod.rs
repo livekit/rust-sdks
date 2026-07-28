@@ -12,9 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Encoded video: codec vocabulary, access units, the source contract for
+//! pre-encoded ingest, and the pump.
+//!
+//! Sources produce crate-owned access units independent of libwebrtc and
+//! receive crate-owned feedback types, and [`EncodedVideoPump`] bridges them
+//! into an RTC track as passthrough. The source trait is object-safe and
+//! implemented for `Box<dyn ...>`, so sources can be constructed dynamically
+//! and driven through the same generic pump.
+
 pub mod h26x;
+mod pump;
 
 use bytes::Bytes;
+
+pub use pump::EncodedVideoPump;
 use livekit::{
     options::VideoCodec,
     webrtc::video_frame::{
@@ -22,7 +34,10 @@ use livekit::{
     },
 };
 
-use crate::{error::CaptureError, primitive::VideoResolution};
+use crate::{
+    error::{CaptureError, SourceError},
+    primitive::VideoResolution,
+};
 
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
@@ -410,6 +425,69 @@ impl From<EncodedFrameType> for RtcEncodedFrameType {
         }
     }
 }
+
+/// Encoder rate-control target forwarded from WebRTC to an encoded source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RateControl {
+    /// Target bitrate in bits per second.
+    pub target_bitrate_bps: u64,
+    /// Target frame rate in frames per second.
+    pub framerate_fps: f64,
+}
+
+/// Source of pre-encoded video access units, such as an encoding pipeline.
+pub trait EncodedVideoSource: Send {
+    /// Nominal output resolution, used to size the RTC source.
+    fn resolution(&self) -> VideoResolution;
+
+    /// Codec produced by this source; fixed for the source's lifetime.
+    fn codec(&self) -> EncodedVideoCodec;
+
+    /// Blocks until the next access unit is available, returning `Ok(None)`
+    /// when the source reaches the end of its stream.
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError>;
+
+    /// Forwards a downstream keyframe request (PLI/FIR, late subscriber) to
+    /// the producer so it can emit an IDR.
+    ///
+    /// The default implementation does nothing, for transports that cannot
+    /// influence the upstream encoder.
+    fn request_keyframe(&mut self) {}
+
+    /// Forwards a downstream rate-control target to the producer.
+    ///
+    /// The default implementation does nothing, for transports that cannot
+    /// influence the upstream encoder.
+    fn update_rate_control(&mut self, _target: RateControl) {}
+}
+
+impl<S: EncodedVideoSource + ?Sized> EncodedVideoSource for Box<S> {
+    fn resolution(&self) -> VideoResolution {
+        (**self).resolution()
+    }
+
+    fn codec(&self) -> EncodedVideoCodec {
+        (**self).codec()
+    }
+
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+        (**self).next_access_unit()
+    }
+
+    fn request_keyframe(&mut self) {
+        (**self).request_keyframe()
+    }
+
+    fn update_rate_control(&mut self, target: RateControl) {
+        (**self).update_rate_control(target)
+    }
+}
+
+// Object safety is part of this trait's contract: dynamic applications box
+// sources at their edge and drive them through the same generic pumps.
+const _: () = {
+    fn _assert_object_safe(_: &dyn EncodedVideoSource) {}
+};
 
 pub(crate) fn h264_nal_type(nal: &[u8]) -> Result<u8, CaptureError> {
     let header = nal.first().ok_or(CaptureError::EmptyPayload)?;

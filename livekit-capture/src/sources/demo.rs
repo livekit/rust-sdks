@@ -22,8 +22,9 @@ use std::{
 use bytes::Bytes;
 
 use crate::{
+    error::SourceError,
+    pixel::{PixelVideoData, PixelVideoFrame, PixelVideoSource},
     primitive::VideoResolution,
-    source::{PixelVideoData, PixelVideoFrame, PixelVideoSource, SourceError},
 };
 
 /// Colors the demo source cycles through, as `(r, g, b)`.

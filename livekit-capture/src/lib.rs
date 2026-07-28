@@ -15,26 +15,8 @@
 //! Capture sources and helpers for publishing video with LiveKit.
 
 pub mod encoded;
-mod error;
+pub mod error;
+pub mod pixel;
 pub mod primitive;
 pub mod pump;
-pub mod source;
 pub mod sources;
-
-pub use primitive::VideoResolution;
-pub use pump::{
-    EncodedVideoPump, PixelVideoPump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump,
-};
-pub use source::{
-    EncodedVideoSource, PixelVideoData, PixelVideoFrame, PixelVideoSource, RateControl,
-    SourceError,
-};
-#[cfg(feature = "demo")]
-pub use sources::demo::{DemoSource, DemoSourceConfig};
-
-pub use encoded::{
-    CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
-    EncodedPayload, EncodedVideoCodec, EncodedWireFormat, H264PacketizationMode,
-    OwnedEncodedAccessUnit,
-};
-pub use error::CaptureError;

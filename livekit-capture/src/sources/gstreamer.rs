@@ -23,11 +23,11 @@ use gst::prelude::*;
 use crate::{
     encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
-        CodecSpecific, EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
+        CodecSpecific, EncodedFrameType, EncodedVideoCodec, EncodedVideoSource,
+        OwnedEncodedAccessUnit, RateControl,
     },
-    error::CaptureError,
+    error::{CaptureError, SourceError},
     primitive::VideoResolution,
-    source::{EncodedVideoSource, RateControl, SourceError},
 };
 
 /// Encoded sample format expected from a GStreamer appsink.
