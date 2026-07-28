@@ -408,7 +408,7 @@ struct SessionInner {
     /// it, so no single `Update` is identifiable as the snapshot — the union
     /// is what's guaranteed to cover everyone still in the room once the
     /// resume settles (see [`RtcSession::finish_resume`]).
-    resume_seen_identities: Mutex<Option<HashSet<String>>>,
+    resume_seen_identities: Mutex<Option<HashSet<ParticipantIdentity>>>,
 
     /// Test-only: drop incoming DISCONNECTED participant entries, simulating
     /// an SFU that fails to (re)deliver disconnect updates. Lets tests
@@ -834,7 +834,7 @@ impl RtcSession {
     /// participants: any known participant absent from it left while the
     /// signal link was down and its disconnection must be synthesized.
     /// Returns `None` if no resume was in flight.
-    pub fn finish_resume(&self) -> Option<HashSet<String>> {
+    pub fn finish_resume(&self) -> Option<HashSet<ParticipantIdentity>> {
         self.inner.resume_seen_identities.lock().take()
     }
 
@@ -1424,7 +1424,7 @@ impl SessionInner {
             }
             proto::signal_response::Message::Update(mut update) => {
                 #[cfg(feature = "__lk-e2e-test")]
-                // injecting faulty behaviour during a signal disconnect to ensure we can mimic 
+                // injecting faulty behaviour during a signal disconnect to ensure we can mimic
                 // losing/missing participant disconnect events after a resume
                 // for test_resume_synthesizes_disconnect_for_participant_that_left
                 if self.drop_disconnected_updates.load(Ordering::Acquire) {
@@ -1441,7 +1441,7 @@ impl SessionInner {
                     _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
                 }
                 if let Some(seen) = self.resume_seen_identities.lock().as_mut() {
-                    seen.extend(update.participants.iter().map(|pi| pi.identity.clone()));
+                    seen.extend(update.participants.iter().map(|pi| pi.identity.clone().into()));
                 }
                 let _ = self
                     .emitter

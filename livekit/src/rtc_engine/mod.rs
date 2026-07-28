@@ -118,7 +118,7 @@ pub enum EngineEvent {
     /// is not in `seen_identities` left the room while the signal link was
     /// down and its disconnection must be synthesized.
     ParticipantReconcile {
-        seen_identities: HashSet<String>,
+        seen_identities: HashSet<ParticipantIdentity>,
     },
     MediaTrack {
         track: MediaStreamTrack,

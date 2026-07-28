@@ -990,7 +990,7 @@ impl RoomSession {
         match event {
             EngineEvent::ParticipantUpdate { updates } => self.handle_participant_update(updates),
             EngineEvent::ParticipantReconcile { seen_identities } => {
-                self.reconcile_absent_participants(seen_identities.iter().map(String::as_str))
+                self.reconcile_absent_participants(seen_identities.into_iter())
             }
             EngineEvent::MediaTrack { track, stream, transceiver } => {
                 self.handle_media_track(track, stream, transceiver)
@@ -1154,13 +1154,16 @@ impl RoomSession {
     /// authoritative (post-resume reconcile, room move): a participant who
     /// left while our signal link was down never got its DISCONNECTED update
     /// delivered to us, and would otherwise stay in the room forever.
-    fn reconcile_absent_participants<'a>(self: &Arc<Self>, present: impl Iterator<Item = &'a str>) {
-        let present: HashSet<&str> = present.collect();
+    fn reconcile_absent_participants(
+        self: &Arc<Self>,
+        present: impl Iterator<Item = ParticipantIdentity>,
+    ) {
+        let present: HashSet<ParticipantIdentity> = present.collect();
         let missing: Vec<RemoteParticipant> = self
             .remote_participants
             .read()
             .values()
-            .filter(|p| !present.contains(p.identity().as_str()))
+            .filter(|p| !present.contains(&p.identity()))
             .cloned()
             .collect();
         for participant in missing {
@@ -1579,7 +1582,7 @@ impl RoomSession {
         // Participants we knew from the old room that are absent from the
         // moved-to room have left it.
         self.reconcile_absent_participants(
-            moved.other_participants.iter().map(|pi| pi.identity.as_str()),
+            moved.other_participants.iter().map(|pi| pi.identity.clone().into()),
         );
         self.handle_participant_update(moved.other_participants);
         if let Some(room) = moved.room {
