@@ -22,6 +22,7 @@ use nokhwa::Camera;
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::env;
+use std::net::SocketAddr;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -32,12 +33,15 @@ use yuv_sys;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 mod argus;
 mod codec_display;
+mod marker_detection;
+mod teleop_control;
 mod test_pattern;
 mod timestamp_burn;
 mod user_data;
 mod video_display;
 mod viewport_aspect;
 
+use marker_detection::{MarkerDetectorConfig, MarkerDetectorHandle};
 use test_pattern::TestPattern;
 use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
@@ -269,6 +273,34 @@ struct Args {
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
     e2ee_key: Option<String>,
+
+    /// Detect a calibrated tag36h11 marker in the left half of the stereo camera.
+    #[arg(long, default_value_t = false)]
+    marker_detection: bool,
+
+    /// AprilTag ID to publish.
+    #[arg(long, default_value_t = 0)]
+    marker_id: usize,
+
+    /// Printed black-square marker size in meters.
+    #[arg(long, default_value_t = 0.1)]
+    marker_size_m: f64,
+
+    /// Maximum AprilTag processing and pose publication rate.
+    #[arg(long, default_value_t = 15.0)]
+    marker_detection_fps: f64,
+
+    /// Minimum AprilTag decision margin accepted as a valid detection.
+    #[arg(long, default_value_t = 30.0)]
+    marker_min_decision_margin: f32,
+
+    /// Accept safety-validated arm commands from the WebXR viewer.
+    #[arg(long, default_value_t = false)]
+    enable_arm_commands: bool,
+
+    /// Forward validated SO-101 JSON commands to a local UDP robot bridge.
+    #[arg(long, requires = "enable_arm_commands")]
+    arm_command_udp: Option<SocketAddr>,
 }
 
 fn unix_time_us_now() -> u64 {
@@ -960,6 +992,23 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         info!("End-to-end encryption activated");
     }
 
+    if args.enable_arm_commands {
+        let room_for_commands = room.clone();
+        let ctrl_c_for_commands = ctrl_c_received.clone();
+        let udp_destination = args.arm_command_udp;
+        tokio::spawn(async move {
+            if let Err(error) = teleop_control::run_arm_command_receiver(
+                room_for_commands,
+                ctrl_c_for_commands,
+                udp_destination,
+            )
+            .await
+            {
+                log::error!("SO-101 command receiver stopped: {error:#}");
+            }
+        });
+    }
+
     // Log room events
     {
         let room_clone = room.clone();
@@ -974,6 +1023,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     let (width, height, video_input) = match args.source {
         SourceKind::Argus => {
+            if args.marker_detection {
+                anyhow::bail!("--marker-detection currently requires --source uvc");
+            }
             #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
             {
                 if args.test_pattern {
@@ -1104,6 +1156,24 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         }
     };
+    anyhow::ensure!(
+        !args.marker_detection || width % 2 == 0,
+        "--marker-detection requires an even-width side-by-side frame"
+    );
+    let mut marker_detector = args
+        .marker_detection
+        .then(|| {
+            marker_detection::spawn_marker_detector(
+                MarkerDetectorConfig {
+                    marker_id: args.marker_id,
+                    marker_size_m: args.marker_size_m,
+                    detection_fps: args.marker_detection_fps,
+                    minimum_decision_margin: args.marker_min_decision_margin,
+                },
+                room.clone(),
+            )
+        })
+        .transpose()?;
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     let track =
@@ -1280,6 +1350,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     Some(shared.clone()),
                     publish_timing_state.clone(),
                     user_data_channels.clone(),
+                    marker_detector.take(),
                 ));
 
                 let display_result = video_display::run_display(
@@ -1307,6 +1378,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     None,
                     publish_timing_state.clone(),
                     user_data_channels.clone(),
+                    marker_detector.take(),
                 )
                 .await;
                 let _ = publish_stats_task.await;
@@ -1329,6 +1401,7 @@ async fn run_capture_loop(
     display_shared: Option<Arc<Mutex<SharedYuv>>>,
     publish_timing_state: Option<Arc<Mutex<PublisherTimingState>>>,
     user_data_channels: Option<Arc<Mutex<[f32; user_data::NUM_CHANNELS]>>>,
+    mut marker_detector: Option<MarkerDetectorHandle>,
 ) -> Result<()> {
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = config.fps as f64;
@@ -1570,6 +1643,15 @@ async fn run_capture_loop(
         };
         if let Some(timing_state) = publish_timing_state.as_ref() {
             timing_state.lock().record_frame_buffer(capture_wall_time_us, read_wall_time_us, fid);
+        }
+        if let Some(detector) = marker_detector.as_mut() {
+            detector.try_submit_luma(
+                data_y,
+                stride_y_usize,
+                width as usize,
+                height as usize,
+                capture_wall_time_us,
+            );
         }
         let mut buffer_ready_at = convert_finished_at;
         let mut frame_draw_ms = None;
