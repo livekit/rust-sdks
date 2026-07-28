@@ -20,6 +20,6 @@ tokio = { workspace = true, features = ["sync"] }
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
-default = ["demo", "gstreamer"]
+default = ["demo", "gstreamer"] # TODO: Remove after testing
 demo = []
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
