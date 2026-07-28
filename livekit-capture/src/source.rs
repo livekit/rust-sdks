@@ -28,16 +28,10 @@ use std::{error::Error, fmt};
 
 use bytes::Bytes;
 
-use crate::encoded::{EncodedVideoCodec, OwnedEncodedAccessUnit};
-
-/// Video resolution in pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VideoResolution {
-    /// Frame width in pixels.
-    pub width: u32,
-    /// Frame height in pixels.
-    pub height: u32,
-}
+use crate::{
+    encoded::{EncodedVideoCodec, OwnedEncodedAccessUnit},
+    primitive::VideoResolution,
+};
 
 /// Encoder rate-control target forwarded from WebRTC to an encoded source.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -99,10 +93,8 @@ pub enum PixelVideoData {
 /// One pixel video frame produced by a [`PixelVideoSource`].
 #[derive(Debug, Clone)]
 pub struct PixelVideoFrame {
-    /// Frame width in pixels.
-    pub width: u32,
-    /// Frame height in pixels.
-    pub height: u32,
+    /// Frame resolution in pixels.
+    pub resolution: VideoResolution,
     /// Capture timestamp in microseconds.
     pub timestamp_us: i64,
     /// Pixel data.

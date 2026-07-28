@@ -21,8 +21,9 @@ use std::{
 
 use bytes::Bytes;
 
-use crate::source::{
-    PixelVideoData, PixelVideoFrame, PixelVideoSource, SourceError, VideoResolution,
+use crate::{
+    primitive::VideoResolution,
+    source::{PixelVideoData, PixelVideoFrame, PixelVideoSource, SourceError},
 };
 
 /// Colors the demo source cycles through, as `(r, g, b)`.
@@ -138,10 +139,9 @@ impl PixelVideoSource for DemoSource {
         let (y, u, v) = self.planes[color_index % self.planes.len()].clone();
 
         self.frame_index += 1;
-        let VideoResolution { width, height } = self.config.resolution;
+        let width = self.config.resolution.width;
         Ok(Some(PixelVideoFrame {
-            width,
-            height,
+            resolution: self.config.resolution,
             timestamp_us,
             data: PixelVideoData::I420 {
                 y,
@@ -181,7 +181,7 @@ mod tests {
         let mut source = DemoSource::new(test_config());
 
         let frame = source.next_frame().unwrap().unwrap();
-        assert_eq!((frame.width, frame.height), (64, 36));
+        assert_eq!(frame.resolution, VideoResolution::new(64, 36));
 
         let PixelVideoData::I420 { y, u, v, .. } = &frame.data;
         assert_eq!(y.len(), 64 * 36);

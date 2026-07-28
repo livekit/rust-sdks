@@ -16,16 +16,18 @@
 
 pub mod encoded;
 mod error;
+pub mod primitive;
 pub mod pump;
 pub mod source;
 pub mod sources;
 
+pub use primitive::VideoResolution;
 pub use pump::{
     EncodedVideoPump, PixelVideoPump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump,
 };
 pub use source::{
     EncodedVideoSource, PixelVideoData, PixelVideoFrame, PixelVideoSource, RateControl,
-    SourceError, VideoResolution,
+    SourceError,
 };
 #[cfg(feature = "demo")]
 pub use sources::demo::{DemoSource, DemoSourceConfig};

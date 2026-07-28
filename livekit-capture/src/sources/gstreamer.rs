@@ -26,7 +26,8 @@ use crate::{
         CodecSpecific, EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     error::CaptureError,
-    source::{EncodedVideoSource, RateControl, SourceError, VideoResolution},
+    primitive::VideoResolution,
+    source::{EncodedVideoSource, RateControl, SourceError},
 };
 
 /// Encoded sample format expected from a GStreamer appsink.
@@ -209,8 +210,7 @@ impl GStreamerVideoSource {
             payload,
             timestamp_us,
             frame_type,
-            self.config.resolution.width,
-            self.config.resolution.height,
+            self.config.resolution,
         )
         .map_err(GStreamerVideoSourceError::Capture)
     }
@@ -336,26 +336,23 @@ fn access_unit_from_sample_payload(
     payload: &[u8],
     timestamp_us: i64,
     frame_type: EncodedFrameType,
-    width: u32,
-    height: u32,
+    resolution: VideoResolution,
 ) -> Result<OwnedEncodedAccessUnit, CaptureError> {
     match sample_format {
         GStreamerSampleFormat::H264AnnexB => access_unit_from_annex_b(
             EncodedVideoCodec::H264,
             Bytes::copy_from_slice(payload),
             timestamp_us,
-            width,
-            height,
+            resolution,
         ),
         GStreamerSampleFormat::H264Avc { nal_length_size } => {
-            access_unit_from_h264_avc(payload, nal_length_size, timestamp_us, width, height)
+            access_unit_from_h264_avc(payload, nal_length_size, timestamp_us, resolution)
         }
         GStreamerSampleFormat::H265AnnexB => access_unit_from_annex_b(
             EncodedVideoCodec::H265,
             Bytes::copy_from_slice(payload),
             timestamp_us,
-            width,
-            height,
+            resolution,
         ),
         GStreamerSampleFormat::AccessUnit { codec } => {
             if payload.is_empty() {
@@ -367,8 +364,7 @@ fn access_unit_from_sample_payload(
                 Bytes::copy_from_slice(payload),
                 timestamp_us,
                 frame_type,
-                width,
-                height,
+                resolution,
             );
             access_unit.codec_specific = CodecSpecific::default_for(codec);
             Ok(access_unit)
@@ -711,8 +707,7 @@ mod tests {
             &[0, 0, 1, 0x65, 1, 2],
             1_000,
             EncodedFrameType::Delta,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         )
         .unwrap();
 
@@ -728,8 +723,7 @@ mod tests {
             &[0, 0, 0, 3, 0x65, 1, 2],
             1_000,
             EncodedFrameType::Delta,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         )
         .unwrap();
 
@@ -745,8 +739,7 @@ mod tests {
             &[1, 2, 3],
             2_000,
             EncodedFrameType::Delta,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         )
         .unwrap();
 
@@ -765,8 +758,7 @@ mod tests {
             &[1, 2, 3],
             2_000,
             EncodedFrameType::Key,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         )
         .unwrap();
         assert_eq!(vp9.codec_specific, CodecSpecific::default_for(EncodedVideoCodec::VP9));
@@ -776,8 +768,7 @@ mod tests {
             &[1, 2, 3],
             2_000,
             EncodedFrameType::Key,
-            640,
-            480,
+            VideoResolution::new(640, 480),
         )
         .unwrap();
         assert_eq!(av1.codec_specific, CodecSpecific::default_for(EncodedVideoCodec::AV1));

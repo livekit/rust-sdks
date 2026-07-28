@@ -42,10 +42,7 @@ use livekit::{
     options::{TrackPublishOptions, VideoEncoderBackend},
     webrtc::{
         video_frame::{EncodedVideoFrame, I420Buffer, VideoFrame, VideoRotation},
-        video_source::{
-            native::NativeVideoSource, EncodedRateControl, RtcVideoSource,
-            VideoResolution as RtcVideoResolution,
-        },
+        video_source::{native::NativeVideoSource, EncodedRateControl, RtcVideoSource},
     },
 };
 use thiserror::Error;
@@ -53,9 +50,10 @@ use thiserror::Error;
 use crate::{
     encoded::{CodecSpecific, EncodedFrameType, EncodedLayerInfo, OwnedEncodedAccessUnit},
     error::CaptureError,
+    primitive::VideoResolution,
     source::{
         EncodedVideoSource, PixelVideoData, PixelVideoFrame, PixelVideoSource, RateControl,
-        SourceError, VideoResolution,
+        SourceError,
     },
 };
 
@@ -65,11 +63,6 @@ impl From<EncodedRateControl> for RateControl {
     }
 }
 
-impl From<VideoResolution> for RtcVideoResolution {
-    fn from(resolution: VideoResolution) -> Self {
-        Self { width: resolution.width, height: resolution.height }
-    }
-}
 
 /// Error returned by a pump run.
 #[derive(Debug, Error)]
@@ -431,13 +424,14 @@ fn capture_pixel_frame(
 fn i420_buffer(frame: &PixelVideoFrame) -> Result<I420Buffer, CaptureError> {
     let PixelVideoData::I420 { y, u, v, stride_y, stride_u, stride_v } = &frame.data;
 
-    let mut buffer = I420Buffer::new(frame.width, frame.height);
-    let chroma_width = frame.width.div_ceil(2);
-    let chroma_height = frame.height.div_ceil(2);
+    let VideoResolution { width, height } = frame.resolution;
+    let mut buffer = I420Buffer::new(width, height);
+    let chroma_width = width.div_ceil(2);
+    let chroma_height = height.div_ceil(2);
     let (dst_stride_y, dst_stride_u, dst_stride_v) = buffer.strides();
     let (dst_y, dst_u, dst_v) = buffer.data_mut();
 
-    copy_plane(y, *stride_y, dst_y, dst_stride_y, frame.width, frame.height)?;
+    copy_plane(y, *stride_y, dst_y, dst_stride_y, width, height)?;
     copy_plane(u, *stride_u, dst_u, dst_stride_u, chroma_width, chroma_height)?;
     copy_plane(v, *stride_v, dst_v, dst_stride_v, chroma_width, chroma_height)?;
     Ok(buffer)
@@ -480,7 +474,7 @@ fn capture_access_unit(
         payload: &access_unit.payload,
         timestamp_us: access_unit.timestamp_us,
         frame_type: access_unit.frame_type.into(),
-        resolution: RtcVideoResolution { width: access_unit.width, height: access_unit.height },
+        resolution: access_unit.resolution.into(),
         frame_metadata: None,
     };
     rtc_source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
@@ -532,8 +526,7 @@ mod tests {
         let chroma_width = RESOLUTION.width.div_ceil(2);
         let chroma_height = RESOLUTION.height.div_ceil(2);
         PixelVideoFrame {
-            width: RESOLUTION.width,
-            height: RESOLUTION.height,
+            resolution: RESOLUTION,
             timestamp_us,
             data: PixelVideoData::I420 {
                 y: Bytes::from(vec![128; (RESOLUTION.width * RESOLUTION.height) as usize]),
@@ -596,8 +589,7 @@ mod tests {
             vec![1, 2, 3],
             timestamp_us,
             frame_type,
-            RESOLUTION.width,
-            RESOLUTION.height,
+            RESOLUTION,
         )
     }
 
