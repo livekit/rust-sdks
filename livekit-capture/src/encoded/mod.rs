@@ -13,7 +13,6 @@
 // limitations under the License.
 
 pub mod h26x;
-pub mod ingress;
 
 use bytes::Bytes;
 use livekit::{
@@ -26,9 +25,6 @@ use livekit::{
 use crate::error::CaptureError;
 
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
-
-/// Encoder rate-control target requested by WebRTC for an encoded source.
-pub use livekit::webrtc::video_source::EncodedRateControl;
 
 /// Encoded byte-stream framing used by encoded source backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

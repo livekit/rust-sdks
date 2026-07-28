@@ -19,7 +19,6 @@ mod error;
 pub mod pump;
 pub mod source;
 pub mod sources;
-pub mod track;
 
 pub use pump::{
     EncodedVideoPump, PixelVideoPump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump,
@@ -32,12 +31,8 @@ pub use source::{
 pub use sources::demo::{DemoSource, DemoSourceConfig};
 
 pub use encoded::{
-    ingress::{
-        EncodedAccessUnitSource, EncodedIngress, EncodedIngressCapture, EncodedIngressError,
-        EncodedIngressStop,
-    },
     CodecSpecific, EncodedAccessUnit, EncodedFragment, EncodedFrameType, EncodedLayerInfo,
-    EncodedPayload, EncodedRateControl, EncodedVideoCodec, EncodedWireFormat,
-    H264PacketizationMode, OwnedEncodedAccessUnit,
+    EncodedPayload, EncodedVideoCodec, EncodedWireFormat, H264PacketizationMode,
+    OwnedEncodedAccessUnit,
 };
 pub use error::CaptureError;

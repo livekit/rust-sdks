@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::error::Error as StdError;
-
 use bytes::Bytes;
 use thiserror::Error;
 
@@ -25,11 +23,10 @@ use gst::prelude::*;
 use crate::{
     encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
-        ingress::EncodedAccessUnitSource,
-        CodecSpecific, EncodedFrameType, EncodedRateControl, EncodedVideoCodec,
-        OwnedEncodedAccessUnit,
+        CodecSpecific, EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     error::CaptureError,
+    source::{EncodedVideoSource, RateControl, SourceError, VideoResolution},
 };
 
 /// Encoded sample format expected from a GStreamer appsink.
@@ -66,29 +63,26 @@ impl GStreamerSampleFormat {
 
 /// Configuration for a GStreamer appsink encoded source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GStreamerAppSinkConfig {
+pub struct GStreamerVideoSourceConfig {
     /// Format of encoded buffers pulled from appsink.
     pub sample_format: GStreamerSampleFormat,
     /// Timestamp added to the first buffer timestamp, or used directly as fallback.
     pub start_timestamp_us: i64,
     /// Fallback frame interval when a GStreamer buffer has no PTS or DTS.
     pub frame_interval_us: i64,
-    /// Encoded frame width in pixels.
-    pub width: u32,
-    /// Encoded frame height in pixels.
-    pub height: u32,
+    /// Encoded frame resolution in pixels.
+    pub resolution: VideoResolution,
 }
 
-impl GStreamerAppSinkConfig {
+impl GStreamerVideoSourceConfig {
     /// Creates GStreamer appsink source configuration.
     pub fn new(
         sample_format: GStreamerSampleFormat,
         start_timestamp_us: i64,
         frame_interval_us: i64,
-        width: u32,
-        height: u32,
+        resolution: VideoResolution,
     ) -> Self {
-        Self { sample_format, start_timestamp_us, frame_interval_us, width, height }
+        Self { sample_format, start_timestamp_us, frame_interval_us, resolution }
     }
 }
 
@@ -110,7 +104,7 @@ impl GStreamerBitrateUnit {
     }
 }
 
-/// GStreamer encoder bitrate control used by [`GStreamerAppSinkEncodedSource`].
+/// GStreamer encoder bitrate control used by [`GStreamerVideoSource`].
 #[derive(Debug, Clone)]
 pub struct GStreamerEncoderRateControl {
     encoder: gst::Element,
@@ -134,7 +128,7 @@ impl GStreamerEncoderRateControl {
         }
     }
 
-    fn update(&mut self, rate_control: EncodedRateControl) {
+    fn update(&mut self, rate_control: RateControl) {
         if self.last_target_bitrate_bps == Some(rate_control.target_bitrate_bps) {
             return;
         }
@@ -156,16 +150,16 @@ impl GStreamerEncoderRateControl {
 
 /// Encoded source backed by a GStreamer appsink.
 #[derive(Debug)]
-pub struct GStreamerAppSinkEncodedSource {
+pub struct GStreamerVideoSource {
     appsink: gst_app::AppSink,
-    config: GStreamerAppSinkConfig,
+    config: GStreamerVideoSourceConfig,
     next_fallback_timestamp_us: i64,
     rate_control: Option<GStreamerEncoderRateControl>,
 }
 
-impl GStreamerAppSinkEncodedSource {
+impl GStreamerVideoSource {
     /// Creates an encoded source from an existing GStreamer appsink.
-    pub fn new(appsink: gst_app::AppSink, config: GStreamerAppSinkConfig) -> Self {
+    pub fn new(appsink: gst_app::AppSink, config: GStreamerVideoSourceConfig) -> Self {
         Self {
             appsink,
             config,
@@ -185,7 +179,7 @@ impl GStreamerAppSinkEncodedSource {
     }
 
     /// Returns the source configuration.
-    pub fn config(&self) -> GStreamerAppSinkConfig {
+    pub fn config(&self) -> GStreamerVideoSourceConfig {
         self.config
     }
 
@@ -197,8 +191,8 @@ impl GStreamerAppSinkEncodedSource {
     fn access_unit_from_sample(
         &mut self,
         sample: &gst::Sample,
-    ) -> Result<OwnedEncodedAccessUnit, GStreamerSourceError> {
-        let buffer = sample.buffer().ok_or(GStreamerSourceError::MissingBuffer)?;
+    ) -> Result<OwnedEncodedAccessUnit, GStreamerVideoSourceError> {
+        let buffer = sample.buffer().ok_or(GStreamerVideoSourceError::MissingBuffer)?;
         let timestamp_us = self.timestamp_us(buffer);
         let frame_type = if buffer.flags().contains(gst::BufferFlags::DELTA_UNIT) {
             EncodedFrameType::Delta
@@ -208,17 +202,17 @@ impl GStreamerAppSinkEncodedSource {
 
         let map = buffer
             .map_readable()
-            .map_err(|err| GStreamerSourceError::MapReadable(err.to_string()))?;
+            .map_err(|err| GStreamerVideoSourceError::MapReadable(err.to_string()))?;
         let payload = map.as_ref();
         access_unit_from_sample_payload(
             self.config.sample_format,
             payload,
             timestamp_us,
             frame_type,
-            self.config.width,
-            self.config.height,
+            self.config.resolution.width,
+            self.config.resolution.height,
         )
-        .map_err(GStreamerSourceError::Capture)
+        .map_err(GStreamerVideoSourceError::Capture)
     }
 
     fn timestamp_us(&mut self, buffer: &gst::BufferRef) -> i64 {
@@ -237,14 +231,20 @@ impl GStreamerAppSinkEncodedSource {
     }
 }
 
-impl EncodedAccessUnitSource for GStreamerAppSinkEncodedSource {
-    type Error = GStreamerSourceError;
+impl EncodedVideoSource for GStreamerVideoSource {
+    fn resolution(&self) -> VideoResolution {
+        self.config.resolution
+    }
 
-    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
+    fn codec(&self) -> EncodedVideoCodec {
+        self.config.sample_format.codec()
+    }
+
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
         match self.appsink.pull_sample() {
-            Ok(sample) => self.access_unit_from_sample(&sample).map(Some),
+            Ok(sample) => self.access_unit_from_sample(&sample).map(Some).map_err(SourceError::new),
             Err(_err) if self.appsink.is_eos() => Ok(None),
-            Err(err) => Err(GStreamerSourceError::PullSample(err.to_string())),
+            Err(err) => Err(SourceError::new(GStreamerVideoSourceError::PullSample(err.to_string()))),
         }
     }
 
@@ -257,7 +257,7 @@ impl EncodedAccessUnitSource for GStreamerAppSinkEncodedSource {
         let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
     }
 
-    fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
+    fn update_rate_control(&mut self, rate_control: RateControl) {
         if let Some(control) = &mut self.rate_control {
             control.update(rate_control);
         }
@@ -316,7 +316,7 @@ fn clamp_to_i64(value: u64, minimum: i64, maximum: i64) -> i64 {
 
 /// Error returned by GStreamer appsink encoded sources.
 #[derive(Debug, Error)]
-pub enum GStreamerSourceError {
+pub enum GStreamerVideoSourceError {
     /// The appsink failed to produce a sample.
     #[error("failed to pull GStreamer appsink sample: {0}")]
     PullSample(String),
@@ -329,46 +329,6 @@ pub enum GStreamerSourceError {
     /// Access-unit construction failed.
     #[error(transparent)]
     Capture(CaptureError),
-}
-
-/// Callback-backed encoded source for GStreamer appsink integrations.
-#[derive(Debug)]
-pub struct GStreamerAppSinkSource<F> {
-    next_access_unit: F,
-}
-
-impl<F> GStreamerAppSinkSource<F> {
-    /// Creates a source from a callback that pulls the next encoded appsink sample.
-    pub fn new(next_access_unit: F) -> Self {
-        Self { next_access_unit }
-    }
-
-    /// Returns the wrapped callback.
-    pub fn callback(&self) -> &F {
-        &self.next_access_unit
-    }
-
-    /// Returns the wrapped callback mutably.
-    pub fn callback_mut(&mut self) -> &mut F {
-        &mut self.next_access_unit
-    }
-
-    /// Consumes this source and returns the wrapped callback.
-    pub fn into_callback(self) -> F {
-        self.next_access_unit
-    }
-}
-
-impl<F, E> EncodedAccessUnitSource for GStreamerAppSinkSource<F>
-where
-    F: FnMut() -> Result<Option<OwnedEncodedAccessUnit>, E>,
-    E: StdError + Send + Sync + 'static,
-{
-    type Error = E;
-
-    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, Self::Error> {
-        (self.next_access_unit)()
-    }
 }
 
 fn access_unit_from_sample_payload(
