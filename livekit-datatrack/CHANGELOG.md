@@ -1,4 +1,18 @@
 # Changelog
+## 0.1.12 (2026-07-27)
+
+### Features
+
+- Data tracks schema metadata support.
+
+## 0.1.11 (2026-07-14)
+
+### Fixes
+
+- Make some fields public for data track types
+- Refactor data tracks E2EE interface
+- Use concrete type for data track manager output events
+
 ## 0.1.10 (2026-07-09)
 
 ### Fixes

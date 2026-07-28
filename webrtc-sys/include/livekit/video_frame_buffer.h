@@ -214,6 +214,7 @@ class NV12Buffer : public BiplanarYuv8Buffer {
 std::unique_ptr<I420Buffer> copy_i420_buffer(
     const std::unique_ptr<I420Buffer>& i420);
 std::unique_ptr<I420Buffer> new_i420_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
+std::unique_ptr<I420Buffer> new_black_i420_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
 std::unique_ptr<I422Buffer> new_i422_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
 std::unique_ptr<I444Buffer> new_i444_buffer(int width, int height, int stride_y, int stride_u, int stride_v);
 std::unique_ptr<I010Buffer> new_i010_buffer(int width, int height, int stride_y, int stride_u, int stride_v);

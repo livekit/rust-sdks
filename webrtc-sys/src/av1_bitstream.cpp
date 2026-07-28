@@ -14,7 +14,7 @@
  * limitations under the License.
  */
  
-#include "jetson_av1_bitstream.h"
+#include "av1_bitstream.h"
 
 #include <algorithm>
 
