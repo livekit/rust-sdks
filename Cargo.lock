@@ -4045,6 +4045,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-tungstenite",
+ "uniffi",
  "url",
 ]
 
@@ -4079,6 +4080,7 @@ dependencies = [
  "futures-util",
  "livekit-api",
  "livekit-datatrack",
+ "livekit-net",
  "livekit-protocol",
  "log",
  "once_cell",

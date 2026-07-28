@@ -9,6 +9,12 @@ repository.workspace = true
 [features]
 default = []
 
+# UniFFI bindings: exposes the transport seam across the FFI so a host can
+# implement WsClient/HttpClient and register it. Orthogonal to the native
+# backends — enable alongside a native-* backend for a host-overridable
+# transport that falls back to native.
+uniffi = ["dep:uniffi"]
+
 # Native backend bundles — each pairs the net libraries with a runtime.
 native-tokio      = ["__native", "__native-tokio", "tokio"]
 native-async      = ["__native", "__native-async", "async"]
@@ -49,6 +55,13 @@ __native-async = ["dep:async-tungstenite", "dep:isahc", "dep:tokio", "dep:future
 
 [dependencies]
 async-trait = "0.1"
+
+# Optional: scaffolding for the `uniffi` feature. `scaffolding-ffi-buffer-fns`
+# matches livekit-datatrack/livekit-uniffi so the ABI is consistent when these
+# crates are combined into one cdylib. No runtime feature: the exported traits
+# are `with_foreign` (host-driven futures) and the exported setters are sync, so
+# the crate stays runtime-agnostic.
+uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
 
 # Direct path dep (not workspace inheritance) so default-features = false is
 # honored: cargo ignores a member's default-features override on an inherited dep,

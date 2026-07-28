@@ -30,4 +30,6 @@ pub mod common;
 /// Global async runtime.
 pub mod runtime;
 
+extern crate livekit_net;
+
 uniffi::setup_scaffolding!();

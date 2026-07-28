@@ -25,6 +25,9 @@ pub use types::{Header, HttpResponse, TransportError};
 
 use std::sync::{Arc, OnceLock};
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 /// Render a URL for logging with secrets stripped: userinfo (`user:password@`)
 /// and the query string (which can carry an access token). Keeps scheme, host,
 /// port, and path.
@@ -45,12 +48,14 @@ static HTTP: OnceLock<Arc<dyn HttpClient>> = OnceLock::new();
 ///
 /// Independent of [`set_http_client`]: a consumer that only needs HTTP (e.g. a
 /// token source) can register that alone, and vice versa.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn set_ws_client(c: Arc<dyn WsClient>) {
     let _ = WS.set(c);
 }
 
 /// Register the process-wide HTTP client. Call once at startup, before the first
 /// request. A later call is ignored (first registration wins).
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn set_http_client(c: Arc<dyn HttpClient>) {
     let _ = HTTP.set(c);
 }
