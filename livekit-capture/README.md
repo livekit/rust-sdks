@@ -6,13 +6,15 @@ ingest source; the `demo` feature adds a synthetic pixel source for testing.
 
 ## Library entry points
 
-- `pixel::PixelVideoSource` and `encoded::EncodedVideoSource` — the
-  libwebrtc-free traits a capture backend implements: pixel sources produce
-  frames published through the WebRTC encoder, encoded sources produce
-  access units published as passthrough. Both traits are object-safe and
+- `pixel::PixelVideoSource` and `encoded::EncodedVideoSource` — the traits a
+  capture backend implements: pixel sources yield libwebrtc `VideoFrame`s
+  (any `VideoBuffer`, CPU or native, with no intermediate copy) published
+  through the WebRTC encoder; encoded sources produce crate-owned access
+  units published as passthrough. Both traits are object-safe and
   implemented for `Box<dyn ...>`, so sources can be constructed dynamically
-  and driven through the same pumps. Each kind module also holds that kind's
-  vocabulary (`pixel::PixelVideoFrame`, `encoded::EncodedAccessUnit`, …).
+  and driven through the same pumps. The crate owns a type only where it
+  adds semantics (`encoded::EncodedAccessUnit` and the parsing/validation
+  vocabulary); elsewhere livekit's types are used directly.
 - `pixel::PixelVideoPump<S>` and `encoded::EncodedVideoPump<S>` — bridge a
   source into a publishable RTC track: each builds the matching
   `NativeVideoSource`, derives publish options (`EncodedVideoPump` selects

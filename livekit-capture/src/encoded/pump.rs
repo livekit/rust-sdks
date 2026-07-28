@@ -18,7 +18,7 @@
 use crate::{
     encoded::{
         CodecSpecific, EncodedFrameType, EncodedLayerInfo, EncodedVideoSource,
-        OwnedEncodedAccessUnit, RateControl,
+        OwnedEncodedAccessUnit,
     },
     error::CaptureError,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
@@ -26,17 +26,14 @@ use crate::{
 use livekit::{
     options::{TrackPublishOptions, VideoEncoderBackend},
     webrtc::{
-        video_frame::EncodedVideoFrame,
-        video_source::{native::NativeVideoSource, EncodedRateControl, RtcVideoSource},
+        video_frame::{EncodedVideoFrame, FrameMetadata},
+        video_source::{native::NativeVideoSource, RtcVideoSource},
     },
 };
 use std::{fmt, io};
 
-impl From<EncodedRateControl> for RateControl {
-    fn from(target: EncodedRateControl) -> Self {
-        Self { target_bitrate_bps: target.target_bitrate_bps, framerate_fps: target.framerate_fps }
-    }
-}
+/// Callback that supplies packet-trailer metadata for an access unit.
+type FrameMetadataFn = Box<dyn FnMut(&OwnedEncodedAccessUnit) -> Option<FrameMetadata> + Send>;
 
 /// Pumps an [`EncodedVideoSource`] into an RTC video source, publishing
 /// access units as passthrough.
@@ -49,6 +46,7 @@ pub struct EncodedVideoPump<S: EncodedVideoSource> {
     source: S,
     rtc_source: NativeVideoSource,
     stop: PumpStop,
+    frame_metadata: Option<FrameMetadataFn>,
 }
 
 impl<S: EncodedVideoSource> EncodedVideoPump<S> {
@@ -56,7 +54,21 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     /// source.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new_encoded(source.resolution().into());
-        Self { source, rtc_source, stop: PumpStop::new() }
+        Self { source, rtc_source, stop: PumpStop::new(), frame_metadata: None }
+    }
+
+    /// Sets a callback that supplies packet-trailer metadata for each access
+    /// unit before it is captured.
+    ///
+    /// Metadata is only propagated to subscribers when the corresponding
+    /// [`TrackPublishOptions::frame_metadata_features`] are enabled before
+    /// publishing the local track.
+    pub fn with_frame_metadata(
+        mut self,
+        frame_metadata: impl FnMut(&OwnedEncodedAccessUnit) -> Option<FrameMetadata> + Send + 'static,
+    ) -> Self {
+        self.frame_metadata = Some(Box::new(frame_metadata));
+        self
     }
 
     /// Returns the RTC source to create the local track with.
@@ -97,7 +109,7 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
                 break PumpExit::Stopped;
             }
             if let Some(target) = self.rtc_source.take_rate_control_request() {
-                self.source.update_rate_control(target.into());
+                self.source.update_rate_control(target);
             }
             if self.rtc_source.take_keyframe_request() {
                 self.source.request_keyframe();
@@ -113,7 +125,8 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
             }
             awaiting_initial_keyframe = false;
 
-            capture_access_unit(&self.rtc_source, &access_unit)?;
+            let metadata = self.frame_metadata.as_mut().and_then(|callback| callback(&access_unit));
+            capture_access_unit(&self.rtc_source, &access_unit, metadata)?;
             frames_captured += 1;
         };
         Ok(PumpStats { frames_captured, exit })
@@ -144,6 +157,7 @@ impl<S: EncodedVideoSource> fmt::Debug for EncodedVideoPump<S> {
 fn capture_access_unit(
     rtc_source: &NativeVideoSource,
     access_unit: &OwnedEncodedAccessUnit,
+    frame_metadata: Option<FrameMetadata>,
 ) -> Result<(), CaptureError> {
     validate_access_unit(access_unit)?;
 
@@ -153,7 +167,7 @@ fn capture_access_unit(
         timestamp_us: access_unit.timestamp_us,
         frame_type: access_unit.frame_type.into(),
         resolution: access_unit.resolution.into(),
-        frame_metadata: None,
+        frame_metadata,
     };
     rtc_source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
 }
@@ -246,6 +260,27 @@ mod tests {
         assert_eq!(pump.publish_options().video_encoder, VideoEncoderBackend::PreEncoded);
         let stats = pump.run().unwrap();
         assert_eq!(stats.frames_captured, 1);
+    }
+
+    #[test]
+    fn metadata_callback_runs_per_captured_access_unit() {
+        let source = FakeEncodedSource::new([
+            access_unit(1, EncodedFrameType::Delta), // dropped pre-roll, no callback
+            access_unit(2, EncodedFrameType::Key),
+            access_unit(3, EncodedFrameType::Delta),
+        ]);
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let calls_in_callback = calls.clone();
+        let stats = EncodedVideoPump::new(source)
+            .with_frame_metadata(move |access_unit| {
+                assert!(access_unit.timestamp_us > 1);
+                calls_in_callback.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                None
+            })
+            .run()
+            .unwrap();
+        assert_eq!(stats.frames_captured, 2);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 
     #[test]

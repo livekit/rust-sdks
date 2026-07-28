@@ -15,19 +15,20 @@
 //! Pumps pixel frames from a capture source into an RTC video source.
 
 use crate::{
-    error::CaptureError,
-    pixel::{PixelVideoData, PixelVideoFrame, PixelVideoSource},
-    primitive::VideoResolution,
+    pixel::PixelVideoSource,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
 };
 use livekit::{
     options::TrackPublishOptions,
     webrtc::{
-        video_frame::{I420Buffer, VideoFrame, VideoRotation},
+        video_frame::{BoxVideoFrame, FrameMetadata},
         video_source::{native::NativeVideoSource, RtcVideoSource},
     },
 };
 use std::{fmt, io};
+
+/// Callback that supplies packet-trailer metadata for a pixel frame.
+type FrameMetadataFn = Box<dyn FnMut(&BoxVideoFrame) -> Option<FrameMetadata> + Send>;
 
 /// Pumps a [`PixelVideoSource`] into an RTC video source, publishing frames
 /// through the WebRTC encoder.
@@ -35,6 +36,7 @@ pub struct PixelVideoPump<S: PixelVideoSource> {
     source: S,
     rtc_source: NativeVideoSource,
     stop: PumpStop,
+    frame_metadata: Option<FrameMetadataFn>,
 }
 
 impl<S: PixelVideoSource> PixelVideoPump<S> {
@@ -45,7 +47,23 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
     /// The pump itself runs on plain threads.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new(source.resolution().into(), false);
-        Self { source, rtc_source, stop: PumpStop::new() }
+        Self { source, rtc_source, stop: PumpStop::new(), frame_metadata: None }
+    }
+
+    /// Sets a callback that supplies packet-trailer metadata for each frame
+    /// before it is captured.
+    ///
+    /// When the callback returns `Some`, it overrides any metadata the
+    /// source pre-filled on the frame. Metadata is only propagated to
+    /// subscribers when the corresponding
+    /// [`TrackPublishOptions::frame_metadata_features`] are enabled before
+    /// publishing the local track.
+    pub fn with_frame_metadata(
+        mut self,
+        frame_metadata: impl FnMut(&BoxVideoFrame) -> Option<FrameMetadata> + Send + 'static,
+    ) -> Self {
+        self.frame_metadata = Some(Box::new(frame_metadata));
+        self
     }
 
     /// Returns the RTC source to create the local track with.
@@ -79,10 +97,15 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
             if self.stop.is_stopped() {
                 break PumpExit::Stopped;
             }
-            let Some(frame) = self.source.next_frame()? else {
+            let Some(mut frame) = self.source.next_frame()? else {
                 break PumpExit::EndOfStream;
             };
-            capture_pixel_frame(&self.rtc_source, &frame)?;
+            if let Some(metadata) =
+                self.frame_metadata.as_mut().and_then(|callback| callback(&frame))
+            {
+                frame.frame_metadata = Some(metadata);
+            }
+            self.rtc_source.capture_frame(&frame);
             frames_captured += 1;
         };
         Ok(PumpStats { frames_captured, exit })
@@ -110,70 +133,14 @@ impl<S: PixelVideoSource> fmt::Debug for PixelVideoPump<S> {
     }
 }
 
-fn capture_pixel_frame(
-    rtc_source: &NativeVideoSource,
-    frame: &PixelVideoFrame,
-) -> Result<(), CaptureError> {
-    let buffer = i420_buffer(frame)?;
-    rtc_source.capture_frame(&VideoFrame {
-        rotation: VideoRotation::VideoRotation0,
-        timestamp_us: frame.timestamp_us,
-        frame_metadata: None,
-        buffer,
-    });
-    Ok(())
-}
-
-fn i420_buffer(frame: &PixelVideoFrame) -> Result<I420Buffer, CaptureError> {
-    let PixelVideoData::I420 { y, u, v, stride_y, stride_u, stride_v } = &frame.data;
-
-    let VideoResolution { width, height } = frame.resolution;
-    let mut buffer = I420Buffer::new(width, height);
-    let chroma_width = width.div_ceil(2);
-    let chroma_height = height.div_ceil(2);
-    let (dst_stride_y, dst_stride_u, dst_stride_v) = buffer.strides();
-    let (dst_y, dst_u, dst_v) = buffer.data_mut();
-
-    copy_plane(y, *stride_y, dst_y, dst_stride_y, width, height)?;
-    copy_plane(u, *stride_u, dst_u, dst_stride_u, chroma_width, chroma_height)?;
-    copy_plane(v, *stride_v, dst_v, dst_stride_v, chroma_width, chroma_height)?;
-    Ok(buffer)
-}
-
-fn copy_plane(
-    src: &[u8],
-    src_stride: u32,
-    dst: &mut [u8],
-    dst_stride: u32,
-    width: u32,
-    height: u32,
-) -> Result<(), CaptureError> {
-    let (width, height) = (width as usize, height as usize);
-    let (src_stride, dst_stride) = (src_stride as usize, dst_stride as usize);
-    if src_stride < width {
-        return Err(CaptureError::InvalidPixelFrame("plane stride is smaller than its width"));
-    }
-    // The final row may be unpadded.
-    let min_len = (height - 1).saturating_mul(src_stride) + width;
-    if src.len() < min_len {
-        return Err(CaptureError::InvalidPixelFrame("plane data is shorter than its dimensions"));
-    }
-
-    for row in 0..height {
-        let src_row = &src[row * src_stride..][..width];
-        dst[row * dst_stride..][..width].copy_from_slice(src_row);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
 
-    use bytes::Bytes;
+    use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 
     use super::*;
-    use crate::error::SourceError;
+    use crate::{error::SourceError, primitive::VideoResolution};
 
     const RESOLUTION: VideoResolution = VideoResolution { width: 64, height: 36 };
 
@@ -186,29 +153,21 @@ mod tests {
             .expect("failed to build test runtime")
     }
 
-    fn pixel_frame(timestamp_us: i64) -> PixelVideoFrame {
-        let chroma_width = RESOLUTION.width.div_ceil(2);
-        let chroma_height = RESOLUTION.height.div_ceil(2);
-        PixelVideoFrame {
-            resolution: RESOLUTION,
+    fn pixel_frame(timestamp_us: i64) -> BoxVideoFrame {
+        VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
             timestamp_us,
-            data: PixelVideoData::I420 {
-                y: Bytes::from(vec![128; (RESOLUTION.width * RESOLUTION.height) as usize]),
-                u: Bytes::from(vec![128; (chroma_width * chroma_height) as usize]),
-                v: Bytes::from(vec![128; (chroma_width * chroma_height) as usize]),
-                stride_y: RESOLUTION.width,
-                stride_u: chroma_width,
-                stride_v: chroma_width,
-            },
+            frame_metadata: None,
+            buffer: Box::new(I420Buffer::new(RESOLUTION.width, RESOLUTION.height)),
         }
     }
 
     struct FakePixelSource {
-        frames: VecDeque<PixelVideoFrame>,
+        frames: VecDeque<BoxVideoFrame>,
     }
 
     impl FakePixelSource {
-        fn new(frames: impl IntoIterator<Item = PixelVideoFrame>) -> Self {
+        fn new(frames: impl IntoIterator<Item = BoxVideoFrame>) -> Self {
             Self { frames: frames.into_iter().collect() }
         }
     }
@@ -218,7 +177,7 @@ mod tests {
             RESOLUTION
         }
 
-        fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError> {
+        fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
             Ok(self.frames.pop_front())
         }
     }
@@ -247,6 +206,26 @@ mod tests {
     }
 
     #[test]
+    fn metadata_callback_runs_per_frame() {
+        let runtime = runtime_context();
+        let _guard = runtime.enter();
+
+        let source = FakePixelSource::new([pixel_frame(1), pixel_frame(2), pixel_frame(3)]);
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let calls_in_callback = calls.clone();
+        let stats = PixelVideoPump::new(source)
+            .with_frame_metadata(move |frame| {
+                assert!(frame.timestamp_us > 0);
+                calls_in_callback.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                None
+            })
+            .run()
+            .unwrap();
+        assert_eq!(stats.frames_captured, 3);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
+    }
+
+    #[test]
     fn pump_panics_become_errors() {
         struct PanickingSource;
 
@@ -255,7 +234,7 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError> {
+            fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
                 panic!("source exploded");
             }
         }
@@ -279,7 +258,7 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError> {
+            fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 Ok(Some(pixel_frame(0)))
             }
@@ -295,19 +274,6 @@ mod tests {
         assert_eq!(stats.exit, PumpExit::Stopped);
     }
 
-    #[test]
-    fn pixel_pump_rejects_short_planes() {
-        let runtime = runtime_context();
-        let _guard = runtime.enter();
-
-        let mut frame = pixel_frame(1);
-        let PixelVideoData::I420 { y, .. } = &mut frame.data;
-        *y = Bytes::from(vec![128; 8]);
-
-        let result = PixelVideoPump::new(FakePixelSource::new([frame])).run();
-        assert!(matches!(result, Err(PumpError::Capture(CaptureError::InvalidPixelFrame(_)))));
-    }
-
     #[tokio::test]
     async fn pump_stops_and_joins_async() {
         struct EndlessSource;
@@ -317,7 +283,7 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError> {
+            fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 Ok(Some(pixel_frame(0)))
             }

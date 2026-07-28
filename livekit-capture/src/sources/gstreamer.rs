@@ -23,11 +23,12 @@ use crate::{
     encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
         CodecSpecific, EncodedFrameType, EncodedVideoCodec, EncodedVideoSource,
-        OwnedEncodedAccessUnit, RateControl,
+        OwnedEncodedAccessUnit,
     },
     error::{CaptureError, SourceError},
     primitive::VideoResolution,
 };
+use livekit::webrtc::video_source::EncodedRateControl;
 
 /// Encoded sample format expected from a GStreamer appsink.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,7 +129,7 @@ impl GStreamerEncoderRateControl {
         }
     }
 
-    fn update(&mut self, rate_control: RateControl) {
+    fn update(&mut self, rate_control: EncodedRateControl) {
         if self.last_target_bitrate_bps == Some(rate_control.target_bitrate_bps) {
             return;
         }
@@ -258,7 +259,7 @@ impl EncodedVideoSource for GStreamerVideoSource {
         let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
     }
 
-    fn update_rate_control(&mut self, rate_control: RateControl) {
+    fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
         if let Some(control) = &mut self.rate_control {
             control.update(rate_control);
         }

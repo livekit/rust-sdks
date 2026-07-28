@@ -15,9 +15,9 @@
 //! Encoded video: codec vocabulary, access units, the source contract for
 //! pre-encoded ingest, and the pump.
 //!
-//! Sources produce crate-owned access units independent of libwebrtc and
-//! receive crate-owned feedback types, and [`EncodedVideoPump`] bridges them
-//! into an RTC track as passthrough. The source trait is object-safe and
+//! Sources produce crate-owned access units — the vocabulary the parsing
+//! and validation helpers speak — and [`EncodedVideoPump`] bridges them into
+//! an RTC track as passthrough. The source trait is object-safe and
 //! implemented for `Box<dyn ...>`, so sources can be constructed dynamically
 //! and driven through the same generic pump.
 
@@ -28,8 +28,11 @@ use crate::{
 use bytes::Bytes;
 use livekit::{
     options::VideoCodec,
-    webrtc::video_frame::{
-        EncodedFrameType as RtcEncodedFrameType, EncodedVideoCodec as RtcEncodedVideoCodec,
+    webrtc::{
+        video_frame::{
+            EncodedFrameType as RtcEncodedFrameType, EncodedVideoCodec as RtcEncodedVideoCodec,
+        },
+        video_source::EncodedRateControl,
     },
 };
 
@@ -62,7 +65,7 @@ pub trait EncodedVideoSource: Send {
     ///
     /// The default implementation does nothing, for transports that cannot
     /// influence the upstream encoder.
-    fn update_rate_control(&mut self, _target: RateControl) {}
+    fn update_rate_control(&mut self, _target: EncodedRateControl) {}
 }
 
 /// Encoded byte-stream framing used by encoded source backends.
@@ -450,15 +453,6 @@ impl From<EncodedFrameType> for RtcEncodedFrameType {
     }
 }
 
-/// Encoder rate-control target forwarded from WebRTC to an encoded source.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RateControl {
-    /// Target bitrate in bits per second.
-    pub target_bitrate_bps: u64,
-    /// Target frame rate in frames per second.
-    pub framerate_fps: f64,
-}
-
 impl<S: EncodedVideoSource + ?Sized> EncodedVideoSource for Box<S> {
     fn resolution(&self) -> VideoResolution {
         (**self).resolution()
@@ -476,7 +470,7 @@ impl<S: EncodedVideoSource + ?Sized> EncodedVideoSource for Box<S> {
         (**self).request_keyframe()
     }
 
-    fn update_rate_control(&mut self, target: RateControl) {
+    fn update_rate_control(&mut self, target: EncodedRateControl) {
         (**self).update_rate_control(target)
     }
 }

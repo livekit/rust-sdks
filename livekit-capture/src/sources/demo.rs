@@ -14,12 +14,8 @@
 
 //! Solid-color demo source for testing.
 
-use crate::{
-    error::SourceError,
-    pixel::{PixelVideoData, PixelVideoFrame, PixelVideoSource},
-    primitive::VideoResolution,
-};
-use bytes::Bytes;
+use crate::{error::SourceError, pixel::PixelVideoSource, primitive::VideoResolution};
+use livekit::webrtc::video_frame::{BoxVideoFrame, I420Buffer, VideoFrame, VideoRotation};
 use std::{
     thread,
     time::{Duration, Instant},
@@ -66,8 +62,8 @@ impl Default for DemoSourceConfig {
 #[derive(Debug)]
 pub struct DemoSource {
     config: DemoSourceConfig,
-    /// One pre-rendered `(y, u, v)` plane set per palette color.
-    planes: Vec<(Bytes, Bytes, Bytes)>,
+    /// One `(y, u, v)` sample triple per palette color.
+    colors: Vec<(u8, u8, u8)>,
     started: Option<Instant>,
     frame_index: u64,
 }
@@ -88,21 +84,8 @@ impl DemoSource {
             "demo source color interval must be at least one frame"
         );
 
-        let luma_len = (width * height) as usize;
-        let chroma_len = (width.div_ceil(2) * height.div_ceil(2)) as usize;
-        let planes = PALETTE
-            .iter()
-            .map(|&color| {
-                let (y, u, v) = yuv_from_rgb(color);
-                (
-                    Bytes::from(vec![y; luma_len]),
-                    Bytes::from(vec![u; chroma_len]),
-                    Bytes::from(vec![v; chroma_len]),
-                )
-            })
-            .collect();
-
-        Self { config, planes, started: None, frame_index: 0 }
+        let colors = PALETTE.iter().map(|&color| yuv_from_rgb(color)).collect();
+        Self { config, colors, started: None, frame_index: 0 }
     }
 
     fn frame_interval(&self) -> Duration {
@@ -121,7 +104,7 @@ impl PixelVideoSource for DemoSource {
         self.config.resolution
     }
 
-    fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError> {
+    fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
         let started = *self.started.get_or_insert_with(Instant::now);
 
         // Pace against the ideal timeline so timestamps stay jitter-free.
@@ -135,21 +118,21 @@ impl PixelVideoSource for DemoSource {
         let timestamp_us = elapsed.as_micros() as i64;
         let color_index =
             (elapsed.as_micros() / self.config.color_interval.as_micros().max(1)) as usize;
-        let (y, u, v) = self.planes[color_index % self.planes.len()].clone();
+        let (y, u, v) = self.colors[color_index % self.colors.len()];
 
         self.frame_index += 1;
-        let width = self.config.resolution.width;
-        Ok(Some(PixelVideoFrame {
-            resolution: self.config.resolution,
+        let VideoResolution { width, height } = self.config.resolution;
+        let mut buffer = I420Buffer::new(width, height);
+        let (data_y, data_u, data_v) = buffer.data_mut();
+        data_y.fill(y);
+        data_u.fill(u);
+        data_v.fill(v);
+
+        Ok(Some(VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
             timestamp_us,
-            data: PixelVideoData::I420 {
-                y,
-                u,
-                v,
-                stride_y: width,
-                stride_u: width.div_ceil(2),
-                stride_v: width.div_ceil(2),
-            },
+            frame_metadata: None,
+            buffer: Box::new(buffer),
         }))
     }
 }
@@ -180,9 +163,10 @@ mod tests {
         let mut source = DemoSource::new(test_config());
 
         let frame = source.next_frame().unwrap().unwrap();
-        assert_eq!(frame.resolution, VideoResolution::new(64, 36));
+        assert_eq!((frame.buffer.width(), frame.buffer.height()), (64, 36));
 
-        let PixelVideoData::I420 { y, u, v, .. } = &frame.data;
+        let i420 = frame.buffer.as_i420().expect("demo source yields I420 buffers");
+        let (y, u, v) = i420.data();
         assert_eq!(y.len(), 64 * 36);
         assert_eq!(u.len(), 32 * 18);
         assert_eq!(v.len(), 32 * 18);
@@ -202,10 +186,7 @@ mod tests {
     fn colors_cycle_at_the_color_interval() {
         let mut source = DemoSource::new(test_config());
 
-        let luma = |frame: &PixelVideoFrame| {
-            let PixelVideoData::I420 { y, .. } = &frame.data;
-            y[0]
-        };
+        let luma = |frame: &BoxVideoFrame| frame.buffer.as_i420().unwrap().data().0[0];
 
         // Two frames per color at 1000 fps with a 2 ms interval.
         let first = source.next_frame().unwrap().unwrap();
