@@ -96,6 +96,12 @@ impl StreamProgress {
     /// Returns the completion fraction (`0.0..=1.0`) for finite streams, or `None` for streams of
     /// unknown size.
     pub fn percentage(&self) -> Option<f32> {
-        self.bytes_total.map(|total| self.bytes_processed as f32 / total as f32)
+        self.bytes_total.map(|total| {
+            if total == 0 {
+                1.0
+            } else {
+                self.bytes_processed as f32 / total as f32
+            }
+        })
     }
 }
