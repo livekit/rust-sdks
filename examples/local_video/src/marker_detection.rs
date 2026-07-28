@@ -58,6 +58,7 @@ struct MarkerPoseV1 {
     visible: bool,
     decision_margin: f32,
     hamming: usize,
+    pose_error: f64,
     translation_meters: [f64; 3],
     rotation_matrix: [f64; 9],
     corners_pixels: [[f64; 2]; 4],
@@ -75,6 +76,7 @@ impl MarkerPoseV1 {
             visible: false,
             decision_margin: 0.0,
             hamming: 0,
+            pose_error: 0.0,
             translation_meters: [0.0; 3],
             rotation_matrix: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
             corners_pixels: [[0.0; 2]; 4],
@@ -216,13 +218,15 @@ fn run_detector(
         .build()
         .context("failed to build tag36h11 detector")?;
     detector.set_thread_number(2);
-    detector.set_decimation(1.5);
+    // Keep full-resolution corner coordinates for metric pose accuracy while
+    // allowing the detector's quad search to run on a reduced image.
+    detector.set_decimation(2.0);
     detector.set_refine_edges(true);
     let mut marker_visible = false;
 
     while let Ok(frame) = frame_rx.recv() {
-        let rectified_width = (frame.eye_width / 2).max(320);
-        let rectified_height = (frame.height / 2).max(180);
+        let rectified_width = frame.eye_width;
+        let rectified_height = frame.height;
         let mut image =
             Image::zeros_with_stride(rectified_width, rectified_height, rectified_width)
                 .context("failed to allocate rectified AprilTag image")?;
@@ -246,7 +250,16 @@ fn run_detector(
             .max_by(|left, right| left.decision_margin().total_cmp(&right.decision_margin()));
 
         let packet = if let Some(detection) = detection {
-            if let Some(pose) = detection.estimate_tag_pose(&tag_params) {
+            // A planar tag has two possible pose solutions. Orthogonal
+            // iteration exposes both; keep the lower-error solution instead
+            // of accepting the first local minimum.
+            let pose_estimation = detection
+                .estimate_tag_pose_orthogonal_iteration(&tag_params, 50)
+                .into_iter()
+                .filter(|candidate| candidate.error.is_finite())
+                .min_by(|left, right| left.error.total_cmp(&right.error));
+            if let Some(pose_estimation) = pose_estimation {
+                let pose = pose_estimation.pose;
                 let rotation = pose.rotation().data();
                 let translation = pose.translation().data();
                 MarkerPoseV1 {
@@ -258,6 +271,7 @@ fn run_detector(
                     visible: true,
                     decision_margin: detection.decision_margin(),
                     hamming: detection.hamming(),
+                    pose_error: pose_estimation.error,
                     translation_meters: [translation[0], translation[1], translation[2]],
                     rotation_matrix: [
                         rotation[0],
@@ -294,11 +308,12 @@ fn run_detector(
                 let distance_m = x.hypot(y).hypot(z);
                 log::info!(
                     "AprilTag acquired: family={} id={} distance={distance_m:.3}m \
-                     position=({x:.3}, {y:.3}, {z:.3})m margin={:.1} hamming={}",
+                     position=({x:.3}, {y:.3}, {z:.3})m margin={:.1} hamming={} pose_error={:.6}",
                     packet.family,
                     packet.marker_id,
                     packet.decision_margin,
                     packet.hamming,
+                    packet.pose_error,
                 );
             }
             VisibilityTransition::Lost => {
