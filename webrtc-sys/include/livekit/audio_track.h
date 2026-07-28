@@ -133,17 +133,24 @@ class AudioTrackSource {
     bool is_external_source() const { return true; }
 
    private:
-    mutable webrtc::Mutex mutex_;
+    // Split lock. `sink_mutex_` guards `sinks_` and is held across the drain's OnData loop, so a
+    // wedged or slow sink blocks only AddSink/RemoveSink — never the producer — while still
+    // preventing a sink from being freed mid-OnData. `buffer_mutex_` guards the producer and
+    // completion state, so capture_frame never contends with a sink.
+    mutable webrtc::Mutex sink_mutex_;
+    mutable webrtc::Mutex buffer_mutex_;
     std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> audio_queue_;
     webrtc::RepeatingTaskHandle audio_task_;
 
-    std::vector<webrtc::AudioTrackSinkInterface*> sinks_ RTC_GUARDED_BY(mutex_);
-    std::vector<int16_t> buffer_ RTC_GUARDED_BY(mutex_);
+    std::vector<webrtc::AudioTrackSinkInterface*> sinks_ RTC_GUARDED_BY(sink_mutex_);
+    std::vector<int16_t> buffer_ RTC_GUARDED_BY(buffer_mutex_);
 
-    const SourceContext* capture_userdata_ RTC_GUARDED_BY(mutex_);
-    void (*on_complete_)(const SourceContext*) RTC_GUARDED_BY(mutex_);
+    const SourceContext* capture_userdata_ RTC_GUARDED_BY(buffer_mutex_);
+    void (*on_complete_)(const SourceContext*) RTC_GUARDED_BY(buffer_mutex_);
 
     std::vector<int16_t> silence_buffer_;
+    // Reusable 10ms scratch owned solely by the single-threaded drain task (no lock needed).
+    std::vector<int16_t> scratch_;
 
     int sample_rate_ = 0;
     int num_channels_ = 0;

@@ -33,7 +33,7 @@ webrtc-sys = { workspace = true }
 livekit-runtime = { workspace = true, features = ["tokio"] }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "time"] }
 cxx = "1.0"
 rtrb = "0.3.3"
 
@@ -59,3 +59,4 @@ web-sys = { version = "0.3", features = [
 
 [dev-dependencies]
 env_logger = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }

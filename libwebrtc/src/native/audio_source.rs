@@ -18,6 +18,14 @@ use webrtc_sys::audio_track as sys_at;
 
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
 
+/// Floor for the per-chunk completion wait, for very small queues.
+const CAPTURE_COMPLETE_TIMEOUT_FLOOR: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Headroom multiple applied to the queue duration when bounding the completion wait: a healthy
+/// drain acknowledges a chunk within one queue-duration, so this leaves margin before the wait is
+/// treated as a stall.
+const CAPTURE_COMPLETE_TIMEOUT_QUEUE_MULTIPLE: u64 = 5;
+
 #[derive(Clone)]
 pub struct NativeAudioSource {
     sys_handle: SharedPtr<sys_at::ffi::AudioTrackSource>,
@@ -153,6 +161,20 @@ impl NativeAudioSource {
             let _ = tx.send(());
         }
 
+        // Bound the per-chunk completion wait on a multiple of the queue duration. The C++
+        // drain acknowledges a chunk from a 10ms RepeatingTask; legitimate backpressure clears
+        // within one queue-duration. A wait beyond that means the drain stalled (CPU-starved,
+        // or a sink blocked in OnData), so surface a recoverable error rather than hang the
+        // caller — and the whole session — forever (see rust-sdks #408 / #420 / #497).
+        let queue_ms = (self.queue_size_samples as u64)
+            .saturating_mul(1000)
+            .checked_div((self.sample_rate as u64) * (self.num_channels as u64))
+            .unwrap_or(0);
+        let capture_timeout = std::time::Duration::from_millis(
+            queue_ms.saturating_mul(CAPTURE_COMPLETE_TIMEOUT_QUEUE_MULTIPLE),
+        )
+        .max(CAPTURE_COMPLETE_TIMEOUT_FLOOR);
+
         // iterate over chunks of self._queue_size_samples
         for chunk in frame.data.chunks(self.queue_size_samples as usize) {
             let nb_frames = chunk.len() / self.num_channels as usize;
@@ -161,7 +183,9 @@ impl NativeAudioSource {
             let ctx_ptr = Box::into_raw(ctx) as *const sys_at::SourceContext;
 
             unsafe {
-                // In the fast path, C++ never store / invoke on_complete / ctx.
+                // C++ only takes ownership of `ctx` when capture_frame returns true; on a false
+                // return (buffer full, or a prior completion still pending) it has not, so reclaim
+                // the Box here to avoid leaking the Sender.
                 if !self.sys_handle.capture_frame(
                     chunk,
                     self.sample_rate,
@@ -170,6 +194,7 @@ impl NativeAudioSource {
                     ctx_ptr,
                     sys_at::CompleteCallback(lk_audio_source_complete),
                 ) {
+                    drop(Box::from_raw(ctx_ptr as *mut oneshot::Sender<()>));
                     return Err(RtcError {
                         error_type: RtcErrorType::InvalidState,
                         message: "failed to capture frame".to_owned(),
@@ -177,7 +202,18 @@ impl NativeAudioSource {
                 }
             }
 
-            let _ = rx.await;
+            // Bound the wait for the drain's completion (timeout rationale above). On a stall,
+            // clear_buffer() releases the pending completion so the source stays usable afterward.
+            match tokio::time::timeout(capture_timeout, rx).await {
+                Ok(_) => {}
+                Err(_) => {
+                    self.clear_buffer();
+                    return Err(RtcError {
+                        error_type: RtcErrorType::InvalidState,
+                        message: "audio capture timed out: source drain stalled".to_owned(),
+                    });
+                }
+            }
         }
 
         Ok(())
