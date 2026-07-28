@@ -62,6 +62,7 @@ pub enum ParticipantKindDetail {
     ConnectorWhatsapp,
     ConnectorTwilio,
     BridgeRtsp,
+    Simulation,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
