@@ -1424,6 +1424,9 @@ impl SessionInner {
             }
             proto::signal_response::Message::Update(mut update) => {
                 #[cfg(feature = "__lk-e2e-test")]
+                // injecting faulty behaviour during a signal disconnect to ensure we can mimic 
+                // losing/missing participant disconnect events after a resume
+                // for test_resume_synthesizes_disconnect_for_participant_that_left
                 if self.drop_disconnected_updates.load(Ordering::Acquire) {
                     update.participants.retain(|pi| {
                         pi.state != proto::participant_info::State::Disconnected as i32
