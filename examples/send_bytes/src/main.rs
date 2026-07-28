@@ -43,7 +43,7 @@ async fn run_sender(room: Room) -> Result<(), Box<dyn Error>> {
 
         println!("[tx] {}", packet);
 
-        let options = StreamByteOptions { topic: LED_CONTROL_TOPIC.into(), ..Default::default() };
+        let options = StreamByteOptions::new_with_topic(LED_CONTROL_TOPIC);
         let be_bytes = packet.into_bits().to_be_bytes();
         room.local_participant().send_bytes(&be_bytes, options).await?;
 

@@ -8,9 +8,7 @@ edition.workspace = true
 repository.workspace = true
 
 [features]
-# Exposes test-only hooks used by downstream crates' test suites (e.g.
-# `TextStreamReader::new_for_test`). Forwarded from the `livekit` crate's `__lk-e2e-test` feature.
-test-utils = []
+test-utils = ["dep:rand"]
 
 [dependencies]
 livekit-common = { workspace = true }
@@ -20,12 +18,16 @@ thiserror = { workspace = true }
 parking_lot = { workspace = true }
 bytes = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "fs", "io-util", "rt"] }
-futures-util = { workspace = true, default-features = false, features = ["sink"] }
+tokio-stream = { workspace = true, features = ["sync"] }
+futures-util = { workspace = true, default-features = false, features = ["sink", "io"] }
 prost = "0.12"
 chrono = "0.4.38"
-flate2 = "1"
 bmrng = "0.5.2"
 uuid = { version = "1", features = ["v4"] }
+async-compression = { version = "0.4.42", features = ["deflate", "futures-io"] }
+from_variants.workspace = true
+rand = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }
+rand = { workspace = true }
