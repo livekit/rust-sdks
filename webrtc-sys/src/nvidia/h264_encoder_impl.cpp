@@ -372,8 +372,7 @@ int32_t NvidiaH264EncoderImpl::ProcessEncodedFrame(
   encoded_image_.timing_.flags = VideoSendTiming::kInvalid;
   encoded_image_._frameType = VideoFrameType::kVideoFrameDelta;
   encoded_image_.SetColorSpace(inputFrame.color_space());
-  std::vector<H264::NaluIndex> naluIndices =
-      H264::FindNaluIndices(MakeArrayView(packet.data(), packet.size()));
+  std::vector<H264::NaluIndex> naluIndices = H264::FindNaluIndices(packet);
   for (uint32_t i = 0; i < naluIndices.size(); i++) {
     const H264::NaluType naluType =
         H264::ParseNaluType(packet[naluIndices[i].payload_start_offset]);
