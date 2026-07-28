@@ -21,7 +21,7 @@
 //!
 //! Both source traits are object-safe, and `Box<dyn ...>` boxes implement
 //! them, so applications that construct sources dynamically can drive a
-//! [`PixelPump<Box<dyn PixelVideoSource>>`](crate::pump::PixelPump) while
+//! [`PixelVideoPump<Box<dyn PixelVideoSource>>`](crate::pump::PixelVideoPump) while
 //! applications that know their source statically pay for no type erasure.
 
 use std::{error::Error, fmt};

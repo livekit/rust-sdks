@@ -12,9 +12,9 @@ ingest source; the `demo` feature adds a synthetic pixel source for testing.
   access units published as passthrough. Both traits are object-safe and
   implemented for `Box<dyn ...>`, so sources can be constructed dynamically
   and driven through the same pumps.
-- `pump::PixelPump<S>` and `pump::EncodedPump<S>` — bridge a source into a
+- `pump::PixelVideoPump<S>` and `pump::EncodedVideoPump<S>` — bridge a source into a
   publishable RTC track: each builds the matching `NativeVideoSource`,
-  derives publish options (`EncodedPump` selects the passthrough encoder),
+  derives publish options (`EncodedVideoPump` selects the passthrough encoder),
   and runs the capture loop on a plain thread. Encoded pumps forward
   downstream keyframe and rate-control requests back to the source and drop
   pre-roll deltas until the first keyframe. Both spawn into the same

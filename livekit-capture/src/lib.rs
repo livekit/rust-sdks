@@ -22,7 +22,7 @@ pub mod sources;
 pub mod track;
 
 pub use pump::{
-    EncodedPump, PixelPump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump,
+    EncodedVideoPump, PixelVideoPump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump,
 };
 pub use source::{
     EncodedVideoSource, PixelVideoData, PixelVideoFrame, PixelVideoSource, RateControl,

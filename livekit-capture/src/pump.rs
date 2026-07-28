@@ -14,7 +14,7 @@
 
 //! Pumps frames from a capture source into an RTC video source.
 //!
-//! [`PixelPump`] and [`EncodedPump`] are the bridges between the
+//! [`PixelVideoPump`] and [`EncodedVideoPump`] are the bridges between the
 //! libwebrtc-free source traits in [`source`](crate::source) and a
 //! publishable RTC track: each builds the matching [`NativeVideoSource`],
 //! converts crate-owned frame types at the boundary, and — for encoded
@@ -23,7 +23,7 @@
 //!
 //! Both pumps are generic over a concrete source, so statically-known
 //! sources pay for no type erasure. Applications that construct sources
-//! dynamically box them at their edge (`PixelPump<Box<dyn
+//! dynamically box them at their edge (`PixelVideoPump<Box<dyn
 //! PixelVideoSource>>`); both pumps spawn into the same [`RunningPump`], so
 //! running pumps of either kind are handled uniformly.
 
@@ -130,13 +130,13 @@ impl PumpStop {
 
 /// Pumps a [`PixelVideoSource`] into an RTC video source, publishing frames
 /// through the WebRTC encoder.
-pub struct PixelPump<S: PixelVideoSource> {
+pub struct PixelVideoPump<S: PixelVideoSource> {
     source: S,
     rtc_source: NativeVideoSource,
     stop: PumpStop,
 }
 
-impl<S: PixelVideoSource> PixelPump<S> {
+impl<S: PixelVideoSource> PixelVideoPump<S> {
     /// Creates a pump for a pixel source, building the matching RTC source.
     ///
     /// This must be called from the context of the async runtime driving the
@@ -176,7 +176,7 @@ impl<S: PixelVideoSource> PixelPump<S> {
     /// or the stop handle fires.
     ///
     /// Sources block, so callers on an async runtime should run this on a
-    /// dedicated thread (see [`PixelPump::spawn`]) or a blocking pool.
+    /// dedicated thread (see [`PixelVideoPump::spawn`]) or a blocking pool.
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
         let mut frames_captured = 0;
         let exit = loop {
@@ -205,9 +205,9 @@ impl<S: PixelVideoSource> PixelPump<S> {
     }
 }
 
-impl<S: PixelVideoSource> fmt::Debug for PixelPump<S> {
+impl<S: PixelVideoSource> fmt::Debug for PixelVideoPump<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PixelPump")
+        f.debug_struct("PixelVideoPump")
             .field("rtc_source", &self.rtc_source)
             .field("stop", &self.stop)
             .finish_non_exhaustive()
@@ -221,13 +221,13 @@ impl<S: PixelVideoSource> fmt::Debug for PixelPump<S> {
 /// targets are polled between access units and forwarded to the source.
 /// Pre-roll delta frames are dropped until the first keyframe, since
 /// decoding can only start at a keyframe.
-pub struct EncodedPump<S: EncodedVideoSource> {
+pub struct EncodedVideoPump<S: EncodedVideoSource> {
     source: S,
     rtc_source: NativeVideoSource,
     stop: PumpStop,
 }
 
-impl<S: EncodedVideoSource> EncodedPump<S> {
+impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     /// Creates a pump for an encoded source, building the matching RTC
     /// source.
     pub fn new(source: S) -> Self {
@@ -269,7 +269,7 @@ impl<S: EncodedVideoSource> EncodedPump<S> {
     /// or the stop handle fires.
     ///
     /// Sources block, so callers on an async runtime should run this on a
-    /// dedicated thread (see [`EncodedPump::spawn`]) or a blocking pool.
+    /// dedicated thread (see [`EncodedVideoPump::spawn`]) or a blocking pool.
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
         let mut frames_captured = 0;
         let mut awaiting_initial_keyframe = true;
@@ -313,9 +313,9 @@ impl<S: EncodedVideoSource> EncodedPump<S> {
     }
 }
 
-impl<S: EncodedVideoSource> fmt::Debug for EncodedPump<S> {
+impl<S: EncodedVideoSource> fmt::Debug for EncodedVideoPump<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EncodedPump")
+        f.debug_struct("EncodedVideoPump")
             .field("rtc_source", &self.rtc_source)
             .field("stop", &self.stop)
             .finish_non_exhaustive()
@@ -607,7 +607,7 @@ mod tests {
         let _guard = runtime.enter();
 
         let source = FakePixelSource::new([pixel_frame(1), pixel_frame(2), pixel_frame(3)]);
-        let stats = PixelPump::new(source).run().unwrap();
+        let stats = PixelVideoPump::new(source).run().unwrap();
         assert_eq!(stats.frames_captured, 3);
         assert_eq!(stats.exit, PumpExit::EndOfStream);
     }
@@ -620,12 +620,12 @@ mod tests {
         // The dynamic-instantiation pattern: box at the edge, same pumps.
         let source: Box<dyn PixelVideoSource> =
             Box::new(FakePixelSource::new([pixel_frame(1), pixel_frame(2)]));
-        let stats = PixelPump::new(source).run().unwrap();
+        let stats = PixelVideoPump::new(source).run().unwrap();
         assert_eq!(stats.frames_captured, 2);
 
         let source: Box<dyn EncodedVideoSource> =
             Box::new(FakeEncodedSource::new([access_unit(1, EncodedFrameType::Key)]));
-        let pump = EncodedPump::new(source);
+        let pump = EncodedVideoPump::new(source);
         assert_eq!(pump.publish_options().video_encoder, VideoEncoderBackend::PreEncoded);
         let stats = pump.run().unwrap();
         assert_eq!(stats.frames_captured, 1);
@@ -648,7 +648,7 @@ mod tests {
         let runtime = runtime_context();
         let _guard = runtime.enter();
 
-        let running = PixelPump::new(PanickingSource).spawn().unwrap();
+        let running = PixelVideoPump::new(PanickingSource).spawn().unwrap();
         let error = running.join().unwrap_err();
         assert!(
             matches!(&error, PumpError::Panicked(message) if message.contains("source exploded"))
@@ -673,7 +673,7 @@ mod tests {
         let runtime = runtime_context();
         let _guard = runtime.enter();
 
-        let running = PixelPump::new(EndlessSource).spawn().unwrap();
+        let running = PixelVideoPump::new(EndlessSource).spawn().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         let stats = running.stop_and_join().unwrap();
         assert!(stats.frames_captured > 0);
@@ -689,7 +689,7 @@ mod tests {
         let PixelVideoData::I420 { y, .. } = &mut frame.data;
         *y = Bytes::from(vec![128; 8]);
 
-        let result = PixelPump::new(FakePixelSource::new([frame])).run();
+        let result = PixelVideoPump::new(FakePixelSource::new([frame])).run();
         assert!(matches!(result, Err(PumpError::Capture(CaptureError::InvalidPixelFrame(_)))));
     }
 
@@ -708,7 +708,7 @@ mod tests {
             }
         }
 
-        let running = PixelPump::new(EndlessSource).spawn().unwrap();
+        let running = PixelVideoPump::new(EndlessSource).spawn().unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         let stats = running.stop_and_join_async().await.unwrap();
         assert!(stats.frames_captured > 0);
@@ -722,7 +722,7 @@ mod tests {
             access_unit(3, EncodedFrameType::Key),
             access_unit(4, EncodedFrameType::Delta),
         ]);
-        let stats = EncodedPump::new(source).run().unwrap();
+        let stats = EncodedVideoPump::new(source).run().unwrap();
         assert_eq!(stats.frames_captured, 2);
     }
 
@@ -731,13 +731,13 @@ mod tests {
         let mut unit = access_unit(1, EncodedFrameType::Key);
         unit.payload = Bytes::new();
 
-        let result = EncodedPump::new(FakeEncodedSource::new([unit])).run();
+        let result = EncodedVideoPump::new(FakeEncodedSource::new([unit])).run();
         assert!(matches!(result, Err(PumpError::Capture(CaptureError::EmptyPayload))));
     }
 
     #[test]
     fn encoded_publish_options_use_passthrough() {
-        let pump = EncodedPump::new(FakeEncodedSource::new([]));
+        let pump = EncodedVideoPump::new(FakeEncodedSource::new([]));
         let options = pump.publish_options();
         assert_eq!(options.video_encoder, VideoEncoderBackend::PreEncoded);
         assert!(!options.simulcast);
