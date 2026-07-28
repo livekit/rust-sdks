@@ -75,18 +75,6 @@ pub struct GStreamerVideoSourceConfig {
     pub resolution: VideoResolution,
 }
 
-impl GStreamerVideoSourceConfig {
-    /// Creates GStreamer appsink source configuration.
-    pub fn new(
-        sample_format: GStreamerSampleFormat,
-        start_timestamp_us: i64,
-        frame_interval_us: i64,
-        resolution: VideoResolution,
-    ) -> Self {
-        Self { sample_format, start_timestamp_us, frame_interval_us, resolution }
-    }
-}
-
 /// Bitrate unit used by a GStreamer encoder property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GStreamerBitrateUnit {
