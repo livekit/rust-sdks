@@ -83,6 +83,21 @@ impl MarkerPoseV1 {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VisibilityTransition {
+    None,
+    Acquired,
+    Lost,
+}
+
+fn visibility_transition(was_visible: bool, is_visible: bool) -> VisibilityTransition {
+    match (was_visible, is_visible) {
+        (false, true) => VisibilityTransition::Acquired,
+        (true, false) => VisibilityTransition::Lost,
+        _ => VisibilityTransition::None,
+    }
+}
+
 pub struct MarkerDetectorHandle {
     frame_tx: Option<SyncSender<DetectionFrame>>,
     detector_thread: Option<thread::JoinHandle<()>>,
@@ -203,6 +218,7 @@ fn run_detector(
     detector.set_thread_number(2);
     detector.set_decimation(1.5);
     detector.set_refine_edges(true);
+    let mut marker_visible = false;
 
     while let Ok(frame) = frame_rx.recv() {
         let rectified_width = (frame.eye_width / 2).max(320);
@@ -271,6 +287,26 @@ fn run_detector(
                 [rectified_width, rectified_height],
             )
         };
+
+        match visibility_transition(marker_visible, packet.visible) {
+            VisibilityTransition::Acquired => {
+                let [x, y, z] = packet.translation_meters;
+                let distance_m = x.hypot(y).hypot(z);
+                log::info!(
+                    "AprilTag acquired: family={} id={} distance={distance_m:.3}m \
+                     position=({x:.3}, {y:.3}, {z:.3})m margin={:.1} hamming={}",
+                    packet.family,
+                    packet.marker_id,
+                    packet.decision_margin,
+                    packet.hamming,
+                );
+            }
+            VisibilityTransition::Lost => {
+                log::info!("AprilTag lost: family={} id={}", packet.family, packet.marker_id,);
+            }
+            VisibilityTransition::None => {}
+        }
+        marker_visible = packet.visible;
 
         let payload = serde_json::to_vec(&packet).context("failed to encode marker pose")?;
         if pose_tx.send(payload).is_err() {
@@ -352,5 +388,13 @@ mod tests {
         assert_eq!(json["markerId"], 0);
         assert_eq!(json["visible"], false);
         assert_eq!(json["rectifiedImageSize"], serde_json::json!([960, 540]));
+    }
+
+    #[test]
+    fn visibility_logging_only_reports_edges() {
+        assert_eq!(visibility_transition(false, true), VisibilityTransition::Acquired);
+        assert_eq!(visibility_transition(true, false), VisibilityTransition::Lost);
+        assert_eq!(visibility_transition(true, true), VisibilityTransition::None);
+        assert_eq!(visibility_transition(false, false), VisibilityTransition::None);
     }
 }
