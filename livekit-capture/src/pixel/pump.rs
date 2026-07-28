@@ -14,8 +14,12 @@
 
 //! Pumps pixel frames from a capture source into an RTC video source.
 
-use std::{fmt, io};
-
+use crate::{
+    error::CaptureError,
+    pixel::{PixelVideoData, PixelVideoFrame, PixelVideoSource},
+    primitive::VideoResolution,
+    pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
+};
 use livekit::{
     options::TrackPublishOptions,
     webrtc::{
@@ -23,13 +27,7 @@ use livekit::{
         video_source::{native::NativeVideoSource, RtcVideoSource},
     },
 };
-
-use crate::{
-    error::CaptureError,
-    pixel::{PixelVideoData, PixelVideoFrame, PixelVideoSource},
-    primitive::VideoResolution,
-    pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
-};
+use std::{fmt, io};
 
 /// Pumps a [`PixelVideoSource`] into an RTC video source, publishing frames
 /// through the WebRTC encoder.

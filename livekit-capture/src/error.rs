@@ -14,11 +14,9 @@
 
 //! Error types shared across capture paths.
 
-use std::{error::Error as StdError, fmt};
-
-use thiserror::Error;
-
 use crate::encoded::{EncodedVideoCodec, EncodedWireFormat};
+use std::{error::Error as StdError, fmt};
+use thiserror::Error;
 
 /// Error returned by a capture source.
 ///

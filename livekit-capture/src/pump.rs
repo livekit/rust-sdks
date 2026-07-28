@@ -23,6 +23,7 @@
 //! spawn into the same [`RunningPump`] defined here, so running pumps of
 //! either kind are supervised uniformly.
 
+use crate::error::{CaptureError, SourceError};
 use std::{
     any::Any,
     io,
@@ -33,10 +34,7 @@ use std::{
     },
     thread,
 };
-
 use thiserror::Error;
-
-use crate::error::{CaptureError, SourceError};
 
 /// Error returned by a pump run.
 #[derive(Debug, Error)]

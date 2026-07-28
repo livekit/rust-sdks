@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bytes::Bytes;
-use thiserror::Error;
-
 use ::gstreamer as gst;
 use ::gstreamer_app as gst_app;
+use bytes::Bytes;
 use gst::glib;
 use gst::prelude::*;
+use thiserror::Error;
 
 use crate::{
     encoded::{
@@ -244,7 +243,9 @@ impl EncodedVideoSource for GStreamerVideoSource {
         match self.appsink.pull_sample() {
             Ok(sample) => self.access_unit_from_sample(&sample).map(Some).map_err(SourceError::new),
             Err(_err) if self.appsink.is_eos() => Ok(None),
-            Err(err) => Err(SourceError::new(GStreamerVideoSourceError::PullSample(err.to_string()))),
+            Err(err) => {
+                Err(SourceError::new(GStreamerVideoSourceError::PullSample(err.to_string())))
+            }
         }
     }
 

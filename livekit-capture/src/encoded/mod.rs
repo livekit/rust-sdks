@@ -21,12 +21,11 @@
 //! implemented for `Box<dyn ...>`, so sources can be constructed dynamically
 //! and driven through the same generic pump.
 
-pub mod h26x;
-mod pump;
-
+use crate::{
+    error::{CaptureError, SourceError},
+    primitive::VideoResolution,
+};
 use bytes::Bytes;
-
-pub use pump::EncodedVideoPump;
 use livekit::{
     options::VideoCodec,
     webrtc::video_frame::{
@@ -34,12 +33,37 @@ use livekit::{
     },
 };
 
-use crate::{
-    error::{CaptureError, SourceError},
-    primitive::VideoResolution,
-};
+pub mod h26x;
+mod pump;
+pub use pump::EncodedVideoPump;
 
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
+
+/// Source of pre-encoded video access units, such as an encoding pipeline.
+pub trait EncodedVideoSource: Send {
+    /// Nominal output resolution, used to size the RTC source.
+    fn resolution(&self) -> VideoResolution;
+
+    /// Codec produced by this source; fixed for the source's lifetime.
+    fn codec(&self) -> EncodedVideoCodec;
+
+    /// Blocks until the next access unit is available, returning `Ok(None)`
+    /// when the source reaches the end of its stream.
+    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError>;
+
+    /// Forwards a downstream keyframe request (PLI/FIR, late subscriber) to
+    /// the producer so it can emit an IDR.
+    ///
+    /// The default implementation does nothing, for transports that cannot
+    /// influence the upstream encoder.
+    fn request_keyframe(&mut self) {}
+
+    /// Forwards a downstream rate-control target to the producer.
+    ///
+    /// The default implementation does nothing, for transports that cannot
+    /// influence the upstream encoder.
+    fn update_rate_control(&mut self, _target: RateControl) {}
+}
 
 /// Encoded byte-stream framing used by encoded source backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,32 +459,6 @@ pub struct RateControl {
     pub framerate_fps: f64,
 }
 
-/// Source of pre-encoded video access units, such as an encoding pipeline.
-pub trait EncodedVideoSource: Send {
-    /// Nominal output resolution, used to size the RTC source.
-    fn resolution(&self) -> VideoResolution;
-
-    /// Codec produced by this source; fixed for the source's lifetime.
-    fn codec(&self) -> EncodedVideoCodec;
-
-    /// Blocks until the next access unit is available, returning `Ok(None)`
-    /// when the source reaches the end of its stream.
-    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError>;
-
-    /// Forwards a downstream keyframe request (PLI/FIR, late subscriber) to
-    /// the producer so it can emit an IDR.
-    ///
-    /// The default implementation does nothing, for transports that cannot
-    /// influence the upstream encoder.
-    fn request_keyframe(&mut self) {}
-
-    /// Forwards a downstream rate-control target to the producer.
-    ///
-    /// The default implementation does nothing, for transports that cannot
-    /// influence the upstream encoder.
-    fn update_rate_control(&mut self, _target: RateControl) {}
-}
-
 impl<S: EncodedVideoSource + ?Sized> EncodedVideoSource for Box<S> {
     fn resolution(&self) -> VideoResolution {
         (**self).resolution()
@@ -532,7 +530,9 @@ mod tests {
     fn h264_nal_helper_assembles_annex_b_and_detects_keyframe() {
         let sps = [0x67, 1, 2, 3];
         let idr = [0x65, 4, 5, 6];
-        let au = EncodedAccessUnit::from_h264_nalus(&[&sps, &idr], 10, VideoResolution::new(640, 480)).unwrap();
+        let au =
+            EncodedAccessUnit::from_h264_nalus(&[&sps, &idr], 10, VideoResolution::new(640, 480))
+                .unwrap();
 
         assert_eq!(au.codec, EncodedVideoCodec::H264);
         assert_eq!(au.frame_type, EncodedFrameType::Key);
@@ -548,14 +548,25 @@ mod tests {
         let sps = [0x42, 1, 2];
         let pps = [0x44, 1, 2];
         let idr_w_radl = [19 << 1, 1, 3];
-        let idr_without_headers =
-            EncodedAccessUnit::from_h265_nalus(&[&vps, &idr_w_radl], 10, VideoResolution::new(640, 480)).unwrap();
-        let key =
-            EncodedAccessUnit::from_h265_nalus(&[&vps, &sps, &pps, &idr_w_radl], 10, VideoResolution::new(640, 480))
-                .unwrap();
+        let idr_without_headers = EncodedAccessUnit::from_h265_nalus(
+            &[&vps, &idr_w_radl],
+            10,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
+        let key = EncodedAccessUnit::from_h265_nalus(
+            &[&vps, &sps, &pps, &idr_w_radl],
+            10,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
         let cra = [21 << 1, 1, 3];
-        let cra_with_headers =
-            EncodedAccessUnit::from_h265_nalus(&[&vps, &sps, &pps, &cra], 10, VideoResolution::new(640, 480)).unwrap();
+        let cra_with_headers = EncodedAccessUnit::from_h265_nalus(
+            &[&vps, &sps, &pps, &cra],
+            10,
+            VideoResolution::new(640, 480),
+        )
+        .unwrap();
 
         assert_eq!(idr_without_headers.codec, EncodedVideoCodec::H265);
         assert_eq!(idr_without_headers.frame_type, EncodedFrameType::Delta);
@@ -565,7 +576,9 @@ mod tests {
 
     #[test]
     fn h265_rejects_too_short_nal_header() {
-        let err = EncodedAccessUnit::from_h265_nalus(&[&[0x26]], 10, VideoResolution::new(640, 480)).unwrap_err();
+        let err =
+            EncodedAccessUnit::from_h265_nalus(&[&[0x26]], 10, VideoResolution::new(640, 480))
+                .unwrap_err();
         assert_eq!(err, CaptureError::H265NalTooShort);
     }
 

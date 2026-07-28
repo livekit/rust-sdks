@@ -15,16 +15,6 @@
 //! Pumps encoded access units from a capture source into an RTC video
 //! source.
 
-use std::{fmt, io};
-
-use livekit::{
-    options::{TrackPublishOptions, VideoEncoderBackend},
-    webrtc::{
-        video_frame::EncodedVideoFrame,
-        video_source::{native::NativeVideoSource, EncodedRateControl, RtcVideoSource},
-    },
-};
-
 use crate::{
     encoded::{
         CodecSpecific, EncodedFrameType, EncodedLayerInfo, EncodedVideoSource,
@@ -33,6 +23,14 @@ use crate::{
     error::CaptureError,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
 };
+use livekit::{
+    options::{TrackPublishOptions, VideoEncoderBackend},
+    webrtc::{
+        video_frame::EncodedVideoFrame,
+        video_source::{native::NativeVideoSource, EncodedRateControl, RtcVideoSource},
+    },
+};
+use std::{fmt, io};
 
 impl From<EncodedRateControl> for RateControl {
     fn from(target: EncodedRateControl) -> Self {

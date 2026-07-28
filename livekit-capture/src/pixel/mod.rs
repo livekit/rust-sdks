@@ -19,13 +19,21 @@
 //! object-safe and implemented for `Box<dyn ...>`, so sources can be
 //! constructed dynamically and driven through the same generic pump.
 
-mod pump;
-
+use crate::{error::SourceError, primitive::VideoResolution};
 use bytes::Bytes;
 
+mod pump;
 pub use pump::PixelVideoPump;
 
-use crate::{error::SourceError, primitive::VideoResolution};
+/// Source of pixel (unencoded) video frames, such as a camera device.
+pub trait PixelVideoSource: Send {
+    /// Nominal output resolution, used to size the RTC source.
+    fn resolution(&self) -> VideoResolution;
+
+    /// Blocks until the next frame is available, returning `Ok(None)` when
+    /// the source reaches the end of its stream.
+    fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError>;
+}
 
 /// Pixel data of one video frame.
 #[derive(Debug, Clone)]
@@ -57,16 +65,6 @@ pub struct PixelVideoFrame {
     pub timestamp_us: i64,
     /// Pixel data.
     pub data: PixelVideoData,
-}
-
-/// Source of pixel (unencoded) video frames, such as a camera device.
-pub trait PixelVideoSource: Send {
-    /// Nominal output resolution, used to size the RTC source.
-    fn resolution(&self) -> VideoResolution;
-
-    /// Blocks until the next frame is available, returning `Ok(None)` when
-    /// the source reaches the end of its stream.
-    fn next_frame(&mut self) -> Result<Option<PixelVideoFrame>, SourceError>;
 }
 
 impl<S: PixelVideoSource + ?Sized> PixelVideoSource for Box<S> {

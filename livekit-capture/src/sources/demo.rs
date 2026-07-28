@@ -14,17 +14,15 @@
 
 //! Solid-color demo source for testing.
 
-use std::{
-    thread,
-    time::{Duration, Instant},
-};
-
-use bytes::Bytes;
-
 use crate::{
     error::SourceError,
     pixel::{PixelVideoData, PixelVideoFrame, PixelVideoSource},
     primitive::VideoResolution,
+};
+use bytes::Bytes;
+use std::{
+    thread,
+    time::{Duration, Instant},
 };
 
 /// Colors the demo source cycles through, as `(r, g, b)`.
