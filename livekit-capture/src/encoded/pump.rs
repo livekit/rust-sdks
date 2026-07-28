@@ -84,11 +84,6 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
         &self.source
     }
 
-    /// Returns the underlying capture source mutably.
-    pub fn source_mut(&mut self) -> &mut S {
-        &mut self.source
-    }
-
     /// Runs the pump on the calling thread until the source ends, a failure,
     /// or the stop handle fires.
     ///
