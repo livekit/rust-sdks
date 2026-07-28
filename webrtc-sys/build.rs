@@ -374,7 +374,12 @@ fn main() {
             println!("cargo:rustc-link-lib=c++abi");
 
             configure_android_sysroot(&mut builder);
-            builder.file("src/android.cpp").flag("-std=c++20");
+            builder
+                .file("src/android.cpp")
+                // Provides a weak stub for std::__ndk1::__hash_memory, which
+                // was removed from libc++_static.a exports in NDK r28.
+                .file("src/ndk_compat.cpp")
+                .flag("-std=c++20");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
