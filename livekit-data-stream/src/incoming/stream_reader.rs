@@ -103,6 +103,10 @@ impl ByteStreamReader {
     ///
     /// Returns: The path of the written file on disk.
     ///
+    /// Errors with [`StreamError::InvalidFileName`] if the file name (whether from the stream
+    /// info or `name_override`) is not a plain file name, i.e. contains path separators, `..`,
+    /// or is absolute.
+    ///
     pub async fn write_to_file(
         mut self,
         directory: Option<impl AsRef<std::path::Path>>,
@@ -111,6 +115,14 @@ impl ByteStreamReader {
         let directory =
             directory.map(|d| d.as_ref().to_path_buf()).unwrap_or_else(|| std::env::temp_dir());
         let name = name_override.unwrap_or_else(|| &self.info.name);
+        // The stream name comes from the remote sender: reject anything that isn't a plain
+        // file name so it can't escape the target directory.
+        let mut components = std::path::Path::new(name).components();
+        if !matches!(components.next(), Some(std::path::Component::Normal(_)))
+            || components.next().is_some()
+        {
+            return Err(StreamError::InvalidFileName);
+        }
         let file_path = directory.join(name);
 
         let mut file = tokio::fs::File::create(&file_path).await.map_err(StreamError::Io)?;
@@ -249,5 +261,90 @@ impl AnyStreamReader {
             }
         };
         return (reader, chunk_tx, progress_tx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ByteHeader, CompressionType, Header, StreamId};
+    use std::collections::HashMap;
+
+    /// Creates a byte stream reader whose stream info carries the given (potentially
+    /// remote-controlled) file name.
+    fn byte_reader(name: &str) -> (ByteStreamReader, UnboundedSender<StreamResult<Bytes>>) {
+        let header = Header {
+            stream_id: StreamId::from("stream-1"),
+            timestamp: 0,
+            topic: "topic".to_string(),
+            mime_type: "application/octet-stream".to_string(),
+            total_length: None,
+            attributes: HashMap::new(),
+            inline_content: None,
+            compression: CompressionType::None,
+            content_header: Some(ByteHeader { name: name.to_string() }.into()),
+        };
+        let AnyStreamInfo::Byte(info) = AnyStreamInfo::try_from(header).expect("valid header")
+        else {
+            panic!("expected a byte stream info");
+        };
+        let (chunk_tx, chunk_rx) = mpsc::unbounded_channel();
+        let (_, progress_rx) = watch::channel(StreamProgress::default());
+        (ByteStreamReader { info, chunk_rx, progress_rx }, chunk_tx)
+    }
+
+    #[tokio::test]
+    async fn write_to_file_rejects_traversal_in_stream_name() {
+        let (reader, _chunk_tx) = byte_reader("../evil.txt");
+        let result = reader.write_to_file(None::<&std::path::Path>, None).await;
+        assert!(matches!(result, Err(StreamError::InvalidFileName)));
+    }
+
+    #[tokio::test]
+    async fn write_to_file_rejects_traversal_in_name_override() {
+        let (reader, _chunk_tx) = byte_reader("safe.txt");
+        let result = reader.write_to_file(None::<&std::path::Path>, Some("../evil.txt")).await;
+        assert!(matches!(result, Err(StreamError::InvalidFileName)));
+    }
+
+    #[tokio::test]
+    async fn write_to_file_rejects_absolute_path_in_stream_name() {
+        let (reader, _chunk_tx) = byte_reader("/etc/evil.txt");
+        let result = reader.write_to_file(None::<&std::path::Path>, None).await;
+        assert!(matches!(result, Err(StreamError::InvalidFileName)));
+    }
+
+    #[tokio::test]
+    async fn write_to_file_rejects_nested_path_in_stream_name() {
+        let (reader, _chunk_tx) = byte_reader("nested/evil.txt");
+        let result = reader.write_to_file(None::<&std::path::Path>, None).await;
+        assert!(matches!(result, Err(StreamError::InvalidFileName)));
+    }
+
+    #[tokio::test]
+    async fn write_to_file_rejects_empty_stream_name() {
+        let (reader, _chunk_tx) = byte_reader("");
+        let result = reader.write_to_file(None::<&std::path::Path>, None).await;
+        assert!(matches!(result, Err(StreamError::InvalidFileName)));
+    }
+
+    #[tokio::test]
+    async fn write_to_file_accepts_plain_name() {
+        let directory =
+            std::env::temp_dir().join(format!("lk-stream-test-{}", uuid::Uuid::new_v4()));
+        tokio::fs::create_dir_all(&directory).await.expect("failed to create test directory");
+
+        let (reader, chunk_tx) = byte_reader("file.txt");
+        chunk_tx.send(Ok(Bytes::from_static(b"hello"))).expect("failed to send chunk");
+        drop(chunk_tx);
+
+        let path = reader
+            .write_to_file(Some(&directory), None)
+            .await
+            .expect("write_to_file should succeed for a plain file name");
+        assert_eq!(path, directory.join("file.txt"));
+        assert_eq!(tokio::fs::read(&path).await.expect("failed to read file"), b"hello");
+
+        tokio::fs::remove_dir_all(&directory).await.expect("failed to clean up test directory");
     }
 }

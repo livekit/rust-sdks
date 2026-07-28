@@ -70,6 +70,9 @@ pub enum StreamError {
 
     #[error("decompression failed")]
     Decompression,
+
+    #[error("file name must be a plain file name without path separators or '..'")]
+    InvalidFileName,
 }
 
 /// Progress of a data stream.
