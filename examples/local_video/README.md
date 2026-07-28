@@ -65,6 +65,15 @@ Publisher usage:
    --room-name demo \
    --identity cam-1
 
+ # publish two best-effort synchronized cameras side by side as one stereo video
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --stereo \
+   --camera-index 0 \
+   --camera-index-right 1 \
+   --format mjpeg \
+   --room-name demo \
+   --identity stereo-cam-1
+
  # publish from a Jetson MIPI CSI camera through libargus and the Jetson hardware encoder
  cargo run -p local_video -F desktop --bin publisher -- \
    --source argus \
@@ -122,6 +131,8 @@ The clock draws a 3x9 grid below the time. The top row fills from `0` to `9` for
 
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
+- `--stereo`: Capture two UVC cameras concurrently with best-effort timing synchronization and publish them side by side, with `--camera-index` on the left and `--camera-index-right` on the right. Both cameras must negotiate the same resolution and frame rate. The published width is twice the negotiated camera width.
+- `--camera-index-right <n>`: Camera index for the right side of a stereo capture. Required by `--stereo`, and must differ from `--camera-index`.
 - `--source <uvc|argus>`: Camera backend to use (default: `uvc`). `argus` uses NVIDIA libargus for MIPI CSI cameras and is available only on Linux aarch64 Jetson builds.
 - `--format <auto|yuv|mjpeg>`: UVC camera capture format (default: `auto`). `auto` tries uncompressed YUYV first and falls back to MJPEG; `mjpeg` can reduce USB bandwidth when running multiple cameras.
 - `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.

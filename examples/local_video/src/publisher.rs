@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
@@ -18,16 +18,16 @@ use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
     Resolution,
 };
-use nokhwa::Camera;
-use parking_lot::Mutex;
+use nokhwa::{Buffer, Camera};
+use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    mpsc, Arc,
 };
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use yuv_sys;
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 mod argus;
@@ -166,6 +166,19 @@ struct Args {
     /// Camera index to use (numeric)
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
+
+    /// Enable side-by-side stereo capture from two UVC cameras
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "camera_index_right",
+        conflicts_with = "test_pattern"
+    )]
+    stereo: bool,
+
+    /// Camera index to use for the right side of a stereo capture
+    #[arg(long, requires = "stereo")]
+    camera_index_right: Option<usize>,
 
     /// Camera backend: `uvc` (default, V4L2/USB via nokhwa) or `argus` (Jetson MIPI CSI).
     #[arg(long, value_enum, default_value_t = SourceKind::Uvc)]
@@ -691,6 +704,84 @@ mod tests {
     use super::*;
 
     #[test]
+    fn stereo_flags_require_each_other() {
+        let args = Args::try_parse_from([
+            "publisher",
+            "--stereo",
+            "--camera-index",
+            "2",
+            "--camera-index-right",
+            "3",
+        ])
+        .expect("stereo flags should parse together");
+
+        assert!(args.stereo);
+        assert_eq!(args.camera_index, 2);
+        assert_eq!(args.camera_index_right, Some(3));
+        assert!(Args::try_parse_from(["publisher", "--stereo"]).is_err());
+        assert!(Args::try_parse_from(["publisher", "--camera-index-right", "3"]).is_err());
+    }
+
+    #[test]
+    fn stereo_output_resolution_requires_matching_camera_modes() {
+        let left = CameraFormat::new(Resolution::new(640, 480), FrameFormat::YUYV, 30);
+        let matching = CameraFormat::new(Resolution::new(640, 480), FrameFormat::MJPEG, 30);
+        let wrong_fps = CameraFormat::new(Resolution::new(640, 480), FrameFormat::YUYV, 60);
+        let wrong_resolution = CameraFormat::new(Resolution::new(1280, 720), FrameFormat::YUYV, 30);
+
+        assert_eq!(stereo_output_resolution(left, matching).unwrap(), (1280, 480));
+        assert!(stereo_output_resolution(left, wrong_fps).is_err());
+        assert!(stereo_output_resolution(left, wrong_resolution).is_err());
+    }
+
+    #[test]
+    fn camera_conversion_can_fill_both_halves_of_an_i420_frame() {
+        let left = Buffer::new(
+            Resolution::new(2, 2),
+            &[16, 90, 32, 100, 48, 110, 64, 120],
+            FrameFormat::YUYV,
+        );
+        let right = Buffer::new(
+            Resolution::new(2, 2),
+            &[80, 130, 96, 140, 112, 150, 128, 160],
+            FrameFormat::YUYV,
+        );
+        let mut output = I420Buffer::new(4, 2);
+        let (stride_y, stride_u, stride_v) = output.strides();
+        let (data_y, data_u, data_v) = output.data_mut();
+        let mut logged_decode_failure = false;
+        let acquired_at = Instant::now();
+
+        convert_camera_frame_to_i420(
+            &left,
+            CameraFrameFormat { width: 2, height: 2, is_yuyv: true, side: "left" },
+            I420Destination { data_y, stride_y, data_u, stride_u, data_v, stride_v },
+            acquired_at,
+            &mut logged_decode_failure,
+        )
+        .expect("left frame should convert");
+        convert_camera_frame_to_i420(
+            &right,
+            CameraFrameFormat { width: 2, height: 2, is_yuyv: true, side: "right" },
+            I420Destination {
+                data_y: &mut data_y[2..],
+                stride_y,
+                data_u: &mut data_u[1..],
+                stride_u,
+                data_v: &mut data_v[1..],
+                stride_v,
+            },
+            acquired_at,
+            &mut logged_decode_failure,
+        )
+        .expect("right frame should convert");
+
+        let stride_y = stride_y as usize;
+        assert_eq!(&data_y[..4], &[16, 32, 80, 96]);
+        assert_eq!(&data_y[stride_y..stride_y + 4], &[48, 64, 112, 128]);
+    }
+
+    #[test]
     fn requested_playout_delay_is_absent_when_no_delay_flags_are_set() {
         assert_eq!(requested_playout_delay(None, None), None);
     }
@@ -821,12 +912,259 @@ fn list_encoders() {
     }
 }
 
+struct OpenedCamera {
+    camera: Camera,
+    format: CameraFormat,
+    is_yuyv: bool,
+}
+
+fn open_uvc_camera(
+    camera_index: usize,
+    width: u32,
+    height: u32,
+    fps: u32,
+    capture_format: CaptureFormat,
+    side: &str,
+) -> Result<OpenedCamera> {
+    let camera_index_u32 =
+        u32::try_from(camera_index).context("camera index does not fit in u32")?;
+    let index = CameraIndex::Index(camera_index_u32);
+    let requested =
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let mut camera = Camera::new(index, requested)
+        .with_context(|| format!("failed to initialize {side} camera {camera_index}"))?;
+
+    let mut requested_camera_format = None;
+    let mut last_request_error = None;
+    for frame_format in capture_format.frame_formats() {
+        let wanted = CameraFormat::new(Resolution::new(width, height), *frame_format, fps);
+        match camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
+            RequestedFormatType::Exact(wanted),
+        )) {
+            Ok(format) => {
+                requested_camera_format = Some(format);
+                break;
+            }
+            Err(err) => {
+                last_request_error = Some(err);
+            }
+        }
+    }
+    if let Some(requested_camera_format) = requested_camera_format {
+        debug!("Requested {side} nokhwa CameraFormat: {:?}", requested_camera_format);
+    } else if capture_format == CaptureFormat::Auto {
+        if let Some(err) = last_request_error {
+            log::warn!(
+                "Failed to request YUYV or MJPEG for {side} camera {camera_index} at {width}x{height} @ {fps} fps; using backend-selected camera format: {err}"
+            );
+        }
+    } else {
+        let formats =
+            capture_format.frame_formats().iter().map(ToString::to_string).collect::<Vec<_>>();
+        let formats = formats.join(" or ");
+        return Err(match last_request_error {
+            Some(err) => anyhow::anyhow!(
+                "failed to request {side} camera {camera_index} format {formats} at {width}x{height} @ {fps} fps: {err}"
+            ),
+            None => anyhow::anyhow!("no camera capture formats were requested"),
+        });
+    }
+
+    camera.open_stream().with_context(|| format!("failed to open {side} camera {camera_index}"))?;
+    let format = camera.camera_format();
+    let is_yuyv = format.format() == FrameFormat::YUYV;
+    info!(
+        "{side} camera {camera_index} opened: {}x{} @ {} fps (format: {}, requested: {})",
+        format.width(),
+        format.height(),
+        format.frame_rate(),
+        format.format(),
+        capture_format
+    );
+    debug!("Negotiated {side} nokhwa CameraFormat: {:?}", format);
+    info!(
+        "Selected {side} camera conversion path: {}",
+        if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
+    );
+
+    Ok(OpenedCamera { camera, format, is_yuyv })
+}
+
+fn stereo_output_resolution(
+    left_format: CameraFormat,
+    right_format: CameraFormat,
+) -> Result<(u32, u32)> {
+    if left_format.resolution() != right_format.resolution()
+        || left_format.frame_rate() != right_format.frame_rate()
+    {
+        anyhow::bail!(
+            "stereo cameras must open at the same resolution and frame rate; left is {}x{} @ {} fps, right is {}x{} @ {} fps",
+            left_format.width(),
+            left_format.height(),
+            left_format.frame_rate(),
+            right_format.width(),
+            right_format.height(),
+            right_format.frame_rate(),
+        );
+    }
+    if !left_format.width().is_multiple_of(2) {
+        anyhow::bail!(
+            "stereo camera width must be even for side-by-side I420 composition; cameras opened at {}x{}",
+            left_format.width(),
+            left_format.height(),
+        );
+    }
+    let output_width =
+        left_format.width().checked_mul(2).context("stereo output width overflowed u32")?;
+    Ok((output_width, left_format.height()))
+}
+
+#[derive(Default)]
+struct StereoCaptureTriggerState {
+    generation: u64,
+    stopped: bool,
+}
+
+#[derive(Default)]
+struct StereoCaptureTrigger {
+    state: Mutex<StereoCaptureTriggerState>,
+    wake: Condvar,
+}
+
+impl StereoCaptureTrigger {
+    fn request_capture(&self) {
+        let mut state = self.state.lock();
+        state.generation = state.generation.wrapping_add(1);
+        self.wake.notify_all();
+    }
+
+    fn wait_for_capture(&self, last_generation: u64) -> Option<u64> {
+        let mut state = self.state.lock();
+        while !state.stopped && state.generation == last_generation {
+            self.wake.wait(&mut state);
+        }
+        (!state.stopped).then_some(state.generation)
+    }
+
+    fn stop(&self) {
+        let mut state = self.state.lock();
+        state.stopped = true;
+        self.wake.notify_all();
+    }
+}
+
+struct CapturedCameraFrame {
+    buffer: Buffer,
+    fallback_wall_time_us: u64,
+    read_wall_time_us: u64,
+    acquired_at: Instant,
+}
+
+struct CameraCaptureWorker {
+    side: &'static str,
+    trigger: Arc<StereoCaptureTrigger>,
+    frame_rx: mpsc::Receiver<std::result::Result<CapturedCameraFrame, String>>,
+    join_handle: Option<JoinHandle<()>>,
+}
+
+impl CameraCaptureWorker {
+    fn spawn(
+        mut camera: Camera,
+        side: &'static str,
+        trigger: Arc<StereoCaptureTrigger>,
+    ) -> Result<Self> {
+        let (frame_tx, frame_rx) = mpsc::channel();
+        let worker_trigger = trigger.clone();
+        let join_handle = thread::Builder::new()
+            .name(format!("stereo-{side}-capture"))
+            .spawn(move || {
+                let mut generation = 0;
+                while let Some(next_generation) = worker_trigger.wait_for_capture(generation) {
+                    generation = next_generation;
+                    let fallback_wall_time_us = unix_time_us_now();
+                    let result = camera
+                        .frame()
+                        .map(|buffer| CapturedCameraFrame {
+                            buffer,
+                            fallback_wall_time_us,
+                            read_wall_time_us: unix_time_us_now(),
+                            acquired_at: Instant::now(),
+                        })
+                        .map_err(|err| format!("{side} camera capture failed: {err}"));
+                    if frame_tx.send(result).is_err() {
+                        break;
+                    }
+                }
+            })
+            .with_context(|| format!("failed to start {side} camera capture worker"))?;
+        Ok(Self { side, trigger, frame_rx, join_handle: Some(join_handle) })
+    }
+
+    fn receive_capture(&self) -> Result<CapturedCameraFrame> {
+        self.frame_rx
+            .recv()
+            .with_context(|| format!("{} camera capture worker stopped", self.side))?
+            .map_err(anyhow::Error::msg)
+    }
+}
+
+impl Drop for CameraCaptureWorker {
+    fn drop(&mut self) {
+        self.trigger.stop();
+        if let Some(join_handle) = self.join_handle.take() {
+            if join_handle.join().is_err() {
+                log::warn!("{} camera capture worker panicked while stopping", self.side);
+            }
+        }
+    }
+}
+
+struct StereoCameraInput {
+    trigger: Arc<StereoCaptureTrigger>,
+    left: CameraCaptureWorker,
+    right: CameraCaptureWorker,
+    left_is_yuyv: bool,
+    right_is_yuyv: bool,
+    input_width: u32,
+    input_height: u32,
+}
+
+impl StereoCameraInput {
+    fn new(left: OpenedCamera, right: OpenedCamera) -> Result<(u32, u32, Self)> {
+        let (output_width, output_height) = stereo_output_resolution(left.format, right.format)?;
+        let input_width = left.format.width();
+        let input_height = left.format.height();
+        let left_is_yuyv = left.is_yuyv;
+        let right_is_yuyv = right.is_yuyv;
+        let trigger = Arc::new(StereoCaptureTrigger::default());
+        let left = CameraCaptureWorker::spawn(left.camera, "left", trigger.clone())?;
+        let right = CameraCaptureWorker::spawn(right.camera, "right", trigger.clone())?;
+        Ok((
+            output_width,
+            output_height,
+            Self { trigger, left, right, left_is_yuyv, right_is_yuyv, input_width, input_height },
+        ))
+    }
+
+    fn capture_pair(&self) -> Result<(CapturedCameraFrame, CapturedCameraFrame)> {
+        // Wake both persistent workers with one broadcast so their blocking
+        // backend reads begin together without per-frame thread startup.
+        self.trigger.request_capture();
+
+        // Always drain both responses so one camera error cannot offset subsequent pairs.
+        let left = self.left.receive_capture();
+        let right = self.right.receive_capture();
+        Ok((left?, right?))
+    }
+}
+
 enum VideoInput {
     TestPattern(TestPattern),
     Camera {
         camera: Camera,
         is_yuyv: bool,
     },
+    Stereo(StereoCameraInput),
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     Argus(argus::ArgusCaptureSession),
 }
@@ -880,6 +1218,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_encoders {
         list_encoders();
         return Ok(());
+    }
+    if args.stereo {
+        if args.source != SourceKind::Uvc {
+            anyhow::bail!("--stereo is only supported with --source uvc");
+        }
+        let right_index =
+            args.camera_index_right.context("--stereo requires --camera-index-right")?;
+        if args.camera_index == right_index {
+            anyhow::bail!("--camera-index and --camera-index-right must select different cameras");
+        }
     }
 
     // LiveKit connection details
@@ -1022,85 +1370,44 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 );
                 (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
             } else {
-                // Setup camera
-                let index = CameraIndex::Index(args.camera_index as u32);
-                let requested = RequestedFormat::new::<RgbFormat>(
-                    RequestedFormatType::AbsoluteHighestFrameRate,
-                );
-                let mut camera = Camera::new(index, requested)?;
-
-                let mut requested_camera_format = None;
-                let mut last_request_error = None;
-                for frame_format in args.format.frame_formats() {
-                    let wanted = CameraFormat::new(
-                        Resolution::new(args.width, args.height),
-                        *frame_format,
+                let left = open_uvc_camera(
+                    args.camera_index,
+                    args.width,
+                    args.height,
+                    args.fps,
+                    args.format,
+                    if args.stereo { "left" } else { "primary" },
+                )?;
+                if args.stereo {
+                    let right_index = args
+                        .camera_index_right
+                        .context("--stereo requires --camera-index-right")?;
+                    let right = open_uvc_camera(
+                        right_index,
+                        args.width,
+                        args.height,
                         args.fps,
+                        args.format,
+                        "right",
+                    )?;
+                    let (width, height, stereo_input) = StereoCameraInput::new(left, right)?;
+                    info!(
+                        "Stereo mode enabled: composing two {}x{} camera frames side by side into {}x{}",
+                        stereo_input.input_width,
+                        stereo_input.input_height,
+                        width,
+                        height
                     );
-                    match camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-                        RequestedFormatType::Exact(wanted),
-                    )) {
-                        Ok(format) => {
-                            requested_camera_format = Some(format);
-                            break;
-                        }
-                        Err(err) => {
-                            last_request_error = Some(err);
-                        }
-                    }
-                }
-                if let Some(requested_camera_format) = requested_camera_format {
-                    debug!("Requested nokhwa CameraFormat: {:?}", requested_camera_format);
-                } else if args.format == CaptureFormat::Auto {
-                    if let Some(err) = last_request_error {
-                        log::warn!(
-                            "Failed to request YUYV or MJPEG at {}x{} @ {} fps; using backend-selected camera format: {}",
-                            args.width,
-                            args.height,
-                            args.fps,
-                            err
-                        );
-                    }
+                    (width, height, VideoInput::Stereo(stereo_input))
                 } else {
-                    let formats = args
-                        .format
-                        .frame_formats()
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(" or ");
-                    return Err(match last_request_error {
-                        Some(err) => anyhow::anyhow!(
-                            "failed to request camera format {} at {}x{} @ {} fps: {}",
-                            formats,
-                            args.width,
-                            args.height,
-                            args.fps,
-                            err
-                        ),
-                        None => anyhow::anyhow!("no camera capture formats were requested"),
-                    });
+                    let width = left.format.width();
+                    let height = left.format.height();
+                    (
+                        width,
+                        height,
+                        VideoInput::Camera { camera: left.camera, is_yuyv: left.is_yuyv },
+                    )
                 }
-                camera.open_stream()?;
-                let fmt = camera.camera_format();
-                let width = fmt.width();
-                let height = fmt.height();
-                let fps = fmt.frame_rate();
-                let is_yuyv = fmt.format() == FrameFormat::YUYV;
-                info!(
-                    "Camera opened: {}x{} @ {} fps (format: {}, requested: {})",
-                    width,
-                    height,
-                    fps,
-                    fmt.format(),
-                    args.format
-                );
-                debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
-                info!(
-                    "Selected conversion path: {}",
-                    if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
-                );
-                (width, height, VideoInput::Camera { camera, is_yuyv })
             }
         }
     };
@@ -1318,6 +1625,215 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
+struct CameraConversionTiming {
+    decode_finished_at: Instant,
+    convert_finished_at: Instant,
+    used_decode_path: bool,
+}
+
+struct CameraFrameFormat<'a> {
+    width: u32,
+    height: u32,
+    is_yuyv: bool,
+    side: &'a str,
+}
+
+struct I420Destination<'a> {
+    data_y: &'a mut [u8],
+    stride_y: u32,
+    data_u: &'a mut [u8],
+    stride_u: u32,
+    data_v: &'a mut [u8],
+    stride_v: u32,
+}
+
+fn required_plane_len(stride: u32, row_width: u32, rows: u32) -> Option<usize> {
+    if rows == 0 {
+        return Some(0);
+    }
+    let stride = usize::try_from(stride).ok()?;
+    let row_width = usize::try_from(row_width).ok()?;
+    let preceding_rows = usize::try_from(rows - 1).ok()?;
+    stride.checked_mul(preceding_rows)?.checked_add(row_width)
+}
+
+fn convert_camera_frame_to_i420(
+    frame_buf: &Buffer,
+    format: CameraFrameFormat<'_>,
+    destination: I420Destination<'_>,
+    camera_frame_acquired_at: Instant,
+    logged_decode_failure: &mut bool,
+) -> Option<CameraConversionTiming> {
+    let CameraFrameFormat { width, height, is_yuyv, side } = format;
+    let I420Destination { data_y, stride_y, data_u, stride_u, data_v, stride_v } = destination;
+    let width_i32 = i32::try_from(width).ok()?;
+    let height_i32 = i32::try_from(height).ok()?;
+    let stride_y_i32 = i32::try_from(stride_y).ok()?;
+    let stride_u_i32 = i32::try_from(stride_u).ok()?;
+    let stride_v_i32 = i32::try_from(stride_v).ok()?;
+    let chroma_width = width.div_ceil(2);
+    let chroma_height = height.div_ceil(2);
+    let y_len = required_plane_len(stride_y, width, height)?;
+    let u_len = required_plane_len(stride_u, chroma_width, chroma_height)?;
+    let v_len = required_plane_len(stride_v, chroma_width, chroma_height)?;
+    if data_y.len() < y_len || data_u.len() < u_len || data_v.len() < v_len {
+        log::error!("{side} camera I420 destination is too small for {width}x{height}");
+        return None;
+    }
+    let src = frame_buf.buffer();
+    if is_yuyv {
+        let expected_len = usize::try_from(width)
+            .ok()?
+            .checked_mul(usize::try_from(height).ok()?)?
+            .checked_mul(2)?;
+        let src_stride = i32::try_from(width.checked_mul(2)?).ok()?;
+        if src.len() < expected_len {
+            log::error!(
+                "{side} camera YUYV frame is too short: got {} bytes, expected at least {expected_len}",
+                src.len()
+            );
+            return None;
+        }
+        // SAFETY: The source length was checked for `width * height` packed
+        // YUYV pixels. The destination planes come from an I420Buffer sized
+        // for at least this camera image, with libyuv-compatible strides.
+        let result = unsafe {
+            yuv_sys::rs_YUY2ToI420(
+                src.as_ptr(),
+                src_stride,
+                data_y.as_mut_ptr(),
+                stride_y_i32,
+                data_u.as_mut_ptr(),
+                stride_u_i32,
+                data_v.as_mut_ptr(),
+                stride_v_i32,
+                width_i32,
+                height_i32,
+            )
+        };
+        if result != 0 {
+            log::error!("{side} camera YUYV-to-I420 conversion failed ({result})");
+            return None;
+        }
+        return Some(CameraConversionTiming {
+            decode_finished_at: camera_frame_acquired_at,
+            convert_finished_at: Instant::now(),
+            used_decode_path: false,
+        });
+    }
+
+    let expected_rgb_len =
+        usize::try_from(width).ok()?.checked_mul(usize::try_from(height).ok()?)?.checked_mul(3)?;
+    if src.len() == expected_rgb_len {
+        let src_stride = i32::try_from(width.checked_mul(3)?).ok()?;
+        // SAFETY: The exact packed RGB24 source length was checked above.
+        // The destination planes and strides are provided by a suitably
+        // sized I420Buffer.
+        let result = unsafe {
+            yuv_sys::rs_RGB24ToI420(
+                src.as_ptr(),
+                src_stride,
+                data_y.as_mut_ptr(),
+                stride_y_i32,
+                data_u.as_mut_ptr(),
+                stride_u_i32,
+                data_v.as_mut_ptr(),
+                stride_v_i32,
+                width_i32,
+                height_i32,
+            )
+        };
+        if result != 0 {
+            log::error!("{side} camera RGB24-to-I420 conversion failed ({result})");
+            return None;
+        }
+        return Some(CameraConversionTiming {
+            decode_finished_at: camera_frame_acquired_at,
+            convert_finished_at: Instant::now(),
+            used_decode_path: false,
+        });
+    }
+
+    // Try fast MJPEG->I420 via libyuv before falling back to the image crate.
+    // SAFETY: libyuv receives the exact compressed byte length, and the
+    // destination planes and strides come from a suitably sized I420Buffer.
+    let result = unsafe {
+        yuv_sys::rs_MJPGToI420(
+            src.as_ptr(),
+            src.len(),
+            data_y.as_mut_ptr(),
+            stride_y_i32,
+            data_u.as_mut_ptr(),
+            stride_u_i32,
+            data_v.as_mut_ptr(),
+            stride_v_i32,
+            width_i32,
+            height_i32,
+            width_i32,
+            height_i32,
+        )
+    };
+    if result == 0 {
+        let finished_at = Instant::now();
+        return Some(CameraConversionTiming {
+            decode_finished_at: finished_at,
+            convert_finished_at: finished_at,
+            used_decode_path: true,
+        });
+    }
+
+    match image::load_from_memory(src) {
+        Ok(img_dyn) => {
+            let rgb8 = img_dyn.to_rgb8();
+            let decode_finished_at = Instant::now();
+            let decoded_width = rgb8.width();
+            let decoded_height = rgb8.height();
+            if decoded_width != width || decoded_height != height {
+                log::warn!(
+                    "Decoded {side} camera MJPEG size {decoded_width}x{decoded_height} differs from negotiated {width}x{height}; dropping frame"
+                );
+                return None;
+            }
+            // SAFETY: `rgb8` has exactly `width * height` RGB pixels, and
+            // the destination planes and strides come from a suitably sized
+            // I420Buffer.
+            let src_stride = i32::try_from(decoded_width.checked_mul(3)?).ok()?;
+            let result = unsafe {
+                yuv_sys::rs_RGB24ToI420(
+                    rgb8.as_raw().as_ptr(),
+                    src_stride,
+                    data_y.as_mut_ptr(),
+                    stride_y_i32,
+                    data_u.as_mut_ptr(),
+                    stride_u_i32,
+                    data_v.as_mut_ptr(),
+                    stride_v_i32,
+                    width_i32,
+                    height_i32,
+                )
+            };
+            if result != 0 {
+                log::error!("{side} camera decoded RGB24-to-I420 conversion failed ({result})");
+                return None;
+            }
+            Some(CameraConversionTiming {
+                decode_finished_at,
+                convert_finished_at: Instant::now(),
+                used_decode_path: true,
+            })
+        }
+        Err(err) => {
+            if !*logged_decode_failure {
+                log::error!(
+                    "{side} camera MJPEG decode failed; buffer was not RGB24 and image decode failed: {err}"
+                );
+                *logged_decode_failure = true;
+            }
+            None
+        }
+    }
+}
+
 async fn run_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,
@@ -1350,8 +1866,9 @@ async fn run_capture_loop(
 
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
-    let mut logged_mjpeg_fallback = false;
+    let mut logged_decode_failure = false;
     let mut capture_timestamp_log_state = CaptureTimestampLogState::default();
+    let mut right_capture_timestamp_log_state = CaptureTimestampLogState::default();
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
@@ -1427,128 +1944,86 @@ async fn run_capture_loop(
                     &mut capture_timestamp_log_state,
                 );
 
-                let (decode_finished_at, convert_finished_at, used_decode_path) = if *is_yuyv {
-                    // Fast path for YUYV: convert directly to I420 via libyuv
-                    let src = frame_buf.buffer();
-                    let src_bytes = src.as_ref();
-                    let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
-                    unsafe {
-                        // returns 0 on success
-                        let _ = yuv_sys::rs_YUY2ToI420(
-                            src_bytes.as_ptr(),
-                            src_stride,
-                            data_y.as_mut_ptr(),
-                            stride_y as i32,
-                            data_u.as_mut_ptr(),
-                            stride_u as i32,
-                            data_v.as_mut_ptr(),
-                            stride_v as i32,
-                            width as i32,
-                            height as i32,
-                        );
-                    }
-                    (camera_frame_acquired_at, Instant::now(), false)
-                } else {
-                    // Auto path (either RGB24 already or compressed MJPEG)
-                    let src = frame_buf.buffer();
-                    if src.len() == (width as usize * height as usize * 3) {
-                        // Already RGB24 from backend; convert directly
-                        unsafe {
-                            let _ = yuv_sys::rs_RGB24ToI420(
-                                src.as_ref().as_ptr(),
-                                (width * 3) as i32,
-                                data_y.as_mut_ptr(),
-                                stride_y as i32,
-                                data_u.as_mut_ptr(),
-                                stride_u as i32,
-                                data_v.as_mut_ptr(),
-                                stride_v as i32,
-                                width as i32,
-                                height as i32,
-                            );
-                        }
-                        (camera_frame_acquired_at, Instant::now(), false)
-                    } else {
-                        // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
-                        let mut used_fast_mjpeg = false;
-                        let fast_mjpeg_buffer_ready_at = unsafe {
-                            // rs_MJPGToI420 returns 0 on success
-                            let ret = yuv_sys::rs_MJPGToI420(
-                                src.as_ref().as_ptr(),
-                                src.len(),
-                                data_y.as_mut_ptr(),
-                                stride_y as i32,
-                                data_u.as_mut_ptr(),
-                                stride_u as i32,
-                                data_v.as_mut_ptr(),
-                                stride_v as i32,
-                                width as i32,
-                                height as i32,
-                                width as i32,
-                                height as i32,
-                            );
-                            if ret == 0 {
-                                used_fast_mjpeg = true;
-                                Instant::now()
-                            } else {
-                                camera_frame_acquired_at
-                            }
-                        };
-                        if used_fast_mjpeg {
-                            (fast_mjpeg_buffer_ready_at, fast_mjpeg_buffer_ready_at, true)
-                        } else {
-                            // Fallback: decode MJPEG using image crate then RGB24->I420
-                            match image::load_from_memory(src.as_ref()) {
-                                Ok(img_dyn) => {
-                                    let rgb8 = img_dyn.to_rgb8();
-                                    let decode_finished_at = Instant::now();
-                                    let dec_w = rgb8.width() as u32;
-                                    let dec_h = rgb8.height() as u32;
-                                    if dec_w != width || dec_h != height {
-                                        log::warn!(
-                                            "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
-                                            dec_w, dec_h, width, height
-                                        );
-                                        continue;
-                                    }
-                                    unsafe {
-                                        let _ = yuv_sys::rs_RGB24ToI420(
-                                            rgb8.as_raw().as_ptr(),
-                                            (dec_w * 3) as i32,
-                                            data_y.as_mut_ptr(),
-                                            stride_y as i32,
-                                            data_u.as_mut_ptr(),
-                                            stride_u as i32,
-                                            data_v.as_mut_ptr(),
-                                            stride_v as i32,
-                                            width as i32,
-                                            height as i32,
-                                        );
-                                    }
-                                    (decode_finished_at, Instant::now(), true)
-                                }
-                                Err(e2) => {
-                                    if !logged_mjpeg_fallback {
-                                        log::error!(
-                                            "MJPEG decode failed; buffer not RGB24 and image decode failed: {}",
-                                            e2
-                                        );
-                                        logged_mjpeg_fallback = true;
-                                    }
-                                    continue;
-                                }
-                            }
-                        }
-                    }
+                let Some(conversion) = convert_camera_frame_to_i420(
+                    &frame_buf,
+                    CameraFrameFormat { width, height, is_yuyv: *is_yuyv, side: "primary" },
+                    I420Destination { data_y, stride_y, data_u, stride_u, data_v, stride_v },
+                    camera_frame_acquired_at,
+                    &mut logged_decode_failure,
+                ) else {
+                    continue;
                 };
 
                 (
                     capture_wall_time_us,
                     read_wall_time_us,
                     camera_frame_acquired_at,
-                    decode_finished_at,
-                    convert_finished_at,
-                    used_decode_path,
+                    conversion.decode_finished_at,
+                    conversion.convert_finished_at,
+                    conversion.used_decode_path,
+                    true,
+                )
+            }
+            VideoInput::Stereo(stereo) => {
+                let (left_frame, right_frame) = stereo.capture_pair()?;
+                let left_capture_wall_time_us = select_capture_wall_time_us(
+                    left_frame.buffer.capture_timestamp(),
+                    left_frame.fallback_wall_time_us,
+                    left_frame.read_wall_time_us,
+                    &mut capture_timestamp_log_state,
+                );
+                let right_capture_wall_time_us = select_capture_wall_time_us(
+                    right_frame.buffer.capture_timestamp(),
+                    right_frame.fallback_wall_time_us,
+                    right_frame.read_wall_time_us,
+                    &mut right_capture_timestamp_log_state,
+                );
+
+                let Some(left_conversion) = convert_camera_frame_to_i420(
+                    &left_frame.buffer,
+                    CameraFrameFormat {
+                        width: stereo.input_width,
+                        height: stereo.input_height,
+                        is_yuyv: stereo.left_is_yuyv,
+                        side: "left",
+                    },
+                    I420Destination { data_y, stride_y, data_u, stride_u, data_v, stride_v },
+                    left_frame.acquired_at,
+                    &mut logged_decode_failure,
+                ) else {
+                    continue;
+                };
+
+                let chroma_offset = stereo.input_width.div_ceil(2) as usize;
+                let Some(right_conversion) = convert_camera_frame_to_i420(
+                    &right_frame.buffer,
+                    CameraFrameFormat {
+                        width: stereo.input_width,
+                        height: stereo.input_height,
+                        is_yuyv: stereo.right_is_yuyv,
+                        side: "right",
+                    },
+                    I420Destination {
+                        data_y: &mut data_y[stereo.input_width as usize..],
+                        stride_y,
+                        data_u: &mut data_u[chroma_offset..],
+                        stride_u,
+                        data_v: &mut data_v[chroma_offset..],
+                        stride_v,
+                    },
+                    right_frame.acquired_at,
+                    &mut logged_decode_failure,
+                ) else {
+                    continue;
+                };
+
+                (
+                    left_capture_wall_time_us.min(right_capture_wall_time_us),
+                    left_frame.read_wall_time_us.max(right_frame.read_wall_time_us),
+                    left_frame.acquired_at.max(right_frame.acquired_at),
+                    left_conversion.decode_finished_at.max(right_conversion.decode_finished_at),
+                    left_conversion.convert_finished_at.max(right_conversion.convert_finished_at),
+                    left_conversion.used_decode_path || right_conversion.used_decode_path,
                     true,
                 )
             }
