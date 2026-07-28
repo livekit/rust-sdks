@@ -21,5 +21,9 @@ tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
 default = ["demo", "gstreamer"] # TODO: Remove after testing
+
+# Pixel sources
 demo = []
+
+# Encoded sources
 gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
