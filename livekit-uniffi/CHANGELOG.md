@@ -1,3 +1,10 @@
+## 0.1.7 (2026-07-29)
+
+### Fixes
+
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+- Add data streams v2 - #1192 (@1egoman)
+
 ## 0.1.6 (2026-07-27)
 
 ### Fixes
