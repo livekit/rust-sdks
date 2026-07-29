@@ -55,10 +55,10 @@ pub struct TestRoomOptions {
 
 impl Default for TestRoomOptions {
     fn default() -> Self {
-        Self {
-            grants: VideoGrants { room_join: true, ..Default::default() },
-            room: Default::default(),
-        }
+        // CI experiment: revert to dual peer connections to test whether the
+        // test_audio flake correlates with the single-PC default (#1206).
+        let room = RoomOptions { single_peer_connection: false, ..Default::default() };
+        Self { grants: VideoGrants { room_join: true, ..Default::default() }, room }
     }
 }
 
