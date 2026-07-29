@@ -62,6 +62,18 @@ impl VideoResolution {
     }
 }
 
+impl std::fmt::Display for VideoResolution {
+    /// Formats as `WIDTHxHEIGHT`.
+    ///
+    /// ```
+    /// # use livekit_capture::primitive::VideoResolution;
+    /// assert_eq!(VideoResolution::new(1920, 1080).to_string(), "1920x1080");
+    /// ```
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}x{}", self.width, self.height)
+    }
+}
+
 impl From<VideoResolution> for livekit::webrtc::video_source::VideoResolution {
     fn from(value: VideoResolution) -> Self {
         Self { width: value.width, height: value.height }

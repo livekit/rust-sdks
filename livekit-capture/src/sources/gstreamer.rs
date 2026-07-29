@@ -77,11 +77,12 @@ pub struct GStreamerVideoSourceConfig {
     pub codec: Option<EncodedVideoCodec>,
 
     /// Encoded frame resolution.
-    pub resolution: VideoResolution,
-
-    /// Nominal frame rate, used for fallback frame timing when pipeline
-    /// buffers carry no timestamps.
-    pub framerate_fps: u32,
+    ///
+    /// When `None`, the resolution is discovered from the first sample's
+    /// negotiated caps — construction then waits for the pipeline to produce
+    /// data. When set, construction returns without waiting, and the first
+    /// sample is verified against the declared resolution.
+    pub resolution: Option<VideoResolution>,
 
     /// Forwards WebRTC rate-control targets to an encoder element's bitrate
     /// property. Without this, the pipeline encodes at a fixed bitrate.
@@ -167,6 +168,12 @@ impl GStreamerEncoderRateControl {
 /// How long one appsink wait may block before the stop token is rechecked.
 const SAMPLE_WAIT: gst::ClockTime = gst::ClockTime::from_mseconds(100);
 
+/// How long stream discovery waits for the pipeline's first sample.
+const DISCOVERY_TIMEOUT: gst::ClockTime = gst::ClockTime::from_seconds(5);
+
+/// Fallback frame interval when neither caps nor buffers carry timing.
+const DEFAULT_FRAME_INTERVAL_US: i64 = 1_000_000 / 30;
+
 /// Encoded source that owns a GStreamer pipeline ending in an appsink.
 #[derive(Debug)]
 pub struct GStreamerVideoSource {
@@ -178,9 +185,29 @@ pub struct GStreamerVideoSource {
     frame_interval_us: i64,
     next_fallback_timestamp_us: i64,
     rate_control: Option<GStreamerEncoderRateControl>,
+    /// Caps the stream has been validated against; a pointer change on a
+    /// later sample triggers revalidation.
+    negotiated_caps: Option<gst::Caps>,
+    /// Sample pulled during stream discovery, handed out first.
+    pending_sample: Option<gst::Sample>,
 }
 
 impl GStreamerVideoSource {
+    /// Creates the source, running blocking construction and stream
+    /// discovery on the tokio blocking pool.
+    ///
+    /// Requires a running tokio runtime. This is the async-constructor
+    /// convention for capture backends: `new` for async consumers, and
+    /// [`GStreamerVideoSource::new_blocking`] for everything else.
+    #[cfg(feature = "tokio")]
+    pub async fn new(config: GStreamerVideoSourceConfig) -> Result<Self, SourceError> {
+        match tokio::task::spawn_blocking(move || Self::new_blocking(config)).await {
+            Ok(result) => result,
+            Err(err) if err.is_panic() => std::panic::resume_unwind(err.into_panic()),
+            Err(err) => Err(SourceError::new(err)),
+        }
+    }
+
     /// Builds, owns, and starts a GStreamer pipeline from configuration.
     ///
     /// The pipeline is set to `Playing` immediately — the appsink buffers a
@@ -188,12 +215,11 @@ impl GStreamerVideoSource {
     /// to `Null` when the source is dropped. Construction fails loudly on an
     /// invalid launch description, a missing appsink or encoded pad, a
     /// missing rate-control element, or a pipeline that refuses to start.
-    pub fn new(config: GStreamerVideoSourceConfig) -> Result<Self, SourceError> {
-        if config.framerate_fps == 0 {
-            return Err(SourceError::new(GStreamerVideoSourceError::InvalidConfig(
-                "framerate_fps must be greater than zero",
-            )));
-        }
+    ///
+    /// When the configuration declares no resolution, this blocks until the
+    /// first sample arrives (bounded by a discovery timeout) to read the
+    /// negotiated stream settings.
+    pub fn new_blocking(config: GStreamerVideoSourceConfig) -> Result<Self, SourceError> {
         gst::init().map_err(|err| {
             SourceError::new(GStreamerVideoSourceError::Pipeline(format!(
                 "failed to initialize GStreamer: {err}"
@@ -235,16 +261,56 @@ impl GStreamerVideoSource {
             )))
         })?;
 
-        Ok(Self {
+        let mut source = Self {
             pipeline,
             bus,
             appsink,
             sample_format,
-            resolution: config.resolution,
-            frame_interval_us: 1_000_000 / i64::from(config.framerate_fps),
+            resolution: config.resolution.unwrap_or_default(),
+            frame_interval_us: DEFAULT_FRAME_INTERVAL_US,
             next_fallback_timestamp_us: 0,
             rate_control,
-        })
+            negotiated_caps: None,
+            pending_sample: None,
+        };
+
+        // Without a declared resolution, discover the stream settings from
+        // the first sample's negotiated caps; the sample is buffered so no
+        // keyframe is lost. A declared resolution skips the wait and is
+        // verified lazily against the first sample instead.
+        if config.resolution.is_none() {
+            let sample = source.wait_first_sample().map_err(SourceError::new)?;
+            let caps =
+                sample.caps().ok_or(GStreamerVideoSourceError::MissingResolutionCaps).map_err(SourceError::new)?;
+            source.resolution = resolution_from_caps(caps)
+                .ok_or(GStreamerVideoSourceError::MissingResolutionCaps)
+                .map_err(SourceError::new)?;
+            if let Some(frame_interval_us) = frame_interval_from_caps(caps) {
+                source.frame_interval_us = frame_interval_us;
+            }
+            source.negotiated_caps = Some(caps.to_owned());
+            source.pending_sample = Some(sample);
+        }
+
+        Ok(source)
+    }
+
+    /// Blocks until the pipeline produces its first sample, surfacing bus
+    /// errors and bounding the wait by the discovery timeout.
+    fn wait_first_sample(&self) -> Result<gst::Sample, GStreamerVideoSourceError> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(DISCOVERY_TIMEOUT.seconds());
+        loop {
+            self.check_bus()?;
+            if let Some(sample) = self.appsink.try_pull_sample(SAMPLE_WAIT) {
+                return Ok(sample);
+            }
+            if self.appsink.is_eos() {
+                return Err(GStreamerVideoSourceError::EndedBeforeFirstSample);
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(GStreamerVideoSourceError::DiscoveryTimeout);
+            }
+        }
     }
 
     /// Returns the owned pipeline.
@@ -264,6 +330,64 @@ impl GStreamerVideoSource {
             }
         }
         Ok(())
+    }
+
+    /// Validates a sample's caps against the established stream settings.
+    ///
+    /// Caps are immutable and refcounted, so an unchanged stream passes with
+    /// a pointer comparison. On a caps change, the declared or discovered
+    /// resolution and codec must match: live stream reconfiguration would
+    /// require republishing the track, which is not supported yet.
+    fn check_caps(&mut self, sample: &gst::Sample) -> Result<(), GStreamerVideoSourceError> {
+        let Some(caps) = sample.caps() else {
+            return Ok(());
+        };
+        if let Some(seen) = &self.negotiated_caps {
+            if seen.as_ptr() == caps.as_ptr() {
+                return Ok(());
+            }
+        }
+        let had_baseline = self.negotiated_caps.is_some();
+
+        if let Some(structure) = caps.structure(0) {
+            if let Some(codec) = codec_from_caps_name(structure.name()) {
+                if codec != self.sample_format.codec() {
+                    return Err(GStreamerVideoSourceError::Renegotiated {
+                        from: format!("{:?}", self.sample_format.codec()),
+                        to: format!("{codec:?}"),
+                    });
+                }
+            }
+        }
+        if let Some(resolution) = resolution_from_caps(caps) {
+            if resolution != self.resolution {
+                return Err(if had_baseline {
+                    GStreamerVideoSourceError::Renegotiated {
+                        from: self.resolution.to_string(),
+                        to: resolution.to_string(),
+                    }
+                } else {
+                    GStreamerVideoSourceError::ResolutionMismatch {
+                        configured: self.resolution,
+                        actual: resolution,
+                    }
+                });
+            }
+        }
+        if let Some(frame_interval_us) = frame_interval_from_caps(caps) {
+            self.frame_interval_us = frame_interval_us;
+        }
+
+        self.negotiated_caps = Some(caps.to_owned());
+        Ok(())
+    }
+
+    fn process_sample(
+        &mut self,
+        sample: &gst::Sample,
+    ) -> Result<OwnedEncodedAccessUnit, GStreamerVideoSourceError> {
+        self.check_caps(sample)?;
+        self.access_unit_from_sample(sample)
     }
 
     fn access_unit_from_sample(
@@ -328,6 +452,10 @@ impl EncodedVideoSource for GStreamerVideoSource {
         &mut self,
         stop: &PumpStop,
     ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+        if let Some(sample) = self.pending_sample.take() {
+            return self.process_sample(&sample).map(Some).map_err(SourceError::new);
+        }
+
         // Bounded waits keep the stop token observed within `SAMPLE_WAIT`
         // even while the pipeline produces nothing.
         loop {
@@ -338,10 +466,7 @@ impl EncodedVideoSource for GStreamerVideoSource {
 
             match self.appsink.try_pull_sample(SAMPLE_WAIT) {
                 Some(sample) => {
-                    return self
-                        .access_unit_from_sample(&sample)
-                        .map(Some)
-                        .map_err(SourceError::new);
+                    return self.process_sample(&sample).map(Some).map_err(SourceError::new);
                 }
                 None if self.appsink.is_eos() => return Ok(None),
                 None => {}
@@ -418,12 +543,42 @@ fn clamp_to_i64(value: u64, minimum: i64, maximum: i64) -> i64 {
 /// Error returned by GStreamer appsink encoded sources.
 #[derive(Debug, Error)]
 pub enum GStreamerVideoSourceError {
-    /// Configuration is invalid.
-    #[error("invalid GStreamer source configuration: {0}")]
-    InvalidConfig(&'static str),
     /// The launch description did not produce a pipeline.
     #[error("GStreamer description did not create a pipeline")]
     NotAPipeline,
+    /// The pipeline produced no data during stream discovery.
+    #[error(
+        "pipeline produced no data during stream discovery; declare `resolution` in the \
+         configuration to skip discovery, or check that the pipeline produces encoded video"
+    )]
+    DiscoveryTimeout,
+    /// The stream ended before producing a sample.
+    #[error("pipeline reached end of stream before producing a sample")]
+    EndedBeforeFirstSample,
+    /// Negotiated caps carry no resolution to discover.
+    #[error(
+        "negotiated caps declare no resolution; declare `resolution` in the configuration"
+    )]
+    MissingResolutionCaps,
+    /// The pipeline produces a different resolution than configured.
+    #[error("pipeline produces {actual}, but the configuration declares {configured}")]
+    ResolutionMismatch {
+        /// Resolution declared in the configuration.
+        configured: VideoResolution,
+        /// Resolution the pipeline negotiated.
+        actual: VideoResolution,
+    },
+    /// Stream settings changed mid-stream.
+    #[error(
+        "pipeline renegotiated {from} to {to}; changing stream settings requires republishing \
+         the track, which is not supported yet"
+    )]
+    Renegotiated {
+        /// Established stream setting.
+        from: String,
+        /// Newly negotiated stream setting.
+        to: String,
+    },
     /// The rate-control element is missing from the pipeline.
     #[error("pipeline has no element named '{0}' for rate control")]
     MissingRateControlElement(String),
@@ -483,6 +638,23 @@ fn access_unit_from_sample_payload(
             Ok(access_unit)
         }
     }
+}
+
+/// Reads the frame resolution from negotiated caps, when declared.
+fn resolution_from_caps(caps: &gst::CapsRef) -> Option<VideoResolution> {
+    let structure = caps.structure(0)?;
+    let width = structure.get::<i32>("width").ok()?;
+    let height = structure.get::<i32>("height").ok()?;
+    (width > 0 && height > 0)
+        .then(|| VideoResolution::new(width as u32, height as u32))
+}
+
+/// Derives the fallback frame interval from the caps framerate, when
+/// declared and non-zero.
+fn frame_interval_from_caps(caps: &gst::CapsRef) -> Option<i64> {
+    let framerate = caps.structure(0)?.get::<gst::Fraction>("framerate").ok()?;
+    let (numer, denom) = (i64::from(framerate.numer()), i64::from(framerate.denom()));
+    (numer > 0 && denom > 0).then(|| 1_000_000 * denom / numer)
 }
 
 fn clock_time_to_timestamp_us(start_timestamp_us: i64, timestamp: gst::ClockTime) -> i64 {

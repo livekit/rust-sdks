@@ -25,12 +25,18 @@ ingest source; the `demo` feature adds a synthetic pixel source for testing.
   running pumps of either kind uniformly (`stop()`, `join_async()`, stats);
   the `pump` module holds this shared machinery.
 - `sources::gstreamer::GStreamerVideoSource` — built solely from
-  configuration (`GStreamerVideoSourceConfig`: launch description, codec,
-  resolution, optional rate-control binding). The source owns its pipeline:
-  it is started at construction, construction fails loudly on pipeline
-  problems, bus errors surface as source errors, and the pipeline stops when
-  the source is dropped. `encoded_caps_string` remains the single per-codec
-  caps table for writing producer pipelines.
+  configuration (`GStreamerVideoSourceConfig`: launch description, plus
+  optional codec, resolution, and rate-control binding). The source owns its
+  pipeline: it is started at construction, construction fails loudly on
+  pipeline problems, bus errors surface as source errors, and the pipeline
+  stops when the source is dropped. Codec and resolution are discovered from
+  pipeline caps when omitted (a declared resolution skips the discovery wait
+  and is verified against the stream); a mid-stream caps change is an error
+  until track republication is supported. With the `tokio` crate feature,
+  `new` runs construction and discovery on the blocking pool — the
+  convention for all backends — while `new_blocking` serves non-async
+  consumers. `encoded_caps_string` remains the single per-codec caps table
+  for writing producer pipelines.
 
 ## GStreamer ingest
 
