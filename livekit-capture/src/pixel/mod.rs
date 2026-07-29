@@ -28,7 +28,7 @@ use livekit::webrtc::video_frame::BoxVideoFrame;
 
 pub use pump::PixelVideoPump;
 
-use crate::{error::SourceError, primitive::VideoResolution};
+use crate::{error::SourceError, primitive::VideoResolution, pump::PumpStop};
 
 /// Source of pixel (unencoded) video frames, such as a camera device.
 pub trait PixelVideoSource: Send {
@@ -38,9 +38,14 @@ pub trait PixelVideoSource: Send {
     /// Blocks until the next frame is available, returning `Ok(None)` when
     /// the source reaches the end of its stream.
     ///
+    /// Sources must return promptly (with `Ok(None)`) once `stop` fires:
+    /// integrate it into the blocking wait, or bound each wait so the token
+    /// is observed within a frame interval or so. The pump distinguishes a
+    /// stop from end of stream via the token.
+    ///
     /// Sources may pre-fill the frame's `frame_metadata`; a metadata
     /// callback set on the pump takes precedence when it returns `Some`.
-    fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError>;
+    fn next_frame(&mut self, stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError>;
 }
 
 impl<S: PixelVideoSource + ?Sized> PixelVideoSource for Box<S> {
@@ -48,8 +53,8 @@ impl<S: PixelVideoSource + ?Sized> PixelVideoSource for Box<S> {
         (**self).resolution()
     }
 
-    fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
-        (**self).next_frame()
+    fn next_frame(&mut self, stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
+        (**self).next_frame(stop)
     }
 }
 

@@ -14,7 +14,7 @@
 
 //! Solid-color demo source for testing.
 
-use crate::{error::SourceError, pixel::PixelVideoSource, primitive::VideoResolution};
+use crate::{error::SourceError, pixel::PixelVideoSource, primitive::VideoResolution, pump::PumpStop};
 use livekit::webrtc::video_frame::{BoxVideoFrame, I420Buffer, VideoFrame, VideoRotation};
 use std::{
     thread,
@@ -104,7 +104,9 @@ impl PixelVideoSource for DemoSource {
         self.config.resolution
     }
 
-    fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
+    // Sleeps at most one frame interval, so the stop token is observed
+    // promptly without integrating it into the wait.
+    fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
         let started = *self.started.get_or_insert_with(Instant::now);
 
         // Pace against the ideal timeline so timestamps stay jitter-free.
@@ -162,7 +164,7 @@ mod tests {
     fn yields_frames_with_configured_dimensions() {
         let mut source = DemoSource::new(test_config());
 
-        let frame = source.next_frame().unwrap().unwrap();
+        let frame = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         assert_eq!((frame.buffer.width(), frame.buffer.height()), (64, 36));
 
         let i420 = frame.buffer.as_i420().expect("demo source yields I420 buffers");
@@ -176,8 +178,8 @@ mod tests {
     fn timestamps_follow_the_frame_rate() {
         let mut source = DemoSource::new(test_config());
 
-        let first = source.next_frame().unwrap().unwrap();
-        let second = source.next_frame().unwrap().unwrap();
+        let first = source.next_frame(&PumpStop::new()).unwrap().unwrap();
+        let second = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         assert_eq!(first.timestamp_us, 0);
         assert_eq!(second.timestamp_us, 1_000);
     }
@@ -189,9 +191,9 @@ mod tests {
         let luma = |frame: &BoxVideoFrame| frame.buffer.as_i420().unwrap().data().0[0];
 
         // Two frames per color at 1000 fps with a 2 ms interval.
-        let first = source.next_frame().unwrap().unwrap();
-        let same_color = source.next_frame().unwrap().unwrap();
-        let next_color = source.next_frame().unwrap().unwrap();
+        let first = source.next_frame(&PumpStop::new()).unwrap().unwrap();
+        let same_color = source.next_frame(&PumpStop::new()).unwrap().unwrap();
+        let next_color = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         assert_eq!(luma(&first), luma(&same_color));
         assert_ne!(luma(&first), luma(&next_color));
     }

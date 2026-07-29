@@ -97,8 +97,14 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
             if self.stop.is_stopped() {
                 break PumpExit::Stopped;
             }
-            let Some(mut frame) = self.source.next_frame()? else {
-                break PumpExit::EndOfStream;
+            let Some(mut frame) = self.source.next_frame(&self.stop)? else {
+                // `None` is end of stream, unless the source returned early
+                // because the stop handle fired mid-wait.
+                break if self.stop.is_stopped() {
+                    PumpExit::Stopped
+                } else {
+                    PumpExit::EndOfStream
+                };
             };
             if let Some(metadata) =
                 self.frame_metadata.as_mut().and_then(|callback| callback(&frame))
@@ -177,7 +183,7 @@ mod tests {
             RESOLUTION
         }
 
-        fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
+        fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
             Ok(self.frames.pop_front())
         }
     }
@@ -234,7 +240,7 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
+            fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
                 panic!("source exploded");
             }
         }
@@ -258,7 +264,7 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
+            fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 Ok(Some(pixel_frame(0)))
             }
@@ -283,7 +289,7 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self) -> Result<Option<BoxVideoFrame>, SourceError> {
+            fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 Ok(Some(pixel_frame(0)))
             }

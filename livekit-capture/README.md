@@ -24,17 +24,22 @@ ingest source; the `demo` feature adds a synthetic pixel source for testing.
   spawn into the same `pump::RunningPump`, so an application supervises
   running pumps of either kind uniformly (`stop()`, `join_async()`, stats);
   the `pump` module holds this shared machinery.
-- `sources::gstreamer::ensure_encoded_appsink` and friends turn an arbitrary
-  pipeline (containing `appsink name=lk_appsink` or one unlinked encoded pad)
-  into an encoded source; `encoded_caps_string` is the single per-codec caps
-  table. The GStreamer source answers keyframe requests with a
-  `GstForceKeyUnit` upstream event.
+- `sources::gstreamer::GStreamerVideoSource` — built solely from
+  configuration (`GStreamerVideoSourceConfig`: launch description, codec,
+  resolution, optional rate-control binding). The source owns its pipeline:
+  it is started at construction, construction fails loudly on pipeline
+  problems, bus errors surface as source errors, and the pipeline stops when
+  the source is dropped. `encoded_caps_string` remains the single per-codec
+  caps table for writing producer pipelines.
 
 ## GStreamer ingest
 
-`GStreamerVideoSource` implements `EncodedVideoSource` on top of an
-`appsink` producing H.264 (Annex-B or AVC), H.265 Annex-B, VP8, VP9, or AV1
-access units. Drive it with an `EncodedVideoPump`, which builds the encoded
-RTC source, derives the passthrough publish options, and forwards keyframe
-and rate-control requests back to the pipeline. Passthrough is single-layer
-(`L1T1`); access units carrying other layering metadata are rejected.
+`GStreamerVideoSource` implements `EncodedVideoSource` on top of a pipeline
+whose `appsink` (named `lk_appsink`, or attached automatically to one
+unlinked encoded pad) produces H.264 (Annex-B or AVC), H.265 Annex-B, VP8,
+VP9, or AV1 access units. Drive it with an `EncodedVideoPump`, which builds
+the encoded RTC source, derives the passthrough publish options, and
+forwards keyframe requests (answered with a `GstForceKeyUnit` upstream
+event) and rate-control targets back to the pipeline. Passthrough is
+single-layer (`L1T1`); access units carrying other layering metadata are
+rejected.

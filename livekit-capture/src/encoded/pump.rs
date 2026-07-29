@@ -115,8 +115,14 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
                 self.source.request_keyframe();
             }
 
-            let Some(access_unit) = self.source.next_access_unit()? else {
-                break PumpExit::EndOfStream;
+            let Some(access_unit) = self.source.next_access_unit(&self.stop)? else {
+                // `None` is end of stream, unless the source returned early
+                // because the stop handle fired mid-wait.
+                break if self.stop.is_stopped() {
+                    PumpExit::Stopped
+                } else {
+                    PumpExit::EndOfStream
+                };
             };
 
             // Drop pre-roll deltas: decoding can only start at a keyframe.
@@ -224,7 +230,10 @@ mod tests {
             EncodedVideoCodec::VP8
         }
 
-        fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+        fn next_access_unit(
+            &mut self,
+            _stop: &PumpStop,
+        ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
             Ok(self.access_units.pop_front())
         }
     }

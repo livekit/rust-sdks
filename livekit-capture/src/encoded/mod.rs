@@ -24,6 +24,7 @@
 use crate::{
     error::{CaptureError, SourceError},
     primitive::VideoResolution,
+    pump::PumpStop,
 };
 use bytes::Bytes;
 use livekit::{
@@ -52,7 +53,15 @@ pub trait EncodedVideoSource: Send {
 
     /// Blocks until the next access unit is available, returning `Ok(None)`
     /// when the source reaches the end of its stream.
-    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError>;
+    ///
+    /// Sources must return promptly (with `Ok(None)`) once `stop` fires:
+    /// integrate it into the blocking wait, or bound each wait so the token
+    /// is observed within a frame interval or so. The pump distinguishes a
+    /// stop from end of stream via the token.
+    fn next_access_unit(
+        &mut self,
+        stop: &PumpStop,
+    ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError>;
 
     /// Forwards a downstream keyframe request (PLI/FIR, late subscriber) to
     /// the producer so it can emit an IDR.
@@ -462,8 +471,11 @@ impl<S: EncodedVideoSource + ?Sized> EncodedVideoSource for Box<S> {
         (**self).codec()
     }
 
-    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
-        (**self).next_access_unit()
+    fn next_access_unit(
+        &mut self,
+        stop: &PumpStop,
+    ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+        (**self).next_access_unit(stop)
     }
 
     fn request_keyframe(&mut self) {

@@ -27,6 +27,7 @@ use crate::{
     },
     error::{CaptureError, SourceError},
     primitive::VideoResolution,
+    pump::PumpStop,
 };
 use livekit::webrtc::video_source::EncodedRateControl;
 
@@ -62,17 +63,43 @@ impl GStreamerSampleFormat {
     }
 }
 
-/// Configuration for a GStreamer appsink encoded source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Configuration for a GStreamer encoded video source.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GStreamerVideoSourceConfig {
-    /// Format of encoded buffers pulled from appsink.
-    pub sample_format: GStreamerSampleFormat,
-    /// Timestamp added to the first buffer timestamp, or used directly as fallback.
-    pub start_timestamp_us: i64,
-    /// Fallback frame interval when a GStreamer buffer has no PTS or DTS.
-    pub frame_interval_us: i64,
-    /// Encoded frame resolution in pixels.
+    /// GStreamer launch description for the encoded producer pipeline.
+    ///
+    /// Must contain `appsink name=lk_appsink`, or leave exactly one encoded
+    /// video source pad unlinked for the source to attach one to.
+    pub pipeline: String,
+
+    /// Codec expected from the pipeline; inferred from pipeline caps when
+    /// `None`.
+    pub codec: Option<EncodedVideoCodec>,
+
+    /// Encoded frame resolution.
     pub resolution: VideoResolution,
+
+    /// Nominal frame rate, used for fallback frame timing when pipeline
+    /// buffers carry no timestamps.
+    pub framerate_fps: u32,
+
+    /// Forwards WebRTC rate-control targets to an encoder element's bitrate
+    /// property. Without this, the pipeline encodes at a fixed bitrate.
+    pub rate_control: Option<GStreamerRateControlConfig>,
+}
+
+/// Binding from WebRTC rate-control targets to a GStreamer encoder property.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GStreamerRateControlConfig {
+    /// Name of the encoder element in the pipeline (e.g. `lk_encoder`).
+    pub element: String,
+
+    /// Bitrate property to set on the element (e.g. `bitrate` for x264enc,
+    /// `target-bitrate` for vp8enc/vp9enc).
+    pub property: String,
+
+    /// Unit the property expects.
+    pub unit: GStreamerBitrateUnit,
 }
 
 /// Bitrate unit used by a GStreamer encoder property.
@@ -95,7 +122,7 @@ impl GStreamerBitrateUnit {
 
 /// GStreamer encoder bitrate control used by [`GStreamerVideoSource`].
 #[derive(Debug, Clone)]
-pub struct GStreamerEncoderRateControl {
+struct GStreamerEncoderRateControl {
     encoder: gst::Element,
     bitrate_property: String,
     bitrate_unit: GStreamerBitrateUnit,
@@ -104,7 +131,7 @@ pub struct GStreamerEncoderRateControl {
 
 impl GStreamerEncoderRateControl {
     /// Creates bitrate control for a GStreamer encoder element.
-    pub fn new(
+    fn new(
         encoder: gst::Element,
         bitrate_property: &str,
         bitrate_unit: GStreamerBitrateUnit,
@@ -137,44 +164,106 @@ impl GStreamerEncoderRateControl {
     }
 }
 
-/// Encoded source backed by a GStreamer appsink.
+/// How long one appsink wait may block before the stop token is rechecked.
+const SAMPLE_WAIT: gst::ClockTime = gst::ClockTime::from_mseconds(100);
+
+/// Encoded source that owns a GStreamer pipeline ending in an appsink.
 #[derive(Debug)]
 pub struct GStreamerVideoSource {
+    pipeline: gst::Pipeline,
+    bus: gst::Bus,
     appsink: gst_app::AppSink,
-    config: GStreamerVideoSourceConfig,
+    sample_format: GStreamerSampleFormat,
+    resolution: VideoResolution,
+    frame_interval_us: i64,
     next_fallback_timestamp_us: i64,
     rate_control: Option<GStreamerEncoderRateControl>,
 }
 
 impl GStreamerVideoSource {
-    /// Creates an encoded source from an existing GStreamer appsink.
-    pub fn new(appsink: gst_app::AppSink, config: GStreamerVideoSourceConfig) -> Self {
-        Self {
-            appsink,
-            config,
-            next_fallback_timestamp_us: config.start_timestamp_us,
-            rate_control: None,
+    /// Builds, owns, and starts a GStreamer pipeline from configuration.
+    ///
+    /// The pipeline is set to `Playing` immediately — the appsink buffers a
+    /// bounded number of samples until a pump starts pulling — and returned
+    /// to `Null` when the source is dropped. Construction fails loudly on an
+    /// invalid launch description, a missing appsink or encoded pad, a
+    /// missing rate-control element, or a pipeline that refuses to start.
+    pub fn new(config: GStreamerVideoSourceConfig) -> Result<Self, SourceError> {
+        if config.framerate_fps == 0 {
+            return Err(SourceError::new(GStreamerVideoSourceError::InvalidConfig(
+                "framerate_fps must be greater than zero",
+            )));
         }
+        gst::init().map_err(|err| {
+            SourceError::new(GStreamerVideoSourceError::Pipeline(format!(
+                "failed to initialize GStreamer: {err}"
+            )))
+        })?;
+
+        let pipeline = gst::parse::launch(&config.pipeline)
+            .map_err(|err| {
+                SourceError::new(GStreamerVideoSourceError::Pipeline(format!(
+                    "failed to create pipeline: {err}"
+                )))
+            })?
+            .downcast::<gst::Pipeline>()
+            .map_err(|_| SourceError::new(GStreamerVideoSourceError::NotAPipeline))?;
+
+        let (appsink, sample_format) = ensure_encoded_appsink(&pipeline, config.codec)
+            .map_err(|err| SourceError::new(GStreamerVideoSourceError::Layout(err)))?;
+
+        let rate_control = config
+            .rate_control
+            .map(|binding| -> Result<GStreamerEncoderRateControl, GStreamerVideoSourceError> {
+                let encoder = pipeline.by_name(&binding.element).ok_or_else(|| {
+                    GStreamerVideoSourceError::MissingRateControlElement(binding.element.clone())
+                })?;
+                Ok(GStreamerEncoderRateControl::new(encoder, &binding.property, binding.unit))
+            })
+            .transpose()
+            .map_err(SourceError::new)?;
+
+        let bus = pipeline.bus().ok_or_else(|| {
+            SourceError::new(GStreamerVideoSourceError::Pipeline(
+                "pipeline has no message bus".to_owned(),
+            ))
+        })?;
+
+        pipeline.set_state(gst::State::Playing).map_err(|err| {
+            SourceError::new(GStreamerVideoSourceError::Pipeline(format!(
+                "failed to start pipeline: {err}"
+            )))
+        })?;
+
+        Ok(Self {
+            pipeline,
+            bus,
+            appsink,
+            sample_format,
+            resolution: config.resolution,
+            frame_interval_us: 1_000_000 / i64::from(config.framerate_fps),
+            next_fallback_timestamp_us: 0,
+            rate_control,
+        })
     }
 
-    /// Sets the encoder bitrate control used for downstream rate requests.
-    pub fn set_encoder_rate_control(&mut self, rate_control: GStreamerEncoderRateControl) {
-        self.rate_control = Some(rate_control);
+    /// Returns the owned pipeline.
+    pub fn pipeline(&self) -> &gst::Pipeline {
+        &self.pipeline
     }
 
-    /// Returns the wrapped appsink.
-    pub fn appsink(&self) -> &gst_app::AppSink {
-        &self.appsink
-    }
-
-    /// Returns the source configuration.
-    pub fn config(&self) -> GStreamerVideoSourceConfig {
-        self.config
-    }
-
-    /// Consumes this source and returns the wrapped appsink.
-    pub fn into_appsink(self) -> gst_app::AppSink {
-        self.appsink
+    /// Surfaces a pipeline bus error, if one is pending.
+    fn check_bus(&self) -> Result<(), GStreamerVideoSourceError> {
+        while let Some(message) = self.bus.pop_filtered(&[gst::MessageType::Error]) {
+            if let gst::MessageView::Error(error) = message.view() {
+                return Err(GStreamerVideoSourceError::Pipeline(format!(
+                    "{} ({})",
+                    error.error(),
+                    error.debug().map(|s| s.to_string()).unwrap_or_default(),
+                )));
+            }
+        }
+        Ok(())
     }
 
     fn access_unit_from_sample(
@@ -194,46 +283,68 @@ impl GStreamerVideoSource {
             .map_err(|err| GStreamerVideoSourceError::MapReadable(err.to_string()))?;
         let payload = map.as_ref();
         access_unit_from_sample_payload(
-            self.config.sample_format,
+            self.sample_format,
             payload,
             timestamp_us,
             frame_type,
-            self.config.resolution,
+            self.resolution,
         )
         .map_err(GStreamerVideoSourceError::Capture)
     }
 
     fn timestamp_us(&mut self, buffer: &gst::BufferRef) -> i64 {
         if let Some(timestamp) = buffer.pts().or_else(|| buffer.dts()) {
-            let timestamp_us =
-                clock_time_to_timestamp_us(self.config.start_timestamp_us, timestamp);
+            let timestamp_us = clock_time_to_timestamp_us(0, timestamp);
             self.next_fallback_timestamp_us =
-                timestamp_us.saturating_add(self.config.frame_interval_us);
+                timestamp_us.saturating_add(self.frame_interval_us);
             return timestamp_us;
         }
 
         let timestamp_us = self.next_fallback_timestamp_us;
         self.next_fallback_timestamp_us =
-            self.next_fallback_timestamp_us.saturating_add(self.config.frame_interval_us);
+            self.next_fallback_timestamp_us.saturating_add(self.frame_interval_us);
         timestamp_us
+    }
+}
+
+impl Drop for GStreamerVideoSource {
+    fn drop(&mut self) {
+        // Returning the pipeline to `Null` releases its resources; GStreamer
+        // does not stop a running pipeline on the last unref.
+        let _ = self.pipeline.set_state(gst::State::Null);
     }
 }
 
 impl EncodedVideoSource for GStreamerVideoSource {
     fn resolution(&self) -> VideoResolution {
-        self.config.resolution
+        self.resolution
     }
 
     fn codec(&self) -> EncodedVideoCodec {
-        self.config.sample_format.codec()
+        self.sample_format.codec()
     }
 
-    fn next_access_unit(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
-        match self.appsink.pull_sample() {
-            Ok(sample) => self.access_unit_from_sample(&sample).map(Some).map_err(SourceError::new),
-            Err(_err) if self.appsink.is_eos() => Ok(None),
-            Err(err) => {
-                Err(SourceError::new(GStreamerVideoSourceError::PullSample(err.to_string())))
+    fn next_access_unit(
+        &mut self,
+        stop: &PumpStop,
+    ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+        // Bounded waits keep the stop token observed within `SAMPLE_WAIT`
+        // even while the pipeline produces nothing.
+        loop {
+            if stop.is_stopped() {
+                return Ok(None);
+            }
+            self.check_bus().map_err(SourceError::new)?;
+
+            match self.appsink.try_pull_sample(SAMPLE_WAIT) {
+                Some(sample) => {
+                    return self
+                        .access_unit_from_sample(&sample)
+                        .map(Some)
+                        .map_err(SourceError::new);
+                }
+                None if self.appsink.is_eos() => return Ok(None),
+                None => {}
             }
         }
     }
@@ -307,9 +418,21 @@ fn clamp_to_i64(value: u64, minimum: i64, maximum: i64) -> i64 {
 /// Error returned by GStreamer appsink encoded sources.
 #[derive(Debug, Error)]
 pub enum GStreamerVideoSourceError {
-    /// The appsink failed to produce a sample.
-    #[error("failed to pull GStreamer appsink sample: {0}")]
-    PullSample(String),
+    /// Configuration is invalid.
+    #[error("invalid GStreamer source configuration: {0}")]
+    InvalidConfig(&'static str),
+    /// The launch description did not produce a pipeline.
+    #[error("GStreamer description did not create a pipeline")]
+    NotAPipeline,
+    /// The rate-control element is missing from the pipeline.
+    #[error("pipeline has no element named '{0}' for rate control")]
+    MissingRateControlElement(String),
+    /// The pipeline could not be built or started, or errored at runtime.
+    #[error("GStreamer pipeline error: {0}")]
+    Pipeline(String),
+    /// The pipeline layout cannot feed an encoded appsink.
+    #[error(transparent)]
+    Layout(#[from] GStreamerPipelineError),
     /// The sample did not contain an encoded buffer.
     #[error("GStreamer sample did not contain a buffer")]
     MissingBuffer,
