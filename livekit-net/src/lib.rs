@@ -60,6 +60,40 @@ pub fn set_http_client(c: Arc<dyn HttpClient>) {
     let _ = HTTP.set(c);
 }
 
+/// Self-test: GET `url` via the registered HTTP client; returns the full response
+/// (status + headers + body) so callers can assert the whole struct round-trips the FFI.
+/// Errors if no client is registered or the transport fails.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub async fn self_test_http_get(url: String) -> Result<HttpResponse, TransportError> {
+    let c =
+        http_client().ok_or_else(|| TransportError::Other("no http client registered".into()))?;
+    c.request(HttpMethod::Get, url, Vec::new(), None).await
+}
+
+/// Self-test: connect, send `payload`, receive one frame, close; return the echoed bytes.
+/// Errors if no client is registered, the transport fails, or the peer closes first.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub async fn self_test_ws_echo(url: String, payload: Vec<u8>) -> Result<Vec<u8>, TransportError> {
+    let c = ws_client().ok_or_else(|| TransportError::Other("no ws client registered".into()))?;
+    let conn = c.connect(url, Vec::new(), 5_000).await?.connection;
+    conn.send(payload).await?;
+    let got = conn.recv().await?.ok_or(TransportError::Closed)?;
+    conn.close().await;
+    Ok(got)
+}
+
+/// Test probe: whether a process-wide HTTP client is registered.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn has_http_client() -> bool {
+    http_client().is_some()
+}
+
+/// Test probe: whether a process-wide WebSocket client is registered.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+pub fn has_ws_client() -> bool {
+    ws_client().is_some()
+}
+
 /// Resolve the process-wide WebSocket client.
 ///
 /// Returns the explicitly registered client if any; otherwise, on native builds,
