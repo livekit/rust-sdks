@@ -10,3 +10,5 @@ max_width = 100
 use_small_heuristics = "Max"
 # Workaround for https://github.com/rust-lang/rust.vim/issues/464
 edition = "2021"
+
+# CI experiment: baseline flake-rate measurement (no functional change)
