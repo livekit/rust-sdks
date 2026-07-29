@@ -65,6 +65,7 @@ async fn test_audio_with(params: TestParams) -> Result<()> {
     const SINE_FREQ: f64 = 60.0;
     const SINE_AMPLITUDE: f64 = 1.0;
     const FRAMES_TO_ANALYZE: usize = 100;
+    const SIGNAL_ONSET_AMPLITUDE: i32 = (i16::MAX / 10) as i32;
 
     let sine_params = SineParameters {
         freq: SINE_FREQ,
@@ -101,6 +102,16 @@ async fn test_audio_with(params: TestParams) -> Result<()> {
                 assert_eq!(frame.num_channels, params.sub_channels);
                 assert_eq!(frame.sample_rate, params.sub_rate_hz);
                 assert_eq!(frame.samples_per_channel, frame.data.len() as u32 / frame.num_channels);
+
+                // The stream can deliver silence between subscribing and the arrival of the
+                // publisher's first decodable packet; those frames have no zero crossings and
+                // would skew the frequency estimate, so start analyzing at signal onset rather
+                // than at the first delivered frame.
+                if frames_analyzed == 0
+                    && !frame.data.iter().any(|&s| (s as i32).abs() >= SIGNAL_ONSET_AMPLITUDE)
+                {
+                    continue;
+                }
 
                 for channel_idx in 0..params.sub_channels as usize {
                     analyzers[channel_idx].analyze(frame.channel_iter(channel_idx));
