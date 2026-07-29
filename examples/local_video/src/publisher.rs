@@ -811,54 +811,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn publisher_frame_log_flags_parse_inclusive_bounds() {
-        let args = Args::try_parse_from([
-            "publisher",
-            "--log-csv",
-            "publisher.csv",
-            "--log-start-frame-id",
-            "301",
-            "--log-end-frame-id",
-            "1200",
-        ])
-        .expect("frame log flags should parse");
-        assert_eq!(args.log_csv, Some(PathBuf::from("publisher.csv")));
-        assert_eq!(args.log_start_frame_id, Some(301));
-        assert_eq!(args.log_end_frame_id, Some(1200));
-    }
-
-    #[test]
-    fn publisher_frame_log_bounds_require_csv_path() {
-        assert!(Args::try_parse_from(["publisher", "--log-start-frame-id", "301"]).is_err());
-    }
-
-    #[test]
-    fn publisher_frame_log_writes_complete_samples_in_range() {
-        let path = std::env::temp_dir()
-            .join(format!("local-video-publisher-frame-log-{}.csv", std::process::id()));
-        let range = FrameLogRange::new(Some(301), Some(302)).expect("range should be valid");
-        let mut logger = PublisherCsvLogger::new(&path, range).expect("log should be created");
-        let sample = PublisherTimingSample {
-            frame_id: Some(301),
-            sensor_exposure_timestamp_us: 1_000,
-            got_frame_buffer_timestamp_us: Some(1_100),
-            encoder_upload_timestamp_us: Some(1_200),
-            encoder_output_timestamp_us: Some(1_300),
-            webrtc_packetize_timestamp_us: Some(1_400),
-        };
-        logger.record(sample).expect("sample should be written");
-        logger.writer.flush().expect("log should flush");
-        drop(logger);
-
-        let contents = std::fs::read_to_string(&path).expect("log should be readable");
-        let lines: Vec<_> = contents.lines().collect();
-        assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].split(',').count(), lines[1].split(',').count());
-        assert!(lines[1].starts_with("1,0.000,301,"));
-        std::fs::remove_file(path).expect("temporary log should be removable");
-    }
-
-    #[test]
     fn requested_playout_delay_is_absent_when_no_delay_flags_are_set() {
         assert_eq!(requested_playout_delay(None, None), None);
     }
@@ -970,6 +922,54 @@ mod tests {
         );
 
         assert_eq!(selected, 950);
+    }
+
+    #[test]
+    fn publisher_frame_log_flags_parse_inclusive_bounds() {
+        let args = Args::try_parse_from([
+            "publisher",
+            "--log-csv",
+            "publisher.csv",
+            "--log-start-frame-id",
+            "301",
+            "--log-end-frame-id",
+            "1200",
+        ])
+        .expect("frame log flags should parse");
+        assert_eq!(args.log_csv, Some(PathBuf::from("publisher.csv")));
+        assert_eq!(args.log_start_frame_id, Some(301));
+        assert_eq!(args.log_end_frame_id, Some(1200));
+    }
+
+    #[test]
+    fn publisher_frame_log_bounds_require_csv_path() {
+        assert!(Args::try_parse_from(["publisher", "--log-start-frame-id", "301"]).is_err());
+    }
+
+    #[test]
+    fn publisher_frame_log_writes_complete_samples_in_range() {
+        let path = std::env::temp_dir()
+            .join(format!("local-video-publisher-frame-log-{}.csv", std::process::id()));
+        let range = FrameLogRange::new(Some(301), Some(302)).expect("range should be valid");
+        let mut logger = PublisherCsvLogger::new(&path, range).expect("log should be created");
+        let sample = PublisherTimingSample {
+            frame_id: Some(301),
+            sensor_exposure_timestamp_us: 1_000,
+            got_frame_buffer_timestamp_us: Some(1_100),
+            encoder_upload_timestamp_us: Some(1_200),
+            encoder_output_timestamp_us: Some(1_300),
+            webrtc_packetize_timestamp_us: Some(1_400),
+        };
+        logger.record(sample).expect("sample should be written");
+        logger.writer.flush().expect("log should flush");
+        drop(logger);
+
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        let lines: Vec<_> = contents.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].split(',').count(), lines[1].split(',').count());
+        assert!(lines[1].starts_with("1,0.000,301,"));
+        std::fs::remove_file(path).expect("temporary log should be removable");
     }
 }
 

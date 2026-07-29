@@ -751,59 +751,6 @@ fn assert_timing_lines_are_stable(lines: &[String]) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn subscriber_frame_log_filters_range_and_rebases_quality() {
-        let path = std::env::temp_dir()
-            .join(format!("local-video-subscriber-frame-log-{}.csv", std::process::id()));
-        let range = FrameLogRange::new(Some(301), Some(303)).expect("range should be valid");
-        let mut logger = SubscriberCsvLogger::new(&path, range).expect("log should be created");
-        logger.quality = Some(InboundQualitySnapshot {
-            packets_lost: 5,
-            frames_dropped: 2,
-            freeze_count: 1,
-            total_freeze_duration_ms: 50.0,
-        });
-        let sample = SubscriberTimingSample {
-            frame_id: Some(301),
-            sensor_exposure_timestamp_us: 1_000,
-            webrtc_receive_timestamp_us: Some(1_100),
-            decoder_upload_timestamp_us: Some(1_110),
-            decoder_output_timestamp_us: Some(1_200),
-            frame_sink_timestamp_us: Some(1_210),
-            frame_prepare_timestamp_us: Some(1_220),
-            frame_painted_timestamp_us: Some(1_300),
-        };
-        logger.record(sample).expect("first sample should be written");
-        logger.quality = Some(InboundQualitySnapshot {
-            packets_lost: 7,
-            frames_dropped: 3,
-            freeze_count: 2,
-            total_freeze_duration_ms: 150.0,
-        });
-        logger
-            .record(SubscriberTimingSample {
-                frame_id: Some(303),
-                sensor_exposure_timestamp_us: 35_000,
-                webrtc_receive_timestamp_us: Some(35_100),
-                decoder_upload_timestamp_us: Some(35_110),
-                decoder_output_timestamp_us: Some(35_200),
-                frame_sink_timestamp_us: Some(35_210),
-                frame_prepare_timestamp_us: Some(35_220),
-                frame_painted_timestamp_us: Some(35_300),
-            })
-            .expect("second sample should be written");
-        logger.writer.flush().expect("log should flush");
-        drop(logger);
-
-        let contents = std::fs::read_to_string(&path).expect("log should be readable");
-        let lines: Vec<_> = contents.lines().collect();
-        assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0].split(',').count(), lines[2].split(',').count());
-        assert!(lines[1].ends_with(",0,,0,0,0,0.000"));
-        assert!(lines[2].ends_with(",1,34.000,2,1,1,100.000"));
-        std::fs::remove_file(path).expect("temporary log should be removable");
-    }
-
     fn timestamp_us(hour: u64, minute: u64, second: u64, millisecond: u64) -> u64 {
         (((hour * 3_600 + minute * 60 + second) * 1_000) + millisecond) * 1_000
     }
@@ -987,5 +934,58 @@ mod tests {
         assert_eq!(lines[6], "Exposure to Receive:                    50.0ms");
         assert_eq!(lines[7], "Receive to Render:                      50.0ms");
         assert_eq!(lines[8], "e2e latency:                           100.0ms");
+    }
+
+    #[test]
+    fn subscriber_frame_log_filters_range_and_rebases_quality() {
+        let path = std::env::temp_dir()
+            .join(format!("local-video-subscriber-frame-log-{}.csv", std::process::id()));
+        let range = FrameLogRange::new(Some(301), Some(303)).expect("range should be valid");
+        let mut logger = SubscriberCsvLogger::new(&path, range).expect("log should be created");
+        logger.quality = Some(InboundQualitySnapshot {
+            packets_lost: 5,
+            frames_dropped: 2,
+            freeze_count: 1,
+            total_freeze_duration_ms: 50.0,
+        });
+        let sample = SubscriberTimingSample {
+            frame_id: Some(301),
+            sensor_exposure_timestamp_us: 1_000,
+            webrtc_receive_timestamp_us: Some(1_100),
+            decoder_upload_timestamp_us: Some(1_110),
+            decoder_output_timestamp_us: Some(1_200),
+            frame_sink_timestamp_us: Some(1_210),
+            frame_prepare_timestamp_us: Some(1_220),
+            frame_painted_timestamp_us: Some(1_300),
+        };
+        logger.record(sample).expect("first sample should be written");
+        logger.quality = Some(InboundQualitySnapshot {
+            packets_lost: 7,
+            frames_dropped: 3,
+            freeze_count: 2,
+            total_freeze_duration_ms: 150.0,
+        });
+        logger
+            .record(SubscriberTimingSample {
+                frame_id: Some(303),
+                sensor_exposure_timestamp_us: 35_000,
+                webrtc_receive_timestamp_us: Some(35_100),
+                decoder_upload_timestamp_us: Some(35_110),
+                decoder_output_timestamp_us: Some(35_200),
+                frame_sink_timestamp_us: Some(35_210),
+                frame_prepare_timestamp_us: Some(35_220),
+                frame_painted_timestamp_us: Some(35_300),
+            })
+            .expect("second sample should be written");
+        logger.writer.flush().expect("log should flush");
+        drop(logger);
+
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        let lines: Vec<_> = contents.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].split(',').count(), lines[2].split(',').count());
+        assert!(lines[1].ends_with(",0,,0,0,0,0.000"));
+        assert!(lines[2].ends_with(",1,34.000,2,1,1,100.000"));
+        std::fs::remove_file(path).expect("temporary log should be removable");
     }
 }

@@ -878,28 +878,6 @@ mod tests {
     }
 
     #[test]
-    fn subscriber_frame_log_flags_parse_inclusive_bounds() {
-        let args = Args::try_parse_from([
-            "subscriber",
-            "--log-csv",
-            "subscriber.csv",
-            "--log-start-frame-id",
-            "301",
-            "--log-end-frame-id",
-            "1200",
-        ])
-        .expect("frame log flags should parse");
-        assert_eq!(args.log_csv, Some(PathBuf::from("subscriber.csv")));
-        assert_eq!(args.log_start_frame_id, Some(301));
-        assert_eq!(args.log_end_frame_id, Some(1200));
-    }
-
-    #[test]
-    fn subscriber_frame_log_bounds_require_csv_path() {
-        assert!(Args::try_parse_from(["subscriber", "--log-end-frame-id", "1200"]).is_err());
-    }
-
-    #[test]
     fn subscriber_diagnostics_show_status_without_timing() {
         let shared = Arc::new(Mutex::new(SharedYuv {
             room_name: "video-room".to_string(),
@@ -927,6 +905,28 @@ mod tests {
                 "1280x720 29.6fps H264 NVDEC 1.2mbps Simulcast",
             ]
         );
+    }
+
+    #[test]
+    fn subscriber_frame_log_flags_parse_inclusive_bounds() {
+        let args = Args::try_parse_from([
+            "subscriber",
+            "--log-csv",
+            "subscriber.csv",
+            "--log-start-frame-id",
+            "301",
+            "--log-end-frame-id",
+            "1200",
+        ])
+        .expect("frame log flags should parse");
+        assert_eq!(args.log_csv, Some(PathBuf::from("subscriber.csv")));
+        assert_eq!(args.log_start_frame_id, Some(301));
+        assert_eq!(args.log_end_frame_id, Some(1200));
+    }
+
+    #[test]
+    fn subscriber_frame_log_bounds_require_csv_path() {
+        assert!(Args::try_parse_from(["subscriber", "--log-end-frame-id", "1200"]).is_err());
     }
 }
 
