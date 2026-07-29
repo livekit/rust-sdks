@@ -1,3 +1,9 @@
+## 0.1.2 (2026-07-29)
+
+### Fixes
+
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+
 ## 0.1.1 (2026-07-27)
 
 ### Features
