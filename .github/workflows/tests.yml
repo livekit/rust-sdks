@@ -148,12 +148,15 @@ jobs:
             libglib2.0-dev
 
       - name: Run LiveKit dev server
-        uses: livekit/dev-server-action@61e2b4dcb170dd3591e0c9b0db3c3fe5db93b500
+        # v1.1.1: the v1-tagged SHA (61e2b4d) ignores the `version` input and
+        # always installs latest, so the pin below needs this newer ref.
+        uses: livekit/dev-server-action@5d4d5337a875e2d1afd37bed03c601d159dab002
         with:
           github-token: ${{ github.token }}
           # CI experiment: pin the server to the last pre-1.13.3 release to
           # test whether the test_audio flake correlates with the server bump.
-          version: 1.13.2
+          # On macOS this builds 1.13.2 from source (no darwin release artifact).
+          version: v1.13.2
           config: |
             # TODO: Remove once this is enabled by default.
             enable_participant_data_blob: true
