@@ -344,31 +344,39 @@ void NvidiaH265EncoderImpl::SetRates(
     return;
   }
 
-  if (parameters.framerate_fps < 1.0) {
+  if (!std::isfinite(parameters.framerate_fps) ||
+      parameters.framerate_fps < 1.0) {
     RTC_LOG(LS_WARNING) << "Invalid frame rate: " << parameters.framerate_fps;
     return;
   }
 
-  if (parameters.bitrate.get_sum_bps() == 0) {
+  const uint32_t target_bps = parameters.bitrate.get_sum_bps();
+  if (target_bps == 0) {
     configuration_.SetStreamState(false);
     return;
   }
 
-  codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
-  codec_.maxBitrate = parameters.bitrate.GetSpatialLayerSum(0);
-
-  configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
-  configuration_.max_frame_rate = parameters.framerate_fps;
-
-  if (!encoder_->SetRates(codec_.maxFramerate, configuration_.target_bps)) {
-    RTC_LOG(LS_WARNING) << "Failed to reconfigure NVENC rates.";
+  const uint32_t frame_rate = static_cast<uint32_t>(std::clamp(
+      std::round(parameters.framerate_fps), 1.0,
+      static_cast<double>(std::numeric_limits<uint32_t>::max())));
+  try {
+    if (!encoder_->SetRates(frame_rate, target_bps)) {
+      RTC_LOG(LS_WARNING) << "Failed to reconfigure NVENC rates: encoder is "
+                             "not initialized.";
+      return;
+    }
+  } catch (const NVENCException& e) {
+    RTC_LOG(LS_WARNING) << "Failed to reconfigure NVENC rates to "
+                        << target_bps << " bps @ " << frame_rate
+                        << " fps: " << e.what();
+    return;
   }
 
-  if (configuration_.target_bps) {
-    configuration_.SetStreamState(true);
-  } else {
-    configuration_.SetStreamState(false);
-  }
+  codec_.maxFramerate = frame_rate;
+  codec_.maxBitrate = target_bps / 1000;
+  configuration_.target_bps = target_bps;
+  configuration_.max_frame_rate = frame_rate;
+  configuration_.SetStreamState(true);
 }
 
 void NvidiaH265EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
@@ -379,4 +387,3 @@ void NvidiaH265EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
 }
 
 }  // namespace webrtc
-
