@@ -151,6 +151,9 @@ jobs:
         uses: livekit/dev-server-action@61e2b4dcb170dd3591e0c9b0db3c3fe5db93b500
         with:
           github-token: ${{ github.token }}
+          # CI experiment: pin the server to the last pre-1.13.3 release to
+          # test whether the test_audio flake correlates with the server bump.
+          version: 1.13.2
           config: |
             # TODO: Remove once this is enabled by default.
             enable_participant_data_blob: true
