@@ -23,6 +23,8 @@ use livekit::{
 };
 use parking_lot::Mutex;
 
+#[cfg(feature = "capture")]
+use super::capture;
 use super::{
     audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
@@ -1440,6 +1442,19 @@ pub fn handle_request(
         }
         Request::StartRecording(req) => platform_audio::on_start_recording(server, req)?.into(),
         Request::StopRecording(req) => platform_audio::on_stop_recording(server, req)?.into(),
+
+        #[cfg(feature = "capture")]
+        Request::NewCaptureSource(req) => capture::on_new_capture_source(server, req)?.into(),
+        #[cfg(feature = "capture")]
+        Request::StartCapture(req) => capture::on_start_capture(server, req)?.into(),
+        #[cfg(feature = "capture")]
+        Request::StopCapture(req) => capture::on_stop_capture(server, req)?.into(),
+        #[cfg(not(feature = "capture"))]
+        Request::NewCaptureSource(_) | Request::StartCapture(_) | Request::StopCapture(_) => {
+            return Err(FfiError::InvalidRequest(
+                "livekit-ffi was built without the 'capture' feature".into(),
+            ));
+        }
     });
 
     Ok(res)

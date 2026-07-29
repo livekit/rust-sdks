@@ -27,6 +27,7 @@ import "audio_frame.proto";
 import "rpc.proto";
 import "data_stream.proto";
 import "data_track.proto";
+import "capture.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -179,7 +180,12 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 85
+    // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceRequest new_capture_source = 85;
+    StartCaptureRequest start_capture = 86;
+    StopCaptureRequest stop_capture = 87;
+
+    // NEXT_ID: 88
   }
 }
 
@@ -304,7 +310,12 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 85
+    // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceResponse new_capture_source = 85;
+    StartCaptureResponse start_capture = 86;
+    StopCaptureResponse stop_capture = 87;
+
+    // NEXT_ID: 88
   }
 }
 
@@ -369,7 +380,11 @@ message FfiEvent {
 
     SimulateScenarioCallback simulate_scenario = 44;
 
-    // NEXT_ID: 45
+    // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceCallback new_capture_source = 45;
+    CaptureSourceEvent capture_source_event = 46;
+
+    // NEXT_ID: 47
   }
 }
 
