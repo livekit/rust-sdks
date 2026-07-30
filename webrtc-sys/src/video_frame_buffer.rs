@@ -112,6 +112,16 @@ pub mod ffi {
             stride_v: i32,
         ) -> UniquePtr<I420Buffer>;
 
+        /// Like `new_i420_buffer`, but with the pixel data set to black
+        /// (Y=0, U=V=128) instead of left uninitialized.
+        fn new_black_i420_buffer(
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_u: i32,
+            stride_v: i32,
+        ) -> UniquePtr<I420Buffer>;
+
         fn new_i422_buffer(
             width: i32,
             height: i32,

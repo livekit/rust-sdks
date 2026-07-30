@@ -76,6 +76,15 @@ versioned_files = [
 changelog = "livekit-api/CHANGELOG.md"
 scopes = ["livekit-api"]
 
+[packages.livekit-net]
+versioned_files = [
+  "livekit-net/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-net" },
+]
+changelog = "livekit-net/CHANGELOG.md"
+scopes = ["livekit-net"]
+
 [packages.libwebrtc]
 versioned_files = [
   "libwebrtc/Cargo.toml",
@@ -140,6 +149,14 @@ versioned_files = [
   { path = "Cargo.toml", dependency = "livekit-datatrack" },
 ]
 changelog = "livekit-datatrack/CHANGELOG.md"
+
+[packages.livekit-data-stream]
+versioned_files = [
+  "livekit-data-stream/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-data-stream" },
+]
+changelog = "livekit-data-stream/CHANGELOG.md"
 
 [packages.device-info]
 versioned_files = [

@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use super::common::{
-    deserialize_signal_response, DataTrackFrame, DataTrackInfo, HandleSignalResponseError,
+    deserialize_signal_response, DataTrackFrame, DataTrackInfo, DataTrackSchemaId,
+    HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
 use livekit_datatrack::{
-    api::{DataTrack, Local, PublishError, PushFrameErrorReason},
+    api::{DataTrack, DataTrackFrameEncoding, Local, PublishError, PushFrameErrorReason},
     backend::{local, EncryptionProvider},
 };
 use livekit_protocol as proto;
@@ -72,11 +73,22 @@ impl LocalDataTrack {
 #[derive(uniffi::Record)]
 pub struct DataTrackOptions {
     pub name: String,
+    #[uniffi(default)]
+    pub schema: Option<DataTrackSchemaId>,
+    #[uniffi(default)]
+    pub frame_encoding: Option<DataTrackFrameEncoding>,
 }
 
 impl From<DataTrackOptions> for livekit_datatrack::api::DataTrackOptions {
-    fn from(options: DataTrackOptions) -> Self {
-        livekit_datatrack::api::DataTrackOptions::new(options.name)
+    fn from(source: DataTrackOptions) -> Self {
+        let mut options = livekit_datatrack::api::DataTrackOptions::new(source.name);
+        if let Some(schema) = source.schema {
+            options = options.with_schema(schema.into());
+        }
+        if let Some(frame_encoding) = source.frame_encoding {
+            options = options.with_frame_encoding(frame_encoding);
+        }
+        options
     }
 }
 

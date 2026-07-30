@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use bytes::Bytes;
-use livekit_datatrack::api::DataTrackSid;
+use livekit_datatrack::api::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSid};
 use livekit_protocol as proto;
 use prost::Message;
 
@@ -55,11 +55,41 @@ pub struct DataTrackInfo {
     pub sid: DataTrackSid,
     pub name: String,
     pub uses_e2ee: bool,
+    pub schema: Option<DataTrackSchemaId>,
+    pub frame_encoding: Option<DataTrackFrameEncoding>,
 }
 
 impl From<&livekit_datatrack::api::DataTrackInfo> for DataTrackInfo {
     fn from(info: &livekit_datatrack::api::DataTrackInfo) -> Self {
-        Self { sid: info.sid(), name: info.name().to_string(), uses_e2ee: info.uses_e2ee() }
+        Self {
+            sid: info.sid(),
+            name: info.name().to_string(),
+            uses_e2ee: info.uses_e2ee(),
+            schema: info.schema().cloned().map(Into::into),
+            frame_encoding: info.frame_encoding().cloned(),
+        }
+    }
+}
+
+/// Identifier for a data track schema.
+///
+/// A compound identifier with two components: name and encoding.
+///
+#[derive(uniffi::Record)]
+pub struct DataTrackSchemaId {
+    pub name: String,
+    pub encoding: DataTrackSchemaEncoding,
+}
+
+impl From<DataTrackSchemaId> for livekit_datatrack::api::DataTrackSchemaId {
+    fn from(source: DataTrackSchemaId) -> Self {
+        livekit_datatrack::api::DataTrackSchemaId::new(source.name, source.encoding)
+    }
+}
+
+impl From<livekit_datatrack::api::DataTrackSchemaId> for DataTrackSchemaId {
+    fn from(source: livekit_datatrack::api::DataTrackSchemaId) -> Self {
+        Self { name: source.name().to_string(), encoding: source.encoding().clone() }
     }
 }
 

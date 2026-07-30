@@ -115,6 +115,11 @@ export declare enum ParticipantKindDetail {
    * @generated from enum value: PARTICIPANT_KIND_DETAIL_BRIDGE_RTSP = 4;
    */
   BRIDGE_RTSP = 4,
+
+  /**
+   * @generated from enum value: PARTICIPANT_KIND_DETAIL_SIMULATION = 5;
+   */
+  SIMULATION = 5,
 }
 
 /**

@@ -265,6 +265,7 @@ impl ConnectorClient {
                 proto::ConnectWhatsAppCallRequest {
                     whatsapp_call_id: call_id.into(),
                     sdp: Some(sdp),
+                    ..Default::default()
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,

@@ -242,6 +242,48 @@ impl FfiParticipant {
         Ok(proto::TextStreamOpenResponse { async_id })
     }
 
+    pub fn define_schema(
+        &self,
+        server: &'static FfiServer,
+        request: proto::DefineSchemaRequest,
+    ) -> FfiResult<proto::DefineSchemaResponse> {
+        let async_id = server.resolve_async_id(request.request_async_id);
+        let local = self.guard_local_participant()?;
+        let schema_id = request.schema_id.into();
+
+        let handle = server.async_runtime.spawn(async move {
+            let res = local.define_schema(schema_id, request.definition).await;
+            let callback =
+                proto::DefineSchemaCallback { async_id, error: res.err().map(|e| e.to_string()) };
+            let _ = server.send_event(callback.into());
+        });
+        server.watch_panic(handle);
+        Ok(proto::DefineSchemaResponse { async_id })
+    }
+
+    pub fn get_schema(
+        &self,
+        server: &'static FfiServer,
+        request: proto::GetSchemaRequest,
+    ) -> FfiResult<proto::GetSchemaResponse> {
+        let async_id = server.resolve_async_id(request.request_async_id);
+        let local = self.guard_local_participant()?;
+        let schema_id = request.schema_id.into();
+        let participant = ParticipantIdentity::from(request.participant_identity);
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = local.get_schema(schema_id, participant).await;
+            let callback = proto::GetSchemaCallback {
+                async_id,
+                definition: result.as_ref().ok().cloned(),
+                error: result.as_ref().err().map(|e| e.to_string()),
+            };
+            let _ = server.send_event(callback.into());
+        });
+        server.watch_panic(handle);
+        Ok(proto::GetSchemaResponse { async_id })
+    }
+
     pub fn publish_data_track(
         &self,
         server: &'static FfiServer,

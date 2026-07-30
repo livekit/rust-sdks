@@ -165,6 +165,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.40 (2026-07-27)
+
+### Fixes
+
+- Emit black keepalive frames from NativeVideoSource instead of uninitialized memory. webrtc::I420Buffer::Create leaves the pixel planes uninitialized, so the pre-capture keepalive frames could leak recycled heap contents (often fragments of earlier frames from the same process) to subscribers as the first keyframes - #1271 (@eh-steve)
+- Add NVIDIA NVENC AV1 encoding when the GPU reports AV1 encode support.
+
+## 0.3.39 (2026-07-17)
+
+### Features
+
+- Add a pre-encoded video publish path: a passthrough video encoder and encoded video frame buffer in webrtc-sys, and `EncodedVideoFrame`/`EncodedVideoCodec`/`EncodedFrameType` publish APIs with a `VideoEncoderBackend::PreEncoded` backend in libwebrtc. WebRTC rate-control targets and keyframe requests are forwarded to encoded sources, and pre-encoded AV1 and H265 access units are validated on ingest.
+
 ## 0.3.38 (2026-07-14)
 
 ### Fixes

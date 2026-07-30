@@ -1,4 +1,16 @@
 # Changelog
+## 0.1.13 (2026-07-29)
+
+### Fixes
+
+- Add data streams v2 - #1192 (@1egoman)
+
+## 0.1.12 (2026-07-27)
+
+### Features
+
+- Data tracks schema metadata support.
+
 ## 0.1.11 (2026-07-14)
 
 ### Fixes

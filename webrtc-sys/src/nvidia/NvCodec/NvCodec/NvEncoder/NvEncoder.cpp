@@ -11,6 +11,9 @@
 
 #include "NvEncoder.h"
 
+#include <algorithm>
+#include <limits>
+
 #if defined(WIN32)
 #include <windows.h>
 #else
@@ -668,12 +671,15 @@ bool NvEncoder::Reconfigure(
   NVENC_API_CALL(m_nvenc.nvEncReconfigureEncoder(
       m_hEncoder, const_cast<NV_ENC_RECONFIGURE_PARAMS*>(pReconfigureParams)));
 
-  memcpy(&m_initializeParams, &(pReconfigureParams->reInitEncodeParams),
-         sizeof(m_initializeParams));
   if (pReconfigureParams->reInitEncodeParams.encodeConfig) {
     memcpy(&m_encodeConfig, pReconfigureParams->reInitEncodeParams.encodeConfig,
            sizeof(m_encodeConfig));
   }
+  memcpy(&m_initializeParams, &(pReconfigureParams->reInitEncodeParams),
+         sizeof(m_initializeParams));
+  m_initializeParams.encodeConfig =
+      pReconfigureParams->reInitEncodeParams.encodeConfig ? &m_encodeConfig
+                                                          : nullptr;
 
   m_nWidth = m_initializeParams.encodeWidth;
   m_nHeight = m_initializeParams.encodeHeight;
@@ -681,6 +687,41 @@ bool NvEncoder::Reconfigure(
   m_nMaxEncodeHeight = m_initializeParams.maxEncodeHeight;
 
   return true;
+}
+
+bool NvEncoder::SetRates(uint32_t frameRate, uint32_t averageBitrate) {
+  if (!IsHWEncoderInitialized()) {
+    return false;
+  }
+  if (frameRate == 0) {
+    frameRate = 1;
+  }
+
+  NV_ENC_RECONFIGURE_PARAMS reconfigureParams = {};
+  reconfigureParams.version = NV_ENC_RECONFIGURE_PARAMS_VER;
+  reconfigureParams.resetEncoder = 0;
+  reconfigureParams.forceIDR = 0;
+
+  NV_ENC_CONFIG encodeConfig = {};
+  encodeConfig.version = NV_ENC_CONFIG_VER;
+  reconfigureParams.reInitEncodeParams.version = NV_ENC_INITIALIZE_PARAMS_VER;
+  reconfigureParams.reInitEncodeParams.encodeConfig = &encodeConfig;
+
+  GetInitializeParams(&reconfigureParams.reInitEncodeParams);
+
+  reconfigureParams.reInitEncodeParams.frameRateNum = frameRate;
+  reconfigureParams.reInitEncodeParams.frameRateDen = 1;
+
+  encodeConfig.rcParams.averageBitRate = averageBitrate;
+  encodeConfig.rcParams.maxBitRate = averageBitrate;
+  const uint64_t vbvBufferSize =
+      static_cast<uint64_t>(averageBitrate) * 5 / frameRate;
+  encodeConfig.rcParams.vbvBufferSize = static_cast<uint32_t>(
+      std::min<uint64_t>(vbvBufferSize,
+                         std::numeric_limits<uint32_t>::max()));
+  encodeConfig.rcParams.vbvInitialDelay = encodeConfig.rcParams.vbvBufferSize;
+
+  return Reconfigure(&reconfigureParams);
 }
 
 NV_ENC_REGISTERED_PTR NvEncoder::RegisterResource(

@@ -133,38 +133,52 @@ class TestParsePresentBumps(unittest.TestCase):
             f.write(body)
         return path
 
-    def test_parses_quoted_names(self):
+    def test_parses_unquoted_names(self):
         with tempfile.TemporaryDirectory() as tmp:
-            p = self._write(tmp, "a.md", '---\n"a-sys": patch\n"b": minor\n---\n\ndesc\n')
+            p = self._write(tmp, "a.md", "---\na-sys: patch\nb: minor\n---\n\ndesc\n")
             self.assertEqual(
-                cd.parse_present_bumps([p], KNOPE), {"a-sys": "patch", "b": "minor"}
+                cd.parse_present_bumps([p], KNOPE), ({"a-sys": "patch", "b": "minor"}, [])
             )
+
+    def test_quoted_names_flagged_invalid(self):
+        # Knope silently ignores the quoted JS-changesets format; it must be
+        # reported as invalid rather than counted as coverage.
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._write(tmp, "a.md", '---\n"a-sys": patch\nb: minor\n---\n\ndesc\n')
+            present, invalid = cd.parse_present_bumps([p], KNOPE)
+            self.assertEqual(present, {"b": "minor"})
+            self.assertEqual(invalid, [{
+                "file": p,
+                "line": 2,
+                "content": '"a-sys": patch',
+                "fixed": "a-sys: patch",
+            }])
 
     def test_ignores_unknown_packages(self):
         with tempfile.TemporaryDirectory() as tmp:
-            p = self._write(tmp, "a.md", '---\n"not-a-package": patch\n"b": patch\n---\n\nd\n')
-            self.assertEqual(cd.parse_present_bumps([p], KNOPE), {"b": "patch"})
+            p = self._write(tmp, "a.md", "---\nnot-a-package: patch\nb: patch\n---\n\nd\n")
+            self.assertEqual(cd.parse_present_bumps([p], KNOPE), ({"b": "patch"}, []))
 
     def test_highest_bump_wins_across_files(self):
         with tempfile.TemporaryDirectory() as tmp:
-            p1 = self._write(tmp, "a.md", '---\n"b": patch\n---\n\nd\n')
-            p2 = self._write(tmp, "z.md", '---\n"b": major\n---\n\nd\n')
-            self.assertEqual(cd.parse_present_bumps([p1, p2], KNOPE), {"b": "major"})
+            p1 = self._write(tmp, "a.md", "---\nb: patch\n---\n\nd\n")
+            p2 = self._write(tmp, "z.md", "---\nb: major\n---\n\nd\n")
+            self.assertEqual(cd.parse_present_bumps([p1, p2], KNOPE), ({"b": "major"}, []))
             # order independent
-            self.assertEqual(cd.parse_present_bumps([p2, p1], KNOPE), {"b": "major"})
+            self.assertEqual(cd.parse_present_bumps([p2, p1], KNOPE), ({"b": "major"}, []))
 
     def test_ignores_invalid_bump_values(self):
         with tempfile.TemporaryDirectory() as tmp:
-            p = self._write(tmp, "a.md", '---\n"b": bogus\n---\n\nd\n')
-            self.assertEqual(cd.parse_present_bumps([p], KNOPE), {})
+            p = self._write(tmp, "a.md", "---\nb: bogus\n---\n\nd\n")
+            self.assertEqual(cd.parse_present_bumps([p], KNOPE), ({}, []))
 
     def test_missing_front_matter(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = self._write(tmp, "a.md", "just a description, no front matter\n")
-            self.assertEqual(cd.parse_present_bumps([p], KNOPE), {})
+            self.assertEqual(cd.parse_present_bumps([p], KNOPE), ({}, []))
 
     def test_missing_file_is_skipped(self):
-        self.assertEqual(cd.parse_present_bumps(["/nonexistent/x.md"], KNOPE), {})
+        self.assertEqual(cd.parse_present_bumps(["/nonexistent/x.md"], KNOPE), ({}, []))
 
 
 class TestDetect(unittest.TestCase):
@@ -201,9 +215,9 @@ class TestDetect(unittest.TestCase):
     def test_changeset_content_prefills_missing(self):
         r = cd.detect(META, KNOPE, ["a-sys/src/lib.rs"], {"a-sys": "patch"})
         # missing == [b, c]; the prefilled changeset must bump exactly those
-        self.assertIn('"b": patch', r["changeset_content"])
-        self.assertIn('"c": patch', r["changeset_content"])
-        self.assertNotIn('"a-sys"', r["changeset_content"])
+        self.assertIn("b: patch", r["changeset_content"])
+        self.assertIn("c: patch", r["changeset_content"])
+        self.assertNotIn("a-sys", r["changeset_content"])
 
 
 class TestBuildChangesetContent(unittest.TestCase):
@@ -213,7 +227,7 @@ class TestBuildChangesetContent(unittest.TestCase):
         )
         self.assertEqual(
             content,
-            '---\n"b": patch\n"c": patch\n---\n\nMy change - #42 (@alice)',
+            "---\nb: patch\nc: patch\n---\n\nMy change - #42 (@alice)",
         )
 
     def test_empty_missing_produces_empty_front_matter(self):

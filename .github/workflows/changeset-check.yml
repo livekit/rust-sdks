@@ -107,6 +107,25 @@ jobs:
             echo "::warning::Failed to detect packages via cargo metadata: $ERROR"
           fi
 
+          # --- Reject bump lines knope can't parse (e.g. quoted package names) ---
+          # Knope silently ignores entries like `"livekit": patch` (the JS
+          # changesets convention), so they'd never be released.
+          NUM_INVALID=$(echo "$DETECTION" | jq '.invalid | length')
+          if [ "$NUM_INVALID" != "0" ]; then
+            INVALID_LIST=$(echo "$DETECTION" | jq -r '.invalid[] | "- `\(.file)` line \(.line): `\(.content)` should be `\(.fixed)`"')
+            COMMENT_BODY=$(
+              echo "$COMMENT_MARKER"
+              echo "### Changeset format error"
+              echo ""
+              echo "Knope requires unquoted package names in changeset front matter and silently ignores entries in any other format, so the following lines would never be released:"
+              echo ""
+              echo "$INVALID_LIST"
+            )
+            upsert_comment "$COMMENT_BODY" || true
+            echo "::error::Changeset front matter contains bump lines knope would ignore (quoted package names). See the PR comment for fixes."
+            exit 1
+          fi
+
           # --- If no versioned packages are affected, no changeset is required ---
           NUM_REQUIRED=$(echo "$DETECTION" | jq '.required | length')
           if [ "$NUM_REQUIRED" = "0" ]; then
