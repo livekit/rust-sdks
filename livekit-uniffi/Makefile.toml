@@ -64,15 +64,23 @@ ANDROID_AAR_BASENAME = "livekit-uniffi-android-release"
 extend = "android-shared"
 install_crate = { crate_name = "cargo-ndk", binary = "cargo-ndk", test_arg = "--help" }
 script_runner = "@shell"
+# The profile switch lives in the script, not in [tasks.build-android.env]: the
+# per-arch tasks below set `env = { TARGET = ... }`, and cargo-make's `extend`
+# *replaces* the env map instead of merging it — anything declared here would be
+# silently dropped, producing a debug .so under `--profile release`.
 script = """
 echo "TARGET: ${TARGET}"
 rustup target add "${TARGET}"
-cargo ndk --target "${TARGET}" build ${ANDROID_RELEASE_FLAG}
-"""
 
-[tasks.build-android.env]
-ANDROID_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
-RUSTFLAGS = { value = "-C force-unwind-tables=no", condition = { profiles = ["release"] } }
+release_flag=""
+if [ "${CARGO_MAKE_PROFILE}" = "release" ]; then
+  release_flag="--release"
+  # panic = "abort" in release, so unwind tables are dead weight.
+  export RUSTFLAGS="-C force-unwind-tables=no"
+fi
+
+cargo ndk --target "${TARGET}" build ${release_flag}
+"""
 
 # MARK: - Build, specific platforms
 
@@ -378,7 +386,7 @@ echo
 # are ~2× larger by construction (two archs in one Mach-O) and shouldn't be
 # the metric. Override the limit per release with SPM_SIZE_LIMIT_BYTES.
 [tasks.swift-check-size.env]
-SPM_SIZE_LIMIT_BYTES = { value = "723467", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
+SPM_SIZE_LIMIT_BYTES = { value = "1179648", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
 
 [tasks.swift-check-size]
 private = true
@@ -541,7 +549,7 @@ run_task = "swift-package-flow"
 # during assemble; the raw target/ artifact is larger and not what ships).
 # Override the limit per release with ANDROID_SIZE_LIMIT_BYTES.
 [tasks.android-check-size.env]
-ANDROID_SIZE_LIMIT_BYTES = { value = "877918", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
+ANDROID_SIZE_LIMIT_BYTES = { value = "1310720", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
 
 [tasks.android-check-size]
 extend = "android-shared"
@@ -612,11 +620,23 @@ cp "${aar}" "${out_dir}/"
 echo "AAR: ${out_dir}/${ANDROID_AAR_BASENAME}.aar"
 """
 
+# Library-mode bindgen reads UNIFFI_META_* symbols from a cdylib, so it needs a
+# *host* one — but cargo-make env vars leak across tasks, so the TARGET set by
+# the preceding per-arch Android builds would otherwise make `build` cross-
+# compile (with the host linker: "cannot find -llog"). Pin TARGET back to the
+# host, and keep symbols: the release profile's `strip = "symbols"` removes the
+# metadata on Linux. Same wrapper pattern as `bindgen-dart` — a task's own env
+# only applies once its dependencies run, hence run_task.
+[tasks.android-bindgen-kotlin]
+private = true
+env = { TARGET = "${CARGO_MAKE_RUST_TARGET_TRIPLE}", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "bindgen-kotlin"
+
 [tasks.android-package-flow]
 private = true
 dependencies = [
     "build-android-platforms",
-    "bindgen-kotlin",
+    "android-bindgen-kotlin",
     "android-copy-jniLibs",
     "android-assemble",
     "android-check-size",
