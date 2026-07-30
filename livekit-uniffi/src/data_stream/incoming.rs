@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
@@ -111,28 +110,6 @@ impl ByteStreamReader {
             buffer.extend_from_slice(&chunk?);
         }
         Ok(buffer.freeze())
-    }
-
-    /// Streams the contents to a file as chunks arrive, returning the written path.
-    ///
-    /// `directory` defaults to the system temp dir; `name_override` defaults to the stream name.
-    pub async fn write_to_file(
-        &self,
-        directory: Option<String>,
-        name_override: Option<String>,
-    ) -> Result<String, DataStreamError> {
-        use tokio::io::AsyncWriteExt as _;
-        let directory = directory.map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-        let name = name_override.unwrap_or_else(|| self.info.name.clone());
-        let path = directory.join(name);
-
-        let mut reader = self.inner.lock().await;
-        let mut file = tokio::fs::File::create(&path).await.map_err(ds_api::StreamError::Io)?;
-        while let Some(chunk) = reader.next().await {
-            file.write_all(&chunk?).await.map_err(ds_api::StreamError::Io)?;
-        }
-        file.flush().await.map_err(ds_api::StreamError::Io)?;
-        Ok(path.to_string_lossy().into_owned())
     }
 }
 
