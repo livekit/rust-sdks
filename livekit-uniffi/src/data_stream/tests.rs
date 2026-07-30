@@ -70,7 +70,7 @@ fn incoming_inline_text_stream_roundtrips() {
     crate::runtime::runtime().block_on(async {
         let (tx, rx) = oneshot::channel();
         let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
-        let manager = IncomingDataStreamManager::new(delegate);
+        let manager = IncomingDataStreamManager::new(delegate, None);
 
         manager.handle_packet_received(inline_text_packet("alice", "my-topic", "hello world"));
 
