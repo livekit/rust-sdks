@@ -1,6 +1,6 @@
 [package]
 name = "livekit"
-version = "0.7.53"
+version = "0.8.1"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
@@ -54,13 +54,18 @@ semver = "1.0"
 libloading = { version = "0.8.6" }
 bytes = "1.10.1"
 bmrng = "0.5.2"
+flate2 = "1"
 base64 = "0.22"
 
 [dev-dependencies]
 # Enable data-stream test constructors (e.g. TextStreamReader::new_for_test) for our test suites.
 livekit-data-stream = { workspace = true, features = ["test-utils"] }
+# Async test runtime + timers, needed by the peer_transport deadlock reproducer.
+# (rt/time are already built elsewhere in the workspace, so no new crates enter the lockfile.)
+tokio = { version = "1", features = ["rt", "macros", "time"] }
 anyhow = "1.0.99"
 test-log = "0.2.18"
 test-case = "3.3"
 serial_test = "3.0"
 http = "1.1"
+rand = { workspace = true }

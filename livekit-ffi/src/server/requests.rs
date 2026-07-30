@@ -1039,7 +1039,7 @@ fn on_perform_rpc(
 }
 
 fn on_load_audio_filter_plugin(
-    _server: &'static FfiServer,
+    server: &'static FfiServer,
     request: proto::LoadAudioFilterPluginRequest,
 ) -> FfiResult<proto::LoadAudioFilterPluginResponse> {
     let deps: Vec<_> = request.dependencies.iter().map(|d| d).collect();
@@ -1050,7 +1050,28 @@ fn on_load_audio_filter_plugin(
         }
     };
 
-    register_audio_filter_plugin(request.module_id, plugin);
+    register_audio_filter_plugin(request.module_id, plugin.clone());
+
+    // `on_load` is normally called for every registered plugin when a room
+    // connects, but that is a one-time snapshot: a plugin registered *after*
+    // a room has already connected would otherwise never be initialized for
+    // it (its `create` would then fail because the connection was never
+    // authenticated). Run `on_load` now for any already-connected rooms so
+    // registration order doesn't matter. `on_load` is expected to be
+    // idempotent (it is already called once per connected room), so a repeat
+    // registration re-running it here is harmless.
+    for room in server.list_rooms() {
+        let plugin = plugin.clone();
+        let url = room.inner.url();
+        let token = room.inner.room.token();
+        // Spawn (don't block the request): a plugin's `on_load` may perform
+        // network I/O, and this must not stall the FFI request thread.
+        server.async_runtime.spawn_blocking(move || {
+            if let Err(e) = plugin.on_load(&url, &token) {
+                log::error!("audio filter on_load failed for an already-connected room: {e}");
+            }
+        });
+    }
 
     Ok(proto::LoadAudioFilterPluginResponse { error: None })
 }
@@ -1250,6 +1271,24 @@ fn on_publish_data_track(
     ffi_participant.publish_data_track(server, request)
 }
 
+fn on_define_schema(
+    server: &'static FfiServer,
+    request: proto::DefineSchemaRequest,
+) -> FfiResult<proto::DefineSchemaResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.define_schema(server, request)
+}
+
+fn on_get_schema(
+    server: &'static FfiServer,
+    request: proto::GetSchemaRequest,
+) -> FfiResult<proto::GetSchemaResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.get_schema(server, request)
+}
+
 fn on_local_data_track_is_published(
     server: &'static FfiServer,
     request: proto::LocalDataTrackIsPublishedRequest,
@@ -1427,6 +1466,8 @@ pub fn handle_request(
             on_remote_data_track_set_pipeline_options(server, req)?.into()
         }
         Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
+        Request::DefineSchema(req) => on_define_schema(server, req)?.into(),
+        Request::GetSchema(req) => on_get_schema(server, req)?.into(),
         // Platform Audio
         Request::NewPlatformAudio(req) => {
             platform_audio::on_new_platform_audio(server, req)?.into()

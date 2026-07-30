@@ -97,11 +97,11 @@ pub mod testing {
     use std::sync::Arc;
     /// A fresh native WebSocket client for tests (bypasses the global registry).
     pub fn native_ws_client() -> Arc<dyn WsClient> {
-        Arc::new(crate::native::NativeTransport)
+        Arc::new(crate::native::NativeTransport::new())
     }
     /// A fresh native HTTP client for tests (bypasses the global registry).
     pub fn native_http_client() -> Arc<dyn HttpClient> {
-        Arc::new(crate::native::NativeTransport)
+        Arc::new(crate::native::NativeTransport::new())
     }
 }
 

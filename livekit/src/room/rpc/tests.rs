@@ -13,17 +13,19 @@
 // limitations under the License.
 
 use super::*;
-use crate::data_stream::{
+use crate::data_stream::api::{
     OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
 };
 use crate::e2ee::EncryptionType;
 use crate::room::id::ParticipantIdentity;
+use crate::room::participant::ClientCapability;
 use crate::room::RoomError;
 use bytes::Bytes;
 use chrono::Utc;
 use livekit_api::signal_client::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
+use livekit_common::RemoteParticipantRegistry;
 use livekit_protocol as proto;
-use parking_lot::Mutex as ParkingMutex;
+use parking_lot::{Mutex as ParkingMutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -129,7 +131,7 @@ impl RpcTransport for MockTransport {
             topic: options.topic,
             timestamp: Utc::now(),
             total_length: Some(text.len() as u64),
-            attributes: options.attributes,
+            attributes_map: Arc::new(RwLock::new(options.attributes)),
             mime_type: "text/plain".to_string(),
             operation_type: OperationType::Create,
             version: 0,
@@ -137,15 +139,27 @@ impl RpcTransport for MockTransport {
             attached_stream_ids: vec![],
             generated: false,
             encryption_type: EncryptionType::None,
+            is_compressed: false,
+            is_inline: false,
         })
-    }
-
-    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
-        self.remote_protocols.get(&identity.0).copied().unwrap_or(CLIENT_PROTOCOL_DEFAULT)
     }
 
     fn server_version(&self) -> Option<String> {
         self.server_ver.clone()
+    }
+}
+
+impl RemoteParticipantRegistry for MockTransport {
+    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
+        self.remote_protocols.get(&identity.0).copied().unwrap_or(CLIENT_PROTOCOL_DEFAULT)
+    }
+
+    fn remote_capabilities(&self, _identity: &ParticipantIdentity) -> Vec<ClientCapability> {
+        Vec::new()
+    }
+
+    fn remote_identities(&self) -> Vec<ParticipantIdentity> {
+        self.remote_protocols.keys().map(|k| ParticipantIdentity(k.clone())).collect()
     }
 }
 
@@ -167,7 +181,7 @@ fn make_text_reader(
             topic: topic.to_string(),
             timestamp: Utc::now(),
             total_length: Some(text.len() as u64),
-            attributes,
+            attributes_map: Arc::new(RwLock::new(attributes)),
             mime_type: "text/plain".to_string(),
             operation_type: OperationType::Create,
             version: 0,
@@ -175,6 +189,8 @@ fn make_text_reader(
             attached_stream_ids: vec![],
             generated: false,
             encryption_type: EncryptionType::None,
+            is_compressed: false,
+            is_inline: false,
         },
         rx,
     )

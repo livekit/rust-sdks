@@ -405,6 +405,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compression"
+version = "0.4.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e79b3f8a79cccc2898f31920fc69f304859b3bd567490f75ebf51ae1c792a9ac"
+dependencies = [
+ "compression-codecs",
+ "compression-core",
+ "futures-io",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-executor"
 version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1250,6 +1262,22 @@ dependencies = [
  "bytes",
  "memchr",
 ]
+
+[[package]]
+name = "compression-codecs"
+version = "0.4.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce2548391e9c1929c21bf6aa2680af86fe4c1b33e6cea9ac1cfeec0bd11218cf"
+dependencies = [
+ "compression-core",
+ "flate2",
+]
+
+[[package]]
+name = "compression-core"
+version = "0.4.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 
 [[package]]
 name = "concurrent-queue"
@@ -3753,7 +3781,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.42"
+version = "0.3.43"
 dependencies = [
  "cxx",
  "env_logger 0.11.11",
@@ -3882,13 +3910,14 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.53"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bmrng",
  "bytes",
  "chrono",
+ "flate2",
  "futures-util",
  "http 1.4.2",
  "lazy_static",
@@ -3903,6 +3932,7 @@ dependencies = [
  "log",
  "parking_lot",
  "prost 0.12.6",
+ "rand 0.9.5",
  "semver",
  "serde",
  "serde_json",
@@ -3916,7 +3946,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.5.6"
+version = "0.6.1"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -3958,26 +3988,29 @@ dependencies = [
 
 [[package]]
 name = "livekit-data-stream"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "async-compression",
  "bmrng",
  "bytes",
  "chrono",
- "flate2",
+ "from_variants",
  "futures-util",
  "livekit-common",
  "livekit-protocol",
  "log",
  "parking_lot",
  "prost 0.12.6",
+ "rand 0.9.5",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-stream",
  "uuid",
 ]
 
 [[package]]
 name = "livekit-datatrack"
-version = "0.1.11"
+version = "0.1.13"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3999,7 +4032,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.71"
+version = "0.12.73"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -4029,7 +4062,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-net"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "async-tungstenite",
@@ -4050,7 +4083,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.7.10"
+version = "0.7.12"
 dependencies = [
  "pbjson",
  "pbjson-types",
@@ -4072,7 +4105,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-uniffi"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "bytes",
  "camino",
@@ -8641,7 +8674,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.39"
+version = "0.3.40"
 dependencies = [
  "cc",
  "cxx",
