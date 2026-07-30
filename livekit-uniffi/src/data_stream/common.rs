@@ -269,13 +269,76 @@ impl From<StreamTextOptions> for ds_api::StreamTextOptions {
 
 // MARK: - Error
 
-/// A data stream operation failed. Flat wrapper around [`ds_api::StreamError`]; the underlying
-/// error's message is carried across the boundary.
+/// A data stream operation failed. Structured mirror of [`ds_api::StreamError`] so foreign callers
+/// can map each case to their own error type; variants carrying a message forward it as `message`.
 #[derive(uniffi::Error, thiserror::Error, Debug)]
-#[uniffi(flat_error)]
 pub enum DataStreamError {
-    #[error(transparent)]
-    Stream(#[from] ds_api::StreamError),
+    #[error("stream has already been closed")]
+    AlreadyClosed,
+
+    #[error("stream closed abnormally: {message}")]
+    AbnormalEnd { message: String },
+
+    #[error("UTF-8 decoding error: {message}")]
+    Utf8 { message: String },
+
+    #[error("incoming header was invalid")]
+    InvalidHeader,
+
+    #[error("expected chunk index to be exactly one more than the previous")]
+    MissedChunk,
+
+    #[error("read length exceeded total length specified in stream header")]
+    LengthExceeded,
+
+    #[error("stream data is incomplete")]
+    Incomplete,
+
+    #[error("unable to send packet")]
+    SendFailed,
+
+    #[error("I/O error: {message}")]
+    Io { message: String },
+
+    #[error("internal error")]
+    Internal,
+
+    #[error("encryption type mismatch")]
+    EncryptionTypeMismatch,
+
+    #[error("stream header exceeds maximum size")]
+    HeaderTooLarge,
+
+    #[error("stream payload exceeds maximum size")]
+    PayloadTooLarge,
+
+    #[error("decompression failed")]
+    Decompression,
+
+    #[error("file name must be a plain file name without path separators or '..'")]
+    InvalidFileName,
+}
+
+impl From<ds_api::StreamError> for DataStreamError {
+    fn from(error: ds_api::StreamError) -> Self {
+        match error {
+            ds_api::StreamError::AlreadyClosed => Self::AlreadyClosed,
+            ds_api::StreamError::AbnormalEnd(message) => Self::AbnormalEnd { message },
+            ds_api::StreamError::Utf8(error) => Self::Utf8 { message: error.to_string() },
+            ds_api::StreamError::InvalidHeader => Self::InvalidHeader,
+            ds_api::StreamError::MissedChunk => Self::MissedChunk,
+            ds_api::StreamError::LengthExceeded => Self::LengthExceeded,
+            ds_api::StreamError::Incomplete => Self::Incomplete,
+            ds_api::StreamError::SendFailed => Self::SendFailed,
+            ds_api::StreamError::Io(error) => Self::Io { message: error.to_string() },
+            ds_api::StreamError::Internal => Self::Internal,
+            ds_api::StreamError::EncryptionTypeMismatch => Self::EncryptionTypeMismatch,
+            ds_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
+            ds_api::StreamError::PayloadTooLarge => Self::PayloadTooLarge,
+            ds_api::StreamError::Decompression => Self::Decompression,
+            ds_api::StreamError::InvalidFileName => Self::InvalidFileName,
+        }
+    }
 }
 
 // MARK: - Wire decode
