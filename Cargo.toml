@@ -26,6 +26,7 @@ members = [
     "examples/basic_data_track",
     "examples/basic_room",
     "examples/basic_text_stream",
+    "examples/connection_test",
     "examples/data_track_benchmark",
     "examples/encrypted_text_stream",
     "examples/local_audio",
