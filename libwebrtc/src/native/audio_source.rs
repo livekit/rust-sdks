@@ -204,7 +204,9 @@ impl NativeAudioSource {
 
             // Bound the wait for the drain's completion (timeout rationale above). On a stall,
             // clear_buffer() releases the pending completion so the source stays usable afterward.
-            match tokio::time::timeout(capture_timeout, rx).await {
+            // Route through livekit_runtime so capture_frame stays runtime-neutral (tokio::time
+            // would panic when awaited off a Tokio runtime).
+            match livekit_runtime::timeout(capture_timeout, rx).await {
                 Ok(_) => {}
                 Err(_) => {
                     self.clear_buffer();
