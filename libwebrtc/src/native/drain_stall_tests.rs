@@ -118,6 +118,8 @@ mod stall {
             SAMPLE_RATE as i32,
             1,
         );
+        // SAFETY: `track` is an audio track created by `create_audio_track`, so downcasting its
+        // media-stream-track handle back to an `AudioTrack` is valid.
         let audio = unsafe { sys_at::ffi::media_to_audio(track.sys_handle()) };
         audio.add_sink(&native_sink);
 
