@@ -53,7 +53,7 @@ livekit = { version = "0.8.1", path = "livekit" }
 livekit-api = { version = "0.6.1", path = "livekit-api" }
 livekit-ffi = { version = "0.12.73", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.13", path = "livekit-datatrack" }
-livekit-common = { version = "0.1.0", path = "livekit-common" }
+livekit-common = { version = "0.1.1", path = "livekit-common" }
 livekit-data-stream = { version = "0.1.1", path = "livekit-data-stream" }
 livekit-net = { version = "0.1.2", path = "livekit-net" }
 livekit-protocol = { version = "0.7.12", path = "livekit-protocol" }
