@@ -183,9 +183,9 @@ impl NativeAudioSource {
             let ctx_ptr = Box::into_raw(ctx) as *const sys_at::SourceContext;
 
             unsafe {
-                // C++ only takes ownership of `ctx` when capture_frame returns true; on a false
-                // return (buffer full, or a prior completion still pending) it has not, so reclaim
-                // the Box here to avoid leaking the Sender.
+                // SAFETY: `ctx_ptr` comes from `Box::into_raw` above and is non-null and uniquely
+                // owned here. C++ only takes ownership of `ctx` when capture_frame returns true;
+                // on a false return it has not, so reclaiming the Box exactly once is sound.
                 if !self.sys_handle.capture_frame(
                     chunk,
                     self.sample_rate,
