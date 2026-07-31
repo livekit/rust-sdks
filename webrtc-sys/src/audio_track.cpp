@@ -149,6 +149,8 @@ AudioTrackSource::InternalSource::InternalSource(
   int samples10ms = sample_rate / 100 * num_channels;
 
   silence_buffer_.assign(samples10ms, 0);
+  // Sized once here; the drain reuses it every tick without reallocating.
+  scratch_.resize(samples10ms);
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
   notify_threshold_samples_ = queue_size_samples_;  // TODO: this is currently
                                                     // using x2 the queue size
@@ -166,13 +168,12 @@ AudioTrackSource::InternalSource::InternalSource(
         // sink->OnData() under sink_mutex_ and fire the completion with no lock held. Keeping
         // OnData off buffer_mutex_ means a wedged or slow sink can never block capture_frame;
         // keeping it under sink_mutex_ means a sink cannot be freed (via RemoveSink) mid-call.
-        // scratch_ is reused across ticks (this task is the only thread that touches it) to avoid
-        // a per-10ms allocation on the audio path.
+        // scratch_ is reused across ticks (this task is the only thread that touches it, and it is
+        // sized once in the constructor) to avoid a per-10ms allocation on the audio path.
         void (*complete)(const SourceContext*) = nullptr;
         const SourceContext* complete_ctx = nullptr;
         {
           webrtc::MutexLock lock(&buffer_mutex_);
-          scratch_.resize(samples10ms);
           if (buffer_.size() >= static_cast<size_t>(samples10ms)) {
             std::copy(buffer_.begin(), buffer_.begin() + samples10ms, scratch_.begin());
             buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
@@ -243,16 +244,23 @@ bool AudioTrackSource::InternalSource::capture_frame(
 }
 
 void AudioTrackSource::InternalSource::clear_buffer() {
-  webrtc::MutexLock lock(&buffer_mutex_);
-  buffer_.clear();
-  // Release any chunk still awaiting completion so the source is immediately reusable and its
-  // context is freed rather than leaked. Serialized with the drain via buffer_mutex_, so the
-  // completion fires at most once.
-  if (on_complete_) {
-    on_complete_(capture_userdata_);
+  // Snapshot any chunk still awaiting completion under buffer_mutex_ (serialized with the drain,
+  // so it fires at most once), then run it with no lock held — matching the drain path and
+  // avoiding a callback under the lock.
+  void (*complete)(const SourceContext*) = nullptr;
+  const SourceContext* complete_ctx = nullptr;
+  {
+    webrtc::MutexLock lock(&buffer_mutex_);
+    buffer_.clear();
+    complete = on_complete_;
+    complete_ctx = capture_userdata_;
     on_complete_ = nullptr;
     capture_userdata_ = nullptr;
   }
+  // Release the pending completion so the source is immediately reusable and its context is
+  // freed rather than leaked.
+  if (complete)
+    complete(complete_ctx);
 }
 
 webrtc::MediaSourceInterface::SourceState
