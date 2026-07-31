@@ -150,6 +150,14 @@ versioned_files = [
 ]
 changelog = "livekit-datatrack/CHANGELOG.md"
 
+[packages.livekit-common]
+versioned_files = [
+  "livekit-common/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-common" },
+]
+changelog = "livekit-common/CHANGELOG.md"
+
 [packages.livekit-data-stream]
 versioned_files = [
   "livekit-data-stream/Cargo.toml",
