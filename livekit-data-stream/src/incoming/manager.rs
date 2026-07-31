@@ -351,7 +351,7 @@ impl Manager {
     ///
     /// Reported on chunk/trailer events so the host can apply its own topic policy (e.g. hiding
     /// `lk.rpc_request`); this crate deliberately holds no notion of which topics are internal.
-    fn topic_of(&self, id: &StreamId) -> Option<String> {
+    fn topic_associated_with_stream_id(&self, id: &StreamId) -> Option<String> {
         self.inner.open_streams.get(id).map(|d| d.topic.clone())
     }
 
@@ -366,7 +366,7 @@ impl Manager {
         let _ = self.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
             chunk: chunk.clone(),
             participant_identity,
-            topic: self.topic_of(&id),
+            topic: self.topic_associated_with_stream_id(&id),
         }));
 
         let inner = &mut self.inner;
@@ -469,7 +469,7 @@ impl Manager {
             TrailerReceived {
                 trailer: trailer.clone(),
                 participant_identity,
-                topic: self.topic_of(&id),
+                topic: self.topic_associated_with_stream_id(&id),
             }
             .into(),
         );
