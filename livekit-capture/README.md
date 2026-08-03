@@ -52,4 +52,5 @@ of the same name. Its module documents it.
 | Feature     | Source                 | Path    |
 | ----------- | ---------------------- | ------- |
 | `demo`      | `DemoVideoSource`      | pixel   |
+| `device`    | `DeviceVideoSource`    | pixel   |
 | `gstreamer` | `GStreamerVideoSource` | encoded |

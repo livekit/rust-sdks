@@ -20,10 +20,12 @@ __rustls-tls = ["livekit/__rustls-tls"]
 tracing = ["tokio/tracing", "console-subscriber"]
 
 # Capture sources (livekit-capture): publish tracks from server-side
-# producers such as GStreamer pipelines. Links system GStreamer.
+# producers such as camera devices or GStreamer pipelines. Links system
+# GStreamer.
 capture = [
     "dep:livekit-capture",
     "livekit-capture/demo",
+    "livekit-capture/device",
     "livekit-capture/gstreamer",
     "livekit-capture/tokio",
 ]

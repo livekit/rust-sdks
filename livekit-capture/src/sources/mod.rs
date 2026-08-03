@@ -15,5 +15,8 @@
 #[cfg(feature = "demo")]
 pub mod demo;
 
+#[cfg(feature = "device")]
+pub mod device;
+
 #[cfg(feature = "gstreamer")]
 pub mod gstreamer;

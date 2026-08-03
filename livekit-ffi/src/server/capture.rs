@@ -23,13 +23,20 @@ use livekit_capture::{
     encoded::{EncodedVideoPump, EncodedVideoSource},
     pixel::{PixelVideoPump, PixelVideoSource},
     pump::{PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
-    sources::{demo::DemoVideoSource, gstreamer::GStreamerVideoSource},
+    sources::{
+        demo::DemoVideoSource,
+        device::{self, DeviceVideoSource},
+        gstreamer::GStreamerVideoSource,
+    },
 };
 use parking_lot::Mutex;
 
 use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
 use crate::{
-    conversion::capture::{gstreamer_config_from_proto, video_codec_to_proto},
+    conversion::capture::{
+        device_config_from_proto, device_info_to_proto, gstreamer_config_from_proto,
+        video_codec_to_proto,
+    },
     proto, FfiError, FfiHandleId, FfiResult,
 };
 
@@ -114,6 +121,13 @@ async fn create_capture_source(
         }
         proto::new_capture_source_request::Config::Demo(config) => {
             let source = DemoVideoSource::new(config.into())
+                .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source: Box<dyn PixelVideoSource> = Box::new(source);
+            CapturePump::Pixel(PixelVideoPump::new(source))
+        }
+        proto::new_capture_source_request::Config::Device(config) => {
+            let source = DeviceVideoSource::new(device_config_from_proto(config)?)
+                .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
             CapturePump::Pixel(PixelVideoPump::new(source))
@@ -284,6 +298,27 @@ pub fn on_stop_capture(
     let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(request.capture_handle)?;
     ffi_capture.stop.stop();
     Ok(proto::StopCaptureResponse { error: None })
+}
+
+pub fn on_list_capture_devices(
+    server: &'static FfiServer,
+    request: proto::ListCaptureDevicesRequest,
+) -> FfiResult<proto::ListCaptureDevicesResponse> {
+    let async_id = server.resolve_async_id(request.request_async_id);
+    server.async_runtime.spawn(async move {
+        let message = match device::devices().await {
+            Ok(devices) => {
+                proto::list_capture_devices_callback::Message::Devices(proto::CaptureDeviceList {
+                    devices: devices.into_iter().map(device_info_to_proto).collect(),
+                })
+            }
+            Err(err) => proto::list_capture_devices_callback::Message::Error(err.to_string()),
+        };
+        let _ = server.send_event(proto::ffi_event::Message::ListCaptureDevices(
+            proto::ListCaptureDevicesCallback { async_id, message: Some(message) },
+        ));
+    });
+    Ok(proto::ListCaptureDevicesResponse { async_id })
 }
 
 #[cfg(test)]

@@ -311,6 +311,12 @@ impl GStreamerVideoSource {
             source.pending_sample = Some(sample);
         }
 
+        log::info!(
+            "GStreamer pipeline ready: {:?} {} ({} resolution)",
+            source.sample_format.codec(),
+            source.resolution,
+            if config.resolution.is_none() { "discovered" } else { "declared" },
+        );
         Ok(source)
     }
 
