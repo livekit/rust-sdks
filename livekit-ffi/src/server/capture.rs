@@ -112,8 +112,10 @@ async fn create_capture_source(
             let source: Box<dyn EncodedVideoSource> = Box::new(source);
             CapturePump::Encoded(EncodedVideoPump::new(source))
         }
-        proto::new_capture_source_request::Config::Demo(proto::DemoVideoSourceConfig {}) => {
-            let source: Box<dyn PixelVideoSource> = Box::new(DemoSource::default());
+        proto::new_capture_source_request::Config::Demo(config) => {
+            let source = DemoSource::new(config.into())
+                .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source: Box<dyn PixelVideoSource> = Box::new(source);
             CapturePump::Pixel(PixelVideoPump::new(source))
         }
     };
@@ -298,7 +300,10 @@ mod tests {
     fn demo_capture_lifecycle() {
         let request = proto::NewCaptureSourceRequest {
             config: Some(proto::new_capture_source_request::Config::Demo(
-                proto::DemoVideoSourceConfig {},
+                proto::DemoVideoSourceConfig {
+                    resolution: proto::VideoSourceResolution { width: 1280, height: 720 },
+                    framerate_fps: 30,
+                },
             )),
             request_async_id: None,
         };

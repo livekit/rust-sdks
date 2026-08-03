@@ -16,10 +16,23 @@ use crate::{proto, FfiError, FfiResult};
 use livekit_capture::{
     encoded::EncodedVideoCodec,
     primitive::VideoResolution,
-    sources::gstreamer::{
-        GStreamerBitrateUnit, GStreamerRateControlConfig, GStreamerVideoSourceConfig,
+    sources::{
+        demo::DemoSourceConfig,
+        gstreamer::{GStreamerBitrateUnit, GStreamerRateControlConfig, GStreamerVideoSourceConfig},
     },
 };
+
+impl From<proto::VideoSourceResolution> for VideoResolution {
+    fn from(resolution: proto::VideoSourceResolution) -> Self {
+        Self::new(resolution.width, resolution.height)
+    }
+}
+
+impl From<proto::DemoVideoSourceConfig> for DemoSourceConfig {
+    fn from(config: proto::DemoVideoSourceConfig) -> Self {
+        Self { resolution: config.resolution.into(), framerate_fps: config.framerate_fps }
+    }
+}
 
 impl From<proto::GstreamerBitrateUnit> for GStreamerBitrateUnit {
     fn from(unit: proto::GstreamerBitrateUnit) -> Self {
@@ -81,9 +94,7 @@ pub fn gstreamer_config_from_proto(
     Ok(GStreamerVideoSourceConfig {
         pipeline: config.pipeline,
         codec,
-        resolution: config
-            .resolution
-            .map(|resolution| VideoResolution::new(resolution.width, resolution.height)),
+        resolution: config.resolution.map(VideoResolution::from),
         rate_control,
     })
 }

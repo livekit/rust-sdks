@@ -40,7 +40,7 @@ const PALETTE: [(u8, u8, u8); 6] = [
 #[cfg_attr(
     feature = "serde",
     derive(serde::Serialize, serde::Deserialize),
-    serde(default, deny_unknown_fields)
+    serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DemoSourceConfig {
@@ -48,12 +48,6 @@ pub struct DemoSourceConfig {
     pub resolution: VideoResolution,
     /// Output frame rate in frames per second.
     pub framerate_fps: u32,
-}
-
-impl Default for DemoSourceConfig {
-    fn default() -> Self {
-        Self { resolution: VideoResolution { width: 1280, height: 720 }, framerate_fps: 30 }
-    }
 }
 
 /// Pixel video source that produces solid-color frames, cycling through a
@@ -73,18 +67,8 @@ pub struct DemoSource {
 }
 
 impl DemoSource {
-    /// Creates a demo source.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the configuration is invalid; use [`DemoSource::try_new`]
-    /// for configuration that is not known good at compile time.
-    pub fn new(config: DemoSourceConfig) -> Self {
-        Self::try_new(config).expect("demo source configuration is valid")
-    }
-
     /// Creates a demo source, rejecting an invalid configuration.
-    pub fn try_new(config: DemoSourceConfig) -> Result<Self, SourceError> {
+    pub fn new(config: DemoSourceConfig) -> Result<Self, SourceError> {
         let VideoResolution { width, height } = config.resolution;
         if width == 0 || height == 0 {
             return Err(SourceError::new(DemoSourceConfigError::ZeroResolution));
@@ -111,12 +95,6 @@ pub enum DemoSourceConfigError {
     /// The configured frame rate is zero.
     #[error("demo source frame rate must be non-zero")]
     ZeroFramerate,
-}
-
-impl Default for DemoSource {
-    fn default() -> Self {
-        Self::new(DemoSourceConfig::default())
-    }
 }
 
 impl PixelVideoSource for DemoSource {
@@ -180,7 +158,7 @@ mod tests {
 
     #[test]
     fn yields_frames_with_configured_dimensions() {
-        let mut source = DemoSource::new(test_config());
+        let mut source = DemoSource::new(test_config()).unwrap();
 
         let frame = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         assert_eq!((frame.buffer.width(), frame.buffer.height()), (64, 36));
@@ -194,7 +172,7 @@ mod tests {
 
     #[test]
     fn timestamps_follow_the_frame_rate() {
-        let mut source = DemoSource::new(test_config());
+        let mut source = DemoSource::new(test_config()).unwrap();
 
         let first = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         let second = source.next_frame(&PumpStop::new()).unwrap().unwrap();
@@ -211,7 +189,8 @@ mod tests {
         let mut source = DemoSource::new(DemoSourceConfig {
             resolution: VideoResolution { width: 64, height: 36 },
             framerate_fps: (Duration::from_secs(1).as_micros() / frame_interval.as_micros()) as u32,
-        });
+        })
+        .unwrap();
 
         let luma = |frame: &BoxVideoFrame| frame.buffer.as_i420().unwrap().data().0[0];
 
