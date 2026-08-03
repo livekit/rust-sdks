@@ -1,0 +1,130 @@
+//! Tests `TokenSourceEndpoint::fetch` against a mock `livekit_net::HttpClient`.
+//!
+//! The livekit-net registry is process-wide and first-set-wins, so every test
+//! lives in this one file and registration goes through a `Once`. Each test uses
+//! a distinct endpoint URL; the mock dispatches its response on the URL and
+//! records each request under it, so concurrently running tests never collide.
+
+use livekit_net::{Header, HttpMethod, HttpResponse, TransportError};
+use livekit_token_source::{TokenSourceEndpoint, TokenSourceError, TokenSourceFetchOptions};
+use std::collections::HashMap;
+use std::sync::{Mutex, Once};
+
+#[derive(Clone)]
+struct Captured {
+    method: HttpMethod,
+    headers: Vec<Header>,
+    body: Option<Vec<u8>>,
+}
+
+static CAPTURED: Mutex<Option<HashMap<String, Captured>>> = Mutex::new(None);
+
+fn captured(url: &str) -> Captured {
+    CAPTURED.lock().unwrap().as_ref().unwrap().get(url).expect("request not captured").clone()
+}
+
+struct MockHttp;
+
+#[async_trait::async_trait]
+impl livekit_net::HttpClient for MockHttp {
+    async fn request(
+        &self,
+        method: HttpMethod,
+        url: String,
+        headers: Vec<Header>,
+        body: Option<Vec<u8>>,
+    ) -> Result<HttpResponse, TransportError> {
+        CAPTURED
+            .lock()
+            .unwrap()
+            .get_or_insert_with(HashMap::new)
+            .insert(url.clone(), Captured { method, headers, body });
+
+        if url.contains("server-error") {
+            return Ok(HttpResponse { status: 500, headers: vec![], body: b"boom".to_vec() });
+        }
+        if url.contains("badjson") {
+            return Ok(HttpResponse {
+                status: 200,
+                headers: vec![],
+                body: b"this is not json".to_vec(),
+            });
+        }
+        if url.contains("connrefused") {
+            return Err(TransportError::Connection("connection refused".into()));
+        }
+        let body = br#"{"server_url":"wss://mock.livekit.cloud","participant_token":"tok-123"}"#;
+        Ok(HttpResponse { status: 200, headers: vec![], body: body.to_vec() })
+    }
+}
+
+static INSTALL: Once = Once::new();
+
+fn install_mock() {
+    INSTALL.call_once(|| livekit_net::set_http_client(std::sync::Arc::new(MockHttp)));
+}
+
+fn header<'a>(headers: &'a [Header], name: &str) -> Option<&'a str> {
+    headers.iter().find(|h| h.name.eq_ignore_ascii_case(name)).map(|h| h.value.as_str())
+}
+
+#[tokio::test]
+async fn fetch_posts_json_and_parses_response() {
+    install_mock();
+    let url = "https://token.test/ok";
+    let endpoint = TokenSourceEndpoint::new(
+        url,
+        vec![("X-Sandbox-ID".to_string(), "sandbox-42".to_string())],
+    );
+    let options = TokenSourceFetchOptions::new()
+        .with_room_name("my-room")
+        .with_participant_identity("user-123");
+
+    let response = endpoint.fetch(&options).await.expect("fetch should succeed");
+    assert_eq!(response.server_url, "wss://mock.livekit.cloud");
+    assert_eq!(response.participant_token, "tok-123");
+
+    let req = captured(url);
+    assert_eq!(req.method, HttpMethod::Post);
+    assert_eq!(header(&req.headers, "Content-Type"), Some("application/json"));
+    assert_eq!(header(&req.headers, "X-Sandbox-ID"), Some("sandbox-42"));
+
+    let body: serde_json::Value = serde_json::from_slice(&req.body.expect("body")).unwrap();
+    assert_eq!(body["room_name"], "my-room");
+    assert_eq!(body["participant_identity"], "user-123");
+    // Unset options must be omitted, not sent as null.
+    assert!(body.get("participant_name").is_none());
+}
+
+#[tokio::test]
+async fn non_2xx_maps_to_server_error() {
+    install_mock();
+    let endpoint = TokenSourceEndpoint::new("https://token.test/server-error", vec![]);
+
+    let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
+    match err {
+        TokenSourceError::Server { status, body } => {
+            assert_eq!(status, 500);
+            assert_eq!(body, "boom");
+        }
+        other => panic!("expected Server error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn invalid_json_maps_to_json_error() {
+    install_mock();
+    let endpoint = TokenSourceEndpoint::new("https://token.test/badjson", vec![]);
+
+    let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
+    assert!(matches!(err, TokenSourceError::Json(_)), "expected Json error, got {err:?}");
+}
+
+#[tokio::test]
+async fn transport_error_maps_to_transport_variant() {
+    install_mock();
+    let endpoint = TokenSourceEndpoint::new("https://token.test/connrefused", vec![]);
+
+    let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
+    assert!(matches!(err, TokenSourceError::Transport(_)), "expected Transport error, got {err:?}");
+}
