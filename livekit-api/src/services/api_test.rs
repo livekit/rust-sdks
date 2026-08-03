@@ -359,6 +359,25 @@ async fn egress_smoke() {
         )
         .await
         .expect("start_track_egress");
+    egress
+        .start_egress(proto::StartEgressRequest {
+            room_name: "test-room".to_owned(),
+            source: Some(proto::start_egress_request::Source::Web(proto::WebSource {
+                url: "https://example.com/scene".to_owned(),
+                ..Default::default()
+            })),
+            outputs: vec![proto::Output {
+                config: Some(proto::output::Config::File(proto::FileOutput {
+                    file_type: proto::EncodedFileType::Mp4 as i32,
+                    filepath: "unified.mp4".to_owned(),
+                    ..Default::default()
+                })),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .await
+        .expect("start_egress");
     egress.update_layout("EG_abc123", "speaker").await.expect("update_layout");
     egress
         .update_stream("EG_abc123", vec!["rtmps://b.example.com/live/key".to_owned()], vec![])
