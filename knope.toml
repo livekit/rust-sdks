@@ -173,3 +173,11 @@ versioned_files = [
   { path = "Cargo.toml", dependency = "device-info" },
 ]
 changelog = "device-info/CHANGELOG.md"
+
+[packages.livekit-runtime]
+versioned_files = [
+  "livekit-runtime/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-runtime" },
+]
+changelog = "livekit-runtime/CHANGELOG.md"
