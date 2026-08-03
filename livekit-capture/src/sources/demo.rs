@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Solid-color demo source for testing.
+//! Solid-color demo video source for testing.
 
 use crate::{error::SourceError, pixel::PixelVideoSource, primitive::VideoResolution, pump::PumpStop};
 use livekit::webrtc::video_frame::{BoxVideoFrame, I420Buffer, VideoFrame, VideoRotation};
@@ -35,7 +35,7 @@ const PALETTE: [(u8, u8, u8); 6] = [
     (0x8E, 0x44, 0xAD), // purple
 ];
 
-/// Configuration for a [`DemoSource`].
+/// Configuration for a [`DemoVideoSource`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -43,7 +43,7 @@ const PALETTE: [(u8, u8, u8); 6] = [
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct DemoSourceConfig {
+pub struct DemoVideoSourceConfig {
     /// Output resolution.
     pub resolution: VideoResolution,
     /// Output frame rate in frames per second.
@@ -58,23 +58,23 @@ pub struct DemoSourceConfig {
 /// to validate capture integration end to end without a device or pipeline
 /// dependency.
 #[derive(Debug)]
-pub struct DemoSource {
-    config: DemoSourceConfig,
+pub struct DemoVideoSource {
+    config: DemoVideoSourceConfig,
     /// One `(y, u, v)` sample triple per palette color.
     colors: Vec<(u8, u8, u8)>,
     started: Option<Instant>,
     frame_index: u64,
 }
 
-impl DemoSource {
+impl DemoVideoSource {
     /// Creates a demo source, rejecting an invalid configuration.
-    pub fn new(config: DemoSourceConfig) -> Result<Self, SourceError> {
+    pub fn new(config: DemoVideoSourceConfig) -> Result<Self, SourceError> {
         let VideoResolution { width, height } = config.resolution;
         if width == 0 || height == 0 {
-            return Err(SourceError::new(DemoSourceConfigError::ZeroResolution));
+            return Err(SourceError::new(DemoVideoSourceConfigError::ZeroResolution));
         }
         if config.framerate_fps == 0 {
-            return Err(SourceError::new(DemoSourceConfigError::ZeroFramerate));
+            return Err(SourceError::new(DemoVideoSourceConfigError::ZeroFramerate));
         }
 
         let colors = PALETTE.iter().map(|&color| yuv_from_rgb(color)).collect();
@@ -86,9 +86,9 @@ impl DemoSource {
     }
 }
 
-/// Error returned when a [`DemoSourceConfig`] cannot produce frames.
+/// Error returned when a [`DemoVideoSourceConfig`] cannot produce frames.
 #[derive(Debug, Error)]
-pub enum DemoSourceConfigError {
+pub enum DemoVideoSourceConfigError {
     /// The configured resolution has a zero component.
     #[error("demo source resolution must be non-zero")]
     ZeroResolution,
@@ -97,7 +97,7 @@ pub enum DemoSourceConfigError {
     ZeroFramerate,
 }
 
-impl PixelVideoSource for DemoSource {
+impl PixelVideoSource for DemoVideoSource {
     fn resolution(&self) -> VideoResolution {
         self.config.resolution
     }
@@ -149,8 +149,8 @@ fn yuv_from_rgb((r, g, b): (u8, u8, u8)) -> (u8, u8, u8) {
 mod tests {
     use super::*;
 
-    fn test_config() -> DemoSourceConfig {
-        DemoSourceConfig {
+    fn test_config() -> DemoVideoSourceConfig {
+        DemoVideoSourceConfig {
             resolution: VideoResolution { width: 64, height: 36 },
             framerate_fps: 1000,
         }
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn yields_frames_with_configured_dimensions() {
-        let mut source = DemoSource::new(test_config()).unwrap();
+        let mut source = DemoVideoSource::new(test_config()).unwrap();
 
         let frame = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         assert_eq!((frame.buffer.width(), frame.buffer.height()), (64, 36));
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn timestamps_follow_the_frame_rate() {
-        let mut source = DemoSource::new(test_config()).unwrap();
+        let mut source = DemoVideoSource::new(test_config()).unwrap();
 
         let first = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         let second = source.next_frame(&PumpStop::new()).unwrap().unwrap();
@@ -186,7 +186,7 @@ mod tests {
         // The source paces itself in real time, so this trades frame count
         // for the ~COLOR_INTERVAL the test spends sleeping either way.
         let frame_interval = COLOR_INTERVAL / 2;
-        let mut source = DemoSource::new(DemoSourceConfig {
+        let mut source = DemoVideoSource::new(DemoVideoSourceConfig {
             resolution: VideoResolution { width: 64, height: 36 },
             framerate_fps: (Duration::from_secs(1).as_micros() / frame_interval.as_micros()) as u32,
         })

@@ -17,7 +17,7 @@ use livekit_capture::{
     encoded::EncodedVideoCodec,
     primitive::VideoResolution,
     sources::{
-        demo::DemoSourceConfig,
+        demo::DemoVideoSourceConfig,
         gstreamer::{GStreamerBitrateUnit, GStreamerRateControlConfig, GStreamerVideoSourceConfig},
     },
 };
@@ -28,7 +28,7 @@ impl From<proto::VideoSourceResolution> for VideoResolution {
     }
 }
 
-impl From<proto::DemoVideoSourceConfig> for DemoSourceConfig {
+impl From<proto::DemoVideoSourceConfig> for DemoVideoSourceConfig {
     fn from(config: proto::DemoVideoSourceConfig) -> Self {
         Self { resolution: config.resolution.into(), framerate_fps: config.framerate_fps }
     }

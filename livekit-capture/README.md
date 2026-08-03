@@ -34,7 +34,7 @@ A pump supplies both pieces that the SDK needs, so publication is the same for
 either path.
 
 ```rust
-let pump = PixelVideoPump::new(DemoSource::new(config)?);
+let pump = PixelVideoPump::new(DemoVideoSource::new(config)?);
 
 let track = LocalVideoTrack::create_video_track("demo", pump.rtc_source());
 let options = pump.publish_options();
@@ -51,5 +51,5 @@ of the same name. Its module documents it.
 
 | Feature     | Source                 | Path    |
 | ----------- | ---------------------- | ------- |
-| `demo`      | `DemoSource`           | pixel   |
+| `demo`      | `DemoVideoSource`      | pixel   |
 | `gstreamer` | `GStreamerVideoSource` | encoded |
