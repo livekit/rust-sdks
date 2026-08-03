@@ -6,7 +6,7 @@
 //! records each request under it, so concurrently running tests never collide.
 
 use livekit_net::{Header, HttpMethod, HttpResponse, TransportError};
-use livekit_token_source::{TokenSourceEndpoint, TokenSourceError, TokenSourceFetchOptions};
+use livekit_token_source::{TokenSource, TokenSourceError, TokenSourceFetchOptions};
 use std::collections::HashMap;
 use std::sync::{Mutex, Once};
 
@@ -72,7 +72,7 @@ fn header<'a>(headers: &'a [Header], name: &str) -> Option<&'a str> {
 async fn fetch_posts_json_and_parses_response() {
     install_mock();
     let url = "https://token.test/ok";
-    let endpoint = TokenSourceEndpoint::new(
+    let endpoint = TokenSource::endpoint(
         url,
         vec![("X-Sandbox-ID".to_string(), "sandbox-42".to_string())],
     );
@@ -99,7 +99,7 @@ async fn fetch_posts_json_and_parses_response() {
 #[tokio::test]
 async fn non_2xx_maps_to_server_error() {
     install_mock();
-    let endpoint = TokenSourceEndpoint::new("https://token.test/server-error", vec![]);
+    let endpoint = TokenSource::endpoint("https://token.test/server-error", vec![]);
 
     let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
     match err {
@@ -114,7 +114,7 @@ async fn non_2xx_maps_to_server_error() {
 #[tokio::test]
 async fn invalid_json_maps_to_json_error() {
     install_mock();
-    let endpoint = TokenSourceEndpoint::new("https://token.test/badjson", vec![]);
+    let endpoint = TokenSource::endpoint("https://token.test/badjson", vec![]);
 
     let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
     assert!(matches!(err, TokenSourceError::Json(_)), "expected Json error, got {err:?}");
@@ -123,7 +123,7 @@ async fn invalid_json_maps_to_json_error() {
 #[tokio::test]
 async fn transport_error_maps_to_transport_variant() {
     install_mock();
-    let endpoint = TokenSourceEndpoint::new("https://token.test/connrefused", vec![]);
+    let endpoint = TokenSource::endpoint("https://token.test/connrefused", vec![]);
 
     let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
     assert!(matches!(err, TokenSourceError::Transport(_)), "expected Transport error, got {err:?}");
