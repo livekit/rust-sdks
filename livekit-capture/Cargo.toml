@@ -13,6 +13,8 @@ gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
+schemars = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 
@@ -26,6 +28,14 @@ default = ["demo", "gstreamer"] # TODO: Remove after testing
 # stream discovery on the tokio blocking pool. Without this feature only the
 # `new_blocking` constructors are available.
 tokio = ["tokio/rt"]
+
+# Serde derives on the source configuration types, for applications that
+# build sources from a configuration file rather than from code.
+serde = ["dep:serde"]
+
+# JSON Schema derives on the same types. The schema is generated from the
+# serde attributes, so it would not describe the wire format without them.
+schemars = ["dep:schemars", "serde"]
 
 # Pixel sources
 demo = []

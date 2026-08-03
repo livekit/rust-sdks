@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Capture sources and helpers for publishing video with LiveKit.
-
 pub mod encoded;
 pub mod error;
 pub mod pixel;

@@ -106,6 +106,12 @@ pub enum EncodedWireFormat {
 
 /// Encoded video codec carried by an [`EncodedAccessUnit`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(rename_all = "lowercase")
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub enum EncodedVideoCodec {
     /// H.264/AVC video.

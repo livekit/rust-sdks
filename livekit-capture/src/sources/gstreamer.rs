@@ -65,6 +65,12 @@ impl GStreamerSampleFormat {
 
 /// Configuration for a GStreamer encoded video source.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GStreamerVideoSourceConfig {
     /// GStreamer launch description for the encoded producer pipeline.
     ///
@@ -73,24 +79,33 @@ pub struct GStreamerVideoSourceConfig {
     pub pipeline: String,
 
     /// Codec expected from the pipeline; inferred from pipeline caps when
-    /// `None`.
+    /// omitted.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub codec: Option<EncodedVideoCodec>,
 
     /// Encoded frame resolution.
     ///
-    /// When `None`, the resolution is discovered from the first sample's
+    /// When omitted, the resolution is discovered from the first sample's
     /// negotiated caps — construction then waits for the pipeline to produce
     /// data. When set, construction returns without waiting, and the first
     /// sample is verified against the declared resolution.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub resolution: Option<VideoResolution>,
 
     /// Forwards WebRTC rate-control targets to an encoder element's bitrate
     /// property. Without this, the pipeline encodes at a fixed bitrate.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub rate_control: Option<GStreamerRateControlConfig>,
 }
 
 /// Binding from WebRTC rate-control targets to a GStreamer encoder property.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GStreamerRateControlConfig {
     /// Name of the encoder element in the pipeline (e.g. `lk_encoder`).
     pub element: String,
@@ -105,10 +120,14 @@ pub struct GStreamerRateControlConfig {
 
 /// Bitrate unit used by a GStreamer encoder property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum GStreamerBitrateUnit {
     /// The encoder property expects bits per second.
+    #[cfg_attr(feature = "serde", serde(rename = "bps"))]
     BitsPerSecond,
     /// The encoder property expects kilobits per second.
+    #[cfg_attr(feature = "serde", serde(rename = "kbps"))]
     KilobitsPerSecond,
 }
 

@@ -20,6 +20,10 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use thiserror::Error;
+
+/// How long each palette color is shown before cycling to the next.
+const COLOR_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Colors the demo source cycles through, as `(r, g, b)`.
 const PALETTE: [(u8, u8, u8); 6] = [
@@ -33,22 +37,22 @@ const PALETTE: [(u8, u8, u8); 6] = [
 
 /// Configuration for a [`DemoSource`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(default, deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DemoSourceConfig {
     /// Output resolution.
     pub resolution: VideoResolution,
     /// Output frame rate in frames per second.
     pub framerate_fps: u32,
-    /// How long each palette color is shown before cycling to the next.
-    pub color_interval: Duration,
 }
 
 impl Default for DemoSourceConfig {
     fn default() -> Self {
-        Self {
-            resolution: VideoResolution { width: 1280, height: 720 },
-            framerate_fps: 30,
-            color_interval: Duration::from_millis(500),
-        }
+        Self { resolution: VideoResolution { width: 1280, height: 720 }, framerate_fps: 30 }
     }
 }
 
@@ -73,24 +77,40 @@ impl DemoSource {
     ///
     /// # Panics
     ///
-    /// Panics if the configured resolution or frame rate is zero, or if the
-    /// color interval is shorter than one frame.
+    /// Panics if the configuration is invalid; use [`DemoSource::try_new`]
+    /// for configuration that is not known good at compile time.
     pub fn new(config: DemoSourceConfig) -> Self {
+        Self::try_new(config).expect("demo source configuration is valid")
+    }
+
+    /// Creates a demo source, rejecting an invalid configuration.
+    pub fn try_new(config: DemoSourceConfig) -> Result<Self, SourceError> {
         let VideoResolution { width, height } = config.resolution;
-        assert!(width > 0 && height > 0, "demo source resolution must be non-zero");
-        assert!(config.framerate_fps > 0, "demo source frame rate must be non-zero");
-        assert!(
-            config.color_interval >= Duration::from_secs(1) / config.framerate_fps,
-            "demo source color interval must be at least one frame"
-        );
+        if width == 0 || height == 0 {
+            return Err(SourceError::new(DemoSourceConfigError::ZeroResolution));
+        }
+        if config.framerate_fps == 0 {
+            return Err(SourceError::new(DemoSourceConfigError::ZeroFramerate));
+        }
 
         let colors = PALETTE.iter().map(|&color| yuv_from_rgb(color)).collect();
-        Self { config, colors, started: None, frame_index: 0 }
+        Ok(Self { config, colors, started: None, frame_index: 0 })
     }
 
     fn frame_interval(&self) -> Duration {
         Duration::from_secs(1) / self.config.framerate_fps
     }
+}
+
+/// Error returned when a [`DemoSourceConfig`] cannot produce frames.
+#[derive(Debug, Error)]
+pub enum DemoSourceConfigError {
+    /// The configured resolution has a zero component.
+    #[error("demo source resolution must be non-zero")]
+    ZeroResolution,
+    /// The configured frame rate is zero.
+    #[error("demo source frame rate must be non-zero")]
+    ZeroFramerate,
 }
 
 impl Default for DemoSource {
@@ -118,8 +138,7 @@ impl PixelVideoSource for DemoSource {
         }
 
         let timestamp_us = elapsed.as_micros() as i64;
-        let color_index =
-            (elapsed.as_micros() / self.config.color_interval.as_micros().max(1)) as usize;
+        let color_index = (elapsed.as_micros() / COLOR_INTERVAL.as_micros()) as usize;
         let (y, u, v) = self.colors[color_index % self.colors.len()];
 
         self.frame_index += 1;
@@ -156,7 +175,6 @@ mod tests {
         DemoSourceConfig {
             resolution: VideoResolution { width: 64, height: 36 },
             framerate_fps: 1000,
-            color_interval: Duration::from_millis(2),
         }
     }
 
@@ -186,11 +204,17 @@ mod tests {
 
     #[test]
     fn colors_cycle_at_the_color_interval() {
-        let mut source = DemoSource::new(test_config());
+        // Two frames per color, so the first boundary lands on frame three.
+        // The source paces itself in real time, so this trades frame count
+        // for the ~COLOR_INTERVAL the test spends sleeping either way.
+        let frame_interval = COLOR_INTERVAL / 2;
+        let mut source = DemoSource::new(DemoSourceConfig {
+            resolution: VideoResolution { width: 64, height: 36 },
+            framerate_fps: (Duration::from_secs(1).as_micros() / frame_interval.as_micros()) as u32,
+        });
 
         let luma = |frame: &BoxVideoFrame| frame.buffer.as_i420().unwrap().data().0[0];
 
-        // Two frames per color at 1000 fps with a 2 ms interval.
         let first = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         let same_color = source.next_frame(&PumpStop::new()).unwrap().unwrap();
         let next_color = source.next_frame(&PumpStop::new()).unwrap().unwrap();

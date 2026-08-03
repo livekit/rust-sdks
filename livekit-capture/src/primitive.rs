@@ -24,6 +24,12 @@
 
 /// Pixel dimensions of a video frame.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(deny_unknown_fields)
+)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct VideoResolution {
     /// Frame width in pixels.
     pub width: u32,
