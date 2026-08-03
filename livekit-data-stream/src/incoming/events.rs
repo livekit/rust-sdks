@@ -55,6 +55,10 @@ pub struct StreamOpened {
 pub struct ChunkReceived {
     pub chunk: Chunk,
     pub participant_identity: ParticipantIdentity,
+
+    /// Topic of the stream this chunk belongs to, or `None` if the associated stream id could
+    /// not be mapped to a topic.
+    pub topic: Option<String>,
 }
 
 /// A "raw trailer received" notification, which is used to trigger
@@ -62,6 +66,12 @@ pub struct ChunkReceived {
 pub struct TrailerReceived {
     pub trailer: Trailer,
     pub participant_identity: ParticipantIdentity,
+
+    /// Topic of the stream this chunk belongs to, or `None` if the associated stream id could
+    /// not be mapped to a topic.
+    ///
+    /// See [`ChunkReceived::topic`].
+    pub topic: Option<String>,
 }
 
 /// An event emitted by [`IncomingStreamManager::run`] for the host crate to surface. The manager
