@@ -1,9 +1,9 @@
-use livekit_token_source::{TokenSourceEndpoint, TokenSourceLiteral, TokenSourceResponse, TokenSourceDevelopmentTokenServer, TokenSourceFetchOptions};
+use livekit_token_source::{TokenSource, TokenSourceResponse, TokenSourceFetchOptions};
 
 #[tokio::main]
 async fn main() {
     // =======================================================
-    let literal = TokenSourceLiteral::new(TokenSourceResponse{
+    let literal = TokenSource::literal(TokenSourceResponse{
         server_url: "< some server url >".to_string(),
         participant_token: "< some token >\n".to_string()
     });
@@ -22,7 +22,7 @@ async fn main() {
         .with_agent_name("Church");
 
     // =======================================================
-    let development_token_server = TokenSourceDevelopmentTokenServer::new("test1-xqsb8v".to_string());
+    let development_token_server = TokenSource::development_token_server("test1-xqsb8v".to_string());
     match development_token_server.fetch(&options).await {
         Ok(response) => {
             let url = response.server_url;
@@ -35,7 +35,7 @@ async fn main() {
     }
 
     // =======================================================
-    let endpoint = TokenSourceEndpoint::new(
+    let endpoint = TokenSource::endpoint(
         "https://cloud-api.livekit.io/api/v2/sandbox/connection-details", 
         vec![("X-Sandbox-ID".to_string(), "test1-xqsb8v".to_string())]
     );

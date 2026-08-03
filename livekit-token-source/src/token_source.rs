@@ -8,14 +8,35 @@ use livekit_net::{Header, HttpClientExt};
 const DEVELOPMENT_TOKEN_SERVER_ENDPOINT_URL: &str = "https://cloud-api.livekit.io/api/v2/sandbox/connection-details";
 const DEVELOPMENT_TOKEN_SERVER_ID_HEADER: &str = "X-Sandbox-ID";
 
+pub enum TokenSource {}
+
+impl TokenSource {
+    pub fn literal(response: TokenSourceResponse) -> TokenSourceLiteral {
+        TokenSourceLiteral { result: Ok(response) }
+    }
+
+    pub fn endpoint(endpoint_url: impl Into<String>, headers: Vec<(String, String)>) -> TokenSourceEndpoint {
+        TokenSourceEndpoint {
+            endpoint_url: endpoint_url.into(),
+            headers,
+        }
+    }
+
+    pub fn development_token_server(token_server_id: String) -> TokenSourceDevelopmentTokenServer {
+        TokenSourceDevelopmentTokenServer {
+            token_source_endpoint: TokenSource::endpoint(
+                DEVELOPMENT_TOKEN_SERVER_ENDPOINT_URL,
+                vec![(DEVELOPMENT_TOKEN_SERVER_ID_HEADER.to_string(), token_server_id)],
+            ),
+        }
+    }
+}
+
 pub struct TokenSourceLiteral {
     result: TokenSourceResult<TokenSourceResponse>
 }
 
 impl TokenSourceLiteral {
-    pub fn new(response: TokenSourceResponse) -> TokenSourceLiteral {
-        TokenSourceLiteral { result: Ok(response) }
-    }
     pub fn fetch(&self) -> &TokenSourceResult<TokenSourceResponse> { &self.result }
 }
 
@@ -25,13 +46,6 @@ pub struct TokenSourceEndpoint {
 }
 
 impl TokenSourceEndpoint {
-    pub fn new(endpoint_url: impl Into<String>, headers: Vec<(String, String)>) -> TokenSourceEndpoint {
-        TokenSourceEndpoint{
-            endpoint_url: endpoint_url.into(),
-            headers,
-        }
-    }
-
     pub async fn fetch(&self, options: &TokenSourceFetchOptions) -> TokenSourceResult<TokenSourceResponse> {
         let request = TokenSourceRequest::from(options);
 
@@ -60,16 +74,6 @@ pub struct TokenSourceDevelopmentTokenServer {
 }
 
 impl TokenSourceDevelopmentTokenServer {
-    pub fn new(token_server_id: String) -> TokenSourceDevelopmentTokenServer { 
-        let token_source_endpoint = TokenSourceEndpoint::new(
-            DEVELOPMENT_TOKEN_SERVER_ENDPOINT_URL,
-            vec![(DEVELOPMENT_TOKEN_SERVER_ID_HEADER.to_string(), token_server_id)]
-        );
-        
-        TokenSourceDevelopmentTokenServer { 
-            token_source_endpoint
-        }
-    }
     pub async fn fetch(&self, options: &TokenSourceFetchOptions) ->  TokenSourceResult<TokenSourceResponse> {
         self.token_source_endpoint.fetch(options).await
     }
