@@ -23,19 +23,12 @@ tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
 default = ["demo", "gstreamer"] # TODO: Remove after testing
-
-# Async source constructors (`new`), which run blocking construction and
-# stream discovery on the tokio blocking pool. Without this feature only the
-# `new_blocking` constructors are available.
-tokio = ["tokio/rt"]
-
-# Serde derives on the source configuration types, for applications that
-# build sources from a configuration file rather than from code.
 serde = ["dep:serde"]
-
-# JSON Schema derives on the same types. The schema is generated from the
-# serde attributes, so it would not describe the wire format without them.
 schemars = ["dep:schemars", "serde"]
+
+# Async convenience wrappers for blocking source construction when using
+# a tokio runtime.
+tokio = ["tokio/rt"]
 
 # Pixel sources
 demo = []

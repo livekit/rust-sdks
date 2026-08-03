@@ -1,51 +1,55 @@
-# livekit-capture
+# LiveKit Capture
 
-Capture sources and helpers for publishing video with the LiveKit Rust SDK.
-The optional `gstreamer` feature turns a GStreamer `appsink` into an encoded
-ingest source; the `demo` feature adds a synthetic pixel source for testing.
+Video capture sources, and the machinery that publishes them with the LiveKit
+[Rust SDK](../livekit/README.md). A capture backend implements one small trait. An application then
+runs and supervises every backend the same way.
 
-## Library entry points
+## Source, pump, running pump
 
-- `pixel::PixelVideoSource` and `encoded::EncodedVideoSource` — the traits a
-  capture backend implements: pixel sources yield libwebrtc `VideoFrame`s
-  (any `VideoBuffer`, CPU or native, with no intermediate copy) published
-  through the WebRTC encoder; encoded sources produce crate-owned access
-  units published as passthrough. Both traits are object-safe and
-  implemented for `Box<dyn ...>`, so sources can be constructed dynamically
-  and driven through the same pumps. The crate owns a type only where it
-  adds semantics (`encoded::EncodedAccessUnit` and the parsing/validation
-  vocabulary); elsewhere livekit's types are used directly.
-- `pixel::PixelVideoPump<S>` and `encoded::EncodedVideoPump<S>` — bridge a
-  source into a publishable RTC track: each builds the matching
-  `NativeVideoSource`, derives publish options (`EncodedVideoPump` selects
-  the passthrough encoder), and runs the capture loop on a plain thread.
-  Encoded pumps forward downstream keyframe and rate-control requests back
-  to the source and drop pre-roll deltas until the first keyframe. Both
-  spawn into the same `pump::RunningPump`, so an application supervises
-  running pumps of either kind uniformly (`stop()`, `join_async()`, stats);
-  the `pump` module holds this shared machinery.
-- `sources::gstreamer::GStreamerVideoSource` — built solely from
-  configuration (`GStreamerVideoSourceConfig`: launch description, plus
-  optional codec, resolution, and rate-control binding). The source owns its
-  pipeline: it is started at construction, construction fails loudly on
-  pipeline problems, bus errors surface as source errors, and the pipeline
-  stops when the source is dropped. Codec and resolution are discovered from
-  pipeline caps when omitted (a declared resolution skips the discovery wait
-  and is verified against the stream); a mid-stream caps change is an error
-  until track republication is supported. With the `tokio` crate feature,
-  `new` runs construction and discovery on the blocking pool — the
-  convention for all backends — while `new_blocking` serves non-async
-  consumers. `encoded_caps_string` remains the single per-codec caps table
-  for writing producer pipelines.
+Three concepts make up the crate. Video reaches a LiveKit track in one of two
+forms, so the source and the pump each have two variants.
 
-## GStreamer ingest
+**A source** produces frames or access units, one blocking call at a time. It
+is the only trait a backend implements. A `pixel::PixelVideoSource` produces
+libwebrtc `VideoFrame`s from a device such as a camera, and the WebRTC encoder
+encodes them. An `encoded::EncodedVideoSource` produces access units from a
+producer that encoded them already, such as an encoding pipeline. Passthrough
+sends those to the wire with no re-encode.
 
-`GStreamerVideoSource` implements `EncodedVideoSource` on top of a pipeline
-whose `appsink` (named `lk_appsink`, or attached automatically to one
-unlinked encoded pad) produces H.264 (Annex-B or AVC), H.265 Annex-B, VP8,
-VP9, or AV1 access units. Drive it with an `EncodedVideoPump`, which builds
-the encoded RTC source, derives the passthrough publish options, and
-forwards keyframe requests (answered with a `GstForceKeyUnit` upstream
-event) and rate-control targets back to the pipeline. Passthrough is
-single-layer (`L1T1`); access units carrying other layering metadata are
-rejected.
+**A pump** bridges one source into a publishable RTC track:
+`pixel::PixelVideoPump<S>` or `encoded::EncodedVideoPump<S>`. It builds the
+matching RTC video source, derives the publish options, and runs the capture
+loop.
+
+**A running pump** is a pump on a dedicated thread. Both pump kinds spawn into
+the same `pump::RunningPump`, so an application supervises pumps of either kind
+the same way.
+
+Sources block, so the pumps are synchronous code on plain threads. Only pump
+construction needs the context of the async runtime that drives the SDK.
+
+## Publishing a track
+
+A pump supplies both pieces that the SDK needs, so publication is the same for
+either path.
+
+```rust
+let pump = PixelVideoPump::new(DemoSource::new(config)?);
+
+let track = LocalVideoTrack::create_video_track("demo", pump.rtc_source());
+let options = pump.publish_options();
+room.local_participant().publish_track(LocalTrack::Video(track), options).await?;
+
+let running = pump.spawn()?;
+let stats = running.stop_and_join_async().await?;
+```
+
+## Sources
+
+Each source lives in its own module under `sources`, behind the Cargo feature
+of the same name. Its module documents it.
+
+| Feature     | Source                 | Path    |
+| ----------- | ---------------------- | ------- |
+| `demo`      | `DemoSource`           | pixel   |
+| `gstreamer` | `GStreamerVideoSource` | encoded |
