@@ -51,7 +51,7 @@ jobs:
             arch: x64
 
           - name: linux
-            os: ubuntu-26.04
+            os: ubuntu-26.04-arm
             cmd: ./build_linux.sh
             arch: arm64
 
