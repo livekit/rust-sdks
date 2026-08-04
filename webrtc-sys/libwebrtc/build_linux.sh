@@ -138,7 +138,6 @@ args="is_debug=$debug  \
   use_llvm_libatomic=false \
   use_custom_libcxx=false \
   use_custom_libcxx_for_host=false \
-  use_sysroot=false \
   is_clang=false \
   use_clang_modules=false \
   rtc_include_tests=false \
