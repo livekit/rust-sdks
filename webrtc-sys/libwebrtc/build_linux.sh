@@ -77,10 +77,7 @@ git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_payload_type_picker_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_ssl_stream_adapter_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_copy_on_write_buffer_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 # Disable CREL (compact relocations). Chromium's build enables experimental
 # CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
@@ -88,6 +85,15 @@ git apply "$COMMAND_DIR/patches/fix_copy_on_write_buffer_compile.patch" -v --ign
 # See: https://crbug.com/376278218
 # See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
 git -C build apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+# is_clang=false selects the //build/toolchain/linux GCC toolchains, which pass a bare
+# "ar" to be resolved from PATH. gcc_toolchain.gni rebases that against root_out_dir and
+# declares the result as an input, so ninja refuses to run any alink edge.
+git -C build apply "$COMMAND_DIR/patches/fix_gcc_toolchain_ar_input.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+# GCC reports -Wchanges-meaning as an error rather than a warning, so
+# treat_warnings_as_errors=false does not cover it and WebRTC does not build without this.
+git -C build apply "$COMMAND_DIR/patches/disable_gcc_changes_meaning.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 cd third_party
 
@@ -111,6 +117,19 @@ fi
 # Note: use_clang_modules=false is required to avoid C++ module compilation issues.
 # Without this flag, the build may fail partway through, resulting in missing
 # or incomplete artifacts.
+#
+# The C++ standard library choice is an ABI contract with webrtc-sys, which is compiled
+# by the cc crate against whatever the host toolchain provides:
+#
+#   use_custom_libcxx=false  keeps every std type in libwebrtc.a mangled the way
+#     libstdc++ mangles it, instead of Chromium's std::__Cr:: ABI namespace.
+#   use_sysroot=false        makes the build use the host's libstdc++ headers rather
+#     than the bundled Debian Bullseye sysroot's libstdc++ 10. This matters beyond
+#     mangling: libstdc++ reordered the members of std::span in GCC 15, so a libwebrtc
+#     built against libstdc++ 10 headers and a webrtc-sys built against 15 agree on the
+#     mangled name of CopyOnWriteBuffer::Set(std::span<const uint8_t>) while disagreeing
+#     on which register holds the pointer and which holds the length.
+#   is_clang=false           builds with the host GCC, so the compiler matches too.
 args="is_debug=$debug  \
   target_os=\"linux\" \
   target_cpu=\"$arch\" \
@@ -119,6 +138,8 @@ args="is_debug=$debug  \
   use_llvm_libatomic=false \
   use_custom_libcxx=false \
   use_custom_libcxx_for_host=false \
+  use_sysroot=false \
+  is_clang=false \
   use_clang_modules=false \
   rtc_include_tests=false \
   rtc_build_tools=false \

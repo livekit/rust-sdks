@@ -1,0 +1,17 @@
+diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
+index e9668caab..87fe8c71b 100644
+--- a/config/compiler/BUILD.gn
++++ b/config/compiler/BUILD.gn
+@@ -1857,6 +1849,12 @@ config("default_warnings") {
+         # -Wno-class-memaccess warns about hash table and vector in blink.
+         # But the violation is intentional.
+         "-Wno-class-memaccess",
++
++        # WebRTC has several members that shadow a class of the same name, e.g.
++        # PortInterface::Network() alongside class Network. GCC diagnoses that as
++        # an error by default, not a warning, so treat_warnings_as_errors=false
++        # does not help. webrtc-sys passes this same flag.
++        "-Wno-changes-meaning",
+       ]
+ 
+       # -Wunused-local-typedefs is broken in gcc,
