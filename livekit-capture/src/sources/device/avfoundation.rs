@@ -32,7 +32,7 @@ use livekit::webrtc::video_frame::{
 };
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{define_class, msg_send, AnyThread, DefinedClass, Message};
+use objc2::{define_class, msg_send, sel, AnyThread, DefinedClass, Message};
 use objc2_av_foundation::{
     AVCaptureDevice, AVCaptureDeviceFormat, AVCaptureDeviceInput, AVCaptureOutput,
     AVCaptureSession, AVCaptureSessionPreset1280x720, AVCaptureSessionPreset1920x1080,
@@ -413,21 +413,34 @@ fn configure_input_frame_duration(
     let Some(framerate) = requested_framerate(request).filter(|framerate| *framerate > 0) else {
         return;
     };
-    // SAFETY: `input` is the live input just added to the session. The
-    // support predicate is checked before setting the locked duration.
+
+    // AVCaptureDeviceInput's locked-frame-duration API is macOS 26.0+, while
+    // the SDK builds against an older deployment target. Sending a selector the
+    // running OS does not implement raises an Objective-C exception, which Rust
+    // cannot catch and which therefore aborts the process, so probe first.
+    if !input.respondsToSelector(sel!(isLockedVideoFrameDurationSupported))
+        || !input.respondsToSelector(sel!(setActiveLockedVideoFrameDuration:))
+    {
+        return;
+    }
+
+    // SAFETY: `input` is the live input just added to the session, and the
+    // selector was confirmed present above.
     if !unsafe { input.isLockedVideoFrameDurationSupported() } {
         return;
     }
 
-    let duration = unsafe { CMTime::with_seconds(1.0 / framerate as f64, 600) };
-    // SAFETY: `device` and `input` belong to the same session setup path.
-    // The requested rate has already been checked against the active format
-    // before the device frame durations are set, and `input` reports locked
-    // frame duration support.
+    // SAFETY: `device` and `input` belong to the same session setup path, and
+    // reading activeFormat is valid once the input has been added.
+    let duration = unsafe { device_format_frame_duration(&device.activeFormat(), framerate) };
+    let Some(duration) = duration else {
+        return;
+    };
+
+    // SAFETY: `input` reports locked frame duration support, and `duration`
+    // came from a frame-rate range of the device's active format.
     unsafe {
-        if device_format_supports_framerate(&device.activeFormat(), framerate) {
-            input.setActiveLockedVideoFrameDuration(duration);
-        }
+        input.setActiveLockedVideoFrameDuration(duration);
     }
 }
 
@@ -903,15 +916,46 @@ fn device_format_resolution(format: &AVCaptureDeviceFormat) -> Option<VideoResol
 }
 
 fn device_format_supports_framerate(format: &AVCaptureDeviceFormat, framerate: u32) -> bool {
+    device_format_frame_duration(format, framerate).is_some()
+}
+
+/// Frame duration to apply for `framerate` on `format`, or `None` when no
+/// frame-rate range covers it.
+///
+/// The duration is taken from the matched range's own bounds instead of being
+/// derived from `framerate` alone. AVFoundation raises an Objective-C
+/// exception — which aborts the process, since Rust cannot catch it — for any
+/// duration outside a range's `[minFrameDuration, maxFrameDuration]`, and
+/// devices commonly advertise near-integral rates whose exact duration is not
+/// the reciprocal of the rounded rate. A UVC camera reporting 30.00003 fps
+/// accepts 1/30.00003 s but rejects 1/30 s.
+fn device_format_frame_duration(format: &AVCaptureDeviceFormat, framerate: u32) -> Option<CMTime> {
     let requested = framerate as f64;
     // SAFETY: `format` is an AVCaptureDeviceFormat from the device's immutable formats array.
     // The returned frame-rate ranges are immutable AVFoundation objects.
-    unsafe { format.videoSupportedFrameRateRanges() }.iter().any(|range| {
+    unsafe { format.videoSupportedFrameRateRanges() }.iter().find_map(|range| {
         // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
         let min = unsafe { range.minFrameRate() };
         // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
         let max = unsafe { range.maxFrameRate() };
-        requested >= min.floor() && requested <= max.ceil()
+        if requested < min.floor() || requested > max.ceil() {
+            return None;
+        }
+        // Rate and duration are inverses, so the slowest rate carries the
+        // longest duration. Snapping to an endpoint keeps a rounded request
+        // inside the bounds the format actually accepts.
+        Some(if requested <= min {
+            // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
+            unsafe { range.maxFrameDuration() }
+        } else if requested >= max {
+            // SAFETY: AVFrameRateRange values are immutable for the lifetime of the object.
+            unsafe { range.minFrameDuration() }
+        } else {
+            // The rate lies strictly inside the range, so its reciprocal lies
+            // strictly inside the range's duration bounds.
+            // SAFETY: `requested` is finite and greater than zero here.
+            unsafe { CMTime::with_seconds(1.0 / requested, 600) }
+        })
     })
 }
 
@@ -980,12 +1024,12 @@ fn configure_locked_device(
         // SAFETY: The caller holds the configuration lock, and reading activeFormat is valid.
         None => unsafe { device.activeFormat() },
     };
-    if !device_format_supports_framerate(&active_format, framerate) {
+    let Some(duration) = device_format_frame_duration(&active_format, framerate) else {
         return Ok(());
-    }
+    };
 
-    let duration = unsafe { CMTime::with_seconds(1.0 / framerate as f64, 600) };
-    // SAFETY: The device is locked for configuration and the CMTime value is finite.
+    // SAFETY: The device is locked for configuration and `duration` came from a
+    // frame-rate range of the format now active on the device.
     unsafe {
         device.setActiveVideoMinFrameDuration(duration);
         device.setActiveVideoMaxFrameDuration(duration);
