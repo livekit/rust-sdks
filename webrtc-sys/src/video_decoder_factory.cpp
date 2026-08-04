@@ -157,7 +157,8 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
     return webrtc::CreateVp8Decoder(env);
   if (absl::EqualsIgnoreCase(format.name, webrtc::kVp9CodecName))
     return webrtc::VP9Decoder::Create();
-  if (absl::EqualsIgnoreCase(format.name, webrtc::kH264CodecName))
+  if (absl::EqualsIgnoreCase(format.name, webrtc::kH264CodecName) &&
+      internal_h264_decoder_works_)
     return webrtc::H264Decoder::Create();
 
 
