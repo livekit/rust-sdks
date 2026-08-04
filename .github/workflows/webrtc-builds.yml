@@ -46,12 +46,12 @@ jobs:
             arch: arm64
 
           - name: linux
-            os: ubuntu-latest
+            os: ubuntu-26.04
             cmd: ./build_linux.sh
             arch: x64
 
           - name: linux
-            os: ubuntu-latest
+            os: ubuntu-26.04
             cmd: ./build_linux.sh
             arch: arm64
 
