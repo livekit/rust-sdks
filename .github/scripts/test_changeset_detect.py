@@ -29,23 +29,28 @@ import unittest
 import changeset_detect as cd
 
 
-def make_meta(packages, deps, workspace_root="/ws"):
+def make_meta(packages, deps, workspace_root="/ws", publish=None):
     """Build a fake `cargo metadata` document.
 
     packages: {name -> relative dir}
     deps:     {name -> [dependency names]}
+    publish:  {name -> publish value}, mirroring cargo metadata's `publish`
+              field (`[]` for `publish = false`, a list for restricted
+              registries). Names omitted here get no `publish` key, i.e. the
+              default publishable-to-any-registry state.
     """
-    return {
-        "workspace_root": workspace_root,
-        "packages": [
-            {
-                "name": name,
-                "manifest_path": f"{workspace_root}/{rel}/Cargo.toml",
-                "dependencies": [{"name": d} for d in deps.get(name, [])],
-            }
-            for name, rel in packages.items()
-        ],
-    }
+    publish = publish or {}
+    pkgs = []
+    for name, rel in packages.items():
+        entry = {
+            "name": name,
+            "manifest_path": f"{workspace_root}/{rel}/Cargo.toml",
+            "dependencies": [{"name": d} for d in deps.get(name, [])],
+        }
+        if name in publish:
+            entry["publish"] = publish[name]
+        pkgs.append(entry)
+    return {"workspace_root": workspace_root, "packages": pkgs}
 
 
 # A small synthetic workspace:
@@ -218,6 +223,48 @@ class TestDetect(unittest.TestCase):
         self.assertIn("b: patch", r["changeset_content"])
         self.assertIn("c: patch", r["changeset_content"])
         self.assertNotIn("a-sys", r["changeset_content"])
+
+
+class TestReconcile(unittest.TestCase):
+    def test_publishable_crate_missing_from_knope_is_unmanaged(self):
+        # Both crates are publishable (no `publish` key); only `a` is in knope.
+        meta = make_meta({"a": "a", "b": "b"}, {})
+        unmanaged, stale = cd.reconcile_knope_config(meta, {"a"})
+        self.assertEqual(unmanaged, ["b"])
+        self.assertEqual(stale, [])
+
+    def test_publish_false_crate_not_required_in_knope(self):
+        # An example crate (publish = false) need not be knope-managed.
+        meta = make_meta({"a": "a", "ex": "examples/ex"}, {}, publish={"ex": []})
+        unmanaged, stale = cd.reconcile_knope_config(meta, {"a"})
+        self.assertEqual(unmanaged, [])
+        self.assertEqual(stale, [])
+
+    def test_publish_false_crate_may_still_be_knope_managed(self):
+        # e.g. livekit-ffi: publish = false but released via CI, so it's in
+        # knope. This must not be flagged as stale.
+        meta = make_meta({"ffi": "ffi"}, {}, publish={"ffi": []})
+        unmanaged, stale = cd.reconcile_knope_config(meta, {"ffi"})
+        self.assertEqual(unmanaged, [])
+        self.assertEqual(stale, [])
+
+    def test_restricted_registry_is_still_publishable(self):
+        meta = make_meta({"a": "a"}, {}, publish={"a": ["crates-io"]})
+        unmanaged, stale = cd.reconcile_knope_config(meta, set())
+        self.assertEqual(unmanaged, ["a"])
+        self.assertEqual(stale, [])
+
+    def test_stale_knope_entry_with_no_matching_crate(self):
+        meta = make_meta({"a": "a"}, {})
+        unmanaged, stale = cd.reconcile_knope_config(meta, {"a", "ghost"})
+        self.assertEqual(unmanaged, [])
+        self.assertEqual(stale, ["ghost"])
+
+    def test_both_directions_at_once(self):
+        meta = make_meta({"a": "a", "b": "b"}, {})
+        unmanaged, stale = cd.reconcile_knope_config(meta, {"a", "ghost"})
+        self.assertEqual(unmanaged, ["b"])
+        self.assertEqual(stale, ["ghost"])
 
 
 class TestBuildChangesetContent(unittest.TestCase):
