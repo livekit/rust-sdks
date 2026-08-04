@@ -82,16 +82,24 @@ pub async fn self_test_ws_echo(url: String, payload: Vec<u8>) -> Result<Vec<u8>,
     Ok(got)
 }
 
-/// Test probe: whether a process-wide HTTP client is registered.
+/// Test probe: whether a host has explicitly registered an HTTP client via
+/// [`set_http_client`].
+///
+/// Reports registration, not resolvability: on native builds [`http_client`]
+/// still yields the built-in client when this returns `false`.
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn has_http_client() -> bool {
-    http_client().is_some()
+    HTTP.get().is_some()
 }
 
-/// Test probe: whether a process-wide WebSocket client is registered.
+/// Test probe: whether a host has explicitly registered a WebSocket client via
+/// [`set_ws_client`].
+///
+/// Reports registration, not resolvability: on native builds [`ws_client`] still
+/// yields the built-in client when this returns `false`.
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn has_ws_client() -> bool {
-    ws_client().is_some()
+    WS.get().is_some()
 }
 
 /// Resolve the process-wide WebSocket client.

@@ -57,7 +57,9 @@ impl livekit_net::HttpClient for CannedHttpClient {
 
 #[tokio::test]
 async fn self_tests_round_trip_through_registered_clients() {
-    // Own test binary ⇒ fresh OnceLock; nothing registered yet.
+    // Own test binary ⇒ fresh OnceLock, so nothing is registered yet. The probes
+    // report registration only, so a native build's built-in fallback doesn't
+    // show up here.
     assert!(!has_http_client());
     assert!(!has_ws_client());
 
