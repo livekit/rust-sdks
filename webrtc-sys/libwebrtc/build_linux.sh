@@ -81,6 +81,7 @@ git apply "$COMMAND_DIR/patches/fix_payload_type_picker_compile.patch" -v --igno
 git apply "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_ssl_stream_adapter_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/fix_copy_on_write_buffer_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/fix_rtp_config_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 # Disable CREL (compact relocations). Chromium's build enables experimental
 # CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
@@ -111,12 +112,23 @@ fi
 # Note: use_clang_modules=false is required to avoid C++ module compilation issues.
 # Without this flag, the build may fail partway through, resulting in missing
 # or incomplete artifacts.
+#
+# Note: use_sysroot=false is required because use_custom_libcxx=false makes the
+# public API's ABI depend on whichever libstdc++ built it. m150 uses std::span
+# by value across that API (it replaced rtc::ArrayView), and libstdc++ reordered
+# std::span's members: the bundled debian_bullseye sysroot (GCC 10) lays it out
+# as {extent, ptr} while GCC >= 14 uses {ptr, extent}. Since std::span is 16
+# bytes and trivially copyable it is passed in two registers, so building
+# against the sysroot while webrtc-sys compiles with the system compiler swaps
+# pointer and size on every such call. Building against the system libstdc++
+# keeps both sides consistent.
 args="is_debug=$debug  \
   target_os=\"linux\" \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
   use_llvm_libatomic=false \
+  use_sysroot=false \
   use_custom_libcxx=false \
   use_custom_libcxx_for_host=false \
   use_clang_modules=false \
