@@ -103,6 +103,10 @@ cd libyuv
 
 git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
+cd ../abseil-cpp
+
+git apply "$COMMAND_DIR/patches/absl_add_x86gprintrin_define.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
 cd ../../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
