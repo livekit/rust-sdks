@@ -334,6 +334,7 @@ fn main() {
             configure_darwin_sysroot(&mut builder);
 
             builder
+                .file("src/apple_av1_decoder_factory.mm")
                 .file("src/objc_video_factory.mm")
                 .file("src/objc_video_frame_buffer.mm")
                 .flag("-stdlib=libc++")

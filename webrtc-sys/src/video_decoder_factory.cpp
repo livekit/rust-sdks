@@ -27,6 +27,10 @@
 #include "modules/video_coding/codecs/vp9/include/vp9.h"
 #include "rtc_base/logging.h"
 
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+#include "livekit/apple_av1_decoder_factory.h"
+#endif
+
 #if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
 #include "modules/video_coding/codecs/av1/dav1d_decoder.h"  // nogncheck
 #endif
@@ -42,6 +46,10 @@
 namespace livekit_ffi {
 
 VideoDecoderFactory::VideoDecoderFactory() {
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+  factories_.push_back(livekit_ffi::CreateAppleAv1DecoderFactory());
+#endif
+
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
 #endif
