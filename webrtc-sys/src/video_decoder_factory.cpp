@@ -125,6 +125,25 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
           return factory->Create(env, adjusted);
       }
     }
+
+    // Still no match: the profile-level-id differs from everything the
+    // platform factories advertise (e.g. the SFU sends Baseline 42001f but
+    // VideoToolbox only lists 42e01f/640c1f). Hardware decoders handle
+    // Baseline/Main/High regardless of the exact fmtp they advertise, so
+    // relax the profile too and create from the factory's own advertised
+    // format rather than falling through to the internal FFmpeg decoder,
+    // which desktop builds may not be able to initialize.
+    for (const auto& factory : factories_) {
+      for (const auto& sf : factory->GetSupportedFormats()) {
+        if (!absl::EqualsIgnoreCase(sf.name, webrtc::kH264CodecName))
+          continue;
+        RTC_LOG(LS_INFO) << "No exact H264 decoder match for "
+                         << format.ToString()
+                         << ", creating platform decoder with "
+                         << sf.ToString();
+        return factory->Create(env, sf);
+      }
+    }
   }
 
   if (absl::EqualsIgnoreCase(format.name, webrtc::kVp8CodecName))
