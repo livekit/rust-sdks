@@ -103,6 +103,10 @@ cd libyuv
 
 git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
+cd ../abseil-cpp
+
+git apply "$COMMAND_DIR/patches/abseil-cpp_include_fix.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
 cd ../../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -113,8 +117,6 @@ debug="false"
 if [ "$profile" = "debug" ]; then
   debug="true"
 fi
-
-./upgrade_sysroot_libstdcxx.sh --arch "$arch"
 
 # Note: use_clang_modules=false is required to avoid C++ module compilation issues.
 # Without this flag, the build may fail partway through, resulting in missing
@@ -140,7 +142,7 @@ args="is_debug=$debug  \
   use_llvm_libatomic=false \
   use_custom_libcxx=false \
   use_custom_libcxx_for_host=false \
-  use_sysroot=true \
+  use_sysroot=false \
   is_clang=false \
   use_clang_modules=false \
   rtc_include_tests=false \
