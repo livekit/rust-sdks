@@ -41,7 +41,36 @@
 
 namespace livekit_ffi {
 
-VideoDecoderFactory::VideoDecoderFactory() {
+namespace {
+// H264Decoder::IsSupported() only reflects the WEBRTC_USE_H264 build flag;
+// desktop prebuilts link an FFmpeg without the H.264 codec, which only
+// surfaces when Configure() fails at runtime ("FFmpeg H.264 decoder not
+// found"). Probe once so the SDP does not advertise decode support the
+// internal decoder cannot deliver.
+bool IsInternalH264DecoderAvailable() {
+  if (!webrtc::H264Decoder::IsSupported()) {
+    RTC_LOG(LS_WARNING) << "Internal H264 decoder not compiled in "
+                           "(WEBRTC_USE_H264 off)";
+    return false;
+  }
+  auto decoder = webrtc::H264Decoder::Create();
+  if (!decoder) {
+    RTC_LOG(LS_WARNING) << "H264Decoder::Create() returned null";
+    return false;
+  }
+  webrtc::VideoDecoder::Settings settings;
+  settings.set_codec_type(webrtc::kVideoCodecH264);
+  if (!decoder->Configure(settings)) {
+    RTC_LOG(LS_WARNING) << "Internal H264 decoder failed to configure; "
+                           "FFmpeg likely lacks the H.264 codec";
+    return false;
+  }
+  return true;
+}
+}  // namespace
+
+VideoDecoderFactory::VideoDecoderFactory()
+    : internal_h264_decoder_works_(IsInternalH264DecoderAvailable()) {
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
 #endif
@@ -55,6 +84,11 @@ VideoDecoderFactory::VideoDecoderFactory() {
     factories_.push_back(std::make_unique<webrtc::NvidiaVideoDecoderFactory>());
   }
 #endif
+
+  if (!internal_h264_decoder_works_) {
+    RTC_LOG(LS_WARNING) << "Internal H264 decoder is unavailable, "
+                           "not advertising its formats";
+  }
 }
 
 std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
@@ -71,9 +105,12 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
   for (const webrtc::SdpVideoFormat& format :
        webrtc::SupportedVP9DecoderCodecs())
     formats.push_back(format);
-  for (const webrtc::SdpVideoFormat& h264_format :
-       webrtc::SupportedH264DecoderCodecs())
-    formats.push_back(h264_format);
+  if (internal_h264_decoder_works_) {
+    for (const webrtc::SdpVideoFormat& h264_format :
+         webrtc::SupportedH264DecoderCodecs()) {
+      formats.push_back(h264_format);
+    }
+  }
 
   formats.push_back(webrtc::SdpVideoFormat(
       webrtc::SdpVideoFormat::AV1Profile0(),
@@ -131,7 +168,8 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
     return webrtc::CreateVp8Decoder(env);
   if (absl::EqualsIgnoreCase(format.name, webrtc::kVp9CodecName))
     return webrtc::VP9Decoder::Create();
-  if (absl::EqualsIgnoreCase(format.name, webrtc::kH264CodecName))
+  if (absl::EqualsIgnoreCase(format.name, webrtc::kH264CodecName) &&
+      internal_h264_decoder_works_)
     return webrtc::H264Decoder::Create();
 
 
