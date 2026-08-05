@@ -196,6 +196,21 @@ cargo build
   
 ```
 
+On Ubuntu AArch64, install LLVM's linker before building. The workspace uses
+LLD for this target because GNU `ld` cannot link the bundled WebRTC archive:
+
+```sh
+sudo apt update
+sudo apt install -y lld
+```
+
+Rockchip boards such as the Radxa ROCK 5B+ also need the MPP development
+headers and DRM headers. On Radxa Ubuntu images, install them with:
+
+```sh
+sudo apt install -y libdrm-dev librockchip-mpp-dev
+```
+
 ### MacOS
 
 When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implementation make use of ObjectiveC libraries on the Mac. You may get the following error if the app isn't linked with ObjC:
