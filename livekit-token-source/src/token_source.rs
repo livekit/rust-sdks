@@ -59,11 +59,13 @@ impl TokenSource {
         TokenSourceEndpoint { endpoint_url: endpoint_url.into(), headers }
     }
 
-    pub fn development_token_server(token_server_id: String) -> TokenSourceDevelopmentTokenServer {
+    pub fn development_token_server(
+        token_server_id: impl Into<String>,
+    ) -> TokenSourceDevelopmentTokenServer {
         TokenSourceDevelopmentTokenServer {
             token_source_endpoint: TokenSource::endpoint(
                 DEVELOPMENT_TOKEN_SERVER_ENDPOINT_URL,
-                vec![(DEVELOPMENT_TOKEN_SERVER_ID_HEADER.to_string(), token_server_id)],
+                vec![(DEVELOPMENT_TOKEN_SERVER_ID_HEADER.to_string(), token_server_id.into())],
             ),
         }
     }
