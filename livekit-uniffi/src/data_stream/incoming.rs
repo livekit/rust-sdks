@@ -52,10 +52,13 @@ pub trait IncomingDataStreamManagerDelegate: Send + Sync {
 #[uniffi::export]
 impl IncomingDataStreamManager {
     #[uniffi::constructor]
-    pub fn new(delegate: Arc<dyn IncomingDataStreamManagerDelegate>, max_payload_byte_length: Option<usize>) -> Arc<Self> {
+    pub fn new(
+        delegate: Arc<dyn IncomingDataStreamManagerDelegate>,
+        max_payload_byte_length: Option<u64>,
+    ) -> Arc<Self> {
         let token = CancellationToken::new();
-        // No reserved topics: RPC routing is a concern of the `livekit` crate, not this FFI layer.
-        let (manager, input, output) = ds::incoming::Manager::new(vec![], max_payload_byte_length);
+        let (manager, input, output) =
+            ds::incoming::Manager::new(max_payload_byte_length.map(|n| n as usize));
 
         let rt = crate::runtime::runtime();
         rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
@@ -74,6 +77,19 @@ impl IncomingDataStreamManager {
         if let Some(event) = decode_data_packet(&packet) {
             let _ = self.input.send(event.into());
         }
+    }
+
+    /// Aborts all open incoming streams so their readers error instead of hanging (e.g. on
+    /// disconnect). Handler wiring on the foreign side survives, so streams that arrive later
+    /// (e.g. after a reconnect) are still processed.
+    pub fn abort_all_streams(&self) {
+        let _ = self.input.send(ds::incoming::InputEvent::AbortAllStreams);
+    }
+
+    /// Aborts open incoming streams sent by `identity` (e.g. when that participant disconnects
+    /// mid-send), so their readers error instead of hanging.
+    pub fn abort_streams_from(&self, identity: String) {
+        let _ = self.input.send(ds::incoming::InputEvent::AbortStreamsFrom(identity.into()));
     }
 }
 

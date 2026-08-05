@@ -234,6 +234,7 @@ impl Manager {
                     }
                 }
                 InputEvent::AbortStreamsFrom(identity) => self.handle_abort(identity),
+                InputEvent::AbortAllStreams => self.handle_abort_all(),
                 InputEvent::Shutdown => break,
             }
         }
@@ -516,6 +517,16 @@ impl Manager {
             } else {
                 Ok(())
             }
+        });
+    }
+
+    /// Aborts every open stream, erroring each reader with [`StreamError::AbnormalEnd`]. Unlike
+    /// [`Self::handle_abort`] this isn't scoped to one participant; the host calls it when the
+    /// connection is torn down so no reader hangs waiting for chunks that will never arrive.
+    /// The run loop keeps going, so streams opened after (e.g. a reconnect) are still handled.
+    fn handle_abort_all(&mut self) {
+        self.inner.close_matching_streams_with_error(|_id, _descriptor| {
+            Err(StreamError::AbnormalEnd("Data stream connection closed".to_string()))
         });
     }
 }
