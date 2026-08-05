@@ -63,12 +63,21 @@ impl RawStream {
         })
     }
 
+    pub(crate) fn is_closed(&self) -> bool {
+        self.is_closed
+    }
+
     pub(crate) async fn write_chunk(&mut self, bytes: &[u8]) -> StreamResult<()> {
         let mut packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
-        Self::send_packet(&self.packet_tx, packet).await?;
+        if let Err(error) = Self::send_packet(&self.packet_tx, packet).await {
+            // A failed send makes the stream unusable; mark it closed so readers/writers stop
+            // treating it as open.
+            self.is_closed = true;
+            return Err(error);
+        }
         self.progress.bytes_processed += bytes.len() as u64;
         self.progress.chunk_index += 1;
         Ok(())
@@ -155,8 +164,9 @@ impl RawStream {
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
-        Self::send_packet(&self.packet_tx, packet).await?;
+        // The stream is done after a close attempt regardless of whether the trailer send succeeds.
         self.is_closed = true;
+        Self::send_packet(&self.packet_tx, packet).await?;
         Ok(())
     }
 
