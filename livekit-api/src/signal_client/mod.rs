@@ -147,11 +147,17 @@ pub enum SignalError {
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
+    /// Comma separated list of additional LiveKit SDKs layered on top of this one, with
+    /// versions, e.g. `"components-js:1.2.3,track-processors-js:1.2.3"`. Sent to the server
+    /// as `ClientInfo.other_sdks`. `None` when there are none — optional so callers that
+    /// predate the field keep working unchanged.
+    #[doc(hidden)]
+    pub other_sdks: Option<String>,
 }
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: None }
+        Self { sdk: "rust".to_string(), sdk_version: None, other_sdks: None }
     }
 }
 
@@ -816,6 +822,7 @@ fn create_join_request_param(
         device_model,
         capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
         client_protocol: advertised_client_protocol(options),
+        other_sdks: options.sdk_options.other_sdks.clone().unwrap_or_default(),
         ..Default::default()
     };
 
@@ -943,6 +950,12 @@ fn get_livekit_url(
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        if let Some(other_sdks) =
+            options.sdk_options.other_sdks.as_deref().filter(|s| !s.is_empty())
+        {
+            lk_url.query_pairs_mut().append_pair("other_sdks", other_sdks);
         }
 
         // parse client capabilities
@@ -1298,6 +1311,57 @@ mod tests {
             .find_map(|(key, value)| (key == "client_protocol").then(|| value.into_owned()))
             .unwrap();
         assert_eq!(client_protocol, CLIENT_PROTOCOL_DATA_STREAM_RPC.to_string());
+    }
+
+    #[test]
+    fn livekit_url_forwards_other_sdks_on_both_paths() {
+        let mut io = signal_options_for_cpp("9.9.9-test");
+        io.sdk_options.other_sdks = Some("ros_portal:1.2.3,another-sdk:2.0.0".to_string());
+
+        // v1 path: other_sdks travels inside the join_request param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let join_request = decode_join_request_param_for_test(&join_request_param);
+        let client_info = join_request.client_info.unwrap();
+        assert_eq!(client_info.other_sdks, "ros_portal:1.2.3,another-sdk:2.0.0");
+
+        // v0 path: other_sdks is a query param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let other_sdks = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "other_sdks").then(|| value.into_owned()))
+            .unwrap();
+        assert_eq!(other_sdks, "ros_portal:1.2.3,another-sdk:2.0.0");
+    }
+
+    #[test]
+    fn livekit_url_omits_other_sdks_when_unset() {
+        assert!(SignalOptions::default().sdk_options.other_sdks.is_none());
+
+        // `None` (callers predating the field) and `Some("")` must both behave as
+        // "no additional SDKs" on either path.
+        for other_sdks in [None, Some(String::new())] {
+            let mut io = SignalOptions::default();
+            io.sdk_options.other_sdks = other_sdks;
+
+            let lk_url =
+                get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+            assert!(lk_url.query_pairs().all(|(key, _)| key != "other_sdks"));
+
+            let lk_url =
+                get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+            let join_request_param = lk_url
+                .query_pairs()
+                .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+                .unwrap();
+            let join_request = decode_join_request_param_for_test(&join_request_param);
+            assert!(join_request.client_info.unwrap().other_sdks.is_empty());
+        }
     }
 
     #[test]
