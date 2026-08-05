@@ -45,13 +45,25 @@ pub trait TokenSourceConfigurable {
     ) -> TokenSourceResult<TokenSourceResponse>;
 }
 
+/// Factory for the token sources shipped with this crate. Not instantiable;
+/// use the associated functions to construct a concrete source.
 pub enum TokenSource {}
 
 impl TokenSource {
+    /// Creates a token source holding a single, literal set of credentials,
+    /// returned as-is on every fetch.
     pub fn literal(response: TokenSourceResponse) -> TokenSourceLiteral {
         TokenSourceLiteral { response }
     }
 
+    /// Creates a token source that fetches credentials from the given URL
+    /// using the standard token endpoint format.
+    ///
+    /// The given headers are sent along with every request, e.g. for
+    /// authentication against the endpoint.
+    ///
+    /// See <https://docs.livekit.io/frontends/build/authentication/endpoint/>
+    /// for the endpoint contract.
     pub fn endpoint(
         endpoint_url: impl Into<String>,
         headers: Vec<(String, String)>,
@@ -59,6 +71,13 @@ impl TokenSource {
         TokenSourceEndpoint { endpoint_url: endpoint_url.into(), headers }
     }
 
+    /// Creates a token source that queries a LiveKit development token server
+    /// for credentials, for quick prototyping / getting-started use cases.
+    ///
+    /// **This token provider is INSECURE and should NOT be used in
+    /// production.**
+    ///
+    /// See <https://docs.livekit.io/frontends/build/authentication/sandbox-token-server/>.
     pub fn development_token_server(
         token_server_id: impl Into<String>,
     ) -> TokenSourceDevelopmentTokenServer {
@@ -71,6 +90,7 @@ impl TokenSource {
     }
 }
 
+/// The return type of [`TokenSource::literal`].
 pub struct TokenSourceLiteral {
     response: TokenSourceResponse,
 }
@@ -82,6 +102,7 @@ impl TokenSourceFixed for TokenSourceLiteral {
     }
 }
 
+/// The return type of [`TokenSource::endpoint`].
 pub struct TokenSourceEndpoint {
     endpoint_url: String,
     headers: Vec<(String, String)>,
@@ -121,6 +142,7 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
     }
 }
 
+/// The return type of [`TokenSource::development_token_server`].
 pub struct TokenSourceDevelopmentTokenServer {
     token_source_endpoint: TokenSourceEndpoint,
 }

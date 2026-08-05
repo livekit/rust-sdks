@@ -12,6 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Token sources for the LiveKit Rust SDK.
+//!
+//! A token source procures the credentials — server URL and participant
+//! token — needed to join a LiveKit room. Construct one via the
+//! [`TokenSource`] factory functions, or implement [`TokenSourceFixed`] /
+//! [`TokenSourceConfigurable`] to plug in a custom credential backend.
+
 mod error;
 mod request;
 mod response;
