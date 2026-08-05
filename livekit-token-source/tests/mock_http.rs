@@ -135,6 +135,40 @@ async fn invalid_json_maps_to_json_error() {
 }
 
 #[tokio::test]
+async fn agent_options_nest_under_room_config() {
+    install_mock();
+    let url = "https://token.test/agent";
+    let endpoint = TokenSource::endpoint(url, vec![]);
+    let options = TokenSourceFetchOptions::new()
+        .with_agent_name("my-agent")
+        .with_agent_metadata("meta")
+        .with_deployment("staging");
+
+    endpoint.fetch(&options).await.expect("fetch should succeed");
+
+    let req = captured(url);
+    let body: serde_json::Value = serde_json::from_slice(&req.body.expect("body")).unwrap();
+    let agent = &body["room_config"]["agents"][0];
+    assert_eq!(agent["agent_name"], "my-agent");
+    assert_eq!(agent["metadata"], "meta");
+    assert_eq!(agent["deployment"], "staging");
+}
+
+#[tokio::test]
+async fn room_config_is_omitted_without_agent_options() {
+    install_mock();
+    let url = "https://token.test/no-agent";
+    let endpoint = TokenSource::endpoint(url, vec![]);
+    let options = TokenSourceFetchOptions::new().with_room_name("plain-room");
+
+    endpoint.fetch(&options).await.expect("fetch should succeed");
+
+    let req = captured(url);
+    let body: serde_json::Value = serde_json::from_slice(&req.body.expect("body")).unwrap();
+    assert!(body.get("room_config").is_none());
+}
+
+#[tokio::test]
 async fn transport_error_maps_to_transport_variant() {
     install_mock();
     let endpoint = TokenSource::endpoint("https://token.test/connrefused", vec![]);
