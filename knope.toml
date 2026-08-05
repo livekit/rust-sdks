@@ -186,6 +186,6 @@ changelog = "livekit-runtime/CHANGELOG.md"
 versioned_files = [
   "livekit-token-source/Cargo.toml",
   "Cargo.lock",
-  { path = "Cargo.toml", dependency = "livekit-net" },
+  { path = "Cargo.toml", dependency = "livekit-token-source" },
 ]
 changelog = "livekit-token-source/CHANGELOG.md"
