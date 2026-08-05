@@ -26,7 +26,7 @@
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/scalability_mode.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
-#include "jetson_av1_bitstream.h"
+#include "../av1_bitstream.h"
 #include "livekit/dmabuf_video_frame_buffer.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -283,13 +283,12 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
-  livekit::av1::StripIvfFrameHeaderIfPresent(&packet);
+  livekit::av1::NormalizeForRtp(&packet);
   if (packet.empty()) {
-    RTC_LOG(LS_ERROR)
-        << "Jetson MMAPI AV1 packet contained only IVF framing; skipping.";
+    RTC_LOG(LS_ERROR) << "Jetson MMAPI AV1 packet contained no transferable "
+                         "OBUs after RTP normalization; skipping.";
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
-  livekit::av1::ConvertAnnexBToLowOverheadIfPresent(&packet);
 
   std::vector<uint8_t> sequence_header;
   if (livekit::av1::ExtractSequenceHeaderObu(packet.data(), packet.size(),
@@ -353,6 +352,7 @@ int32_t JetsonAV1EncoderImpl::ProcessEncodedFrame(
   encoded_image_.qp_ = -1;
 
   CodecSpecificInfo codecInfo;
+  codecInfo.codecSpecific = {};
   codecInfo.codecType = kVideoCodecAV1;
   codecInfo.end_of_picture = true;
   codecInfo.scalability_mode = ScalabilityMode::kL1T1;

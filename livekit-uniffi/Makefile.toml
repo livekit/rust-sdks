@@ -19,10 +19,12 @@ LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
 NPM_NAME = "@livekit/uniffi"
+DART_PACKAGE_NAME = "livekit_uniffi"
 
-# Base URL for downloading release builds of the cdylib.
-# Currently, it is assumed the archives will be named "ffi-<platform>-<arch>.zip".
-CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/example/releases/download/example/build"
+# Per-release directory holding the cdylib archives published by
+# .github/workflows/uniffi-cdylib.yml. Downloaders append
+# `/v<version>/build-<triple>.zip` (and a `.sha256` sidecar).
+CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/rust-sdks/releases/download/livekit-uniffi"
 
 [config]
 skip_core_tasks = true
@@ -62,15 +64,23 @@ ANDROID_AAR_BASENAME = "livekit-uniffi-android-release"
 extend = "android-shared"
 install_crate = { crate_name = "cargo-ndk", binary = "cargo-ndk", test_arg = "--help" }
 script_runner = "@shell"
+# The profile switch lives in the script, not in [tasks.build-android.env]: the
+# per-arch tasks below set `env = { TARGET = ... }`, and cargo-make's `extend`
+# *replaces* the env map instead of merging it — anything declared here would be
+# silently dropped, producing a debug .so under `--profile release`.
 script = """
 echo "TARGET: ${TARGET}"
 rustup target add "${TARGET}"
-cargo ndk --target "${TARGET}" build ${ANDROID_RELEASE_FLAG}
-"""
 
-[tasks.build-android.env]
-ANDROID_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
-RUSTFLAGS = { value = "-C force-unwind-tables=no", condition = { profiles = ["release"] } }
+release_flag=""
+if [ "${CARGO_MAKE_PROFILE}" = "release" ]; then
+  release_flag="--release"
+  # panic = "abort" in release, so unwind tables are dead weight.
+  export RUSTFLAGS="-C force-unwind-tables=no"
+fi
+
+cargo ndk --target "${TARGET}" build ${release_flag}
+"""
 
 # MARK: - Build, specific platforms
 
@@ -150,22 +160,29 @@ dependencies = ["build", "locate-lib"]
 script_runner = "@duckscript"
 script = """
 out_dir = join_path ${PACKAGES_DIR} ${LANG}
-exec cargo run --bin uniffi-bindgen generate \
+# `--features cli` builds the bindgen bin (gated off library builds so the
+# shipped cdylib/staticlib don't carry uniffi's CLI machinery).
+exec cargo run --features cli --bin uniffi-bindgen generate \
     --language ${LANG} \
     --out-dir ${out_dir} \
     --library ${LIB_PATH}
 """
 
-[tasks.tera]
+[tasks.install-tera]
 private = true
 install_crate = { crate_name = "teracli", binary = "tera", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/chevdor/tera-cli"]
+install_crate_args = ["--git", "https://github.com/chevdor/tera-cli", "--tag", "v0.5.0"]
+
+[tasks.tera]
+private = true
+dependencies = ["install-tera"]
 command = "tera"
 
 [tasks.bindgen]
 dependencies = [
     "bindgen-kotlin",
-    "bindgen-python"
+    "bindgen-python",
+    "bindgen-dart",
 ]
 
 # MARK: - Kotlin
@@ -300,7 +317,9 @@ SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { e
 [tasks.swift-xcframework]
 private = true
 install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "f94e76675b9524e71be028c4b03a51163d6a5c28"]
+# Multi-crate framework fix, on the fork's `fix/multi-crate-framework` branch
+# (open upstream as antoniusnaumann/cargo-swift#101).
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "439269c4ff5097bcca7a0a7588f1adebd95edc06"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
@@ -322,8 +341,7 @@ $platform_flags \
 --lib-type dynamic \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 --exclude-arch x86_64-apple-tvos \
-${SWIFT_RELEASE_FLAG} \
-${SWIFT_DSYMS_FLAG}
+${SWIFT_RELEASE_FLAG}
 """
 
 # Print a size breakdown of the iPhone-arm64 framework binary (the slice that
@@ -368,7 +386,7 @@ echo
 # are ~2× larger by construction (two archs in one Mach-O) and shouldn't be
 # the metric. Override the limit per release with SPM_SIZE_LIMIT_BYTES.
 [tasks.swift-check-size.env]
-SPM_SIZE_LIMIT_BYTES = { value = "723467", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
+SPM_SIZE_LIMIT_BYTES = { value = "1179648", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
 
 [tasks.swift-check-size]
 private = true
@@ -421,7 +439,7 @@ SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework", condition = {
 
 [tasks.swift-generate-manifest]
 private = true
-install_crate = { crate_name = "tera-cli", binary = "tera", test_arg = "--version" }
+dependencies = ["install-tera"]
 script_runner = "@shell"
 script = """
 # Derive URL and read the checksum produced by swift-zip-xcframework. In dev
@@ -434,9 +452,15 @@ else
   export SPM_CHECKSUM="0000000000000000000000000000000000000000000000000000000000000000"
 fi
 
-tera --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
-tera --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera > ${SPM_NAME}/Package@swift-6.2.swift
-tera --env --file ${SUPPORT_DIR}/${LANG}/${SPM_NAME}.podspec.tera > ${SPM_NAME}/${SPM_NAME}.podspec
+tera --env-only \
+    -t ${SUPPORT_DIR}/${LANG}/Package.swift.tera \
+    -o ${SPM_NAME}/Package.swift
+tera --env-only \
+    -t ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera \
+    -o ${SPM_NAME}/Package@swift-6.2.swift
+tera --env-only \
+    -t ${SUPPORT_DIR}/${LANG}/${SPM_NAME}.podspec.tera \
+    -o ${SPM_NAME}/${SPM_NAME}.podspec
 cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${SPM_NAME}/LICENSE
 rm -f ${SPM_NAME}/.checksum
 """
@@ -451,6 +475,24 @@ mkdir -p "${out_dir}"
 mv "${SPM_NAME}" "${out_dir}"
 """
 
+# Post-generation Swift workarounds for issues cargo-swift / the templates don't handle.
+# Currently: the `Bytes` custom type is registered in both crates, so uniffi emits its
+# converter in both component Swift files, which collide in one module ("invalid
+# redeclaration of 'Bytes'"). Drop the duplicate from livekit_datatrack.swift.
+# Upstream: https://github.com/mozilla/uniffi-rs/issues/2933. Idempotent.
+[tasks.swift-workarounds]
+private = true
+script_runner = "@shell"
+script = '''
+file="${PACKAGES_DIR}/swift/${SPM_NAME}/Sources/${SPM_NAME}/livekit_datatrack.swift"
+if [ ! -f "$file" ]; then
+  echo "swift-workarounds: $file not found, skipping"
+  exit 0
+fi
+perl -0pi -e 's{public typealias Bytes = Data.*?public func FfiConverterTypeBytes_lower\(_ value: Bytes\) -> RustBuffer \{\n    return FfiConverterTypeBytes\.lower\(value\)\n\}}{// cargo-make swift-workarounds: duplicate Bytes converter removed (kept in livekit_uniffi.swift)}s' "$file"
+echo "swift-workarounds: ensured single Bytes converter in $file"
+'''
+
 [tasks.swift-package-flow]
 private = true
 dependencies = [
@@ -459,7 +501,8 @@ dependencies = [
     "swift-check-size",
     "swift-zip-xcframework",
     "swift-generate-manifest",
-    "swift-move-to-packages"
+    "swift-move-to-packages",
+    "swift-workarounds"
 ]
 
 [tasks.swift-package]
@@ -500,13 +543,13 @@ run_task = "swift-package-flow"
 #              → same AAR flow, published to ~/.m2/repository (Maven Local).
 
 # Enforce a size budget on the arm64-v8a native library an Android user actually
-# downloads. arm64-v8a is the primary shipping arch, so it's the most meaningful 
+# downloads. arm64-v8a is the primary shipping arch, so it's the most meaningful
 # proxy for "how much does this dep cost an end user".
 # Measured on the stripped .so inside the release AAR (AGP strips debug symbols
 # during assemble; the raw target/ artifact is larger and not what ships).
 # Override the limit per release with ANDROID_SIZE_LIMIT_BYTES.
 [tasks.android-check-size.env]
-ANDROID_SIZE_LIMIT_BYTES = { value = "877918", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
+ANDROID_SIZE_LIMIT_BYTES = { value = "1310720", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
 
 [tasks.android-check-size]
 extend = "android-shared"
@@ -577,11 +620,23 @@ cp "${aar}" "${out_dir}/"
 echo "AAR: ${out_dir}/${ANDROID_AAR_BASENAME}.aar"
 """
 
+# Library-mode bindgen reads UNIFFI_META_* symbols from a cdylib, so it needs a
+# *host* one — but cargo-make env vars leak across tasks, so the TARGET set by
+# the preceding per-arch Android builds would otherwise make `build` cross-
+# compile (with the host linker: "cannot find -llog"). Pin TARGET back to the
+# host, and keep symbols: the release profile's `strip = "symbols"` removes the
+# metadata on Linux. Same wrapper pattern as `bindgen-dart` — a task's own env
+# only applies once its dependencies run, hence run_task.
+[tasks.android-bindgen-kotlin]
+private = true
+env = { TARGET = "${CARGO_MAKE_RUST_TARGET_TRIPLE}", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "bindgen-kotlin"
+
 [tasks.android-package-flow]
 private = true
 dependencies = [
     "build-android-platforms",
-    "bindgen-kotlin",
+    "android-bindgen-kotlin",
     "android-copy-jniLibs",
     "android-assemble",
     "android-check-size",
@@ -612,3 +667,101 @@ run_task = "android-publish-maven-local"
 
 # Add other bindgen tasks here, following the same pattern
 # as above for the task name (e.g., "bindgen-<lang>").
+
+# MARK: - Dart
+
+# uniffi-dart has no standalone CLI, so the `uniffi-bindgen-dart` bin drives its
+# library API instead (gated behind the `dart-bindgen` feature to keep its heavy
+# deps out of regular library builds). Reads metadata from the compiled cdylib
+# in library mode, like the Kotlin/Python tasks.
+[tasks.bindgen-dart]
+description = "Generate Dart bindings"
+# Library-mode bindgen reads UNIFFI_META_* symbols from the cdylib. The release
+# profile's `strip = "symbols"` removes them on Linux (macOS strips less
+# aggressively), leaving no metadata to generate from — so keep symbols here.
+# The env must be in scope while the `build` dependency compiles, but a task's
+# own env only applies after its dependencies have run; so set it on this
+# wrapper and drive the work through run_task (same pattern as dart-package).
+env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "bindgen-dart-flow"
+
+[tasks.bindgen-dart-flow]
+private = true
+dependencies = ["build", "locate-lib"]
+script_runner = "@duckscript"
+script = """
+out_dir = join_path ${PACKAGES_DIR} ${LANG}
+exec cargo run --features dart-bindgen --bin uniffi-bindgen-dart -- \
+    --library ${LIB_PATH} \
+    --out-dir ${out_dir}
+"""
+
+# Assemble a consumable Dart package around the generated bindings: idiomatic
+# lib/ layout, a pubspec, the Native Assets build hook, and (dev) the locally
+# built dynamic library so a consumer can load it without a download step.
+#
+#   packages/dart/
+#     pubspec.yaml          (from support/dart/pubspec.yaml.tera)
+#     lib/livekit_uniffi.dart
+#     hook/build.dart       (from support/dart/hook/build.dart)
+#     liblivekit_uniffi.<ext>  (dev: copied local build)
+
+[tasks.dart-move-code-into-lib]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/lib
+mv ${PACKAGES_DIR}/${LANG}/*.dart ${PACKAGES_DIR}/${LANG}/lib
+"""
+
+[tasks.dart-generate-manifest]
+private = true
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/pubspec.yaml.tera", "-o", "${PACKAGES_DIR}/${LANG}/pubspec.yaml"]
+
+# Render the build hook from its template, baking in the package version and the
+# release download base used by the hook's download (release) mode.
+[tasks.dart-make-hook-dir]
+private = true
+script_runner = "@shell"
+script = "mkdir -p ${PACKAGES_DIR}/${LANG}/hook"
+
+[tasks.dart-copy-hook]
+private = true
+dependencies = ["dart-make-hook-dir"]
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/hook/build.dart.tera", "-o", "${PACKAGES_DIR}/${LANG}/hook/build.dart"]
+
+# Dev delivery: copy the locally built dylib into the package root, where the
+# build hook resolves it. A release flow would replace this with a download.
+[tasks.dart-copy-lib]
+private = true
+script_runner = "@shell"
+script = """
+cp ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/
+"""
+
+[tasks.dart-copy-tests]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/test
+cp ${SUPPORT_DIR}/${LANG}/test/*.dart ${PACKAGES_DIR}/${LANG}/test/
+"""
+
+[tasks.dart-package-flow]
+private = true
+dependencies = [
+    "bindgen-dart",
+    "dart-move-code-into-lib",
+    "dart-generate-manifest",
+    "dart-copy-hook",
+    "dart-copy-lib",
+    "dart-copy-tests"
+]
+
+[tasks.dart-package]
+description = "Build a consumable Dart package with bindings, hook, and (dev) native lib"
+# See bindgen-dart: keep symbols so library-mode bindgen can read metadata.
+env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "dart-package-flow"

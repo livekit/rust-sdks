@@ -401,6 +401,21 @@ struct SessionInner {
 
     participant_info: SessionParticipantInfo,
 
+    /// `Some` while a signal resume is in flight: accumulates the identity of
+    /// every participant mentioned in `Update`s since the resume began. The
+    /// server sends a full participant snapshot right after the
+    /// `ReconnectResponse` but may interleave delayed/batched updates around
+    /// it, so no single `Update` is identifiable as the snapshot — the union
+    /// is what's guaranteed to cover everyone still in the room once the
+    /// resume settles (see [`RtcSession::finish_resume`]).
+    resume_seen_identities: Mutex<Option<HashSet<ParticipantIdentity>>>,
+
+    /// Test-only: drop incoming DISCONNECTED participant entries, simulating
+    /// an SFU that fails to (re)deliver disconnect updates. Lets tests
+    /// exercise the resume-time participant reconciliation deterministically.
+    #[cfg(feature = "__lk-e2e-test")]
+    drop_disconnected_updates: AtomicBool,
+
     dc_emitter: mpsc::UnboundedSender<DataChannelEvent>,
 
     // Keep a strong reference to the subscriber datachannels,
@@ -413,6 +428,9 @@ struct SessionInner {
     dt_packet_tx: DataTrackSendQueue,
 
     closed: AtomicBool,
+    // Set on a terminal disconnect (server `Leave{Disconnect}`) so the publisher
+    // data-channel close it triggers isn't logged as unexpected
+    disconnecting: AtomicBool,
     emitter: SessionEmitter,
 
     options: EngineOptions,
@@ -420,6 +438,11 @@ struct SessionInner {
     negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
+
+    pending_store_data_blob_requests:
+        Mutex<HashMap<u32, oneshot::Sender<proto::StoreDataBlobResponse>>>,
+    pending_get_data_blob_requests:
+        Mutex<HashMap<u32, oneshot::Sender<proto::GetDataBlobResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
     subscriber_primary: bool,
@@ -468,6 +491,7 @@ struct SessionHandle {
 }
 
 impl RtcSession {
+    /// Connect to a LiveKit room.
     pub async fn connect(
         url: &str,
         token: &str,
@@ -611,17 +635,23 @@ impl RtcSession {
             next_packet_sequence: 1.into(),
             packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             participant_info,
+            resume_seen_identities: Mutex::new(None),
+            #[cfg(feature = "__lk-e2e-test")]
+            drop_disconnected_updates: Default::default(),
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
             sub_data_track_dc: Mutex::new(None),
             dt_packet_tx,
             closed: Default::default(),
+            disconnecting: Default::default(),
             emitter,
             options,
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
+            pending_get_data_blob_requests: Default::default(),
+            pending_store_data_blob_requests: Default::default(),
             e2ee_manager,
             subscriber_primary,
             pc_state_notify: Notify::new(),
@@ -642,7 +672,10 @@ impl RtcSession {
                 let Some(inner) = weak_inner.upgrade() else {
                     return;
                 };
-                if !inner.closed.load(Ordering::Acquire) && inner.publisher_pc.is_connected() {
+                if !inner.closed.load(Ordering::Acquire)
+                    && !inner.disconnecting.load(Ordering::Acquire)
+                    && inner.publisher_pc.is_connected()
+                {
                     log::error!("publisher data channel '{}' closed unexpectedly", label);
                 }
             })));
@@ -792,6 +825,24 @@ impl RtcSession {
 
     pub async fn restart_publisher(&self) -> EngineResult<()> {
         self.inner.restart_publisher().await
+    }
+
+    /// Ends the resume-time accumulation started by [`Self::restart`],
+    /// returning the participant identities seen since. The post-resume
+    /// snapshot arrived several round trips before the PeerConnections
+    /// finished reconnecting, so this is a superset of the room's current
+    /// participants: any known participant absent from it left while the
+    /// signal link was down and its disconnection must be synthesized.
+    /// Returns `None` if no resume was in flight.
+    pub fn finish_resume(&self) -> Option<HashSet<ParticipantIdentity>> {
+        self.inner.resume_seen_identities.lock().take()
+    }
+
+    /// Test-only: drop incoming DISCONNECTED participant entries, simulating
+    /// an SFU that fails to (re)deliver disconnect updates.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_disconnected_updates(&self, enabled: bool) {
+        self.inner.drop_disconnected_updates.store(enabled, Ordering::Release);
     }
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
@@ -944,6 +995,16 @@ impl RtcSession {
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         self.inner.get_response(request_id).await
+    }
+
+    /// Awaits the successful [`GetDataBlobResponse`][proto::GetDataBlobResponse] for `request_id`.
+    pub async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+        self.inner.get_data_blob_response(request_id).await
+    }
+
+    /// Awaits the successful [`StoreDataBlobResponse`][proto::StoreDataBlobResponse] for `request_id`.
+    pub async fn store_data_blob_response(&self, request_id: u32) -> proto::StoreDataBlobResponse {
+        self.inner.store_data_blob_response(request_id).await
     }
 }
 
@@ -1362,12 +1423,25 @@ impl SessionInner {
                 );
             }
             proto::signal_response::Message::Update(mut update) => {
+                #[cfg(feature = "__lk-e2e-test")]
+                // injecting faulty behaviour during a signal disconnect to ensure we can mimic
+                // losing/missing participant disconnect events after a resume
+                // for test_resume_synthesizes_disconnect_for_participant_that_left
+                if self.drop_disconnected_updates.load(Ordering::Acquire) {
+                    update.participants.retain(|pi| {
+                        pi.state != proto::participant_info::State::Disconnected as i32
+                    });
+                }
+
                 let local_participant_identity = self.participant_info.identity.as_str().into();
                 if let Ok(event) = dt::remote::event_from_participant_update(
                     &mut update,
                     local_participant_identity,
                 ) {
                     _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
+                }
+                if let Some(seen) = self.resume_seen_identities.lock().as_mut() {
+                    seen.extend(update.participants.iter().map(|pi| pi.identity.clone().into()));
                 }
                 let _ = self
                     .emitter
@@ -1443,6 +1517,20 @@ impl SessionInner {
                     update.subscribed_codecs
                 );
                 let _ = self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
+            }
+            proto::signal_response::Message::GetDataBlobResponse(response) => {
+                if let Some(tx) =
+                    self.pending_get_data_blob_requests.lock().remove(&response.request_id)
+                {
+                    let _ = tx.send(response);
+                }
+            }
+            proto::signal_response::Message::StoreDataBlobResponse(response) => {
+                if let Some(tx) =
+                    self.pending_store_data_blob_requests.lock().remove(&response.request_id)
+                {
+                    let _ = tx.send(response);
+                }
             }
             _ => {}
         }
@@ -1876,6 +1964,11 @@ impl SessionInner {
         action: proto::leave_request::Action,
         retry_now: bool,
     ) {
+        // A terminal disconnect (e.g. room deleted) closes the publisher data channels
+        // from the remote side; flag it so that close isn't logged as unexpected
+        if action == proto::leave_request::Action::Disconnect {
+            self.disconnecting.store(true, Ordering::Release);
+        }
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
@@ -1906,6 +1999,21 @@ impl SessionInner {
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
             SimulateScenario::SignalReconnect => {
+                self.signal_client.close().await;
+            }
+            SimulateScenario::DisconnectSignalOnResume => {
+                // Tell the server to drop the signalling link during the next
+                // resume, then trigger a resume by closing the link locally. The
+                // server kills the resumed signal, so the resume fails and the
+                // engine escalates to a full reconnect. Mirrors client-sdk-js's
+                // `disconnect-signal-on-resume`.
+                self.signal_client
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::DisconnectSignalOnResume(true),
+                        ),
+                    }))
+                    .await;
                 self.signal_client.close().await;
             }
             SimulateScenario::Speaker => {
@@ -1973,13 +2081,18 @@ impl SessionInner {
                 .await?
             }
             SimulateScenario::FullReconnect => {
-                self.signal_client
-                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
-                        scenario: Some(
-                            proto::simulate_scenario::Scenario::LeaveRequestFullReconnect(true),
-                        ),
-                    }))
-                    .await;
+                // Client-driven full reconnect, mirroring client-sdk-js's
+                // `full-reconnect` scenario: force the next reconnect to be a
+                // full reconnect and trigger it locally, rather than asking the
+                // server to echo a Leave. The server-side
+                // `LeaveRequestFullReconnect` simulation is not honoured by every
+                // server build, so relying on it makes this scenario flaky.
+                self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Reconnect.into(),
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    ..Default::default()
+                }))
+                .await?
             }
         }
         Ok(())
@@ -2076,6 +2189,10 @@ impl SessionInner {
     /// This reconnection if more seemless compared to the full reconnection implemented in
     /// ['RTCEngine']
     async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
+        // Start accumulating before the signal client reconnects: once
+        // `restart` returns, the resumed stream immediately delivers events
+        // (including the post-resume participant snapshot) on a concurrent task.
+        *self.resume_seen_identities.lock() = Some(HashSet::new());
         let reconnect_response = self.signal_client.restart().await?;
         log::debug!("received reconnect response: {:?}", reconnect_response);
 
@@ -2364,7 +2481,22 @@ impl SessionInner {
     async fn get_response(&self, request_id: u32) -> proto::RequestResponse {
         let (tx, rx) = oneshot::channel();
         self.pending_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_requests, request_id);
         rx.await.unwrap()
+    }
+
+    async fn get_data_blob_response(&self, request_id: u32) -> proto::GetDataBlobResponse {
+        let (tx, rx) = oneshot::channel();
+        self.pending_get_data_blob_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_get_data_blob_requests, request_id);
+        rx.await.expect("data blob response sender dropped")
+    }
+
+    async fn store_data_blob_response(&self, request_id: u32) -> proto::StoreDataBlobResponse {
+        let (tx, rx) = oneshot::channel();
+        self.pending_store_data_blob_requests.lock().insert(request_id, tx);
+        let _guard = PendingResponseGuard::new(&self.pending_store_data_blob_requests, request_id);
+        rx.await.expect("store data blob response sender dropped")
     }
 }
 
@@ -2374,6 +2506,28 @@ fn parse_sdp_max_message_size(sdp: &str) -> Option<u64> {
     sdp.lines()
         .find_map(|line| line.trim().strip_prefix("a=max-message-size:"))
         .and_then(|value| value.trim().parse::<u64>().ok())
+}
+
+/// Removes a pending response registration when dropped.
+///
+/// Installed alongside a registration so that abandoning the wait (e.g. a timeout or a
+/// losing [`tokio::select!`] branch) cannot leave a stale entry behind. Dropping after the
+/// response has already been delivered is a no-op since the entry is removed on delivery.
+struct PendingResponseGuard<'a, T> {
+    map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>,
+    request_id: u32,
+}
+
+impl<'a, T> PendingResponseGuard<'a, T> {
+    fn new(map: &'a Mutex<HashMap<u32, oneshot::Sender<T>>>, request_id: u32) -> Self {
+        Self { map, request_id }
+    }
+}
+
+impl<T> Drop for PendingResponseGuard<'_, T> {
+    fn drop(&mut self) {
+        self.map.lock().remove(&self.request_id);
+    }
 }
 
 /// Emit incoming data track packets as session events.

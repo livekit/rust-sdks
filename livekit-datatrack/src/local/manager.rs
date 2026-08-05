@@ -25,7 +25,13 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use futures_core::Stream;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::Arc,
+    task::{Context as TaskContext, Poll},
+    time::Duration,
+};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -58,7 +64,7 @@ impl Manager {
     /// - Channel for sending [`InputEvent`]s to be processed by the manager.
     /// - Stream for receiving [`OutputEvent`]s produced by the manager.
     ///
-    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, impl Stream<Item = OutputEvent>) {
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, ManagerOutput) {
         let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
 
@@ -72,7 +78,7 @@ impl Manager {
             descriptors: HashMap::new(),
         };
 
-        let event_out = ReceiverStream::new(event_out_rx);
+        let event_out = ManagerOutput(ReceiverStream::new(event_out_rx));
         (manager, event_in, event_out)
     }
 
@@ -102,6 +108,14 @@ impl Manager {
     }
 
     async fn on_publish_request(&mut self, event: PublishRequest) {
+        if let Err(error) = crate::schema::validate_schema(
+            event.options.frame_encoding.as_ref(),
+            event.options.schema.as_ref().map(|id| id.encoding()),
+        ) {
+            _ = event.result_tx.send(Err(PublishError::InvalidSchema(error)));
+            return;
+        }
+
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return;
@@ -128,6 +142,8 @@ impl Manager {
             handle,
             name: event.options.name,
             uses_e2ee: self.encryption_provider.is_some(),
+            schema: event.options.schema,
+            frame_encoding: event.options.frame_encoding,
         };
         _ = self.event_out_tx.send(event.into()).await;
     }
@@ -280,6 +296,8 @@ impl Manager {
                         handle: info.pub_handle,
                         name: info.name.clone(),
                         uses_e2ee: info.uses_e2ee,
+                        schema: info.schema.clone(),
+                        frame_encoding: info.frame_encoding.clone(),
                     };
                     _ = state_tx.send(PublishState::Republishing);
                     _ = self.event_out_tx.send(event.into()).await;
@@ -398,6 +416,18 @@ pub(crate) enum PublishState {
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
     _drop_guard: Arc<DropGuard>,
+}
+
+/// Stream of [`OutputEvent`]s produced by [`Manager`].
+#[derive(Debug)]
+pub struct ManagerOutput(ReceiverStream<OutputEvent>);
+
+impl Stream for ManagerOutput {
+    type Item = OutputEvent;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.0).poll_next(cx)
+    }
 }
 
 /// Guard that sends shutdown event when the last reference is dropped.
@@ -525,6 +555,8 @@ mod tests {
                             pub_handle,
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
+                            schema: None,
+                            frame_encoding: None,
                         };
                         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
                         _ = input.send(event.into());
@@ -604,6 +636,8 @@ mod tests {
             pub_handle: handle,
             name: "test".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -634,6 +668,8 @@ mod tests {
             pub_handle: event.handle,
             name: "secure".into(),
             uses_e2ee: true,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -674,6 +710,8 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -699,6 +737,8 @@ mod tests {
             pub_handle: handle,
             name: track_name.clone(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle, result: Ok(info) };
         input.send(event.into()).unwrap();
@@ -728,6 +768,8 @@ mod tests {
                 pub_handle: event.handle,
                 name: name.into(),
                 uses_e2ee: false,
+                schema: None,
+                frame_encoding: None,
             };
             let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
             input.send(event.into()).unwrap();
@@ -767,6 +809,8 @@ mod tests {
             pub_handle: event.handle,
             name: "active".into(),
             uses_e2ee: false,
+            schema: None,
+            frame_encoding: None,
         };
         let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
         input.send(event.into()).unwrap();

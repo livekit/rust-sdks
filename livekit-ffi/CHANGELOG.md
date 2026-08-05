@@ -316,6 +316,114 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.74 (2026-08-03)
+
+### Fixes
+
+- Add a unified `EgressClient::start_egress` that calls the v2 `Egress.StartEgress` RPC with a `StartEgressRequest`, alongside the existing per-type helpers.
+- Fix a publisher-transport deadlock during renegotiation. When another negotiation was requested while an offer was awaiting its answer, `set_remote_description` re-entered `create_and_send_offer` while holding the transport's non-reentrant inner mutex, permanently wedging publishing.
+- Move the concept of "internal" data streams into `livekit` crate from `livekit-data-stream` - #1304 (@1egoman)
+
+#### Fix H.264, H.265, and AV1 NVENC sessions so live bitrate and frame rate updates
+
+reconfigure the hardware without restarting the encoder.
+
+## 0.12.73 (2026-07-29)
+
+### Fixes
+
+- allow for audio filters to be registered after initial room connection - #1273 (@lukasIO)
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+- Add data streams v2 - #1192 (@1egoman)
+- Ensure participant disconnects are synthesized after connection resume - #1250 (@lukasIO)
+
+## 0.12.72 (2026-07-27)
+
+### Fixes
+
+- Address typo in parsing rpc server version - #1268 (@1egoman)
+- Data tracks schema metadata support.
+- Emit black keepalive frames from NativeVideoSource instead of uninitialized memory. webrtc::I420Buffer::Create leaves the pixel planes uninitialized, so the pre-capture keepalive frames could leak recycled heap contents (often fragments of earlier frames from the same process) to subscribers as the first keyframes - #1271 (@eh-steve)
+- ensure failing audio filter init doesn't degrade audio quality - #1270 (@lukasIO)
+- Add NVIDIA NVENC AV1 encoding when the GPU reports AV1 encode support.
+
+#### Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
+
+The signalling WebSocket and the two pre-connect HTTP GETs (validate, region discovery) now go through pluggable transport traits (`WsClient` for the WebSocket, `HttpClient` for request/response) resolved from a process-global registry with independent slots — a consumer can bring only HTTP, or only WebSocket. The new `livekit-net` crate owns the WebSocket/HTTP/TLS stack behind those traits and ships native (tokio / async-std) backends. Native builds are unchanged in behavior.
+
+**Breaking (`livekit-api`, and `livekit` via `EngineError::Signal`):**
+
+- `SignalError::WsError` is removed — `tungstenite` is no longer part of the public API. A failed WebSocket handshake now surfaces its HTTP status as `SignalError::Client`/`Server`; transport connection and close failures surface as the new `SignalError::Connection(String)` / `SignalError::Closed` variants (previously all collapsed into `Timeout`).
+- `SignalError` is now `#[non_exhaustive]`, and gains a `SignalError::TransportNotConfigured` variant — returned when no transport is registered (host/foreign builds must call `livekit_net::set_ws_client` / `set_http_client` before connecting). This is a permanent configuration error; callers must not retry.
+- The signalling WebSocket/HTTP/TLS crates are no longer transitive dependencies of `livekit-api`; TLS features delegate to `livekit-net`. Existing `signal-client-tokio` / `-async` / `-dispatcher` and TLS feature names are unchanged.
+
+## 0.12.71 (2026-07-17)
+
+### Fixes
+
+- Emit room EOS when the underlying LiveKit room event channel closes after a server-initiated disconnect, and ignore duplicate disconnect events during teardown.
+- Don't log an expected publisher data channel close as unexpected - #1224 (@longcw)
+
+## 0.12.70 (2026-07-14)
+
+### Fixes
+
+- refactor: extract data-stream logic and shared types into new `livekit-common` and `livekit-data-stream` crates (public API unchanged; types are re-exported from `livekit`)
+- Use concrete type for data track manager output events
+
+## 0.12.69 (2026-07-09)
+
+### Fixes
+
+- feat: auto failover APIs with LK Cloud - #1196 (@davidzhao)
+- Fix for dynacast error - #1213 (@MaxHeimbrock)
+- Fix malformed RTC error handling
+- Handle data track SID reassignment
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+- Turn single peerconnection off by default - #1206 (@cnderrauber)
+
+## 0.12.68 (2026-06-30)
+
+### Features
+
+- Add `user_data` support to frame metadata, allowing arbitrary application-supplied bytes to be attached to a video frame via the `PTF_USER_DATA` packet trailer feature.
+
+#### Improve initial video quality by setting `x-google-start-bitrate` SDP hint for all video codecs (VP8, VP9, AV1, H264, H265) and defaulting to `MaintainResolution` degradation preference.
+
+This addresses the issue where video starts blurry for several seconds before improving, by:
+1. Telling WebRTC's bandwidth estimator to start at 70% of target bitrate instead of ramping up from ~300kbps
+2. Preferring frame drops over resolution reduction when bandwidth is constrained
+
+The `DegradationPreference` option is now exposed via FFI for Python, C++, Unity, and Node SDKs.
+
+#### Add `MaintainFramerateAndResolution` to `DegradationPreference` enum to align with WebRTC M144.
+
+- `MAINTAIN_FRAMERATE_AND_RESOLUTION` is now the recommended value (replaces deprecated `DISABLED`)
+- `DISABLED` is deprecated but still supported for backwards compatibility
+- Both values map to the same behavior: maintain framerate and resolution, dropping frames if needed
+
+### Fixes
+
+- Fix AV1 subscriber decode when packet trailers are enabled.
+- Improve log messages around plugin loading - #1186 (@lukasIO)
+
+## 0.12.67 (2026-06-24)
+
+### Fixes
+
+- Increase room event ready timeout
+- harden reconnect behaviour - #1148 (@lukasIO)
+
+## 0.12.66 (2026-06-23)
+
+### Features
+
+- Rename user facing APIs for Packet Trailer to Frame Metadata.
+
+### Fixes
+
+- Upgrade protocol to v1.48.0
+
 ## 0.12.65 (2026-06-19)
 
 ### Fixes

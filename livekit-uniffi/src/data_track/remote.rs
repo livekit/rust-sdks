@@ -1,0 +1,270 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use super::common::{
+    deserialize_signal_response, DataTrackFrame, DataTrackInfo, HandleSignalResponseError,
+};
+use bytes::Bytes;
+use futures_util::StreamExt;
+use livekit_datatrack::{
+    api::{DataTrack, DataTrackSid, DataTrackSubscribeError, Remote},
+    backend::{remote, DecryptionProvider},
+};
+use livekit_protocol as proto;
+use prost::Message;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio_util::sync::{CancellationToken, DropGuard};
+
+/// Data track published by the remote participant.
+#[derive(uniffi::Object)]
+pub struct RemoteDataTrack(DataTrack<Remote>);
+
+#[uniffi::export(async_runtime = "tokio")]
+impl RemoteDataTrack {
+    /// Whether or not the track is currently published.
+    pub fn is_published(&self) -> bool {
+        self.0.is_published()
+    }
+
+    /// Waits asynchronously until the track is unpublished.
+    ///
+    /// Use this to trigger follow-up work once the track is no longer published.
+    /// If the track is already unpublished, this method returns immediately.
+    ///
+    pub async fn wait_for_unpublish(&self) {
+        self.0.wait_for_unpublish().await
+    }
+
+    /// Information about the data track.
+    pub fn info(&self) -> DataTrackInfo {
+        self.0.info().into()
+    }
+
+    /// Identity of the participant who published the track.
+    pub fn publisher_identity(&self) -> String {
+        self.0.publisher_identity().to_string()
+    }
+
+    /// Subscribes to the data track.
+    pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
+        self.0.subscribe().await.map(|stream| DataTrackStream(Mutex::new(stream)))
+    }
+
+    /// Subscribes to the data track with custom options.
+    pub async fn subscribe_with_options(
+        &self,
+        options: DataTrackSubscribeOptions,
+    ) -> Result<DataTrackStream, DataTrackSubscribeError> {
+        self.0
+            .subscribe_with_options(options.into())
+            .await
+            .map(|stream| DataTrackStream(Mutex::new(stream)))
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct DataTrackSubscribeOptions {
+    pub buffer_size: u32,
+}
+
+impl From<DataTrackSubscribeOptions> for livekit_datatrack::api::DataTrackSubscribeOptions {
+    fn from(options: DataTrackSubscribeOptions) -> Self {
+        livekit_datatrack::api::DataTrackSubscribeOptions::default()
+            .with_buffer_size(options.buffer_size as usize)
+    }
+}
+
+/// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
+#[derive(uniffi::Object)]
+pub struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
+
+#[uniffi::export(async_runtime = "tokio")]
+impl DataTrackStream {
+    /// Returns the next received frame or `None` if the subscription has ended.
+    pub async fn next(&self) -> Option<DataTrackFrame> {
+        // TODO: avoid mutex?
+        self.0.lock().await.next().await.map(Into::into)
+    }
+}
+
+/// System for managing data track subscriptions.
+#[derive(uniffi::Object)]
+struct RemoteDataTrackManager {
+    input: remote::ManagerInput,
+    _guard: DropGuard,
+}
+
+/// Delegate for receiving output events from [`RemoteDataTrackManager`].
+#[uniffi::export(with_foreign)]
+pub trait RemoteDataTrackManagerDelegate: Send + Sync {
+    /// Encoded signal request to be forwarded to the SFU.
+    fn on_signal_request(&self, request: Vec<u8>);
+
+    /// A track has been published by a remote participant and is available to be
+    /// subscribed to.
+    ///
+    /// Emit a public event to deliver the track to the user, allowing them to subscribe
+    /// with [`RemoteDataTrack::subscribe`] if desired.
+    ///
+    fn on_track_published(&self, track: Arc<RemoteDataTrack>);
+
+    /// A track with the given SID has been unpublished by a remote participant.
+    fn on_track_unpublished(&self, sid: DataTrackSid);
+}
+
+#[uniffi::export]
+impl RemoteDataTrackManager {
+    #[uniffi::constructor]
+    pub fn new(
+        delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
+        decryption_provider: Option<Arc<dyn DecryptionProvider>>,
+    ) -> Arc<Self> {
+        let token = CancellationToken::new();
+
+        let decryption_provider = decryption_provider.map(|p| p as Arc<dyn DecryptionProvider>);
+        let manager_options = remote::ManagerOptions { decryption_provider };
+
+        let (manager, input, output) = remote::Manager::new(manager_options);
+
+        let rt = crate::runtime::runtime();
+
+        // TODO: in a follow-up PR, refactor manager to work with cancellation tokens directly, eliminating the
+        // need for this additional task.
+        rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
+
+        let delegate_forward = DelegateForwardTask { output, delegate, token: token.clone() };
+        rt.spawn(delegate_forward.run());
+
+        rt.spawn(manager.run());
+
+        Self { input, _guard: token.drop_guard() }.into()
+    }
+
+    /// Resend all subscription updates.
+    ///
+    /// This must be sent after a full reconnect to ensure the SFU knows which tracks
+    /// are subscribed to locally.
+    ///
+    pub fn resend_subscription_updates(&self) {
+        _ = self.input.send(remote::InputEvent::ResendSubscriptionUpdates);
+    }
+
+    /// Handles a serialized `JoinResponse` signal response from the SFU.
+    ///
+    /// Invoke once after initial join. This is used to detect pre-existing
+    /// track publications by remote participants.
+    ///
+    pub fn handle_sfu_join_response(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
+        let proto::signal_response::Message::Join(mut msg) = deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
+        };
+
+        let event = remote::event_from_join(&mut msg)
+            .map_err(|err| HandleSignalResponseError::Internal(err))?;
+        _ = self.input.send(event.into());
+
+        Ok(())
+    }
+
+    /// Handles a serialized `ParticipantUpdate` signal response from the SFU.
+    ///
+    /// Invoke every time a participant update is received. This is used to detect changes
+    /// to track publication by remote participants.
+    ///
+    /// Note: the local participant identity is required to exclude data tracks published by the
+    /// local participant from being treated as remote tracks.
+    ///
+    pub fn handle_sfu_participant_update(
+        &self,
+        res: &[u8],
+        local_participant_identity: String,
+    ) -> Result<(), HandleSignalResponseError> {
+        let proto::signal_response::Message::Update(mut msg) = deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
+        };
+
+        let event = remote::event_from_participant_update(&mut msg, &local_participant_identity)
+            .map_err(|err| HandleSignalResponseError::Internal(err))?;
+        _ = self.input.send(event.into());
+
+        Ok(())
+    }
+
+    /// Handles a serialized `DataTrackSubscriberHandles` signal response from the SFU.
+    pub fn handle_subscriber_handles(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
+        let proto::signal_response::Message::DataTrackSubscriberHandles(msg) =
+            deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
+        };
+
+        let event: remote::SfuSubscriberHandles =
+            msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
+        _ = self.input.send(event.into());
+
+        Ok(())
+    }
+
+    /// Handles a encoded packet received over the data channel.
+    pub fn handle_packet_received(&self, packet: Bytes) {
+        _ = self.input.send(remote::InputEvent::PacketReceived(packet))
+    }
+}
+
+/// Task for forwarding manager output events to the foreign [`RemoteDataTrackManagerDelegate`].
+struct DelegateForwardTask {
+    output: remote::ManagerOutput,
+    delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
+    token: CancellationToken,
+}
+
+impl DelegateForwardTask {
+    async fn run(mut self) {
+        loop {
+            tokio::select! {
+                _ = self.token.cancelled() => break,
+                Some(event) = self.output.next() => self.forward_event(event)
+            }
+        }
+    }
+
+    fn forward_event(&self, event: remote::OutputEvent) {
+        match event {
+            remote::OutputEvent::TrackPublished(event) => {
+                let track = Arc::new(RemoteDataTrack(event.track));
+                self.delegate.on_track_published(track);
+            }
+            remote::OutputEvent::TrackUnpublished(event) => {
+                self.delegate.on_track_unpublished(event.sid)
+            }
+            remote::OutputEvent::SfuUpdateSubscription(req) => {
+                let req = proto::signal_request::Message::UpdateDataSubscription(req.into());
+                self.forward_signal_request(req);
+            }
+        }
+    }
+
+    fn forward_signal_request(&self, message: proto::signal_request::Message) {
+        let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
+        self.delegate.on_signal_request(req);
+    }
+}
+
+async fn shutdown_forward_task(input: remote::ManagerInput, token: CancellationToken) {
+    token.cancelled().await;
+    _ = input.send(remote::InputEvent::Shutdown);
+}

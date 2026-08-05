@@ -10,13 +10,13 @@ use parking_lot::Mutex;
 
 const MAX_SUBSCRIBER_TIMING_SAMPLES: usize = 300;
 const DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
-pub(crate) const TIMING_LINE_WIDTH: usize =
-    TIMING_LABEL_WIDTH + 1 + TIMING_TIMESTAMP_WIDTH + 1 + TIMING_DELTA_WIDTH;
-
 const TIMING_LABEL_WIDTH: usize = 22;
 const TIMING_TIMESTAMP_WIDTH: usize = 12;
 const TIMING_DELTA_WIDTH: usize = 10;
 const TIMING_VALUE_WIDTH: usize = TIMING_TIMESTAMP_WIDTH + 1 + TIMING_DELTA_WIDTH;
+#[cfg(test)]
+const TIMING_LINE_WIDTH: usize =
+    TIMING_LABEL_WIDTH + 1 + TIMING_TIMESTAMP_WIDTH + 1 + TIMING_DELTA_WIDTH;
 
 #[derive(Clone, Default)]
 pub(crate) struct SubscriberTimingHandle {

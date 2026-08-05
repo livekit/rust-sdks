@@ -148,6 +148,11 @@ export declare enum FrameMetadataFeature {
    * @generated from enum value: FMF_FRAME_ID = 1;
    */
   FMF_FRAME_ID = 1,
+
+  /**
+   * @generated from enum value: FMF_USER_DATA = 2;
+   */
+  FMF_USER_DATA = 2,
 }
 
 /**

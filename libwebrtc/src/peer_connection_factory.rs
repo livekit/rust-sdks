@@ -68,6 +68,12 @@ impl Debug for PeerConnectionFactory {
 }
 
 impl PeerConnectionFactory {
+    /// Creates a native peer connection factory that renders received video as soon as possible.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_zero_playout_delay() -> Self {
+        Self { handle: imp_pcf::PeerConnectionFactory::with_zero_playout_delay() }
+    }
+
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,
@@ -81,6 +87,21 @@ impl PeerConnectionFactory {
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.handle.get_rtp_receiver_capabilities(media_type)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::PeerConnectionFactory;
+
+    #[test]
+    fn zero_playout_delay_factory_uses_force_playout_delay_field_trial() {
+        let default_factory = PeerConnectionFactory::default();
+        assert!(!default_factory.handle.zero_playout_delay_enabled());
+        drop(default_factory);
+
+        let low_latency_factory = PeerConnectionFactory::with_zero_playout_delay();
+        assert!(low_latency_factory.handle.zero_playout_delay_enabled());
     }
 }
 

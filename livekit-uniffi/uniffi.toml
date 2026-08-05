@@ -5,3 +5,9 @@ ffi_module_name = "RustLiveKitUniFFI"
 android = true
 package_name = "io.livekit.uniffi"
 cdylib_name = "livekit_uniffi" # the name of the so file to be loaded
+
+[bindings.dart]
+# Dart package name; must match the published pub package so the Native Assets
+# asset id resolves to `package:livekit_uniffi/uniffi:livekit_uniffi`.
+package_name = "livekit_uniffi"
+cdylib_name = "livekit_uniffi"

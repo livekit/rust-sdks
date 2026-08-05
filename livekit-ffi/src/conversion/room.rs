@@ -19,15 +19,15 @@ use livekit::{
         E2eeOptions, EncryptionType,
     },
     options::{
-        AudioEncoding, FrameMetadataFeatures, TrackPublishOptions, VideoEncoderBackend,
-        VideoEncoding,
+        AudioEncoding, DegradationPreference, FrameMetadataFeatures, TrackPublishOptions,
+        VideoEncoderBackend, VideoEncoding,
     },
     prelude::*,
     webrtc::{
         native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
-    RoomInfo,
+    RoomDataStreamOptions, RoomInfo,
 };
 use std::time::Duration;
 
@@ -44,6 +44,9 @@ fn frame_metadata_features_from_proto(features: Vec<i32>) -> FrameMetadataFeatur
             proto::FrameMetadataFeature::FmfFrameId => {
                 frame_metadata_features.frame_id = true;
             }
+            proto::FrameMetadataFeature::FmfUserData => {
+                frame_metadata_features.user_data = true;
+            }
         }
     }
 
@@ -59,6 +62,21 @@ fn video_encoder_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend>
         proto::VideoEncoderBackend::EncoderBackendVaapi => Some(VideoEncoderBackend::Vaapi),
         proto::VideoEncoderBackend::EncoderBackendVideotoolbox => {
             Some(VideoEncoderBackend::VideoToolbox)
+        }
+    }
+}
+
+fn degradation_preference_from_proto(pref: Option<i32>) -> Option<DegradationPreference> {
+    match pref.and_then(|value| proto::DegradationPreference::try_from(value).ok())? {
+        proto::DegradationPreference::Balanced => Some(DegradationPreference::Balanced),
+        proto::DegradationPreference::MaintainFramerate => {
+            Some(DegradationPreference::MaintainFramerate)
+        }
+        proto::DegradationPreference::MaintainResolution => {
+            Some(DegradationPreference::MaintainResolution)
+        }
+        proto::DegradationPreference::MaintainFramerateAndResolution => {
+            Some(DegradationPreference::MaintainFramerateAndResolution)
         }
     }
 }
@@ -282,6 +300,17 @@ impl From<proto::RoomOptions> for RoomOptions {
             value.single_peer_connection.unwrap_or(options.single_peer_connection);
         options.connect_timeout =
             value.connect_timeout_ms.map(Duration::from_millis).unwrap_or(options.connect_timeout);
+        if let Some(data_stream) = value.data_stream {
+            let mut data_stream_options = RoomDataStreamOptions::default();
+            if let Some(max_payload_byte_length) = data_stream.max_payload_byte_length {
+                data_stream_options = data_stream_options
+                    .with_max_payload_byte_length(max_payload_byte_length as usize);
+            }
+            if data_stream.use_legacy_client_implementation.unwrap_or(false) {
+                data_stream_options = data_stream_options.with_legacy_client_implementation(true);
+            }
+            options.data_stream = data_stream_options;
+        }
         options
     }
 }
@@ -335,6 +364,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             video_encoder: video_encoder_from_proto(opts.video_encoder)
                 .unwrap_or(default_publish_options.video_encoder),
             scalability_mode: opts.scalability_mode,
+            degradation_preference: degradation_preference_from_proto(opts.degradation_preference),
         }
     }
 }

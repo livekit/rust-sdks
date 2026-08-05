@@ -174,7 +174,7 @@ impl From<livekit_protocol::PacketTrailerFeature> for proto::FrameMetadataFeatur
                 proto::FrameMetadataFeature::FmfFrameId
             }
             livekit_protocol::PacketTrailerFeature::PtfUserData => {
-                unimplemented!("Not exposed yet")
+                proto::FrameMetadataFeature::FmfUserData
             }
         }
     }

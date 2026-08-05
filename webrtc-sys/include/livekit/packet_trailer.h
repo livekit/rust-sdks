@@ -59,16 +59,33 @@ constexpr size_t kTrailerEnvelopeSize = 5;
 // TLV element overhead: [tag: 1B] [len: 1B] = 2 bytes before value.
 // All TLV bytes (tag, len, value) are XORed with 0xFF.
 
-// TLV tag IDs
-constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian uint64
-constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32
+// TLV tag IDs. Every field is optional: a TLV is emitted only when its
+// value is set, so a trailer may carry any subset of the features.
+constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian uint64,
+                                           // omitted when timestamp is unset (0)
+constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32,
+                                           // omitted when frame_id is unset (0)
+constexpr uint8_t kTagUserData = 0x03;     // value: arbitrary bytes, omitted
+                                           // when empty; bounded by the
+                                           // remaining trailer budget
+                                           // (255 - fixed TLVs - envelope - 2)
 
 constexpr size_t kTimestampTlvSize = 10;  // tag + len + 8-byte value
 constexpr size_t kFrameIdTlvSize = 6;     // tag + len + 4-byte value
+constexpr size_t kUserDataTlvHeaderSize = 2;  // tag + len, before value bytes
 
-// Trailer size varies because frame_id is omitted when it is unset (0).
+// The trailer length is encoded in a single XORed byte, so the entire
+// trailer (TLV region + envelope) can never exceed 255 bytes. user_data
+// that would push the trailer past this budget is dropped (see
+// AppendTrailer), never truncated.
+constexpr size_t kPacketTrailerMaxTotal = 255;
+
+// Fixed-feature trailer size varies because each TLV is omitted when its
+// field is unset. The minimum non-empty trailer carries a single feature
+// (the smallest being frame_id); when no field is set, no trailer is
+// emitted at all. user_data is variable-length and accounted for separately.
 constexpr size_t kPacketTrailerMinSize =
-    kTimestampTlvSize + kTrailerEnvelopeSize;
+    kFrameIdTlvSize + kTrailerEnvelopeSize;
 constexpr size_t kPacketTrailerMaxSize =
     kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 
@@ -76,7 +93,16 @@ struct PacketTrailerMetadata {
   uint64_t user_timestamp;
   uint32_t frame_id;
   uint32_t ssrc;  // SSRC that produced this entry (for simulcast tracking)
+  std::vector<uint8_t> user_data;  // arbitrary app-supplied bytes (PTF_USER_DATA)
 };
+
+/// Parses a trailer payload (TLV region followed by the trailer envelope) and
+/// returns the embedded metadata, or `std::nullopt` if the payload is missing
+/// the magic envelope or contains no recognized TLV elements.
+///
+/// Shared by the codec-agnostic trailer path and the AV1 OBU path.
+std::optional<PacketTrailerMetadata> ParseTrailerPayload(
+    webrtc::ArrayView<const uint8_t> trailer);
 
 /// Frame transformer that appends/extracts packet trailers.
 /// This transformer can be used standalone or in conjunction with e2ee.
@@ -121,7 +147,8 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// in the encoder pipeline.
   void store_frame_metadata(int64_t capture_timestamp_us,
                             uint64_t user_timestamp,
-                            uint32_t frame_id);
+                            uint32_t frame_id,
+                            rust::Slice<const uint8_t> user_data);
 
   /// Set the observer receiving sender-side publish timing events.
   void set_publish_timing_observer(
@@ -168,12 +195,15 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   std::vector<uint8_t> AppendTrailer(
       webrtc::ArrayView<const uint8_t> data,
       uint64_t user_timestamp,
-      uint32_t frame_id);
+      uint32_t frame_id,
+      const std::vector<uint8_t>& user_data,
+      bool is_av1);
 
   /// Extract and remove frame metadata trailer from frame data
   std::optional<PacketTrailerMetadata> ExtractTrailer(
       webrtc::ArrayView<const uint8_t> data,
-      std::vector<uint8_t>& out_data);
+      std::vector<uint8_t>& out_data,
+      bool is_av1);
 
   const Direction direction_;
   std::atomic<bool> enabled_{true};
@@ -237,10 +267,16 @@ class PacketTrailerHandler {
   /// lookup_timestamp() call. Returns 0 if no lookup succeeded.
   uint32_t last_lookup_frame_id() const;
 
+  /// Returns the user_data from the most recent successful
+  /// lookup_timestamp() call. Returns an empty vector if no lookup
+  /// succeeded or the frame carried no user_data.
+  rust::Vec<uint8_t> last_lookup_user_data() const;
+
   /// Store frame metadata for a given capture timestamp (sender side).
   void store_frame_metadata(int64_t capture_timestamp_us,
                             uint64_t user_timestamp,
-                            uint32_t frame_id) const;
+                            uint32_t frame_id,
+                            rust::Slice<const uint8_t> user_data) const;
 
   /// Set the observer receiving sender-side publish timing events.
   void set_publish_timing_observer(
@@ -275,6 +311,7 @@ class PacketTrailerHandler {
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable uint32_t last_frame_id_{0};
+  mutable std::vector<uint8_t> last_user_data_;
 };
 
 // Factory functions for Rust FFI

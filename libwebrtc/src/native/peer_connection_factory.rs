@@ -35,6 +35,16 @@ lazy_static! {
     static ref LOG_SINK: Mutex<Option<UniquePtr<sys_rtc::ffi::LogSink>>> = Default::default();
 }
 
+fn ensure_log_sink() {
+    let mut log_sink = LOG_SINK.lock();
+    if log_sink.is_none() {
+        *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
+            let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
+            log::debug!(target: "libwebrtc", "{}", msg);
+        }));
+    }
+}
+
 #[derive(Clone)]
 pub struct PeerConnectionFactory {
     pub(crate) sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
@@ -42,20 +52,25 @@ pub struct PeerConnectionFactory {
 
 impl Default for PeerConnectionFactory {
     fn default() -> Self {
-        let mut log_sink = LOG_SINK.lock();
-        if log_sink.is_none() {
-            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
-                let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
-                log::debug!(target: "libwebrtc", "{}", msg);
-            }));
-        }
-
+        ensure_log_sink();
         let sys_handle = sys_pcf::ffi::create_peer_connection_factory();
         Self { sys_handle }
     }
 }
 
 impl PeerConnectionFactory {
+    /// Creates a [`PeerConnectionFactory`] with the WebRTC-ForcePlayoutDelay field trial enabled.
+    pub fn with_zero_playout_delay() -> Self {
+        ensure_log_sink();
+        let sys_handle = sys_pcf::ffi::create_peer_connection_factory_with_zero_playout_delay();
+        Self { sys_handle }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn zero_playout_delay_enabled(&self) -> bool {
+        self.sys_handle.zero_playout_delay_enabled()
+    }
+
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,

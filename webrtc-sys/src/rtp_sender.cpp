@@ -46,6 +46,8 @@ const char* BackendName(VideoEncoderBackend backend) {
       return "vaapi";
     case VideoEncoderBackend::VideoToolbox:
       return "videotoolbox";
+    case VideoEncoderBackend::PreEncoded:
+      return "preencoded";
   }
 }
 
@@ -70,6 +72,9 @@ std::optional<VideoEncoderBackend> BackendFromFormat(
   }
   if (it->second == BackendName(VideoEncoderBackend::VideoToolbox)) {
     return VideoEncoderBackend::VideoToolbox;
+  }
+  if (it->second == BackendName(VideoEncoderBackend::PreEncoded)) {
+    return VideoEncoderBackend::PreEncoded;
   }
 
   return std::nullopt;
@@ -105,7 +110,16 @@ class FixedVideoEncoderSelector final
   }
 
   std::optional<webrtc::SdpVideoFormat> OnEncoderBroken() override {
-    return std::nullopt;
+    // The preferred backend is a hard requirement for this sender (e.g.
+    // pre-encoded pass-through). When the active encoder breaks — including
+    // when the initial untagged encoder could not even be created — request
+    // the preferred backend explicitly instead of giving up, so the sender
+    // recovers onto the right encoder.
+    if (!current_encoder_) {
+      return std::nullopt;
+    }
+    requested_ = true;
+    return WithBackend(*current_encoder_, backend_);
   }
 
  private:

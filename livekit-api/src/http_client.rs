@@ -12,27 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(any(feature = "services-tokio", feature = "signal-client-tokio"))]
-mod tokio {
-    #[cfg(feature = "services-tokio")]
-    pub use reqwest::Client;
+// Server-API (services) HTTP client only. The signal client's transport and its
+// region/validate HTTP calls now live in livekit-net, so nothing here is gated
+// on the signal-client features.
 
-    /// GET with an `Authorization: Bearer <token>` header attached.
-    ///
-    /// `reqwest::get(url)` (the free function) constructs a fresh default
-    /// `Client` and attaches no auth, which is why `SignalInner::validate` —
-    /// the sole caller — uses this helper: the access token must reach the
-    /// server or the server returns 401 regardless of the underlying error.
-    #[cfg(feature = "signal-client-tokio")]
-    pub async fn get_with_token(url: &str, token: &str) -> reqwest::Result<reqwest::Response> {
-        reqwest::Client::new().get(url).bearer_auth(token).send().await
-    }
+#[cfg(feature = "services-tokio")]
+mod tokio {
+    pub use reqwest::Client;
 }
 
-#[cfg(any(feature = "services-tokio", feature = "signal-client-tokio"))]
+#[cfg(feature = "services-tokio")]
 pub use tokio::*;
 
-#[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
+#[cfg(feature = "services-async")]
 mod async_std {
 
     #[cfg(any(
@@ -43,137 +35,101 @@ mod async_std {
     ))]
     compile_error!("the async std compatible libraries do not support these features");
 
-    #[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
-    pub struct Response(http::Response<isahc::AsyncBody>);
+    use std::io;
 
-    #[cfg(feature = "__signal-client-async-compatible")]
-    mod signal_client {
-        use std::io;
+    use isahc::AsyncReadResponseExt;
 
-        use isahc::AsyncReadResponseExt;
+    // isahc vendors its own `http` 0.2, so the response wraps isahc's type and
+    // its `http` 1.x-facing accessors (`status`) convert at the edge.
+    pub struct Response(isahc::http::Response<isahc::AsyncBody>);
 
-        use super::Response;
-
-        impl Response {
-            pub fn status(&self) -> http::StatusCode {
-                self.0.status()
-            }
-
-            pub async fn text(mut self) -> io::Result<String> {
-                self.0.text().await
-            }
+    impl Response {
+        /// Status as the workspace's `http` 1.x `StatusCode` (what callers
+        /// compare against), round-tripped from isahc's `http` 0.2 code.
+        pub fn status(&self) -> http::StatusCode {
+            http::StatusCode::from_u16(self.0.status().as_u16()).expect("valid status code")
         }
 
-        /// GET with an `Authorization: Bearer <token>` header attached.
-        ///
-        /// `isahc::get_async(url)` attaches no auth, which is why
-        /// `SignalInner::validate` — the sole caller — uses this helper: the
-        /// access token must reach the server or the server returns 401
-        /// regardless of the underlying error. Mirrors the tokio variant.
-        pub async fn get_with_token(url: &str, token: &str) -> io::Result<Response> {
-            let request = isahc::Request::get(url)
-                .header("Authorization", format!("Bearer {}", token))
-                .body(())
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            let response = isahc::send_async(request).await?;
+        /// Decodes a JSON body. Used by the server-API (twirp error) backend.
+        pub async fn json<T: serde::de::DeserializeOwned + Unpin>(mut self) -> io::Result<T> {
+            self.0.json().await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        }
+
+        /// Reads the raw protobuf body. Server-API (twirp) backend only.
+        pub async fn bytes(mut self) -> io::Result<prost::bytes::Bytes> {
+            Ok(self.0.bytes().await?.into())
+        }
+    }
+
+    // Shared isahc HTTP client: the server-API backend POSTs Twirp requests.
+    // Clone is cheap and shares the underlying connection pool (isahc::HttpClient
+    // is reference-counted), so the unified client can hand one to every service.
+    #[derive(Debug, Clone)]
+    pub struct Client(isahc::HttpClient);
+
+    impl Client {
+        pub fn new() -> Self {
+            Self(isahc::HttpClient::new().unwrap())
+        }
+
+        pub fn post(&self, url: url::Url) -> RequestBuilder {
+            RequestBuilder {
+                body: Vec::new(),
+                builder: isahc::http::Request::post(url.as_str()),
+                client: self.0.clone(),
+            }
+        }
+    }
+
+    pub struct RequestBuilder {
+        builder: isahc::http::request::Builder,
+        body: Vec<u8>,
+        client: isahc::HttpClient,
+    }
+
+    impl RequestBuilder {
+        pub fn headers(mut self, headers: http::HeaderMap) -> Self {
+            // isahc vendors `http` 0.2, so rebuild the workspace's `http` 1.x
+            // `HeaderMap` into isahc's own type. Names/values round-trip through
+            // bytes to stay agnostic to the `http` version. `HeaderMap`'s iterator
+            // yields `None` keys for repeated values, so carry the last name.
+            let dst = self.builder.headers_mut().unwrap();
+            let mut last_name: Option<isahc::http::HeaderName> = None;
+            for (key, value) in headers {
+                let name = match key {
+                    Some(key) => {
+                        let name = isahc::http::HeaderName::from_bytes(key.as_str().as_bytes())
+                            .expect("valid header name");
+                        last_name = Some(name.clone());
+                        name
+                    }
+                    None => last_name.clone().expect("HeaderMap yielded a value before any key"),
+                };
+                let value = isahc::http::HeaderValue::from_bytes(value.as_bytes())
+                    .expect("valid header value");
+                dst.append(name, value);
+            }
+            self
+        }
+
+        pub fn body(mut self, body: Vec<u8>) -> Self {
+            self.body = body;
+            self
+        }
+
+        pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+            use isahc::config::Configurable;
+            self.builder = self.builder.timeout(timeout);
+            self
+        }
+
+        pub async fn send(self) -> io::Result<Response> {
+            let request = self.builder.body(self.body).unwrap();
+            let response = self.client.send_async(request).await?;
             Ok(Response(response))
         }
     }
-
-    #[cfg(feature = "__signal-client-async-compatible")]
-    pub use signal_client::*;
-
-    #[cfg(feature = "services-async")]
-    mod services {
-        use std::io;
-
-        use isahc::AsyncReadResponseExt;
-        use prost::bytes::Bytes;
-
-        use super::Response;
-
-        use http::header::{Entry, OccupiedEntry};
-        use url::Url;
-
-        impl Response {
-            pub async fn bytes(self) -> io::Result<Bytes> {
-                Ok(self.0.bytes().await?.into())
-            }
-
-            pub async fn json<T: serde::de::DeserializeOwned + Unpin>(&mut self) -> io::Result<T> {
-                self.0.json().await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-            }
-        }
-
-        #[derive(Debug)]
-        pub struct Client(isahc::HttpClient);
-
-        impl Client {
-            pub fn new() -> Self {
-                Self(isahc::HttpClient::new().unwrap())
-            }
-        }
-
-        impl Client {
-            pub fn post(&self, url: Url) -> RequestBuilder {
-                RequestBuilder {
-                    body: Vec::new(),
-                    builder: isahc::http::Request::post(url.as_str()),
-                    client: self.0.clone(),
-                }
-            }
-        }
-
-        pub struct RequestBuilder {
-            builder: isahc::http::request::Builder,
-            body: Vec<u8>,
-            client: isahc::HttpClient,
-        }
-
-        impl RequestBuilder {
-            pub fn headers(mut self, headers: http::HeaderMap) -> Self {
-                // Copied from: https://docs.rs/reqwest/0.11.24/src/reqwest/util.rs.html#62-89
-                let self_headers = self.builder.headers_mut().unwrap();
-                let mut prev_entry: Option<OccupiedEntry<_>> = None;
-                for (key, value) in headers {
-                    match key {
-                        Some(key) => match self_headers.entry(key) {
-                            Entry::Occupied(mut e) => {
-                                e.insert(value);
-                                prev_entry = Some(e);
-                            }
-                            Entry::Vacant(e) => {
-                                let e = e.insert_entry(value);
-                                prev_entry = Some(e);
-                            }
-                        },
-                        None => match prev_entry {
-                            Some(ref mut entry) => {
-                                entry.append(value);
-                            }
-                            None => unreachable!("HeaderMap::into_iter yielded None first"),
-                        },
-                    }
-                }
-                self
-            }
-
-            pub fn body(mut self, body: Vec<u8>) -> Self {
-                self.body = body;
-                self
-            }
-
-            pub async fn send(self) -> io::Result<Response> {
-                let request = self.builder.body(self.body).unwrap();
-                let response = self.client.send_async(request).await?;
-                Ok(Response(response))
-            }
-        }
-    }
-
-    #[cfg(feature = "services-async")]
-    pub use services::*;
 }
 
-#[cfg(any(feature = "__signal-client-async-compatible", feature = "services-async"))]
+#[cfg(feature = "services-async")]
 pub use async_std::*;

@@ -1,4 +1,37 @@
 # Changelog
+## 0.1.13 (2026-07-29)
+
+### Fixes
+
+- Add data streams v2 - #1192 (@1egoman)
+
+## 0.1.12 (2026-07-27)
+
+### Features
+
+- Data tracks schema metadata support.
+
+## 0.1.11 (2026-07-14)
+
+### Fixes
+
+- Make some fields public for data track types
+- Refactor data tracks E2EE interface
+- Use concrete type for data track manager output events
+
+## 0.1.10 (2026-07-09)
+
+### Fixes
+
+- Handle data track SID reassignment
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+
+## 0.1.9 (2026-06-23)
+
+### Fixes
+
+- Upgrade protocol to v1.48.0
+
 ## 0.1.8 (2026-05-29)
 
 ### Fixes
