@@ -8,7 +8,8 @@ repository.workspace = true
 readme = "README.md"
 
 [features]
-default = ["native-tokio", "rustls-tls-native-roots"]
+# By default no TLS is enabled; pick one of the TLS features below.
+default = ["native-tokio"]
 
 # Backend bundles — pass-throughs to livekit-net. With none enabled the crate is
 # backend-blind: the host must register a client via `livekit_net::set_http_client`.
