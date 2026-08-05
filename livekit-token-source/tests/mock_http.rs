@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 //! Tests `TokenSourceEndpoint::fetch` against a mock `livekit_net::HttpClient`.
 //!
 //! The livekit-net registry is process-wide and first-set-wins, so every test
@@ -87,10 +86,8 @@ fn header<'a>(headers: &'a [Header], name: &str) -> Option<&'a str> {
 async fn fetch_posts_json_and_parses_response() {
     install_mock();
     let url = "https://token.test/ok";
-    let endpoint = TokenSource::endpoint(
-        url,
-        vec![("X-Sandbox-ID".to_string(), "sandbox-42".to_string())],
-    );
+    let endpoint =
+        TokenSource::endpoint(url, vec![("X-Sandbox-ID".to_string(), "sandbox-42".to_string())]);
     let options = TokenSourceFetchOptions::new()
         .with_room_name("my-room")
         .with_participant_identity("user-123");

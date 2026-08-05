@@ -24,5 +24,5 @@ pub enum TokenSourceError {
     Json(#[from] serde_json::Error),
 
     #[error("token server returned {status}: {body}")]
-    Server{ status: u16, body: String },
+    Server { status: u16, body: String },
 }
