@@ -34,7 +34,7 @@ pub struct TokenSourceFetchOptions {
     pub(crate) participant_attributes: Option<HashMap<String, String>>,
     pub(crate) agent_name: Option<String>,
     pub(crate) agent_metadata: Option<String>,
-    pub(crate) agent_deployment: Option<String>,
+    pub(crate) deployment: Option<String>,
 }
 
 impl TokenSourceFetchOptions {
@@ -98,9 +98,9 @@ impl TokenSourceFetchOptions {
         self
     }
 
-    /// Sets the deployment to target. Leave unset to target the production deployment.
-    pub fn with_agent_deployment(mut self, value: impl Into<String>) -> Self {
-        self.agent_deployment = Some(value.into());
+    /// Sets the agent deployment to target. Leave unset to target the production deployment.
+    pub fn with_deployment(mut self, value: impl Into<String>) -> Self {
+        self.deployment = Some(value.into());
         self
     }
 }
@@ -143,13 +143,13 @@ impl From<&TokenSourceFetchOptions> for TokenSourceRequest {
         // Only include a room_config when at least one agent field is set.
         let room_config = if options.agent_name.is_some()
             || options.agent_metadata.is_some()
-            || options.agent_deployment.is_some()
+            || options.deployment.is_some()
         {
             Some(RoomConfig {
                 agents: vec![AgentDispatch {
                     agent_name: options.agent_name.clone(),
                     metadata: options.agent_metadata.clone(),
-                    deployment: options.agent_deployment.clone(),
+                    deployment: options.deployment.clone(),
                 }],
             })
         } else {
