@@ -17,6 +17,7 @@
 #ifndef MPP_VIDEO_ENCODER_FACTORY_H_
 #define MPP_VIDEO_ENCODER_FACTORY_H_
 
+#include <memory>
 #include <vector>
 
 #include "api/environment/environment.h"

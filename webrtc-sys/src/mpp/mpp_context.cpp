@@ -17,18 +17,15 @@
 #include "mpp_context.h"
 
 #include <dlfcn.h>
-#include <sys/stat.h>
+#include <unistd.h>
+
+#include <rockchip/rk_mpi.h>
 
 #include "rtc_base/logging.h"
 
 namespace livekit_ffi {
 
-static bool s_library_loaded = false;
-
-bool MppContext::LoadLibrary() {
-  if (s_library_loaded)
-    return true;
-
+bool MppContext::IsAvailable() {
   // Probe for the MPP library via dlopen. The lazy-load trampoline stubs
   // will handle the actual symbol resolution, but we need to verify the
   // library exists on the system first.
@@ -38,27 +35,32 @@ bool MppContext::LoadLibrary() {
     return false;
   }
 
+  const bool has_buffer_sync =
+      dlsym(handle, "mpp_buffer_sync_begin_f") != nullptr &&
+      dlsym(handle, "mpp_buffer_sync_end_f") != nullptr;
+  if (!has_buffer_sync) {
+    RTC_LOG(LS_WARNING)
+        << "librockchip_mpp.so does not provide cache synchronization APIs.";
+    dlclose(handle);
+    return false;
+  }
+
   // Close immediately -- the implib lazy-load stubs will re-dlopen when
   // individual MPP functions are first called.
   dlclose(handle);
 
-  s_library_loaded = true;
-  return true;
-}
-
-bool MppContext::IsAvailable() {
-  if (!LoadLibrary()) {
-    return false;
-  }
-
-  // Additionally check for the MPP kernel service device nodes.
-  struct stat st;
-  bool has_mpp_service = (stat("/dev/mpp_service", &st) == 0);
-  bool has_vpu_service = (stat("/dev/vpu_service", &st) == 0);
-  bool has_vpu_combo = (stat("/dev/vpu-service", &st) == 0);
+  // Additionally check that an MPP kernel service node is usable by this
+  // process, rather than merely present on the filesystem.
+  const bool has_mpp_service =
+      (access("/dev/mpp_service", R_OK | W_OK) == 0);
+  const bool has_vpu_service =
+      (access("/dev/vpu_service", R_OK | W_OK) == 0);
+  const bool has_vpu_combo =
+      (access("/dev/vpu-service", R_OK | W_OK) == 0);
 
   if (!has_mpp_service && !has_vpu_service && !has_vpu_combo) {
-    RTC_LOG(LS_INFO) << "No Rockchip VPU/MPP service device node found.";
+    RTC_LOG(LS_INFO)
+        << "No accessible Rockchip VPU/MPP service device node found.";
     return false;
   }
 
@@ -71,10 +73,4 @@ bool MppContext::IsAvailable() {
 
   return true;
 }
-
-MppContext* MppContext::GetInstance() {
-  static MppContext instance;
-  return &instance;
-}
-
 }  // namespace livekit_ffi

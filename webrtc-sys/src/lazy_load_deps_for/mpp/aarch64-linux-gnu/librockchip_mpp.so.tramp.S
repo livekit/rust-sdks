@@ -18,7 +18,7 @@
   .hidden _librockchip_mpp_so_tramp_table
   .align 8
 _librockchip_mpp_so_tramp_table:
-  .zero 232
+  .zero 248
 
   .text
 
@@ -124,3 +124,5 @@ MPP_TRAMP mpp_buffer_get_ptr_with_caller, 25, 200
 MPP_TRAMP mpp_buffer_group_get,         26, 208
 MPP_TRAMP mpp_buffer_group_put,         27, 216
 MPP_TRAMP mpp_meta_set_packet,          28, 224
+MPP_TRAMP mpp_buffer_sync_begin_f,       29, 232
+MPP_TRAMP mpp_buffer_sync_end_f,         30, 240

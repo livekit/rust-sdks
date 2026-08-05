@@ -16,21 +16,15 @@
 
 #include "h264_encoder_impl.h"
 
-#include <algorithm>
-#include <cstring>
-#include <limits>
-#include <string>
+#include <optional>
 
 #include "api/video/video_codec_constants.h"
 #include "api/video/nv12_buffer.h"
 #include "common_video/h264/h264_common.h"
-#include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "modules/video_coding/utility/simulcast_rate_allocator.h"
-#include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/planar_functions.h"
 
@@ -39,55 +33,25 @@
 
 namespace webrtc {
 
-// Used by histograms. Values of entries should not be changed.
-enum MppH264EncoderImplEvent {
-  kMppH264EncoderEventInit = 0,
-  kMppH264EncoderEventError = 1,
-  kMppH264EncoderEventMax = 16,
-};
-
 MppH264EncoderImpl::MppH264EncoderImpl(const webrtc::Environment& env,
                                        const SdpVideoFormat& format)
     : env_(env),
-      packetization_mode_(H264EncoderSettings::Parse(format).packetization_mode),
-      format_(format) {
-  std::string hexString = format_.parameters.at("profile-level-id");
+      packetization_mode_(H264EncoderSettings::Parse(format)
+                              .packetization_mode) {
   std::optional<H264ProfileLevelId> profile_level_id =
-      ParseH264ProfileLevelId(hexString.c_str());
+      ParseSdpForH264ProfileLevelId(format.parameters);
   if (profile_level_id.has_value()) {
     profile_ = profile_level_id->profile;
     level_ = profile_level_id->level;
   }
 }
 
-MppH264EncoderImpl::~MppH264EncoderImpl() {
-  Release();
-}
-
-void MppH264EncoderImpl::ReportInit() {
-  if (has_reported_init_)
-    return;
-  has_reported_init_ = true;
-}
-
-void MppH264EncoderImpl::ReportError() {
-  if (has_reported_error_)
-    return;
-  has_reported_error_ = true;
-}
+MppH264EncoderImpl::~MppH264EncoderImpl() = default;
 
 int32_t MppH264EncoderImpl::InitMpp() {
-  MPP_RET ret = MPP_OK;
-
-  ret = mpp_create(&mpp_ctx_, &mpp_api_);
+  MPP_RET ret = session_.Initialize(MPP_VIDEO_CodingAVC);
   if (ret != MPP_OK) {
-    RTC_LOG(LS_ERROR) << "mpp_create failed: " << ret;
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  ret = mpp_init(mpp_ctx_, MPP_CTX_ENC, MPP_VIDEO_CodingAVC);
-  if (ret != MPP_OK) {
-    RTC_LOG(LS_ERROR) << "mpp_init for H.264 encoder failed: " << ret;
+    RTC_LOG(LS_ERROR) << "Failed to initialize MPP H.264 encoder: " << ret;
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -97,51 +61,50 @@ int32_t MppH264EncoderImpl::InitMpp() {
 int32_t MppH264EncoderImpl::ConfigureMpp() {
   MPP_RET ret = MPP_OK;
 
-  ret = mpp_enc_cfg_init(&mpp_cfg_);
+  ret = session_.InitializeConfig();
   if (ret != MPP_OK) {
-    RTC_LOG(LS_ERROR) << "mpp_enc_cfg_init failed: " << ret;
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  ret = mpp_api_->control(mpp_ctx_, MPP_ENC_GET_CFG, mpp_cfg_);
-  if (ret != MPP_OK) {
-    RTC_LOG(LS_ERROR) << "MPP_ENC_GET_CFG failed: " << ret;
+    RTC_LOG(LS_ERROR) << "Failed to initialize MPP H.264 config: " << ret;
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
   // ---- Prep config (input frame format) ----
-  mpp_enc_cfg_set_s32(mpp_cfg_, "prep:width", codec_.width);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "prep:height", codec_.height);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "prep:hor_stride", hor_stride_);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "prep:ver_stride", ver_stride_);
+  mpp_enc_cfg_set_s32(session_.config(), "prep:width", codec_.width);
+  mpp_enc_cfg_set_s32(session_.config(), "prep:height", codec_.height);
+  mpp_enc_cfg_set_s32(session_.config(), "prep:hor_stride", hor_stride_);
+  mpp_enc_cfg_set_s32(session_.config(), "prep:ver_stride", ver_stride_);
   // Use I420 directly to avoid extra conversion
-  mpp_enc_cfg_set_s32(mpp_cfg_, "prep:format", MPP_FMT_YUV420P);
+  mpp_enc_cfg_set_s32(session_.config(), "prep:format", MPP_FMT_YUV420P);
+  configured_fmt_ = MPP_FMT_YUV420P;
 
   // ---- Rate control config ----
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:mode", MPP_ENC_RC_MODE_CBR);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_target", configuration_.target_bps);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_max",
+  mpp_enc_cfg_set_s32(session_.config(), "rc:mode", MPP_ENC_RC_MODE_CBR);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:bps_target", configuration_.target_bps);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:bps_max",
                       configuration_.target_bps * 3 / 2);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_min", configuration_.target_bps / 2);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:bps_min", configuration_.target_bps / 2);
 
   // Frame rate
   int fps_num = static_cast<int>(configuration_.max_frame_rate);
-  if (fps_num < 1) fps_num = 30;
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_in_flex", 0);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_in_num", fps_num);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_in_denorm", 1);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_out_flex", 0);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_out_num", fps_num);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_out_denorm", 1);
+  if (fps_num < 1) {
+    fps_num = 30;
+  }
+  mpp_enc_cfg_set_s32(session_.config(), "rc:fps_in_flex", 0);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:fps_in_num", fps_num);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:fps_in_denorm", 1);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:fps_out_flex", 0);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:fps_out_num", fps_num);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:fps_out_denorm", 1);
 
-  // GOP: use infinite GOP, keyframes are requested explicitly
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:gop", fps_num * 10);
+  // Keep a bounded fallback GOP while still honoring explicit keyframe requests.
+  mpp_enc_cfg_set_s32(session_.config(), "rc:gop", fps_num * 10);
 
   // ---- H.264 codec config ----
-  mpp_enc_cfg_set_s32(mpp_cfg_, "codec:id", MPP_VIDEO_CodingAVC);
+  mpp_enc_cfg_set_s32(session_.config(), "codec:id", MPP_VIDEO_CodingAVC);
 
-  // Profile: Constrained Baseline = 66, Main = 77, High = 100
-  int mpp_profile = 100;  // default to High
+  // Profile values are H.264 profile_idc values. CABAC is forbidden for
+  // Baseline/Constrained Baseline and must follow the negotiated profile.
+  int mpp_profile = 66;
+  bool enable_cabac = false;
   switch (profile_) {
     case H264Profile::kProfileConstrainedBaseline:
     case H264Profile::kProfileBaseline:
@@ -149,27 +112,38 @@ int32_t MppH264EncoderImpl::ConfigureMpp() {
       break;
     case H264Profile::kProfileMain:
       mpp_profile = 77;
+      enable_cabac = true;
       break;
+    case H264Profile::kProfileConstrainedHigh:
     case H264Profile::kProfileHigh:
+    case H264Profile::kProfilePredictiveHigh444:
     default:
       mpp_profile = 100;
+      enable_cabac = true;
       break;
   }
-  mpp_enc_cfg_set_s32(mpp_cfg_, "h264:profile", mpp_profile);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "h264:level", 40);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "h264:cabac_en", 1);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "h264:cabac_idc", 0);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "h264:trans8x8", (mpp_profile == 100) ? 1 : 0);
+  int mpp_level = static_cast<int>(level_);
+  if (level_ == H264Level::kLevel1_b) {
+    mpp_level = 11;
+    constexpr RK_U32 kForceConstraintSet3 = (1U << 19) | (1U << 3);
+    mpp_enc_cfg_set_u32(session_.config(), "h264:constraint_set",
+                        kForceConstraintSet3);
+  }
+  mpp_enc_cfg_set_s32(session_.config(), "h264:profile", mpp_profile);
+  mpp_enc_cfg_set_s32(session_.config(), "h264:level", mpp_level);
+  mpp_enc_cfg_set_s32(session_.config(), "h264:cabac_en", enable_cabac ? 1 : 0);
+  mpp_enc_cfg_set_s32(session_.config(), "h264:cabac_idc", 0);
+  mpp_enc_cfg_set_s32(session_.config(), "h264:trans8x8", (mpp_profile == 100) ? 1 : 0);
 
   // QP range for real-time streaming
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:qp_init", 26);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:qp_max", 48);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:qp_min", 8);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:qp_max_i", 48);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:qp_min_i", 8);
-  mpp_enc_cfg_set_s32(mpp_cfg_, "rc:qp_delta_ip", 6);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:qp_init", 26);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:qp_max", 48);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:qp_min", 8);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:qp_max_i", 48);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:qp_min_i", 8);
+  mpp_enc_cfg_set_s32(session_.config(), "rc:qp_delta_ip", 6);
 
-  ret = mpp_api_->control(mpp_ctx_, MPP_ENC_SET_CFG, mpp_cfg_);
+  ret = session_.api()->control(session_.context(), MPP_ENC_SET_CFG, session_.config());
   if (ret != MPP_OK) {
     RTC_LOG(LS_ERROR) << "MPP_ENC_SET_CFG failed: " << ret;
     return WEBRTC_VIDEO_CODEC_ERROR;
@@ -177,7 +151,7 @@ int32_t MppH264EncoderImpl::ConfigureMpp() {
 
   // Set header mode: attach SPS/PPS on each IDR
   MppEncHeaderMode header_mode = MPP_ENC_HEADER_MODE_EACH_IDR;
-  ret = mpp_api_->control(mpp_ctx_, MPP_ENC_SET_HEADER_MODE, &header_mode);
+  ret = session_.api()->control(session_.context(), MPP_ENC_SET_HEADER_MODE, &header_mode);
   if (ret != MPP_OK) {
     RTC_LOG(LS_WARNING) << "MPP_ENC_SET_HEADER_MODE failed: " << ret;
   }
@@ -187,22 +161,19 @@ int32_t MppH264EncoderImpl::ConfigureMpp() {
 
 int32_t MppH264EncoderImpl::InitEncode(const VideoCodec* inst,
                                        const VideoEncoder::Settings& settings) {
+  (void)settings;
   if (!inst || inst->codecType != kVideoCodecH264) {
-    ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
   if (inst->maxFramerate == 0) {
-    ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
   if (inst->width < 1 || inst->height < 1) {
-    ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
   int32_t release_ret = Release();
   if (release_ret != WEBRTC_VIDEO_CODEC_OK) {
-    ReportError();
     return release_ret;
   }
 
@@ -217,64 +188,33 @@ int32_t MppH264EncoderImpl::InitEncode(const VideoCodec* inst,
   hor_stride_ = MPP_ALIGN(codec_.width, 16);
   ver_stride_ = MPP_ALIGN(codec_.height, 16);
   // I420: Y plane = hor_stride * ver_stride, U+V = hor_stride * ver_stride / 2
-  frame_size_ = hor_stride_ * ver_stride_ * 3 / 2;
-
-  // Initialize encoded image buffer
-  const size_t new_capacity =
-      CalcBufferSize(VideoType::kI420, codec_.width, codec_.height);
-  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(new_capacity));
-  encoded_image_._encodedWidth = codec_.width;
-  encoded_image_._encodedHeight = codec_.height;
-  encoded_image_.set_size(0);
+  frame_size_ = static_cast<size_t>(hor_stride_) *
+                static_cast<size_t>(ver_stride_) * 3 / 2;
 
   configuration_.sending = false;
-  configuration_.frame_dropping_on = codec_.GetFrameDropEnabled();
-  configuration_.key_frame_interval = codec_.H264()->keyFrameInterval;
-  configuration_.width = codec_.width;
-  configuration_.height = codec_.height;
   configuration_.max_frame_rate = codec_.maxFramerate;
   configuration_.target_bps = codec_.startBitrate * 1000;
-  configuration_.max_bps = codec_.maxBitrate * 1000;
 
   // Initialize MPP encoder
   int32_t mpp_ret = InitMpp();
   if (mpp_ret != WEBRTC_VIDEO_CODEC_OK) {
-    ReportError();
+    Release();
     return mpp_ret;
   }
 
   // Configure MPP encoder
   mpp_ret = ConfigureMpp();
   if (mpp_ret != WEBRTC_VIDEO_CODEC_OK) {
-    ReportError();
+    Release();
     return mpp_ret;
   }
 
-  // Allocate MPP buffers
-  MPP_RET ret = mpp_buffer_group_get_internal(&frame_group_, MPP_BUFFER_TYPE_DRM);
+  // A raw-frame-sized packet buffer safely accommodates worst-case access
+  // units while keeping allocation bounded by the input frame size.
+  MPP_RET ret = session_.AllocateBuffers(frame_size_, frame_size_);
   if (ret != MPP_OK) {
-    // Fall back to ION if DRM is not available
-    ret = mpp_buffer_group_get_internal(&frame_group_, MPP_BUFFER_TYPE_ION);
-    if (ret != MPP_OK) {
-      RTC_LOG(LS_ERROR) << "Failed to get MPP buffer group: " << ret;
-      ReportError();
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-  }
-
-  ret = mpp_buffer_get(frame_group_, &frame_buf_, frame_size_);
-  if (ret != MPP_OK) {
-    RTC_LOG(LS_ERROR) << "Failed to allocate MPP frame buffer: " << ret;
-    ReportError();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-
-  // Allocate output packet buffer (generous size for encoded data)
-  size_t pkt_size = codec_.width * codec_.height;
-  ret = mpp_buffer_get(frame_group_, &pkt_buf_, pkt_size);
-  if (ret != MPP_OK) {
-    RTC_LOG(LS_ERROR) << "Failed to allocate MPP packet buffer: " << ret;
-    ReportError();
+    RTC_LOG(LS_ERROR) << "Failed to allocate MPP encoder buffers: " << ret;
+    Release();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -290,7 +230,6 @@ int32_t MppH264EncoderImpl::InitEncode(const VideoCodec* inst,
           DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
   SetRates(RateControlParameters(allocation, codec_.maxFramerate));
 
-  ReportInit();
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -301,46 +240,37 @@ int32_t MppH264EncoderImpl::RegisterEncodeCompleteCallback(
 }
 
 int32_t MppH264EncoderImpl::Release() {
-  if (pkt_buf_) {
-    mpp_buffer_put(pkt_buf_);
-    pkt_buf_ = nullptr;
-  }
-  if (frame_buf_) {
-    mpp_buffer_put(frame_buf_);
-    frame_buf_ = nullptr;
-  }
-  if (frame_group_) {
-    mpp_buffer_group_put(frame_group_);
-    frame_group_ = nullptr;
-  }
-  if (mpp_cfg_) {
-    mpp_enc_cfg_deinit(mpp_cfg_);
-    mpp_cfg_ = nullptr;
-  }
-  if (mpp_ctx_) {
-    mpp_destroy(mpp_ctx_);
-    mpp_ctx_ = nullptr;
-    mpp_api_ = nullptr;
-  }
+  session_.Reset();
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int32_t MppH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
-  if (!mpp_ctx_ || !mpp_api_) {
-    ReportError();
+  if (!session_.context() || !session_.api()) {
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
   if (!encoded_image_callback_) {
     RTC_LOG(LS_WARNING)
         << "InitEncode() has been called, but a callback function "
            "has not been set with RegisterEncodeCompleteCallback()";
-    ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+  }
+  if (!configuration_.sending) {
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+  }
+  if (frame_types != nullptr && !frame_types->empty() &&
+      (*frame_types)[0] == VideoFrameType::kEmptyFrame) {
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
   webrtc::scoped_refptr<VideoFrameBuffer> vfb = input_frame.video_frame_buffer();
+  if (vfb->width() != codec_.width || vfb->height() != codec_.height) {
+    RTC_LOG(LS_ERROR) << "MPP H.264 input frame dimensions " << vfb->width()
+                      << "x" << vfb->height() << " do not match encoder "
+                      << codec_.width << "x" << codec_.height;
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
   const bool is_nv12 = (vfb->type() == VideoFrameBuffer::Type::kNV12);
 
   scoped_refptr<I420BufferInterface> i420_buffer;
@@ -348,7 +278,10 @@ int32_t MppH264EncoderImpl::Encode(
 
   if (is_nv12) {
     nv12_buffer = vfb->GetNV12();
-    RTC_CHECK(nv12_buffer);
+    if (!nv12_buffer) {
+      RTC_LOG(LS_ERROR) << "NV12 frame did not provide an NV12 buffer.";
+      return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    }
   } else {
     i420_buffer = vfb->ToI420();
     if (!i420_buffer) {
@@ -357,58 +290,60 @@ int32_t MppH264EncoderImpl::Encode(
     }
   }
 
-  bool is_keyframe_needed = false;
-  if (configuration_.key_frame_request && configuration_.sending) {
-    is_keyframe_needed = true;
-  }
-
-  bool send_key_frame =
-      is_keyframe_needed ||
+  const bool is_keyframe_needed =
+      configuration_.key_frame_request ||
       (frame_types && !frame_types->empty() &&
        (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
-  if (send_key_frame) {
-    is_keyframe_needed = true;
-    configuration_.key_frame_request = false;
-  }
-
-  if (!configuration_.sending) {
-    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
-  }
-
-  if (frame_types != nullptr && !frame_types->empty()) {
-    if ((*frame_types)[0] == VideoFrameType::kEmptyFrame) {
-      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
-    }
-  }
 
   // Request IDR frame if needed
   if (is_keyframe_needed) {
-    mpp_api_->control(mpp_ctx_, MPP_ENC_SET_IDR_FRAME, nullptr);
+    MPP_RET idr_result =
+        session_.api()->control(session_.context(), MPP_ENC_SET_IDR_FRAME, nullptr);
+    if (idr_result == MPP_OK) {
+      configuration_.key_frame_request = false;
+    } else {
+      RTC_LOG(LS_WARNING) << "MPP H.264 IDR request failed: " << idr_result;
+    }
   }
 
-  void* buf = mpp_buffer_get_ptr(frame_buf_);
+  void* buf = mpp_buffer_get_ptr(session_.frame_buffer());
+  if (!buf) {
+    RTC_LOG(LS_ERROR) << "MPP H.264 frame buffer is not CPU-accessible";
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
+  MPP_RET sync_result = mpp_buffer_sync_begin(session_.frame_buffer());
+  if (sync_result != MPP_OK) {
+    RTC_LOG(LS_ERROR) << "Failed to begin MPP H.264 buffer access: "
+                      << sync_result;
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
   MppFrameFormat mpp_fmt;
+  int copy_result;
+  const size_t y_plane_size = static_cast<size_t>(hor_stride_) *
+                              static_cast<size_t>(ver_stride_);
 
   if (is_nv12) {
     // NV12 (YUV420SP): Y plane + interleaved UV plane — native MPP format
     uint8_t* dst_y = static_cast<uint8_t*>(buf);
-    uint8_t* dst_uv = dst_y + hor_stride_ * ver_stride_;
+    uint8_t* dst_uv = dst_y + y_plane_size;
 
-    libyuv::NV12Copy(
+    copy_result = libyuv::NV12Copy(
         nv12_buffer->DataY(), nv12_buffer->StrideY(),
         nv12_buffer->DataUV(), nv12_buffer->StrideUV(),
         dst_y, hor_stride_,
         dst_uv, hor_stride_,
         codec_.width, codec_.height);
-
     mpp_fmt = MPP_FMT_YUV420SP;
   } else {
     // I420 (YUV420P): separate Y, U, V planes
     uint8_t* dst_y = static_cast<uint8_t*>(buf);
-    uint8_t* dst_u = dst_y + hor_stride_ * ver_stride_;
-    uint8_t* dst_v = dst_u + (hor_stride_ / 2) * (ver_stride_ / 2);
+    uint8_t* dst_u = dst_y + y_plane_size;
+    const size_t chroma_plane_size =
+        static_cast<size_t>(hor_stride_ / 2) *
+        static_cast<size_t>(ver_stride_ / 2);
+    uint8_t* dst_v = dst_u + chroma_plane_size;
 
-    libyuv::I420Copy(
+    copy_result = libyuv::I420Copy(
         i420_buffer->DataY(), i420_buffer->StrideY(),
         i420_buffer->DataU(), i420_buffer->StrideU(),
         i420_buffer->DataV(), i420_buffer->StrideV(),
@@ -416,21 +351,33 @@ int32_t MppH264EncoderImpl::Encode(
         dst_u, hor_stride_ / 2,
         dst_v, hor_stride_ / 2,
         codec_.width, codec_.height);
-
     mpp_fmt = MPP_FMT_YUV420P;
+  }
+
+  sync_result = mpp_buffer_sync_end(session_.frame_buffer());
+  if (copy_result != 0) {
+    RTC_LOG(LS_ERROR) << "Failed to copy input frame: " << copy_result;
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
+  if (sync_result != MPP_OK) {
+    RTC_LOG(LS_ERROR) << "Failed to finish MPP H.264 buffer access: "
+                      << sync_result;
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
   // Reconfigure MPP prep:format when the input pixel format changes
   if (mpp_fmt != configured_fmt_) {
-    mpp_enc_cfg_set_s32(mpp_cfg_, "prep:format", mpp_fmt);
-    MPP_RET cfg_ret = mpp_api_->control(mpp_ctx_, MPP_ENC_SET_CFG, mpp_cfg_);
+    mpp_enc_cfg_set_s32(session_.config(), "prep:format", mpp_fmt);
+    MPP_RET cfg_ret = session_.api()->control(
+        session_.context(), MPP_ENC_SET_CFG, session_.config());
     if (cfg_ret == MPP_OK) {
       RTC_LOG(LS_INFO) << "MPP H264 prep:format reconfigured from "
                        << configured_fmt_ << " to " << mpp_fmt;
       configured_fmt_ = mpp_fmt;
     } else {
-      RTC_LOG(LS_WARNING) << "MPP H264 prep:format reconfigure failed: "
-                          << cfg_ret;
+      RTC_LOG(LS_ERROR) << "MPP H264 prep:format reconfigure failed: "
+                        << cfg_ret;
+      return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
     }
   }
 
@@ -447,20 +394,37 @@ int32_t MppH264EncoderImpl::Encode(
   mpp_frame_set_hor_stride(frame, hor_stride_);
   mpp_frame_set_ver_stride(frame, ver_stride_);
   mpp_frame_set_fmt(frame, mpp_fmt);
-  mpp_frame_set_buffer(frame, frame_buf_);
+  mpp_frame_set_buffer(frame, session_.frame_buffer());
   mpp_frame_set_eos(frame, 0);
 
   // Set up output packet
   MppPacket packet = nullptr;
-  mpp_packet_init_with_buffer(&packet, pkt_buf_);
+  ret = mpp_packet_init_with_buffer(&packet, session_.packet_buffer());
+  if (ret != MPP_OK || !packet) {
+    RTC_LOG(LS_ERROR) << "mpp_packet_init_with_buffer failed: " << ret;
+    mpp_frame_deinit(&frame);
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
   mpp_packet_set_length(packet, 0);
 
   // Attach output packet via metadata
   MppMeta meta = mpp_frame_get_meta(frame);
-  mpp_meta_set_packet(meta, KEY_OUTPUT_PACKET, packet);
+  if (!meta) {
+    RTC_LOG(LS_ERROR) << "mpp_frame_get_meta returned null";
+    mpp_frame_deinit(&frame);
+    mpp_packet_deinit(&packet);
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
+  ret = mpp_meta_set_packet(meta, KEY_OUTPUT_PACKET, packet);
+  if (ret != MPP_OK) {
+    RTC_LOG(LS_ERROR) << "mpp_meta_set_packet failed: " << ret;
+    mpp_frame_deinit(&frame);
+    mpp_packet_deinit(&packet);
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
 
   // Encode: put frame and get packet
-  ret = mpp_api_->encode_put_frame(mpp_ctx_, frame);
+  ret = session_.api()->encode_put_frame(session_.context(), frame);
   if (ret != MPP_OK) {
     RTC_LOG(LS_ERROR) << "encode_put_frame failed: " << ret;
     mpp_frame_deinit(&frame);
@@ -468,31 +432,21 @@ int32_t MppH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
-  MppPacket out_packet = nullptr;
-  ret = mpp_api_->encode_get_packet(mpp_ctx_, &out_packet);
+  ret = session_.api()->encode_get_packet(session_.context(), &packet);
   if (ret != MPP_OK) {
     RTC_LOG(LS_ERROR) << "encode_get_packet failed: " << ret;
     mpp_frame_deinit(&frame);
-    // After encode_put_frame succeeded, MPP owns the packet via metadata;
-    // do not deinit packet here to avoid double-free.
+    // The packet may still be held by MPP after a failed dequeue.
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
   int32_t result = WEBRTC_VIDEO_CODEC_OK;
-  if (out_packet) {
-    result = ProcessEncodedPacket(out_packet, input_frame);
-    // out_packet is the same object as packet (MPP fills and returns the
-    // pre-allocated packet we attached via KEY_OUTPUT_PACKET metadata).
-    // Only deinit once to avoid double-free / negative ref-count errors.
-    mpp_packet_deinit(&out_packet);
-    packet = nullptr;  // prevent double deinit below
-  }
-
-  mpp_frame_deinit(&frame);
   if (packet) {
+    result = ProcessEncodedPacket(packet, input_frame);
     mpp_packet_deinit(&packet);
   }
 
+  mpp_frame_deinit(&frame);
   return result;
 }
 
@@ -531,8 +485,7 @@ int32_t MppH264EncoderImpl::ProcessEncodedPacket(
     }
   }
 
-  encoded_image_.SetEncodedData(
-      EncodedImageBuffer::Create(data, len));
+  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(data, len));
   encoded_image_.set_size(len);
 
   h264_bitstream_parser_.ParseBitstream(encoded_image_);
@@ -541,7 +494,11 @@ int32_t MppH264EncoderImpl::ProcessEncodedPacket(
   CodecSpecificInfo codec_info;
   codec_info.codecType = kVideoCodecH264;
   codec_info.codecSpecific.H264.packetization_mode =
-      H264PacketizationMode::NonInterleaved;
+      packetization_mode_;
+  codec_info.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
+  codec_info.codecSpecific.H264.base_layer_sync = false;
+  codec_info.codecSpecific.H264.idr_frame =
+      encoded_image_._frameType == VideoFrameType::kVideoFrameKey;
 
   const auto result =
       encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_info);
@@ -559,12 +516,13 @@ VideoEncoder::EncoderInfo MppH264EncoderImpl::GetEncoderInfo() const {
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
-  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNV12, VideoFrameBuffer::Type::kI420};
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNV12,
+                                  VideoFrameBuffer::Type::kI420};
   return info;
 }
 
 void MppH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
-  if (!mpp_ctx_ || !mpp_api_) {
+  if (!session_.context() || !session_.api()) {
     RTC_LOG(LS_WARNING) << "SetRates() while uninitialized.";
     return;
   }
@@ -583,25 +541,28 @@ void MppH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
   float new_fps = parameters.framerate_fps;
 
   codec_.maxFramerate = static_cast<uint32_t>(new_fps);
-  codec_.maxBitrate = new_target_bps;
+  codec_.maxBitrate = new_target_bps / 1000;
 
   configuration_.target_bps = new_target_bps;
   configuration_.max_frame_rate = new_fps;
 
   // Dynamically update MPP rate control
-  if (mpp_cfg_) {
+  if (session_.config()) {
     int fps_num = static_cast<int>(new_fps);
-    if (fps_num < 1) fps_num = 30;
+    if (fps_num < 1) {
+      fps_num = 30;
+    }
 
-    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_target", new_target_bps);
-    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_max", new_target_bps * 3 / 2);
-    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_min", new_target_bps / 2);
-    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_in_num", fps_num);
-    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_in_denorm", 1);
-    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_out_num", fps_num);
-    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_out_denorm", 1);
+    mpp_enc_cfg_set_s32(session_.config(), "rc:bps_target", new_target_bps);
+    mpp_enc_cfg_set_s32(session_.config(), "rc:bps_max", new_target_bps * 3 / 2);
+    mpp_enc_cfg_set_s32(session_.config(), "rc:bps_min", new_target_bps / 2);
+    mpp_enc_cfg_set_s32(session_.config(), "rc:fps_in_num", fps_num);
+    mpp_enc_cfg_set_s32(session_.config(), "rc:fps_in_denorm", 1);
+    mpp_enc_cfg_set_s32(session_.config(), "rc:fps_out_num", fps_num);
+    mpp_enc_cfg_set_s32(session_.config(), "rc:fps_out_denorm", 1);
 
-    MPP_RET ret = mpp_api_->control(mpp_ctx_, MPP_ENC_SET_CFG, mpp_cfg_);
+    MPP_RET ret = session_.api()->control(
+        session_.context(), MPP_ENC_SET_CFG, session_.config());
     if (ret != MPP_OK) {
       RTC_LOG(LS_WARNING) << "Failed to update MPP rate control: " << ret;
     }

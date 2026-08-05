@@ -111,6 +111,22 @@ jobs:
         run: |
           sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
 
+      - name: Prepare pinned Rockchip MPP headers
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        shell: bash
+        env:
+          ROCKCHIP_MPP_COMMIT: df4864bd1e907cbfd427c397348976c5b2b05ee9
+        run: |
+          mpp_source="$RUNNER_TEMP/rockchip-mpp"
+          mpp_include="$RUNNER_TEMP/rockchip-mpp-include"
+          git init "$mpp_source"
+          git -C "$mpp_source" remote add origin https://github.com/rockchip-linux/mpp.git
+          git -C "$mpp_source" fetch --depth 1 origin "$ROCKCHIP_MPP_COMMIT"
+          git -C "$mpp_source" checkout --detach FETCH_HEAD
+          mkdir -p "$mpp_include/rockchip"
+          cp "$mpp_source"/inc/*.h "$mpp_include/rockchip/"
+          echo "LK_MPP_INCLUDE_DIR=$mpp_include" >> "$GITHUB_ENV"
+
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:
@@ -158,6 +174,11 @@ jobs:
         if: ${{ !contains(matrix.target, 'android') }}
         run: |
           cargo build --release --workspace -p livekit --target ${{ matrix.target }}
+
+      - name: Check Linux V4L2 publisher
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        run: |
+          cargo check --release --locked -p local_video --features desktop --bin publisher --target ${{ matrix.target }}
 
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}

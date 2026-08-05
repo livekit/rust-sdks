@@ -41,7 +41,7 @@ MppVideoEncoderFactory::MppVideoEncoderFactory() {
   }
 }
 
-MppVideoEncoderFactory::~MppVideoEncoderFactory() {}
+MppVideoEncoderFactory::~MppVideoEncoderFactory() = default;
 
 bool MppVideoEncoderFactory::IsSupported() {
   return livekit_ffi::MppContext::IsAvailable();

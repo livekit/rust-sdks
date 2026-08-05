@@ -17,27 +17,12 @@
 #ifndef WEBRTC_SYS_MPP_CONTEXT_H
 #define WEBRTC_SYS_MPP_CONTEXT_H
 
-#include <rockchip/rk_mpi.h>
-#include <rockchip/mpp_buffer.h>
-#include <rockchip/mpp_frame.h>
-#include <rockchip/mpp_packet.h>
-#include <rockchip/rk_venc_cfg.h>
-
 namespace livekit_ffi {
 
 class MppContext {
  public:
-  MppContext() = default;
-  ~MppContext() = default;
-
   /// Check if the Rockchip MPP library is available on this system.
   static bool IsAvailable();
-
-  /// Get the singleton instance.
-  static MppContext* GetInstance();
-
- private:
-  static bool LoadLibrary();
 };
 
 }  // namespace livekit_ffi

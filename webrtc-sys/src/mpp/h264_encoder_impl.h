@@ -30,6 +30,7 @@
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/video_encoder.h"
 #include "common_video/h264/h264_bitstream_parser.h"
+#include "mpp_encoder_session.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
 
 namespace webrtc {
@@ -37,17 +38,10 @@ namespace webrtc {
 class MppH264EncoderImpl : public VideoEncoder {
  public:
   struct LayerConfig {
-    int simulcast_idx = 0;
-    int width = -1;
-    int height = -1;
     bool sending = true;
     bool key_frame_request = false;
     float max_frame_rate = 0;
     uint32_t target_bps = 0;
-    uint32_t max_bps = 0;
-    bool frame_dropping_on = false;
-    int key_frame_interval = 0;
-    int num_temporal_layers = 1;
 
     void SetStreamState(bool send_stream);
   };
@@ -78,32 +72,20 @@ class MppH264EncoderImpl : public VideoEncoder {
   int32_t ProcessEncodedPacket(MppPacket packet,
                                const VideoFrame& input_frame);
 
-  void ReportInit();
-  void ReportError();
-
  private:
   const webrtc::Environment& env_;
   EncodedImageCallback* encoded_image_callback_ = nullptr;
 
-  // MPP handles
-  MppCtx mpp_ctx_ = nullptr;
-  MppApi* mpp_api_ = nullptr;
-  MppEncCfg mpp_cfg_ = nullptr;
-  MppBufferGroup frame_group_ = nullptr;
-  MppBuffer frame_buf_ = nullptr;
-  MppBuffer pkt_buf_ = nullptr;
+  MppEncoderSession session_;
 
   LayerConfig configuration_;
   EncodedImage encoded_image_;
   H264PacketizationMode packetization_mode_;
   VideoCodec codec_;
 
-  bool has_reported_init_ = false;
-  bool has_reported_error_ = false;
   H264BitstreamParser h264_bitstream_parser_;
-  const SdpVideoFormat format_;
   H264Profile profile_ = H264Profile::kProfileConstrainedBaseline;
-  H264Level level_ = H264Level::kLevel1_b;
+  H264Level level_ = H264Level::kLevel3_1;
 
   // Frame dimensions with stride alignment for MPP
   int hor_stride_ = 0;

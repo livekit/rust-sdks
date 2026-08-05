@@ -147,6 +147,8 @@ static const char *const sym_names[] = {
   "mpp_buffer_group_get",
   "mpp_buffer_group_put",
   "mpp_meta_set_packet",
+  "mpp_buffer_sync_begin_f",
+  "mpp_buffer_sync_end_f",
   0
 };
 
