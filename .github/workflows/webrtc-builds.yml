@@ -112,11 +112,17 @@ jobs:
         run: |
           pip3 install setuptools # pkg_resources is sometimes not found?
 
-      - name: Install linux dependencies
-        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+      - name: Install Linux dependencies
+        if: ${{ (matrix.target.os == 'ubuntu-latest') || (matrix.target.name == 'linux') }}
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
+
+      - name: Install Linux dependencies for Ubuntu 26
+        if: ${{ matrix.target.name == 'linux' }}
+        run: |
+          sudo apt update -y
+          sudo apt install -y libc6-dev libstdc++-15-dev libasound2-dev libpulse-dev libudev-dev libexpat1-dev libnss3-dev python-dev-is-python3 libgtk-3-dev
 
       - name: Select Xcode 26.0
         if: ${{ matrix.target.os == 'macos-latest' }}
@@ -143,7 +149,7 @@ jobs:
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
-        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        if: ${{ (matrix.target.os == 'ubuntu-latest') || (matrix.target.name == 'linux') }}
         with:
           android: false
           tool-cache: true
