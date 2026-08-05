@@ -47,19 +47,30 @@ namespace {
 // surfaces when Configure() fails at runtime ("FFmpeg H.264 decoder not
 // found"). Probe once so the SDP does not advertise decode support the
 // internal decoder cannot deliver.
-bool InternalH264DecoderWorks() {
-  if (!webrtc::H264Decoder::IsSupported())
+bool IsInternalH264DecoderAvailable() {
+  if (!webrtc::H264Decoder::IsSupported()) {
+    RTC_LOG(LS_WARNING) << "Internal H264 decoder not compiled in "
+                           "(WEBRTC_USE_H264 off)";
     return false;
+  }
   auto decoder = webrtc::H264Decoder::Create();
-  if (!decoder)
+  if (!decoder) {
+    RTC_LOG(LS_WARNING) << "H264Decoder::Create() returned null";
     return false;
+  }
   webrtc::VideoDecoder::Settings settings;
   settings.set_codec_type(webrtc::kVideoCodecH264);
-  return decoder->Configure(settings);
+  if (!decoder->Configure(settings)) {
+    RTC_LOG(LS_WARNING) << "Internal H264 decoder failed to configure; "
+                           "FFmpeg likely lacks the H.264 codec";
+    return false;
+  }
+  return true;
 }
 }  // namespace
 
-VideoDecoderFactory::VideoDecoderFactory() {
+VideoDecoderFactory::VideoDecoderFactory()
+    : internal_h264_decoder_works_(IsInternalH264DecoderAvailable()) {
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
 #endif
@@ -74,7 +85,6 @@ VideoDecoderFactory::VideoDecoderFactory() {
   }
 #endif
 
-  internal_h264_decoder_works_ = InternalH264DecoderWorks();
   if (!internal_h264_decoder_works_) {
     RTC_LOG(LS_WARNING) << "Internal H264 decoder is unavailable, "
                            "not advertising its formats";
@@ -97,8 +107,9 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
     formats.push_back(format);
   if (internal_h264_decoder_works_) {
     for (const webrtc::SdpVideoFormat& h264_format :
-         webrtc::SupportedH264DecoderCodecs())
+         webrtc::SupportedH264DecoderCodecs()) {
       formats.push_back(h264_format);
+    }
   }
 
   formats.push_back(webrtc::SdpVideoFormat(
