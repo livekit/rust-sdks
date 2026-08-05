@@ -167,6 +167,11 @@ impl TextStreamWriter {
         self.0.info().clone().into()
     }
 
+    /// Whether the stream is still open — false once it has been closed locally or a send has failed.
+    pub async fn is_open(&self) -> bool {
+        !self.0.is_closed().await
+    }
+
     /// Appends text to the stream.
     pub async fn write(&self, text: String) -> Result<(), DataStreamError> {
         Ok(self.0.write(&text).await?)
@@ -192,6 +197,11 @@ impl ByteStreamWriter {
     /// Information about the underlying stream.
     pub fn info(&self) -> ByteStreamInfo {
         self.0.info().clone().into()
+    }
+
+    /// Whether the stream is still open — false once it has been closed locally or a send has failed.
+    pub async fn is_open(&self) -> bool {
+        !self.0.is_closed().await
     }
 
     /// Appends bytes to the stream.
