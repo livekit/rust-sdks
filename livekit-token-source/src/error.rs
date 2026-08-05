@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Errors returned when procuring credentials from a token source.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenSourceError {
     #[error("no HTTP client available; enable a livekit-net backend feature or call livekit_net::set_http_client")]
