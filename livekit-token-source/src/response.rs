@@ -14,6 +14,8 @@
 
 use crate::error::TokenSourceError;
 
+/// The credentials returned by a token source: the server to connect to and
+/// the participant token to authenticate with.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct TokenSourceResponse {
     // The documented endpoint contract is snake_case; the camelCase aliases
@@ -24,4 +26,5 @@ pub struct TokenSourceResponse {
     pub participant_token: String,
 }
 
+/// Result alias used by all token source operations.
 pub type TokenSourceResult<T> = Result<T, TokenSourceError>;
