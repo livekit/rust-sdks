@@ -16,7 +16,11 @@ use crate::error::TokenSourceError;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct TokenSourceResponse {
+    // The documented endpoint contract is snake_case; the camelCase aliases
+    // match the leniency of the JS SDK, which parses via proto3 fromJson.
+    #[serde(alias = "serverUrl")]
     pub server_url: String,
+    #[serde(alias = "participantToken")]
     pub participant_token: String,
 }
 
