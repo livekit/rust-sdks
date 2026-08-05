@@ -30,6 +30,7 @@ use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     mem,
+    ops::ControlFlow,
     pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -57,6 +58,7 @@ pub struct Manager {
     event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
+    shutdown_rx: watch::Receiver<bool>,
 
     /// Mapping between track SID and descriptor.
     descriptors: HashMap<DataTrackSid, Descriptor>,
@@ -81,13 +83,15 @@ impl Manager {
     pub fn new(options: ManagerOptions) -> (Self, ManagerInput, ManagerOutput) {
         let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-        let event_in = ManagerInput::new(event_in_tx.clone());
+        let event_in = ManagerInput::new(event_in_tx.clone(), shutdown_tx);
         let manager = Manager {
             decryption_provider: options.decryption_provider,
             event_in_tx,
             event_in_rx,
             event_out_tx,
+            shutdown_rx,
             descriptors: HashMap::default(),
             sub_handles: HashMap::default(),
         };
@@ -102,24 +106,51 @@ impl Manager {
     ///
     pub async fn run(mut self) {
         log::debug!("Task started");
-        while let Some(event) = self.event_in_rx.recv().await {
-            match event {
-                InputEvent::SubscribeRequest(event) => self.on_subscribe_request(event).await,
-                InputEvent::UnsubscribeRequest(event) => self.on_unsubscribe_request(event).await,
-                InputEvent::SfuPublicationUpdates(event) => {
-                    self.on_sfu_publication_updates(event).await
+        loop {
+            tokio::select! {
+                // Biased so queued events are still processed in order once
+                // shutdown has been signalled out-of-band; see `ManagerInput::send`.
+                biased;
+                event = self.event_in_rx.recv() => {
+                    let Some(event) = event else { break };
+                    if self.handle_event(event).await.is_break() {
+                        break;
+                    }
                 }
-                InputEvent::SfuSubscriberHandles(event) => self.on_sfu_subscriber_handles(event),
-                InputEvent::SetPipelineOptions(event) => self.on_set_pipeline_options(event),
-                InputEvent::PacketReceived(bytes) => self.on_packet_received(bytes),
-                InputEvent::ResendSubscriptionUpdates => {
-                    self.on_resend_subscription_updates().await
+                _ = self.shutdown_rx.changed() => {
+                    self.drain_pending().await;
+                    break;
                 }
-                InputEvent::Shutdown => break,
             }
         }
         self.shutdown().await;
         log::debug!("Task ended");
+    }
+
+    /// Drains events that were queued ahead of an out-of-band shutdown signal.
+    async fn drain_pending(&mut self) {
+        while let Ok(event) = self.event_in_rx.try_recv() {
+            if self.handle_event(event).await.is_break() {
+                break;
+            }
+        }
+    }
+
+    /// Handles a single input event, reporting whether the task should stop.
+    async fn handle_event(&mut self, event: InputEvent) -> ControlFlow<()> {
+        match event {
+            InputEvent::SubscribeRequest(event) => self.on_subscribe_request(event).await,
+            InputEvent::UnsubscribeRequest(event) => self.on_unsubscribe_request(event).await,
+            InputEvent::SfuPublicationUpdates(event) => {
+                self.on_sfu_publication_updates(event).await
+            }
+            InputEvent::SfuSubscriberHandles(event) => self.on_sfu_subscriber_handles(event),
+            InputEvent::SetPipelineOptions(event) => self.on_set_pipeline_options(event),
+            InputEvent::PacketReceived(bytes) => self.on_packet_received(bytes),
+            InputEvent::ResendSubscriptionUpdates => self.on_resend_subscription_updates().await,
+            InputEvent::Shutdown => return ControlFlow::Break(()),
+        }
+        ControlFlow::Continue(())
     }
 
     async fn on_subscribe_request(&mut self, event: SubscribeRequest) {
@@ -421,8 +452,9 @@ impl Manager {
     }
 
     /// Performs cleanup before the task ends.
-    async fn shutdown(self) {
-        for (_, descriptor) in self.descriptors {
+    async fn shutdown(mut self) {
+        let mut task_handles = Vec::new();
+        for (_, descriptor) in mem::take(&mut self.descriptors) {
             _ = descriptor.published_tx.send(false);
             match descriptor.subscription {
                 SubscriptionState::None => {}
@@ -431,7 +463,25 @@ impl Manager {
                         _ = result_tx.send(Err(DataTrackSubscribeError::Disconnected));
                     }
                 }
-                SubscriptionState::Active { task_handle, .. } => task_handle.await,
+                SubscriptionState::Active { task_handle, .. } => task_handles.push(task_handle),
+            }
+        }
+
+        // Track tasks emit a final unsubscribe request as they end, so the input
+        // channel has to keep draining while they are joined. Joining without
+        // draining deadlocks as soon as more tasks are ending than the channel
+        // can buffer.
+        let join_tasks = async {
+            for task_handle in task_handles {
+                task_handle.await;
+            }
+        };
+        tokio::pin!(join_tasks);
+        loop {
+            tokio::select! {
+                _ = &mut join_tasks => break,
+                // Never yields `None`: the manager owns a sender for its own lifetime.
+                _ = self.event_in_rx.recv() => {}
             }
         }
     }
@@ -523,7 +573,7 @@ impl TrackTask {
 #[derive(Debug, Clone)]
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
-    _drop_guard: Arc<DropGuard>,
+    drop_guard: Arc<DropGuard>,
 }
 
 /// Stream of [`OutputEvent`]s produced by [`Manager`].
@@ -538,25 +588,32 @@ impl Stream for ManagerOutput {
     }
 }
 
-/// Guard that sends shutdown event when the last reference is dropped.
+/// Guard that signals shutdown when the last reference is dropped.
 #[derive(Debug)]
 struct DropGuard {
-    event_in_tx: mpsc::Sender<InputEvent>,
+    shutdown_tx: watch::Sender<bool>,
 }
 
 impl Drop for DropGuard {
     fn drop(&mut self) {
-        _ = self.event_in_tx.try_send(InputEvent::Shutdown);
+        _ = self.shutdown_tx.send(true);
     }
 }
 
 impl ManagerInput {
-    fn new(event_in_tx: mpsc::Sender<InputEvent>) -> Self {
-        Self { event_in_tx: event_in_tx.clone(), _drop_guard: DropGuard { event_in_tx }.into() }
+    fn new(event_in_tx: mpsc::Sender<InputEvent>, shutdown_tx: watch::Sender<bool>) -> Self {
+        Self { event_in_tx, drop_guard: DropGuard { shutdown_tx }.into() }
     }
 
     /// Sends an input event to the manager's task to be processed.
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
+        // Shutdown bypasses the bounded event channel. In-flight track events
+        // routinely saturate it, and a shutdown dropped for lack of capacity
+        // strands the manager task along with everyone awaiting its completion.
+        if matches!(event, InputEvent::Shutdown) {
+            _ = self.drop_guard.shutdown_tx.send(true);
+            return Ok(());
+        }
         Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
     }
 }

@@ -27,6 +27,7 @@ use anyhow::{anyhow, Context};
 use futures_core::Stream;
 use std::{
     collections::HashMap,
+    ops::ControlFlow,
     pin::Pin,
     sync::Arc,
     task::{Context as TaskContext, Poll},
@@ -51,6 +52,7 @@ pub struct Manager {
     event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
+    shutdown_rx: watch::Receiver<bool>,
     handle_allocator: packet::HandleAllocator,
     descriptors: HashMap<Handle, Descriptor>,
 }
@@ -67,13 +69,15 @@ impl Manager {
     pub fn new(options: ManagerOptions) -> (Self, ManagerInput, ManagerOutput) {
         let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-        let event_in = ManagerInput::new(event_in_tx.clone());
+        let event_in = ManagerInput::new(event_in_tx.clone(), shutdown_tx);
         let manager = Manager {
             encryption_provider: options.encryption_provider,
             event_in_tx,
             event_in_rx,
             event_out_tx,
+            shutdown_rx,
             handle_allocator: packet::HandleAllocator::default(),
             descriptors: HashMap::new(),
         };
@@ -88,23 +92,50 @@ impl Manager {
     ///
     pub async fn run(mut self) {
         log::debug!("Task started");
-        while let Some(event) = self.event_in_rx.recv().await {
-            log::debug!("Input event: {:?}", event);
-            match event {
-                InputEvent::PublishRequest(event) => self.on_publish_request(event).await,
-                InputEvent::PublishCancelled(event) => self.on_publish_cancelled(event).await,
-                InputEvent::QueryPublished(event) => self.on_query_published(event).await,
-                InputEvent::UnpublishRequest(event) => self.on_unpublish_request(event).await,
-                InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
-                InputEvent::SfuUnpublishResponse(event) => {
-                    self.on_sfu_unpublish_response(event).await
+        loop {
+            tokio::select! {
+                // Biased so queued events are still processed in order once
+                // shutdown has been signalled out-of-band; see `ManagerInput::send`.
+                biased;
+                event = self.event_in_rx.recv() => {
+                    let Some(event) = event else { break };
+                    if self.handle_event(event).await.is_break() {
+                        break;
+                    }
                 }
-                InputEvent::RepublishTracks => self.on_republish_tracks().await,
-                InputEvent::Shutdown => break,
+                _ = self.shutdown_rx.changed() => {
+                    self.drain_pending().await;
+                    break;
+                }
             }
         }
         self.shutdown().await;
         log::debug!("Task ended");
+    }
+
+    /// Drains events that were queued ahead of an out-of-band shutdown signal.
+    async fn drain_pending(&mut self) {
+        while let Ok(event) = self.event_in_rx.try_recv() {
+            if self.handle_event(event).await.is_break() {
+                break;
+            }
+        }
+    }
+
+    /// Handles a single input event, reporting whether the task should stop.
+    async fn handle_event(&mut self, event: InputEvent) -> ControlFlow<()> {
+        log::debug!("Input event: {:?}", event);
+        match event {
+            InputEvent::PublishRequest(event) => self.on_publish_request(event).await,
+            InputEvent::PublishCancelled(event) => self.on_publish_cancelled(event).await,
+            InputEvent::QueryPublished(event) => self.on_query_published(event).await,
+            InputEvent::UnpublishRequest(event) => self.on_unpublish_request(event).await,
+            InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
+            InputEvent::SfuUnpublishResponse(event) => self.on_sfu_unpublish_response(event).await,
+            InputEvent::RepublishTracks => self.on_republish_tracks().await,
+            InputEvent::Shutdown => return ControlFlow::Break(()),
+        }
+        ControlFlow::Continue(())
     }
 
     async fn on_publish_request(&mut self, event: PublishRequest) {
@@ -308,16 +339,35 @@ impl Manager {
     }
 
     /// Performs cleanup before the task ends.
-    async fn shutdown(self) {
-        for (_, descriptor) in self.descriptors {
+    async fn shutdown(mut self) {
+        let mut task_handles = Vec::new();
+        for (_, descriptor) in std::mem::take(&mut self.descriptors) {
             match descriptor {
                 Descriptor::Pending(result_tx) => {
                     _ = result_tx.send(Err(PublishError::Disconnected))
                 }
                 Descriptor::Active { state_tx, task_handle, .. } => {
                     _ = state_tx.send(PublishState::Unpublished);
-                    task_handle.await;
+                    task_handles.push(task_handle);
                 }
+            }
+        }
+
+        // Track tasks emit a final unpublish request as they end, so the input
+        // channel has to keep draining while they are joined. Joining without
+        // draining deadlocks as soon as more tasks are ending than the channel
+        // can buffer.
+        let join_tasks = async {
+            for task_handle in task_handles {
+                task_handle.await;
+            }
+        };
+        tokio::pin!(join_tasks);
+        loop {
+            tokio::select! {
+                _ = &mut join_tasks => break,
+                // Never yields `None`: the manager owns a sender for its own lifetime.
+                _ = self.event_in_rx.recv() => {}
             }
         }
     }
@@ -415,7 +465,7 @@ pub(crate) enum PublishState {
 #[derive(Debug, Clone)]
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
-    _drop_guard: Arc<DropGuard>,
+    drop_guard: Arc<DropGuard>,
 }
 
 /// Stream of [`OutputEvent`]s produced by [`Manager`].
@@ -430,25 +480,32 @@ impl Stream for ManagerOutput {
     }
 }
 
-/// Guard that sends shutdown event when the last reference is dropped.
+/// Guard that signals shutdown when the last reference is dropped.
 #[derive(Debug)]
 struct DropGuard {
-    event_in_tx: mpsc::Sender<InputEvent>,
+    shutdown_tx: watch::Sender<bool>,
 }
 
 impl Drop for DropGuard {
     fn drop(&mut self) {
-        _ = self.event_in_tx.try_send(InputEvent::Shutdown);
+        _ = self.shutdown_tx.send(true);
     }
 }
 
 impl ManagerInput {
-    fn new(event_in_tx: mpsc::Sender<InputEvent>) -> Self {
-        Self { event_in_tx: event_in_tx.clone(), _drop_guard: DropGuard { event_in_tx }.into() }
+    fn new(event_in_tx: mpsc::Sender<InputEvent>, shutdown_tx: watch::Sender<bool>) -> Self {
+        Self { event_in_tx, drop_guard: DropGuard { shutdown_tx }.into() }
     }
 
     /// Sends an input event to the manager's task to be processed.
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
+        // Shutdown bypasses the bounded event channel. In-flight track events
+        // routinely saturate it, and a shutdown dropped for lack of capacity
+        // strands the manager task along with everyone awaiting its completion.
+        if matches!(event, InputEvent::Shutdown) {
+            _ = self.drop_guard.shutdown_tx.send(true);
+            return Ok(());
+        }
         Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
     }
 
@@ -525,6 +582,30 @@ mod tests {
         _ = input.send(InputEvent::Shutdown);
 
         timeout(Duration::from_secs(1), join_handle).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_task_shutdown_with_saturated_event_channel() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, _output) = Manager::new(options);
+
+        // Fill the event channel before the manager starts draining it so that
+        // shutdown cannot depend on any remaining capacity.
+        let mut result_rxs = Vec::new();
+        for _ in 0..Manager::EVENT_BUFFER_COUNT {
+            let (result_tx, result_rx) = oneshot::channel();
+            input.send(QueryPublished { result_tx }.into()).unwrap();
+            result_rxs.push(result_rx);
+        }
+        input.send(InputEvent::Shutdown).unwrap();
+
+        let join_handle = livekit_runtime::spawn(manager.run());
+        timeout(Duration::from_secs(1), join_handle).await.unwrap();
+
+        // Events queued ahead of the shutdown signal are still processed.
+        for result_rx in result_rxs {
+            assert!(result_rx.await.is_ok());
+        }
     }
 
     #[tokio::test]
