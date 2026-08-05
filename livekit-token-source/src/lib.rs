@@ -22,6 +22,8 @@ pub use request::TokenSourceFetchOptions;
 pub use response::TokenSourceResponse;
 pub use response::TokenSourceResult;
 pub use token_source::TokenSource;
+pub use token_source::TokenSourceConfigurable;
 pub use token_source::TokenSourceDevelopmentTokenServer;
 pub use token_source::TokenSourceEndpoint;
+pub use token_source::TokenSourceFixed;
 pub use token_source::TokenSourceLiteral;

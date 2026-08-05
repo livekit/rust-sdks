@@ -14,7 +14,7 @@
 
 use crate::error::TokenSourceError;
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct TokenSourceResponse {
     pub server_url: String,
     pub participant_token: String,

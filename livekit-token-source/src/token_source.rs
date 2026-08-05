@@ -17,17 +17,39 @@ use crate::request::TokenSourceFetchOptions;
 use crate::request::TokenSourceRequest;
 use crate::response::TokenSourceResponse;
 use crate::response::TokenSourceResult;
+use async_trait::async_trait;
 use livekit_net::{Header, HttpClientExt};
 
 const DEVELOPMENT_TOKEN_SERVER_ENDPOINT_URL: &str =
     "https://cloud-api.livekit.io/api/v2/sandbox/connection-details";
 const DEVELOPMENT_TOKEN_SERVER_ID_HEADER: &str = "X-Sandbox-ID";
 
+/// A token source whose credentials are not parameterized: `fetch` takes no
+/// options and every call resolves the same way.
+#[async_trait]
+pub trait TokenSourceFixed {
+    async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse>;
+}
+
+/// A token source that generates credentials from per-call
+/// [`TokenSourceFetchOptions`] (room name, participant identity, agent
+/// dispatch, ...).
+///
+/// Implement this trait to plug a custom credential backend into code that is
+/// generic over token sources.
+#[async_trait]
+pub trait TokenSourceConfigurable {
+    async fn fetch(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> TokenSourceResult<TokenSourceResponse>;
+}
+
 pub enum TokenSource {}
 
 impl TokenSource {
     pub fn literal(response: TokenSourceResponse) -> TokenSourceLiteral {
-        TokenSourceLiteral { result: Ok(response) }
+        TokenSourceLiteral { response }
     }
 
     pub fn endpoint(
@@ -48,12 +70,13 @@ impl TokenSource {
 }
 
 pub struct TokenSourceLiteral {
-    result: TokenSourceResult<TokenSourceResponse>,
+    response: TokenSourceResponse,
 }
 
-impl TokenSourceLiteral {
-    pub fn fetch(&self) -> &TokenSourceResult<TokenSourceResponse> {
-        &self.result
+#[async_trait]
+impl TokenSourceFixed for TokenSourceLiteral {
+    async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
+        Ok(self.response.clone())
     }
 }
 
@@ -62,8 +85,9 @@ pub struct TokenSourceEndpoint {
     headers: Vec<(String, String)>,
 }
 
-impl TokenSourceEndpoint {
-    pub async fn fetch(
+#[async_trait]
+impl TokenSourceConfigurable for TokenSourceEndpoint {
+    async fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
     ) -> TokenSourceResult<TokenSourceResponse> {
@@ -99,8 +123,9 @@ pub struct TokenSourceDevelopmentTokenServer {
     token_source_endpoint: TokenSourceEndpoint,
 }
 
-impl TokenSourceDevelopmentTokenServer {
-    pub async fn fetch(
+#[async_trait]
+impl TokenSourceConfigurable for TokenSourceDevelopmentTokenServer {
+    async fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
     ) -> TokenSourceResult<TokenSourceResponse> {

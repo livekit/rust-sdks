@@ -20,7 +20,9 @@
 //! records each request under it, so concurrently running tests never collide.
 
 use livekit_net::{Header, HttpMethod, HttpResponse, TransportError};
-use livekit_token_source::{TokenSource, TokenSourceError, TokenSourceFetchOptions};
+use livekit_token_source::{
+    TokenSource, TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions,
+};
 use std::collections::HashMap;
 use std::sync::{Mutex, Once};
 
