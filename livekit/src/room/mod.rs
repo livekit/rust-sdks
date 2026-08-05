@@ -2204,7 +2204,7 @@ impl RoomSession {
                     None => break,
                 },
                 _ = close_rx.recv() => {
-                    _ = self.local_dt_input.send(dt::local::InputEvent::Shutdown);
+                    self.local_dt_input.shutdown();
                     break;
                 },
             }
@@ -2232,7 +2232,7 @@ impl RoomSession {
                     None => break,
                 },
                 _ = close_rx.recv() => {
-                    _ = self.remote_dt_input.send(dt::remote::InputEvent::Shutdown);
+                    self.remote_dt_input.shutdown();
                     break;
                 },
             }

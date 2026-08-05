@@ -13,6 +13,7 @@ livekit-runtime = { workspace = true, features = ["tokio"] }
 log = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["macros", "sync"] }
+tokio-util = { workspace = true }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 futures-core = { workspace = true }
 bytes = { workspace = true }

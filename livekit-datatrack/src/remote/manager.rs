@@ -30,7 +30,6 @@ use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     mem,
-    ops::ControlFlow,
     pin::Pin,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -40,6 +39,7 @@ use std::{
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio_util::sync::CancellationToken;
 
 /// Options for creating a [`Manager`].
 #[derive(Debug)]
@@ -58,7 +58,7 @@ pub struct Manager {
     event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
-    shutdown_rx: watch::Receiver<bool>,
+    token: CancellationToken,
 
     /// Mapping between track SID and descriptor.
     descriptors: HashMap<DataTrackSid, Descriptor>,
@@ -83,15 +83,15 @@ impl Manager {
     pub fn new(options: ManagerOptions) -> (Self, ManagerInput, ManagerOutput) {
         let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let token = CancellationToken::new();
 
-        let event_in = ManagerInput::new(event_in_tx.clone(), shutdown_tx);
+        let event_in = ManagerInput::new(event_in_tx.clone(), token.clone());
         let manager = Manager {
             decryption_provider: options.decryption_provider,
             event_in_tx,
             event_in_rx,
             event_out_tx,
-            shutdown_rx,
+            token,
             descriptors: HashMap::default(),
             sub_handles: HashMap::default(),
         };
@@ -102,24 +102,21 @@ impl Manager {
 
     /// Run the manager task, consuming self.
     ///
-    /// The manager will continue running until receiving [`InputEvent::Shutdown`].
+    /// The manager continues until [`ManagerInput::shutdown`] is called, the last
+    /// [`ManagerInput`] is dropped, or the input channel closes.
     ///
     pub async fn run(mut self) {
         log::debug!("Task started");
         loop {
             tokio::select! {
-                // Biased so queued events are still processed in order once
-                // shutdown has been signalled out-of-band; see `ManagerInput::send`.
+                // Biased so shutdown ends event processing immediately.
                 biased;
+                _ = self.token.cancelled() => {
+                    break;
+                }
                 event = self.event_in_rx.recv() => {
                     let Some(event) = event else { break };
-                    if self.handle_event(event).await.is_break() {
-                        break;
-                    }
-                }
-                _ = self.shutdown_rx.changed() => {
-                    self.drain_pending().await;
-                    break;
+                    self.handle_event(event).await;
                 }
             }
         }
@@ -127,17 +124,8 @@ impl Manager {
         log::debug!("Task ended");
     }
 
-    /// Drains events that were queued ahead of an out-of-band shutdown signal.
-    async fn drain_pending(&mut self) {
-        while let Ok(event) = self.event_in_rx.try_recv() {
-            if self.handle_event(event).await.is_break() {
-                break;
-            }
-        }
-    }
-
-    /// Handles a single input event, reporting whether the task should stop.
-    async fn handle_event(&mut self, event: InputEvent) -> ControlFlow<()> {
+    /// Handles a single input event.
+    async fn handle_event(&mut self, event: InputEvent) {
         match event {
             InputEvent::SubscribeRequest(event) => self.on_subscribe_request(event).await,
             InputEvent::UnsubscribeRequest(event) => self.on_unsubscribe_request(event).await,
@@ -148,9 +136,7 @@ impl Manager {
             InputEvent::SetPipelineOptions(event) => self.on_set_pipeline_options(event),
             InputEvent::PacketReceived(bytes) => self.on_packet_received(bytes),
             InputEvent::ResendSubscriptionUpdates => self.on_resend_subscription_updates().await,
-            InputEvent::Shutdown => return ControlFlow::Break(()),
         }
-        ControlFlow::Continue(())
     }
 
     async fn on_subscribe_request(&mut self, event: SubscribeRequest) {
@@ -397,6 +383,7 @@ impl Manager {
             packet_rx,
             frame_tx: frame_tx.clone(),
             event_in_tx: self.event_in_tx.clone(),
+            token: self.token.child_token(),
         };
         let task_handle = livekit_runtime::spawn(track_task.run());
 
@@ -467,22 +454,10 @@ impl Manager {
             }
         }
 
-        // Track tasks emit a final unsubscribe request as they end, so the input
-        // channel has to keep draining while they are joined. Joining without
-        // draining deadlocks as soon as more tasks are ending than the channel
-        // can buffer.
-        let join_tasks = async {
-            for task_handle in task_handles {
-                task_handle.await;
-            }
-        };
-        tokio::pin!(join_tasks);
-        loop {
-            tokio::select! {
-                _ = &mut join_tasks => break,
-                // Never yields `None`: the manager owns a sender for its own lifetime.
-                _ = self.event_in_rx.recv() => {}
-            }
+        // Track tasks observe the parent cancellation token via child tokens and
+        // skip their final unsubscribe request, so joining alone is sufficient.
+        for task_handle in task_handles {
+            task_handle.await;
         }
     }
 
@@ -532,6 +507,7 @@ struct TrackTask {
     packet_rx: mpsc::Receiver<Packet>,
     frame_tx: broadcast::Sender<DataTrackFrame>,
     event_in_tx: mpsc::Sender<InputEvent>,
+    token: CancellationToken,
 }
 
 impl TrackTask {
@@ -541,13 +517,18 @@ impl TrackTask {
         let mut is_published = *self.published_rx.borrow();
         while is_published {
             tokio::select! {
-                biased;  // State updates take priority
+                // Cancellation and publication state take priority over packets.
+                biased;
+                _ = self.token.cancelled() => break,
                 _ = self.published_rx.changed() => {
                     is_published = *self.published_rx.borrow();
                 },
                 _ = self.frame_tx.closed() => {
-                    let event = UnsubscribeRequest { sid: self.info.sid() };
-                    _ = self.event_in_tx.send(event.into()).await;
+                    // Manager-wide shutdown already owns cleanup.
+                    if !self.token.is_cancelled() {
+                        let event = UnsubscribeRequest { sid: self.info.sid() };
+                        _ = self.event_in_tx.send(event.into()).await;
+                    }
                     break;  // No more subscribers
                 },
                 Some(packet) = self.packet_rx.recv() => {
@@ -573,7 +554,9 @@ impl TrackTask {
 #[derive(Debug, Clone)]
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
-    drop_guard: Arc<DropGuard>,
+    token: CancellationToken,
+    /// Cancels the manager when the last [`ManagerInput`] is dropped.
+    _drop_guard: Arc<CancelOnDrop>,
 }
 
 /// Stream of [`OutputEvent`]s produced by [`Manager`].
@@ -588,32 +571,37 @@ impl Stream for ManagerOutput {
     }
 }
 
-/// Guard that signals shutdown when the last reference is dropped.
+/// Cancels a [`CancellationToken`] when dropped.
 #[derive(Debug)]
-struct DropGuard {
-    shutdown_tx: watch::Sender<bool>,
-}
+struct CancelOnDrop(CancellationToken);
 
-impl Drop for DropGuard {
+impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        _ = self.shutdown_tx.send(true);
+        self.0.cancel();
     }
 }
 
 impl ManagerInput {
-    fn new(event_in_tx: mpsc::Sender<InputEvent>, shutdown_tx: watch::Sender<bool>) -> Self {
-        Self { event_in_tx, drop_guard: DropGuard { shutdown_tx }.into() }
+    fn new(event_in_tx: mpsc::Sender<InputEvent>, token: CancellationToken) -> Self {
+        Self { event_in_tx, token: token.clone(), _drop_guard: Arc::new(CancelOnDrop(token)) }
+    }
+
+    /// Shuts down the manager, ending all event processing.
+    ///
+    /// Unlike [`Self::send`], this does not use the bounded event channel, so it
+    /// cannot be dropped when the channel is saturated.
+    ///
+    pub fn shutdown(&self) {
+        self.token.cancel();
+    }
+
+    /// Returns a clone of the manager's cancellation token.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.token.clone()
     }
 
     /// Sends an input event to the manager's task to be processed.
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
-        // Shutdown bypasses the bounded event channel. In-flight track events
-        // routinely saturate it, and a shutdown dropped for lack of capacity
-        // strands the manager task along with everyone awaiting its completion.
-        if matches!(event, InputEvent::Shutdown) {
-            _ = self.drop_guard.shutdown_tx.send(true);
-            return Ok(());
-        }
         Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
     }
 }
@@ -652,7 +640,7 @@ mod tests {
         let (manager, input, _) = Manager::new(options);
 
         let join_handle = livekit_runtime::spawn(manager.run());
-        _ = input.send(InputEvent::Shutdown);
+        input.shutdown();
 
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
@@ -683,8 +671,15 @@ mod tests {
         let (frame_tx, frame_rx) = broadcast::channel(4);
         let (event_in_tx, mut event_in_rx) = mpsc::channel(4);
 
-        let task =
-            TrackTask { info: info, pipeline, published_rx, packet_rx, frame_tx, event_in_tx };
+        let task = TrackTask {
+            info,
+            pipeline,
+            published_rx,
+            packet_rx,
+            frame_tx,
+            event_in_tx,
+            token: CancellationToken::new(),
+        };
         let task_handle = livekit_runtime::spawn(task.run());
 
         let trigger_shutdown = async {
@@ -845,7 +840,7 @@ mod tests {
         expect_event!(output, OutputEvent::TrackPublished);
 
         // Drain remaining events; no second TrackAvailable should appear
-        input.send(InputEvent::Shutdown).unwrap();
+        input.shutdown();
         while let Some(event) = output.next().await {
             assert!(!matches!(event, OutputEvent::TrackPublished(_)));
         }
@@ -888,8 +883,17 @@ mod tests {
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
 
+        // SID reassignment emits no output event; wait for it before shutting down.
+        time::timeout(Duration::from_secs(1), async {
+            while track.info().sid() != new_sid {
+                time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .unwrap();
+
         // Drain remaining events; no publish/unpublish should appear
-        input.send(InputEvent::Shutdown).unwrap();
+        input.shutdown();
         while let Some(event) = output.next().await {
             assert!(!matches!(
                 event,
