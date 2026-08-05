@@ -1,4 +1,7 @@
-use livekit_token_source::{TokenSource, TokenSourceFetchOptions, TokenSourceResponse};
+use livekit_token_source::{
+    TokenSource, TokenSourceConfigurable, TokenSourceFetchOptions, TokenSourceFixed,
+    TokenSourceResponse,
+};
 
 #[tokio::main]
 async fn main() {
@@ -7,7 +10,7 @@ async fn main() {
         server_url: "< some server url >".to_string(),
         participant_token: "< some token >\n".to_string(),
     });
-    match literal.fetch() {
+    match literal.fetch().await {
         Ok(response) => {
             let url = &response.server_url;
             let token = &response.participant_token;

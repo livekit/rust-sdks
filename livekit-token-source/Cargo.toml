@@ -24,11 +24,11 @@ rustls-tls-native-roots = ["livekit-net/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-net/rustls-tls-webpki-roots"]
 
 [dependencies]
+async-trait = "0.1"
 livekit-net = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-async-trait = "0.1"
 tokio = { workspace = true, features = ["rt", "macros"] }
