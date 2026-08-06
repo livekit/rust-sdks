@@ -586,17 +586,17 @@ fn device_capture_format(device: &Device) -> Result<(DeviceFormat, u32), DeviceV
 
 fn enumerate_device_formats(device: &Device) -> Result<Vec<DeviceFormat>, DeviceVideoSourceError> {
     let mut formats = Vec::new();
-    let fourccs = device
-        .enum_formats()
-        .map_err(backend_error)?
-        .into_iter()
-        .filter_map(|format| frame_format_from_fourcc(format.fourcc).map(|_| format.fourcc))
-        .collect::<Vec<_>>();
+    let mut seen_fourccs = Vec::new();
 
-    for fourcc in dedup_fourccs(fourccs) {
+    for description in device.enum_formats().map_err(backend_error)? {
+        let fourcc = description.fourcc;
         let Some(frame_format) = frame_format_from_fourcc(fourcc) else {
             continue;
         };
+        if seen_fourccs.contains(&fourcc) {
+            continue;
+        }
+        seen_fourccs.push(fourcc);
         let frame_sizes = device.enum_framesizes(fourcc).map_err(backend_error)?;
         for resolution in frame_sizes.into_iter().flat_map(resolutions_from_frame_size) {
             let intervals = device
@@ -633,16 +633,6 @@ fn frame_format_from_fourcc(fourcc: FourCC) -> Option<DeviceFrameFormat> {
         "MJPG" | "JPEG" => Some(DeviceFrameFormat::Mjpeg),
         _ => None,
     }
-}
-
-fn dedup_fourccs(fourccs: Vec<FourCC>) -> Vec<FourCC> {
-    let mut deduped = Vec::new();
-    for fourcc in fourccs {
-        if !deduped.contains(&fourcc) {
-            deduped.push(fourcc);
-        }
-    }
-    deduped
 }
 
 fn resolutions_from_frame_size(size: v4l::FrameSize) -> Vec<VideoResolution> {
