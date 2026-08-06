@@ -179,11 +179,18 @@ fn main() {
             // In order to avoid any ABI mismatches we use the sysroot's headers.
             add_gio_headers(&mut builder);
 
+            let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+            let local_links = Path::new(&manifest_dir).join("../local_links");
+            println!("cargo:rustc-link-search=native={}", local_links.display());
+
             // Do not use pkg_config::probe_library, because we only require headers.
             for lib_name in ["glib-2.0", "gobject-2.0", "gio-2.0"] {
-                let lib = pkg_config::Config::new().cargo_metadata(false).probe(lib_name).unwrap();
-                for path in lib.include_paths {
-                    builder.include(path);
+                if let Ok(lib) = pkg_config::Config::new().cargo_metadata(false).probe(lib_name) {
+                    for path in lib.include_paths {
+                        builder.include(path);
+                    }
+                } else {
+                    println!("cargo:rustc-link-lib=dylib={}", lib_name);
                 }
             }
 
