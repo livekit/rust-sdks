@@ -22,8 +22,9 @@
 namespace livekit_ffi {
 
 AudioDeviceController::AudioDeviceController(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
     webrtc::scoped_refptr<AdmProxy> adm_proxy)
-    : adm_proxy_(std::move(adm_proxy)) {}
+    : rtc_runtime_(std::move(rtc_runtime)), adm_proxy_(std::move(adm_proxy)) {}
 
 int16_t AudioDeviceController::playout_devices() const {
   return adm_proxy_->PlayoutDevices();
