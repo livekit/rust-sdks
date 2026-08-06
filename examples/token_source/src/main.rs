@@ -46,7 +46,7 @@ async fn main() {
 
     // The remaining sources query LiveKit's development token server, which
     // requires the ID of a sandbox created in your LiveKit Cloud project.
-    let sandbox_id = "test1-xqsb8v".to_string();
+    let sandbox_id = "your sandbox id".to_string();
 
     let options = TokenSourceFetchOptions::new()
         .with_room_name("example-room")

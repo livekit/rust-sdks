@@ -31,7 +31,7 @@ pub trait TokenSourceFixed {
     async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse>;
 }
 
-/// The return type of [`TokenSource::literal`].
+/// The return type of [`literal`].
 pub struct TokenSourceLiteral {
     response: TokenSourceResponse,
 }
@@ -71,7 +71,7 @@ pub trait TokenSourceConfigurable {
     ) -> TokenSourceResult<TokenSourceResponse>;
 }
 
-/// The return type of [`TokenSource::endpoint`].
+/// The return type of [`endpoint`].
 pub struct TokenSourceEndpoint {
     endpoint_url: String,
     headers: HashMap<String, String>,
@@ -141,7 +141,7 @@ impl TokenSourceEndpoint {
     }
 }
 
-/// The return type of [`TokenSource::development_token_server`].
+/// The return type of [`development_token_server`].
 pub struct TokenSourceDevelopmentTokenServer {
     token_source_endpoint: TokenSourceEndpoint,
 }

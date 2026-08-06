@@ -18,8 +18,6 @@ use crate::error::TokenSourceError;
 /// the participant token to authenticate with.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct TokenSourceResponse {
-    // The documented endpoint contract is snake_case; the camelCase aliases
-    // match the leniency of the JS SDK, which parses via proto3 fromJson.
     pub server_url: String,
     pub participant_token: String,
 }
