@@ -94,12 +94,21 @@ Publisher usage:
    --identity cam-1 \
    --e2ee-key my-secret-key
 
- # publish and display the outgoing video locally
+ # publish and display the outgoing video locally with separate diagnostics
  cargo run -p local_video -F desktop --bin publisher -- \
    --camera-index 0 \
    --room-name demo \
    --identity cam-1 \
    --display-video
+
+ # log publisher metrics for frames 301 through 1200 (inclusive)
+ cargo run --release -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --log-csv publisher.csv \
+   --log-start-frame-id 301 \
+   --log-end-frame-id 1200
 ```
 
 List devices usage:
@@ -134,8 +143,12 @@ Publisher flags (in addition to the common connection flags above):
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
 - `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
 - `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
-- `--display-video`: Open a window that displays the video frames being published.
-- `--display-timing`: Burn publisher timing metrics into the local preview window. Requires `--display-video`.
+- `--attach-user-data`: Attach six keyboard-controlled channel values to each frame. Focus the diagnostics window and use Q/A, W/S, E/D, R/F, T/G, and Y/H to adjust channels 1-6. Requires `--display-video`.
+- `--display-video`: Open a video preview window and a separate publisher diagnostics window. The video window repaints only when a frame arrives; diagnostics update independently at 10 Hz.
+- `--display-timing`: Show publisher timing metrics in the diagnostics window. Requires `--display-video`.
+- `--log-csv <path>`: Write one CSV row per packetized frame with capture, encoder, packetization, frame-gap, and inter-frame timing metrics. This automatically enables timestamp and frame-ID metadata.
+- `--log-start-frame-id <id>`: Start CSV logging at this frame ID (inclusive). Requires `--log-csv`.
+- `--log-end-frame-id <id>`: Stop CSV logging after this frame ID (inclusive). Requires `--log-csv`.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
 
 Subscriber usage:
@@ -174,13 +187,36 @@ Subscriber usage:
    --room-name demo \
    --identity viewer-1 \
    --e2ee-key my-secret-key
+
+ # log rendered-frame metrics for the same inclusive frame-ID window
+ cargo run --release -p local_video -F desktop --bin subscriber -- \
+   --room-name demo \
+   --identity viewer-1 \
+   --log-csv subscriber.csv \
+   --log-start-frame-id 301 \
+   --log-end-frame-id 1200
 ```
 
 Subscriber flags (in addition to the common connection flags above):
 - `--participant <identity>`: Only subscribe to video tracks from the specified participant.
 - `--low-latency`: Force zero video playout delay so received frames render as soon as possible. This can increase visible stutter when packets arrive late or out of order.
 - `--display-timestamp`: Show detailed frame ID, publisher timestamp, subscriber timing stages, and end-to-end latency in the separate diagnostics window. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
+- `--log-csv <path>`: Write one CSV row per GPU-completed frame with receive, decode, sink, selection, CPU draw, GPU completion, end-to-end latency, frame-gap, inter-frame timing, and WebRTC loss/freeze metrics. The publisher must use `--log-csv` or both `--attach-timestamp` and `--attach-frame-id`.
+- `--log-start-frame-id <id>`: Start CSV logging at this frame ID (inclusive). Requires `--log-csv`.
+- `--log-end-frame-id <id>`: Stop CSV logging after this frame ID (inclusive). Requires `--log-csv`.
 - `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
+
+Generate a PDF report from the publisher log, subscriber log, or both:
+```
+ python3 -m pip install reportlab
+
+ python3 examples/local_video/scripts/generate_frame_report.py \
+   --publisher publisher.csv \
+   --subscriber subscriber.csv \
+   --output frame-report.pdf
+```
+
+Omit either `--publisher` or `--subscriber` to create a single-sided report. The report plots latency over the logged duration and marks frame-ID gaps and freezes. With paired logs, frame loss is the set of packetized publisher frame IDs that were not rendered by the subscriber. Subscriber freezes use WebRTC's reported freeze counters; publisher-only reports infer a freeze from an inter-frame gap greater than three times the median interval.
 
 The subscriber reports two render boundaries. `frame draw encoded` is the CPU time immediately after the WGPU draw command is recorded; it does not mean that the command has been submitted or executed. `frame GPU complete` is when the subscriber observes completion of the GPU submission containing that draw. This measurement does not include surface presentation, compositor queuing, display scanout, or physical pixel illumination, so use an OS presentation API or optical measurement when those later boundaries matter. Exposure-to-GPU measurements across different publisher and subscriber hosts also require synchronized system clocks (for example, NTP or PTP).
 

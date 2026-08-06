@@ -1,12 +1,17 @@
 use std::{
     collections::{HashMap, VecDeque},
+    fs::File,
+    io::{self, BufWriter, Write},
+    path::Path,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use livekit::track::{SubscribeTimingEvent, SubscribeTimingStage};
-use log::info;
+use log::{info, warn};
 use parking_lot::Mutex;
+
+use crate::frame_log::{create_csv, CsvFloat, CsvLatency, CsvOption, FrameLogRange};
 
 const MAX_SUBSCRIBER_TIMING_SAMPLES: usize = 300;
 const DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
@@ -21,11 +26,20 @@ const TIMING_LINE_WIDTH: usize =
 #[derive(Clone, Default)]
 pub(crate) struct SubscriberTimingHandle {
     inner: Arc<Mutex<SubscriberTimingState>>,
+    frame_log: Option<Arc<Mutex<SubscriberCsvLogger>>>,
 }
 
 impl SubscriberTimingHandle {
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates a timing handle that logs completed rendered frames to CSV.
+    pub(crate) fn with_frame_log(path: &Path, range: FrameLogRange) -> io::Result<Self> {
+        Ok(Self {
+            inner: Arc::default(),
+            frame_log: Some(Arc::new(Mutex::new(SubscriberCsvLogger::new(path, range)?))),
+        })
     }
 
     pub(crate) fn record_subscribe_event(&self, event: SubscribeTimingEvent) {
@@ -80,11 +94,43 @@ impl SubscriberTimingHandle {
         token: FrameGpuCompletionToken,
         frame_gpu_complete_timestamp_us: u64,
     ) {
-        self.inner.lock().record_frame_gpu_complete(token, frame_gpu_complete_timestamp_us);
+        let sample =
+            self.inner.lock().record_frame_gpu_complete(token, frame_gpu_complete_timestamp_us);
+        let Some(sample) = sample else {
+            return;
+        };
+        if let Some(frame_log) = &self.frame_log {
+            if let Err(error) = frame_log.lock().record(sample) {
+                warn!("Subscriber CSV logging disabled after write failure: {error}");
+            }
+        }
     }
 
     pub(crate) fn display_overlay_lines(&self, now: Instant) -> Option<Vec<String>> {
         self.inner.lock().display_overlay_lines(now)
+    }
+
+    /// Returns whether per-frame CSV logging is enabled.
+    pub(crate) fn has_frame_log(&self) -> bool {
+        self.frame_log.is_some()
+    }
+
+    /// Updates the cumulative WebRTC delivery-quality counters copied into future CSV rows.
+    pub(crate) fn record_inbound_quality(
+        &self,
+        packets_lost: i64,
+        frames_dropped: u32,
+        freeze_count: u32,
+        total_freeze_duration_secs: f64,
+    ) {
+        if let Some(frame_log) = &self.frame_log {
+            frame_log.lock().quality = Some(InboundQualitySnapshot {
+                packets_lost,
+                frames_dropped,
+                freeze_count,
+                total_freeze_duration_ms: total_freeze_duration_secs * 1_000.0,
+            });
+        }
     }
 
     pub(crate) fn reset(&self) {
@@ -216,13 +262,13 @@ impl SubscriberTimingState {
         &mut self,
         token: FrameGpuCompletionToken,
         frame_gpu_complete_timestamp_us: u64,
-    ) {
+    ) -> Option<SubscriberTimingSample> {
         if token.generation != self.generation {
-            return;
+            return None;
         }
 
         let Some(sample) = self.samples.get_mut(&token.sensor_exposure_timestamp_us) else {
-            return;
+            return None;
         };
         if token.frame_id.is_some() {
             sample.frame_id = token.frame_id;
@@ -235,6 +281,7 @@ impl SubscriberTimingState {
             self.latest_display_sample = Some(sample);
         }
         self.render_latency_window.record(sample, Instant::now());
+        Some(sample)
     }
 
     fn display_sample(&self) -> Option<SubscriberTimingSample> {
@@ -346,6 +393,152 @@ impl SubscriberTimingState {
                 }
             }
         }
+    }
+}
+
+const SUBSCRIBER_CSV_HEADER: &str = "sample,elapsed_ms,frame_id,capture_timestamp_us,webrtc_receive_timestamp_us,decoder_upload_timestamp_us,decoder_output_timestamp_us,frame_sink_timestamp_us,frame_selected_timestamp_us,frame_prepare_timestamp_us,frame_draw_encoded_timestamp_us,frame_gpu_complete_timestamp_us,exposure_to_receive_ms,receive_to_decode_ms,decode_to_sink_ms,sink_to_select_ms,select_to_prepare_ms,prepare_to_draw_encoded_ms,draw_encoded_to_gpu_complete_ms,receive_to_gpu_complete_ms,e2e_to_gpu_complete_ms,frame_id_gap,gpu_complete_interval_ms,packets_lost,frames_dropped,freeze_count,total_freeze_duration_ms";
+
+#[derive(Clone, Copy)]
+struct InboundQualitySnapshot {
+    packets_lost: i64,
+    frames_dropped: u32,
+    freeze_count: u32,
+    total_freeze_duration_ms: f64,
+}
+
+struct SubscriberCsvLogger {
+    writer: BufWriter<File>,
+    range: FrameLogRange,
+    first_gpu_complete_timestamp_us: Option<u64>,
+    previous_gpu_complete_timestamp_us: Option<u64>,
+    previous_frame_id: Option<u32>,
+    sample_count: u64,
+    quality: Option<InboundQualitySnapshot>,
+    quality_baseline: Option<InboundQualitySnapshot>,
+    last_flush: Instant,
+    failed: bool,
+}
+
+impl SubscriberCsvLogger {
+    fn new(path: &Path, range: FrameLogRange) -> io::Result<Self> {
+        Ok(Self {
+            writer: create_csv(path, SUBSCRIBER_CSV_HEADER)?,
+            range,
+            first_gpu_complete_timestamp_us: None,
+            previous_gpu_complete_timestamp_us: None,
+            previous_frame_id: range.previous_to_start(),
+            sample_count: 0,
+            quality: None,
+            quality_baseline: None,
+            last_flush: Instant::now(),
+            failed: false,
+        })
+    }
+
+    fn record(&mut self, sample: SubscriberTimingSample) -> io::Result<()> {
+        if self.failed {
+            return Ok(());
+        }
+        let Some(frame_id) = sample.frame_id else {
+            return Ok(());
+        };
+        if !self.range.contains(frame_id) {
+            return Ok(());
+        }
+        let Some(frame_gpu_complete_timestamp_us) = sample.frame_gpu_complete_timestamp_us else {
+            return Ok(());
+        };
+
+        let first_gpu_complete_timestamp_us =
+            *self.first_gpu_complete_timestamp_us.get_or_insert(frame_gpu_complete_timestamp_us);
+        let frame_id_gap = self
+            .previous_frame_id
+            .and_then(|previous| frame_id.checked_sub(previous))
+            .and_then(|delta| delta.checked_sub(1));
+        let gpu_complete_interval_ms = self
+            .previous_gpu_complete_timestamp_us
+            .and_then(|previous| frame_gpu_complete_timestamp_us.checked_sub(previous))
+            .map(|interval_us| interval_us as f64 / 1_000.0);
+        self.sample_count += 1;
+        let quality = self.quality.map(|current| {
+            let baseline = *self.quality_baseline.get_or_insert(current);
+            InboundQualitySnapshot {
+                packets_lost: current.packets_lost.saturating_sub(baseline.packets_lost),
+                frames_dropped: current.frames_dropped.saturating_sub(baseline.frames_dropped),
+                freeze_count: current.freeze_count.saturating_sub(baseline.freeze_count),
+                total_freeze_duration_ms: (current.total_freeze_duration_ms
+                    - baseline.total_freeze_duration_ms)
+                    .max(0.0),
+            }
+        });
+
+        let result = writeln!(
+            self.writer,
+            "{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            self.sample_count,
+            frame_gpu_complete_timestamp_us.saturating_sub(first_gpu_complete_timestamp_us) as f64
+                / 1_000.0,
+            frame_id,
+            sample.sensor_exposure_timestamp_us,
+            CsvOption(sample.webrtc_receive_timestamp_us),
+            CsvOption(sample.decoder_upload_timestamp_us),
+            CsvOption(sample.decoder_output_timestamp_us),
+            CsvOption(sample.frame_sink_timestamp_us),
+            CsvOption(sample.frame_selected_timestamp_us),
+            CsvOption(sample.frame_prepare_timestamp_us),
+            CsvOption(sample.frame_draw_encoded_timestamp_us),
+            frame_gpu_complete_timestamp_us,
+            CsvLatency::between(
+                Some(sample.sensor_exposure_timestamp_us),
+                sample.webrtc_receive_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.webrtc_receive_timestamp_us,
+                sample.decoder_output_timestamp_us,
+            ),
+            CsvLatency::between(sample.decoder_output_timestamp_us, sample.frame_sink_timestamp_us),
+            CsvLatency::between(sample.frame_sink_timestamp_us, sample.frame_selected_timestamp_us,),
+            CsvLatency::between(
+                sample.frame_selected_timestamp_us,
+                sample.frame_prepare_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.frame_prepare_timestamp_us,
+                sample.frame_draw_encoded_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.frame_draw_encoded_timestamp_us,
+                sample.frame_gpu_complete_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.webrtc_receive_timestamp_us,
+                sample.frame_gpu_complete_timestamp_us,
+            ),
+            CsvLatency::between(
+                Some(sample.sensor_exposure_timestamp_us),
+                sample.frame_gpu_complete_timestamp_us,
+            ),
+            CsvOption(frame_id_gap),
+            CsvFloat(gpu_complete_interval_ms),
+            CsvOption(quality.map(|quality| quality.packets_lost)),
+            CsvOption(quality.map(|quality| quality.frames_dropped)),
+            CsvOption(quality.map(|quality| quality.freeze_count)),
+            CsvFloat(quality.map(|quality| quality.total_freeze_duration_ms)),
+        );
+
+        let should_flush =
+            self.range.reaches_end(frame_id) || self.last_flush.elapsed() >= Duration::from_secs(1);
+        let result = result.and_then(|()| if should_flush { self.writer.flush() } else { Ok(()) });
+        if result.is_ok() {
+            self.previous_frame_id = Some(frame_id);
+            self.previous_gpu_complete_timestamp_us = Some(frame_gpu_complete_timestamp_us);
+            if should_flush {
+                self.last_flush = Instant::now();
+            }
+        } else {
+            self.failed = true;
+        }
+        result
     }
 }
 
@@ -880,5 +1073,103 @@ mod tests {
         assert_eq!(lines[7], "Exposure to Receive:                    50.0ms");
         assert_eq!(lines[8], "Receive to GPU:                         54.0ms");
         assert_eq!(lines[9], "e2e to GPU:                            104.0ms");
+    }
+
+    #[test]
+    fn subscriber_frame_log_waits_for_gpu_completion() {
+        let path = std::env::temp_dir()
+            .join(format!("local-video-subscriber-gpu-completion-log-{}.csv", std::process::id()));
+        let range = FrameLogRange::new(Some(301), Some(301)).expect("range should be valid");
+        let timing =
+            SubscriberTimingHandle::with_frame_log(&path, range).expect("log should be created");
+
+        timing.record_frame_selected_for_render(1_000, Some(301), 1_100);
+        let token = timing.record_frame_draw_encoded(1_000, Some(301), 1_200, 1_300);
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        assert_eq!(contents.lines().count(), 1);
+
+        timing.record_frame_gpu_complete(token, 1_400);
+        drop(timing);
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        let lines: Vec<_> = contents.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].starts_with("1,0.000,301,1000,"));
+        assert!(lines[1].contains(",1300,1400,"));
+        std::fs::remove_file(path).expect("temporary log should be removable");
+    }
+
+    #[test]
+    fn subscriber_frame_log_filters_range_and_rebases_quality() {
+        let path = std::env::temp_dir()
+            .join(format!("local-video-subscriber-frame-log-{}.csv", std::process::id()));
+        let range = FrameLogRange::new(Some(301), Some(303)).expect("range should be valid");
+        let mut logger = SubscriberCsvLogger::new(&path, range).expect("log should be created");
+        logger.quality = Some(InboundQualitySnapshot {
+            packets_lost: 5,
+            frames_dropped: 2,
+            freeze_count: 1,
+            total_freeze_duration_ms: 50.0,
+        });
+        let sample = SubscriberTimingSample {
+            frame_id: Some(301),
+            sensor_exposure_timestamp_us: 1_000,
+            webrtc_receive_timestamp_us: Some(1_100),
+            decoder_upload_timestamp_us: Some(1_110),
+            decoder_output_timestamp_us: Some(1_200),
+            frame_sink_timestamp_us: Some(1_210),
+            frame_selected_timestamp_us: Some(1_215),
+            frame_prepare_timestamp_us: Some(1_220),
+            frame_draw_encoded_timestamp_us: Some(1_250),
+            frame_gpu_complete_timestamp_us: Some(1_300),
+        };
+        logger.record(sample).expect("first sample should be written");
+        logger.quality = Some(InboundQualitySnapshot {
+            packets_lost: 7,
+            frames_dropped: 3,
+            freeze_count: 2,
+            total_freeze_duration_ms: 150.0,
+        });
+        logger
+            .record(SubscriberTimingSample {
+                frame_id: Some(303),
+                sensor_exposure_timestamp_us: 35_000,
+                webrtc_receive_timestamp_us: Some(35_100),
+                decoder_upload_timestamp_us: Some(35_110),
+                decoder_output_timestamp_us: Some(35_200),
+                frame_sink_timestamp_us: Some(35_210),
+                frame_selected_timestamp_us: Some(35_215),
+                frame_prepare_timestamp_us: Some(35_220),
+                frame_draw_encoded_timestamp_us: Some(35_250),
+                frame_gpu_complete_timestamp_us: Some(35_300),
+            })
+            .expect("second sample should be written");
+        logger.writer.flush().expect("log should flush");
+        drop(logger);
+
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        let lines: Vec<_> = contents.lines().collect();
+        assert_eq!(lines.len(), 3);
+        let header: Vec<_> = lines[0].split(',').collect();
+        let first: Vec<_> = lines[1].split(',').collect();
+        let second: Vec<_> = lines[2].split(',').collect();
+        assert_eq!(header.len(), first.len());
+        assert_eq!(header.len(), second.len());
+        let column = |name: &str| {
+            header.iter().position(|column| *column == name).expect("expected CSV column")
+        };
+        assert_eq!(first[column("frame_selected_timestamp_us")], "1215");
+        assert_eq!(first[column("frame_prepare_timestamp_us")], "1220");
+        assert_eq!(first[column("frame_draw_encoded_timestamp_us")], "1250");
+        assert_eq!(first[column("frame_gpu_complete_timestamp_us")], "1300");
+        assert_eq!(first[column("sink_to_select_ms")], "0.005");
+        assert_eq!(first[column("select_to_prepare_ms")], "0.005");
+        assert_eq!(first[column("prepare_to_draw_encoded_ms")], "0.030");
+        assert_eq!(first[column("draw_encoded_to_gpu_complete_ms")], "0.050");
+        assert_eq!(first[column("receive_to_gpu_complete_ms")], "0.200");
+        assert_eq!(first[column("e2e_to_gpu_complete_ms")], "0.300");
+        assert_eq!(second[column("gpu_complete_interval_ms")], "34.000");
+        assert!(lines[1].ends_with(",0,,0,0,0,0.000"));
+        assert!(lines[2].ends_with(",1,34.000,2,1,1,100.000"));
+        std::fs::remove_file(path).expect("temporary log should be removable");
     }
 }
