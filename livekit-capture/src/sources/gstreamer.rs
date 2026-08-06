@@ -135,7 +135,7 @@ impl GStreamerBitrateUnit {
     fn property_value(self, target_bitrate_bps: u64) -> u64 {
         match self {
             Self::BitsPerSecond => target_bitrate_bps,
-            Self::KilobitsPerSecond => target_bitrate_bps.saturating_add(999) / 1000,
+            Self::KilobitsPerSecond => target_bitrate_bps.div_ceil(1000),
         }
     }
 }
