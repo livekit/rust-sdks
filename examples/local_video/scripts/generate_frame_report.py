@@ -60,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--publisher", type=Path, help="Publisher CSV log")
     parser.add_argument("--subscriber", type=Path, help="Subscriber CSV log")
     parser.add_argument("-o", "--output", type=Path, help="Output PDF path")
-    parser.add_argument("--title", default="Local Video Frame Metrics")
+    parser.add_argument("--title", default="Video Metrics")
     args = parser.parse_args()
     if args.publisher is None and args.subscriber is None:
         parser.error("at least one of --publisher or --subscriber is required")
@@ -327,31 +327,63 @@ def draw_time_series(
     pdf.rect(x, y, width, height, fill=0, stroke=1)
 
 
+def paired_transport_latencies(publisher: LogData, subscriber: LogData) -> list[float]:
+    packetize_by_frame_id = {}
+    for row in publisher.rows:
+        frame_id = number(row.get("frame_id"))
+        packetize_timestamp_us = number(row.get("webrtc_packetize_timestamp_us"))
+        if frame_id is not None and packetize_timestamp_us is not None:
+            packetize_by_frame_id[round(frame_id)] = packetize_timestamp_us
+
+    latencies = []
+    for row in subscriber.rows:
+        frame_id = number(row.get("frame_id"))
+        receive_timestamp_us = number(row.get("webrtc_receive_timestamp_us"))
+        if frame_id is None or receive_timestamp_us is None:
+            continue
+        packetize_timestamp_us = packetize_by_frame_id.get(round(frame_id))
+        if packetize_timestamp_us is None:
+            continue
+        latency_us = receive_timestamp_us - packetize_timestamp_us
+        if latency_us >= 0:
+            latencies.append(latency_us / 1_000.0)
+    return latencies
+
+
 def latency_rows(logs: Sequence[LogData]) -> list[tuple[str, list[float]]]:
     metrics = []
-    for log in logs:
-        if log.kind == "publisher":
+    publisher = next((log for log in logs if log.kind == "publisher"), None)
+    subscriber = next((log for log in logs if log.kind == "subscriber"), None)
+
+    if publisher is not None:
+        columns = (
+            ("[Publisher] exposure to buffer", "capture_to_buffer_ms"),
+            ("[Publisher] encode", "encode_ms"),
+            ("[Publisher] exposure to packetize", "capture_to_packetize_ms"),
+        )
+        metrics.extend((label, values(publisher.rows, column)) for label, column in columns)
+
+    if publisher is not None and subscriber is not None:
+        metrics.append(
+            ("[Transport] publish to receive", paired_transport_latencies(publisher, subscriber))
+        )
+
+    if subscriber is not None:
+        if "e2e_to_gpu_complete_ms" in subscriber.rows[0]:
             columns = (
-                ("Publisher capture to buffer", "capture_to_buffer_ms"),
-                ("Publisher encode", "encode_ms"),
-                ("Publisher capture to packetize", "capture_to_packetize_ms"),
+                ("[Subscriber] exposure to receive", "exposure_to_receive_ms"),
+                ("[Subscriber] receive to decode", "receive_to_decode_ms"),
+                ("[Subscriber] receive to GPU complete", "receive_to_gpu_complete_ms"),
+                ("End-to-end latency", "e2e_to_gpu_complete_ms"),
             )
         else:
-            if "e2e_to_gpu_complete_ms" in log.rows[0]:
-                columns = (
-                    ("Subscriber exposure to receive", "exposure_to_receive_ms"),
-                    ("Subscriber receive to decode", "receive_to_decode_ms"),
-                    ("Subscriber receive to GPU complete", "receive_to_gpu_complete_ms"),
-                    ("Subscriber end to GPU complete", "e2e_to_gpu_complete_ms"),
-                )
-            else:
-                columns = (
-                    ("Subscriber exposure to receive", "exposure_to_receive_ms"),
-                    ("Subscriber receive to decode", "receive_to_decode_ms"),
-                    ("Subscriber receive to paint", "receive_to_paint_ms"),
-                    ("Subscriber end to end", "e2e_latency_ms"),
-                )
-        metrics.extend((label, values(log.rows, column)) for label, column in columns)
+            columns = (
+                ("[Subscriber] exposure to receive", "exposure_to_receive_ms"),
+                ("[Subscriber] receive to decode", "receive_to_decode_ms"),
+                ("[Subscriber] receive to paint", "receive_to_paint_ms"),
+                ("End-to-end latency", "e2e_latency_ms"),
+            )
+        metrics.extend((label, values(subscriber.rows, column)) for label, column in columns)
     return [(label, samples) for label, samples in metrics if samples]
 
 
@@ -401,19 +433,19 @@ def draw_delivery_table(
     else:
         packet_loss = dropped = freeze_duration = None
     freeze_count = sum(event.count for event in freezes)
-    if publisher is not None and subscriber is not None:
-        loss_label = "Publisher IDs not rendered"
-    elif subscriber is not None:
-        loss_label = "Rendered frame-ID gaps"
-    else:
-        loss_label = "Packetized frame-ID gaps"
-    rows = (
-        (loss_label, f"{losses:,}"),
+    rows = [
         ("RTP packets lost", format_count(packet_loss)),
         ("WebRTC frames dropped", format_count(dropped)),
         ("Freezes", f"{freeze_count:,}"),
         ("Freeze duration", "NA" if freeze_duration is None else f"{freeze_duration:.0f} ms"),
-    )
+    ]
+    if publisher is None or subscriber is None:
+        loss_label = (
+            "Rendered frame-ID gaps"
+            if subscriber is not None
+            else "Packetized frame-ID gaps"
+        )
+        rows.insert(0, (loss_label, f"{losses:,}"))
     pdf.setFillColor(INK)
     pdf.setFont("Helvetica-Bold", 10.5)
     pdf.drawString(x, y + 18, "Delivery quality")
@@ -452,7 +484,7 @@ def generate_report(
     losses = sum(event.count for event in loss_events)
 
     sources = " + ".join(f"{log.label}: {log.path.name}" for log in logs)
-    subtitle = f"{sources}  |  inclusive logged frame range"
+    subtitle = sources
     output.parent.mkdir(parents=True, exist_ok=True)
     pdf = canvas.Canvas(str(output), pagesize=landscape(letter))
     pdf.setTitle(title)
@@ -472,8 +504,8 @@ def generate_report(
         draw_card(pdf, 38 + index * (card_width + 11), 461, card_width, label, value)
 
     draw_time_series(pdf, logs, loss_events, freeze_events, 50, 206, 692, 205)
-    draw_latency_table(pdf, logs, 38, 145, 470)
-    draw_delivery_table(pdf, publisher, subscriber, losses, freeze_events, 530, 145, 224)
+    draw_latency_table(pdf, logs, 38, 160, 470)
+    draw_delivery_table(pdf, publisher, subscriber, losses, freeze_events, 530, 160, 224)
 
     pdf.setStrokeColor(GRID)
     pdf.line(38, 28, 754, 28)
