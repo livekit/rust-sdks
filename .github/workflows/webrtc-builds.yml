@@ -112,8 +112,8 @@ jobs:
         run: |
           pip3 install setuptools # pkg_resources is sometimes not found?
 
-      - name: Install Linux dependencies
-        if: ${{ matrix.target.os == 'ubuntu-latest'}}
+      - name: Install linux dependencies
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
