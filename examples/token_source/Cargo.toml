@@ -7,3 +7,5 @@ publish = false
 [dependencies]
 livekit-token-source = { workspace = true, features = ["rustls-tls-native-roots"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+async-trait = "0.1"
+serde_json = { workspace = true }
