@@ -43,6 +43,26 @@ simplelogger::Logger* logger = simplelogger::LoggerFactory::CreateConsoleLogger(
     }                                                                                                                            \
     while (0)
 
+constexpr CUVIDPARSERDISPINFO MakeForceZeroLatencyDisplayInfo(
+    int picture_index,
+    bool field_picture,
+    bool bottom_field,
+    int64_t timestamp) {
+    CUVIDPARSERDISPINFO info{};
+    info.picture_index = picture_index;
+    info.progressive_frame = !field_picture;
+    info.top_field_first = bottom_field ^ 1;
+    info.timestamp = timestamp;
+    return info;
+}
+
+constexpr auto kForceZeroLatencyDisplayInfoTest =
+    MakeForceZeroLatencyDisplayInfo(7, false, false, 1234);
+static_assert(kForceZeroLatencyDisplayInfoTest.picture_index == 7);
+static_assert(kForceZeroLatencyDisplayInfoTest.progressive_frame == 1);
+static_assert(kForceZeroLatencyDisplayInfoTest.top_field_first == 1);
+static_assert(kForceZeroLatencyDisplayInfoTest.timestamp == 1234);
+
 static const char * GetVideoCodecString(cudaVideoCodec eCodec) {
     static struct {
         cudaVideoCodec eCodec;
@@ -524,11 +544,9 @@ int NvDecoder::HandlePictureDecode(CUVIDPICPARAMS *pPicParams) {
     cuvidDecodePicture(m_hDecoder, pPicParams);
     if (m_bForce_zero_latency && ((!pPicParams->field_pic_flag) || (pPicParams->second_field)))
     {
-        CUVIDPARSERDISPINFO dispInfo;
-        memset(&dispInfo, 0, sizeof(dispInfo));
-        dispInfo.picture_index = pPicParams->CurrPicIdx;
-        dispInfo.progressive_frame = !pPicParams->field_pic_flag;
-        dispInfo.top_field_first = pPicParams->bottom_field_flag ^ 1;
+        CUVIDPARSERDISPINFO dispInfo = MakeForceZeroLatencyDisplayInfo(
+            pPicParams->CurrPicIdx, pPicParams->field_pic_flag,
+            pPicParams->bottom_field_flag, m_nCurrentTimestamp);
         HandlePictureDisplay(&dispInfo);
     }
     CUDA_DRVAPI_CALL(cuCtxPopCurrent(NULL));
@@ -790,6 +808,7 @@ int NvDecoder::Decode(const uint8_t *pData, int nSize, int nFlags, int64_t nTime
 {
     m_nDecodedFrame = 0;
     m_nDecodedFrameReturned = 0;
+    m_nCurrentTimestamp = nTimestamp;
     CUVIDSOURCEDATAPACKET packet = { 0 };
     packet.payload = pData;
     packet.payload_size = nSize;
