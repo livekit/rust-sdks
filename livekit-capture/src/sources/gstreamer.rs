@@ -220,11 +220,7 @@ impl GStreamerVideoSource {
     /// [`GStreamerVideoSource::new_blocking`] for everything else.
     #[cfg(feature = "tokio")]
     pub async fn new(config: GStreamerVideoSourceConfig) -> Result<Self, SourceError> {
-        match tokio::task::spawn_blocking(move || Self::new_blocking(config)).await {
-            Ok(result) => result,
-            Err(err) if err.is_panic() => std::panic::resume_unwind(err.into_panic()),
-            Err(err) => Err(SourceError::new(err)),
-        }
+        crate::utils::run_blocking(move || Self::new_blocking(config)).await
     }
 
     /// Builds, owns, and starts a GStreamer pipeline from configuration.
