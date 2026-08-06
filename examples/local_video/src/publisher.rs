@@ -258,16 +258,16 @@ struct Args {
 
     /// Attach keyboard-controlled 6-channel data (6x int16 fixed-point, 12 bytes)
     /// as the per-frame user_data trailer field. Control the channels from the
-    /// preview window: Q/A=CH1, W/S=CH2, E/D=CH3, R/F=CH4, T/G=CH5, Y/H=CH6.
-    /// Requires --display-video (the window provides keyboard focus).
+    /// diagnostics window: Q/A=CH1, W/S=CH2, E/D=CH3, R/F=CH4, T/G=CH5, Y/H=CH6.
+    /// Requires --display-video (the diagnostics window provides keyboard focus).
     #[arg(long, default_value_t = false, requires = "display_video")]
     attach_user_data: bool,
 
-    /// Open a window that displays the video frames being published
+    /// Open video preview and publisher diagnostics windows
     #[arg(long, default_value_t = false)]
     display_video: bool,
 
-    /// Burn publisher timing metrics into the local preview window
+    /// Show publisher timing metrics in the diagnostics window
     #[arg(long, default_value_t = false, requires = "display_video")]
     display_timing: bool,
 
@@ -1424,7 +1424,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_timing: args.display_timing,
     };
 
-    // Shared keyboard-controlled channel values, written by the preview window
+    // Shared keyboard-controlled channel values, written by the diagnostics window
     // and read by the capture loop to fill the user_data trailer.
     let user_data_channels =
         args.attach_user_data.then(|| Arc::new(Mutex::new([0.0f32; user_data::NUM_CHANNELS])));
