@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+
 use crate::error::TokenSourceError;
-use crate::request::TokenSourceFetchOptions;
-use crate::request::TokenSourceRequest;
-use crate::response::TokenSourceResponse;
-use crate::response::TokenSourceResult;
+use crate::request::{TokenSourceFetchOptions, TokenSourceRequest};
+use crate::response::{TokenSourceResponse, TokenSourceResult};
 use async_trait::async_trait;
 use livekit_net::{Header, HttpClientExt};
 
@@ -29,6 +29,24 @@ const DEVELOPMENT_TOKEN_SERVER_ID_HEADER: &str = "X-Sandbox-ID";
 #[async_trait]
 pub trait TokenSourceFixed {
     async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse>;
+}
+
+/// The return type of [`TokenSource::literal`].
+pub struct TokenSourceLiteral {
+    response: TokenSourceResponse,
+}
+
+#[async_trait]
+impl TokenSourceFixed for TokenSourceLiteral {
+    async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
+        Ok(self.response.clone())
+    }
+}
+
+/// Creates a token source holding a single, literal set of credentials,
+/// returned as-is on every fetch.
+pub fn literal(server_url: impl Into<String>, participant_token: impl Into<String>) -> TokenSourceLiteral {
+    TokenSourceLiteral{response: TokenSourceResponse{server_url: server_url.into(), participant_token: participant_token.into()}}
 }
 
 /// A token source that generates credentials from per-call
@@ -45,67 +63,10 @@ pub trait TokenSourceConfigurable {
     ) -> TokenSourceResult<TokenSourceResponse>;
 }
 
-/// Factory for the token sources shipped with this crate. Not instantiable;
-/// use the associated functions to construct a concrete source.
-pub enum TokenSource {}
-
-impl TokenSource {
-    /// Creates a token source holding a single, literal set of credentials,
-    /// returned as-is on every fetch.
-    pub fn literal(response: TokenSourceResponse) -> TokenSourceLiteral {
-        TokenSourceLiteral { response }
-    }
-
-    /// Creates a token source that fetches credentials from the given URL
-    /// using the standard token endpoint format.
-    ///
-    /// The given headers are sent along with every request, e.g. for
-    /// authentication against the endpoint.
-    ///
-    /// See <https://docs.livekit.io/frontends/build/authentication/endpoint/>
-    /// for the endpoint contract.
-    pub fn endpoint(
-        endpoint_url: impl Into<String>,
-        headers: Vec<(String, String)>,
-    ) -> TokenSourceEndpoint {
-        TokenSourceEndpoint { endpoint_url: endpoint_url.into(), headers }
-    }
-
-    /// Creates a token source that queries a LiveKit development token server
-    /// for credentials, for quick prototyping / getting-started use cases.
-    ///
-    /// **This token provider is INSECURE and should NOT be used in
-    /// production.**
-    ///
-    /// See <https://docs.livekit.io/frontends/build/authentication/sandbox-token-server/>.
-    pub fn development_token_server(
-        token_server_id: impl Into<String>,
-    ) -> TokenSourceDevelopmentTokenServer {
-        TokenSourceDevelopmentTokenServer {
-            token_source_endpoint: TokenSource::endpoint(
-                DEVELOPMENT_TOKEN_SERVER_ENDPOINT_URL,
-                vec![(DEVELOPMENT_TOKEN_SERVER_ID_HEADER.to_string(), token_server_id.into())],
-            ),
-        }
-    }
-}
-
-/// The return type of [`TokenSource::literal`].
-pub struct TokenSourceLiteral {
-    response: TokenSourceResponse,
-}
-
-#[async_trait]
-impl TokenSourceFixed for TokenSourceLiteral {
-    async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
-        Ok(self.response.clone())
-    }
-}
-
 /// The return type of [`TokenSource::endpoint`].
 pub struct TokenSourceEndpoint {
     endpoint_url: String,
-    headers: Vec<(String, String)>,
+    headers: HashMap<String, String>,
 }
 
 #[async_trait]
@@ -142,6 +103,27 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
     }
 }
 
+/// Creates a token source that fetches credentials from the given URL
+/// using the standard token endpoint format.
+///
+/// The given headers are sent along with every request, e.g. for
+/// authentication against the endpoint.
+///
+/// See <https://docs.livekit.io/frontends/build/authentication/endpoint/>
+/// for the endpoint contract.
+pub fn endpoint(
+    endpoint_url: impl Into<String>,
+) -> TokenSourceEndpoint {
+    TokenSourceEndpoint { endpoint_url: endpoint_url.into(), headers: HashMap::new() }
+}
+
+impl TokenSourceEndpoint {
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>,) -> Self {
+        self.headers.insert(key.into(), value.into());
+        self
+    }
+}
+
 /// The return type of [`TokenSource::development_token_server`].
 pub struct TokenSourceDevelopmentTokenServer {
     token_source_endpoint: TokenSourceEndpoint,
@@ -154,5 +136,21 @@ impl TokenSourceConfigurable for TokenSourceDevelopmentTokenServer {
         options: &TokenSourceFetchOptions,
     ) -> TokenSourceResult<TokenSourceResponse> {
         self.token_source_endpoint.fetch(options).await
+    }
+}
+
+/// Creates a token source that queries a LiveKit development token server
+/// for credentials, for quick prototyping / getting-started use cases.
+///
+/// **This token provider is INSECURE and should NOT be used in
+/// production.**
+///
+/// See <https://docs.livekit.io/frontends/build/authentication/sandbox-token-server/>.
+pub fn development_token_server(
+    token_server_id: impl Into<String>,
+) -> TokenSourceDevelopmentTokenServer {
+    TokenSourceDevelopmentTokenServer {
+        token_source_endpoint: endpoint(DEVELOPMENT_TOKEN_SERVER_ENDPOINT_URL)
+            .with_header(DEVELOPMENT_TOKEN_SERVER_ID_HEADER, token_server_id),
     }
 }
