@@ -97,6 +97,7 @@ jobs:
             ${{ env.OUTPUT_DIR }}/LICENSE:LICENSE
             ${{ env.OUTPUT_DIR }}/PrivacyInfo.xcprivacy:PrivacyInfo.xcprivacy
             ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift:Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift
+            ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/livekit_datatrack.swift:Sources/${{ env.SPM_NAME }}/livekit_datatrack.swift
           token: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
           pr-body: |
             Source tag: `${{ inputs.tag_name }}`
