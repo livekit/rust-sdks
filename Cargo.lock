@@ -4088,6 +4088,7 @@ name = "livekit-token-source"
 version = "0.1.1"
 dependencies = [
  "async-trait",
+ "base64 0.21.7",
  "livekit-net",
  "serde",
  "serde_json",

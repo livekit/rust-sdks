@@ -25,7 +25,7 @@ use std::collections::HashMap;
 ///     .with_room_name("my-room")
 ///     .with_participant_identity("user-123");
 /// ```
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct TokenSourceFetchOptions {
     pub(crate) room_name: Option<String>,
     pub(crate) participant_name: Option<String>,
