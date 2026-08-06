@@ -63,6 +63,20 @@ async fn main() {
         Err(error) => eprintln!("development token server fetch failed: {error}"),
     }
 
+    // Caching: wrap any configurable source with `.cached()` to reuse
+    // credentials until the token expires; the second fetch below is served
+    // from the cache without hitting the server.
+    let cached = livekit_token_source::development_token_server(sandbox_id.clone()).cached();
+    for attempt in 1..=2 {
+        match cached.fetch(&options).await {
+            Ok(response) => println!(
+                "cached fetch #{attempt}: server_url={} participant_token={}",
+                response.server_url, response.participant_token
+            ),
+            Err(error) => eprintln!("cached fetch #{attempt} failed: {error}"),
+        }
+    }
+
     // Endpoint: POSTs the fetch options to a token endpoint using the standard
     // format; here pointed at the same development token server.
     let endpoint = livekit_token_source::endpoint(

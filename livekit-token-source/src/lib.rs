@@ -18,13 +18,18 @@
 //! token — needed to join a LiveKit room. Construct one via the
 //! [`literal`] / [`endpoint`] / [`development_token_server`] factory
 //! functions, or implement [`TokenSourceFixed`] / [`TokenSourceConfigurable`]
-//! to plug in a custom credential backend.
+//! to plug in a custom credential backend. Wrap a configurable source with
+//! [`TokenSourceConfigurable::cached`] to reuse credentials until they expire.
 
+mod caching;
 mod error;
 mod request;
 mod response;
 mod token_source;
 
+pub use caching::TokenSourceCached;
+pub use caching::TokenSourceInMemoryStore;
+pub use caching::TokenSourceStore;
 pub use error::TokenSourceError;
 pub use request::TokenSourceFetchOptions;
 pub use response::TokenSourceResponse;
