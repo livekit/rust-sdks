@@ -40,10 +40,10 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum PumpError {
     /// The capture source failed.
-    #[error("capture source failed")]
+    #[error("capture source failed: {0}")]
     Source(#[from] SourceError),
     /// The RTC source rejected a frame.
-    #[error("frame capture failed")]
+    #[error("frame capture failed: {0}")]
     Capture(#[from] CaptureError),
     /// The pump thread panicked.
     #[error("pump panicked: {0}")]
