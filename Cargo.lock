@@ -763,6 +763,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgens"
+version = "0.1.0"
+dependencies = [
+ "uniffi",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4056,6 +4063,7 @@ dependencies = [
  "soxr-sys",
  "thiserror 2.0.19",
  "tokio",
+ "uniffi",
  "webrtc-sys",
  "webrtc-sys-build",
 ]
