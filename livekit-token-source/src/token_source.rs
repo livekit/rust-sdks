@@ -45,8 +45,16 @@ impl TokenSourceFixed for TokenSourceLiteral {
 
 /// Creates a token source holding a single, literal set of credentials,
 /// returned as-is on every fetch.
-pub fn literal(server_url: impl Into<String>, participant_token: impl Into<String>) -> TokenSourceLiteral {
-    TokenSourceLiteral{response: TokenSourceResponse{server_url: server_url.into(), participant_token: participant_token.into()}}
+pub fn literal(
+    server_url: impl Into<String>,
+    participant_token: impl Into<String>,
+) -> TokenSourceLiteral {
+    TokenSourceLiteral {
+        response: TokenSourceResponse {
+            server_url: server_url.into(),
+            participant_token: participant_token.into(),
+        },
+    }
 }
 
 /// A token source that generates credentials from per-call
@@ -111,15 +119,24 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
 ///
 /// See <https://docs.livekit.io/frontends/build/authentication/endpoint/>
 /// for the endpoint contract.
-pub fn endpoint(
-    endpoint_url: impl Into<String>,
-) -> TokenSourceEndpoint {
+pub fn endpoint(endpoint_url: impl Into<String>) -> TokenSourceEndpoint {
     TokenSourceEndpoint { endpoint_url: endpoint_url.into(), headers: HashMap::new() }
 }
 
 impl TokenSourceEndpoint {
-    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>,) -> Self {
+    /// Adds a single header to the headers sent with every request, keeping any set previously.
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(key.into(), value.into());
+        self
+    }
+
+    /// Adds the given headers to the headers sent with every request, keeping any set previously.
+    /// A key that was already set is overwritten with its new value.
+    pub fn with_headers(
+        mut self,
+        value: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        self.headers.extend(value.into_iter().map(|(k, v)| (k.into(), v.into())));
         self
     }
 }

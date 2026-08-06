@@ -21,7 +21,7 @@
 
 use livekit_net::{Header, HttpMethod, HttpResponse, TransportError};
 use livekit_token_source::{
-    TokenSource, TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions,
+    endpoint, TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, Once};
@@ -88,8 +88,7 @@ fn header<'a>(headers: &'a [Header], name: &str) -> Option<&'a str> {
 async fn fetch_posts_json_and_parses_response() {
     install_mock();
     let url = "https://token.test/ok";
-    let endpoint =
-        TokenSource::endpoint(url, vec![("X-Sandbox-ID".to_string(), "sandbox-42".to_string())]);
+    let endpoint = endpoint(url).with_headers([("X-Sandbox-ID", "sandbox-42")]);
     let options = TokenSourceFetchOptions::new()
         .with_room_name("my-room")
         .with_participant_identity("user-123");
@@ -113,7 +112,7 @@ async fn fetch_posts_json_and_parses_response() {
 #[tokio::test]
 async fn non_2xx_maps_to_server_error() {
     install_mock();
-    let endpoint = TokenSource::endpoint("https://token.test/server-error", vec![]);
+    let endpoint = endpoint("https://token.test/server-error");
 
     let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
     match err {
@@ -128,7 +127,7 @@ async fn non_2xx_maps_to_server_error() {
 #[tokio::test]
 async fn invalid_json_maps_to_json_error() {
     install_mock();
-    let endpoint = TokenSource::endpoint("https://token.test/badjson", vec![]);
+    let endpoint = endpoint("https://token.test/badjson");
 
     let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
     assert!(matches!(err, TokenSourceError::Json(_)), "expected Json error, got {err:?}");
@@ -138,7 +137,7 @@ async fn invalid_json_maps_to_json_error() {
 async fn agent_options_nest_under_room_config() {
     install_mock();
     let url = "https://token.test/agent";
-    let endpoint = TokenSource::endpoint(url, vec![]);
+    let endpoint = endpoint(url);
     let options = TokenSourceFetchOptions::new()
         .with_agent_name("my-agent")
         .with_agent_metadata("meta")
@@ -158,7 +157,7 @@ async fn agent_options_nest_under_room_config() {
 async fn room_config_is_omitted_without_agent_options() {
     install_mock();
     let url = "https://token.test/no-agent";
-    let endpoint = TokenSource::endpoint(url, vec![]);
+    let endpoint = endpoint(url);
     let options = TokenSourceFetchOptions::new().with_room_name("plain-room");
 
     endpoint.fetch(&options).await.expect("fetch should succeed");
@@ -171,7 +170,7 @@ async fn room_config_is_omitted_without_agent_options() {
 #[tokio::test]
 async fn transport_error_maps_to_transport_variant() {
     install_mock();
-    let endpoint = TokenSource::endpoint("https://token.test/connrefused", vec![]);
+    let endpoint = endpoint("https://token.test/connrefused");
 
     let err = endpoint.fetch(&TokenSourceFetchOptions::new()).await.unwrap_err();
     assert!(matches!(err, TokenSourceError::Transport(_)), "expected Transport error, got {err:?}");
