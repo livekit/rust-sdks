@@ -46,16 +46,18 @@ pub struct TokenSourceInMemoryStore {
 
 #[async_trait]
 impl TokenSourceStore for TokenSourceInMemoryStore {
+    // Lock poisoning is recovered from rather than propagated: the guarded
+    // data is a plain `Option`, left valid even if a holder panicked mid-way.
     async fn store(&self, options: TokenSourceFetchOptions, response: TokenSourceResponse) {
-        *self.cached.lock().unwrap() = Some((options, response));
+        *self.cached.lock().unwrap_or_else(|e| e.into_inner()) = Some((options, response));
     }
 
     async fn retrieve(&self) -> Option<(TokenSourceFetchOptions, TokenSourceResponse)> {
-        self.cached.lock().unwrap().clone()
+        self.cached.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     async fn clear(&self) {
-        *self.cached.lock().unwrap() = None;
+        *self.cached.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 
