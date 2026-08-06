@@ -85,13 +85,32 @@ def values(rows: Iterable[dict[str, str]], column: str) -> list[float]:
     return [parsed for row in rows if (parsed := number(row.get(column))) is not None]
 
 
+def first_available_column(
+    fieldnames: Sequence[str], candidates: Sequence[str]
+) -> str | None:
+    return next((column for column in candidates if column in fieldnames), None)
+
+
 def read_log(path: Path, kind: str) -> LogData:
-    latency_column = "capture_to_packetize_ms" if kind == "publisher" else "e2e_latency_ms"
-    interval_column = "packetize_interval_ms" if kind == "publisher" else "render_interval_ms"
     with path.open(newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
+        fieldnames = reader.fieldnames or []
+        if kind == "publisher":
+            latency_column = "capture_to_packetize_ms"
+            interval_column = "packetize_interval_ms"
+        else:
+            latency_column = first_available_column(
+                fieldnames, ("e2e_to_gpu_complete_ms", "e2e_latency_ms")
+            )
+            interval_column = first_available_column(
+                fieldnames, ("gpu_complete_interval_ms", "render_interval_ms")
+            )
+            if latency_column is None:
+                latency_column = "e2e_to_gpu_complete_ms"
+            if interval_column is None:
+                interval_column = "gpu_complete_interval_ms"
         required = {"elapsed_ms", "frame_id", latency_column}
-        missing = required.difference(reader.fieldnames or ())
+        missing = required.difference(fieldnames)
         if missing:
             raise ValueError(f"{path} is not a {kind} frame log; missing {', '.join(sorted(missing))}")
         rows = [row for row in reader if number(row.get(latency_column)) is not None]
@@ -318,12 +337,20 @@ def latency_rows(logs: Sequence[LogData]) -> list[tuple[str, list[float]]]:
                 ("Publisher capture to packetize", "capture_to_packetize_ms"),
             )
         else:
-            columns = (
-                ("Subscriber exposure to receive", "exposure_to_receive_ms"),
-                ("Subscriber receive to decode", "receive_to_decode_ms"),
-                ("Subscriber receive to paint", "receive_to_paint_ms"),
-                ("Subscriber end to end", "e2e_latency_ms"),
-            )
+            if "e2e_to_gpu_complete_ms" in log.rows[0]:
+                columns = (
+                    ("Subscriber exposure to receive", "exposure_to_receive_ms"),
+                    ("Subscriber receive to decode", "receive_to_decode_ms"),
+                    ("Subscriber receive to GPU complete", "receive_to_gpu_complete_ms"),
+                    ("Subscriber end to GPU complete", "e2e_to_gpu_complete_ms"),
+                )
+            else:
+                columns = (
+                    ("Subscriber exposure to receive", "exposure_to_receive_ms"),
+                    ("Subscriber receive to decode", "receive_to_decode_ms"),
+                    ("Subscriber receive to paint", "receive_to_paint_ms"),
+                    ("Subscriber end to end", "e2e_latency_ms"),
+                )
         metrics.extend((label, values(log.rows, column)) for label, column in columns)
     return [(label, samples) for label, samples in metrics if samples]
 

@@ -257,6 +257,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.8.2 (2026-08-03)
+
+### Fixes
+
+- Add a unified `EgressClient::start_egress` that calls the v2 `Egress.StartEgress` RPC with a `StartEgressRequest`, alongside the existing per-type helpers.
+- Fix a publisher-transport deadlock during renegotiation. When another negotiation was requested while an offer was awaiting its answer, `set_remote_description` re-entered `create_and_send_offer` while holding the transport's non-reentrant inner mutex, permanently wedging publishing.
+- Move the concept of "internal" data streams into `livekit` crate from `livekit-data-stream` - #1304 (@1egoman)
+
+#### Fix H.264, H.265, and AV1 NVENC sessions so live bitrate and frame rate updates
+
+reconfigure the hardware without restarting the encoder.
+
+## 0.8.1 (2026-07-29)
+
+### Fixes
+
+- allow for audio filters to be registered after initial room connection - #1273 (@lukasIO)
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+- Add data streams v2 - #1192 (@1egoman)
+- Ensure participant disconnects are synthesized after connection resume - #1250 (@lukasIO)
+
 ## 0.8.0 (2026-07-27)
 
 ### Breaking Changes

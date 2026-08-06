@@ -72,19 +72,33 @@ impl SubscriberTimingHandle {
         );
     }
 
-    pub(crate) fn record_frame_painted(
+    /// Records that the frame's draw command has been encoded on the CPU.
+    pub(crate) fn record_frame_draw_encoded(
         &self,
         sensor_exposure_timestamp_us: u64,
         frame_id: Option<u32>,
         frame_prepare_timestamp_us: u64,
-        frame_painted_timestamp_us: u64,
-    ) {
-        let sample = self.inner.lock().record_frame_painted(
+        frame_draw_encoded_timestamp_us: u64,
+    ) -> FrameGpuCompletionToken {
+        self.inner.lock().record_frame_draw_encoded(
             sensor_exposure_timestamp_us,
             frame_id,
             frame_prepare_timestamp_us,
-            frame_painted_timestamp_us,
-        );
+            frame_draw_encoded_timestamp_us,
+        )
+    }
+
+    /// Records that the GPU submission containing the frame has completed.
+    pub(crate) fn record_frame_gpu_complete(
+        &self,
+        token: FrameGpuCompletionToken,
+        frame_gpu_complete_timestamp_us: u64,
+    ) {
+        let sample =
+            self.inner.lock().record_frame_gpu_complete(token, frame_gpu_complete_timestamp_us);
+        let Some(sample) = sample else {
+            return;
+        };
         if let Some(frame_log) = &self.frame_log {
             if let Err(error) = frame_log.lock().record(sample) {
                 warn!("Subscriber CSV logging disabled after write failure: {error}");
@@ -124,6 +138,14 @@ impl SubscriberTimingHandle {
     }
 }
 
+/// Identifies a frame draw within the current subscriber timing generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FrameGpuCompletionToken {
+    generation: u64,
+    sensor_exposure_timestamp_us: u64,
+    frame_id: Option<u32>,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct SubscriberTimingSample {
     frame_id: Option<u32>,
@@ -132,8 +154,10 @@ struct SubscriberTimingSample {
     decoder_upload_timestamp_us: Option<u64>,
     decoder_output_timestamp_us: Option<u64>,
     frame_sink_timestamp_us: Option<u64>,
+    frame_selected_timestamp_us: Option<u64>,
     frame_prepare_timestamp_us: Option<u64>,
-    frame_painted_timestamp_us: Option<u64>,
+    frame_draw_encoded_timestamp_us: Option<u64>,
+    frame_gpu_complete_timestamp_us: Option<u64>,
 }
 
 impl SubscriberTimingSample {
@@ -145,22 +169,25 @@ impl SubscriberTimingSample {
             decoder_upload_timestamp_us: None,
             decoder_output_timestamp_us: None,
             frame_sink_timestamp_us: None,
+            frame_selected_timestamp_us: None,
             frame_prepare_timestamp_us: None,
-            frame_painted_timestamp_us: None,
+            frame_draw_encoded_timestamp_us: None,
+            frame_gpu_complete_timestamp_us: None,
         }
     }
 }
 
 #[derive(Default)]
 struct SubscriberTimingState {
+    generation: u64,
     samples: HashMap<u64, SubscriberTimingSample>,
     order: VecDeque<u64>,
     latest_display_sample: Option<SubscriberTimingSample>,
     render_latency_window: RenderLatencyWindow,
     displayed_timing_deltas: Option<SubscriberTimingDeltaValues>,
     displayed_exp2recv_latency: Option<String>,
-    displayed_receive_to_render_latency: Option<String>,
-    displayed_e2e_latency: Option<String>,
+    displayed_receive_to_gpu_complete_latency: Option<String>,
+    displayed_e2e_to_gpu_complete_latency: Option<String>,
     last_latency_update: Option<Instant>,
 }
 
@@ -211,25 +238,50 @@ impl SubscriberTimingState {
         frame_selected_timestamp_us: u64,
     ) {
         let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
-        sample.frame_prepare_timestamp_us.get_or_insert(frame_selected_timestamp_us);
-        sample.frame_painted_timestamp_us.get_or_insert(frame_selected_timestamp_us);
-        self.latest_display_sample = Some(*sample);
+        sample.frame_selected_timestamp_us = Some(frame_selected_timestamp_us);
     }
 
-    fn record_frame_painted(
+    fn record_frame_draw_encoded(
         &mut self,
         sensor_exposure_timestamp_us: u64,
         frame_id: Option<u32>,
         frame_prepare_timestamp_us: u64,
-        frame_painted_timestamp_us: u64,
-    ) -> SubscriberTimingSample {
+        frame_draw_encoded_timestamp_us: u64,
+    ) -> FrameGpuCompletionToken {
         let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
-        sample.frame_prepare_timestamp_us.get_or_insert(frame_prepare_timestamp_us);
-        sample.frame_painted_timestamp_us = Some(frame_painted_timestamp_us);
+        sample.frame_prepare_timestamp_us = Some(frame_prepare_timestamp_us);
+        sample.frame_draw_encoded_timestamp_us = Some(frame_draw_encoded_timestamp_us);
+        FrameGpuCompletionToken {
+            generation: self.generation,
+            sensor_exposure_timestamp_us,
+            frame_id,
+        }
+    }
+
+    fn record_frame_gpu_complete(
+        &mut self,
+        token: FrameGpuCompletionToken,
+        frame_gpu_complete_timestamp_us: u64,
+    ) -> Option<SubscriberTimingSample> {
+        if token.generation != self.generation {
+            return None;
+        }
+
+        let Some(sample) = self.samples.get_mut(&token.sensor_exposure_timestamp_us) else {
+            return None;
+        };
+        if token.frame_id.is_some() {
+            sample.frame_id = token.frame_id;
+        }
+        sample.frame_gpu_complete_timestamp_us = Some(frame_gpu_complete_timestamp_us);
         let sample = *sample;
-        self.latest_display_sample = Some(sample);
+        if self.latest_display_sample.map_or(true, |latest| {
+            sample.sensor_exposure_timestamp_us >= latest.sensor_exposure_timestamp_us
+        }) {
+            self.latest_display_sample = Some(sample);
+        }
         self.render_latency_window.record(sample, Instant::now());
-        sample
+        Some(sample)
     }
 
     fn display_sample(&self) -> Option<SubscriberTimingSample> {
@@ -243,7 +295,8 @@ impl SubscriberTimingState {
     }
 
     fn reset(&mut self) {
-        *self = Self::default();
+        let generation = self.generation.wrapping_add(1);
+        *self = Self { generation, ..Self::default() };
     }
 
     fn overlay_values(
@@ -264,16 +317,20 @@ impl SubscriberTimingState {
                         sample.sensor_exposure_timestamp_us,
                     )
                 });
-            self.displayed_receive_to_render_latency =
-                sample.frame_painted_timestamp_us.and_then(|frame_painted_timestamp_us| {
+            self.displayed_receive_to_gpu_complete_latency = sample
+                .frame_gpu_complete_timestamp_us
+                .and_then(|frame_gpu_complete_timestamp_us| {
                     sample.webrtc_receive_timestamp_us.map(|webrtc_receive_timestamp_us| {
-                        format_latency_ms(frame_painted_timestamp_us, webrtc_receive_timestamp_us)
+                        format_latency_ms(
+                            frame_gpu_complete_timestamp_us,
+                            webrtc_receive_timestamp_us,
+                        )
                     })
                 });
-            self.displayed_e2e_latency =
-                sample.frame_painted_timestamp_us.map(|frame_painted_timestamp_us| {
+            self.displayed_e2e_to_gpu_complete_latency =
+                sample.frame_gpu_complete_timestamp_us.map(|frame_gpu_complete_timestamp_us| {
                     format_latency_ms(
-                        frame_painted_timestamp_us,
+                        frame_gpu_complete_timestamp_us,
                         sample.sensor_exposure_timestamp_us,
                     )
                 });
@@ -289,11 +346,14 @@ impl SubscriberTimingState {
                 .displayed_exp2recv_latency
                 .clone()
                 .unwrap_or_else(|| "NA".to_string()),
-            receive_to_render_latency: self
-                .displayed_receive_to_render_latency
+            receive_to_gpu_complete_latency: self
+                .displayed_receive_to_gpu_complete_latency
                 .clone()
                 .unwrap_or_else(|| "NA".to_string()),
-            e2e_latency: self.displayed_e2e_latency.clone().unwrap_or_else(|| "NA".to_string()),
+            e2e_to_gpu_complete_latency: self
+                .displayed_e2e_to_gpu_complete_latency
+                .clone()
+                .unwrap_or_else(|| "NA".to_string()),
         }
     }
 
@@ -336,7 +396,7 @@ impl SubscriberTimingState {
     }
 }
 
-const SUBSCRIBER_CSV_HEADER: &str = "sample,elapsed_ms,frame_id,capture_timestamp_us,webrtc_receive_timestamp_us,decoder_upload_timestamp_us,decoder_output_timestamp_us,frame_sink_timestamp_us,frame_prepare_timestamp_us,frame_painted_timestamp_us,exposure_to_receive_ms,receive_to_decode_ms,decode_to_sink_ms,sink_to_prepare_ms,prepare_to_paint_ms,receive_to_paint_ms,e2e_latency_ms,frame_id_gap,render_interval_ms,packets_lost,frames_dropped,freeze_count,total_freeze_duration_ms";
+const SUBSCRIBER_CSV_HEADER: &str = "sample,elapsed_ms,frame_id,capture_timestamp_us,webrtc_receive_timestamp_us,decoder_upload_timestamp_us,decoder_output_timestamp_us,frame_sink_timestamp_us,frame_selected_timestamp_us,frame_prepare_timestamp_us,frame_draw_encoded_timestamp_us,frame_gpu_complete_timestamp_us,exposure_to_receive_ms,receive_to_decode_ms,decode_to_sink_ms,sink_to_select_ms,select_to_prepare_ms,prepare_to_draw_encoded_ms,draw_encoded_to_gpu_complete_ms,receive_to_gpu_complete_ms,e2e_to_gpu_complete_ms,frame_id_gap,gpu_complete_interval_ms,packets_lost,frames_dropped,freeze_count,total_freeze_duration_ms";
 
 #[derive(Clone, Copy)]
 struct InboundQualitySnapshot {
@@ -349,8 +409,8 @@ struct InboundQualitySnapshot {
 struct SubscriberCsvLogger {
     writer: BufWriter<File>,
     range: FrameLogRange,
-    first_painted_timestamp_us: Option<u64>,
-    previous_painted_timestamp_us: Option<u64>,
+    first_gpu_complete_timestamp_us: Option<u64>,
+    previous_gpu_complete_timestamp_us: Option<u64>,
     previous_frame_id: Option<u32>,
     sample_count: u64,
     quality: Option<InboundQualitySnapshot>,
@@ -364,8 +424,8 @@ impl SubscriberCsvLogger {
         Ok(Self {
             writer: create_csv(path, SUBSCRIBER_CSV_HEADER)?,
             range,
-            first_painted_timestamp_us: None,
-            previous_painted_timestamp_us: None,
+            first_gpu_complete_timestamp_us: None,
+            previous_gpu_complete_timestamp_us: None,
             previous_frame_id: range.previous_to_start(),
             sample_count: 0,
             quality: None,
@@ -385,19 +445,19 @@ impl SubscriberCsvLogger {
         if !self.range.contains(frame_id) {
             return Ok(());
         }
-        let Some(frame_painted_timestamp_us) = sample.frame_painted_timestamp_us else {
+        let Some(frame_gpu_complete_timestamp_us) = sample.frame_gpu_complete_timestamp_us else {
             return Ok(());
         };
 
-        let first_painted_timestamp_us =
-            *self.first_painted_timestamp_us.get_or_insert(frame_painted_timestamp_us);
+        let first_gpu_complete_timestamp_us =
+            *self.first_gpu_complete_timestamp_us.get_or_insert(frame_gpu_complete_timestamp_us);
         let frame_id_gap = self
             .previous_frame_id
             .and_then(|previous| frame_id.checked_sub(previous))
             .and_then(|delta| delta.checked_sub(1));
-        let render_interval_ms = self
-            .previous_painted_timestamp_us
-            .and_then(|previous| frame_painted_timestamp_us.checked_sub(previous))
+        let gpu_complete_interval_ms = self
+            .previous_gpu_complete_timestamp_us
+            .and_then(|previous| frame_gpu_complete_timestamp_us.checked_sub(previous))
             .map(|interval_us| interval_us as f64 / 1_000.0);
         self.sample_count += 1;
         let quality = self.quality.map(|current| {
@@ -414,17 +474,20 @@ impl SubscriberCsvLogger {
 
         let result = writeln!(
             self.writer,
-            "{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             self.sample_count,
-            frame_painted_timestamp_us.saturating_sub(first_painted_timestamp_us) as f64 / 1_000.0,
+            frame_gpu_complete_timestamp_us.saturating_sub(first_gpu_complete_timestamp_us) as f64
+                / 1_000.0,
             frame_id,
             sample.sensor_exposure_timestamp_us,
             CsvOption(sample.webrtc_receive_timestamp_us),
             CsvOption(sample.decoder_upload_timestamp_us),
             CsvOption(sample.decoder_output_timestamp_us),
             CsvOption(sample.frame_sink_timestamp_us),
+            CsvOption(sample.frame_selected_timestamp_us),
             CsvOption(sample.frame_prepare_timestamp_us),
-            frame_painted_timestamp_us,
+            CsvOption(sample.frame_draw_encoded_timestamp_us),
+            frame_gpu_complete_timestamp_us,
             CsvLatency::between(
                 Some(sample.sensor_exposure_timestamp_us),
                 sample.webrtc_receive_timestamp_us,
@@ -434,21 +497,29 @@ impl SubscriberCsvLogger {
                 sample.decoder_output_timestamp_us,
             ),
             CsvLatency::between(sample.decoder_output_timestamp_us, sample.frame_sink_timestamp_us),
-            CsvLatency::between(sample.frame_sink_timestamp_us, sample.frame_prepare_timestamp_us),
+            CsvLatency::between(sample.frame_sink_timestamp_us, sample.frame_selected_timestamp_us,),
+            CsvLatency::between(
+                sample.frame_selected_timestamp_us,
+                sample.frame_prepare_timestamp_us,
+            ),
             CsvLatency::between(
                 sample.frame_prepare_timestamp_us,
-                sample.frame_painted_timestamp_us,
+                sample.frame_draw_encoded_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.frame_draw_encoded_timestamp_us,
+                sample.frame_gpu_complete_timestamp_us,
             ),
             CsvLatency::between(
                 sample.webrtc_receive_timestamp_us,
-                sample.frame_painted_timestamp_us,
+                sample.frame_gpu_complete_timestamp_us,
             ),
             CsvLatency::between(
                 Some(sample.sensor_exposure_timestamp_us),
-                sample.frame_painted_timestamp_us,
+                sample.frame_gpu_complete_timestamp_us,
             ),
             CsvOption(frame_id_gap),
-            CsvFloat(render_interval_ms),
+            CsvFloat(gpu_complete_interval_ms),
             CsvOption(quality.map(|quality| quality.packets_lost)),
             CsvOption(quality.map(|quality| quality.frames_dropped)),
             CsvOption(quality.map(|quality| quality.freeze_count)),
@@ -460,7 +531,7 @@ impl SubscriberCsvLogger {
         let result = result.and_then(|()| if should_flush { self.writer.flush() } else { Ok(()) });
         if result.is_ok() {
             self.previous_frame_id = Some(frame_id);
-            self.previous_painted_timestamp_us = Some(frame_painted_timestamp_us);
+            self.previous_gpu_complete_timestamp_us = Some(frame_gpu_complete_timestamp_us);
             if should_flush {
                 self.last_flush = Instant::now();
             }
@@ -497,17 +568,18 @@ impl LatencyStats {
 struct RenderLatencyWindow {
     receive_to_decode: LatencyStats,
     decode_to_sink: LatencyStats,
-    sink_to_prepare: LatencyStats,
-    decode_to_prepare: LatencyStats,
-    prepare_to_paint: LatencyStats,
-    receive_to_paint: LatencyStats,
-    e2e: LatencyStats,
+    sink_to_select: LatencyStats,
+    select_to_prepare: LatencyStats,
+    prepare_to_draw_encoded: LatencyStats,
+    draw_encoded_to_gpu_complete: LatencyStats,
+    receive_to_gpu_complete: LatencyStats,
+    e2e_to_gpu_complete: LatencyStats,
     last_log: Option<Instant>,
 }
 
 impl RenderLatencyWindow {
     fn record(&mut self, sample: SubscriberTimingSample, now: Instant) {
-        let Some(frame_painted_timestamp_us) = sample.frame_painted_timestamp_us else {
+        let Some(frame_gpu_complete_timestamp_us) = sample.frame_gpu_complete_timestamp_us else {
             return;
         };
 
@@ -523,27 +595,36 @@ impl RenderLatencyWindow {
             self.decode_to_sink.record_delta(decoder_output, frame_sink);
         }
 
-        if let (Some(frame_sink), Some(frame_prepare)) =
-            (sample.frame_sink_timestamp_us, sample.frame_prepare_timestamp_us)
+        if let (Some(frame_sink), Some(frame_selected)) =
+            (sample.frame_sink_timestamp_us, sample.frame_selected_timestamp_us)
         {
-            self.sink_to_prepare.record_delta(frame_sink, frame_prepare);
+            self.sink_to_select.record_delta(frame_sink, frame_selected);
         }
 
-        if let (Some(decoder_output), Some(frame_prepare)) =
-            (sample.decoder_output_timestamp_us, sample.frame_prepare_timestamp_us)
+        if let (Some(frame_selected), Some(frame_prepare)) =
+            (sample.frame_selected_timestamp_us, sample.frame_prepare_timestamp_us)
         {
-            self.decode_to_prepare.record_delta(decoder_output, frame_prepare);
+            self.select_to_prepare.record_delta(frame_selected, frame_prepare);
         }
 
-        if let Some(frame_prepare) = sample.frame_prepare_timestamp_us {
-            self.prepare_to_paint.record_delta(frame_prepare, frame_painted_timestamp_us);
+        if let (Some(frame_prepare), Some(frame_draw_encoded)) =
+            (sample.frame_prepare_timestamp_us, sample.frame_draw_encoded_timestamp_us)
+        {
+            self.prepare_to_draw_encoded.record_delta(frame_prepare, frame_draw_encoded);
+        }
+
+        if let Some(frame_draw_encoded) = sample.frame_draw_encoded_timestamp_us {
+            self.draw_encoded_to_gpu_complete
+                .record_delta(frame_draw_encoded, frame_gpu_complete_timestamp_us);
         }
 
         if let Some(webrtc_receive) = sample.webrtc_receive_timestamp_us {
-            self.receive_to_paint.record_delta(webrtc_receive, frame_painted_timestamp_us);
+            self.receive_to_gpu_complete
+                .record_delta(webrtc_receive, frame_gpu_complete_timestamp_us);
         }
 
-        self.e2e.record_delta(sample.sensor_exposure_timestamp_us, frame_painted_timestamp_us);
+        self.e2e_to_gpu_complete
+            .record_delta(sample.sensor_exposure_timestamp_us, frame_gpu_complete_timestamp_us);
 
         if self
             .last_log
@@ -554,35 +635,38 @@ impl RenderLatencyWindow {
     }
 
     fn log_and_reset(&mut self, now: Instant) {
-        if self.e2e.count == 0 {
+        if self.e2e_to_gpu_complete.count == 0 {
             self.last_log = Some(now);
             return;
         }
 
         info!(
-            "Subscriber render latency: frames={}, receive_to_decode avg={} min={} max={}, decoder_to_sink avg={} min={} max={}, sink_to_prepare avg={} min={} max={}, decoder_to_prepare avg={} min={} max={}, prepare_to_paint avg={} min={} max={}, receive_to_paint avg={} min={} max={}, e2e avg={} min={} max={}",
-            self.e2e.count,
+            "Subscriber GPU-completion latency: frames={}, receive_to_decode avg={} min={} max={}, decoder_to_sink avg={} min={} max={}, sink_to_select avg={} min={} max={}, select_to_prepare avg={} min={} max={}, prepare_to_draw_encoded avg={} min={} max={}, draw_encoded_to_gpu_complete avg={} min={} max={}, receive_to_gpu_complete avg={} min={} max={}, e2e_to_gpu_complete avg={} min={} max={}",
+            self.e2e_to_gpu_complete.count,
             latency_log_value(self.receive_to_decode.avg_us()),
             latency_log_value(self.receive_to_decode.min_us),
             latency_log_value(self.receive_to_decode.max_us),
             latency_log_value(self.decode_to_sink.avg_us()),
             latency_log_value(self.decode_to_sink.min_us),
             latency_log_value(self.decode_to_sink.max_us),
-            latency_log_value(self.sink_to_prepare.avg_us()),
-            latency_log_value(self.sink_to_prepare.min_us),
-            latency_log_value(self.sink_to_prepare.max_us),
-            latency_log_value(self.decode_to_prepare.avg_us()),
-            latency_log_value(self.decode_to_prepare.min_us),
-            latency_log_value(self.decode_to_prepare.max_us),
-            latency_log_value(self.prepare_to_paint.avg_us()),
-            latency_log_value(self.prepare_to_paint.min_us),
-            latency_log_value(self.prepare_to_paint.max_us),
-            latency_log_value(self.receive_to_paint.avg_us()),
-            latency_log_value(self.receive_to_paint.min_us),
-            latency_log_value(self.receive_to_paint.max_us),
-            latency_log_value(self.e2e.avg_us()),
-            latency_log_value(self.e2e.min_us),
-            latency_log_value(self.e2e.max_us),
+            latency_log_value(self.sink_to_select.avg_us()),
+            latency_log_value(self.sink_to_select.min_us),
+            latency_log_value(self.sink_to_select.max_us),
+            latency_log_value(self.select_to_prepare.avg_us()),
+            latency_log_value(self.select_to_prepare.min_us),
+            latency_log_value(self.select_to_prepare.max_us),
+            latency_log_value(self.prepare_to_draw_encoded.avg_us()),
+            latency_log_value(self.prepare_to_draw_encoded.min_us),
+            latency_log_value(self.prepare_to_draw_encoded.max_us),
+            latency_log_value(self.draw_encoded_to_gpu_complete.avg_us()),
+            latency_log_value(self.draw_encoded_to_gpu_complete.min_us),
+            latency_log_value(self.draw_encoded_to_gpu_complete.max_us),
+            latency_log_value(self.receive_to_gpu_complete.avg_us()),
+            latency_log_value(self.receive_to_gpu_complete.min_us),
+            latency_log_value(self.receive_to_gpu_complete.max_us),
+            latency_log_value(self.e2e_to_gpu_complete.avg_us()),
+            latency_log_value(self.e2e_to_gpu_complete.min_us),
+            latency_log_value(self.e2e_to_gpu_complete.max_us),
         );
 
         *self = Self { last_log: Some(now), ..Self::default() };
@@ -595,7 +679,8 @@ struct SubscriberTimingDeltaValues {
     webrtc_receive: String,
     decoder_upload: String,
     decoder_output: String,
-    frame_painted: String,
+    frame_draw_encoded: String,
+    frame_gpu_complete: String,
 }
 
 impl SubscriberTimingDeltaValues {
@@ -615,9 +700,13 @@ impl SubscriberTimingDeltaValues {
                 sample.decoder_output_timestamp_us,
                 sample.decoder_upload_timestamp_us,
             ),
-            frame_painted: format_optional_timing_delta_ms(
-                sample.frame_painted_timestamp_us,
+            frame_draw_encoded: format_optional_timing_delta_ms(
+                sample.frame_draw_encoded_timestamp_us,
                 sample.decoder_output_timestamp_us,
+            ),
+            frame_gpu_complete: format_optional_timing_delta_ms(
+                sample.frame_gpu_complete_timestamp_us,
+                sample.frame_draw_encoded_timestamp_us,
             ),
         }
     }
@@ -626,8 +715,8 @@ impl SubscriberTimingDeltaValues {
 struct SubscriberTimingOverlayValues {
     deltas: SubscriberTimingDeltaValues,
     exp2recv_latency: String,
-    receive_to_render_latency: String,
-    e2e_latency: String,
+    receive_to_gpu_complete_latency: String,
+    e2e_to_gpu_complete_latency: String,
 }
 
 fn format_time_of_day_us(timestamp_us: u64) -> String {
@@ -729,15 +818,20 @@ fn build_timing_overlay_lines(
             &overlay_values.deltas.decoder_output,
         ),
         timing_line(
-            "frame painted",
-            sample.frame_painted_timestamp_us,
-            &overlay_values.deltas.frame_painted,
+            "frame draw encoded",
+            sample.frame_draw_encoded_timestamp_us,
+            &overlay_values.deltas.frame_draw_encoded,
+        ),
+        timing_line(
+            "frame GPU complete",
+            sample.frame_gpu_complete_timestamp_us,
+            &overlay_values.deltas.frame_gpu_complete,
         ),
     ];
     lines.extend([
         timing_value_line("Exposure to Receive", &overlay_values.exp2recv_latency),
-        timing_value_line("Receive to Render", &overlay_values.receive_to_render_latency),
-        timing_value_line("e2e latency", &overlay_values.e2e_latency),
+        timing_value_line("Receive to GPU", &overlay_values.receive_to_gpu_complete_latency),
+        timing_value_line("e2e to GPU", &overlay_values.e2e_to_gpu_complete_latency),
     ]);
     lines
 }
@@ -766,14 +860,14 @@ mod tests {
     fn overlay_values(
         sample: SubscriberTimingSample,
         exp2recv_latency: &str,
-        receive_to_render_latency: &str,
-        e2e_latency: &str,
+        receive_to_gpu_complete_latency: &str,
+        e2e_to_gpu_complete_latency: &str,
     ) -> SubscriberTimingOverlayValues {
         SubscriberTimingOverlayValues {
             deltas: SubscriberTimingDeltaValues::from_sample(sample),
             exp2recv_latency: exp2recv_latency.to_string(),
-            receive_to_render_latency: receive_to_render_latency.to_string(),
-            e2e_latency: e2e_latency.to_string(),
+            receive_to_gpu_complete_latency: receive_to_gpu_complete_latency.to_string(),
+            e2e_to_gpu_complete_latency: e2e_to_gpu_complete_latency.to_string(),
         }
     }
 
@@ -787,11 +881,13 @@ mod tests {
             decoder_upload_timestamp_us: Some(base + 35_500),
             decoder_output_timestamp_us: Some(base + 55_300),
             frame_sink_timestamp_us: Some(base + 55_900),
+            frame_selected_timestamp_us: Some(base + 56_000),
             frame_prepare_timestamp_us: Some(base + 56_100),
-            frame_painted_timestamp_us: Some(base + 56_900),
+            frame_draw_encoded_timestamp_us: Some(base + 56_900),
+            frame_gpu_complete_timestamp_us: Some(base + 57_600),
         };
 
-        let overlay_values = overlay_values(sample, "32.4ms", "24.5ms", "56.9ms");
+        let overlay_values = overlay_values(sample, "32.4ms", "25.2ms", "57.6ms");
         let lines = build_timing_overlay_lines(sample, &overlay_values);
         assert_timing_lines_are_stable(&lines);
         assert_eq!(
@@ -802,10 +898,11 @@ mod tests {
                 "webrtc receive:        01:02:03:488    +32.4ms",
                 "decoder upload:        01:02:03:491     +3.1ms",
                 "decoder output:        01:02:03:511    +19.8ms",
-                "frame painted:         01:02:03:512     +1.6ms",
+                "frame draw encoded:    01:02:03:512     +1.6ms",
+                "frame GPU complete:    01:02:03:513     +0.7ms",
                 "Exposure to Receive:                    32.4ms",
-                "Receive to Render:                      24.5ms",
-                "e2e latency:                            56.9ms",
+                "Receive to GPU:                         25.2ms",
+                "e2e to GPU:                             57.6ms",
             ]
         );
     }
@@ -826,10 +923,11 @@ mod tests {
                 "webrtc receive:        --:--:--:---    +--.-ms",
                 "decoder upload:        --:--:--:---    +--.-ms",
                 "decoder output:        --:--:--:---    +--.-ms",
-                "frame painted:         --:--:--:---    +--.-ms",
+                "frame draw encoded:    --:--:--:---    +--.-ms",
+                "frame GPU complete:    --:--:--:---    +--.-ms",
                 "Exposure to Receive:                        NA",
-                "Receive to Render:                          NA",
-                "e2e latency:                                NA",
+                "Receive to GPU:                             NA",
+                "e2e to GPU:                                 NA",
             ]
         );
     }
@@ -840,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn subscriber_timing_state_uses_selection_timestamp_until_paint_callback() {
+    fn subscriber_timing_state_waits_for_gpu_completion_before_displaying_frame() {
         let mut state = SubscriberTimingState::default();
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -860,14 +958,48 @@ mod tests {
 
         state.record_frame_selected_for_render(1_000, Some(123), 1_500);
 
-        let sample = state.display_sample().expect("selected frame should be displayable");
+        assert!(state.display_sample().is_none());
+        let sample = state.samples.get(&1_000).expect("selected frame should be tracked");
         assert_eq!(sample.frame_id, Some(123));
         assert_eq!(sample.webrtc_receive_timestamp_us, Some(1_200));
-        assert_eq!(sample.frame_prepare_timestamp_us, Some(1_500));
-        assert_eq!(sample.frame_painted_timestamp_us, Some(1_500));
+        assert_eq!(sample.frame_selected_timestamp_us, Some(1_500));
+        assert_eq!(sample.frame_prepare_timestamp_us, None);
+        assert_eq!(sample.frame_draw_encoded_timestamp_us, None);
+        assert_eq!(sample.frame_gpu_complete_timestamp_us, None);
 
-        let lines = state.display_overlay_lines(Instant::now()).expect("overlay should render");
-        assert_eq!(lines[5], "frame painted:         00:00:00:001     +0.1ms");
+        let token = state.record_frame_draw_encoded(1_000, Some(123), 1_600, 1_700);
+        assert!(state.display_sample().is_none());
+
+        state.record_frame_gpu_complete(token, 1_800);
+        let sample = state.display_sample().expect("completed frame should be displayable");
+        assert_eq!(sample.frame_selected_timestamp_us, Some(1_500));
+        assert_eq!(sample.frame_prepare_timestamp_us, Some(1_600));
+        assert_eq!(sample.frame_draw_encoded_timestamp_us, Some(1_700));
+        assert_eq!(sample.frame_gpu_complete_timestamp_us, Some(1_800));
+    }
+
+    #[test]
+    fn subscriber_timing_ignores_stale_and_out_of_order_gpu_completions() {
+        let mut state = SubscriberTimingState::default();
+
+        state.record_frame_selected_for_render(1_000, Some(1), 1_100);
+        let older = state.record_frame_draw_encoded(1_000, Some(1), 1_200, 1_300);
+        state.record_frame_selected_for_render(2_000, Some(2), 2_100);
+        let newer = state.record_frame_draw_encoded(2_000, Some(2), 2_200, 2_300);
+
+        state.record_frame_gpu_complete(newer, 2_400);
+        state.record_frame_gpu_complete(older, 2_500);
+        assert_eq!(
+            state.display_sample().map(|sample| sample.sensor_exposure_timestamp_us),
+            Some(2_000)
+        );
+
+        state.record_frame_selected_for_render(3_000, Some(3), 3_100);
+        let before_reset = state.record_frame_draw_encoded(3_000, Some(3), 3_200, 3_300);
+        state.reset();
+        state.record_frame_gpu_complete(before_reset, 3_400);
+        assert!(state.display_sample().is_none());
+        assert!(state.samples.is_empty());
     }
 
     #[test]
@@ -890,14 +1022,17 @@ mod tests {
             1_000,
             56_300,
         ));
-        state.record_frame_painted(1_000, Some(1), 57_200, 57_900);
+        state.record_frame_selected_for_render(1_000, Some(1), 56_800);
+        let token = state.record_frame_draw_encoded(1_000, Some(1), 57_200, 57_900);
+        state.record_frame_gpu_complete(token, 58_600);
         let lines = state.display_overlay_lines(now).expect("overlay should render");
         assert_eq!(lines[3], "decoder upload:        00:00:00:036     +3.1ms");
         assert_eq!(lines[4], "decoder output:        00:00:00:056    +19.8ms");
-        assert_eq!(lines[5], "frame painted:         00:00:00:057     +1.6ms");
-        assert_eq!(lines[6], "Exposure to Receive:                    32.4ms");
-        assert_eq!(lines[7], "Receive to Render:                      24.5ms");
-        assert_eq!(lines[8], "e2e latency:                            56.9ms");
+        assert_eq!(lines[5], "frame draw encoded:    00:00:00:057     +1.6ms");
+        assert_eq!(lines[6], "frame GPU complete:    00:00:00:058     +0.7ms");
+        assert_eq!(lines[7], "Exposure to Receive:                    32.4ms");
+        assert_eq!(lines[8], "Receive to GPU:                         25.2ms");
+        assert_eq!(lines[9], "e2e to GPU:                             57.6ms");
 
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -914,26 +1049,53 @@ mod tests {
             1_000_000,
             1_080_000,
         ));
-        state.record_frame_painted(1_000_000, Some(2), 1_090_000, 1_100_000);
+        state.record_frame_selected_for_render(1_000_000, Some(2), 1_088_000);
+        let token = state.record_frame_draw_encoded(1_000_000, Some(2), 1_090_000, 1_100_000);
+        state.record_frame_gpu_complete(token, 1_104_000);
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(99))
             .expect("overlay should render");
         assert_eq!(lines[3], "decoder upload:        00:00:01:060     +3.1ms");
         assert_eq!(lines[4], "decoder output:        00:00:01:080    +19.8ms");
-        assert_eq!(lines[5], "frame painted:         00:00:01:100     +1.6ms");
-        assert_eq!(lines[6], "Exposure to Receive:                    32.4ms");
-        assert_eq!(lines[7], "Receive to Render:                      24.5ms");
-        assert_eq!(lines[8], "e2e latency:                            56.9ms");
+        assert_eq!(lines[5], "frame draw encoded:    00:00:01:100     +1.6ms");
+        assert_eq!(lines[6], "frame GPU complete:    00:00:01:104     +0.7ms");
+        assert_eq!(lines[7], "Exposure to Receive:                    32.4ms");
+        assert_eq!(lines[8], "Receive to GPU:                         25.2ms");
+        assert_eq!(lines[9], "e2e to GPU:                             57.6ms");
 
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(100))
             .expect("overlay should render");
         assert_eq!(lines[3], "decoder upload:        00:00:01:060    +10.0ms");
         assert_eq!(lines[4], "decoder output:        00:00:01:080    +20.0ms");
-        assert_eq!(lines[5], "frame painted:         00:00:01:100    +20.0ms");
-        assert_eq!(lines[6], "Exposure to Receive:                    50.0ms");
-        assert_eq!(lines[7], "Receive to Render:                      50.0ms");
-        assert_eq!(lines[8], "e2e latency:                           100.0ms");
+        assert_eq!(lines[5], "frame draw encoded:    00:00:01:100    +20.0ms");
+        assert_eq!(lines[6], "frame GPU complete:    00:00:01:104     +4.0ms");
+        assert_eq!(lines[7], "Exposure to Receive:                    50.0ms");
+        assert_eq!(lines[8], "Receive to GPU:                         54.0ms");
+        assert_eq!(lines[9], "e2e to GPU:                            104.0ms");
+    }
+
+    #[test]
+    fn subscriber_frame_log_waits_for_gpu_completion() {
+        let path = std::env::temp_dir()
+            .join(format!("local-video-subscriber-gpu-completion-log-{}.csv", std::process::id()));
+        let range = FrameLogRange::new(Some(301), Some(301)).expect("range should be valid");
+        let timing =
+            SubscriberTimingHandle::with_frame_log(&path, range).expect("log should be created");
+
+        timing.record_frame_selected_for_render(1_000, Some(301), 1_100);
+        let token = timing.record_frame_draw_encoded(1_000, Some(301), 1_200, 1_300);
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        assert_eq!(contents.lines().count(), 1);
+
+        timing.record_frame_gpu_complete(token, 1_400);
+        drop(timing);
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        let lines: Vec<_> = contents.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].starts_with("1,0.000,301,1000,"));
+        assert!(lines[1].contains(",1300,1400,"));
+        std::fs::remove_file(path).expect("temporary log should be removable");
     }
 
     #[test]
@@ -955,8 +1117,10 @@ mod tests {
             decoder_upload_timestamp_us: Some(1_110),
             decoder_output_timestamp_us: Some(1_200),
             frame_sink_timestamp_us: Some(1_210),
+            frame_selected_timestamp_us: Some(1_215),
             frame_prepare_timestamp_us: Some(1_220),
-            frame_painted_timestamp_us: Some(1_300),
+            frame_draw_encoded_timestamp_us: Some(1_250),
+            frame_gpu_complete_timestamp_us: Some(1_300),
         };
         logger.record(sample).expect("first sample should be written");
         logger.quality = Some(InboundQualitySnapshot {
@@ -973,8 +1137,10 @@ mod tests {
                 decoder_upload_timestamp_us: Some(35_110),
                 decoder_output_timestamp_us: Some(35_200),
                 frame_sink_timestamp_us: Some(35_210),
+                frame_selected_timestamp_us: Some(35_215),
                 frame_prepare_timestamp_us: Some(35_220),
-                frame_painted_timestamp_us: Some(35_300),
+                frame_draw_encoded_timestamp_us: Some(35_250),
+                frame_gpu_complete_timestamp_us: Some(35_300),
             })
             .expect("second sample should be written");
         logger.writer.flush().expect("log should flush");
@@ -983,7 +1149,25 @@ mod tests {
         let contents = std::fs::read_to_string(&path).expect("log should be readable");
         let lines: Vec<_> = contents.lines().collect();
         assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0].split(',').count(), lines[2].split(',').count());
+        let header: Vec<_> = lines[0].split(',').collect();
+        let first: Vec<_> = lines[1].split(',').collect();
+        let second: Vec<_> = lines[2].split(',').collect();
+        assert_eq!(header.len(), first.len());
+        assert_eq!(header.len(), second.len());
+        let column = |name: &str| {
+            header.iter().position(|column| *column == name).expect("expected CSV column")
+        };
+        assert_eq!(first[column("frame_selected_timestamp_us")], "1215");
+        assert_eq!(first[column("frame_prepare_timestamp_us")], "1220");
+        assert_eq!(first[column("frame_draw_encoded_timestamp_us")], "1250");
+        assert_eq!(first[column("frame_gpu_complete_timestamp_us")], "1300");
+        assert_eq!(first[column("sink_to_select_ms")], "0.005");
+        assert_eq!(first[column("select_to_prepare_ms")], "0.005");
+        assert_eq!(first[column("prepare_to_draw_encoded_ms")], "0.030");
+        assert_eq!(first[column("draw_encoded_to_gpu_complete_ms")], "0.050");
+        assert_eq!(first[column("receive_to_gpu_complete_ms")], "0.200");
+        assert_eq!(first[column("e2e_to_gpu_complete_ms")], "0.300");
+        assert_eq!(second[column("gpu_complete_interval_ms")], "34.000");
         assert!(lines[1].ends_with(",0,,0,0,0,0.000"));
         assert!(lines[2].ends_with(",1,34.000,2,1,1,100.000"));
         std::fs::remove_file(path).expect("temporary log should be removable");

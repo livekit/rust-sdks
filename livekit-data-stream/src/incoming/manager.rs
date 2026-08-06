@@ -46,7 +46,9 @@ struct Descriptor {
     /// Identity of the participant sending this stream; used to abort the stream
     /// if that participant disconnects mid-send.
     sender_identity: ParticipantIdentity,
-    is_internal: bool,
+    /// Topic this stream was opened on, reported on chunk/trailer events so the host can recognize
+    /// streams it handles internally (chunk and trailer packets carry only a stream id).
+    topic: String,
     /// Whether this is a text stream (decompressed output is reframed on UTF-8 boundaries).
     is_text: bool,
     /// Per-stream deflate-raw decompressor; `Some` if the header declared `DEFLATE_RAW`.
@@ -184,10 +186,6 @@ pub struct Manager {
     input_rx: UnboundedReceiver<InputEvent>,
     output_tx: UnboundedSender<OutputEvent>,
 
-    /// Topics whose streams are handled internally by the SDK (e.g. RPC) and never surfaced as
-    /// application events. Supplied by the host crate so this crate stays decoupled from RPC.
-    reserved_topics: Vec<&'static str>,
-
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
 }
@@ -199,7 +197,6 @@ struct ManagerInner {
 
 impl Manager {
     pub fn new(
-        reserved_topics: Vec<&'static str>,
         max_payload_byte_length: Option<usize>,
     ) -> (Self, ManagerInput, UnboundedReceiver<OutputEvent>) {
         // Unbounded: inbound wire packets must never be dropped (a dropped chunk is an
@@ -211,7 +208,6 @@ impl Manager {
             input_rx,
             output_tx,
 
-            reserved_topics,
             max_payload_byte_length: max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
         };
@@ -250,7 +246,7 @@ impl Manager {
         participant_identity: ParticipantIdentity,
         encryption_type: EncryptionType,
     ) {
-        let is_internal = self.is_internal_topic(&header.topic);
+        let topic = header.topic.clone();
 
         // A compression type from a future protocol version can't be decoded; drop the stream
         // (a conforming sender never sends compression a recipient didn't advertise support for,
@@ -341,7 +337,7 @@ impl Manager {
             progress_tx,
             encryption_type: stream_encryption_type,
             sender_identity: participant_identity,
-            is_internal,
+            topic,
             is_text,
             decompressor: is_compressed
                 .then(|| DeflateDecompressState::new(self.max_payload_byte_length)),
@@ -351,18 +347,12 @@ impl Manager {
         self.inner.open_streams.insert(id, descriptor);
     }
 
-    /// Returns whether a given streams is handled internally by the SDK
-    /// (e.g. `lk.rpc_request`) and associated events should not be surfaced to the application.
-    fn is_internal(&self, id: &StreamId) -> bool {
-        self.inner.open_streams.get(id).is_some_and(|d| d.is_internal)
-    }
-
-    /// Returns whether streams created on the given topic are handled internally by the SDK
-    /// (e.g. `lk.rpc_request`) and should not be surfaced to the application.
+    /// Returns the topic of an open stream, or `None` if no stream with this id is open.
     ///
-    /// When possible, prefer [`Self::is_internal`] instead.
-    fn is_internal_topic(&self, topic: &str) -> bool {
-        self.reserved_topics.iter().any(|t| t == &topic)
+    /// Reported on chunk/trailer events so the host can apply its own topic policy (e.g. hiding
+    /// `lk.rpc_request`); this crate deliberately holds no notion of which topics are internal.
+    fn topic_associated_with_stream_id(&self, id: &StreamId) -> Option<String> {
+        self.inner.open_streams.get(id).map(|d| d.topic.clone())
     }
 
     /// Handles an incoming chunk packet.
@@ -373,12 +363,11 @@ impl Manager {
         encryption_type: EncryptionType,
     ) {
         let id = chunk.stream_id.clone();
-        if !self.is_internal(&id) {
-            let _ = self.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
-                chunk: chunk.clone(),
-                participant_identity,
-            }));
-        }
+        let _ = self.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
+            chunk: chunk.clone(),
+            participant_identity,
+            topic: self.topic_associated_with_stream_id(&id),
+        }));
 
         let inner = &mut self.inner;
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
@@ -476,11 +465,14 @@ impl Manager {
     /// Handles an incoming trailer packet.
     fn handle_trailer(&mut self, trailer: Trailer, participant_identity: ParticipantIdentity) {
         let id = trailer.stream_id.clone();
-        if !self.is_internal(&id) {
-            let _ = self
-                .output_tx
-                .send(TrailerReceived { trailer: trailer.clone(), participant_identity }.into());
-        }
+        let _ = self.output_tx.send(
+            TrailerReceived {
+                trailer: trailer.clone(),
+                participant_identity,
+                topic: self.topic_associated_with_stream_id(&id),
+            }
+            .into(),
+        );
 
         let inner = &mut self.inner;
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
@@ -681,16 +673,12 @@ mod tests {
     }
 
     impl Harness {
-        fn new(reserved_topics: Vec<&'static str>) -> Self {
-            Self::new_with_max_payload_length(reserved_topics, None)
+        fn new() -> Self {
+            Self::new_with_max_payload_length(None)
         }
 
-        fn new_with_max_payload_length(
-            reserved_topics: Vec<&'static str>,
-            max_payload_byte_length: Option<usize>,
-        ) -> Self {
-            let (manager, input, output_rx) =
-                Manager::new(reserved_topics, max_payload_byte_length);
+        fn new_with_max_payload_length(max_payload_byte_length: Option<usize>) -> Self {
+            let (manager, input, output_rx) = Manager::new(max_payload_byte_length);
             tokio::spawn(manager.run());
             Self { input, output_rx }
         }
@@ -732,7 +720,7 @@ mod tests {
 
         #[tokio::test]
         async fn v1_text_stream_round_trips() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "hello world";
             h.send_packet(Packet::Header {
                 header: text_header(
@@ -757,7 +745,7 @@ mod tests {
 
         #[tokio::test]
         async fn v1_byte_stream_round_trips() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: byte_header("s1", Some(4), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -773,7 +761,7 @@ mod tests {
 
         #[tokio::test]
         async fn v1_merges_trailer_attributes() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "hi";
             h.send_packet(Packet::Header {
                 header: text_header(
@@ -803,7 +791,7 @@ mod tests {
 
         #[tokio::test]
         async fn v1_errors_when_too_few_bytes() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -819,7 +807,7 @@ mod tests {
 
         #[tokio::test]
         async fn v1_errors_when_too_many_bytes() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: byte_header("s1", Some(3), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -836,7 +824,7 @@ mod tests {
         #[tokio::test]
         async fn v1_max_payload_size_breached_with_unknown_total() {
             // A stream with no declared total must still be bounded by the receiver's cap.
-            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            let mut h = Harness::new_with_max_payload_length(Some(1_000));
             h.send_packet(Packet::Header {
                 header: byte_header("s1", None, None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -854,7 +842,7 @@ mod tests {
         #[tokio::test]
         async fn v1_max_payload_size_fast_fails_on_declared_total() {
             // A header declaring a total above the cap is rejected before any chunks arrive.
-            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            let mut h = Harness::new_with_max_payload_length(Some(1_000));
             h.send_packet(Packet::Header {
                 header: byte_header("s1", Some(2_000), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -866,7 +854,7 @@ mod tests {
         #[tokio::test]
         async fn v1_payload_exactly_at_max_payload_size_succeeds() {
             // The cap is inclusive: a payload of exactly max_payload_byte_length is accepted.
-            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            let mut h = Harness::new_with_max_payload_length(Some(1_000));
             h.send_packet(Packet::Header {
                 header: byte_header("s1", Some(1_000), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -882,7 +870,7 @@ mod tests {
 
         #[tokio::test]
         async fn v1_drops_on_encryption_type_mismatch() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: text_header("s1", Some(2), HashMap::new(), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -897,7 +885,7 @@ mod tests {
 
         #[tokio::test]
         async fn v1_trailer_attributes_merged_after_close() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "hello world";
             h.send_packet(Packet::Header {
                 header: text_header(
@@ -934,7 +922,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_inline_uncompressed_text() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "inline hello";
             h.send_packet(Packet::Header {
                 header: text_header(
@@ -954,7 +942,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_inline_uncompressed_byte() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: byte_header("s1", Some(3), Some(vec![1, 2, 3]), CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -965,7 +953,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_inline_compressed_text() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "hello hello compressible world";
             let compressed = deflate_raw(text.as_bytes()).await;
             h.send_packet(Packet::Header {
@@ -985,7 +973,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_inline_compressed_byte() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let payload: Vec<u8> = (0..2000).map(|i| (i % 7) as u8).collect();
             let compressed = deflate_raw(&payload).await;
             h.send_packet(Packet::Header {
@@ -1005,7 +993,7 @@ mod tests {
         async fn v2_inline_compressed_max_payload_size_breached() {
             // A tiny compressed inline payload that inflates far past the configured cap must be
             // rejected (decompression-bomb guard on the inline path).
-            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            let mut h = Harness::new_with_max_payload_length(Some(1_000));
             let text = pseudo_random_text(50_000);
             let compressed = deflate_raw(text.as_bytes()).await;
             h.send_packet(Packet::Header {
@@ -1026,7 +1014,7 @@ mod tests {
         async fn v2_inline_uncompressed_max_payload_size_breached() {
             // The cap applies to uncompressed inline payloads too. No declared total, so the
             // inline content check (not the header fast-fail) is what trips.
-            let mut h = Harness::new_with_max_payload_length(vec![], Some(1_000));
+            let mut h = Harness::new_with_max_payload_length(Some(1_000));
             h.send_packet(Packet::Header {
                 header: byte_header("s1", None, Some(vec![0u8; 2_000]), CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -1037,7 +1025,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_inline_zero_length_text() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: text_header(
                     "s1",
@@ -1060,7 +1048,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_multipacket_compressed_text() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             // ~60 KB of pseudo-random lowercase so the compressed output spans multiple chunks.
             let text = pseudo_random_text(60_000);
             let compressed = deflate_raw(text.as_bytes()).await;
@@ -1090,7 +1078,7 @@ mod tests {
 
         #[tokio::test]
         async fn errors_open_streams_on_sender_disconnect() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet(Packet::Header {
                 header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
                 encryption_type: EncryptionType::None,
@@ -1107,7 +1095,7 @@ mod tests {
 
         #[tokio::test]
         async fn abort_only_affects_matching_sender() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             h.send_packet_from(
                 Packet::Header {
                     header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
@@ -1131,7 +1119,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_compressed_gap_errors() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = pseudo_random_text(60_000);
             let compressed = deflate_raw(text.as_bytes()).await;
             let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
@@ -1165,8 +1153,7 @@ mod tests {
             let compressed = deflate_raw(text.as_bytes()).await;
 
             // Use a max payload size one byte below the size of the compressed data
-            let mut h =
-                Harness::new_with_max_payload_length(vec![], Some(50_000 /* less than 60k */));
+            let mut h = Harness::new_with_max_payload_length(Some(50_000 /* less than 60k */));
 
             // Feed all data in
             h.send_packet(Packet::Header {
@@ -1193,7 +1180,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_multipacket_compressed_byte_stream() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let data = pseudo_random_text(60_000).into_bytes();
             let compressed = deflate_raw(&data).await;
             let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
@@ -1221,7 +1208,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_compressed_errors_when_too_few_bytes() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "hello world"; // 11 bytes decompressed
             let compressed = deflate_raw(text.as_bytes()).await;
             h.send_packet(Packet::Header {
@@ -1246,7 +1233,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_compressed_errors_when_too_many_bytes() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "hello world"; // 11 bytes decompressed
             let compressed = deflate_raw(text.as_bytes()).await;
             h.send_packet(Packet::Header {
@@ -1270,7 +1257,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_compressed_duplicate_chunk_dropped() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = pseudo_random_text(60_000);
             let compressed = deflate_raw(text.as_bytes()).await;
             let pieces: Vec<&[u8]> = compressed.chunks(15_000).collect();
@@ -1309,7 +1296,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_compressed_text_reframes_multibyte_utf8() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "😀你好世界 café — ¡ñandú! ".repeat(500);
             let compressed = deflate_raw(text.as_bytes()).await;
             // Split the compressed bytes at an arbitrary midpoint: the decompressor's output at the
@@ -1341,7 +1328,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_unknown_compression_type_is_ignored() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             // A compression type from a future protocol version arrives at the proto layer; the
             // receiver can't decode it, so per the spec's defensive-drop behavior (mirroring the web
             // SDK) the stream must be ignored rather than delivered as if uncompressed.
@@ -1380,7 +1367,7 @@ mod tests {
 
         #[tokio::test]
         async fn v2_compressed_merges_trailer_attributes() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "hello world";
             let compressed = deflate_raw(text.as_bytes()).await;
             h.send_packet(Packet::Header {
@@ -1448,7 +1435,7 @@ mod tests {
 
         #[tokio::test]
         async fn progress_reports_completion_uncompressed_bytes() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let total = 12u64;
             h.send_packet(Packet::Header {
                 header: byte_header("s1", Some(total), None, CompressionType::None),
@@ -1475,7 +1462,7 @@ mod tests {
 
         #[tokio::test]
         async fn progress_reports_completion_compressed_text() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = pseudo_random_text(60_000);
             let total = text.len() as u64;
             let compressed = deflate_raw(text.as_bytes()).await;
@@ -1509,7 +1496,7 @@ mod tests {
 
         #[tokio::test]
         async fn progress_reports_completion_inline() {
-            let mut h = Harness::new(vec![]);
+            let mut h = Harness::new();
             let text = "inline hello";
             let total = text.len() as u64;
             h.send_packet(Packet::Header {
@@ -1532,7 +1519,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_chunks_are_ignored() {
-        let mut h = Harness::new(vec![]);
+        let mut h = Harness::new();
         let text = "hello world";
         h.send_packet(Packet::Header {
             header: text_header(
@@ -1560,7 +1547,7 @@ mod tests {
 
     #[tokio::test]
     async fn trailer_with_reason_errors_abnormal_end() {
-        let mut h = Harness::new(vec![]);
+        let mut h = Harness::new();
         h.send_packet(Packet::Header {
             header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
             encryption_type: EncryptionType::None,
@@ -1582,7 +1569,7 @@ mod tests {
 
     #[tokio::test]
     async fn text_stream_with_attachments_round_trips() {
-        let mut h = Harness::new(vec![]);
+        let mut h = Harness::new();
         let text = "hello world";
 
         // Text stream whose header references an attachment stream id, body inline.
@@ -1618,5 +1605,61 @@ mod tests {
         });
         h.send_packet(Packet::Trailer(trailer("att1")));
         assert_eq!(read_bytes(byte_reader).await.unwrap(), Bytes::from(vec![1u8, 2, 3]));
+    }
+
+    /// Chunk and trailer packets carry only a stream id, so the manager reports the topic of the
+    /// stream they belong to. Hosts rely on this to filter events for topics they handle
+    /// internally (e.g. RPC), so it is the only signal available to them for these two events.
+    mod reported_topic {
+        use super::*;
+
+        /// Awaits the next chunk/trailer output, returning the topic it reported.
+        async fn next_raw_topic(h: &mut Harness) -> Option<String> {
+            loop {
+                match h.output_rx.recv().await.expect("an output event should be emitted") {
+                    OutputEvent::ChunkReceived(ChunkReceived { topic, .. })
+                    | OutputEvent::TrailerReceived(TrailerReceived { topic, .. }) => {
+                        return topic;
+                    }
+                    OutputEvent::StreamOpened(_) => continue,
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn chunk_and_trailer_report_the_topic_of_their_stream() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: Header {
+                    topic: "lk.rpc_request".to_string(),
+                    ..text_header("s1", Some(2), HashMap::new(), None, CompressionType::None)
+                },
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"hi".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(next_raw_topic(&mut h).await.as_deref(), Some("lk.rpc_request"));
+
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(next_raw_topic(&mut h).await.as_deref(), Some("lk.rpc_request"));
+
+            // The stream itself still opens and reads normally; reporting the topic does not
+            // suppress anything in this crate.
+            assert_eq!(read_text(reader).await.unwrap(), "hi");
+        }
+
+        #[tokio::test]
+        async fn chunk_for_an_unopened_stream_reports_no_topic() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("never-opened", 0, b"hi".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(next_raw_topic(&mut h).await, None);
+        }
     }
 }

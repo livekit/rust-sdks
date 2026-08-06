@@ -722,10 +722,7 @@ impl Room {
             dt::remote::Manager::new(remote_dt_options);
 
         let (incoming_stream_manager, incoming_data_stream_input, incoming_output) =
-            ds::incoming::Manager::new(
-                INTERNAL_DATA_STREAM_TOPICS.into(),
-                options.data_stream.max_payload_byte_length,
-            );
+            ds::incoming::Manager::new(options.data_stream.max_payload_byte_length);
         let (outgoing_stream_manager, packet_rx) = ds::outgoing::Manager::new();
 
         let room_info = join_response.room.unwrap();
@@ -929,6 +926,12 @@ impl Room {
 
     pub fn name(&self) -> String {
         self.inner.info.read().name.clone()
+    }
+
+    /// The current signalling token (the initial token, or the latest
+    /// refreshed one). Used to (re-)authenticate audio filter plugins.
+    pub fn token(&self) -> String {
+        self.inner.rtc_engine.session().signal_client().token()
     }
 
     pub fn metadata(&self) -> String {
@@ -2426,11 +2429,17 @@ async fn incoming_data_stream_task(
                         }
                     }
                 },
-                ds::incoming::OutputEvent::ChunkReceived(ds::incoming::ChunkReceived { chunk, participant_identity }) => {
-                    dispatcher.dispatch(&RoomEvent::StreamChunkReceived { chunk: chunk.into(), participant_identity: participant_identity.into() });
+                // Chunk/trailer packets carry no topic of their own, so the manager reports the
+                // topic of the stream they belong to for the internal check below.
+                ds::incoming::OutputEvent::ChunkReceived(ds::incoming::ChunkReceived { chunk, participant_identity, topic }) => {
+                    if !topic.as_deref().is_some_and(is_internal_topic) {
+                        dispatcher.dispatch(&RoomEvent::StreamChunkReceived { chunk: chunk.into(), participant_identity: participant_identity.into() });
+                    }
                 }
-                ds::incoming::OutputEvent::TrailerReceived(ds::incoming::TrailerReceived { trailer, participant_identity }) => {
-                    dispatcher.dispatch(&RoomEvent::StreamTrailerReceived { trailer: trailer.into(), participant_identity: participant_identity.into() });
+                ds::incoming::OutputEvent::TrailerReceived(ds::incoming::TrailerReceived { trailer, participant_identity, topic }) => {
+                    if !topic.as_deref().is_some_and(is_internal_topic) {
+                        dispatcher.dispatch(&RoomEvent::StreamTrailerReceived { trailer: trailer.into(), participant_identity: participant_identity.into() });
+                    }
                 }
             },
             _ = close_rx.recv() => {
@@ -2442,8 +2451,7 @@ async fn incoming_data_stream_task(
 }
 
 /// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
-/// handled within the `livekit` crate and never surfaced through `RoomEvent`; the list is also
-/// passed to `IncomingStreamManager` so it can flag internal streams.
+/// handled within the `livekit` crate and never surfaced through `RoomEvent`.
 const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
 
 fn is_internal_topic(topic: &str) -> bool {

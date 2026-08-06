@@ -65,6 +65,14 @@ async fn test_audio_with(params: TestParams) -> Result<()> {
     const SINE_FREQ: f64 = 60.0;
     const SINE_AMPLITUDE: f64 = 1.0;
     const FRAMES_TO_ANALYZE: usize = 100;
+    // Ignore samples below this magnitude when detecting the start of the signal.
+    const SIGNAL_ONSET_AMPLITUDE: i32 = (i16::MAX / 10) as i32;
+    // Discard this much audio after signal onset before measuring. A single-PC
+    // subscriber can receive a few hundred ms of NetEq concealment at stream
+    // start while the bundled SCTP association is established on the shared
+    // transport, which drags the zero-crossing estimate down. Measuring only
+    // steady-state audio keeps the frequency estimate stable.
+    const SETTLE_DURATION_MS: u32 = 500;
 
     let sine_params = SineParameters {
         freq: SINE_FREQ,
@@ -95,12 +103,32 @@ async fn test_audio_with(params: TestParams) -> Result<()> {
         tokio::spawn(async move {
             let mut frames_analyzed = 0;
             let mut analyzers = vec![FreqAnalyzer::new(); params.sub_channels as usize];
+            let mut onset_reached = false;
+            // Per-channel samples to discard after onset before measuring.
+            let mut settle_samples_remaining = params.sub_rate_hz * SETTLE_DURATION_MS / 1000;
 
             while let Some(frame) = stream.next().await {
                 assert!(frame.data.len() > 0);
                 assert_eq!(frame.num_channels, params.sub_channels);
                 assert_eq!(frame.sample_rate, params.sub_rate_hz);
                 assert_eq!(frame.samples_per_channel, frame.data.len() as u32 / frame.num_channels);
+
+                // Wait for the publisher's signal to actually start: the stream can deliver
+                // silence between subscribing and the arrival of the first decodable packet.
+                if !onset_reached {
+                    if !frame.data.iter().any(|&s| (s as i32).abs() >= SIGNAL_ONSET_AMPLITUDE) {
+                        continue;
+                    }
+                    onset_reached = true;
+                }
+
+                // Then discard a short settle window so the estimate covers steady-state
+                // audio rather than any concealment/gaps present right at stream start.
+                if settle_samples_remaining > 0 {
+                    settle_samples_remaining =
+                        settle_samples_remaining.saturating_sub(frame.samples_per_channel);
+                    continue;
+                }
 
                 for channel_idx in 0..params.sub_channels as usize {
                     analyzers[channel_idx].analyze(frame.channel_iter(channel_idx));
