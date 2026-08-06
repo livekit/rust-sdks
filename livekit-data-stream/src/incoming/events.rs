@@ -39,6 +39,9 @@ pub enum InputEvent {
     PacketReceived(PacketReceived),
     /// Abort every open stream sent by this participant (they disconnected mid-send).
     AbortStreamsFrom(ParticipantIdentity),
+    /// Abort every open stream (e.g. the local connection is going away). Unlike
+    /// [`InputEvent::Shutdown`], the run loop keeps going so streams opened later are still handled.
+    AbortAllStreams,
     /// Stop the run loop.
     Shutdown,
 }

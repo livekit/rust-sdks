@@ -4111,6 +4111,8 @@ dependencies = [
  "camino",
  "futures-util",
  "livekit-api",
+ "livekit-common",
+ "livekit-data-stream",
  "livekit-datatrack",
  "livekit-protocol",
  "log",
