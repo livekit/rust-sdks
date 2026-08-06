@@ -354,13 +354,12 @@ pub fn annex_b_nal_ranges(bytes: &[u8]) -> Vec<Range<usize>> {
 }
 
 /// Returns borrowed NAL units from an Annex-B buffer.
-pub fn annex_b_nalus(bytes: &[u8]) -> Result<Vec<&[u8]>, CaptureError> {
-    let nals = annex_b_nal_ranges(bytes)
+pub fn annex_b_nalus(bytes: &[u8]) -> Vec<&[u8]> {
+    annex_b_nal_ranges(bytes)
         .into_iter()
         .map(|range| &bytes[range])
         .filter(|nal| !nal.is_empty())
-        .collect::<Vec<_>>();
-    Ok(nals)
+        .collect()
 }
 
 /// Creates an Annex-B access unit from H.264/AVC length-prefixed NAL units.
@@ -409,7 +408,7 @@ pub fn access_unit_from_nalus(
 
 /// Returns true when an Annex-B access unit contains an intra/key picture.
 pub fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, CaptureError> {
-    let nals = annex_b_nalus(bytes)?;
+    let nals = annex_b_nalus(bytes);
     is_keyframe_nalus(codec, &nals)
 }
 
@@ -599,7 +598,7 @@ mod tests {
     #[test]
     fn splits_annex_b_nals_with_three_and_four_byte_prefixes() {
         let bytes = [0, 0, 1, 0x67, 1, 0, 0, 0, 1, 0x65, 2, 3];
-        let nals = annex_b_nalus(&bytes).unwrap();
+        let nals = annex_b_nalus(&bytes);
         assert_eq!(nals, vec![&[0x67, 1][..], &[0x65, 2, 3][..]]);
     }
 
