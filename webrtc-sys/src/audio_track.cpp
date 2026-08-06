@@ -149,39 +149,55 @@ AudioTrackSource::InternalSource::InternalSource(
   int samples10ms = sample_rate / 100 * num_channels;
 
   silence_buffer_.assign(samples10ms, 0);
+  // Sized once here; the drain reuses it every tick without reallocating.
+  scratch_.resize(samples10ms);
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
   notify_threshold_samples_ = queue_size_samples_;  // TODO: this is currently
                                                     // using x2 the queue size
   buffer_.reserve(queue_size_samples_ + notify_threshold_samples_);
 
-  audio_queue_ =
-      task_queue_factory->CreateTaskQueue(
-          "AudioSourceCapture", webrtc::TaskQueueFactory::Priority::NORMAL);
+  audio_queue_ = task_queue_factory->CreateTaskQueue(
+      "AudioSourceCapture", webrtc::TaskQueueFactory::Priority::NORMAL);
 
   audio_task_ = webrtc::RepeatingTaskHandle::Start(
       audio_queue_.get(),
       [this, samples10ms]() {
-        webrtc::MutexLock lock(&mutex_);
         constexpr int kBitsPerSample = sizeof(int16_t) * 8;
 
-        if (buffer_.size() >= samples10ms) {
-          for (auto sink : sinks_)
-            sink->OnData(buffer_.data(), kBitsPerSample, sample_rate_,
-                         num_channels_, samples10ms / num_channels_);
-
-          buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
-        } else {
-          // Always provide a 10ms frame to avoid playout underruns.
-          for (auto sink : sinks_)
-            sink->OnData(silence_buffer_.data(), kBitsPerSample, sample_rate_,
-                         num_channels_, samples10ms / num_channels_);
+        // Take the 10ms frame and any pending completion under buffer_mutex_, then run
+        // sink->OnData() under sink_mutex_ and fire the completion with no lock held. Keeping
+        // OnData off buffer_mutex_ means a wedged or slow sink can never block capture_frame;
+        // keeping it under sink_mutex_ means a sink cannot be freed (via RemoveSink) mid-call.
+        // scratch_ is reused across ticks (this task is the only thread that touches it, and it is
+        // sized once in the constructor) to avoid a per-10ms allocation on the audio path.
+        void (*complete)(const SourceContext*) = nullptr;
+        const SourceContext* complete_ctx = nullptr;
+        {
+          webrtc::MutexLock lock(&buffer_mutex_);
+          if (buffer_.size() >= static_cast<size_t>(samples10ms)) {
+            std::copy(buffer_.begin(), buffer_.begin() + samples10ms, scratch_.begin());
+            buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
+          } else {
+            // Always provide a 10ms frame to avoid playout underruns.
+            std::copy(silence_buffer_.begin(), silence_buffer_.end(), scratch_.begin());
+          }
+          if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
+            complete = on_complete_;
+            complete_ctx = capture_userdata_;
+            on_complete_ = nullptr;
+            capture_userdata_ = nullptr;
+          }
         }
 
-        if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
-          on_complete_(capture_userdata_);
-          on_complete_ = nullptr;
-          capture_userdata_ = nullptr;
+        {
+          webrtc::MutexLock lock(&sink_mutex_);
+          for (auto sink : sinks_)
+            sink->OnData(scratch_.data(), kBitsPerSample, sample_rate_, num_channels_,
+                         samples10ms / num_channels_);
         }
+
+        if (complete)
+          complete(complete_ctx);
 
         return webrtc::TimeDelta::Millis(10);
       },
@@ -198,9 +214,8 @@ bool AudioTrackSource::InternalSource::capture_frame(
     size_t number_of_frames,
     const SourceContext* ctx,
     void (*on_complete)(const SourceContext*)) {
-  webrtc::MutexLock lock(&mutex_);
-
   if (queue_size_samples_) {
+    webrtc::MutexLock lock(&buffer_mutex_);
     int available =
         (queue_size_samples_ + notify_threshold_samples_) - buffer_.size();
     if (available < data.size())
@@ -217,9 +232,9 @@ bool AudioTrackSource::InternalSource::capture_frame(
       on_complete_ = on_complete;
       capture_userdata_ = ctx;
     }
-
   } else {
     // Fast path: capture directly when the queue buffer is 0 (frame size must be 10ms)
+    webrtc::MutexLock lock(&sink_mutex_);
     for (auto sink : sinks_)
       sink->OnData(data.data(), sizeof(int16_t) * 8, sample_rate,
                    number_of_channels, number_of_frames);
@@ -229,8 +244,23 @@ bool AudioTrackSource::InternalSource::capture_frame(
 }
 
 void AudioTrackSource::InternalSource::clear_buffer() {
-  webrtc::MutexLock lock(&mutex_);
-  buffer_.clear();
+  // Snapshot any chunk still awaiting completion under buffer_mutex_ (serialized with the drain,
+  // so it fires at most once), then run it with no lock held — matching the drain path and
+  // avoiding a callback under the lock.
+  void (*complete)(const SourceContext*) = nullptr;
+  const SourceContext* complete_ctx = nullptr;
+  {
+    webrtc::MutexLock lock(&buffer_mutex_);
+    buffer_.clear();
+    complete = on_complete_;
+    complete_ctx = capture_userdata_;
+    on_complete_ = nullptr;
+    capture_userdata_ = nullptr;
+  }
+  // Release the pending completion so the source is immediately reusable and its context is
+  // freed rather than leaked.
+  if (complete)
+    complete(complete_ctx);
 }
 
 webrtc::MediaSourceInterface::SourceState
@@ -243,25 +273,25 @@ bool AudioTrackSource::InternalSource::remote() const {
 }
 
 const webrtc::AudioOptions AudioTrackSource::InternalSource::options() const {
-  webrtc::MutexLock lock(&mutex_);
+  webrtc::MutexLock lock(&buffer_mutex_);
   return options_;
 }
 
 void AudioTrackSource::InternalSource::set_options(
     const webrtc::AudioOptions& options) {
-  webrtc::MutexLock lock(&mutex_);
+  webrtc::MutexLock lock(&buffer_mutex_);
   options_ = options;
 }
 
 void AudioTrackSource::InternalSource::AddSink(
     webrtc::AudioTrackSinkInterface* sink) {
-  webrtc::MutexLock lock(&mutex_);
+  webrtc::MutexLock lock(&sink_mutex_);
   sinks_.push_back(sink);
 }
 
 void AudioTrackSource::InternalSource::RemoveSink(
     webrtc::AudioTrackSinkInterface* sink) {
-  webrtc::MutexLock lock(&mutex_);
+  webrtc::MutexLock lock(&sink_mutex_);
   sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
 }
 

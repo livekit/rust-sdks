@@ -59,3 +59,4 @@ web-sys = { version = "0.3", features = [
 
 [dev-dependencies]
 env_logger = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
