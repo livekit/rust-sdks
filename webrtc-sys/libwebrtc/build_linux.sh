@@ -99,6 +99,10 @@ cd third_party
 
 git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
+if [ "$arch" = "x64" ]; then
+  git apply "$COMMAND_DIR/patches/fix_abseil_cpp_build_on_x64.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+fi
+
 cd libyuv
 
 git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
