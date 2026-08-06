@@ -768,8 +768,8 @@ impl RtcSession {
         self.inner.mid_to_track_id.lock().get(mid).cloned()
     }
 
-    pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
-        self.inner.remove_track(sender)
+    pub fn remove_track(&self, transceiver: RtpTransceiver) -> EngineResult<()> {
+        self.inner.remove_track(transceiver)
     }
 
     pub fn publisher_negotiation_needed(&self) {
@@ -1874,13 +1874,16 @@ impl SessionInner {
         }
     }
 
-    fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+    fn remove_track(&self, transceiver: RtpTransceiver) -> EngineResult<()> {
+        let sender = transceiver.sender();
+
         if let Some(track) = sender.track() {
             let mut pending_tracks = self.pending_tracks.lock();
             pending_tracks.remove(&track.id());
         }
 
         self.publisher_pc.peer_connection().remove_track(sender)?;
+        transceiver.stop()?;
 
         Ok(())
     }
