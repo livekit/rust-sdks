@@ -163,7 +163,7 @@ ninja -C "$OUTPUT_DIR" :default
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
-src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
 # License generation is optional - may fail with some Python versions
 # Use vpython3 from depot_tools for consistent Python version
