@@ -14,7 +14,7 @@
 
 //! Error types shared across capture paths.
 
-use crate::encoded::{EncodedVideoCodec, EncodedWireFormat};
+use crate::encoded::EncodedVideoCodec;
 use std::{error::Error as StdError, fmt};
 use thiserror::Error;
 
@@ -54,21 +54,12 @@ pub enum CaptureError {
     /// H.265 NAL unit is too short to contain its header.
     #[error("H.265 NAL unit is too short")]
     H265NalTooShort,
-    /// Access unit carries layering metadata the passthrough cannot forward.
-    #[error("unsupported layered encoding: {0}")]
-    UnsupportedLayeredEncoding(&'static str),
     /// Codec is represented by the API but not yet supported by native passthrough.
     #[error("encoded passthrough does not support {0:?} yet")]
     UnsupportedCodec(EncodedVideoCodec),
     /// Encoded payload or transport data is malformed.
     #[error("invalid encoded data: {0}")]
     InvalidEncodedData(&'static str),
-    /// Wire format is represented by the API but not supported by this source.
-    #[error("encoded wire format is not supported by this source: {0:?}")]
-    UnsupportedWireFormat(EncodedWireFormat),
-    /// Capture backend is not available on this platform.
-    #[error("{0} is not supported on this platform")]
-    UnsupportedPlatform(&'static str),
     /// The underlying source rejected the frame.
     #[error("capture source rejected the frame")]
     CaptureFailed,

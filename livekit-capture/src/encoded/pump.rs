@@ -16,10 +16,7 @@
 //! source.
 
 use crate::{
-    encoded::{
-        CodecSpecific, EncodedFrameType, EncodedLayerInfo, EncodedVideoSource,
-        OwnedEncodedAccessUnit,
-    },
+    encoded::{EncodedFrameType, EncodedVideoSource, OwnedEncodedAccessUnit},
     error::CaptureError,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
 };
@@ -165,7 +162,9 @@ fn capture_access_unit(
     access_unit: &OwnedEncodedAccessUnit,
     frame_metadata: Option<FrameMetadata>,
 ) -> Result<(), CaptureError> {
-    validate_access_unit(access_unit)?;
+    if access_unit.payload.is_empty() {
+        return Err(CaptureError::EmptyPayload);
+    }
 
     let frame = EncodedVideoFrame {
         codec: access_unit.codec.into(),
@@ -176,28 +175,6 @@ fn capture_access_unit(
         frame_metadata,
     };
     rtc_source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
-}
-
-/// The passthrough path forwards single-layer streams: access units carrying
-/// temporal/spatial layer ids or layering metadata are rejected so callers
-/// are not misled into thinking that metadata reaches the wire.
-fn validate_access_unit(access_unit: &OwnedEncodedAccessUnit) -> Result<(), CaptureError> {
-    if access_unit.payload.is_empty() {
-        return Err(CaptureError::EmptyPayload);
-    }
-    if access_unit.layers != EncodedLayerInfo::default() {
-        return Err(CaptureError::UnsupportedLayeredEncoding(
-            "temporal/spatial layer ids are not forwarded by the passthrough encoder",
-        ));
-    }
-    if access_unit.codec_specific != CodecSpecific::None
-        && access_unit.codec_specific != CodecSpecific::default_for(access_unit.codec)
-    {
-        return Err(CaptureError::UnsupportedLayeredEncoding(
-            "codec-specific layering metadata is not forwarded by the passthrough encoder",
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]

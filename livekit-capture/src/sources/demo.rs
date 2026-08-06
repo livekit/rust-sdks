@@ -14,7 +14,9 @@
 
 //! Solid-color demo video source for testing.
 
-use crate::{error::SourceError, pixel::PixelVideoSource, primitive::VideoResolution, pump::PumpStop};
+use crate::{
+    error::SourceError, pixel::PixelVideoSource, primitive::VideoResolution, pump::PumpStop,
+};
 use livekit::webrtc::video_frame::{BoxVideoFrame, I420Buffer, VideoFrame, VideoRotation};
 use std::{
     thread,

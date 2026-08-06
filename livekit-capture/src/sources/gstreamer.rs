@@ -22,8 +22,7 @@ use thiserror::Error;
 use crate::{
     encoded::{
         h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
-        CodecSpecific, EncodedFrameType, EncodedVideoCodec, EncodedVideoSource,
-        OwnedEncodedAccessUnit,
+        EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit,
     },
     error::{CaptureError, SourceError},
     primitive::VideoResolution,
@@ -33,8 +32,7 @@ use livekit::webrtc::video_source::EncodedRateControl;
 
 /// Encoded sample format expected from a GStreamer appsink.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum GStreamerSampleFormat {
+enum GStreamerSampleFormat {
     /// H.264 Annex-B access units, usually from `h264parse` with byte-stream caps.
     H264AnnexB,
     /// H.264 access units with AVC length-prefixed NAL units.
@@ -53,7 +51,7 @@ pub enum GStreamerSampleFormat {
 
 impl GStreamerSampleFormat {
     /// Returns the encoded codec carried by this sample format.
-    pub fn codec(self) -> EncodedVideoCodec {
+    fn codec(self) -> EncodedVideoCodec {
         match self {
             Self::H264AnnexB => EncodedVideoCodec::H264,
             Self::H264Avc { .. } => EncodedVideoCodec::H264,
@@ -295,8 +293,10 @@ impl GStreamerVideoSource {
         // verified lazily against the first sample instead.
         if config.resolution.is_none() {
             let sample = source.wait_first_sample().map_err(SourceError::new)?;
-            let caps =
-                sample.caps().ok_or(GStreamerVideoSourceError::MissingResolutionCaps).map_err(SourceError::new)?;
+            let caps = sample
+                .caps()
+                .ok_or(GStreamerVideoSourceError::MissingResolutionCaps)
+                .map_err(SourceError::new)?;
             source.resolution = resolution_from_caps(caps)
                 .ok_or(GStreamerVideoSourceError::MissingResolutionCaps)
                 .map_err(SourceError::new)?;
@@ -319,7 +319,8 @@ impl GStreamerVideoSource {
     /// Blocks until the pipeline produces its first sample, surfacing bus
     /// errors and bounding the wait by the discovery timeout.
     fn wait_first_sample(&self) -> Result<gst::Sample, GStreamerVideoSourceError> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(DISCOVERY_TIMEOUT.seconds());
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(DISCOVERY_TIMEOUT.seconds());
         loop {
             self.check_bus()?;
             if let Some(sample) = self.appsink.try_pull_sample(SAMPLE_WAIT) {
@@ -440,8 +441,7 @@ impl GStreamerVideoSource {
     fn timestamp_us(&mut self, buffer: &gst::BufferRef) -> i64 {
         if let Some(timestamp) = buffer.pts().or_else(|| buffer.dts()) {
             let timestamp_us = clock_time_to_timestamp_us(0, timestamp);
-            self.next_fallback_timestamp_us =
-                timestamp_us.saturating_add(self.frame_interval_us);
+            self.next_fallback_timestamp_us = timestamp_us.saturating_add(self.frame_interval_us);
             return timestamp_us;
         }
 
@@ -577,9 +577,7 @@ pub enum GStreamerVideoSourceError {
     #[error("pipeline reached end of stream before producing a sample")]
     EndedBeforeFirstSample,
     /// Negotiated caps carry no resolution to discover.
-    #[error(
-        "negotiated caps declare no resolution; declare `resolution` in the configuration"
-    )]
+    #[error("negotiated caps declare no resolution; declare `resolution` in the configuration")]
     MissingResolutionCaps,
     /// The pipeline produces a different resolution than configured.
     #[error("pipeline produces {actual}, but the configuration declares {configured}")]
@@ -648,15 +646,13 @@ fn access_unit_from_sample_payload(
                 return Err(CaptureError::EmptyPayload);
             }
 
-            let mut access_unit = OwnedEncodedAccessUnit::new(
+            Ok(OwnedEncodedAccessUnit::new(
                 codec,
                 Bytes::copy_from_slice(payload),
                 timestamp_us,
                 frame_type,
                 resolution,
-            );
-            access_unit.codec_specific = CodecSpecific::default_for(codec);
-            Ok(access_unit)
+            ))
         }
     }
 }
@@ -666,8 +662,7 @@ fn resolution_from_caps(caps: &gst::CapsRef) -> Option<VideoResolution> {
     let structure = caps.structure(0)?;
     let width = structure.get::<i32>("width").ok()?;
     let height = structure.get::<i32>("height").ok()?;
-    (width > 0 && height > 0)
-        .then(|| VideoResolution::new(width as u32, height as u32))
+    (width > 0 && height > 0).then(|| VideoResolution::new(width as u32, height as u32))
 }
 
 /// Derives the fallback frame interval from the caps framerate, when
@@ -744,7 +739,7 @@ pub fn encoded_caps(codec: EncodedVideoCodec) -> Result<gst::Caps, GStreamerPipe
 }
 
 /// Returns the appsink sample format used to ingest a codec.
-pub fn sample_format_for_codec(codec: EncodedVideoCodec) -> GStreamerSampleFormat {
+fn sample_format_for_codec(codec: EncodedVideoCodec) -> GStreamerSampleFormat {
     match codec {
         EncodedVideoCodec::H264 => GStreamerSampleFormat::H264AnnexB,
         EncodedVideoCodec::H265 => GStreamerSampleFormat::H265AnnexB,
@@ -770,7 +765,7 @@ pub fn parser_name(codec: EncodedVideoCodec) -> Option<&'static str> {
 /// as-is (its sink caps decide the sample format). Otherwise the pipeline
 /// must leave one encoded video source pad unlinked; the codec parser, a
 /// capsfilter, and an appsink are created and linked to it.
-pub fn ensure_encoded_appsink(
+fn ensure_encoded_appsink(
     pipeline: &gst::Pipeline,
     requested_codec: Option<EncodedVideoCodec>,
 ) -> Result<(gst_app::AppSink, GStreamerSampleFormat), GStreamerPipelineError> {
@@ -925,7 +920,7 @@ fn sample_format_from_pad_caps(
 }
 
 /// Infers the appsink sample format from a caps structure.
-pub fn sample_format_from_caps_structure(
+fn sample_format_from_caps_structure(
     structure: &gst::StructureRef,
 ) -> Result<Option<GStreamerSampleFormat>, GStreamerPipelineError> {
     let Some(codec) = codec_from_caps_name(structure.name()) else {
@@ -979,19 +974,19 @@ fn h264_avc_nal_length_size_from_caps(structure: &gst::StructureRef) -> u8 {
 }
 
 /// Reads the AVC NAL length-prefix size from `avcC` codec data.
-pub fn h264_avc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
+fn h264_avc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
     let length_size = (codec_data.get(4)? & 0x03) + 1;
     (1..=4).contains(&length_size).then_some(length_size)
 }
 
 /// Infers the encoded codec advertised by a pad's caps.
-pub fn codec_from_pad_caps(pad: &gst::Pad) -> Option<EncodedVideoCodec> {
+fn codec_from_pad_caps(pad: &gst::Pad) -> Option<EncodedVideoCodec> {
     let caps = pad.current_caps().unwrap_or_else(|| pad.query_caps(None));
     caps.iter().find_map(|structure| codec_from_caps_name(structure.name()))
 }
 
 /// Maps a caps media-type name to an encoded codec.
-pub fn codec_from_caps_name(name: &str) -> Option<EncodedVideoCodec> {
+fn codec_from_caps_name(name: &str) -> Option<EncodedVideoCodec> {
     match name {
         "video/x-h264" => Some(EncodedVideoCodec::H264),
         "video/x-h265" => Some(EncodedVideoCodec::H265),
@@ -1051,33 +1046,6 @@ mod tests {
 
         assert_eq!(access_unit.codec, EncodedVideoCodec::VP8);
         assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
-        assert_eq!(
-            access_unit.codec_specific,
-            CodecSpecific::VP8 { temporal_id: None, layer_sync: false }
-        );
-    }
-
-    #[test]
-    fn sample_payload_access_unit_sets_vp9_and_av1_specifics() {
-        let vp9 = access_unit_from_sample_payload(
-            GStreamerSampleFormat::AccessUnit { codec: EncodedVideoCodec::VP9 },
-            &[1, 2, 3],
-            2_000,
-            EncodedFrameType::Key,
-            VideoResolution::new(640, 480),
-        )
-        .unwrap();
-        assert_eq!(vp9.codec_specific, CodecSpecific::default_for(EncodedVideoCodec::VP9));
-
-        let av1 = access_unit_from_sample_payload(
-            GStreamerSampleFormat::AccessUnit { codec: EncodedVideoCodec::AV1 },
-            &[1, 2, 3],
-            2_000,
-            EncodedFrameType::Key,
-            VideoResolution::new(640, 480),
-        )
-        .unwrap();
-        assert_eq!(av1.codec_specific, CodecSpecific::default_for(EncodedVideoCodec::AV1));
     }
 
     #[test]

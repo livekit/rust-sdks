@@ -77,34 +77,7 @@ pub trait EncodedVideoSource: Send {
     fn update_rate_control(&mut self, _target: EncodedRateControl) {}
 }
 
-/// Encoded byte-stream framing used by encoded source backends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum EncodedWireFormat {
-    /// H.264 Annex-B byte stream.
-    H264AnnexB,
-    /// H.264/AVC byte stream with length-prefixed NAL units.
-    ///
-    /// `nal_length_size` is the number of big-endian length bytes before each NAL unit. Values
-    /// from 1 through 4 are accepted; 4 is the common AVC configuration.
-    H264Avc {
-        /// Length-prefix size in bytes.
-        nal_length_size: u8,
-    },
-    /// H.265 Annex-B byte stream.
-    H265AnnexB,
-    /// RTP packets for the supplied codec and RTP clock rate.
-    Rtp {
-        /// RTP payload codec.
-        codec: EncodedVideoCodec,
-        /// RTP timestamp clock rate.
-        clock_rate: u32,
-    },
-    /// MPEG transport stream carrying encoded video.
-    MpegTs,
-}
-
-/// Encoded video codec carried by an [`EncodedAccessUnit`].
+/// Encoded video codec carried by an [`OwnedEncodedAccessUnit`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -135,150 +108,6 @@ pub enum EncodedFrameType {
     Delta,
 }
 
-/// Layer identifiers associated with an encoded frame.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct EncodedLayerInfo {
-    /// Spatial layer index, when present.
-    pub spatial_id: Option<u8>,
-    /// Temporal layer index, when present.
-    pub temporal_id: Option<u8>,
-}
-
-/// H.264 packetization mode for passthrough metadata.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum H264PacketizationMode {
-    /// Non-interleaved packetization mode.
-    NonInterleaved,
-}
-
-/// Codec-specific metadata for encoded passthrough.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum CodecSpecific {
-    /// No codec-specific metadata.
-    None,
-    /// H.264-specific metadata.
-    H264 {
-        /// H.264 RTP packetization mode.
-        packetization_mode: H264PacketizationMode,
-    },
-    /// H.265-specific metadata.
-    H265,
-    /// VP8-specific metadata.
-    VP8 {
-        /// Temporal layer index, when present.
-        temporal_id: Option<u8>,
-        /// Whether this frame synchronizes a temporal layer.
-        layer_sync: bool,
-    },
-    /// VP9-specific metadata.
-    VP9 {
-        /// Temporal layer index, when present.
-        temporal_id: Option<u8>,
-        /// Spatial layer index, when present.
-        spatial_id: Option<u8>,
-        /// Whether this frame depends on an inter-layer reference.
-        inter_layer_predicted: Option<bool>,
-    },
-    /// AV1-specific metadata.
-    AV1 {
-        /// RTP scalability mode, such as `L1T1`.
-        scalability_mode: Option<String>,
-        /// Encoded dependency descriptor bytes, when supplied by the caller.
-        dependency_descriptor: Option<Vec<u8>>,
-    },
-}
-
-impl Default for CodecSpecific {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl CodecSpecific {
-    /// Returns the single-layer default metadata for a codec, matching what
-    /// the passthrough encoder synthesizes on the wire.
-    pub fn default_for(codec: EncodedVideoCodec) -> Self {
-        match codec {
-            EncodedVideoCodec::H264 => {
-                Self::H264 { packetization_mode: H264PacketizationMode::NonInterleaved }
-            }
-            EncodedVideoCodec::H265 => Self::H265,
-            EncodedVideoCodec::VP8 => Self::VP8 { temporal_id: None, layer_sync: false },
-            EncodedVideoCodec::VP9 => {
-                Self::VP9 { temporal_id: None, spatial_id: None, inter_layer_predicted: None }
-            }
-            EncodedVideoCodec::AV1 => {
-                Self::AV1 { scalability_mode: Some("L1T1".to_owned()), dependency_descriptor: None }
-            }
-        }
-    }
-}
-
-/// Borrowed encoded payload fragment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EncodedFragment<'a> {
-    /// Encoded fragment bytes.
-    pub bytes: &'a [u8],
-}
-
-/// Encoded access-unit payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EncodedPayload<'a> {
-    /// One contiguous payload buffer.
-    Contiguous(&'a [u8]),
-    /// Multiple payload fragments.
-    Fragments(&'a [EncodedFragment<'a>]),
-    /// Owned payload bytes.
-    Owned(Vec<u8>),
-}
-
-impl EncodedPayload<'_> {
-    pub(crate) fn is_empty(&self) -> bool {
-        match self {
-            Self::Contiguous(bytes) => bytes.is_empty(),
-            Self::Fragments(fragments) => {
-                fragments.is_empty() || fragments.iter().any(|fragment| fragment.bytes.is_empty())
-            }
-            Self::Owned(bytes) => bytes.is_empty(),
-        }
-    }
-
-    pub(crate) fn to_vec(&self) -> Vec<u8> {
-        match self {
-            Self::Contiguous(bytes) => bytes.to_vec(),
-            Self::Fragments(fragments) => {
-                let len = fragments.iter().map(|fragment| fragment.bytes.len()).sum();
-                let mut payload = Vec::with_capacity(len);
-                for fragment in *fragments {
-                    payload.extend_from_slice(fragment.bytes);
-                }
-                payload
-            }
-            Self::Owned(bytes) => bytes.clone(),
-        }
-    }
-}
-
-/// One encoded video access unit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EncodedAccessUnit<'a> {
-    /// Encoded codec.
-    pub codec: EncodedVideoCodec,
-    /// Encoded payload.
-    pub payload: EncodedPayload<'a>,
-    /// Capture timestamp in microseconds.
-    pub timestamp_us: i64,
-    /// Encoded frame type.
-    pub frame_type: EncodedFrameType,
-    /// Encoded frame resolution in pixels.
-    pub resolution: VideoResolution,
-    /// Optional layer identifiers.
-    pub layers: EncodedLayerInfo,
-    /// Optional codec-specific metadata.
-    pub codec_specific: CodecSpecific,
-}
-
 /// Owned encoded video access unit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedEncodedAccessUnit {
@@ -292,10 +121,6 @@ pub struct OwnedEncodedAccessUnit {
     pub frame_type: EncodedFrameType,
     /// Encoded frame resolution in pixels.
     pub resolution: VideoResolution,
-    /// Optional layer identifiers.
-    pub layers: EncodedLayerInfo,
-    /// Optional codec-specific metadata.
-    pub codec_specific: CodecSpecific,
 }
 
 impl OwnedEncodedAccessUnit {
@@ -307,98 +132,7 @@ impl OwnedEncodedAccessUnit {
         frame_type: EncodedFrameType,
         resolution: VideoResolution,
     ) -> Self {
-        Self {
-            codec,
-            payload: payload.into(),
-            timestamp_us,
-            frame_type,
-            resolution,
-            layers: EncodedLayerInfo::default(),
-            codec_specific: CodecSpecific::None,
-        }
-    }
-
-    /// Borrows this owned access unit as an [`EncodedAccessUnit`].
-    pub fn as_access_unit(&self) -> EncodedAccessUnit<'_> {
-        EncodedAccessUnit {
-            codec: self.codec,
-            payload: EncodedPayload::Contiguous(&self.payload),
-            timestamp_us: self.timestamp_us,
-            frame_type: self.frame_type,
-            resolution: self.resolution,
-            layers: self.layers,
-            codec_specific: self.codec_specific.clone(),
-        }
-    }
-
-    /// Creates an owned access unit by copying a borrowed access unit.
-    pub fn copy_from(access_unit: &EncodedAccessUnit<'_>) -> Self {
-        Self {
-            codec: access_unit.codec,
-            payload: Bytes::from(access_unit.payload.to_vec()),
-            timestamp_us: access_unit.timestamp_us,
-            frame_type: access_unit.frame_type,
-            resolution: access_unit.resolution,
-            layers: access_unit.layers,
-            codec_specific: access_unit.codec_specific.clone(),
-        }
-    }
-}
-
-impl<'a> EncodedAccessUnit<'a> {
-    /// Creates an access unit from one contiguous payload.
-    pub fn contiguous(
-        codec: EncodedVideoCodec,
-        payload: &'a [u8],
-        timestamp_us: i64,
-        frame_type: EncodedFrameType,
-        resolution: VideoResolution,
-    ) -> Self {
-        Self {
-            codec,
-            payload: EncodedPayload::Contiguous(payload),
-            timestamp_us,
-            frame_type,
-            resolution,
-            layers: EncodedLayerInfo::default(),
-            codec_specific: CodecSpecific::None,
-        }
-    }
-
-    /// Creates an H.264 access unit from raw NAL-unit payloads.
-    pub fn from_h264_nalus(
-        nal_units: &[&[u8]],
-        timestamp_us: i64,
-        resolution: VideoResolution,
-    ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
-        Self::from_nalus(EncodedVideoCodec::H264, nal_units, timestamp_us, resolution)
-    }
-
-    /// Creates an H.265 access unit from raw NAL-unit payloads.
-    pub fn from_h265_nalus(
-        nal_units: &[&[u8]],
-        timestamp_us: i64,
-        resolution: VideoResolution,
-    ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
-        Self::from_nalus(EncodedVideoCodec::H265, nal_units, timestamp_us, resolution)
-    }
-
-    fn from_nalus(
-        codec: EncodedVideoCodec,
-        nal_units: &[&[u8]],
-        timestamp_us: i64,
-        resolution: VideoResolution,
-    ) -> Result<EncodedAccessUnit<'static>, CaptureError> {
-        let is_key = is_keyframe_nalus(codec, nal_units)?;
-        Ok(EncodedAccessUnit {
-            codec,
-            payload: EncodedPayload::Owned(annex_b_payload(nal_units)?),
-            timestamp_us,
-            frame_type: if is_key { EncodedFrameType::Key } else { EncodedFrameType::Delta },
-            resolution,
-            layers: EncodedLayerInfo::default(),
-            codec_specific: CodecSpecific::default_for(codec),
-        })
+        Self { codec, payload: payload.into(), timestamp_us, frame_type, resolution }
     }
 }
 
@@ -539,81 +273,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn h264_nal_helper_assembles_annex_b_and_detects_keyframe() {
+    fn h264_keyframe_requires_idr_nal() {
         let sps = [0x67, 1, 2, 3];
         let idr = [0x65, 4, 5, 6];
-        let au =
-            EncodedAccessUnit::from_h264_nalus(&[&sps, &idr], 10, VideoResolution::new(640, 480))
-                .unwrap();
+        let non_idr = [0x61, 1, 2];
 
-        assert_eq!(au.codec, EncodedVideoCodec::H264);
-        assert_eq!(au.frame_type, EncodedFrameType::Key);
-        assert_eq!(
-            au.payload,
-            EncodedPayload::Owned(vec![0, 0, 0, 1, 0x67, 1, 2, 3, 0, 0, 0, 1, 0x65, 4, 5, 6])
-        );
+        assert!(is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &idr]).unwrap());
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &non_idr]).unwrap());
     }
 
     #[test]
-    fn h265_nal_helper_requires_parameter_sets_and_idr_keyframe() {
+    fn h265_keyframe_requires_parameter_sets_and_idr() {
         let vps = [0x40, 1, 2];
         let sps = [0x42, 1, 2];
         let pps = [0x44, 1, 2];
         let idr_w_radl = [19 << 1, 1, 3];
-        let idr_without_headers = EncodedAccessUnit::from_h265_nalus(
-            &[&vps, &idr_w_radl],
-            10,
-            VideoResolution::new(640, 480),
-        )
-        .unwrap();
-        let key = EncodedAccessUnit::from_h265_nalus(
-            &[&vps, &sps, &pps, &idr_w_radl],
-            10,
-            VideoResolution::new(640, 480),
-        )
-        .unwrap();
         let cra = [21 << 1, 1, 3];
-        let cra_with_headers = EncodedAccessUnit::from_h265_nalus(
-            &[&vps, &sps, &pps, &cra],
-            10,
-            VideoResolution::new(640, 480),
-        )
-        .unwrap();
 
-        assert_eq!(idr_without_headers.codec, EncodedVideoCodec::H265);
-        assert_eq!(idr_without_headers.frame_type, EncodedFrameType::Delta);
-        assert_eq!(key.frame_type, EncodedFrameType::Key);
-        assert_eq!(cra_with_headers.frame_type, EncodedFrameType::Delta);
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &idr_w_radl]).unwrap());
+        assert!(
+            is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &idr_w_radl]).unwrap()
+        );
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &cra]).unwrap());
     }
 
     #[test]
     fn h265_rejects_too_short_nal_header() {
-        let err =
-            EncodedAccessUnit::from_h265_nalus(&[&[0x26]], 10, VideoResolution::new(640, 480))
-                .unwrap_err();
+        let err = is_keyframe_nalus(EncodedVideoCodec::H265, &[&[0x26]]).unwrap_err();
         assert_eq!(err, CaptureError::H265NalTooShort);
     }
 
     #[test]
-    fn fragments_reject_empty_fragment() {
-        let fragments = [EncodedFragment { bytes: &[1] }, EncodedFragment { bytes: &[] }];
-        let payload = EncodedPayload::Fragments(&fragments);
-        assert!(payload.is_empty());
+    fn annex_b_payload_prefixes_each_nal_unit() {
+        let payload = annex_b_payload(&[&[0x67, 1, 2, 3], &[0x65, 4, 5, 6]]).unwrap();
+        assert_eq!(payload, vec![0, 0, 0, 1, 0x67, 1, 2, 3, 0, 0, 0, 1, 0x65, 4, 5, 6]);
     }
 
     #[test]
-    fn owned_access_unit_borrows_without_copying_payload() {
-        let owned = OwnedEncodedAccessUnit::new(
-            EncodedVideoCodec::H264,
-            Bytes::from_static(&[1, 2, 3]),
-            10,
-            EncodedFrameType::Delta,
-            VideoResolution::new(640, 480),
-        );
-
-        let borrowed = owned.as_access_unit();
-        assert_eq!(borrowed.codec, EncodedVideoCodec::H264);
-        assert_eq!(borrowed.payload, EncodedPayload::Contiguous(&[1, 2, 3]));
-        assert_eq!(borrowed.timestamp_us, 10);
+    fn annex_b_payload_rejects_empty_input() {
+        assert_eq!(annex_b_payload(&[]).unwrap_err(), CaptureError::EmptyPayload);
+        assert_eq!(annex_b_payload(&[&[]]).unwrap_err(), CaptureError::EmptyPayload);
     }
 }

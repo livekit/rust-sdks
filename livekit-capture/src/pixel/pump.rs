@@ -240,7 +240,10 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
+            fn next_frame(
+                &mut self,
+                _stop: &PumpStop,
+            ) -> Result<Option<BoxVideoFrame>, SourceError> {
                 panic!("source exploded");
             }
         }
@@ -264,7 +267,10 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
+            fn next_frame(
+                &mut self,
+                _stop: &PumpStop,
+            ) -> Result<Option<BoxVideoFrame>, SourceError> {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 Ok(Some(pixel_frame(0)))
             }
@@ -289,7 +295,10 @@ mod tests {
                 RESOLUTION
             }
 
-            fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
+            fn next_frame(
+                &mut self,
+                _stop: &PumpStop,
+            ) -> Result<Option<BoxVideoFrame>, SourceError> {
                 std::thread::sleep(std::time::Duration::from_millis(1));
                 Ok(Some(pixel_frame(0)))
             }

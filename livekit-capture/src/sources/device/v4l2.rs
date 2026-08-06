@@ -128,11 +128,7 @@ impl Session {
         // negotiated format actually delivers frames.
         let first_frame = session.read_frame()?;
         session.pending_frame = Some(first_frame);
-        log::info!(
-            "Opened device \"{}\": {} (converted to I420)",
-            device_name,
-            session.format,
-        );
+        log::info!("Opened device \"{}\": {} (converted to I420)", device_name, session.format,);
         Ok(session)
     }
 

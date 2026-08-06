@@ -14,8 +14,8 @@
 
 use crate::{
     encoded::{
-        annex_b_payload, h264_nal_type, h265_nal_type, is_keyframe_nalus, CodecSpecific,
-        EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
+        annex_b_payload, h264_nal_type, h265_nal_type, is_keyframe_nalus, EncodedFrameType,
+        EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     error::CaptureError,
     primitive::VideoResolution,
@@ -389,10 +389,7 @@ pub fn access_unit_from_annex_b(
     } else {
         EncodedFrameType::Delta
     };
-    let mut access_unit =
-        OwnedEncodedAccessUnit::new(codec, payload, timestamp_us, frame_type, resolution);
-    access_unit.codec_specific = CodecSpecific::default_for(codec);
-    Ok(access_unit)
+    Ok(OwnedEncodedAccessUnit::new(codec, payload, timestamp_us, frame_type, resolution))
 }
 
 /// Creates an Annex-B access unit from raw NAL units.
