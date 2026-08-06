@@ -176,6 +176,8 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
+            configure_hermetic_libcxx(&mut builder, &webrtc_include);
+
             // In order to avoid any ABI mismatches we use the sysroot's headers.
             add_gio_headers(&mut builder);
 
@@ -494,6 +496,71 @@ fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>)
             + ".so.tramp.S";
         builder.file(implib_file_c_name).file(implib_file_asm_name);
     }
+}
+
+/// Compile against the same hermetic libc++ that is baked into libwebrtc.a.
+///
+/// The Linux libwebrtc build sets `use_custom_libcxx=true`, so every std type in
+/// its public API lives in the `std::__Cr` ABI namespace with libc++ layouts.
+/// Using the host's libstdc++ here instead is not merely a mangling mismatch that
+/// the linker would catch: `std::span` is layout-different between the two, so a
+/// span handed to libwebrtc silently arrives with its pointer and size swapped.
+///
+/// Mirrors the flags in the WebRTC checkout's `build/config/c++/BUILD.gn`. The
+/// matching `_LIBCPP_*` defines come from webrtc.ninja via `webrtc_defines()`.
+fn configure_hermetic_libcxx(builder: &mut cc::Build, webrtc_include: &path::Path) {
+    let libcxx = webrtc_include.join("third_party/libc++/src/include");
+    let libcxxabi = webrtc_include.join("third_party/libc++abi/src/include");
+    if !libcxx.join("span").exists() {
+        panic!(
+            "hermetic libc++ headers missing from {}.\n\
+             This libwebrtc artifact predates use_custom_libcxx=true; rebuild it with \
+             build_linux.sh or point LK_CUSTOM_WEBRTC at a newer one.",
+            libcxx.display()
+        );
+    }
+
+    // Chromium's libc++ is clang-only. At _LIBCPP_ABI_VERSION 2 it marks unique_ptr
+    // and shared_ptr __attribute__((trivial_abi)), which GCC accepts and silently
+    // ignores (a -Wattributes warning that cc's `-w` swallows). That attribute
+    // changes the calling convention, not just layout: libwebrtc.a returns
+    // std::unique_ptr in a register, while a GCC caller reads it back from an sret
+    // slot the callee never wrote, yielding a garbage pointer at the first use.
+    if env::var_os("CXX").is_none() {
+        if Command::new("clang++").arg("--version").output().is_err() {
+            panic!(
+                "clang++ is required to build webrtc-sys on Linux: libwebrtc.a is built \
+                 against Chromium's hermetic libc++, whose trivial_abi annotations GCC \
+                 ignores, which silently breaks the calling convention for std::unique_ptr \
+                 and std::shared_ptr. Install clang, or set CXX to a clang.",
+            );
+        }
+        builder.compiler("clang++");
+    }
+
+    builder
+        .flag("-nostdinc++")
+        .flag(format!("-isystem{}", libcxx.display()))
+        .flag(format!("-isystem{}", libcxxabi.display()))
+        // Holds __config_site, which pins _LIBCPP_ABI_NAMESPACE=__Cr.
+        .include(webrtc_include.join("buildtools/third_party/libc++"));
+
+    // libc++/libc++abi are already archived into libwebrtc.a, so linking the
+    // host libstdc++ on top would only add a second, incompatible stdlib.
+    builder.cpp_link_stdlib(None);
+
+    // The cxx crate builds its own runtime (cxx.cc) with the host default stdlib,
+    // so the rust::String <-> std::string conversions it exports are mangled for
+    // libstdc++ and cannot satisfy the std::__Cr call sites in the generated
+    // bridges. Compile a second copy with the flags above to provide those.
+    // DEP_CXXBRIDGE1_HEADER is `cargo:HEADER` from the cxx crate: <root>/include/cxx.h.
+    let cxx_h = env::var("DEP_CXXBRIDGE1_HEADER")
+        .expect("cxx crate did not export HEADER; cannot locate its cxx.cc");
+    let cxx_root = path::Path::new(&cxx_h)
+        .parent()
+        .and_then(path::Path::parent)
+        .expect("unexpected DEP_CXXBRIDGE1_HEADER layout");
+    builder.file(cxx_root.join("src/cxx.cc"));
 }
 
 fn add_gio_headers(builder: &mut cc::Build) {

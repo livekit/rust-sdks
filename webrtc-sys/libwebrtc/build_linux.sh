@@ -86,17 +86,9 @@ git apply "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch" -v --ignore-sp
 # See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
 git -C build apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-# GCC reports -Wchanges-meaning as an error rather than a warning, so
-# treat_warnings_as_errors=false does not cover it and WebRTC does not build without this.
-git -C build apply "$COMMAND_DIR/patches/disable_gcc_changes_meaning.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
 cd third_party
 
 git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
-if [ "$arch" = "x64" ]; then
-  git apply "$COMMAND_DIR/patches/fix_abseil_cpp_build_on_x64.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-fi
 
 cd libyuv
 
@@ -117,19 +109,23 @@ fi
 # Without this flag, the build may fail partway through, resulting in missing
 # or incomplete artifacts.
 #
-# The C++ standard library choice is an ABI contract with webrtc-sys, which is compiled
-# by the cc crate against whatever the host toolchain provides:
+# The C++ standard library choice is an ABI contract with webrtc-sys:
 #
-#   use_custom_libcxx=false  keeps every std type in libwebrtc.a mangled the way
-#     libstdc++ mangles it, instead of Chromium's std::__Cr:: ABI namespace.
+#   use_custom_libcxx=true  builds against Chromium's hermetic libc++, whose
+#     headers we ship in the artifacts (see below) so webrtc-sys compiles against
+#     byte-identical std types. The alternative -- letting each side use its own
+#     host stdlib -- is unsound now that WebRTC puts std types like std::span in
+#     public API signatures: libstdc++ reordered std::span's members after GCC 10,
+#     so a span built by the host and read inside libwebrtc.a had its pointer and
+#     size swapped, turning a 14-byte DataChannel::Send into new uint8_t[93TB].
 args="is_debug=$debug  \
   target_os=\"linux\" \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
   use_llvm_libatomic=false \
-  use_custom_libcxx=false \
-  use_custom_libcxx_for_host=false \
+  use_custom_libcxx=true \
+  use_custom_libcxx_for_host=true \
   use_clang_modules=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
@@ -155,6 +151,9 @@ ninja -C "$OUTPUT_DIR" :default
 
 # make libwebrtc.a
 # don't include nasm
+# Start from scratch: `ar -rc` only replaces members it is given, so members left
+# over from a previous build with different args would survive into the archive.
+rm -f "$ARTIFACTS_DIR/lib/libwebrtc.a"
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
@@ -172,3 +171,17 @@ cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 cd src
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
 find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
+
+# Ship Chromium's hermetic libc++ so webrtc-sys can compile against the exact
+# same standard library that is baked into libwebrtc.a (see use_custom_libcxx
+# above). The find calls cannot do this: libc++ headers have no extension.
+# Paths mirror the -isystem/-I flags in build/config/c++/BUILD.gn, so build.rs
+# can point at them the same way the WebRTC build does.
+for inc in third_party/libc++/src/include third_party/libc++abi/src/include; do
+  mkdir -p "$ARTIFACTS_DIR/include/$inc"
+  cp -R "$inc/." "$ARTIFACTS_DIR/include/$inc/"
+done
+mkdir -p "$ARTIFACTS_DIR/include/buildtools/third_party/libc++"
+cp buildtools/third_party/libc++/__config_site \
+  buildtools/third_party/libc++/__assertion_handler \
+  "$ARTIFACTS_DIR/include/buildtools/third_party/libc++/"
