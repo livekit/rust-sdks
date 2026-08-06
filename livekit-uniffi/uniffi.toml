@@ -6,6 +6,21 @@ android = true
 package_name = "io.livekit.uniffi"
 cdylib_name = "livekit_uniffi" # the name of the so file to be loaded
 
+# Two names that are perfectly fine in Rust but do not compile in Kotlin. Renamed for Kotlin only,
+# so the Rust source and the Swift/Python/Node bindings keep the original names.
+[bindings.kotlin.rename]
+# UniFFI gives every object a non-suspend `close()` to satisfy AutoCloseable. An exported Rust
+# method also called `close` differs from it only by `suspend`, which Kotlin rejects as conflicting
+# overloads -- and the whole generated file then fails to compile. Renaming the stream's own close
+# leaves AutoCloseable's untouched.
+"ByteStreamWriter.close" = "close_stream"
+"TextStreamWriter.close" = "close_stream"
+
+# DataStreamError's variant fields cannot be renamed from here: uniffi keys the rename table by
+# crate name but looks up enum and record members by the item's full module path, so a rename for
+# anything declared in a submodule is silently ignored (methods use the crate name and do work).
+# Those fields are named in Rust instead -- see data_stream/common.rs.
+
 [bindings.dart]
 # Dart package name; must match the published pub package so the Native Assets
 # asset id resolves to `package:livekit_uniffi/uniffi:livekit_uniffi`.

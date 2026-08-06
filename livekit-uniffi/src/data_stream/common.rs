@@ -276,11 +276,14 @@ pub enum DataStreamError {
     #[error("stream has already been closed")]
     AlreadyClosed,
 
-    #[error("stream closed abnormally: {message}")]
-    AbnormalEnd { message: String },
+    // Named `reason` rather than `message`: in Kotlin a variant field called `message` collides
+    // with the `message` uniffi overrides from Throwable, and the collision cannot be renamed away
+    // from uniffi.toml (renames of enum members declared in a submodule are silently dropped).
+    #[error("stream closed abnormally: {reason}")]
+    AbnormalEnd { reason: String },
 
-    #[error("UTF-8 decoding error: {message}")]
-    Utf8 { message: String },
+    #[error("UTF-8 decoding error: {reason}")]
+    Utf8 { reason: String },
 
     #[error("incoming header was invalid")]
     InvalidHeader,
@@ -297,8 +300,8 @@ pub enum DataStreamError {
     #[error("unable to send packet")]
     SendFailed,
 
-    #[error("I/O error: {message}")]
-    Io { message: String },
+    #[error("I/O error: {reason}")]
+    Io { reason: String },
 
     #[error("internal error")]
     Internal,
@@ -323,14 +326,14 @@ impl From<ds_api::StreamError> for DataStreamError {
     fn from(error: ds_api::StreamError) -> Self {
         match error {
             ds_api::StreamError::AlreadyClosed => Self::AlreadyClosed,
-            ds_api::StreamError::AbnormalEnd(message) => Self::AbnormalEnd { message },
-            ds_api::StreamError::Utf8(error) => Self::Utf8 { message: error.to_string() },
+            ds_api::StreamError::AbnormalEnd(reason) => Self::AbnormalEnd { reason },
+            ds_api::StreamError::Utf8(error) => Self::Utf8 { reason: error.to_string() },
             ds_api::StreamError::InvalidHeader => Self::InvalidHeader,
             ds_api::StreamError::MissedChunk => Self::MissedChunk,
             ds_api::StreamError::LengthExceeded => Self::LengthExceeded,
             ds_api::StreamError::Incomplete => Self::Incomplete,
             ds_api::StreamError::SendFailed => Self::SendFailed,
-            ds_api::StreamError::Io(error) => Self::Io { message: error.to_string() },
+            ds_api::StreamError::Io(error) => Self::Io { reason: error.to_string() },
             ds_api::StreamError::Internal => Self::Internal,
             ds_api::StreamError::EncryptionTypeMismatch => Self::EncryptionTypeMismatch,
             ds_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
