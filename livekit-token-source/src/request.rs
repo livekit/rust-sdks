@@ -69,8 +69,13 @@ impl TokenSourceFetchOptions {
 
     /// Adds the given attributes to the participant attributes, keeping any set previously.
     /// A key that was already set is overwritten with its new value.
-    pub fn with_participant_attributes(mut self, value: HashMap<String, String>) -> Self {
-        self.participant_attributes.get_or_insert_with(HashMap::new).extend(value);
+    pub fn with_participant_attributes(
+        mut self,
+        value: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        self.participant_attributes
+            .get_or_insert_with(HashMap::new)
+            .extend(value.into_iter().map(|(k, v)| (k.into(), v.into())));
         self
     }
 
@@ -123,6 +128,7 @@ pub(crate) struct TokenSourceRequest {
     room_config: Option<RoomConfig>,
 }
 
+/// Non-exhaustive list of room config parameter, the full list is in livekit_room.proto
 #[derive(serde::Serialize)]
 struct RoomConfig {
     agents: Vec<AgentDispatch>,
