@@ -59,6 +59,10 @@
 #include "jetson/jetson_encoder_factory.h"
 #endif
 
+#if defined(USE_MPP_VIDEO_CODEC)
+#include "mpp/mpp_encoder_factory.h"
+#endif
+
 namespace livekit_ffi {
 
 namespace {
@@ -229,6 +233,21 @@ void AddJetsonFactory(
 #endif
 }
 
+void AddMppFactory(
+    std::vector<VideoEncoderBackendFactory>& factories) {
+#if defined(USE_MPP_VIDEO_CODEC)
+  if (webrtc::MppVideoEncoderFactory::IsSupported()) {
+    AddBackendFactory(
+        factories,
+        VideoEncoderBackend::Hardware,
+        std::make_unique<webrtc::MppVideoEncoderFactory>());
+    return;
+  }
+#else
+  (void)factories;
+#endif
+}
+
 void AddNvencFactory(
     std::vector<VideoEncoderBackendFactory>& factories,
     bool preferred) {
@@ -321,6 +340,12 @@ rust::Vec<VideoEncoderBackend> video_encoder_backend_list() {
   }
 #endif
 
+#if defined(USE_MPP_VIDEO_CODEC)
+  if (webrtc::MppVideoEncoderFactory::IsSupported()) {
+    has_hardware_backend = true;
+  }
+#endif
+
 #if defined(USE_NVIDIA_VIDEO_CODEC)
   if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
     backends.push_back(VideoEncoderBackend::Nvenc);
@@ -363,6 +388,7 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 #endif
 
   AddJetsonFactory(factories_);
+  AddMppFactory(factories_);
 
   const PreferredHwEncoderConfig preferred_hw_encoder =
       GetPreferredHwEncoderConfig();

@@ -171,3 +171,9 @@ jobs:
         run: |
           cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native-tokio
           cargo test --verbose --target ${{ matrix.target }} -p livekit-api --features signal-client-tokio
+
+      - name: Test Linux V4L2 publisher
+        if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' }}
+        shell: bash
+        run: |
+          cargo test --verbose --locked --target ${{ matrix.target }} -p local_video --features desktop --bin publisher
