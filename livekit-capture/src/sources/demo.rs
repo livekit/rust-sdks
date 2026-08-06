@@ -61,7 +61,7 @@ pub struct DemoVideoSourceConfig {
 pub struct DemoVideoSource {
     config: DemoVideoSourceConfig,
     /// One `(y, u, v)` sample triple per palette color.
-    colors: Vec<(u8, u8, u8)>,
+    colors: [(u8, u8, u8); PALETTE.len()],
     started: Option<Instant>,
     frame_index: u64,
 }
@@ -77,7 +77,7 @@ impl DemoVideoSource {
             return Err(SourceError::new(DemoVideoSourceConfigError::ZeroFramerate));
         }
 
-        let colors = PALETTE.iter().map(|&color| yuv_from_rgb(color)).collect();
+        let colors = PALETTE.map(yuv_from_rgb);
         Ok(Self { config, colors, started: None, frame_index: 0 })
     }
 
