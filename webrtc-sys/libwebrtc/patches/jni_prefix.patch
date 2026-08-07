@@ -7,10 +7,10 @@ index f6a5046210..103d979d2a 100644
    JNIEnv* env = AttachCurrentThreadIfNeeded();
    ScopedJavaLocalRef<jclass> factory_class =
 -      GetClass(env, "org/webrtc/HardwareVideoEncoderFactory");
-+      GetClass(env, "livekit/livekit/org/webrtc/HardwareVideoEncoderFactory");
++      GetClass(env, "livekit/org/webrtc/HardwareVideoEncoderFactory");
    jmethodID factory_constructor = env->GetMethodID(
 -      factory_class.obj(), "<init>", "(Lorg/webrtc/EglBase$Context;ZZ)V");
-+      factory_class.obj(), "<init>", "(Llivekit/livekit/org/webrtc/EglBase$Context;ZZ)V");
++      factory_class.obj(), "<init>", "(Llivekit/org/webrtc/EglBase$Context;ZZ)V");
    ScopedJavaLocalRef<jobject> factory_object =
        ScopedJavaLocalRef<jobject>::Adopt(
            env, env->NewObject(factory_class.obj(), factory_constructor,
