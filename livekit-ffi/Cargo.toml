@@ -19,8 +19,20 @@ __rustls-tls = ["livekit/__rustls-tls"]
 # Enable tokio-console to debug tasks
 tracing = ["tokio/tracing", "console-subscriber"]
 
+# Capture sources (livekit-capture): publish tracks from server-side
+# producers such as camera devices or GStreamer pipelines. Links system
+# GStreamer.
+capture = [
+    "dep:livekit-capture",
+    "livekit-capture/source-demo",
+    "livekit-capture/source-device",
+    "livekit-capture/source-gstreamer",
+    "livekit-capture/tokio",
+]
+
 [dependencies]
 livekit = { workspace = true }
+livekit-capture = { workspace = true, optional = true, default-features = false }
 webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }

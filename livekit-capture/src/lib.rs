@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod audio_frame;
-#[cfg(feature = "capture")]
-pub mod capture;
-pub mod data_stream;
-pub mod data_track;
-pub mod participant;
-pub mod resampler;
-pub mod room;
-pub mod stats;
-pub mod track;
-pub mod video_frame;
+//! Video capture for the LiveKit Rust SDK.
+//!
+//! A capture source produces video: pixel frames ([`pixel`]) or pre-encoded
+//! access units ([`encoded`]). A pump drives a source and publishes its
+//! output to an RTC video source. Ready-made sources live in [`sources`]
+//! and can be enabled by their corresponding features.
+
+pub mod encoded;
+pub mod error;
+pub mod pixel;
+pub mod primitive;
+pub mod pump;
+pub mod sources;
+mod utils;

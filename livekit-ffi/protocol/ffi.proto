@@ -19,6 +19,7 @@ package livekit.proto;
 import "audio_frame.proto";
 import "data_stream.proto";
 import "data_track.proto";
+import "capture.proto";
 // import "handle.proto";
 import "e2ee.proto";
 import "room.proto";
@@ -184,7 +185,13 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 87
+    // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceRequest new_capture_source = 87;
+    StartCaptureRequest start_capture = 88;
+    StopCaptureRequest stop_capture = 89;
+    ListCaptureDevicesRequest list_capture_devices = 90;
+
+    // NEXT_ID: 91
   }
 }
 
@@ -313,7 +320,13 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 87
+    // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceResponse new_capture_source = 87;
+    StartCaptureResponse start_capture = 88;
+    StopCaptureResponse stop_capture = 89;
+    ListCaptureDevicesResponse list_capture_devices = 90;
+
+    // NEXT_ID: 91
   }
 }
 
@@ -382,7 +395,12 @@ message FfiEvent {
     DefineSchemaCallback define_schema = 45;
     GetSchemaCallback get_schema = 46;
 
-    // NEXT_ID: 47
+    // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceCallback new_capture_source = 47;
+    CaptureSourceEvent capture_source_event = 48;
+    ListCaptureDevicesCallback list_capture_devices = 49;
+
+    // NEXT_ID: 50
   }
 }
 
