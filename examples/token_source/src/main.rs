@@ -35,7 +35,7 @@ async fn main() {
     // A custom token source can procure credentials from anywhere; this one
     // reads them from a JSON file next to this example's Cargo.toml.
     let file_source =
-        FileTokenSource { path: concat!(env!("CARGO_MANIFEST_DIR"), "/token.txt").into() };
+        FileTokenSource { path: concat!(env!("CARGO_MANIFEST_DIR"), "/token.json").into() };
     match file_source.fetch().await {
         Ok(response) => println!(
             "file: server_url={} participant_token={}",
