@@ -46,11 +46,11 @@ let stats = running.stop_and_join_async().await?;
 
 ## Sources
 
-Each source lives in its own module under `sources`, behind the Cargo feature
-of the same name. Its module documents it.
+Each source lives in its own module under `sources`, behind a Cargo feature
+named `source-<module>`. Its module documents it.
 
-| Feature     | Source                 | Path    |
-| ----------- | ---------------------- | ------- |
-| `demo`      | `DemoVideoSource`      | pixel   |
-| `device`    | `DeviceVideoSource`    | pixel   |
-| `gstreamer` | `GStreamerVideoSource` | encoded |
+| Feature            | Source                 | Path    |
+| ------------------ | ---------------------- | ------- |
+| `source-demo`      | `DemoVideoSource`      | pixel   |
+| `source-device`    | `DeviceVideoSource`    | pixel   |
+| `source-gstreamer` | `GStreamerVideoSource` | encoded |

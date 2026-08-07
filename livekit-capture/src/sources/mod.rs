@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "demo")]
+#[cfg(feature = "source-demo")]
 pub mod demo;
 
-#[cfg(feature = "device")]
+#[cfg(feature = "source-device")]
 pub mod device;
 
-#[cfg(feature = "gstreamer")]
+#[cfg(feature = "source-gstreamer")]
 pub mod gstreamer;

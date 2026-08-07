@@ -23,7 +23,7 @@ yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
-default = ["demo", "device", "gstreamer"] # TODO: Remove after testing
+default = ["source-demo", "source-device", "source-gstreamer"] # TODO: Remove after testing
 serde = ["dep:serde"]
 schemars = ["dep:schemars", "serde"]
 
@@ -32,8 +32,8 @@ schemars = ["dep:schemars", "serde"]
 tokio = ["tokio/rt"]
 
 # Pixel sources
-demo = []
-device = [
+source-demo = []
+source-device = [
     "dep:yuv-sys",
     # macOS backend
     "dep:dispatch2",
@@ -76,7 +76,7 @@ device = [
 ]
 
 # Encoded sources
-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
+source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = { version = "0.3.1", default-features = false, features = ["std"], optional = true }

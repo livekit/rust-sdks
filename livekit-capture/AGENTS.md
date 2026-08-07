@@ -3,10 +3,12 @@
 ## Adding a source
 
 - Add a feature gate in `Cargo.toml`
+  - Name the feature after the source module with a `source-` prefix
+    (e.g., module `gstreamer` → feature `source-gstreamer`)
   - If the new source requires dependencies, they should only be include when feature is enabled
 - Define a module for the new source in `src/sources/mod.rs`:
   ```rust
-  #[cfg(feature = "my-source")]
+  #[cfg(feature = "source-my-source")]
   pub mod my_source;
   ```
 - Follow conventions for existing sources
