@@ -1,5 +1,9 @@
 # LiveKit Capture
 
+> [!IMPORTANT]
+> This crate is currently in Developer Preview mode and not ready for production use.
+> There may be bugs, and APIs and configuration options are subject to change during this period.
+
 This crate provides video capture sources and the pumps that publish them
 with the LiveKit [Rust SDK](../livekit/README.md). Pick a ready-made source,
 or implement one small trait to add your own. The application runs and
