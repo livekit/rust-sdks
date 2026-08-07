@@ -30,8 +30,8 @@ use std::{fmt, io};
 /// Callback that supplies packet-trailer metadata for a pixel frame.
 type FrameMetadataFn = Box<dyn FnMut(&BoxVideoFrame) -> Option<FrameMetadata> + Send>;
 
-/// Pumps a [`PixelVideoSource`] into an RTC video source, publishing frames
-/// through the WebRTC encoder.
+/// Pumps a [`PixelVideoSource`] into an RTC video source and publishes its
+/// frames through the WebRTC encoder.
 pub struct PixelVideoPump<S: PixelVideoSource> {
     source: S,
     rtc_source: NativeVideoSource,
@@ -40,24 +40,18 @@ pub struct PixelVideoPump<S: PixelVideoSource> {
 }
 
 impl<S: PixelVideoSource> PixelVideoPump<S> {
-    /// Creates a pump for a pixel source, building the matching RTC source.
-    ///
-    /// This must be called from the context of the async runtime driving the
-    /// SDK, because the RTC source spawns its keepalive task at construction.
-    /// The pump itself runs on plain threads.
+    /// Creates a pump for a pixel source and builds the matching RTC source.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new(source.resolution().into(), false);
         Self { source, rtc_source, stop: PumpStop::new(), frame_metadata: None }
     }
 
-    /// Sets a callback that supplies packet-trailer metadata for each frame
-    /// before it is captured.
+    /// Sets a callback that supplies packet-trailer metadata for each frame.
     ///
-    /// When the callback returns `Some`, it overrides any metadata the
-    /// source pre-filled on the frame. Metadata is only propagated to
-    /// subscribers when the corresponding
-    /// [`TrackPublishOptions::frame_metadata_features`] are enabled before
-    /// publishing the local track.
+    /// When the callback returns `Some`, it overrides metadata the source
+    /// pre-filled on the frame. Subscribers receive metadata only when the
+    /// matching [`TrackPublishOptions::frame_metadata_features`] are enabled
+    /// on the published track.
     pub fn with_frame_metadata(
         mut self,
         frame_metadata: impl FnMut(&BoxVideoFrame) -> Option<FrameMetadata> + Send + 'static,
@@ -71,7 +65,7 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
         RtcVideoSource::Native(self.rtc_source.clone())
     }
 
-    /// Returns publish options appropriate for a pixel source.
+    /// Returns publish options for a pixel source.
     pub fn publish_options(&self) -> TrackPublishOptions {
         TrackPublishOptions::default()
     }
@@ -86,11 +80,11 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
         &self.source
     }
 
-    /// Runs the pump on the calling thread until the source ends, a failure,
-    /// or the stop handle fires.
+    /// Runs the pump on the calling thread until the source ends, an error
+    /// occurs, or the stop handle fires.
     ///
-    /// Sources block, so callers on an async runtime should run this on a
-    /// dedicated thread (see [`PixelVideoPump::spawn`]) or a blocking pool.
+    /// Sources block. On an async runtime, run this on a dedicated thread
+    /// (see [`PixelVideoPump::spawn`]) or a blocking pool.
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
         let mut frames_captured = 0;
         let exit = loop {
@@ -119,8 +113,8 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
 
     /// Runs the pump on a dedicated thread.
     ///
-    /// Panics on the pump thread are caught and reported as
-    /// [`PumpError::Panicked`] when the pump is joined.
+    /// A panic on the pump thread is reported as [`PumpError::Panicked`]
+    /// when the pump is joined.
     pub fn spawn(self) -> io::Result<RunningPump>
     where
         S: 'static,

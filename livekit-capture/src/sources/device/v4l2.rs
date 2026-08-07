@@ -14,10 +14,10 @@
 
 //! Linux device capture backend built on V4L2.
 //!
-//! This module is an implementation detail of [`super::DeviceVideoSource`];
+//! This module is an implementation detail of [`super::DeviceVideoSource`]:
 //! nothing V4L2-specific leaves it. Frames are converted to I420 on the CPU
-//! (via libyuv, with an image-crate fallback for MJPEG streams libyuv
-//! rejects).
+//! (through libyuv, with an image-crate fallback for MJPEG streams that
+//! libyuv rejects).
 
 use std::io;
 use std::path::Path;
@@ -85,10 +85,10 @@ pub(super) struct Session {
     device: Device,
     stream: MmapStream<'static>,
     format: DeviceFormat,
-    /// Driver-reported row stride in bytes (V4L2 `bytesperline`).
+    // Driver-reported row stride in bytes (V4L2 `bytesperline`).
     stride: u32,
     started_at: Instant,
-    /// Frame pulled while starting the stream, handed out first.
+    // Frame pulled while starting the stream, handed out first.
     pending_frame: Option<BoxVideoFrame>,
 }
 

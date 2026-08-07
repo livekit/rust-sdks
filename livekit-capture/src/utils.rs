@@ -14,9 +14,8 @@
 
 //! Crate-internal utilities.
 
-/// Runs blocking source construction or enumeration on the tokio blocking
-/// pool, resuming panics on the caller and surfacing join failures as source
-/// errors.
+/// Runs a blocking task on the tokio blocking pool. Panics resume on the
+/// caller, and join failures become source errors.
 #[cfg(feature = "tokio")]
 #[allow(dead_code)]
 pub(crate) async fn run_blocking<T: Send + 'static>(

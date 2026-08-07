@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! H.264/H.265 parsing helpers: NAL-unit splitting, access-unit assembly and
-//! delimiting, and keyframe detection for the encoded ingest paths.
+//! H.264/H.265 parsing helpers: NAL-unit splitting, access-unit assembly,
+//! and keyframe detection.
 
 use crate::{
     encoded::{EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit},
@@ -65,15 +65,19 @@ pub(crate) trait AccessUnitParser {
     fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError>;
 }
 
-/// H26x Annex-B parser state.
+/// Incremental parser that splits an H.264 or H.265 Annex-B byte stream
+/// into access units.
+///
+/// Call [`AnnexBAccessUnitParser::push`] as bytes arrive, and
+/// [`AnnexBAccessUnitParser::flush`] at the end of the stream.
 #[derive(Debug, Clone)]
 pub struct AnnexBAccessUnitParser {
     codec: EncodedVideoCodec,
     pending: Vec<u8>,
-    /// NAL ranges found in `pending`; the last range's end is provisional
-    /// until the next start code (or flush) confirms it.
+    // NAL ranges found in `pending`; the last range's end is provisional
+    // until the next start code (or flush) confirms it.
     nal_ranges: Vec<Range<usize>>,
-    /// Offset up to which `pending` has been scanned for start codes.
+    // Offset up to which `pending` has been scanned for start codes.
     scan_cursor: usize,
     next_timestamp_us: i64,
     frame_interval_us: i64,
@@ -96,7 +100,10 @@ pub(crate) struct AvcAccessUnitParser {
 }
 
 impl AnnexBAccessUnitParser {
-    /// Creates a parser for H.264 or H.265 Annex-B byte streams.
+    /// Creates a parser for an H.264 or H.265 Annex-B byte stream.
+    ///
+    /// Access units get timestamps that start at `start_timestamp_us` and
+    /// step by `frame_interval_us`.
     pub fn new(
         codec: EncodedVideoCodec,
         start_timestamp_us: i64,
@@ -121,13 +128,17 @@ impl AnnexBAccessUnitParser {
         })
     }
 
-    /// Pushes encoded bytes and returns the next complete access unit if one is found.
+    /// Pushes encoded bytes and returns the next complete access unit, if
+    /// one is found.
+    ///
+    /// One call returns at most one access unit. Push an empty slice to
+    /// pull further access units that are already buffered.
     pub fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.pending.extend_from_slice(bytes);
         self.drain_next(false)
     }
 
-    /// Flushes the pending bytes as the final access unit.
+    /// Flushes the remaining buffered bytes as the final access unit.
     pub fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.drain_next(true)
     }
@@ -423,7 +434,9 @@ pub fn access_unit_from_nalus(
     access_unit_from_annex_b(codec, payload, timestamp_us, resolution)
 }
 
-/// Returns true when an Annex-B access unit contains an intra/key picture.
+/// Returns `true` when an Annex-B access unit is a key frame: an IDR
+/// picture for H.264, or parameter sets (VPS/SPS/PPS) plus an IDR picture
+/// for H.265.
 pub fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, H26xParseError> {
     let nals = annex_b_nalus(bytes);
     is_keyframe_nalus(codec, &nals)

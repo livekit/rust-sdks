@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Pixel (unencoded) video: the source contract and the pump.
+//! Pixel (unencoded) video: the source trait and its pump.
 //!
-//! Sources yield libwebrtc [`VideoFrame`](livekit::webrtc::video_frame::VideoFrame)s
-//! directly, so any [`VideoBuffer`](livekit::webrtc::video_frame::VideoBuffer)
-//! implementation — CPU planes or platform-native — reaches the RTC track
-//! without an intermediate copy. [`PixelVideoPump`] drives a source and
-//! publishes its frames through the WebRTC encoder. The source trait is
-//! object-safe and implemented for `Box<dyn ...>`, so sources can be
-//! constructed dynamically and driven through the same generic pump.
+//! A source yields libwebrtc [`VideoFrame`](livekit::webrtc::video_frame::VideoFrame)s,
+//! so any [`VideoBuffer`](livekit::webrtc::video_frame::VideoBuffer) — CPU
+//! planes or platform-native — passes to the RTC source without an
+//! intermediate copy. [`PixelVideoPump`] drives a source and publishes its
+//! frames through the WebRTC encoder.
+//!
+//! [`PixelVideoSource`] is object-safe and implemented for `Box<dyn ...>`,
+//! so sources constructed dynamically run through the same generic pump.
 
 mod pump;
 
@@ -35,16 +36,17 @@ pub trait PixelVideoSource: Send {
     /// Nominal output resolution, used to size the RTC source.
     fn resolution(&self) -> VideoResolution;
 
-    /// Blocks until the next frame is available, returning `Ok(None)` when
-    /// the source reaches the end of its stream.
+    /// Blocks until the next frame is available. Returns `Ok(None)` at the
+    /// end of the stream.
     ///
-    /// Sources must return promptly (with `Ok(None)`) once `stop` fires:
-    /// integrate it into the blocking wait, or bound each wait so the token
-    /// is observed within a frame interval or so. The pump distinguishes a
-    /// stop from end of stream via the token.
+    /// Implementations must return `Ok(None)` promptly once `stop` fires:
+    /// integrate the token into the blocking wait, or bound each wait to
+    /// about one frame interval. The pump uses the token to tell a stop
+    /// from the end of the stream.
     ///
-    /// Sources may pre-fill the frame's `frame_metadata`; a metadata
-    /// callback set on the pump takes precedence when it returns `Some`.
+    /// Implementations can pre-fill the frame's `frame_metadata`. A
+    /// metadata callback set on the pump takes precedence when it returns
+    /// `Some`.
     fn next_frame(&mut self, stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError>;
 }
 

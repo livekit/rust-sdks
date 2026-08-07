@@ -12,20 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The type-erased error shared by capture sources.
+//! The error type shared by capture sources.
 //!
-//! Concrete error types live with what produces them: each source module
-//! defines its own error, the parsing helpers define
-//! [`H26xParseError`](crate::encoded::h26x::H26xParseError), and the pumps
-//! report through [`PumpError`](crate::pump::PumpError).
+//! Concrete errors live with what produces them: each source module defines
+//! its own error type, and the pumps report through
+//! [`PumpError`](crate::pump::PumpError).
 
 use std::{error::Error as StdError, fmt};
 
 /// Error returned by a capture source.
 ///
-/// Backend-specific errors are type-erased so sources stay usable as trait
-/// objects; the wrapped error remains reachable for display and through
-/// [`StdError::source`].
+/// `Display` and [`StdError::source`] delegate to the wrapped backend
+/// error.
 #[derive(Debug)]
 pub struct SourceError(Box<dyn StdError + Send + Sync>);
 

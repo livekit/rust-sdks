@@ -12,16 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Machinery shared by the capture pumps.
+//! Types shared by the capture pumps.
 //!
-//! The kind-specific pumps live with their kinds —
-//! [`PixelVideoPump`](crate::pixel::PixelVideoPump) and
-//! [`EncodedVideoPump`](crate::encoded::EncodedVideoPump) — and are generic
-//! over a concrete source, so statically-known sources pay for no type
-//! erasure. Applications that construct sources dynamically box them at
-//! their edge (`PixelVideoPump<Box<dyn PixelVideoSource>>`). Both pumps
-//! spawn into the same [`RunningPump`] defined here, so running pumps of
-//! either kind are supervised uniformly.
+//! The pumps live with their frame kinds:
+//! [`PixelVideoPump`](crate::pixel::PixelVideoPump) pumps pixel frames, and
+//! [`EncodedVideoPump`](crate::encoded::EncodedVideoPump) pumps encoded
+//! access units. Both spawn into the same [`RunningPump`].
 
 use crate::error::SourceError;
 use std::{
@@ -53,7 +49,7 @@ pub enum PumpError {
 /// Why a pump run ended successfully.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PumpExit {
-    /// The stop handle was fired.
+    /// The stop handle fired.
     Stopped,
     /// The source reached the end of its stream.
     EndOfStream,
@@ -71,13 +67,13 @@ pub struct PumpStats {
 
 /// Cancellation handle for a pump.
 ///
-/// Cheap to clone; wire it to a shutdown signal and call [`PumpStop::stop`]
-/// from any thread to make the pump return after the frame in flight.
+/// The handle is cheap to clone. Call [`PumpStop::stop`] from any thread to
+/// make the pump return after the frame in flight.
 #[derive(Debug, Clone, Default)]
 pub struct PumpStop(Arc<AtomicBool>);
 
 impl PumpStop {
-    /// Creates an un-stopped handle.
+    /// Creates a new handle.
     pub fn new() -> Self {
         Self::default()
     }
@@ -87,14 +83,14 @@ impl PumpStop {
         self.0.store(true, Ordering::Release);
     }
 
-    /// Returns true once [`PumpStop::stop`] has been called.
+    /// Returns whether [`PumpStop::stop`] was called.
     pub fn is_stopped(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
 }
 
-/// Spawns a pump run on a dedicated thread, wiring panic capture and the
-/// completion signal shared by both pump kinds.
+/// Spawns a pump run on a dedicated thread with panic capture and a
+/// completion signal.
 pub(crate) fn spawn_pump(
     stop: PumpStop,
     run: impl FnOnce() -> Result<PumpStats, PumpError> + Send + 'static,
@@ -122,15 +118,15 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
     }
 }
 
-/// A pump of either kind running on a dedicated thread.
+/// A pump of either kind that runs on a dedicated thread.
 ///
-/// Stopping takes effect between frames: a source blocked waiting for its
-/// next frame finishes that wait before the pump observes the signal.
+/// A stop takes effect between frames: a source that is blocked on its next
+/// frame completes that wait before the pump observes the signal.
 #[derive(Debug)]
 pub struct RunningPump {
     stop: PumpStop,
     thread: thread::JoinHandle<Result<PumpStats, PumpError>>,
-    /// Flipped to true by the pump thread just before it exits.
+    // Flipped to true by the pump thread just before it exits.
     finished: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -145,7 +141,7 @@ impl RunningPump {
         self.stop.stop();
     }
 
-    /// Returns true once the pump thread has exited.
+    /// Returns whether the pump thread exited.
     pub fn is_finished(&self) -> bool {
         self.thread.is_finished()
     }
@@ -165,10 +161,9 @@ impl RunningPump {
 
     /// Waits for the pump thread to exit without blocking the async runtime.
     ///
-    /// This awaits a completion signal rather than parking a thread, so it is
-    /// safe to hold across long stretches — for example in a `select!` that
-    /// supervises every running pump — and works under any async runtime,
-    /// not just tokio. Panics on the pump thread are reported as
+    /// This works under any async runtime, not only tokio, and is safe to
+    /// hold across long waits — for example in a `select!` that supervises
+    /// every running pump. Panics on the pump thread are reported as
     /// [`PumpError::Panicked`].
     pub async fn join_async(mut self) -> Result<PumpStats, PumpError> {
         // An error means the sender dropped, which also implies the pump

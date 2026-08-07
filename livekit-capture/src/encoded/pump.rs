@@ -32,13 +32,13 @@ use std::{fmt, io};
 /// Callback that supplies packet-trailer metadata for an access unit.
 type FrameMetadataFn = Box<dyn FnMut(&OwnedEncodedAccessUnit) -> Option<FrameMetadata> + Send>;
 
-/// Pumps an [`EncodedVideoSource`] into an RTC video source, publishing
-/// access units as passthrough.
+/// Pumps an [`EncodedVideoSource`] into an RTC video source as passthrough,
+/// without re-encoding.
 ///
-/// Downstream keyframe requests (PLI/FIR, late subscriber) and rate-control
-/// targets are polled between access units and forwarded to the source.
-/// Pre-roll delta frames are dropped until the first keyframe, since
-/// decoding can only start at a keyframe.
+/// Downstream keyframe requests and rate-control targets are forwarded to
+/// the source between access units. Delta frames that arrive before the
+/// first keyframe are dropped, because decoding can only start at a
+/// keyframe.
 pub struct EncodedVideoPump<S: EncodedVideoSource> {
     source: S,
     rtc_source: NativeVideoSource,
@@ -47,7 +47,7 @@ pub struct EncodedVideoPump<S: EncodedVideoSource> {
 }
 
 impl<S: EncodedVideoSource> EncodedVideoPump<S> {
-    /// Creates a pump for an encoded source, building the matching RTC
+    /// Creates a pump for an encoded source and builds the matching RTC
     /// source.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new_encoded(source.resolution().into());
@@ -55,11 +55,11 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     }
 
     /// Sets a callback that supplies packet-trailer metadata for each access
-    /// unit before it is captured.
+    /// unit.
     ///
-    /// Metadata is only propagated to subscribers when the corresponding
-    /// [`TrackPublishOptions::frame_metadata_features`] are enabled before
-    /// publishing the local track.
+    /// Subscribers receive metadata only when the matching
+    /// [`TrackPublishOptions::frame_metadata_features`] are enabled on the
+    /// published track.
     pub fn with_frame_metadata(
         mut self,
         frame_metadata: impl FnMut(&OwnedEncodedAccessUnit) -> Option<FrameMetadata> + Send + 'static,
@@ -93,11 +93,11 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
         &self.source
     }
 
-    /// Runs the pump on the calling thread until the source ends, a failure,
-    /// or the stop handle fires.
+    /// Runs the pump on the calling thread until the source ends, an error
+    /// occurs, or the stop handle fires.
     ///
-    /// Sources block, so callers on an async runtime should run this on a
-    /// dedicated thread (see [`EncodedVideoPump::spawn`]) or a blocking pool.
+    /// Sources block. On an async runtime, run this on a dedicated thread
+    /// (see [`EncodedVideoPump::spawn`]) or a blocking pool.
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
         let mut frames_captured = 0;
         let mut awaiting_initial_keyframe = true;
@@ -137,8 +137,8 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
 
     /// Runs the pump on a dedicated thread.
     ///
-    /// Panics on the pump thread are caught and reported as
-    /// [`PumpError::Panicked`] when the pump is joined.
+    /// A panic on the pump thread is reported as [`PumpError::Panicked`]
+    /// when the pump is joined.
     pub fn spawn(self) -> io::Result<RunningPump>
     where
         S: 'static,

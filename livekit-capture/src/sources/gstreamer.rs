@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Encoded video capture from a GStreamer pipeline.
+//!
+//! [`GStreamerVideoSource`] owns a pipeline that ends in an appsink and
+//! yields the pipeline's encoded output as access units.
+
 use ::gstreamer as gst;
 use ::gstreamer_app as gst_app;
 use bytes::Bytes;
@@ -72,21 +77,22 @@ impl GStreamerSampleFormat {
 pub struct GStreamerVideoSourceConfig {
     /// GStreamer launch description for the encoded producer pipeline.
     ///
-    /// Must contain `appsink name=lk_appsink`, or leave exactly one encoded
-    /// video source pad unlinked for the source to attach one to.
+    /// The pipeline must contain `appsink name=lk_appsink`, or leave exactly
+    /// one encoded video source pad unlinked. The source then attaches an
+    /// appsink to that pad.
     pub pipeline: String,
 
-    /// Codec expected from the pipeline; inferred from pipeline caps when
-    /// omitted.
+    /// Codec expected from the pipeline. When omitted, the codec is
+    /// inferred from the pipeline caps.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub codec: Option<EncodedVideoCodec>,
 
     /// Encoded frame resolution.
     ///
-    /// When omitted, the resolution is discovered from the first sample's
-    /// negotiated caps — construction then waits for the pipeline to produce
-    /// data. When set, construction returns without waiting, and the first
-    /// sample is verified against the declared resolution.
+    /// When omitted, the resolution is discovered from the first sample, so
+    /// construction waits for the pipeline to produce data. When set,
+    /// construction returns without waiting, and the first sample is
+    /// verified against this value.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub resolution: Option<VideoResolution>,
 
@@ -105,11 +111,12 @@ pub struct GStreamerVideoSourceConfig {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct GStreamerRateControlConfig {
-    /// Name of the encoder element in the pipeline (e.g. `lk_encoder`).
+    /// Name of the encoder element in the pipeline (for example
+    /// `lk_encoder`).
     pub element: String,
 
-    /// Bitrate property to set on the element (e.g. `bitrate` for x264enc,
-    /// `target-bitrate` for vp8enc/vp9enc).
+    /// Bitrate property to set on the element (for example `bitrate` for
+    /// x264enc, or `target-bitrate` for vp8enc/vp9enc).
     pub property: String,
 
     /// Unit the property expects.
@@ -191,7 +198,7 @@ const DISCOVERY_TIMEOUT: gst::ClockTime = gst::ClockTime::from_seconds(5);
 /// Fallback frame interval when neither caps nor buffers carry timing.
 const DEFAULT_FRAME_INTERVAL_US: i64 = 1_000_000 / 30;
 
-/// Encoded source that owns a GStreamer pipeline ending in an appsink.
+/// Encoded source that owns a GStreamer pipeline that ends in an appsink.
 #[derive(Debug)]
 pub struct GStreamerVideoSource {
     pipeline: gst::Pipeline,
@@ -202,36 +209,34 @@ pub struct GStreamerVideoSource {
     frame_interval_us: i64,
     next_fallback_timestamp_us: i64,
     rate_control: Option<GStreamerEncoderRateControl>,
-    /// Caps the stream has been validated against; a pointer change on a
-    /// later sample triggers revalidation.
+    // Caps the stream was validated against; a pointer change on a later
+    // sample triggers revalidation.
     negotiated_caps: Option<gst::Caps>,
-    /// Sample pulled during stream discovery, handed out first.
+    // Sample pulled during stream discovery, handed out first.
     pending_sample: Option<gst::Sample>,
 }
 
 impl GStreamerVideoSource {
-    /// Creates the source, running blocking construction and stream
-    /// discovery on the tokio blocking pool.
+    /// Creates the source. Construction and stream discovery run on the
+    /// tokio blocking pool.
     ///
-    /// Requires a running tokio runtime. This is the async-constructor
-    /// convention for capture backends: `new` for async consumers, and
-    /// [`GStreamerVideoSource::new_blocking`] for everything else.
+    /// Requires a running tokio runtime. Use
+    /// [`GStreamerVideoSource::new_blocking`] outside of async contexts.
     #[cfg(feature = "tokio")]
     pub async fn new(config: GStreamerVideoSourceConfig) -> Result<Self, SourceError> {
         crate::utils::run_blocking(move || Self::new_blocking(config)).await
     }
 
-    /// Builds, owns, and starts a GStreamer pipeline from configuration.
+    /// Builds and starts the GStreamer pipeline from the configuration.
     ///
-    /// The pipeline is set to `Playing` immediately — the appsink buffers a
-    /// bounded number of samples until a pump starts pulling — and returned
-    /// to `Null` when the source is dropped. Construction fails loudly on an
-    /// invalid launch description, a missing appsink or encoded pad, a
-    /// missing rate-control element, or a pipeline that refuses to start.
+    /// The pipeline starts to play immediately and returns to `Null` when
+    /// the source is dropped. Construction fails on an invalid launch
+    /// description, a missing appsink or encoded pad, a missing
+    /// rate-control element, or a pipeline that does not start.
     ///
     /// When the configuration declares no resolution, this blocks until the
-    /// first sample arrives (bounded by a discovery timeout) to read the
-    /// negotiated stream settings.
+    /// first sample arrives (bounded by a timeout) to read the stream
+    /// settings.
     pub fn new_blocking(config: GStreamerVideoSourceConfig) -> Result<Self, SourceError> {
         gst::init().map_err(|err| {
             SourceError::new(GStreamerVideoSourceError::Pipeline(format!(
@@ -316,8 +321,8 @@ impl GStreamerVideoSource {
         Ok(source)
     }
 
-    /// Blocks until the pipeline produces its first sample, surfacing bus
-    /// errors and bounding the wait by the discovery timeout.
+    /// Blocks until the pipeline produces its first sample, a bus error
+    /// arrives, or the discovery timeout expires.
     fn wait_first_sample(&self) -> Result<gst::Sample, GStreamerVideoSourceError> {
         let deadline =
             std::time::Instant::now() + std::time::Duration::from_secs(DISCOVERY_TIMEOUT.seconds());
@@ -335,12 +340,12 @@ impl GStreamerVideoSource {
         }
     }
 
-    /// Returns the owned pipeline.
+    /// Returns the GStreamer pipeline.
     pub fn pipeline(&self) -> &gst::Pipeline {
         &self.pipeline
     }
 
-    /// Surfaces a pipeline bus error, if one is pending.
+    /// Returns a pending pipeline bus error, if any.
     fn check_bus(&self) -> Result<(), GStreamerVideoSourceError> {
         while let Some(message) = self.bus.pop_filtered(&[gst::MessageType::Error]) {
             if let gst::MessageView::Error(error) = message.view() {
@@ -355,15 +360,14 @@ impl GStreamerVideoSource {
     }
 
     /// Validates a sample's caps against the established stream settings.
-    ///
-    /// Caps are immutable and refcounted, so an unchanged stream passes with
-    /// a pointer comparison. On a caps change, the declared or discovered
-    /// resolution and codec must match: live stream reconfiguration would
-    /// require republishing the track, which is not supported yet.
     fn check_caps(&mut self, sample: &gst::Sample) -> Result<(), GStreamerVideoSourceError> {
         let Some(caps) = sample.caps() else {
             return Ok(());
         };
+        // Caps are immutable and refcounted, so an unchanged stream passes
+        // with a pointer comparison. On a caps change, the resolution and
+        // codec must match: live stream reconfiguration would require
+        // republishing the track, which is not supported yet.
         if let Some(seen) = &self.negotiated_caps {
             if seen.as_ptr() == caps.as_ptr() {
                 return Ok(());
@@ -718,9 +722,6 @@ pub enum GStreamerPipelineError {
 }
 
 /// Returns the appsink caps for a codec as a launch-string fragment.
-///
-/// This is the single per-codec caps table: [`encoded_caps`] and pipeline
-/// descriptions embedding a capsfilter should all derive from it.
 pub fn encoded_caps_string(codec: EncodedVideoCodec) -> &'static str {
     match codec {
         EncodedVideoCodec::H264 => "video/x-h264,stream-format=byte-stream,alignment=au",
@@ -749,7 +750,8 @@ fn sample_format_for_codec(codec: EncodedVideoCodec) -> GStreamerSampleFormat {
     }
 }
 
-/// Returns the parser element name used to normalize a codec, when one is needed.
+/// Returns the GStreamer parser element name for a codec, when one is
+/// needed.
 pub fn parser_name(codec: EncodedVideoCodec) -> Option<&'static str> {
     match codec {
         EncodedVideoCodec::H264 => Some("h264parse"),

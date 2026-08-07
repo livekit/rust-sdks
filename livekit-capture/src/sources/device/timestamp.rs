@@ -16,8 +16,8 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Maximum age a backend-reported capture timestamp may have, relative to the
-/// wall-clock read time, before it is considered stale and discarded.
+/// Maximum age a backend-reported capture timestamp can have, relative to
+/// the wall-clock read time, before it is discarded as stale.
 pub(super) const MAX_CAPTURE_TIMESTAMP_AGE_US: u64 = 5_000_000;
 
 /// Returns the current UNIX wall-clock time in microseconds.

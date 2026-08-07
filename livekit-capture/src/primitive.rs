@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Domain-neutral video primitives shared across capture paths and backends.
-//!
-//! These types carry no capture- or codec-specific semantics, so they can serve
-//! as a common vocabulary for frame geometry and related quantities across
-//! crates.
+//! Basic video types, such as [`VideoResolution`].
 
 // TODO: in a future refactor, move these types into their own
 // crate (e.g., `livekit-video-primitives`) so all crates in this workspace can work
@@ -50,16 +46,14 @@ impl VideoResolution {
         Self { width, height }
     }
 
-    /// Returns the ratio between the width and height components.
-    ///
-    /// If the height component is zero, the result is `None`.
+    /// Returns the width divided by the height, or `None` if the height is
+    /// zero.
     ///
     /// ```
     /// # use livekit_capture::primitive::VideoResolution;
     /// assert_eq!(VideoResolution::new(1920, 960).aspect_ratio(), Some(2.0));
     /// assert_eq!(VideoResolution::new(1920, 0).aspect_ratio(), None);
     /// ```
-    ///
     pub fn aspect_ratio(&self) -> Option<f64> {
         if self.height == 0 {
             return None;

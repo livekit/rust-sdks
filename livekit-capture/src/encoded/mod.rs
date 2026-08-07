@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Encoded video: codec vocabulary, access units, the source contract for
-//! pre-encoded ingest, and the pump.
+//! Pre-encoded video: the source trait, access units, and the pump.
 //!
-//! Sources produce crate-owned access units — the vocabulary the parsing
-//! and validation helpers speak — and [`EncodedVideoPump`] bridges them into
-//! an RTC track as passthrough. The source trait is object-safe and
-//! implemented for `Box<dyn ...>`, so sources can be constructed dynamically
-//! and driven through the same generic pump.
+//! A source produces [`OwnedEncodedAccessUnit`]s, and [`EncodedVideoPump`]
+//! publishes them to an RTC track as passthrough — without re-encoding.
+//!
+//! [`EncodedVideoSource`] is object-safe and implemented for `Box<dyn ...>`,
+//! so sources constructed dynamically run through the same generic pump.
 
 use crate::{error::SourceError, primitive::VideoResolution, pump::PumpStop};
 use bytes::Bytes;
@@ -42,34 +41,35 @@ pub trait EncodedVideoSource: Send {
     /// Nominal output resolution, used to size the RTC source.
     fn resolution(&self) -> VideoResolution;
 
-    /// Codec produced by this source; fixed for the source's lifetime.
+    /// Codec produced by this source. The codec is fixed for the source's
+    /// lifetime.
     fn codec(&self) -> EncodedVideoCodec;
 
-    /// Blocks until the next access unit is available, returning `Ok(None)`
-    /// when the source reaches the end of its stream.
+    /// Blocks until the next access unit is available. Returns `Ok(None)`
+    /// at the end of the stream.
     ///
-    /// Sources must return promptly (with `Ok(None)`) once `stop` fires:
-    /// integrate it into the blocking wait, or bound each wait so the token
-    /// is observed within a frame interval or so. The pump distinguishes a
-    /// stop from end of stream via the token.
+    /// Implementations must return `Ok(None)` promptly once `stop` fires:
+    /// integrate the token into the blocking wait, or bound each wait to
+    /// about one frame interval. The pump uses the token to tell a stop
+    /// from the end of the stream.
     ///
-    /// Access units must carry a non-empty payload; the pump reports a
-    /// violation as a source error.
+    /// Access units must carry a non-empty payload. The pump reports an
+    /// empty payload as a source error.
     fn next_access_unit(
         &mut self,
         stop: &PumpStop,
     ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError>;
 
     /// Forwards a downstream keyframe request (PLI/FIR, late subscriber) to
-    /// the producer so it can emit an IDR.
+    /// the producer so it can emit a keyframe.
     ///
-    /// The default implementation does nothing, for transports that cannot
+    /// The default implementation does nothing, for sources that cannot
     /// influence the upstream encoder.
     fn request_keyframe(&mut self) {}
 
     /// Forwards a downstream rate-control target to the producer.
     ///
-    /// The default implementation does nothing, for transports that cannot
+    /// The default implementation does nothing, for sources that cannot
     /// influence the upstream encoder.
     fn update_rate_control(&mut self, _target: EncodedRateControl) {}
 }
@@ -108,20 +108,20 @@ pub enum EncodedFrameType {
 /// Owned encoded video access unit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedEncodedAccessUnit {
-    /// Encoded codec.
+    /// Codec of the payload.
     pub codec: EncodedVideoCodec,
     /// Encoded payload bytes.
     pub payload: Bytes,
     /// Capture timestamp in microseconds.
     pub timestamp_us: i64,
-    /// Encoded frame type.
+    /// Frame type.
     pub frame_type: EncodedFrameType,
-    /// Encoded frame resolution in pixels.
+    /// Frame resolution in pixels.
     pub resolution: VideoResolution,
 }
 
 impl OwnedEncodedAccessUnit {
-    /// Creates an owned encoded access unit from contiguous bytes.
+    /// Creates an access unit.
     pub fn new(
         codec: EncodedVideoCodec,
         payload: impl Into<Bytes>,

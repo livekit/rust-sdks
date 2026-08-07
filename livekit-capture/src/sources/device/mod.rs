@@ -14,17 +14,15 @@
 
 //! Camera device capture.
 //!
-//! [`DeviceVideoSource`] is a pixel source that captures frames from a video
-//! device attached to the machine, using the platform's native capture stack.
-//! The platform integration is an implementation detail: configuration,
-//! enumeration ([`devices`]), and errors share one platform-neutral
-//! vocabulary, and the same configuration works on every supported platform.
-//! On platforms without a capture backend the module still compiles;
-//! construction and enumeration fail with
+//! [`DeviceVideoSource`] captures pixel frames from a video device through
+//! the platform's native capture stack. Configuration, enumeration
+//! ([`devices`]), and errors use one platform-neutral vocabulary. On
+//! platforms without a backend the module still compiles, and construction
+//! and enumeration fail with
 //! [`DeviceVideoSourceError::UnsupportedPlatform`].
 //!
 //! Where the platform supports it, frames reach the RTC track as
-//! platform-native buffers without a CPU copy; otherwise they are converted
+//! platform-native buffers without a CPU copy. Otherwise they are converted
 //! to I420.
 
 #[cfg(target_os = "macos")]
@@ -65,7 +63,7 @@ pub enum DeviceSelector {
     Default,
     /// The device at this position in the platform enumeration order.
     Index(usize),
-    /// A platform-stable device identifier, as reported by [`DeviceInfo::id`].
+    /// The device with this identifier, as reported by [`DeviceInfo::id`].
     Id(String),
 }
 
@@ -183,8 +181,8 @@ impl fmt::Display for DeviceFormat {
 
 /// Format selection requested from a capture device.
 ///
-/// The device negotiates the delivered format; [`DeviceVideoSource::format`]
-/// reports the outcome.
+/// The device negotiates the delivered format, and
+/// [`DeviceVideoSource::format`] reports the outcome.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -232,7 +230,7 @@ pub enum DeviceFormatRequest {
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct DeviceInfo {
-    /// Platform-stable device identifier.
+    /// Device identifier, usable with [`DeviceSelector::Id`].
     pub id: String,
     /// Human-readable device name.
     pub name: String,
@@ -242,7 +240,7 @@ pub struct DeviceInfo {
     pub manufacturer: Option<String>,
     /// Capture formats reported by the device.
     pub formats: Vec<DeviceFormat>,
-    /// Whether [`DeviceInfo::formats`] is a complete list; some platforms do
+    /// Whether [`DeviceInfo::formats`] is a complete list. Some platforms do
     /// not enumerate formats up front.
     pub formats_complete: bool,
 }
@@ -254,19 +252,18 @@ impl DeviceInfo {
     }
 }
 
-/// Lists the video capture devices available on this machine, running the
-/// blocking enumeration on the tokio blocking pool.
+/// Lists the video capture devices on this machine.
 ///
-/// Requires a running tokio runtime; [`devices_blocking`] is the
-/// non-async form.
+/// Requires a running tokio runtime: enumeration runs on the tokio blocking
+/// pool. Use [`devices_blocking`] outside of async contexts.
 #[cfg(feature = "tokio")]
 pub async fn devices() -> Result<Vec<DeviceInfo>, SourceError> {
     crate::utils::run_blocking(devices_blocking).await
 }
 
-/// Lists the video capture devices available on this machine.
+/// Lists the video capture devices on this machine.
 ///
-/// Enumeration queries the platform capture stack and may block briefly.
+/// Enumeration queries the platform capture stack and can block briefly.
 pub fn devices_blocking() -> Result<Vec<DeviceInfo>, SourceError> {
     backend::devices().map_err(SourceError::new)
 }
@@ -288,17 +285,17 @@ pub struct DeviceVideoSourceConfig {
     pub format: DeviceFormatRequest,
 }
 
-/// Pixel video source that captures frames from a video device such as a
+/// Pixel video source that captures frames from a video device, such as a
 /// camera.
 ///
 /// Construction opens the device and negotiates the capture format, so
-/// [`DeviceVideoSource::format`] and the source's nominal resolution are
-/// known before the first frame is pumped. Devices never reach end of
-/// stream; stop the pump driving the source instead.
+/// [`DeviceVideoSource::format`] is known before any frame is pumped. The
+/// source never reaches the end of its stream — stop the pump that drives
+/// it instead.
 ///
-/// Frames carry a monotonic `timestamp_us`, and each frame's
-/// `frame_metadata` is pre-filled with the wall-clock capture time (the
-/// device's own capture timestamp when the platform reports a valid one).
+/// Frames carry a monotonic `timestamp_us`. Each frame's `frame_metadata`
+/// is pre-filled with the wall-clock capture time — the device's own
+/// capture timestamp when the platform reports a valid one.
 pub struct DeviceVideoSource {
     config: DeviceVideoSourceConfig,
     format: DeviceFormat,
@@ -306,12 +303,11 @@ pub struct DeviceVideoSource {
 }
 
 impl DeviceVideoSource {
-    /// Creates the source, running blocking device negotiation on the tokio
-    /// blocking pool.
+    /// Creates the source. Device negotiation runs on the tokio blocking
+    /// pool.
     ///
-    /// Requires a running tokio runtime. This is the async-constructor
-    /// convention for capture backends: `new` for async consumers, and
-    /// [`DeviceVideoSource::new_blocking`] for everything else.
+    /// Requires a running tokio runtime. Use
+    /// [`DeviceVideoSource::new_blocking`] outside of async contexts.
     #[cfg(feature = "tokio")]
     pub async fn new(config: DeviceVideoSourceConfig) -> Result<Self, SourceError> {
         crate::utils::run_blocking(move || Self::new_blocking(config)).await
@@ -319,11 +315,9 @@ impl DeviceVideoSource {
 
     /// Opens the configured device and negotiates the capture format.
     ///
-    /// This blocks until the device delivers enough information to establish
-    /// the format — on some platforms that includes waiting for the first
-    /// frame, bounded by a timeout. Construction fails loudly on a missing
-    /// device, an unsatisfiable format request, or a platform without a
-    /// capture backend.
+    /// This can block until the device delivers its first frame, bounded by
+    /// a timeout. Construction fails on a missing device, a format request
+    /// the device cannot satisfy, or a platform without a capture backend.
     pub fn new_blocking(config: DeviceVideoSourceConfig) -> Result<Self, SourceError> {
         let session = backend::Session::open(&config).map_err(SourceError::new)?;
         let format = session.format();
@@ -337,8 +331,8 @@ impl DeviceVideoSource {
 
     /// Returns the negotiated capture format.
     ///
-    /// The resolution matches what [`PixelVideoSource::resolution`] reports;
-    /// the frame format is what the device delivers before any conversion.
+    /// The resolution matches what [`PixelVideoSource::resolution`] reports.
+    /// The frame format is what the device delivers before any conversion.
     pub fn format(&self) -> DeviceFormat {
         self.format
     }
@@ -403,7 +397,7 @@ pub enum DeviceVideoSourceError {
 }
 
 /// Builds the packet-trailer metadata that device frames are pre-filled
-/// with; a metadata callback set on the pump takes precedence.
+/// with. A metadata callback set on the pump takes precedence.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn capture_frame_metadata(
     capture_wall_time_us: u64,

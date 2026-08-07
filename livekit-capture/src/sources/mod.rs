@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Ready-made capture sources. Each source is gated behind its own
+//! `source-*` feature.
+
 #[cfg(feature = "source-demo")]
 pub mod demo;
 

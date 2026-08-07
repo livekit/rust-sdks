@@ -52,24 +52,23 @@ pub struct DemoVideoSourceConfig {
     pub framerate_fps: u32,
 }
 
-/// Pixel video source that produces solid-color frames, cycling through a
-/// fixed palette.
+/// Pixel video source that produces solid-color frames from a fixed
+/// palette.
 ///
-/// The source paces itself to the configured frame rate by sleeping and
-/// never reaches end of stream; stop the pump driving it instead. It exists
-/// to validate capture integration end to end without a device or pipeline
-/// dependency.
+/// The source sleeps to pace itself to the configured frame rate. It never
+/// reaches the end of its stream — stop the pump that drives it instead.
 #[derive(Debug)]
 pub struct DemoVideoSource {
     config: DemoVideoSourceConfig,
-    /// One `(y, u, v)` sample triple per palette color.
+    // One `(y, u, v)` sample triple per palette color.
     colors: [(u8, u8, u8); PALETTE.len()],
     started: Option<Instant>,
     frame_index: u64,
 }
 
 impl DemoVideoSource {
-    /// Creates a demo source, rejecting an invalid configuration.
+    /// Creates a demo source. Returns an error for a zero resolution or
+    /// frame rate.
     pub fn new(config: DemoVideoSourceConfig) -> Result<Self, SourceError> {
         let VideoResolution { width, height } = config.resolution;
         if width == 0 || height == 0 {
@@ -88,7 +87,7 @@ impl DemoVideoSource {
     }
 }
 
-/// Error returned when a [`DemoVideoSourceConfig`] cannot produce frames.
+/// Error returned for an invalid [`DemoVideoSourceConfig`].
 #[derive(Debug, Error)]
 pub enum DemoVideoSourceConfigError {
     /// The configured resolution has a zero component.

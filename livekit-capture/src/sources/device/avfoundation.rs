@@ -14,10 +14,10 @@
 
 //! macOS device capture backend built on AVFoundation.
 //!
-//! This module is an implementation detail of [`super::DeviceVideoSource`];
+//! This module is an implementation detail of [`super::DeviceVideoSource`]:
 //! nothing AVFoundation-specific leaves it. Frames are delivered as native
-//! IOSurface-backed `CVPixelBuffer`s when the negotiated session supports it
-//! (full-range NV12 without software scaling), and converted to I420
+//! IOSurface-backed `CVPixelBuffer`s when the negotiated session supports
+//! that (full-range NV12 without software scaling), and converted to I420
 //! otherwise.
 
 use std::ffi::c_void;
@@ -659,8 +659,8 @@ struct QueuedFrame {
     height: u32,
     source_format: DeviceFrameFormat,
     core_video_pixel_format: u32,
-    /// Wall-clock capture time: the validated sensor timestamp when
-    /// AVFoundation reports one, the read time otherwise.
+    // Wall-clock capture time: the validated sensor timestamp when
+    // AVFoundation reports one, the read time otherwise.
     capture_wall_time_us: u64,
     timestamp_us: i64,
     is_iosurface_backed: bool,
