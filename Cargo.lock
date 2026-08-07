@@ -4172,11 +4172,13 @@ dependencies = [
  "objc2-core-media",
  "objc2-core-video",
  "objc2-foundation 0.3.2",
+ "pollster",
  "schemars",
  "serde",
  "thiserror 2.0.19",
  "tokio",
  "v4l",
+ "wgpu",
  "yuv-sys",
 ]
 

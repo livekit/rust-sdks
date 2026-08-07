@@ -13,10 +13,12 @@ gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
+pollster = { version = "0.4", optional = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+wgpu = { workspace = true, optional = true }
 yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
 [dev-dependencies]
@@ -74,6 +76,7 @@ source-device = [
     "dep:libc",
     "dep:v4l",
 ]
+source-shader = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]

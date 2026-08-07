@@ -62,3 +62,4 @@ named `source-<module>`. Each module documents its source.
 | `source-demo`      | `DemoVideoSource`      | pixel   |
 | `source-device`    | `DeviceVideoSource`    | pixel   |
 | `source-gstreamer` | `GStreamerVideoSource` | encoded |
+| `source-shader`    | `ShaderVideoSource`    | pixel   |

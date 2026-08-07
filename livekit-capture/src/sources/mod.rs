@@ -23,3 +23,6 @@ pub mod device;
 
 #[cfg(feature = "source-gstreamer")]
 pub mod gstreamer;
+
+#[cfg(feature = "source-shader")]
+pub mod shader;
