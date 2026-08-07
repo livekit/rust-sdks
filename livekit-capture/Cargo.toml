@@ -23,7 +23,7 @@ yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
-default = ["source-demo", "source-device", "source-gstreamer"] # TODO: Remove after testing
+default = []
 serde = ["dep:serde"]
 schemars = ["dep:schemars", "serde"]
 
