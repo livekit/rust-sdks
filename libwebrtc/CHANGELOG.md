@@ -139,6 +139,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.44 (2026-08-03)
+
+### Fixes
+
+#### Fix H.264, H.265, and AV1 NVENC sessions so live bitrate and frame rate updates
+
+reconfigure the hardware without restarting the encoder.
+
 ## 0.3.43 (2026-07-27)
 
 ### Fixes
