@@ -25,7 +25,7 @@ use livekit_protocol as proto;
 use prost::Message;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tokio_util::sync::{CancellationToken, DropGuard};
+use tokio_util::sync::CancellationToken;
 
 /// Data track published by the remote participant.
 #[derive(uniffi::Object)]
@@ -103,7 +103,6 @@ impl DataTrackStream {
 #[derive(uniffi::Object)]
 struct RemoteDataTrackManager {
     input: remote::ManagerInput,
-    _guard: DropGuard,
 }
 
 /// Delegate for receiving output events from [`RemoteDataTrackManager`].
@@ -131,8 +130,6 @@ impl RemoteDataTrackManager {
         delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
         decryption_provider: Option<Arc<dyn DecryptionProvider>>,
     ) -> Arc<Self> {
-        let token = CancellationToken::new();
-
         let decryption_provider = decryption_provider.map(|p| p as Arc<dyn DecryptionProvider>);
         let manager_options = remote::ManagerOptions { decryption_provider };
 
@@ -140,16 +137,13 @@ impl RemoteDataTrackManager {
 
         let rt = crate::runtime::runtime();
 
-        // TODO: in a follow-up PR, refactor manager to work with cancellation tokens directly, eliminating the
-        // need for this additional task.
-        rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
-
-        let delegate_forward = DelegateForwardTask { output, delegate, token: token.clone() };
+        let delegate_forward =
+            DelegateForwardTask { output, delegate, token: input.cancellation_token() };
         rt.spawn(delegate_forward.run());
 
         rt.spawn(manager.run());
 
-        Self { input, _guard: token.drop_guard() }.into()
+        Self { input }.into()
     }
 
     /// Resend all subscription updates.
@@ -262,9 +256,4 @@ impl DelegateForwardTask {
         let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
         self.delegate.on_signal_request(req);
     }
-}
-
-async fn shutdown_forward_task(input: remote::ManagerInput, token: CancellationToken) {
-    token.cancelled().await;
-    _ = input.send(remote::InputEvent::Shutdown);
 }
