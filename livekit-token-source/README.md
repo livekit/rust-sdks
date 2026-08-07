@@ -98,4 +98,20 @@ impl TokenSourceFixed for FileTokenSource {
 }
 ```
 
+## Caching
+
+Wrap any `TokenSourceConfigurable` with `.cached()` to reuse fetched credentials for repeat
+fetches with equal options, for as long as the token has not expired:
+
+```rust
+let source = livekit_token_source::endpoint("https://example.com/api/token").cached();
+
+let first = source.fetch(&options).await?;  // hits the endpoint
+let second = source.fetch(&options).await?; // served from the cache
+```
+
+By default credentials are kept in memory and considered valid until the token's `exp` claim;
+both are customizable via `with_store` (e.g. keychain- or database-backed persistence,
+implementing the `TokenSourceStore` trait) and `with_validator`.
+
 See [examples/token_source](../examples/token_source) for a runnable example.
