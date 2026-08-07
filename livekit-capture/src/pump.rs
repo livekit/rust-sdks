@@ -23,7 +23,7 @@
 //! spawn into the same [`RunningPump`] defined here, so running pumps of
 //! either kind are supervised uniformly.
 
-use crate::error::{CaptureError, SourceError};
+use crate::error::SourceError;
 use std::{
     any::Any,
     io,
@@ -39,12 +39,12 @@ use thiserror::Error;
 /// Error returned by a pump run.
 #[derive(Debug, Error)]
 pub enum PumpError {
-    /// The capture source failed.
+    /// The capture source failed or violated its contract.
     #[error("capture source failed: {0}")]
     Source(#[from] SourceError),
     /// The RTC source rejected a frame.
-    #[error("frame capture failed: {0}")]
-    Capture(#[from] CaptureError),
+    #[error("capture source rejected the frame")]
+    CaptureFailed,
     /// The pump thread panicked.
     #[error("pump panicked: {0}")]
     Panicked(String),

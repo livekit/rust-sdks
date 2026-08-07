@@ -21,11 +21,7 @@
 //! implemented for `Box<dyn ...>`, so sources can be constructed dynamically
 //! and driven through the same generic pump.
 
-use crate::{
-    error::{CaptureError, SourceError},
-    primitive::VideoResolution,
-    pump::PumpStop,
-};
+use crate::{error::SourceError, primitive::VideoResolution, pump::PumpStop};
 use bytes::Bytes;
 use livekit::{
     options::VideoCodec,
@@ -40,8 +36,6 @@ use livekit::{
 pub mod h26x;
 mod pump;
 pub use pump::EncodedVideoPump;
-
-const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
 /// Source of pre-encoded video access units, such as an encoding pipeline.
 pub trait EncodedVideoSource: Send {
@@ -58,6 +52,9 @@ pub trait EncodedVideoSource: Send {
     /// integrate it into the blocking wait, or bound each wait so the token
     /// is observed within a frame interval or so. The pump distinguishes a
     /// stop from end of stream via the token.
+    ///
+    /// Access units must carry a non-empty payload; the pump reports a
+    /// violation as a source error.
     fn next_access_unit(
         &mut self,
         stop: &PumpStop,
@@ -136,39 +133,6 @@ impl OwnedEncodedAccessUnit {
     }
 }
 
-/// Returns true when the NAL units form a WebRTC-usable key frame.
-pub(crate) fn is_keyframe_nalus(
-    codec: EncodedVideoCodec,
-    nal_units: &[&[u8]],
-) -> Result<bool, CaptureError> {
-    match codec {
-        EncodedVideoCodec::H264 => {
-            nal_units.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
-        }
-        EncodedVideoCodec::H265 => {
-            let mut has_vps = false;
-            let mut has_sps = false;
-            let mut has_pps = false;
-            let mut has_idr = false;
-
-            for nal in nal_units {
-                match h265_nal_type(nal)? {
-                    32 => has_vps = true,
-                    33 => has_sps = true,
-                    34 => has_pps = true,
-                    19 | 20 => has_idr = true,
-                    _ => {}
-                }
-            }
-
-            Ok(has_vps && has_sps && has_pps && has_idr)
-        }
-        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-            Err(CaptureError::UnsupportedCodec(codec))
-        }
-    }
-}
-
 impl From<EncodedVideoCodec> for VideoCodec {
     fn from(value: EncodedVideoCodec) -> Self {
         match value {
@@ -233,85 +197,3 @@ const _: () = {
     fn _assert_object_safe(_: &dyn EncodedVideoSource) {}
 };
 
-pub(crate) fn h264_nal_type(nal: &[u8]) -> Result<u8, CaptureError> {
-    let header = nal.first().ok_or(CaptureError::EmptyPayload)?;
-    Ok(header & 0x1f)
-}
-
-pub(crate) fn h265_nal_type(nal: &[u8]) -> Result<u8, CaptureError> {
-    if nal.is_empty() {
-        return Err(CaptureError::EmptyPayload);
-    }
-    if nal.len() < 2 {
-        return Err(CaptureError::H265NalTooShort);
-    }
-    Ok((nal[0] >> 1) & 0x3f)
-}
-
-pub(crate) fn annex_b_payload(nal_units: &[&[u8]]) -> Result<Vec<u8>, CaptureError> {
-    if nal_units.is_empty() {
-        return Err(CaptureError::EmptyPayload);
-    }
-    let len = nal_units.iter().try_fold(0usize, |len, nal| {
-        if nal.is_empty() {
-            Err(CaptureError::EmptyPayload)
-        } else {
-            Ok(len + ANNEX_B_START_CODE.len() + nal.len())
-        }
-    })?;
-
-    let mut payload = Vec::with_capacity(len);
-    for nal in nal_units {
-        payload.extend_from_slice(&ANNEX_B_START_CODE);
-        payload.extend_from_slice(nal);
-    }
-    Ok(payload)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn h264_keyframe_requires_idr_nal() {
-        let sps = [0x67, 1, 2, 3];
-        let idr = [0x65, 4, 5, 6];
-        let non_idr = [0x61, 1, 2];
-
-        assert!(is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &idr]).unwrap());
-        assert!(!is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &non_idr]).unwrap());
-    }
-
-    #[test]
-    fn h265_keyframe_requires_parameter_sets_and_idr() {
-        let vps = [0x40, 1, 2];
-        let sps = [0x42, 1, 2];
-        let pps = [0x44, 1, 2];
-        let idr_w_radl = [19 << 1, 1, 3];
-        let cra = [21 << 1, 1, 3];
-
-        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &idr_w_radl]).unwrap());
-        assert!(
-            is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &idr_w_radl]).unwrap()
-        );
-        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &cra]).unwrap());
-    }
-
-    #[test]
-    fn h265_rejects_too_short_nal_header() {
-        let err = is_keyframe_nalus(EncodedVideoCodec::H265, &[&[0x26]]).unwrap_err();
-        assert_eq!(err, CaptureError::H265NalTooShort);
-    }
-
-    #[test]
-    fn annex_b_payload_prefixes_each_nal_unit() {
-        let payload = annex_b_payload(&[&[0x67, 1, 2, 3], &[0x65, 4, 5, 6]]).unwrap();
-        assert_eq!(payload, vec![0, 0, 0, 1, 0x67, 1, 2, 3, 0, 0, 0, 1, 0x65, 4, 5, 6]);
-    }
-
-    #[test]
-    fn annex_b_payload_rejects_empty_input() {
-        assert_eq!(annex_b_payload(&[]).unwrap_err(), CaptureError::EmptyPayload);
-        assert_eq!(annex_b_payload(&[&[]]).unwrap_err(), CaptureError::EmptyPayload);
-    }
-}

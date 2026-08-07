@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Error types shared across capture paths.
+//! The type-erased error shared by capture sources.
+//!
+//! Concrete error types live with what produces them: each source module
+//! defines its own error, the parsing helpers define
+//! [`H26xParseError`](crate::encoded::h26x::H26xParseError), and the pumps
+//! report through [`PumpError`](crate::pump::PumpError).
 
-use crate::encoded::EncodedVideoCodec;
 use std::{error::Error as StdError, fmt};
-use thiserror::Error;
 
 /// Error returned by a capture source.
 ///
@@ -43,24 +46,4 @@ impl StdError for SourceError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         self.0.source()
     }
-}
-
-/// Error returned by capture helpers.
-#[derive(Debug, Error, PartialEq, Eq)]
-pub enum CaptureError {
-    /// Encoded payload is empty.
-    #[error("encoded payload is empty")]
-    EmptyPayload,
-    /// H.265 NAL unit is too short to contain its header.
-    #[error("H.265 NAL unit is too short")]
-    H265NalTooShort,
-    /// Codec is represented by the API but not yet supported by native passthrough.
-    #[error("encoded passthrough does not support {0:?} yet")]
-    UnsupportedCodec(EncodedVideoCodec),
-    /// Encoded payload or transport data is malformed.
-    #[error("invalid encoded data: {0}")]
-    InvalidEncodedData(&'static str),
-    /// The underlying source rejected the frame.
-    #[error("capture source rejected the frame")]
-    CaptureFailed,
 }

@@ -17,7 +17,7 @@
 
 use crate::{
     encoded::{EncodedFrameType, EncodedVideoSource, OwnedEncodedAccessUnit},
-    error::CaptureError,
+    error::SourceError,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
 };
 use livekit::{
@@ -161,9 +161,13 @@ fn capture_access_unit(
     rtc_source: &NativeVideoSource,
     access_unit: &OwnedEncodedAccessUnit,
     frame_metadata: Option<FrameMetadata>,
-) -> Result<(), CaptureError> {
+) -> Result<(), PumpError> {
+    // An empty payload is a violation of the source contract, so it is
+    // attributed to the source rather than the pump.
     if access_unit.payload.is_empty() {
-        return Err(CaptureError::EmptyPayload);
+        return Err(PumpError::Source(SourceError::new(
+            "source produced an access unit with an empty payload",
+        )));
     }
 
     let frame = EncodedVideoFrame {
@@ -174,7 +178,7 @@ fn capture_access_unit(
         resolution: access_unit.resolution.into(),
         frame_metadata,
     };
-    rtc_source.capture_encoded_frame(&frame).then_some(()).ok_or(CaptureError::CaptureFailed)
+    rtc_source.capture_encoded_frame(&frame).then_some(()).ok_or(PumpError::CaptureFailed)
 }
 
 #[cfg(test)]
@@ -274,8 +278,9 @@ mod tests {
         let mut unit = access_unit(1, EncodedFrameType::Key);
         unit.payload = Bytes::new();
 
-        let result = EncodedVideoPump::new(FakeEncodedSource::new([unit])).run();
-        assert!(matches!(result, Err(PumpError::Capture(CaptureError::EmptyPayload))));
+        let error = EncodedVideoPump::new(FakeEncodedSource::new([unit])).run().unwrap_err();
+        assert!(matches!(&error, PumpError::Source(_)));
+        assert!(error.to_string().contains("empty payload"));
     }
 
     #[test]

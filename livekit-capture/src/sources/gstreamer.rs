@@ -21,10 +21,10 @@ use thiserror::Error;
 
 use crate::{
     encoded::{
-        h26x::{access_unit_from_annex_b, access_unit_from_h264_avc},
+        h26x::{access_unit_from_annex_b, access_unit_from_h264_avc, H26xParseError},
         EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit,
     },
-    error::{CaptureError, SourceError},
+    error::SourceError,
     primitive::VideoResolution,
     pump::PumpStop,
 };
@@ -435,7 +435,7 @@ impl GStreamerVideoSource {
             frame_type,
             self.resolution,
         )
-        .map_err(GStreamerVideoSourceError::Capture)
+        .map_err(GStreamerVideoSourceError::Parse)
     }
 
     fn timestamp_us(&mut self, buffer: &gst::BufferRef) -> i64 {
@@ -613,9 +613,9 @@ pub enum GStreamerVideoSourceError {
     /// The sample buffer could not be mapped for reading.
     #[error("failed to map GStreamer buffer for reading: {0}")]
     MapReadable(String),
-    /// Access-unit construction failed.
+    /// Access-unit parsing failed.
     #[error(transparent)]
-    Capture(CaptureError),
+    Parse(H26xParseError),
 }
 
 fn access_unit_from_sample_payload(
@@ -624,7 +624,7 @@ fn access_unit_from_sample_payload(
     timestamp_us: i64,
     frame_type: EncodedFrameType,
     resolution: VideoResolution,
-) -> Result<OwnedEncodedAccessUnit, CaptureError> {
+) -> Result<OwnedEncodedAccessUnit, H26xParseError> {
     match sample_format {
         GStreamerSampleFormat::H264AnnexB => access_unit_from_annex_b(
             EncodedVideoCodec::H264,
@@ -643,7 +643,7 @@ fn access_unit_from_sample_payload(
         ),
         GStreamerSampleFormat::AccessUnit { codec } => {
             if payload.is_empty() {
-                return Err(CaptureError::EmptyPayload);
+                return Err(H26xParseError::EmptyPayload);
             }
 
             Ok(OwnedEncodedAccessUnit::new(

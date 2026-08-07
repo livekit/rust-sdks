@@ -12,16 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! H.264/H.265 parsing helpers: NAL-unit splitting, access-unit assembly and
+//! delimiting, and keyframe detection for the encoded ingest paths.
+
 use crate::{
-    encoded::{
-        annex_b_payload, h264_nal_type, h265_nal_type, is_keyframe_nalus, EncodedFrameType,
-        EncodedVideoCodec, OwnedEncodedAccessUnit,
-    },
-    error::CaptureError,
+    encoded::{EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit},
     primitive::VideoResolution,
 };
 use bytes::Bytes;
 use std::ops::Range;
+use thiserror::Error;
+
+/// Error returned by the H26x parsing helpers.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum H26xParseError {
+    /// Encoded payload is empty.
+    #[error("encoded payload is empty")]
+    EmptyPayload,
+    /// H.265 NAL unit is too short to contain its header.
+    #[error("H.265 NAL unit is too short")]
+    H265NalTooShort,
+    /// Codec is not supported by the H26x parsing helpers.
+    #[error("H26x parsing does not support {0:?}")]
+    UnsupportedCodec(EncodedVideoCodec),
+    /// Encoded payload or transport data is malformed.
+    #[error("invalid encoded data: {0}")]
+    InvalidEncodedData(&'static str),
+}
+
+/// Start code prepended to each NAL unit when assembling Annex-B payloads.
+const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
 /// Upper bound on bytes buffered while waiting for an access-unit boundary.
 const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
@@ -34,15 +54,15 @@ const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
 #[cfg(test)]
 pub(crate) trait AccessUnitParser {
     /// Appends bytes and returns the next complete access unit, if any.
-    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError>;
+    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError>;
 
     /// Returns the next complete access unit from already-buffered bytes.
-    fn drain(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    fn drain(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.push(&[])
     }
 
     /// Flushes remaining buffered bytes as the final access unit.
-    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError>;
+    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError>;
 }
 
 /// H26x Annex-B parser state.
@@ -82,11 +102,11 @@ impl AnnexBAccessUnitParser {
         start_timestamp_us: i64,
         frame_interval_us: i64,
         resolution: VideoResolution,
-    ) -> Result<Self, CaptureError> {
+    ) -> Result<Self, H26xParseError> {
         match codec {
             EncodedVideoCodec::H264 | EncodedVideoCodec::H265 => {}
             EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-                return Err(CaptureError::UnsupportedCodec(codec));
+                return Err(H26xParseError::UnsupportedCodec(codec));
             }
         }
 
@@ -102,17 +122,17 @@ impl AnnexBAccessUnitParser {
     }
 
     /// Pushes encoded bytes and returns the next complete access unit if one is found.
-    pub fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    pub fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.pending.extend_from_slice(bytes);
         self.drain_next(false)
     }
 
     /// Flushes the pending bytes as the final access unit.
-    pub fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    pub fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.drain_next(true)
     }
 
-    fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.scan_pending();
 
         if let Some(split_at) =
@@ -124,7 +144,7 @@ impl AnnexBAccessUnitParser {
             return self.take_access_unit(self.pending.len());
         }
         if !at_eof && self.pending.len() > MAX_PENDING_ACCESS_UNIT_BYTES {
-            return Err(CaptureError::InvalidEncodedData(
+            return Err(H26xParseError::InvalidEncodedData(
                 "access unit exceeds maximum buffered size",
             ));
         }
@@ -161,7 +181,7 @@ impl AnnexBAccessUnitParser {
     fn take_access_unit(
         &mut self,
         byte_len: usize,
-    ) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    ) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         if byte_len == 0 {
             return Ok(None);
         }
@@ -191,11 +211,11 @@ impl AnnexBAccessUnitParser {
 
 #[cfg(test)]
 impl AccessUnitParser for AnnexBAccessUnitParser {
-    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         AnnexBAccessUnitParser::push(self, bytes)
     }
 
-    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         AnnexBAccessUnitParser::flush(self)
     }
 }
@@ -208,7 +228,7 @@ impl AvcAccessUnitParser {
         start_timestamp_us: i64,
         frame_interval_us: i64,
         resolution: VideoResolution,
-    ) -> Result<Self, CaptureError> {
+    ) -> Result<Self, H26xParseError> {
         validate_avc_nal_length_size(nal_length_size)?;
 
         Ok(Self {
@@ -226,17 +246,17 @@ impl AvcAccessUnitParser {
     pub(crate) fn push(
         &mut self,
         bytes: &[u8],
-    ) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    ) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.pending.extend_from_slice(bytes);
         self.drain_next(false)
     }
 
     /// Flushes the pending bytes as the final access unit.
-    pub(crate) fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    pub(crate) fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.drain_next(true)
     }
 
-    fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.scan_pending(at_eof)?;
 
         if let Some(split_at) = avc_access_unit_split_index(
@@ -250,7 +270,7 @@ impl AvcAccessUnitParser {
             return self.take_access_unit(self.pending.len());
         }
         if !at_eof && self.pending.len() > MAX_PENDING_ACCESS_UNIT_BYTES {
-            return Err(CaptureError::InvalidEncodedData(
+            return Err(H26xParseError::InvalidEncodedData(
                 "access unit exceeds maximum buffered size",
             ));
         }
@@ -258,12 +278,12 @@ impl AvcAccessUnitParser {
     }
 
     /// Parses length-prefixed NAL units appended since the previous call.
-    fn scan_pending(&mut self, at_eof: bool) -> Result<(), CaptureError> {
+    fn scan_pending(&mut self, at_eof: bool) -> Result<(), H26xParseError> {
         let nal_length_size = self.nal_length_size as usize;
         while self.scan_cursor < self.pending.len() {
             if self.pending.len() - self.scan_cursor < nal_length_size {
                 if at_eof {
-                    return Err(CaptureError::InvalidEncodedData("truncated AVC NAL length"));
+                    return Err(H26xParseError::InvalidEncodedData("truncated AVC NAL length"));
                 }
                 break;
             }
@@ -271,15 +291,15 @@ impl AvcAccessUnitParser {
             let nal_start = self.scan_cursor + nal_length_size;
             let nal_len = read_avc_nal_length(&self.pending[self.scan_cursor..nal_start]);
             if nal_len == 0 {
-                return Err(CaptureError::InvalidEncodedData("empty AVC NAL unit"));
+                return Err(H26xParseError::InvalidEncodedData("empty AVC NAL unit"));
             }
 
             let Some(nal_end) = nal_start.checked_add(nal_len) else {
-                return Err(CaptureError::InvalidEncodedData("AVC NAL unit length overflow"));
+                return Err(H26xParseError::InvalidEncodedData("AVC NAL unit length overflow"));
             };
             if nal_end > self.pending.len() {
                 if at_eof {
-                    return Err(CaptureError::InvalidEncodedData("truncated AVC NAL unit"));
+                    return Err(H26xParseError::InvalidEncodedData("truncated AVC NAL unit"));
                 }
                 break;
             }
@@ -293,7 +313,7 @@ impl AvcAccessUnitParser {
     fn take_access_unit(
         &mut self,
         byte_len: usize,
-    ) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    ) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         if byte_len == 0 {
             return Ok(None);
         }
@@ -318,11 +338,11 @@ impl AvcAccessUnitParser {
 
 #[cfg(test)]
 impl AccessUnitParser for AvcAccessUnitParser {
-    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    fn push(&mut self, bytes: &[u8]) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         AvcAccessUnitParser::push(self, bytes)
     }
 
-    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, CaptureError> {
+    fn flush(&mut self) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         AvcAccessUnitParser::flush(self)
     }
 }
@@ -368,7 +388,7 @@ pub fn access_unit_from_h264_avc(
     nal_length_size: u8,
     timestamp_us: i64,
     resolution: VideoResolution,
-) -> Result<OwnedEncodedAccessUnit, CaptureError> {
+) -> Result<OwnedEncodedAccessUnit, H26xParseError> {
     let nals = avc_nalus(payload, nal_length_size)?;
     access_unit_from_nalus(EncodedVideoCodec::H264, &nals, timestamp_us, resolution)
 }
@@ -379,9 +399,9 @@ pub fn access_unit_from_annex_b(
     payload: Bytes,
     timestamp_us: i64,
     resolution: VideoResolution,
-) -> Result<OwnedEncodedAccessUnit, CaptureError> {
+) -> Result<OwnedEncodedAccessUnit, H26xParseError> {
     if payload.is_empty() {
-        return Err(CaptureError::EmptyPayload);
+        return Err(H26xParseError::EmptyPayload);
     }
 
     let frame_type = if is_keyframe_annex_b(codec, &payload)? {
@@ -398,22 +418,90 @@ pub fn access_unit_from_nalus(
     nal_units: &[&[u8]],
     timestamp_us: i64,
     resolution: VideoResolution,
-) -> Result<OwnedEncodedAccessUnit, CaptureError> {
+) -> Result<OwnedEncodedAccessUnit, H26xParseError> {
     let payload = Bytes::from(annex_b_payload(nal_units)?);
     access_unit_from_annex_b(codec, payload, timestamp_us, resolution)
 }
 
 /// Returns true when an Annex-B access unit contains an intra/key picture.
-pub fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, CaptureError> {
+pub fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, H26xParseError> {
     let nals = annex_b_nalus(bytes);
     is_keyframe_nalus(codec, &nals)
+}
+
+/// Returns true when the NAL units form a WebRTC-usable key frame.
+fn is_keyframe_nalus(
+    codec: EncodedVideoCodec,
+    nal_units: &[&[u8]],
+) -> Result<bool, H26xParseError> {
+    match codec {
+        EncodedVideoCodec::H264 => {
+            nal_units.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
+        }
+        EncodedVideoCodec::H265 => {
+            let mut has_vps = false;
+            let mut has_sps = false;
+            let mut has_pps = false;
+            let mut has_idr = false;
+
+            for nal in nal_units {
+                match h265_nal_type(nal)? {
+                    32 => has_vps = true,
+                    33 => has_sps = true,
+                    34 => has_pps = true,
+                    19 | 20 => has_idr = true,
+                    _ => {}
+                }
+            }
+
+            Ok(has_vps && has_sps && has_pps && has_idr)
+        }
+        EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
+            Err(H26xParseError::UnsupportedCodec(codec))
+        }
+    }
+}
+
+fn h264_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
+    let header = nal.first().ok_or(H26xParseError::EmptyPayload)?;
+    Ok(header & 0x1f)
+}
+
+fn h265_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
+    if nal.is_empty() {
+        return Err(H26xParseError::EmptyPayload);
+    }
+    if nal.len() < 2 {
+        return Err(H26xParseError::H265NalTooShort);
+    }
+    Ok((nal[0] >> 1) & 0x3f)
+}
+
+fn annex_b_payload(nal_units: &[&[u8]]) -> Result<Vec<u8>, H26xParseError> {
+    if nal_units.is_empty() {
+        return Err(H26xParseError::EmptyPayload);
+    }
+    let len = nal_units.iter().try_fold(0usize, |len, nal| {
+        if nal.is_empty() {
+            Err(H26xParseError::EmptyPayload)
+        } else {
+            Ok(len + ANNEX_B_START_CODE.len() + nal.len())
+        }
+    })?;
+
+    let mut payload = Vec::with_capacity(len);
+    for nal in nal_units {
+        payload.extend_from_slice(&ANNEX_B_START_CODE);
+        payload.extend_from_slice(nal);
+    }
+    Ok(payload)
 }
 
 fn access_unit_split_index(
     codec: EncodedVideoCodec,
     bytes: &[u8],
     ranges: &[Range<usize>],
-) -> Result<Option<usize>, CaptureError> {
+) -> Result<Option<usize>, H26xParseError> {
     match access_unit_boundary_nal(codec, bytes, ranges)? {
         Some(index) => split_start_code_index(bytes, ranges[index].start).map(Some),
         None => Ok(None),
@@ -425,12 +513,12 @@ fn avc_access_unit_split_index(
     bytes: &[u8],
     ranges: &[Range<usize>],
     nal_length_size: usize,
-) -> Result<Option<usize>, CaptureError> {
+) -> Result<Option<usize>, H26xParseError> {
     match access_unit_boundary_nal(EncodedVideoCodec::H264, bytes, ranges)? {
         Some(index) => ranges[index]
             .start
             .checked_sub(nal_length_size)
-            .ok_or(CaptureError::InvalidEncodedData("missing AVC NAL length"))
+            .ok_or(H26xParseError::InvalidEncodedData("missing AVC NAL length"))
             .map(Some),
         None => Ok(None),
     }
@@ -442,7 +530,7 @@ fn access_unit_boundary_nal(
     codec: EncodedVideoCodec,
     bytes: &[u8],
     ranges: &[Range<usize>],
-) -> Result<Option<usize>, CaptureError> {
+) -> Result<Option<usize>, H26xParseError> {
     let mut seen_vcl = false;
     for (index, range) in ranges.iter().enumerate() {
         let nal = &bytes[range.clone()];
@@ -465,7 +553,7 @@ fn min_nal_header_len(codec: EncodedVideoCodec) -> usize {
     }
 }
 
-fn starts_new_access_unit(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, CaptureError> {
+fn starts_new_access_unit(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, H26xParseError> {
     Ok(match codec {
         EncodedVideoCodec::H264 => match h264_nal_type(nal)? {
             // Prefix SEI(6), SPS(7), PPS(8), and AUD(9) open a new access unit.
@@ -489,27 +577,27 @@ fn starts_new_access_unit(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, 
             _ => false,
         },
         EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-            return Err(CaptureError::UnsupportedCodec(codec));
+            return Err(H26xParseError::UnsupportedCodec(codec));
         }
     })
 }
 
-fn split_start_code_index(bytes: &[u8], nal_start: usize) -> Result<usize, CaptureError> {
+fn split_start_code_index(bytes: &[u8], nal_start: usize) -> Result<usize, H26xParseError> {
     if nal_start >= 4 && bytes[nal_start - 4..nal_start] == [0, 0, 0, 1] {
         return Ok(nal_start - 4);
     }
     if nal_start >= 3 && bytes[nal_start - 3..nal_start] == [0, 0, 1] {
         return Ok(nal_start - 3);
     }
-    Err(CaptureError::InvalidEncodedData("missing Annex-B start code"))
+    Err(H26xParseError::InvalidEncodedData("missing Annex-B start code"))
 }
 
-fn is_vcl_nal(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, CaptureError> {
+fn is_vcl_nal(codec: EncodedVideoCodec, nal: &[u8]) -> Result<bool, H26xParseError> {
     Ok(match codec {
         EncodedVideoCodec::H264 => (1..=5).contains(&h264_nal_type(nal)?),
         EncodedVideoCodec::H265 => h265_nal_type(nal)? <= 31,
         EncodedVideoCodec::VP8 | EncodedVideoCodec::VP9 | EncodedVideoCodec::AV1 => {
-            return Err(CaptureError::UnsupportedCodec(codec));
+            return Err(H26xParseError::UnsupportedCodec(codec));
         }
     })
 }
@@ -528,10 +616,10 @@ fn find_start_code(bytes: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
-fn avc_nalus(payload: &[u8], nal_length_size: u8) -> Result<Vec<&[u8]>, CaptureError> {
+fn avc_nalus(payload: &[u8], nal_length_size: u8) -> Result<Vec<&[u8]>, H26xParseError> {
     let ranges = avc_nal_ranges(payload, nal_length_size, true)?;
     if ranges.is_empty() {
-        return Err(CaptureError::EmptyPayload);
+        return Err(H26xParseError::EmptyPayload);
     }
     Ok(ranges.into_iter().map(|range| &payload[range]).collect())
 }
@@ -540,7 +628,7 @@ fn avc_nal_ranges(
     bytes: &[u8],
     nal_length_size: u8,
     at_eof: bool,
-) -> Result<Vec<Range<usize>>, CaptureError> {
+) -> Result<Vec<Range<usize>>, H26xParseError> {
     validate_avc_nal_length_size(nal_length_size)?;
 
     let nal_length_size = nal_length_size as usize;
@@ -549,7 +637,7 @@ fn avc_nal_ranges(
     while cursor < bytes.len() {
         if bytes.len() - cursor < nal_length_size {
             if at_eof {
-                return Err(CaptureError::InvalidEncodedData("truncated AVC NAL length"));
+                return Err(H26xParseError::InvalidEncodedData("truncated AVC NAL length"));
             }
             break;
         }
@@ -557,15 +645,15 @@ fn avc_nal_ranges(
         let nal_len = read_avc_nal_length(&bytes[cursor..cursor + nal_length_size]);
         cursor += nal_length_size;
         if nal_len == 0 {
-            return Err(CaptureError::InvalidEncodedData("empty AVC NAL unit"));
+            return Err(H26xParseError::InvalidEncodedData("empty AVC NAL unit"));
         }
 
         let Some(nal_end) = cursor.checked_add(nal_len) else {
-            return Err(CaptureError::InvalidEncodedData("AVC NAL unit length overflow"));
+            return Err(H26xParseError::InvalidEncodedData("AVC NAL unit length overflow"));
         };
         if nal_end > bytes.len() {
             if at_eof {
-                return Err(CaptureError::InvalidEncodedData("truncated AVC NAL unit"));
+                return Err(H26xParseError::InvalidEncodedData("truncated AVC NAL unit"));
             }
             break;
         }
@@ -581,16 +669,59 @@ fn read_avc_nal_length(bytes: &[u8]) -> usize {
     bytes.iter().fold(0usize, |len, byte| (len << 8) | usize::from(*byte))
 }
 
-fn validate_avc_nal_length_size(nal_length_size: u8) -> Result<(), CaptureError> {
+fn validate_avc_nal_length_size(nal_length_size: u8) -> Result<(), H26xParseError> {
     if (1..=4).contains(&nal_length_size) {
         return Ok(());
     }
-    Err(CaptureError::InvalidEncodedData("invalid AVC NAL length size"))
+    Err(H26xParseError::InvalidEncodedData("invalid AVC NAL length size"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn h264_keyframe_requires_idr_nal() {
+        let sps = [0x67, 1, 2, 3];
+        let idr = [0x65, 4, 5, 6];
+        let non_idr = [0x61, 1, 2];
+
+        assert!(is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &idr]).unwrap());
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H264, &[&sps, &non_idr]).unwrap());
+    }
+
+    #[test]
+    fn h265_keyframe_requires_parameter_sets_and_idr() {
+        let vps = [0x40, 1, 2];
+        let sps = [0x42, 1, 2];
+        let pps = [0x44, 1, 2];
+        let idr_w_radl = [19 << 1, 1, 3];
+        let cra = [21 << 1, 1, 3];
+
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &idr_w_radl]).unwrap());
+        assert!(
+            is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &idr_w_radl]).unwrap()
+        );
+        assert!(!is_keyframe_nalus(EncodedVideoCodec::H265, &[&vps, &sps, &pps, &cra]).unwrap());
+    }
+
+    #[test]
+    fn h265_rejects_too_short_nal_header() {
+        let err = is_keyframe_nalus(EncodedVideoCodec::H265, &[&[0x26]]).unwrap_err();
+        assert_eq!(err, H26xParseError::H265NalTooShort);
+    }
+
+    #[test]
+    fn annex_b_payload_prefixes_each_nal_unit() {
+        let payload = annex_b_payload(&[&[0x67, 1, 2, 3], &[0x65, 4, 5, 6]]).unwrap();
+        assert_eq!(payload, vec![0, 0, 0, 1, 0x67, 1, 2, 3, 0, 0, 0, 1, 0x65, 4, 5, 6]);
+    }
+
+    #[test]
+    fn annex_b_payload_rejects_empty_input() {
+        assert_eq!(annex_b_payload(&[]).unwrap_err(), H26xParseError::EmptyPayload);
+        assert_eq!(annex_b_payload(&[&[]]).unwrap_err(), H26xParseError::EmptyPayload);
+    }
 
     #[test]
     fn splits_annex_b_nals_with_three_and_four_byte_prefixes() {
@@ -630,7 +761,7 @@ mod tests {
             access_unit_from_h264_avc(&[0, 0, 0, 3, 0x65], 4, 10, VideoResolution::new(640, 480))
                 .unwrap_err();
 
-        assert_eq!(err, CaptureError::InvalidEncodedData("truncated AVC NAL unit"));
+        assert_eq!(err, H26xParseError::InvalidEncodedData("truncated AVC NAL unit"));
     }
 
     #[test]
@@ -939,7 +1070,7 @@ mod tests {
         let err = parser.push(&vec![0xff; MAX_PENDING_ACCESS_UNIT_BYTES]).unwrap_err();
         assert_eq!(
             err,
-            CaptureError::InvalidEncodedData("access unit exceeds maximum buffered size")
+            H26xParseError::InvalidEncodedData("access unit exceeds maximum buffered size")
         );
     }
 
@@ -953,7 +1084,7 @@ mod tests {
         let err = parser.push(&vec![0x41; MAX_PENDING_ACCESS_UNIT_BYTES]).unwrap_err();
         assert_eq!(
             err,
-            CaptureError::InvalidEncodedData("access unit exceeds maximum buffered size")
+            H26xParseError::InvalidEncodedData("access unit exceeds maximum buffered size")
         );
     }
 }
