@@ -40,7 +40,7 @@ A pump supplies the RTC source and the publish options, so publication is the
 same for either path.
 
 ```rust
-let pump = PixelVideoPump::new(DemoVideoSource::new(config)?);
+let pump = PixelVideoPump::new(DemoVideoSource::new(config).await?);
 
 let track = LocalVideoTrack::create_video_track("demo", pump.rtc_source());
 let options = pump.publish_options();

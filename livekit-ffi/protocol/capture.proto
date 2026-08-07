@@ -72,7 +72,7 @@ message GstreamerVideoSourceConfig {
   optional GstreamerRateControl rate_control = 4;
 }
 
-// Test source producing solid-color frames, cycling through a palette.
+// Test source rendering an animated color gradient on the GPU.
 message DemoVideoSourceConfig {
   // Output resolution.
   required VideoSourceResolution resolution = 1;

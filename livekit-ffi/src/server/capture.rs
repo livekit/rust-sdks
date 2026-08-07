@@ -121,6 +121,7 @@ async fn create_capture_source(
         }
         proto::new_capture_source_request::Config::Demo(config) => {
             let source = DemoVideoSource::new(config.into())
+                .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
             CapturePump::Pixel(PixelVideoPump::new(source))

@@ -596,6 +596,15 @@ fn padded_bytes_per_row(width: u32) -> Option<u32> {
     u32::try_from(unpadded.div_ceil(align) * align).ok()
 }
 
+/// Returns whether a GPU adapter is available. Tests that need a GPU
+/// skip when there is none.
+#[cfg(test)]
+pub(crate) fn gpu_available() -> bool {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).is_ok()
+}
+
 /// Converts one padded BGRA image to a freshly allocated I420 buffer.
 fn convert_to_i420(
     source: &[u8],
@@ -654,14 +663,6 @@ mod tests {
                     .to_owned(),
             ),
         }
-    }
-
-    /// GPU tests skip when the machine has no usable adapter.
-    fn gpu_available() -> bool {
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-        pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .is_ok()
     }
 
     #[test]

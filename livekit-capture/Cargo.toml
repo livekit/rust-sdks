@@ -34,7 +34,7 @@ schemars = ["dep:schemars", "serde"]
 tokio = ["tokio/rt"]
 
 # Pixel sources
-source-demo = []
+source-demo = ["source-shader"]
 source-device = [
     "dep:yuv-sys",
     # macOS backend
