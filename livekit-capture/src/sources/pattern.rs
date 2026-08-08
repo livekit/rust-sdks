@@ -52,12 +52,23 @@ const STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// Total time to wait for one frame readback before the source fails.
 const READBACK_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Period after which the shader time uniform wraps: 2^13 seconds,
+/// about 2.3 hours.
+///
+/// f32 seconds lose precision as they grow. The wrap keeps the time
+/// resolution finer than one millisecond on long runs, at the cost of
+/// one pattern discontinuity per period. Frame timestamps do not wrap.
+const TIME_WRAP_PERIOD_US: u64 = 8_192_000_000;
+
 /// Prelude prepended to every fragment snippet. It draws one triangle
 /// that covers the full target and calls `shade` per pixel.
 const FRAGMENT_PRELUDE: &str = include_str!("../../shaders/prelude.wgsl");
 
 /// Fragment snippet for [`Pattern::Gradient`].
 const GRADIENT_SHADER: &str = include_str!("../../shaders/gradient.wgsl");
+
+/// Fragment snippet for [`Pattern::Logo`].
+const LOGO_SHADER: &str = include_str!("../../shaders/logo.wgsl");
 
 /// Test pattern rendered by a [`PatternVideoSource`].
 ///
@@ -74,6 +85,8 @@ const GRADIENT_SHADER: &str = include_str!("../../shaders/gradient.wgsl");
 pub enum Pattern {
     /// Animated color gradient.
     Gradient,
+    /// Bouncing LiveKit logo.
+    Logo,
 }
 
 impl Pattern {
@@ -81,6 +94,7 @@ impl Pattern {
     fn module_code(&self) -> String {
         match self {
             Self::Gradient => assemble_module(GRADIENT_SHADER),
+            Self::Logo => assemble_module(LOGO_SHADER),
         }
     }
 }
@@ -193,18 +207,21 @@ impl PixelVideoSource for PatternVideoSource {
 
         // Pace against the ideal timeline so timestamps stay jitter-free.
         let interval_us = self.frame_interval().as_micros() as u64;
-        let elapsed = Duration::from_micros(self.frame_index.saturating_mul(interval_us));
+        let elapsed_us = self.frame_index.saturating_mul(interval_us);
+        let elapsed = Duration::from_micros(elapsed_us);
         let due = started + elapsed;
         if let Some(wait) = due.checked_duration_since(Instant::now()) {
             thread::sleep(wait);
         }
 
-        // The uniform frame index wraps after u32::MAX frames.
+        // The shader time wraps to keep its f32 precision on long runs,
+        // and the uniform frame index wraps after u32::MAX frames.
+        let time_s = Duration::from_micros(elapsed_us % TIME_WRAP_PERIOD_US).as_secs_f32();
         let frame_index = self.frame_index as u32;
         self.frame_index += 1;
         let buffer = self
             .renderer
-            .render_frame(elapsed.as_secs_f32(), frame_index, stop)
+            .render_frame(time_s, frame_index, stop)
             .map_err(SourceError::new)?;
         let Some(buffer) = buffer else {
             // The stop token fired during the readback wait.
@@ -641,11 +658,13 @@ mod tests {
     }
 
     #[test]
-    fn gradient_module_includes_the_prelude() {
-        let code = Pattern::Gradient.module_code();
-        assert!(code.contains("fn vs_main"));
-        assert!(code.contains("fn fs_main"));
-        assert!(code.contains("fn shade"));
+    fn pattern_modules_include_the_prelude() {
+        for pattern in [Pattern::Gradient, Pattern::Logo] {
+            let code = pattern.module_code();
+            assert!(code.contains("fn vs_main"), "{pattern:?} is missing the prelude");
+            assert!(code.contains("fn fs_main"), "{pattern:?} is missing the prelude");
+            assert!(code.contains("fn shade"), "{pattern:?} is missing a shade function");
+        }
     }
 
     #[test]
@@ -680,5 +699,30 @@ mod tests {
         assert!(y[0].abs_diff(121) <= 5, "unexpected luma {}", y[0]);
         assert!(u[0].abs_diff(91) <= 6, "unexpected chroma-u {}", u[0]);
         assert!(v[0].abs_diff(211) <= 6, "unexpected chroma-v {}", v[0]);
+    }
+
+    #[test]
+    fn logo_renders_on_a_black_background() {
+        if !gpu_available() {
+            eprintln!("skipping: no GPU adapter available");
+            return;
+        }
+        let mut source = PatternVideoSource::new_blocking(PatternVideoSourceConfig {
+            resolution: RESOLUTION,
+            framerate_fps: 1000,
+            pattern: Pattern::Logo,
+        })
+        .unwrap();
+
+        let frame = source.next_frame(&PumpStop::new()).unwrap().unwrap();
+        let i420 = frame.buffer.as_i420().expect("pattern source yields I420 buffers");
+        let (y, _, _) = i420.data();
+
+        // The logo starts away from the corners, so the top-left pixel is
+        // background black (luma 16 in limited range), and the lit logo
+        // cells stand out well above it.
+        assert!(y[0] <= 20, "top-left pixel is not background: {}", y[0]);
+        let lit = y.iter().filter(|&&luma| luma > 60).count();
+        assert!(lit > 5, "no logo pixels found (lit count {lit})");
     }
 }

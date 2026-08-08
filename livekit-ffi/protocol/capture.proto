@@ -76,6 +76,8 @@ message GstreamerVideoSourceConfig {
 enum Pattern {
   // Animated color gradient.
   PATTERN_GRADIENT = 0;
+  // Bouncing LiveKit logo.
+  PATTERN_LOGO = 1;
 }
 
 // Test pattern rendered on the GPU.

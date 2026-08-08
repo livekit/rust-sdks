@@ -42,6 +42,7 @@ pub fn pattern_config_from_proto(
         framerate_fps: config.framerate_fps,
         pattern: match pattern {
             proto::Pattern::Gradient => Pattern::Gradient,
+            proto::Pattern::Logo => Pattern::Logo,
         },
     })
 }
