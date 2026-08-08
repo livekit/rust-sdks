@@ -1,8 +1,9 @@
-// Prelude prepended to every user fragment snippet by the shader video
-// source. It declares the uniforms, draws one triangle that covers the
-// full target, and calls the snippet's `shade` function once per pixel.
+// Prelude prepended to every pattern fragment snippet by the pattern
+// video source. It declares the uniforms, draws one triangle that covers
+// the full target, and calls the snippet's `shade` function once per
+// pixel.
 //
-// The user snippet must define `fn shade(uv: vec2<f32>) -> vec4<f32>`,
+// Each pattern snippet must define `fn shade(uv: vec2<f32>) -> vec4<f32>`,
 // and must not redeclare the names below.
 
 struct LkUniforms {

@@ -17,12 +17,12 @@ use livekit_capture::{
     encoded::EncodedVideoCodec,
     primitive::VideoResolution,
     sources::{
-        demo::DemoVideoSourceConfig,
         device::{
             DeviceFormat, DeviceFormatRequest, DeviceFrameFormat, DeviceInfo, DeviceSelector,
             DeviceVideoSourceConfig,
         },
         gstreamer::{GStreamerBitrateUnit, GStreamerRateControlConfig, GStreamerVideoSourceConfig},
+        pattern::{Pattern, PatternVideoSourceConfig},
     },
 };
 
@@ -32,10 +32,18 @@ impl From<proto::VideoSourceResolution> for VideoResolution {
     }
 }
 
-impl From<proto::DemoVideoSourceConfig> for DemoVideoSourceConfig {
-    fn from(config: proto::DemoVideoSourceConfig) -> Self {
-        Self { resolution: config.resolution.into(), framerate_fps: config.framerate_fps }
-    }
+pub fn pattern_config_from_proto(
+    config: proto::PatternVideoSourceConfig,
+) -> FfiResult<PatternVideoSourceConfig> {
+    let pattern = proto::Pattern::try_from(config.pattern)
+        .map_err(|_| FfiError::InvalidRequest("invalid pattern".into()))?;
+    Ok(PatternVideoSourceConfig {
+        resolution: config.resolution.into(),
+        framerate_fps: config.framerate_fps,
+        pattern: match pattern {
+            proto::Pattern::Gradient => Pattern::Gradient,
+        },
+    })
 }
 
 impl From<proto::GstreamerBitrateUnit> for GStreamerBitrateUnit {

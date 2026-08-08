@@ -34,7 +34,6 @@ schemars = ["dep:schemars", "serde"]
 tokio = ["tokio/rt"]
 
 # Pixel sources
-source-demo = ["source-shader"]
 source-device = [
     "dep:yuv-sys",
     # macOS backend
@@ -76,7 +75,7 @@ source-device = [
     "dep:libc",
     "dep:v4l",
 ]
-source-shader = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
+source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]

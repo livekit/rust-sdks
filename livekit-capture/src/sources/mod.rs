@@ -15,14 +15,11 @@
 //! Ready-made capture sources. Each source is gated behind its own
 //! `source-*` feature.
 
-#[cfg(feature = "source-demo")]
-pub mod demo;
-
 #[cfg(feature = "source-device")]
 pub mod device;
 
 #[cfg(feature = "source-gstreamer")]
 pub mod gstreamer;
 
-#[cfg(feature = "source-shader")]
-pub mod shader;
+#[cfg(feature = "source-pattern")]
+pub mod pattern;

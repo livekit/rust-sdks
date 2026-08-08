@@ -72,12 +72,20 @@ message GstreamerVideoSourceConfig {
   optional GstreamerRateControl rate_control = 4;
 }
 
-// Test source rendering an animated color gradient on the GPU.
-message DemoVideoSourceConfig {
+// Test patterns built into livekit-capture.
+enum Pattern {
+  // Animated color gradient.
+  PATTERN_GRADIENT = 0;
+}
+
+// Test pattern rendered on the GPU.
+message PatternVideoSourceConfig {
   // Output resolution.
   required VideoSourceResolution resolution = 1;
   // Output frame rate in frames per second.
   required uint32 framerate_fps = 2;
+  // Pattern to render.
+  required Pattern pattern = 3;
 }
 
 // Frame format delivered by a capture device.
@@ -209,7 +217,7 @@ message OwnedCaptureSource {
 message NewCaptureSourceRequest {
   oneof config {
     GstreamerVideoSourceConfig gstreamer = 1;
-    DemoVideoSourceConfig demo = 2;
+    PatternVideoSourceConfig pattern = 2;
     DeviceVideoSourceConfig device = 4;
   }
   optional uint64 request_async_id = 3;

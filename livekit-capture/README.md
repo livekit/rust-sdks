@@ -40,9 +40,9 @@ A pump supplies the RTC source and the publish options, so publication is the
 same for either path.
 
 ```rust
-let pump = PixelVideoPump::new(DemoVideoSource::new(config).await?);
+let pump = PixelVideoPump::new(PatternVideoSource::new(config).await?);
 
-let track = LocalVideoTrack::create_video_track("demo", pump.rtc_source());
+let track = LocalVideoTrack::create_video_track("pattern", pump.rtc_source());
 let options = pump.publish_options();
 room.local_participant().publish_track(LocalTrack::Video(track), options).await?;
 
@@ -59,7 +59,6 @@ named `source-<module>`. Each module documents its source.
 
 | Feature            | Source                 | Kind    |
 | ------------------ | ---------------------- | ------- |
-| `source-demo`      | `DemoVideoSource`      | pixel   |
 | `source-device`    | `DeviceVideoSource`    | pixel   |
 | `source-gstreamer` | `GStreamerVideoSource` | encoded |
-| `source-shader`    | `ShaderVideoSource`    | pixel   |
+| `source-pattern`   | `PatternVideoSource`   | pixel   |

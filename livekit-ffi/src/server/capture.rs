@@ -24,9 +24,9 @@ use livekit_capture::{
     pixel::{PixelVideoPump, PixelVideoSource},
     pump::{PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
     sources::{
-        demo::DemoVideoSource,
         device::{self, DeviceVideoSource},
         gstreamer::GStreamerVideoSource,
+        pattern::PatternVideoSource,
     },
 };
 use parking_lot::Mutex;
@@ -35,7 +35,7 @@ use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
 use crate::{
     conversion::capture::{
         device_config_from_proto, device_info_to_proto, gstreamer_config_from_proto,
-        video_codec_to_proto,
+        pattern_config_from_proto, video_codec_to_proto,
     },
     proto, FfiError, FfiHandleId, FfiResult,
 };
@@ -119,8 +119,8 @@ async fn create_capture_source(
             let source: Box<dyn EncodedVideoSource> = Box::new(source);
             CapturePump::Encoded(EncodedVideoPump::new(source))
         }
-        proto::new_capture_source_request::Config::Demo(config) => {
-            let source = DemoVideoSource::new(config.into())
+        proto::new_capture_source_request::Config::Pattern(config) => {
+            let source = PatternVideoSource::new(pattern_config_from_proto(config)?)
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
@@ -333,12 +333,13 @@ mod tests {
     }
 
     #[test]
-    fn demo_capture_lifecycle() {
+    fn pattern_capture_lifecycle() {
         let request = proto::NewCaptureSourceRequest {
-            config: Some(proto::new_capture_source_request::Config::Demo(
-                proto::DemoVideoSourceConfig {
+            config: Some(proto::new_capture_source_request::Config::Pattern(
+                proto::PatternVideoSourceConfig {
                     resolution: proto::VideoSourceResolution { width: 1280, height: 720 },
                     framerate_fps: 30,
+                    pattern: proto::Pattern::Gradient.into(),
                 },
             )),
             request_async_id: None,
@@ -346,7 +347,7 @@ mod tests {
         let source = server()
             .async_runtime
             .block_on(create_capture_source(server(), request))
-            .expect("demo capture source should build");
+            .expect("pattern capture source should build");
         assert_eq!(source.info.kind(), proto::CaptureSourceKind::CaptureSourcePixel);
         assert_eq!(source.info.resolution.width, 1280);
         let capture_handle = source.handle.id;

@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Generative video from a WGSL shader.
+//! Test pattern video source.
 //!
-//! [`ShaderVideoSource`] renders each frame on the GPU with a WGSL shader
-//! and yields the result as pixel video. The application supplies a
-//! fragment snippet, inline or from a file ([`WgslShader`]). Rendering is
+//! [`PatternVideoSource`] renders a built-in test pattern ([`Pattern`])
+//! on the GPU and yields the result as pixel video. Rendering is
 //! offscreen through [wgpu], so the source needs no window or display.
 //!
 //! The source reads each frame back from the GPU and converts it to I420
@@ -29,9 +28,7 @@ use crate::{
 };
 use livekit::webrtc::video_frame::{BoxVideoFrame, I420Buffer, VideoFrame, VideoRotation};
 use std::{
-    borrow::Cow,
     fmt,
-    path::PathBuf,
     sync::{mpsc, Arc, Mutex},
     thread,
     time::{Duration, Instant},
@@ -55,30 +52,17 @@ const STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// Total time to wait for one frame readback before the source fails.
 const READBACK_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Prelude prepended to a [`WgslShader::Fragment`] snippet. It draws one
-/// triangle that covers the full target and calls `shade` per pixel.
+/// Prelude prepended to every fragment snippet. It draws one triangle
+/// that covers the full target and calls `shade` per pixel.
 const FRAGMENT_PRELUDE: &str = include_str!("../../shaders/prelude.wgsl");
 
-/// WGSL fragment snippet for a [`ShaderVideoSource`].
+/// Fragment snippet for [`Pattern::Gradient`].
+const GRADIENT_SHADER: &str = include_str!("../../shaders/gradient.wgsl");
+
+/// Test pattern rendered by a [`PatternVideoSource`].
 ///
-/// The snippet must define `fn shade(uv: vec2<f32>) -> vec4<f32>`. The
-/// source calls `shade` once per pixel. `uv` runs from `(0.0, 0.0)` at
-/// the top left to `(1.0, 1.0)` at the bottom right. The return value is
-/// the pixel color as RGBA in the 0.0 to 1.0 range. Alpha is ignored.
-///
-/// A fixed prelude declares these uniforms for the snippet:
-///
-/// ```wgsl
-/// struct LkUniforms {
-///     resolution: vec2<f32>, // output size in pixels
-///     time_s: f32,           // seconds since the stream started
-///     frame_index: u32,      // frame counter, starts at 0
-/// }
-/// @group(0) @binding(0) var<uniform> lk: LkUniforms;
-/// ```
-///
-/// The prelude reserves the names `lk`, `LkUniforms`, `LkVertexOutput`,
-/// `vs_main`, and `fs_main`.
+/// Every pattern is a pure function of position, resolution, and time:
+/// the same configuration produces the same frames on every machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -87,33 +71,26 @@ const FRAGMENT_PRELUDE: &str = include_str!("../../shaders/prelude.wgsl");
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
-pub enum WgslShader {
-    /// Inline fragment snippet.
-    Fragment(String),
-    /// Path to a file that contains a fragment snippet.
-    ///
-    /// The source reads the file once, at construction. A relative path
-    /// resolves against the process working directory.
-    FragmentFile(PathBuf),
+pub enum Pattern {
+    /// Animated color gradient.
+    Gradient,
 }
 
-impl WgslShader {
-    /// Returns the complete WGSL module to compile, reading the snippet
-    /// from disk when needed.
-    fn module_code(&self) -> Result<String, ShaderVideoSourceError> {
-        let snippet = match self {
-            Self::Fragment(snippet) => Cow::Borrowed(snippet.as_str()),
-            Self::FragmentFile(path) => {
-                Cow::Owned(std::fs::read_to_string(path).map_err(|error| {
-                    ShaderVideoSourceError::ShaderFile { path: path.clone(), error }
-                })?)
-            }
-        };
-        Ok(format!("{FRAGMENT_PRELUDE}\n{snippet}"))
+impl Pattern {
+    /// Returns the complete WGSL module to compile.
+    fn module_code(&self) -> String {
+        match self {
+            Self::Gradient => assemble_module(GRADIENT_SHADER),
+        }
     }
 }
 
-/// Configuration for a [`ShaderVideoSource`].
+/// Prepends the prelude to a pattern's fragment snippet.
+fn assemble_module(snippet: &str) -> String {
+    format!("{FRAGMENT_PRELUDE}\n{snippet}")
+}
+
+/// Configuration for a [`PatternVideoSource`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "serde",
@@ -121,24 +98,24 @@ impl WgslShader {
     serde(deny_unknown_fields)
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ShaderVideoSourceConfig {
+pub struct PatternVideoSourceConfig {
     /// Output resolution.
     pub resolution: VideoResolution,
     /// Output frame rate in frames per second.
     pub framerate_fps: u32,
-    /// Shader that colors each frame.
-    pub shader: WgslShader,
+    /// Pattern to render.
+    pub pattern: Pattern,
 }
 
-/// Error returned by a shader video source.
+/// Error returned by a pattern video source.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum ShaderVideoSourceError {
+pub enum PatternVideoSourceError {
     /// The configured resolution has a zero component.
-    #[error("shader source resolution must be non-zero")]
+    #[error("pattern source resolution must be non-zero")]
     ZeroResolution,
     /// The configured frame rate is zero.
-    #[error("shader source frame rate must be non-zero")]
+    #[error("pattern source frame rate must be non-zero")]
     ZeroFramerate,
     /// No compatible GPU adapter is available.
     #[error("no compatible GPU adapter: {0}")]
@@ -146,15 +123,6 @@ pub enum ShaderVideoSourceError {
     /// The GPU adapter rejected the device request.
     #[error("failed to open the GPU device: {0}")]
     Device(String),
-    /// The shader file could not be read.
-    #[error("failed to read shader file '{}': {error}", path.display())]
-    ShaderFile {
-        /// Path of the shader file.
-        path: PathBuf,
-        /// The underlying read error.
-        #[source]
-        error: std::io::Error,
-    },
     /// The shader or its pipeline failed to build.
     #[error("failed to build the shader pipeline: {0}")]
     ShaderCompile(String),
@@ -169,44 +137,41 @@ pub enum ShaderVideoSourceError {
     Convert(&'static str),
 }
 
-/// Pixel video source that renders each frame on the GPU with a WGSL
-/// shader.
+/// Pixel video source that renders a test pattern on the GPU.
 ///
-/// Construction selects a GPU adapter and compiles the shader, so a bad
-/// shader fails construction, not the pump. The source sleeps to pace
-/// itself to the configured frame rate. It never reaches the end of its
-/// stream — stop the pump that drives it instead.
-pub struct ShaderVideoSource {
-    config: ShaderVideoSourceConfig,
-    renderer: ShaderRenderer,
+/// The source sleeps to pace itself to the configured frame rate. It
+/// never reaches the end of its stream — stop the pump that drives it
+/// instead.
+pub struct PatternVideoSource {
+    config: PatternVideoSourceConfig,
+    renderer: PatternRenderer,
     started: Option<Instant>,
     frame_index: u64,
 }
 
-impl ShaderVideoSource {
+impl PatternVideoSource {
     /// Creates the source. GPU setup runs on the tokio blocking pool.
     ///
     /// Requires a running tokio runtime. Use
-    /// [`ShaderVideoSource::new_blocking`] outside of async contexts.
+    /// [`PatternVideoSource::new_blocking`] outside of async contexts.
     #[cfg(feature = "tokio")]
-    pub async fn new(config: ShaderVideoSourceConfig) -> Result<Self, SourceError> {
+    pub async fn new(config: PatternVideoSourceConfig) -> Result<Self, SourceError> {
         crate::utils::run_blocking(move || Self::new_blocking(config)).await
     }
 
-    /// Selects a GPU adapter, compiles the shader, and builds the render
-    /// pipeline.
+    /// Selects a GPU adapter, compiles the pattern's shader, and builds
+    /// the render pipeline.
     ///
-    /// Construction fails when no GPU is available, when the shader does
-    /// not compile, when the shader file cannot be read, or for a zero
+    /// Construction fails when no GPU is available, or for a zero
     /// resolution or frame rate.
-    pub fn new_blocking(config: ShaderVideoSourceConfig) -> Result<Self, SourceError> {
+    pub fn new_blocking(config: PatternVideoSourceConfig) -> Result<Self, SourceError> {
         validate_config(&config).map_err(SourceError::new)?;
-        let renderer = ShaderRenderer::new(&config).map_err(SourceError::new)?;
+        let renderer = PatternRenderer::new(&config).map_err(SourceError::new)?;
         Ok(Self { config, renderer, started: None, frame_index: 0 })
     }
 
     /// Returns the configuration the source was created with.
-    pub fn config(&self) -> &ShaderVideoSourceConfig {
+    pub fn config(&self) -> &PatternVideoSourceConfig {
         &self.config
     }
 
@@ -215,7 +180,7 @@ impl ShaderVideoSource {
     }
 }
 
-impl PixelVideoSource for ShaderVideoSource {
+impl PixelVideoSource for PatternVideoSource {
     fn resolution(&self) -> VideoResolution {
         self.config.resolution
     }
@@ -255,9 +220,9 @@ impl PixelVideoSource for ShaderVideoSource {
     }
 }
 
-impl fmt::Debug for ShaderVideoSource {
+impl fmt::Debug for PatternVideoSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ShaderVideoSource")
+        f.debug_struct("PatternVideoSource")
             .field("config", &self.config)
             .field("frame_index", &self.frame_index)
             .finish_non_exhaustive()
@@ -265,19 +230,19 @@ impl fmt::Debug for ShaderVideoSource {
 }
 
 /// Validates the CPU-checkable parts of a configuration.
-fn validate_config(config: &ShaderVideoSourceConfig) -> Result<(), ShaderVideoSourceError> {
+fn validate_config(config: &PatternVideoSourceConfig) -> Result<(), PatternVideoSourceError> {
     let VideoResolution { width, height } = config.resolution;
     if width == 0 || height == 0 {
-        return Err(ShaderVideoSourceError::ZeroResolution);
+        return Err(PatternVideoSourceError::ZeroResolution);
     }
     if config.framerate_fps == 0 {
-        return Err(ShaderVideoSourceError::ZeroFramerate);
+        return Err(PatternVideoSourceError::ZeroFramerate);
     }
     Ok(())
 }
 
 /// Owns the wgpu state and renders one frame at a time.
-struct ShaderRenderer {
+struct PatternRenderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
@@ -295,14 +260,13 @@ struct ShaderRenderer {
     device_error: Arc<Mutex<Option<String>>>,
 }
 
-impl ShaderRenderer {
-    fn new(config: &ShaderVideoSourceConfig) -> Result<Self, ShaderVideoSourceError> {
+impl PatternRenderer {
+    fn new(config: &PatternVideoSourceConfig) -> Result<Self, PatternVideoSourceError> {
         let VideoResolution { width, height } = config.resolution;
-        // Read and assemble the shader first, so a missing file fails
-        // before any GPU setup.
-        let module_code = config.shader.module_code()?;
-        let padded_bytes_per_row = padded_bytes_per_row(width)
-            .ok_or_else(|| ShaderVideoSourceError::Backend("resolution is too large".to_owned()))?;
+        let module_code = config.pattern.module_code();
+        let padded_bytes_per_row = padded_bytes_per_row(width).ok_or_else(|| {
+            PatternVideoSourceError::Backend("resolution is too large".to_owned())
+        })?;
 
         // Rendering is offscreen, so no display handle is needed. WGPU_*
         // environment variables can override the backend and adapter
@@ -313,27 +277,27 @@ impl ShaderRenderer {
             power_preference: wgpu::PowerPreference::from_env().unwrap_or_default(),
             ..Default::default()
         }))
-        .map_err(|err| ShaderVideoSourceError::NoAdapter(err.to_string()))?;
+        .map_err(|err| PatternVideoSourceError::NoAdapter(err.to_string()))?;
 
         let info = adapter.get_info();
-        log::info!("Rendering shader source on \"{}\" ({})", info.name, info.backend);
+        log::info!("Rendering pattern source on \"{}\" ({})", info.name, info.backend);
 
         // Clamp the default limits to what the adapter supports, so weaker
         // adapters (GL, software rasterizers) still open. A resolution
         // beyond the clamped limits fails texture creation below.
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("lk_shader_device"),
+            label: Some("lk_pattern_device"),
             required_limits: wgpu::Limits::default().or_worse_values_from(&adapter.limits()),
             ..Default::default()
         }))
-        .map_err(|err| ShaderVideoSourceError::Device(err.to_string()))?;
+        .map_err(|err| PatternVideoSourceError::Device(err.to_string()))?;
 
         // Runtime GPU errors have no return channel of their own: stash
         // the first one and report it from the next render_frame call.
         let device_error: Arc<Mutex<Option<String>>> = Arc::default();
         let sink = Arc::clone(&device_error);
         device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
-            log::error!("shader source GPU error: {error}");
+            log::error!("pattern source GPU error: {error}");
             let mut slot = sink.lock().unwrap();
             if slot.is_none() {
                 *slot = Some(error.to_string());
@@ -344,12 +308,12 @@ impl ShaderRenderer {
         // so a bad shader fails construction with its compile message.
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("lk_shader_module"),
+            label: Some("lk_pattern_module"),
             source: wgpu::ShaderSource::Wgsl(module_code.into()),
         });
         let bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("lk_shader_bind_group_layout"),
+                label: Some("lk_pattern_bind_group_layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -362,12 +326,12 @@ impl ShaderRenderer {
                 }],
             });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("lk_shader_pipeline_layout"),
+            label: Some("lk_pattern_pipeline_layout"),
             bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("lk_shader_pipeline"),
+            label: Some("lk_pattern_pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &module,
@@ -392,14 +356,14 @@ impl ShaderRenderer {
             cache: None,
         });
         if let Some(error) = pollster::block_on(scope.pop()) {
-            return Err(ShaderVideoSourceError::ShaderCompile(error.to_string()));
+            return Err(PatternVideoSourceError::ShaderCompile(error.to_string()));
         }
 
         // Build the target and readback resources under their own scope,
         // so an unsupported resolution also fails construction.
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let target = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("lk_shader_target"),
+            label: Some("lk_pattern_target"),
             size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
@@ -410,13 +374,13 @@ impl ShaderRenderer {
         });
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("lk_shader_uniforms"),
+            label: Some("lk_pattern_uniforms"),
             size: UNIFORM_BUFFER_SIZE,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("lk_shader_bind_group"),
+            label: Some("lk_pattern_bind_group"),
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
@@ -424,13 +388,13 @@ impl ShaderRenderer {
             }],
         });
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("lk_shader_staging"),
+            label: Some("lk_pattern_staging"),
             size: u64::from(padded_bytes_per_row) * u64::from(height),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
         if let Some(error) = pollster::block_on(scope.pop()) {
-            return Err(ShaderVideoSourceError::Backend(error.to_string()));
+            return Err(PatternVideoSourceError::Backend(error.to_string()));
         }
 
         Ok(Self {
@@ -455,7 +419,7 @@ impl ShaderRenderer {
         time_s: f32,
         frame_index: u32,
         stop: &PumpStop,
-    ) -> Result<Option<I420Buffer>, ShaderVideoSourceError> {
+    ) -> Result<Option<I420Buffer>, PatternVideoSourceError> {
         self.check_device_error()?;
 
         let VideoResolution { width, height } = self.resolution;
@@ -467,10 +431,10 @@ impl ShaderRenderer {
 
         let mut encoder = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("lk_shader") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("lk_pattern") });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("lk_shader_pass"),
+                label: Some("lk_pattern_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.target_view,
                     depth_slice: None,
@@ -532,7 +496,7 @@ impl ShaderRenderer {
         submission: wgpu::SubmissionIndex,
         mapped: &mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
         stop: &PumpStop,
-    ) -> Result<bool, ShaderVideoSourceError> {
+    ) -> Result<bool, PatternVideoSourceError> {
         let deadline = Instant::now() + READBACK_TIMEOUT;
         loop {
             let poll = self.device.poll(wgpu::PollType::Wait {
@@ -541,14 +505,14 @@ impl ShaderRenderer {
             });
             match poll {
                 Ok(_) | Err(wgpu::PollError::Timeout) => {}
-                Err(err) => return Err(ShaderVideoSourceError::Readback(err.to_string())),
+                Err(err) => return Err(PatternVideoSourceError::Readback(err.to_string())),
             }
             match mapped.try_recv() {
                 Ok(Ok(())) => return Ok(true),
-                Ok(Err(err)) => return Err(ShaderVideoSourceError::Readback(err.to_string())),
+                Ok(Err(err)) => return Err(PatternVideoSourceError::Readback(err.to_string())),
                 Err(mpsc::TryRecvError::Empty) => {}
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    return Err(ShaderVideoSourceError::Readback(
+                    return Err(PatternVideoSourceError::Readback(
                         "map callback was dropped".to_owned(),
                     ));
                 }
@@ -558,7 +522,7 @@ impl ShaderRenderer {
                 return Ok(false);
             }
             if Instant::now() >= deadline {
-                return Err(ShaderVideoSourceError::Readback(
+                return Err(PatternVideoSourceError::Readback(
                     "timed out waiting for the GPU".to_owned(),
                 ));
             }
@@ -566,9 +530,9 @@ impl ShaderRenderer {
     }
 
     /// Reports the first stashed GPU error, if there is one.
-    fn check_device_error(&self) -> Result<(), ShaderVideoSourceError> {
+    fn check_device_error(&self) -> Result<(), PatternVideoSourceError> {
         match &*self.device_error.lock().unwrap() {
-            Some(message) => Err(ShaderVideoSourceError::Backend(message.clone())),
+            Some(message) => Err(PatternVideoSourceError::Backend(message.clone())),
             None => Ok(()),
         }
     }
@@ -611,16 +575,16 @@ fn convert_to_i420(
     source_stride: u32,
     width: u32,
     height: u32,
-) -> Result<I420Buffer, ShaderVideoSourceError> {
+) -> Result<I420Buffer, PatternVideoSourceError> {
     if source.len() < source_stride as usize * height as usize {
-        return Err(ShaderVideoSourceError::Convert("mapped frame is too short"));
+        return Err(PatternVideoSourceError::Convert("mapped frame is too short"));
     }
     let source_stride = i32::try_from(source_stride)
-        .map_err(|_| ShaderVideoSourceError::Convert("stride exceeds supported range"))?;
+        .map_err(|_| PatternVideoSourceError::Convert("stride exceeds supported range"))?;
     let width_i32 = i32::try_from(width)
-        .map_err(|_| ShaderVideoSourceError::Convert("width exceeds supported range"))?;
+        .map_err(|_| PatternVideoSourceError::Convert("width exceeds supported range"))?;
     let height_i32 = i32::try_from(height)
-        .map_err(|_| ShaderVideoSourceError::Convert("height exceeds supported range"))?;
+        .map_err(|_| PatternVideoSourceError::Convert("height exceeds supported range"))?;
 
     let mut buffer = I420Buffer::new(width, height);
     let (stride_y, stride_u, stride_v) = buffer.strides();
@@ -643,7 +607,7 @@ fn convert_to_i420(
         )
     };
     if ret != 0 {
-        return Err(ShaderVideoSourceError::Convert("ARGBToI420 failed"));
+        return Err(PatternVideoSourceError::Convert("ARGBToI420 failed"));
     }
     Ok(buffer)
 }
@@ -654,56 +618,34 @@ mod tests {
 
     const RESOLUTION: VideoResolution = VideoResolution { width: 64, height: 36 };
 
-    fn red_config() -> ShaderVideoSourceConfig {
-        ShaderVideoSourceConfig {
+    fn gradient_config() -> PatternVideoSourceConfig {
+        PatternVideoSourceConfig {
             resolution: RESOLUTION,
-            framerate_fps: 200,
-            shader: WgslShader::Fragment(
-                "fn shade(uv: vec2<f32>) -> vec4<f32> { return vec4<f32>(1.0, 0.0, 0.0, 1.0); }"
-                    .to_owned(),
-            ),
+            framerate_fps: 1000,
+            pattern: Pattern::Gradient,
         }
     }
 
     #[test]
     fn validation_rejects_zero_resolution_and_framerate() {
-        let mut config = red_config();
+        let mut config = gradient_config();
         config.resolution = VideoResolution::new(0, 36);
         assert!(matches!(
             validate_config(&config),
-            Err(ShaderVideoSourceError::ZeroResolution)
+            Err(PatternVideoSourceError::ZeroResolution)
         ));
 
-        let mut config = red_config();
+        let mut config = gradient_config();
         config.framerate_fps = 0;
-        assert!(matches!(validate_config(&config), Err(ShaderVideoSourceError::ZeroFramerate)));
+        assert!(matches!(validate_config(&config), Err(PatternVideoSourceError::ZeroFramerate)));
     }
 
     #[test]
-    fn fragment_snippets_are_appended_to_the_prelude() {
-        let shader = WgslShader::Fragment("fn shade(...) {}".to_owned());
-        let code = shader.module_code().unwrap();
+    fn gradient_module_includes_the_prelude() {
+        let code = Pattern::Gradient.module_code();
         assert!(code.contains("fn vs_main"));
         assert!(code.contains("fn fs_main"));
-        assert!(code.ends_with("fn shade(...) {}"));
-    }
-
-    #[test]
-    fn fragment_files_are_read_from_disk() {
-        let path = std::env::temp_dir().join(format!("lk_shader_test_{}.wgsl", std::process::id()));
-        std::fs::write(&path, "fn shade(...) {}").unwrap();
-        let code = WgslShader::FragmentFile(path.clone()).module_code();
-        std::fs::remove_file(&path).ok();
-        assert!(code.unwrap().ends_with("fn shade(...) {}"));
-    }
-
-    #[test]
-    fn missing_fragment_files_fail() {
-        let shader = WgslShader::FragmentFile(PathBuf::from("lk_shader_test_missing.wgsl"));
-        assert!(matches!(
-            shader.module_code(),
-            Err(ShaderVideoSourceError::ShaderFile { .. })
-        ));
+        assert!(code.contains("fn shade"));
     }
 
     #[test]
@@ -715,36 +657,28 @@ mod tests {
     }
 
     #[test]
-    fn renders_solid_color_frames_at_the_frame_rate() {
+    fn gradient_renders_frames_at_the_frame_rate() {
         if !gpu_available() {
             eprintln!("skipping: no GPU adapter available");
             return;
         }
-        let mut source = ShaderVideoSource::new_blocking(red_config()).unwrap();
+        let mut source = PatternVideoSource::new_blocking(gradient_config()).unwrap();
 
         let stop = PumpStop::new();
         let first = source.next_frame(&stop).unwrap().unwrap();
         let second = source.next_frame(&stop).unwrap().unwrap();
         assert_eq!((first.buffer.width(), first.buffer.height()), (64, 36));
         assert_eq!(first.timestamp_us, 0);
-        assert_eq!(second.timestamp_us, 5_000);
+        assert_eq!(second.timestamp_us, 1_000);
 
-        // Red in limited-range BT.601, as converted by libyuv.
-        let i420 = first.buffer.as_i420().expect("shader source yields I420 buffers");
+        // The gradient's top-left pixel at time zero is red-dominant:
+        // RGB (255, 68, 47), which is about (121, 91, 211) in
+        // limited-range BT.601. A red/blue channel swap in the readback
+        // path flips the two chroma values, so this check catches it.
+        let i420 = first.buffer.as_i420().expect("pattern source yields I420 buffers");
         let (y, u, v) = i420.data();
-        assert!(y[0].abs_diff(82) <= 2, "unexpected luma {}", y[0]);
-        assert!(u[0].abs_diff(90) <= 2, "unexpected chroma-u {}", u[0]);
-        assert!(v[0].abs_diff(240) <= 2, "unexpected chroma-v {}", v[0]);
-    }
-
-    #[test]
-    fn invalid_shaders_fail_construction() {
-        if !gpu_available() {
-            eprintln!("skipping: no GPU adapter available");
-            return;
-        }
-        let mut config = red_config();
-        config.shader = WgslShader::Fragment("this is not wgsl".to_owned());
-        assert!(ShaderVideoSource::new_blocking(config).is_err());
+        assert!(y[0].abs_diff(121) <= 5, "unexpected luma {}", y[0]);
+        assert!(u[0].abs_diff(91) <= 6, "unexpected chroma-u {}", u[0]);
+        assert!(v[0].abs_diff(211) <= 6, "unexpected chroma-v {}", v[0]);
     }
 }
