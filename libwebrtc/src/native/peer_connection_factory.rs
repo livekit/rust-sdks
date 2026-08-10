@@ -38,20 +38,9 @@ lazy_static! {
 fn ensure_log_sink() {
     let mut log_sink = LOG_SINK.lock();
     if log_sink.is_none() {
-        *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, severity| {
+        *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
             let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
-            // The sink is registered at LS_VERBOSE, so map the severity through
-            // instead of flattening everything to DEBUG: otherwise `RUST_LOG`
-            // can only choose between all of libwebrtc's output and none of it.
-            let level = match severity {
-                sys_rtc::ffi::LoggingSeverity::Verbose => log::Level::Trace,
-                sys_rtc::ffi::LoggingSeverity::Info => log::Level::Debug,
-                sys_rtc::ffi::LoggingSeverity::Warning => log::Level::Warn,
-                sys_rtc::ffi::LoggingSeverity::Error => log::Level::Error,
-                // LS_NONE never reaches a sink; nothing sensible to map it to.
-                _ => log::Level::Trace,
-            };
-            log::log!(target: "libwebrtc", level, "{}", msg);
+            log::debug!(target: "libwebrtc", "{}", msg);
         }));
     }
 }
