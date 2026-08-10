@@ -31,6 +31,11 @@ jobs:
           cache: false
           rustflags: ""
 
+      # The release PR check (release-pr-check.yml) is the primary gate. This
+      # step also covers a workflow_dispatch run, which has no release PR.
+      - name: Check crates exist on crates.io
+        run: .github/scripts/check_crates_published.sh
+
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@30b5ca8b54e1dcffd9548bc87ede1531310fdc67 # v1.20.0
 
