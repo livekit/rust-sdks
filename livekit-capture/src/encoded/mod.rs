@@ -196,4 +196,3 @@ impl<S: EncodedVideoSource + ?Sized> EncodedVideoSource for Box<S> {
 const _: () = {
     fn _assert_object_safe(_: &dyn EncodedVideoSource) {}
 };
-

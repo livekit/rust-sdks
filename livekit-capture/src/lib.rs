@@ -25,4 +25,7 @@ pub mod pixel;
 pub mod primitive;
 pub mod pump;
 pub mod sources;
+
+#[cfg(any(feature = "source-clock", feature = "source-pattern"))]
+mod renderer;
 mod utils;

@@ -17,6 +17,7 @@ use livekit_capture::{
     encoded::EncodedVideoCodec,
     primitive::VideoResolution,
     sources::{
+        clock::ClockVideoSourceConfig,
         device::{
             DeviceFormat, DeviceFormatRequest, DeviceFrameFormat, DeviceInfo, DeviceSelector,
             DeviceVideoSourceConfig,
@@ -29,6 +30,12 @@ use livekit_capture::{
 impl From<proto::VideoSourceResolution> for VideoResolution {
     fn from(resolution: proto::VideoSourceResolution) -> Self {
         Self::new(resolution.width, resolution.height)
+    }
+}
+
+impl From<proto::ClockVideoSourceConfig> for ClockVideoSourceConfig {
+    fn from(config: proto::ClockVideoSourceConfig) -> Self {
+        Self { resolution: config.resolution.into(), framerate_fps: config.framerate_fps }
     }
 }
 

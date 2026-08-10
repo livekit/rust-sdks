@@ -143,7 +143,10 @@ impl AnnexBAccessUnitParser {
         self.drain_next(true)
     }
 
-    fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
+    fn drain_next(
+        &mut self,
+        at_eof: bool,
+    ) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.scan_pending();
 
         if let Some(split_at) =
@@ -267,7 +270,10 @@ impl AvcAccessUnitParser {
         self.drain_next(true)
     }
 
-    fn drain_next(&mut self, at_eof: bool) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
+    fn drain_next(
+        &mut self,
+        at_eof: bool,
+    ) -> Result<Option<OwnedEncodedAccessUnit>, H26xParseError> {
         self.scan_pending(at_eof)?;
 
         if let Some(split_at) = avc_access_unit_split_index(

@@ -24,6 +24,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 # GStreamer.
 capture = [
     "dep:livekit-capture",
+    "livekit-capture/source-clock",
     "livekit-capture/source-device",
     "livekit-capture/source-gstreamer",
     "livekit-capture/source-pattern",

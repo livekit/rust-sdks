@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 bytes = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
 livekit = { workspace = true }
@@ -34,6 +35,7 @@ schemars = ["dep:schemars", "serde"]
 tokio = ["tokio/rt"]
 
 # Pixel sources
+source-clock = ["dep:chrono", "dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 source-device = [
     "dep:yuv-sys",
     # macOS backend

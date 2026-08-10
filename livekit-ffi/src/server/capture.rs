@@ -24,6 +24,7 @@ use livekit_capture::{
     pixel::{PixelVideoPump, PixelVideoSource},
     pump::{PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
     sources::{
+        clock::ClockVideoSource,
         device::{self, DeviceVideoSource},
         gstreamer::GStreamerVideoSource,
         pattern::PatternVideoSource,
@@ -133,6 +134,13 @@ async fn create_capture_source(
             let source: Box<dyn PixelVideoSource> = Box::new(source);
             CapturePump::Pixel(PixelVideoPump::new(source))
         }
+        proto::new_capture_source_request::Config::Clock(config) => {
+            let source = ClockVideoSource::new(config.into())
+                .await
+                .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source: Box<dyn PixelVideoSource> = Box::new(source);
+            CapturePump::Pixel(PixelVideoPump::new(source))
+        }
     };
 
     let (kind, resolution, codec, publish_options, rtc_source, stop) = match &pump {
@@ -189,10 +197,7 @@ async fn create_capture_source(
         },
     );
 
-    Ok(proto::OwnedCaptureSource {
-        handle: proto::FfiOwnedHandle { id: capture_handle_id },
-        info,
-    })
+    Ok(proto::OwnedCaptureSource { handle: proto::FfiOwnedHandle { id: capture_handle_id }, info })
 }
 
 /// Maps the pump-derived publish options into the proto options the client
@@ -354,11 +359,8 @@ mod tests {
 
         // Stopping before starting is allowed; the pump then exits
         // immediately once started, and the watcher marks it finished.
-        let response = on_stop_capture(
-            server(),
-            proto::StopCaptureRequest { capture_handle },
-        )
-        .unwrap();
+        let response =
+            on_stop_capture(server(), proto::StopCaptureRequest { capture_handle }).unwrap();
         assert_eq!(response.error, None);
 
         let response =
