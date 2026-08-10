@@ -138,3 +138,73 @@ fn outgoing_all_v2_text_inlines_compressed() {
         assert_ne!(inline.as_slice(), b"hello hello compressible world", "should be compressed");
     });
 }
+
+/// A room where every recipient predates v2.
+struct PreV2Registry;
+
+impl RemoteParticipantRegistryDelegate for PreV2Registry {
+    fn remote_client_protocol(&self, _identity: String) -> i32 {
+        livekit_common::CLIENT_PROTOCOL_DEFAULT
+    }
+
+    fn remote_capabilities(&self, _identity: String) -> Vec<ClientCapability> {
+        vec![]
+    }
+
+    fn remote_identities(&self) -> Vec<String> {
+        vec!["bob".to_string()]
+    }
+}
+
+/// Drives both managers through the pull adapters in [`super::polled`] — the path thread-affine
+/// bindings take — and checks a payload survives the round trip.
+async fn polled_roundtrip(
+    registry: Arc<dyn RemoteParticipantRegistryDelegate>,
+    text: &str,
+) -> (usize, String) {
+    let outgoing = super::polled::polled_outgoing_data_stream_manager(registry);
+    let incoming = super::polled::polled_incoming_data_stream_manager(None);
+
+    let options = StreamTextOptions {
+        topic: "chat".to_string(),
+        destination_identities: vec!["bob".to_string()],
+        ..Default::default()
+    };
+    outgoing.manager.send_text(text.to_string(), options).await.expect("send_text should succeed");
+
+    // send_text only resolves once every packet has been queued, so draining terminates rather
+    // than blocking.
+    let mut packet_count = 0;
+    while let Ok(Some(packets)) =
+        tokio::time::timeout(std::time::Duration::from_millis(200), outgoing.packets.next_packets())
+            .await
+    {
+        for packet in packets {
+            packet_count += 1;
+            incoming.manager.handle_packet_received(packet);
+        }
+    }
+
+    let opened = incoming.streams.next_opened_stream().await.expect("a stream should open");
+    let reader = opened.text_reader.expect("expected a text stream");
+    (packet_count, reader.read_all().await.unwrap())
+}
+
+#[test]
+fn polled_inlines_for_v2_recipients() {
+    crate::runtime::runtime().block_on(async {
+        let (packets, text) =
+            polled_roundtrip(Arc::new(AllV2Registry), "hello hello compressible world").await;
+        assert_eq!(packets, 1, "a v2 recipient should get a single inline packet");
+        assert_eq!(text, "hello hello compressible world");
+    });
+}
+
+#[test]
+fn polled_falls_back_to_legacy_framing_for_pre_v2_recipients() {
+    crate::runtime::runtime().block_on(async {
+        let (packets, text) = polled_roundtrip(Arc::new(PreV2Registry), "hello world").await;
+        assert_eq!(packets, 3, "a pre-v2 recipient should get header + chunk + trailer");
+        assert_eq!(text, "hello world");
+    });
+}

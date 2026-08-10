@@ -21,10 +21,14 @@
 //! - [`outgoing::OutgoingDataStreamManager`] wraps the outgoing manager as an object with async
 //!   `send_*`/`stream_*` methods. Outbound packets are handed to a foreign delegate, and remote
 //!   participant protocol/capabilities are read through a foreign registry callback.
+//!
+//! [`polled`] adapts both managers for bindings that cannot accept a delegate call from an
+//! arbitrary thread — see its module docs.
 
 pub mod common;
 pub mod incoming;
 pub mod outgoing;
+pub mod polled;
 
 #[cfg(test)]
 mod tests;
