@@ -149,6 +149,32 @@ gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 # build static library
 ninja -C "$OUTPUT_DIR" :default
 
+# Build the hermetic libc++/libc++abi for the *target* explicitly.
+#
+# :default does not: nothing here links a target binary (no tests, tools or
+# examples, and libwebrtc is a static library), so the libc++ headers get used
+# but its own translation units are never compiled. On x64 that went unnoticed
+# because use_custom_libcxx_for_host builds libc++ for the host toolchain, which
+# in a native build shares $OUTPUT_DIR/obj with the target — so the host copy
+# landed in the archive below by accident. Cross-compiling arm64 puts the host
+# copy under $OUTPUT_DIR/clang_x64/obj instead, and the arm64 artifact shipped
+# with every out-of-line std::__Cr symbol undefined (std::__Cr::locale,
+# __libcpp_verbose_abort, __cxa_throw, ...). Nothing in this build notices; it
+# only surfaces when a downstream crate links webrtc-sys.
+#
+# Ask ninja for the archive paths rather than hardcoding a GN label, so this
+# fails loudly instead of silently no-opping if libc++ ever moves. Host copies
+# live under a toolchain subdir, so anchoring at obj/ keeps them out.
+libcxx_archives=$(ninja -C "$OUTPUT_DIR" -t targets all \
+  | grep -oE '^obj/[^:]*/libc\+\+(abi)?\.a' | sort -u)
+if [ -z "$libcxx_archives" ]; then
+  echo "Error: no hermetic libc++ static library in the ninja graph for $OUTPUT_DIR." >&2
+  echo "       use_custom_libcxx=true is an ABI contract with webrtc-sys; aborting." >&2
+  exit 1
+fi
+echo "Building hermetic libc++: $libcxx_archives"
+ninja -C "$OUTPUT_DIR" $libcxx_archives
+
 # make libwebrtc.a
 # don't include nasm
 # Start from scratch: `ar -rc` only replaces members it is given, so members left
@@ -156,6 +182,26 @@ ninja -C "$OUTPUT_DIR" :default
 rm -f "$ARTIFACTS_DIR/lib/libwebrtc.a"
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+
+# The archive is the whole standard library for webrtc-sys (build.rs passes
+# cpp_link_stdlib(None), since mixing in the host libstdc++ would be a second,
+# incompatible stdlib). Check the out-of-line half is really in there instead of
+# publishing an artifact that only fails at the downstream link step. One nm pass
+# over an 80MB archive is enough for both markers: libc++ and libc++abi land in
+# obj/ together or not at all.
+libcxx_markers=$(src/third_party/llvm-build/Release+Asserts/bin/llvm-nm --defined-only \
+  "$ARTIFACTS_DIR/lib/libwebrtc.a" 2>/dev/null \
+  | grep -oE '__libcpp_verbose_abort|__cxa_throw' | sort -u | tr '\n' ' ')
+for sym in __libcpp_verbose_abort __cxa_throw; do
+  case " $libcxx_markers " in
+    *" $sym "*) ;;
+    *)
+      echo "Error: $ARTIFACTS_DIR/lib/libwebrtc.a defines no $sym." >&2
+      echo "       The hermetic libc++/libc++abi objects are missing from the archive." >&2
+      exit 1
+      ;;
+  esac
+done
 
 # License generation is optional - may fail with some Python versions
 # Use vpython3 from depot_tools for consistent Python version
