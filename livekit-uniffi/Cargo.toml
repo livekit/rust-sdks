@@ -31,7 +31,13 @@ thiserror = { workspace = true }
 # Dart binding generator. Not published to crates.io, so pinned by git rev. The
 # rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
 # above, or it cannot read this crate's compiled metadata.
-uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "90f2c6f29cbf88c8bc2cf515e6a0c2314a48844c", optional = true }
+#
+# Temporarily a fork: upstream cannot generate compiling bindings for this crate
+# -- custom types leak into FFI signatures, object converter statics collide
+# with Rust methods named `write`, and each crate re-declares the runtime
+# scaffolding, so livekit-datatrack's types will not cross into livekit-uniffi.
+# Point back at Uniffi-Dart/uniffi-dart once those fixes are upstreamed.
+uniffi-dart = { git = "https://github.com/1egoman/uniffi-dart", rev = "4633a7d3c93186ac6a96007b5f109268b4746190", optional = true }
 camino = { version = "1", optional = true }
 
 [features]
