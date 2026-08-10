@@ -303,6 +303,7 @@ impl From<proto::RoomOptions> for RoomOptions {
             value.single_peer_connection.unwrap_or(options.single_peer_connection);
         options.connect_timeout =
             value.connect_timeout_ms.map(Duration::from_millis).unwrap_or(options.connect_timeout);
+        options.sdk_options.other_sdks = value.other_sdks;
         if let Some(data_stream) = value.data_stream {
             let mut data_stream_options = RoomDataStreamOptions::default();
             if let Some(max_payload_byte_length) = data_stream.max_payload_byte_length {
@@ -386,7 +387,10 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 
 #[cfg(test)]
 mod tests {
-    use livekit::options::{TrackPublishOptions, VideoEncoderBackend};
+    use livekit::{
+        options::{TrackPublishOptions, VideoEncoderBackend},
+        prelude::RoomOptions,
+    };
 
     use super::{frame_metadata_features_from_proto, video_encoder_from_proto};
     use crate::proto;
@@ -408,6 +412,23 @@ mod tests {
 
         assert!(features.user_timestamp);
         assert!(features.frame_id);
+    }
+
+    #[test]
+    fn other_sdks_round_trips_from_room_options() {
+        let options = RoomOptions::from(proto::RoomOptions {
+            other_sdks: Some("ros_portal:1.2.3".to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(options.sdk_options.other_sdks.as_deref(), Some("ros_portal:1.2.3"));
+    }
+
+    #[test]
+    fn other_sdks_defaults_to_none() {
+        let options = RoomOptions::from(proto::RoomOptions::default());
+
+        assert!(options.sdk_options.other_sdks.is_none());
     }
 
     #[test]

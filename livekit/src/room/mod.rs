@@ -383,11 +383,15 @@ pub struct RpcAck {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
+    /// Comma separated list of additional LiveKit SDKs layered on top of this one, with
+    /// versions, e.g. `"components-js:1.2.3,track-processors-js:1.2.3"`. Reported to the
+    /// server as `ClientInfo.other_sdks`. `None` when there are none.
+    pub other_sdks: Option<String>,
 }
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
+        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string(), other_sdks: None }
     }
 }
 
@@ -396,6 +400,7 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
         let mut sdk_options = SignalSdkOptions::default();
         sdk_options.sdk = options.sdk;
         sdk_options.sdk_version = Some(options.sdk_version);
+        sdk_options.other_sdks = options.other_sdks;
         sdk_options
     }
 }
