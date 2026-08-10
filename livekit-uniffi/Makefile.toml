@@ -20,11 +20,19 @@ TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
 NPM_NAME = "@livekit/uniffi"
 DART_PACKAGE_NAME = "livekit_uniffi"
+# Rendered into pubspec.yaml by dart-generate-manifest. Fail closed: every
+# profile gets `publish_to: none` (dev packages embed a host dylib and must
+# never reach pub.dev), and only an explicit release build clears it so
+# `dart pub publish` accepts the package.
+PUBSPEC_PUBLISH_TO = "none"
 
 # Per-release directory holding the cdylib archives published by
 # .github/workflows/uniffi-cdylib.yml. Downloaders append
 # `/v<version>/build-<triple>.zip` (and a `.sha256` sidecar).
 CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/rust-sdks/releases/download/livekit-uniffi"
+
+[env.release]
+PUBSPEC_PUBLISH_TO = ""
 
 [config]
 skip_core_tasks = true
@@ -697,14 +705,33 @@ exec cargo run --features dart-bindgen --bin uniffi-bindgen-dart -- \
 """
 
 # Assemble a consumable Dart package around the generated bindings: idiomatic
-# lib/ layout, a pubspec, the Native Assets build hook, and (dev) the locally
-# built dynamic library so a consumer can load it without a download step.
+# lib/ layout, a pubspec, the Native Assets build hook, package metadata, and
+# (dev only) the locally built dynamic library so a consumer can load it
+# without a download step. Release builds omit the dylib, so consumers use the
+# hook's download mode against the release assets.
 #
 #   packages/dart/
 #     pubspec.yaml          (from support/dart/pubspec.yaml.tera)
 #     lib/livekit_uniffi.dart
 #     hook/build.dart       (from support/dart/hook/build.dart)
-#     liblivekit_uniffi.<ext>  (dev: copied local build)
+#     LICENSE, README.md, CHANGELOG.md
+#     liblivekit_uniffi.<ext>  (dev only: copied local build)
+#
+# Publishing note: pub builds its archive from git's file listing and this
+# whole tree is gitignored, so `dart pub publish` must run from a copy of
+# packages/dart placed outside the repository (uniffi-dart-publish.yml does
+# this; do the same for a manual publish).
+
+# Start from a clean slate: leftovers from a previous build with a different
+# profile would otherwise survive into this one. The dev-profile dylib is the
+# dangerous case, a release package must never carry it (the build hook
+# prefers a package-root library over download, on every platform).
+[tasks.dart-clean]
+private = true
+script_runner = "@shell"
+script = """
+rm -rf ${PACKAGES_DIR}/${LANG}
+"""
 
 [tasks.dart-move-code-into-lib]
 private = true
@@ -733,12 +760,29 @@ extend = "tera"
 args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/hook/build.dart.tera", "-o", "${PACKAGES_DIR}/${LANG}/hook/build.dart"]
 
 # Dev delivery: copy the locally built dylib into the package root, where the
-# build hook resolves it. A release flow would replace this with a download.
+# build hook resolves it. Development profile only. A published package must
+# not contain the host dylib, its consumers get the right library per target
+# from the hook's download mode instead.
 [tasks.dart-copy-lib]
 private = true
+condition = { profiles = ["development"] }
 script_runner = "@shell"
 script = """
 cp ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/
+"""
+
+# Package metadata: pub.dev requires a LICENSE and scores README/CHANGELOG.
+# The LICENSE comes from the repo root (same source as the Swift package),
+# the changelog from the crate, and the README and analysis options from
+# support/dart.
+[tasks.dart-copy-meta]
+private = true
+script_runner = "@shell"
+script = """
+cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${PACKAGES_DIR}/${LANG}/
+cp ${SUPPORT_DIR}/${LANG}/README.md ${PACKAGES_DIR}/${LANG}/
+cp ${SUPPORT_DIR}/${LANG}/analysis_options.yaml ${PACKAGES_DIR}/${LANG}/
+cp CHANGELOG.md ${PACKAGES_DIR}/${LANG}/
 """
 
 [tasks.dart-copy-tests]
@@ -752,11 +796,13 @@ cp ${SUPPORT_DIR}/${LANG}/test/*.dart ${PACKAGES_DIR}/${LANG}/test/
 [tasks.dart-package-flow]
 private = true
 dependencies = [
+    "dart-clean",
     "bindgen-dart",
     "dart-move-code-into-lib",
     "dart-generate-manifest",
     "dart-copy-hook",
     "dart-copy-lib",
+    "dart-copy-meta",
     "dart-copy-tests"
 ]
 
