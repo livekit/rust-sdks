@@ -1,4 +1,5 @@
 name: Install Common Deps for UniFFI Tasks
+description: Installs the tooling shared by the UniFFI packaging workflows (cargo-make)
 runs:
   using: composite
   steps:
