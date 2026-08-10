@@ -1,16 +1,18 @@
 name: UniFFI packages
 
 # Publishes the per-language livekit-uniffi wrapper packages (Swift xcframework →
-# livekit/livekit-uniffi-xcframework; Android AAR → Maven Central) when a
-# livekit-uniffi release is published.
+# livekit/livekit-uniffi-xcframework; Android AAR → Maven Central) and attaches
+# the Dart/Flutter cdylib archives to the release when a livekit-uniffi release
+# is published.
 #
 # knope publishes the `livekit-uniffi/v*` GitHub release (and its git tag)
 # directly on the release merge — no draft — so this reacts to the published
 # release event, which fires only for genuine livekit-uniffi releases (the gate
 # is free). workflow_dispatch allows a manual re-run with an explicit tag.
 #
-# The Dart/Flutter cdylib target is experimental and not published for now; add a
-# `cdylib` job (uniffi-cdylib.yml) back when it ships.
+# The Dart package itself is published from uniffi-dart-publish.yml (tag-push
+# triggered, as pub.dev requires); it waits for the cdylib assets this workflow
+# attaches, since the package's build hook downloads them at consumer build time.
 
 on:
   release:
@@ -64,3 +66,17 @@ jobs:
       tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
       dry_run: ${{ inputs.dry_run || false }}
     secrets: inherit
+
+  # Attaches build-<triple>.zip (+ .sha256) for every Dart/Flutter target to the
+  # release. The livekit_uniffi package's hook/build.dart downloads these at
+  # consumer build time, so a release consumed from pub.dev must carry them.
+  cdylib:
+    needs: resolve-tag
+    permissions:
+      # The upload step attaches assets to the release with the workflow token.
+      contents: write
+    uses: ./.github/workflows/uniffi-cdylib.yml
+    with:
+      version: ${{ needs.resolve-tag.outputs.version }}
+      tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
+      dry_run: ${{ inputs.dry_run || false }}
