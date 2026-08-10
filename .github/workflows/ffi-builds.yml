@@ -209,6 +209,7 @@ jobs:
           cd livekit-ffi
           cargo build --profile $env:CARGO_RUST_PROFILE --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
+      # Use Docker on linux, so we can use manylinux images (ensure maximum mcompatibility)
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
         run: |
