@@ -111,6 +111,13 @@ jobs:
         run: |
           sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
 
+      # Ubuntu 24 ships clang 18; webrtc-sys needs 21+ for libwebrtc's hermetic
+      # libc++. Sets CC/CXX for the steps below. Android targets are excluded:
+      # cargo-ndk supplies its own NDK clang.
+      - name: Install clang for webrtc-sys
+        if: ${{ contains(matrix.target, 'unknown-linux-gnu') }}
+        run: .github/scripts/install-clang.sh
+
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:

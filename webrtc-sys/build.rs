@@ -538,6 +538,8 @@ fn configure_hermetic_libcxx(builder: &mut cc::Build, webrtc_include: &path::Pat
         builder.compiler("clang++");
     }
 
+    check_clang_version(builder, &libcxx);
+
     builder
         .flag("-nostdinc++")
         .flag(format!("-isystem{}", libcxx.display()))
@@ -561,6 +563,66 @@ fn configure_hermetic_libcxx(builder: &mut cc::Build, webrtc_include: &path::Pat
         .and_then(path::Path::parent)
         .expect("unexpected DEP_CXXBRIDGE1_HEADER layout");
     builder.file(cxx_root.join("src/cxx.cc"));
+}
+
+/// The hermetic libc++ tracks LLVM trunk, so it freely uses builtins that only
+/// exist in a recent clang (`__builtin_popcountg`, `__is_nothrow_convertible`,
+/// `__GCC_DESTRUCTIVE_SIZE`, ...). A compiler below its floor does not fail with
+/// "your clang is too old" — it fails deep inside <limits> and <span> with
+/// hundreds of lines about `dynamic_extent` not being a constant expression, in
+/// headers the user never wrote. Catch it up front instead.
+fn check_clang_version(builder: &cc::Build, libcxx: &path::Path) {
+    let min = libcxx_min_clang_major(libcxx);
+
+    let compiler = builder.get_compiler();
+    let defines = compiler
+        .to_command()
+        .args(["-dM", "-E", "-x", "c++", "/dev/null"])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run {}: {e}", compiler.path().display()));
+
+    let major = String::from_utf8_lossy(&defines.stdout).lines().find_map(|line| {
+        line.strip_prefix("#define __clang_major__ ").and_then(|v| v.trim().parse::<u32>().ok())
+    });
+
+    match major {
+        Some(major) if major >= min => {}
+        Some(major) => panic!(
+            "{} is clang {major}, but the hermetic libc++ shipped with this libwebrtc \
+             requires clang {min} or later. Install a newer clang and point CC/CXX at it, \
+             or use the exact toolchain libwebrtc was built with (see CR_CLANG_REVISION in \
+             the artifact's webrtc.ninja).",
+            compiler.path().display(),
+        ),
+        None => panic!(
+            "{} does not define __clang_major__, so it is not a clang. libwebrtc.a is built \
+             against Chromium's hermetic libc++, which requires clang {min} or later; GCC \
+             additionally ignores its trivial_abi annotations, silently breaking the calling \
+             convention for std::unique_ptr and std::shared_ptr.",
+            compiler.path().display(),
+        ),
+    }
+}
+
+/// libc++ states its own floor in `__configuration/compiler.h`, as
+/// `#if _LIBCPP_CLANG_VER < 2101` (major * 100 + minor). Read it from the
+/// artifact rather than hardcoding, so a libwebrtc bump moves the floor with it.
+fn libcxx_min_clang_major(libcxx: &path::Path) -> u32 {
+    const FALLBACK: u32 = 21;
+
+    let header = libcxx.join("__configuration/compiler.h");
+    let Ok(source) = std::fs::read_to_string(&header) else {
+        return FALLBACK;
+    };
+
+    source
+        .lines()
+        .find_map(|line| {
+            let (_, rest) = line.split_once("_LIBCPP_CLANG_VER < ")?;
+            let ver: u32 = rest.trim().parse().ok()?;
+            Some(ver / 100)
+        })
+        .unwrap_or(FALLBACK)
 }
 
 fn add_gio_headers(builder: &mut cc::Build) {

@@ -210,6 +210,11 @@ jobs:
           cargo build --profile $env:CARGO_RUST_PROFILE --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       # Use Docker on linux, so we can use manylinux images (ensure maximum mcompatibility)
+      #
+      # Two clangs on purpose: the yum one stays for its libclang, which bindgen
+      # loads (yuv-sys), while CC/CXX point at a newer clang from install-clang.sh
+      # because webrtc-sys needs 21+ for libwebrtc's hermetic libc++ and
+      # AlmaLinux 8 tops out around 17.
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
         run: |
@@ -222,6 +227,9 @@ jobs:
             yum groupinstall 'Development Tools' -y; \
             clang --version; \
             yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel libgbm-devel libXdamage-devel libXrandr-devel libXfixes-devel libXcomposite-devel -y; \
+            export LLVM_ROOT=/opt/llvm; \
+            /workspace/.github/scripts/install-clang.sh; \
+            export CC=\$LLVM_ROOT/bin/clang CXX=\$LLVM_ROOT/bin/clang++; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --profile \"\$CARGO_RUST_PROFILE\" --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
