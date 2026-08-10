@@ -133,24 +133,6 @@ jobs:
               g++ --version
               clang --version
               clang++ --version
-
-              # The yum clang above stays for its libclang, which bindgen dlopens
-              # (yuv-sys); LIBCLANG_PATH below points it straight at that copy.
-              #
-              # webrtc-sys needs clang 21+ for the hermetic libc++ inside
-              # libwebrtc, which AlmaLinux 8 cannot provide. LLVM's own Linux
-              # release tarballs are built against glibc 2.34+ and refuse to run
-              # on manylinux_2_28's glibc 2.28, so instead of
-              # .github/scripts/install-clang.sh (which the ubuntu runners use)
-              # this uses the image's own manylinux-install-clang, which fetches a
-              # statically linked toolchain — glibc is irrelevant to it. -m picks
-              # the toolchain's architecture (x86_64 or aarch64 — both jobs run
-              # natively, so it is the container's) and -v is the static-clang
-              # release, i.e. LLVM 21.1.8 packaging revision 1. It unpacks into
-              # /opt/clang as root here; the hostuser build below only reads it.
-              manylinux-install-clang -m $(uname -m) -v 21.1.8.1
-              /opt/clang/bin/clang++ --version
-
               curl -fsSL https://rpm.nodesource.com/setup_20.x | bash -
               yum install -y nodejs --setopt=nodesource-nodejs.module_hotfixes=1
               npm install --global pnpm
@@ -164,9 +146,8 @@ jobs:
                 curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
                 export PATH=\$HOME/.cargo/bin:\$PATH
                 source /opt/rh/gcc-toolset-12/enable
-                export CC=/opt/clang/bin/clang
-                export CXX=/opt/clang/bin/clang++
-                export LIBCLANG_PATH=/usr/lib64
+                export CC=clang
+                export CXX=clang++
                 TOOLCHAIN_ROOT=/opt/rh/gcc-toolset-12/root/usr
                 export CFLAGS=\"--gcc-toolchain=\$TOOLCHAIN_ROOT\"
                 export CXXFLAGS=\"--gcc-toolchain=\$TOOLCHAIN_ROOT\"
