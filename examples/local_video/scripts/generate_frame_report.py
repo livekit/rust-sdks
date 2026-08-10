@@ -31,6 +31,19 @@ GRID = HexColor("#D9E2EC")
 PANEL = HexColor("#F0F4F8")
 RED = HexColor("#D64545")
 ORANGE = HexColor("#E88D14")
+PIPELINE_COLORS = (
+    HexColor("#F6C344"),
+    HexColor("#F29E4C"),
+    HexColor("#E76F51"),
+    HexColor("#C8553D"),
+    HexColor("#8E5BD9"),
+    HexColor("#4C78A8"),
+    HexColor("#3A86FF"),
+    HexColor("#2CB1BC"),
+    HexColor("#1B998B"),
+    HexColor("#4ECDC4"),
+    HexColor("#6C63FF"),
+)
 
 
 @dataclass(frozen=True)
@@ -83,6 +96,17 @@ def number(value: str | None) -> float | None:
 
 def values(rows: Iterable[dict[str, str]], column: str) -> list[float]:
     return [parsed for row in rows if (parsed := number(row.get(column))) is not None]
+
+
+def summed_values(
+    rows: Iterable[dict[str, str]], columns: Sequence[str]
+) -> list[float]:
+    samples = []
+    for row in rows:
+        components = [number(row.get(column)) for column in columns]
+        if all(component is not None for component in components):
+            samples.append(sum(component for component in components if component is not None))
+    return samples
 
 
 def first_available_column(
@@ -191,13 +215,6 @@ def subscriber_freeze_events(log: LogData) -> list[Event]:
     return events
 
 
-def last_value(log: LogData, column: str) -> float | None:
-    return next(
-        (parsed for row in reversed(log.rows) if (parsed := number(row.get(column))) is not None),
-        None,
-    )
-
-
 def paired_loss_events(publisher: LogData, subscriber: LogData) -> list[Event]:
     publisher_ids = {round(value) for value in values(publisher.rows, "frame_id")}
     subscriber_ids = {round(value) for value in values(subscriber.rows, "frame_id")}
@@ -215,12 +232,6 @@ def paired_loss_events(publisher: LogData, subscriber: LogData) -> list[Event]:
         if frame_id is not None and elapsed is not None and round(frame_id) in missing_ids:
             events.append(Event(elapsed, 1))
     return events
-
-
-def format_count(value: float | None) -> str:
-    return "NA" if value is None else f"{round(value):,}"
-
-
 def draw_header(pdf: canvas.Canvas, title: str, subtitle: str) -> None:
     width, height = landscape(letter)
     pdf.setFillColor(white)
@@ -327,22 +338,33 @@ def draw_time_series(
     pdf.rect(x, y, width, height, fill=0, stroke=1)
 
 
-def paired_transport_latencies(publisher: LogData, subscriber: LogData) -> list[float]:
-    packetize_by_frame_id = {}
+def paired_frame_rows(
+    publisher: LogData, subscriber: LogData
+) -> list[tuple[dict[str, str], dict[str, str]]]:
+    publisher_by_frame_id = {}
     for row in publisher.rows:
         frame_id = number(row.get("frame_id"))
-        packetize_timestamp_us = number(row.get("webrtc_packetize_timestamp_us"))
-        if frame_id is not None and packetize_timestamp_us is not None:
-            packetize_by_frame_id[round(frame_id)] = packetize_timestamp_us
+        if frame_id is not None:
+            publisher_by_frame_id[round(frame_id)] = row
 
-    latencies = []
+    pairs = []
     for row in subscriber.rows:
         frame_id = number(row.get("frame_id"))
-        receive_timestamp_us = number(row.get("webrtc_receive_timestamp_us"))
-        if frame_id is None or receive_timestamp_us is None:
+        if frame_id is None:
             continue
-        packetize_timestamp_us = packetize_by_frame_id.get(round(frame_id))
-        if packetize_timestamp_us is None:
+        publisher_row = publisher_by_frame_id.get(round(frame_id))
+        if publisher_row is None:
+            continue
+        pairs.append((publisher_row, row))
+    return pairs
+
+
+def paired_transport_latencies(publisher: LogData, subscriber: LogData) -> list[float]:
+    latencies = []
+    for publisher_row, subscriber_row in paired_frame_rows(publisher, subscriber):
+        packetize_timestamp_us = number(publisher_row.get("webrtc_packetize_timestamp_us"))
+        receive_timestamp_us = number(subscriber_row.get("webrtc_receive_timestamp_us"))
+        if packetize_timestamp_us is None or receive_timestamp_us is None:
             continue
         latency_us = receive_timestamp_us - packetize_timestamp_us
         if latency_us >= 0:
@@ -387,6 +409,85 @@ def latency_rows(logs: Sequence[LogData]) -> list[tuple[str, list[float]]]:
     return [(label, samples) for label, samples in metrics if samples]
 
 
+def pipeline_stage_means(logs: Sequence[LogData]) -> list[tuple[str, float, object]]:
+    publisher = next((log for log in logs if log.kind == "publisher"), None)
+    subscriber = next((log for log in logs if log.kind == "subscriber"), None)
+    publisher_rows = publisher.rows if publisher is not None else []
+    subscriber_rows = subscriber.rows if subscriber is not None else []
+
+    if publisher is not None and subscriber is not None:
+        pairs = paired_frame_rows(publisher, subscriber)
+        publisher_rows = [publisher_row for publisher_row, _ in pairs]
+        subscriber_rows = [subscriber_row for _, subscriber_row in pairs]
+
+    stage_samples = []
+    if publisher is not None:
+        stage_samples.extend(
+            (
+                ("[P] exposure to buffer", values(publisher_rows, "capture_to_buffer_ms"), 0),
+                (
+                    "[P] frame encode",
+                    summed_values(
+                        publisher_rows,
+                        ("buffer_to_encoder_ms", "encode_ms"),
+                    ),
+                    1,
+                ),
+                (
+                    "[P] encoder to packetize",
+                    values(publisher_rows, "encoder_to_packetize_ms"),
+                    3,
+                ),
+            )
+        )
+    if publisher is not None and subscriber is not None:
+        stage_samples.append(
+            ("[T] publish to receive", paired_transport_latencies(publisher, subscriber), 4)
+        )
+    if subscriber is not None:
+        if "e2e_to_gpu_complete_ms" in subscriber.rows[0]:
+            stage_samples.extend(
+                (
+                    ("[S] receive to decode", values(subscriber_rows, "receive_to_decode_ms"), 5),
+                    (
+                        "[S] decode to GPU render",
+                        summed_values(
+                            subscriber_rows,
+                            (
+                                "decode_to_sink_ms",
+                                "sink_to_select_ms",
+                                "select_to_prepare_ms",
+                                "prepare_to_draw_encoded_ms",
+                            ),
+                        ),
+                        6,
+                    ),
+                    (
+                        "[S] draw to GPU complete",
+                        values(subscriber_rows, "draw_encoded_to_gpu_complete_ms"),
+                        10,
+                    ),
+                )
+            )
+        else:
+            subscriber_stages = (
+                ("[S] receive to decode", "receive_to_decode_ms", 5),
+                ("[S] decode to sink", "decode_to_sink_ms", 6),
+                ("[S] sink to prepare", "sink_to_prepare_ms", 8),
+                ("[S] prepare to paint", "prepare_to_paint_ms", 10),
+            )
+            stage_samples.extend(
+                (label, values(subscriber_rows, column), color_index)
+                for label, column, color_index in subscriber_stages
+            )
+
+    return [
+        (label, statistics.fmean(samples), PIPELINE_COLORS[color_index])
+        for label, samples, color_index in stage_samples
+        if samples
+    ]
+
+
 def draw_latency_table(
     pdf: canvas.Canvas, logs: Sequence[LogData], x: float, y: float, width: float
 ) -> None:
@@ -416,50 +517,61 @@ def draw_latency_table(
         row_y -= 15
 
 
-def draw_delivery_table(
+def draw_pipeline_timeline(
     pdf: canvas.Canvas,
-    publisher: LogData | None,
-    subscriber: LogData | None,
-    losses: int,
-    freezes: Sequence[Event],
+    logs: Sequence[LogData],
     x: float,
     y: float,
     width: float,
 ) -> None:
-    if subscriber is not None:
-        packet_loss = last_value(subscriber, "packets_lost")
-        dropped = last_value(subscriber, "frames_dropped")
-        freeze_duration = last_value(subscriber, "total_freeze_duration_ms")
-    else:
-        packet_loss = dropped = freeze_duration = None
-    freeze_count = sum(event.count for event in freezes)
-    rows = [
-        ("RTP packets lost", format_count(packet_loss)),
-        ("WebRTC frames dropped", format_count(dropped)),
-        ("Freezes", f"{freeze_count:,}"),
-        ("Freeze duration", "NA" if freeze_duration is None else f"{freeze_duration:.0f} ms"),
-    ]
-    if publisher is None or subscriber is None:
-        loss_label = (
-            "Rendered frame-ID gaps"
-            if subscriber is not None
-            else "Packetized frame-ID gaps"
-        )
-        rows.insert(0, (loss_label, f"{losses:,}"))
+    stages = pipeline_stage_means(logs)
+    total_ms = sum(mean_ms for _, mean_ms, _ in stages)
     pdf.setFillColor(INK)
     pdf.setFont("Helvetica-Bold", 10.5)
-    pdf.drawString(x, y + 18, "Delivery quality")
-    row_y = y - 4
-    for index, (label, value) in enumerate(rows):
-        pdf.setFillColor(PANEL if index % 2 == 0 else white)
-        pdf.rect(x, row_y - 20, width, 20, fill=1, stroke=0)
+    pdf.drawString(x, y + 140, "Mean pipeline timeline")
+    if not stages or total_ms <= 0:
         pdf.setFillColor(MUTED)
-        pdf.setFont("Helvetica", 7.5)
-        pdf.drawString(x + 7, row_y - 13, label)
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(x, y + 116, "No complete pipeline-stage samples")
+        return
+
+    pdf.setFillColor(MUTED)
+    pdf.setFont("Helvetica", 7.2)
+    timeline_summary = f"Segment width is proportional to mean duration | total {total_ms:.1f} ms"
+    pdf.drawString(x, y + 124, timeline_summary)
+
+    bar_y = y + 96
+    bar_height = 19
+    cursor_x = x
+    for index, (_, mean_ms, color) in enumerate(stages):
+        segment_width = width * mean_ms / total_ms
+        pdf.setFillColor(color)
+        pdf.rect(cursor_x, bar_y, segment_width, bar_height, fill=1, stroke=0)
+        if segment_width >= 12:
+            pdf.setFillColor(white)
+            pdf.setFont("Helvetica-Bold", 6.2)
+            pdf.drawCentredString(
+                cursor_x + segment_width / 2,
+                bar_y + 6.2,
+                str(index + 1),
+            )
+        cursor_x += segment_width
+    pdf.setStrokeColor(INK)
+    pdf.rect(x, bar_y, width, bar_height, fill=0, stroke=1)
+
+    rows_per_column = 6
+    column_width = width / 2
+    legend_y = y + 78
+    for index, (label, mean_ms, color) in enumerate(stages):
+        column = index // rows_per_column
+        row = index % rows_per_column
+        item_x = x + column * column_width
+        item_y = legend_y - row * 12
+        pdf.setFillColor(color)
+        pdf.rect(item_x, item_y - 1, 7, 7, fill=1, stroke=0)
         pdf.setFillColor(INK)
-        pdf.setFont("Helvetica-Bold", 8)
-        pdf.drawRightString(x + width - 7, row_y - 13, value)
-        row_y -= 20
+        pdf.setFont("Helvetica", 6.4)
+        pdf.drawString(item_x + 11, item_y, f"{index + 1}. {label}  {mean_ms:.1f} ms")
 
 
 def generate_report(
@@ -504,8 +616,8 @@ def generate_report(
         draw_card(pdf, 38 + index * (card_width + 11), 461, card_width, label, value)
 
     draw_time_series(pdf, logs, loss_events, freeze_events, 50, 206, 692, 205)
-    draw_latency_table(pdf, logs, 38, 160, 470)
-    draw_delivery_table(pdf, publisher, subscriber, losses, freeze_events, 530, 160, 224)
+    draw_latency_table(pdf, logs, 38, 160, 318)
+    draw_pipeline_timeline(pdf, logs, 380, 38, 374)
 
     pdf.setStrokeColor(GRID)
     pdf.line(38, 28, 754, 28)
@@ -519,8 +631,7 @@ def generate_report(
     pdf.drawString(
         38,
         17,
-        "Frame losses are frame-ID gaps; with paired logs they are publisher IDs not rendered by the subscriber. "
-        + freeze_note,
+        "Frame-loss markers reflect frame-ID gaps. " + freeze_note,
     )
     pdf.save()
 
