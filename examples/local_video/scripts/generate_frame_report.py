@@ -40,7 +40,7 @@ PIPELINE_COLORS = (
     HexColor("#4C78A8"),
     HexColor("#3A86FF"),
     HexColor("#2CB1BC"),
-    HexColor("#44FF33"),
+    HexColor("#04b034"),
     HexColor("#4ECDC4"),
     HexColor("#6C63FF"),
 )
