@@ -426,17 +426,16 @@ def pipeline_stage_means(logs: Sequence[LogData]) -> list[tuple[str, float, obje
             (
                 ("[P] exposure to buffer", values(publisher_rows, "capture_to_buffer_ms"), 0),
                 (
-                    "[P] frame encode",
+                    "[P] encode and packetize",
                     summed_values(
                         publisher_rows,
-                        ("buffer_to_encoder_ms", "encode_ms"),
+                        (
+                            "buffer_to_encoder_ms",
+                            "encode_ms",
+                            "encoder_to_packetize_ms",
+                        ),
                     ),
                     1,
-                ),
-                (
-                    "[P] encoder to packetize",
-                    values(publisher_rows, "encoder_to_packetize_ms"),
-                    3,
                 ),
             )
         )

@@ -148,7 +148,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--display-timing`: Show publisher timing metrics in the diagnostics window. Requires `--display-video`.
 - `--log-csv <path>`: Write one CSV row per packetized frame with capture, encoder, packetization, frame-gap, and inter-frame timing metrics. This automatically enables timestamp and frame-ID metadata.
 - `--log-start-frame-id <id>`: Start CSV logging at this frame ID (inclusive). Requires `--log-csv`.
-- `--log-end-frame-id <id>`: Stop CSV logging after this frame ID (inclusive). Requires `--log-csv`.
+- `--log-end-frame-id <id>`: Flush the terminal packetized frame to CSV, then stop the publisher process. Requires `--log-csv`.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
 
 Subscriber usage:
@@ -203,7 +203,7 @@ Subscriber flags (in addition to the common connection flags above):
 - `--display-timestamp`: Show detailed frame ID, publisher timestamp, subscriber timing stages, and end-to-end latency in the separate diagnostics window. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
 - `--log-csv <path>`: Write one CSV row per GPU-completed frame with receive, decode, sink, selection, CPU draw, GPU completion, end-to-end latency, frame-gap, inter-frame timing, and WebRTC loss/freeze metrics. The publisher must use `--log-csv` or both `--attach-timestamp` and `--attach-frame-id`.
 - `--log-start-frame-id <id>`: Start CSV logging at this frame ID (inclusive). Requires `--log-csv`.
-- `--log-end-frame-id <id>`: Stop CSV logging after this frame ID (inclusive). Requires `--log-csv`.
+- `--log-end-frame-id <id>`: Flush the terminal GPU-completed frame to CSV, then stop the subscriber process. Requires `--log-csv`.
 - `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
 
 Generate a PDF report from the publisher log, subscriber log, or both:

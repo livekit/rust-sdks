@@ -88,22 +88,27 @@ impl SubscriberTimingHandle {
         )
     }
 
-    /// Records that the GPU submission containing the frame has completed.
+    /// Records GPU completion and returns the terminal logged frame ID, if reached.
     pub(crate) fn record_frame_gpu_complete(
         &self,
         token: FrameGpuCompletionToken,
         frame_gpu_complete_timestamp_us: u64,
-    ) {
+    ) -> Option<u32> {
         let sample =
             self.inner.lock().record_frame_gpu_complete(token, frame_gpu_complete_timestamp_us);
         let Some(sample) = sample else {
-            return;
+            return None;
         };
         if let Some(frame_log) = &self.frame_log {
-            if let Err(error) = frame_log.lock().record(sample) {
-                warn!("Subscriber CSV logging disabled after write failure: {error}");
+            match frame_log.lock().record(sample) {
+                Ok(true) => return sample.frame_id,
+                Ok(false) => {}
+                Err(error) => {
+                    warn!("Subscriber CSV logging disabled after write failure: {error}");
+                }
             }
         }
+        None
     }
 
     pub(crate) fn display_overlay_lines(&self, now: Instant) -> Option<Vec<String>> {
@@ -435,18 +440,18 @@ impl SubscriberCsvLogger {
         })
     }
 
-    fn record(&mut self, sample: SubscriberTimingSample) -> io::Result<()> {
+    fn record(&mut self, sample: SubscriberTimingSample) -> io::Result<bool> {
         if self.failed {
-            return Ok(());
+            return Ok(false);
         }
         let Some(frame_id) = sample.frame_id else {
-            return Ok(());
+            return Ok(false);
         };
         if !self.range.contains(frame_id) {
-            return Ok(());
+            return Ok(false);
         }
         let Some(frame_gpu_complete_timestamp_us) = sample.frame_gpu_complete_timestamp_us else {
-            return Ok(());
+            return Ok(false);
         };
 
         let first_gpu_complete_timestamp_us =
@@ -526,8 +531,8 @@ impl SubscriberCsvLogger {
             CsvFloat(quality.map(|quality| quality.total_freeze_duration_ms)),
         );
 
-        let should_flush =
-            self.range.reaches_end(frame_id) || self.last_flush.elapsed() >= Duration::from_secs(1);
+        let reached_end = self.range.reaches_end(frame_id);
+        let should_flush = reached_end || self.last_flush.elapsed() >= Duration::from_secs(1);
         let result = result.and_then(|()| if should_flush { self.writer.flush() } else { Ok(()) });
         if result.is_ok() {
             self.previous_frame_id = Some(frame_id);
@@ -538,7 +543,7 @@ impl SubscriberCsvLogger {
         } else {
             self.failed = true;
         }
-        result
+        result.map(|()| reached_end)
     }
 }
 
@@ -1088,9 +1093,9 @@ mod tests {
         let contents = std::fs::read_to_string(&path).expect("log should be readable");
         assert_eq!(contents.lines().count(), 1);
 
-        timing.record_frame_gpu_complete(token, 1_400);
-        drop(timing);
+        assert_eq!(timing.record_frame_gpu_complete(token, 1_400), Some(301));
         let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        drop(timing);
         let lines: Vec<_> = contents.lines().collect();
         assert_eq!(lines.len(), 2);
         assert!(lines[1].starts_with("1,0.000,301,1000,"));

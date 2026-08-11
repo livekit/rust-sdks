@@ -425,7 +425,7 @@ struct Args {
     #[arg(long, requires = "log_csv")]
     log_start_frame_id: Option<u32>,
 
-    /// Stop CSV logging after this frame ID (inclusive)
+    /// Stop the process after this GPU-rendered frame ID is written to CSV (inclusive)
     #[arg(long, requires = "log_csv")]
     log_end_frame_id: Option<u32>,
 
@@ -1715,6 +1715,8 @@ impl eframe::App for VideoApp {
                             render_frame: Mutex::new(render_frame),
                             video_size: self.video_size.clone(),
                             subscriber_timing: self.subscriber_timing.clone(),
+                            shutdown_on_log_end: self.ctrl_c_received.clone(),
+                            repaint_ctx: ctx.clone(),
                         },
                     );
                     ui.painter().add(cb);
@@ -1935,6 +1937,8 @@ struct YuvPaintCallback {
     render_frame: Mutex<Option<BoxVideoFrame>>,
     video_size: Arc<AtomicVideoSize>,
     subscriber_timing: SubscriberTimingHandle,
+    shutdown_on_log_end: Arc<AtomicBool>,
+    repaint_ctx: egui::Context,
 }
 
 struct YuvGpuState {
@@ -2509,9 +2513,19 @@ impl CallbackTrait for YuvPaintCallback {
             );
             let completion_probe = state.gpu_completion_poller.begin_probe();
             let subscriber_timing = self.subscriber_timing.clone();
+            let shutdown_on_log_end = self.shutdown_on_log_end.clone();
+            let repaint_ctx = self.repaint_ctx.clone();
             render_pass.on_submitted_work_done(move || {
-                subscriber_timing
-                    .record_frame_gpu_complete(completion_token, current_timestamp_us());
+                if let Some(frame_id) = subscriber_timing
+                    .record_frame_gpu_complete(completion_token, current_timestamp_us())
+                {
+                    if !shutdown_on_log_end.swap(true, Ordering::AcqRel) {
+                        info!(
+                            "Subscriber completed --log-end-frame-id {frame_id}; shutting down..."
+                        );
+                    }
+                    repaint_ctx.request_repaint_of(egui::ViewportId::ROOT);
+                }
                 drop(completion_probe);
             });
         }

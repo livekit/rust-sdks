@@ -279,7 +279,7 @@ struct Args {
     #[arg(long, requires = "log_csv")]
     log_start_frame_id: Option<u32>,
 
-    /// Stop CSV logging after this frame ID (inclusive)
+    /// Stop the process after this packetized frame ID is written to CSV (inclusive)
     #[arg(long, requires = "log_csv")]
     log_end_frame_id: Option<u32>,
 
@@ -622,24 +622,24 @@ impl PublisherCsvLogger {
         })
     }
 
-    fn record(&mut self, sample: PublisherTimingSample) -> std::io::Result<()> {
+    fn record(&mut self, sample: PublisherTimingSample) -> std::io::Result<bool> {
         let Some(frame_id) = sample.frame_id else {
-            return Ok(());
+            return Ok(false);
         };
         if !self.range.contains(frame_id) {
-            return Ok(());
+            return Ok(false);
         }
         let Some(frame_buffer_timestamp_us) = sample.got_frame_buffer_timestamp_us else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(encoder_upload_timestamp_us) = sample.encoder_upload_timestamp_us else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(encoder_output_timestamp_us) = sample.encoder_output_timestamp_us else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(packetize_timestamp_us) = sample.webrtc_packetize_timestamp_us else {
-            return Ok(());
+            return Ok(false);
         };
 
         let first_packetize_timestamp_us =
@@ -689,7 +689,7 @@ impl PublisherCsvLogger {
             self.writer.flush()?;
             self.last_flush = Instant::now();
         }
-        Ok(())
+        Ok(self.range.reaches_end(frame_id))
     }
 }
 
@@ -699,6 +699,7 @@ struct PublisherTimingState {
     order: VecDeque<u64>,
     latest_complete_sample: Option<PublisherTimingSample>,
     frame_log: Option<PublisherCsvLogger>,
+    completed_log_frame_id: Option<u32>,
 }
 
 impl PublisherTimingState {
@@ -737,9 +738,13 @@ impl PublisherTimingState {
         if updated_sample.is_complete() {
             self.latest_complete_sample = Some(updated_sample);
             if let Some(frame_log) = self.frame_log.as_mut() {
-                if let Err(error) = frame_log.record(updated_sample) {
-                    warn!("Publisher CSV logging disabled after write failure: {error}");
-                    self.frame_log = None;
+                match frame_log.record(updated_sample) {
+                    Ok(true) => self.completed_log_frame_id = updated_sample.frame_id,
+                    Ok(false) => {}
+                    Err(error) => {
+                        warn!("Publisher CSV logging disabled after write failure: {error}");
+                        self.frame_log = None;
+                    }
                 }
             }
             Some(updated_sample)
@@ -750,6 +755,10 @@ impl PublisherTimingState {
 
     fn display_sample(&self) -> Option<PublisherTimingSample> {
         self.latest_complete_sample
+    }
+
+    fn take_completed_log_frame_id(&mut self) -> Option<u32> {
+        self.completed_log_frame_id.take()
     }
 
     fn get_or_insert_sample(
@@ -960,15 +969,25 @@ mod tests {
             encoder_output_timestamp_us: Some(1_300),
             webrtc_packetize_timestamp_us: Some(1_400),
         };
-        logger.record(sample).expect("sample should be written");
-        logger.writer.flush().expect("log should flush");
-        drop(logger);
+        assert!(!logger.record(sample).expect("sample should be written"));
+        let end_sample = PublisherTimingSample {
+            frame_id: Some(302),
+            sensor_exposure_timestamp_us: 35_000,
+            got_frame_buffer_timestamp_us: Some(35_100),
+            encoder_upload_timestamp_us: Some(35_200),
+            encoder_output_timestamp_us: Some(35_300),
+            webrtc_packetize_timestamp_us: Some(35_400),
+        };
+        assert!(logger.record(end_sample).expect("end sample should be written"));
 
         let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        drop(logger);
         let lines: Vec<_> = contents.lines().collect();
-        assert_eq!(lines.len(), 2);
+        assert_eq!(lines.len(), 3);
         assert_eq!(lines[0].split(',').count(), lines[1].split(',').count());
+        assert_eq!(lines[0].split(',').count(), lines[2].split(',').count());
         assert!(lines[1].starts_with("1,0.000,301,"));
+        assert!(lines[2].starts_with("2,34.000,302,"));
         std::fs::remove_file(path).expect("temporary log should be removable");
     }
 }
@@ -1309,14 +1328,25 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if let Some(timing_state) = publish_timing_state.as_ref() {
         let timing_state = timing_state.clone();
         let display_shared_for_timing = display_shared.clone();
+        let shutdown_on_log_end = ctrl_c_received.clone();
         let mut events = track.publish_timing_events();
         tokio::spawn(async move {
             use tokio_stream::StreamExt;
 
             while let Some(event) = events.next().await {
-                let sample = timing_state.lock().record_sdk_event(event);
+                let (sample, completed_frame_id) = {
+                    let mut timing_state = timing_state.lock();
+                    let sample = timing_state.record_sdk_event(event);
+                    let completed_frame_id = timing_state.take_completed_log_frame_id();
+                    (sample, completed_frame_id)
+                };
                 if let Some(sample) = sample {
                     update_shared_timing_sample(display_shared_for_timing.as_ref(), sample);
+                }
+                if let Some(frame_id) = completed_frame_id {
+                    info!("Publisher completed --log-end-frame-id {frame_id}; shutting down...");
+                    shutdown_on_log_end.store(true, Ordering::Release);
+                    break;
                 }
             }
         });
