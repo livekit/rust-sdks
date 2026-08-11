@@ -40,7 +40,7 @@ PIPELINE_COLORS = (
     HexColor("#4C78A8"),
     HexColor("#3A86FF"),
     HexColor("#2CB1BC"),
-    HexColor("#1B998B"),
+    HexColor("#44FF33"),
     HexColor("#4ECDC4"),
     HexColor("#6C63FF"),
 )
@@ -391,7 +391,14 @@ def latency_rows(logs: Sequence[LogData]) -> list[tuple[str, list[float]]]:
         )
 
     if subscriber is not None:
-        if "e2e_to_gpu_complete_ms" in subscriber.rows[0]:
+        if "receive_and_assembly_ms" in subscriber.rows[0]:
+            columns = (
+                ("[Subscriber] receive and assembly", "receive_and_assembly_ms"),
+                ("[Subscriber] decode", "decode_ms"),
+                ("[Subscriber] render", "render_ms"),
+                ("End-to-end latency", "e2e_to_gpu_complete_ms"),
+            )
+        elif "e2e_to_gpu_complete_ms" in subscriber.rows[0]:
             columns = (
                 ("[Subscriber] exposure to receive", "exposure_to_receive_ms"),
                 ("[Subscriber] receive to decode", "receive_to_decode_ms"),
@@ -444,7 +451,17 @@ def pipeline_stage_means(logs: Sequence[LogData]) -> list[tuple[str, float, obje
             ("[T] publish to receive", paired_transport_latencies(publisher, subscriber), 4)
         )
     if subscriber is not None:
-        if "e2e_to_gpu_complete_ms" in subscriber.rows[0]:
+        if "receive_and_assembly_ms" in subscriber.rows[0]:
+            subscriber_stages = (
+                ("[S] receive and assembly", "receive_and_assembly_ms", 5),
+                ("[S] decode", "decode_ms", 6),
+                ("[S] render", "render_ms", 8),
+            )
+            stage_samples.extend(
+                (label, values(subscriber_rows, column), color_index)
+                for label, column, color_index in subscriber_stages
+            )
+        elif "e2e_to_gpu_complete_ms" in subscriber.rows[0]:
             stage_samples.extend(
                 (
                     ("[S] receive to decode", values(subscriber_rows, "receive_to_decode_ms"), 5),

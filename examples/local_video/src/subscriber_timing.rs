@@ -401,7 +401,7 @@ impl SubscriberTimingState {
     }
 }
 
-const SUBSCRIBER_CSV_HEADER: &str = "sample,elapsed_ms,frame_id,capture_timestamp_us,webrtc_receive_timestamp_us,decoder_upload_timestamp_us,decoder_output_timestamp_us,frame_sink_timestamp_us,frame_selected_timestamp_us,frame_prepare_timestamp_us,frame_draw_encoded_timestamp_us,frame_gpu_complete_timestamp_us,exposure_to_receive_ms,receive_to_decode_ms,decode_to_sink_ms,sink_to_select_ms,select_to_prepare_ms,prepare_to_draw_encoded_ms,draw_encoded_to_gpu_complete_ms,receive_to_gpu_complete_ms,e2e_to_gpu_complete_ms,frame_id_gap,gpu_complete_interval_ms,packets_lost,frames_dropped,freeze_count,total_freeze_duration_ms";
+const SUBSCRIBER_CSV_HEADER: &str = "sample,elapsed_ms,frame_id,capture_timestamp_us,webrtc_receive_timestamp_us,decoder_upload_timestamp_us,decoder_output_timestamp_us,frame_sink_timestamp_us,frame_selected_timestamp_us,frame_prepare_timestamp_us,frame_draw_encoded_timestamp_us,frame_gpu_complete_timestamp_us,exposure_to_receive_ms,receive_and_assembly_ms,decode_ms,render_ms,receive_to_decode_ms,decode_to_sink_ms,sink_to_select_ms,select_to_prepare_ms,prepare_to_draw_encoded_ms,draw_encoded_to_gpu_complete_ms,receive_to_gpu_complete_ms,e2e_to_gpu_complete_ms,frame_id_gap,gpu_complete_interval_ms,packets_lost,frames_dropped,freeze_count,total_freeze_duration_ms";
 
 #[derive(Clone, Copy)]
 struct InboundQualitySnapshot {
@@ -479,7 +479,7 @@ impl SubscriberCsvLogger {
 
         let result = writeln!(
             self.writer,
-            "{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            "{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
             self.sample_count,
             frame_gpu_complete_timestamp_us.saturating_sub(first_gpu_complete_timestamp_us) as f64
                 / 1_000.0,
@@ -496,6 +496,18 @@ impl SubscriberCsvLogger {
             CsvLatency::between(
                 Some(sample.sensor_exposure_timestamp_us),
                 sample.webrtc_receive_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.webrtc_receive_timestamp_us,
+                sample.decoder_upload_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.decoder_upload_timestamp_us,
+                sample.decoder_output_timestamp_us,
+            ),
+            CsvLatency::between(
+                sample.decoder_output_timestamp_us,
+                sample.frame_gpu_complete_timestamp_us,
             ),
             CsvLatency::between(
                 sample.webrtc_receive_timestamp_us,
@@ -571,12 +583,9 @@ impl LatencyStats {
 
 #[derive(Default)]
 struct RenderLatencyWindow {
-    receive_to_decode: LatencyStats,
-    decode_to_sink: LatencyStats,
-    sink_to_select: LatencyStats,
-    select_to_prepare: LatencyStats,
-    prepare_to_draw_encoded: LatencyStats,
-    draw_encoded_to_gpu_complete: LatencyStats,
+    receive_and_assembly: LatencyStats,
+    decode: LatencyStats,
+    render: LatencyStats,
     receive_to_gpu_complete: LatencyStats,
     e2e_to_gpu_complete: LatencyStats,
     last_log: Option<Instant>,
@@ -588,39 +597,20 @@ impl RenderLatencyWindow {
             return;
         };
 
-        if let (Some(webrtc_receive), Some(decoder_output)) =
-            (sample.webrtc_receive_timestamp_us, sample.decoder_output_timestamp_us)
+        if let (Some(webrtc_receive), Some(decoder_upload)) =
+            (sample.webrtc_receive_timestamp_us, sample.decoder_upload_timestamp_us)
         {
-            self.receive_to_decode.record_delta(webrtc_receive, decoder_output);
+            self.receive_and_assembly.record_delta(webrtc_receive, decoder_upload);
         }
 
-        if let (Some(decoder_output), Some(frame_sink)) =
-            (sample.decoder_output_timestamp_us, sample.frame_sink_timestamp_us)
+        if let (Some(decoder_upload), Some(decoder_output)) =
+            (sample.decoder_upload_timestamp_us, sample.decoder_output_timestamp_us)
         {
-            self.decode_to_sink.record_delta(decoder_output, frame_sink);
+            self.decode.record_delta(decoder_upload, decoder_output);
         }
 
-        if let (Some(frame_sink), Some(frame_selected)) =
-            (sample.frame_sink_timestamp_us, sample.frame_selected_timestamp_us)
-        {
-            self.sink_to_select.record_delta(frame_sink, frame_selected);
-        }
-
-        if let (Some(frame_selected), Some(frame_prepare)) =
-            (sample.frame_selected_timestamp_us, sample.frame_prepare_timestamp_us)
-        {
-            self.select_to_prepare.record_delta(frame_selected, frame_prepare);
-        }
-
-        if let (Some(frame_prepare), Some(frame_draw_encoded)) =
-            (sample.frame_prepare_timestamp_us, sample.frame_draw_encoded_timestamp_us)
-        {
-            self.prepare_to_draw_encoded.record_delta(frame_prepare, frame_draw_encoded);
-        }
-
-        if let Some(frame_draw_encoded) = sample.frame_draw_encoded_timestamp_us {
-            self.draw_encoded_to_gpu_complete
-                .record_delta(frame_draw_encoded, frame_gpu_complete_timestamp_us);
+        if let Some(decoder_output) = sample.decoder_output_timestamp_us {
+            self.render.record_delta(decoder_output, frame_gpu_complete_timestamp_us);
         }
 
         if let Some(webrtc_receive) = sample.webrtc_receive_timestamp_us {
@@ -646,26 +636,17 @@ impl RenderLatencyWindow {
         }
 
         info!(
-            "Subscriber GPU-completion latency: frames={}, receive_to_decode avg={} min={} max={}, decoder_to_sink avg={} min={} max={}, sink_to_select avg={} min={} max={}, select_to_prepare avg={} min={} max={}, prepare_to_draw_encoded avg={} min={} max={}, draw_encoded_to_gpu_complete avg={} min={} max={}, receive_to_gpu_complete avg={} min={} max={}, e2e_to_gpu_complete avg={} min={} max={}",
+            "Subscriber GPU-completion latency: frames={}, receive_and_assembly avg={} min={} max={}, decode avg={} min={} max={}, render avg={} min={} max={}, receive_to_gpu_complete avg={} min={} max={}, e2e_to_gpu_complete avg={} min={} max={}",
             self.e2e_to_gpu_complete.count,
-            latency_log_value(self.receive_to_decode.avg_us()),
-            latency_log_value(self.receive_to_decode.min_us),
-            latency_log_value(self.receive_to_decode.max_us),
-            latency_log_value(self.decode_to_sink.avg_us()),
-            latency_log_value(self.decode_to_sink.min_us),
-            latency_log_value(self.decode_to_sink.max_us),
-            latency_log_value(self.sink_to_select.avg_us()),
-            latency_log_value(self.sink_to_select.min_us),
-            latency_log_value(self.sink_to_select.max_us),
-            latency_log_value(self.select_to_prepare.avg_us()),
-            latency_log_value(self.select_to_prepare.min_us),
-            latency_log_value(self.select_to_prepare.max_us),
-            latency_log_value(self.prepare_to_draw_encoded.avg_us()),
-            latency_log_value(self.prepare_to_draw_encoded.min_us),
-            latency_log_value(self.prepare_to_draw_encoded.max_us),
-            latency_log_value(self.draw_encoded_to_gpu_complete.avg_us()),
-            latency_log_value(self.draw_encoded_to_gpu_complete.min_us),
-            latency_log_value(self.draw_encoded_to_gpu_complete.max_us),
+            latency_log_value(self.receive_and_assembly.avg_us()),
+            latency_log_value(self.receive_and_assembly.min_us),
+            latency_log_value(self.receive_and_assembly.max_us),
+            latency_log_value(self.decode.avg_us()),
+            latency_log_value(self.decode.min_us),
+            latency_log_value(self.decode.max_us),
+            latency_log_value(self.render.avg_us()),
+            latency_log_value(self.render.min_us),
+            latency_log_value(self.render.max_us),
             latency_log_value(self.receive_to_gpu_complete.avg_us()),
             latency_log_value(self.receive_to_gpu_complete.min_us),
             latency_log_value(self.receive_to_gpu_complete.max_us),
@@ -684,7 +665,6 @@ struct SubscriberTimingDeltaValues {
     webrtc_receive: String,
     decoder_upload: String,
     decoder_output: String,
-    frame_draw_encoded: String,
     frame_gpu_complete: String,
 }
 
@@ -705,13 +685,9 @@ impl SubscriberTimingDeltaValues {
                 sample.decoder_output_timestamp_us,
                 sample.decoder_upload_timestamp_us,
             ),
-            frame_draw_encoded: format_optional_timing_delta_ms(
-                sample.frame_draw_encoded_timestamp_us,
-                sample.decoder_output_timestamp_us,
-            ),
             frame_gpu_complete: format_optional_timing_delta_ms(
                 sample.frame_gpu_complete_timestamp_us,
-                sample.frame_draw_encoded_timestamp_us,
+                sample.decoder_output_timestamp_us,
             ),
         }
     }
@@ -808,33 +784,28 @@ fn build_timing_overlay_lines(
         timing_value_line("Frame ID", &frame_id),
         timing_line("sensor exposure", Some(base), &overlay_values.deltas.sensor_exposure),
         timing_line(
-            "webrtc receive",
+            "first packet receive",
             sample.webrtc_receive_timestamp_us,
             &overlay_values.deltas.webrtc_receive,
         ),
         timing_line(
-            "decoder upload",
+            "decode start",
             sample.decoder_upload_timestamp_us,
             &overlay_values.deltas.decoder_upload,
         ),
         timing_line(
-            "decoder output",
+            "decode complete",
             sample.decoder_output_timestamp_us,
             &overlay_values.deltas.decoder_output,
         ),
         timing_line(
-            "frame draw encoded",
-            sample.frame_draw_encoded_timestamp_us,
-            &overlay_values.deltas.frame_draw_encoded,
-        ),
-        timing_line(
-            "frame GPU complete",
+            "render complete",
             sample.frame_gpu_complete_timestamp_us,
             &overlay_values.deltas.frame_gpu_complete,
         ),
     ];
     lines.extend([
-        timing_value_line("Exposure to Receive", &overlay_values.exp2recv_latency),
+        timing_value_line("Exposure to First Pkt", &overlay_values.exp2recv_latency),
         timing_value_line("Receive to GPU", &overlay_values.receive_to_gpu_complete_latency),
         timing_value_line("e2e to GPU", &overlay_values.e2e_to_gpu_complete_latency),
     ]);
@@ -900,12 +871,11 @@ mod tests {
             vec![
                 "Frame ID:                                  123",
                 "sensor exposure:       01:02:03:456      0.0ms",
-                "webrtc receive:        01:02:03:488    +32.4ms",
-                "decoder upload:        01:02:03:491     +3.1ms",
-                "decoder output:        01:02:03:511    +19.8ms",
-                "frame draw encoded:    01:02:03:512     +1.6ms",
-                "frame GPU complete:    01:02:03:513     +0.7ms",
-                "Exposure to Receive:                    32.4ms",
+                "first packet receive:  01:02:03:488    +32.4ms",
+                "decode start:          01:02:03:491     +3.1ms",
+                "decode complete:       01:02:03:511    +19.8ms",
+                "render complete:       01:02:03:513     +2.3ms",
+                "Exposure to First Pkt:                  32.4ms",
                 "Receive to GPU:                         25.2ms",
                 "e2e to GPU:                             57.6ms",
             ]
@@ -925,12 +895,11 @@ mod tests {
             vec![
                 "Frame ID:                                   NA",
                 "sensor exposure:       01:02:03:456      0.0ms",
-                "webrtc receive:        --:--:--:---    +--.-ms",
-                "decoder upload:        --:--:--:---    +--.-ms",
-                "decoder output:        --:--:--:---    +--.-ms",
-                "frame draw encoded:    --:--:--:---    +--.-ms",
-                "frame GPU complete:    --:--:--:---    +--.-ms",
-                "Exposure to Receive:                        NA",
+                "first packet receive:  --:--:--:---    +--.-ms",
+                "decode start:          --:--:--:---    +--.-ms",
+                "decode complete:       --:--:--:---    +--.-ms",
+                "render complete:       --:--:--:---    +--.-ms",
+                "Exposure to First Pkt:                      NA",
                 "Receive to GPU:                             NA",
                 "e2e to GPU:                                 NA",
             ]
@@ -984,6 +953,30 @@ mod tests {
     }
 
     #[test]
+    fn subscriber_latency_window_separates_receive_decode_and_render() {
+        let now = Instant::now();
+        let mut window = RenderLatencyWindow { last_log: Some(now), ..Default::default() };
+        let sample = SubscriberTimingSample {
+            frame_id: Some(123),
+            sensor_exposure_timestamp_us: 1_000,
+            webrtc_receive_timestamp_us: Some(1_100),
+            decoder_upload_timestamp_us: Some(1_120),
+            decoder_output_timestamp_us: Some(1_200),
+            frame_sink_timestamp_us: Some(1_210),
+            frame_selected_timestamp_us: Some(1_220),
+            frame_prepare_timestamp_us: Some(1_230),
+            frame_draw_encoded_timestamp_us: Some(1_300),
+            frame_gpu_complete_timestamp_us: Some(1_500),
+        };
+
+        window.record(sample, now);
+
+        assert_eq!(window.receive_and_assembly.avg_us(), Some(20));
+        assert_eq!(window.decode.avg_us(), Some(80));
+        assert_eq!(window.render.avg_us(), Some(300));
+    }
+
+    #[test]
     fn subscriber_timing_ignores_stale_and_out_of_order_gpu_completions() {
         let mut state = SubscriberTimingState::default();
 
@@ -1031,13 +1024,12 @@ mod tests {
         let token = state.record_frame_draw_encoded(1_000, Some(1), 57_200, 57_900);
         state.record_frame_gpu_complete(token, 58_600);
         let lines = state.display_overlay_lines(now).expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:        00:00:00:036     +3.1ms");
-        assert_eq!(lines[4], "decoder output:        00:00:00:056    +19.8ms");
-        assert_eq!(lines[5], "frame draw encoded:    00:00:00:057     +1.6ms");
-        assert_eq!(lines[6], "frame GPU complete:    00:00:00:058     +0.7ms");
-        assert_eq!(lines[7], "Exposure to Receive:                    32.4ms");
-        assert_eq!(lines[8], "Receive to GPU:                         25.2ms");
-        assert_eq!(lines[9], "e2e to GPU:                             57.6ms");
+        assert_eq!(lines[3], "decode start:          00:00:00:036     +3.1ms");
+        assert_eq!(lines[4], "decode complete:       00:00:00:056    +19.8ms");
+        assert_eq!(lines[5], "render complete:       00:00:00:058     +2.3ms");
+        assert_eq!(lines[6], "Exposure to First Pkt:                  32.4ms");
+        assert_eq!(lines[7], "Receive to GPU:                         25.2ms");
+        assert_eq!(lines[8], "e2e to GPU:                             57.6ms");
 
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -1060,24 +1052,22 @@ mod tests {
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(99))
             .expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:        00:00:01:060     +3.1ms");
-        assert_eq!(lines[4], "decoder output:        00:00:01:080    +19.8ms");
-        assert_eq!(lines[5], "frame draw encoded:    00:00:01:100     +1.6ms");
-        assert_eq!(lines[6], "frame GPU complete:    00:00:01:104     +0.7ms");
-        assert_eq!(lines[7], "Exposure to Receive:                    32.4ms");
-        assert_eq!(lines[8], "Receive to GPU:                         25.2ms");
-        assert_eq!(lines[9], "e2e to GPU:                             57.6ms");
+        assert_eq!(lines[3], "decode start:          00:00:01:060     +3.1ms");
+        assert_eq!(lines[4], "decode complete:       00:00:01:080    +19.8ms");
+        assert_eq!(lines[5], "render complete:       00:00:01:104     +2.3ms");
+        assert_eq!(lines[6], "Exposure to First Pkt:                  32.4ms");
+        assert_eq!(lines[7], "Receive to GPU:                         25.2ms");
+        assert_eq!(lines[8], "e2e to GPU:                             57.6ms");
 
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(100))
             .expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:        00:00:01:060    +10.0ms");
-        assert_eq!(lines[4], "decoder output:        00:00:01:080    +20.0ms");
-        assert_eq!(lines[5], "frame draw encoded:    00:00:01:100    +20.0ms");
-        assert_eq!(lines[6], "frame GPU complete:    00:00:01:104     +4.0ms");
-        assert_eq!(lines[7], "Exposure to Receive:                    50.0ms");
-        assert_eq!(lines[8], "Receive to GPU:                         54.0ms");
-        assert_eq!(lines[9], "e2e to GPU:                            104.0ms");
+        assert_eq!(lines[3], "decode start:          00:00:01:060    +10.0ms");
+        assert_eq!(lines[4], "decode complete:       00:00:01:080    +20.0ms");
+        assert_eq!(lines[5], "render complete:       00:00:01:104    +24.0ms");
+        assert_eq!(lines[6], "Exposure to First Pkt:                  50.0ms");
+        assert_eq!(lines[7], "Receive to GPU:                         54.0ms");
+        assert_eq!(lines[8], "e2e to GPU:                            104.0ms");
     }
 
     #[test]
@@ -1166,6 +1156,9 @@ mod tests {
         assert_eq!(first[column("frame_prepare_timestamp_us")], "1220");
         assert_eq!(first[column("frame_draw_encoded_timestamp_us")], "1250");
         assert_eq!(first[column("frame_gpu_complete_timestamp_us")], "1300");
+        assert_eq!(first[column("receive_and_assembly_ms")], "0.010");
+        assert_eq!(first[column("decode_ms")], "0.090");
+        assert_eq!(first[column("render_ms")], "0.100");
         assert_eq!(first[column("sink_to_select_ms")], "0.005");
         assert_eq!(first[column("select_to_prepare_ms")], "0.005");
         assert_eq!(first[column("prepare_to_draw_encoded_ms")], "0.030");
