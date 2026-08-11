@@ -92,6 +92,15 @@ serde_json = "1.0"
 thiserror = "2"
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
+# Test on a 64-bit ARM device before you change this version.
+#
+# The Kotlin bindings from uniffi 0.31.2 and 0.32.0 compare each checksum incorrectly on 64-bit
+# ARM. Every affected method then fails. See https://github.com/mozilla/uniffi-rs/pull/2897, which
+# introduced the defect. Version 0.31.1 has a related defect on 32-bit ARM, and it also does not
+# build here, because uniffi-dart requires 0.31.2 or later. mozilla/uniffi-rs#2935 corrects both
+# defects, but no release (as of mid august 2026) contains that change.
+#
+# For this reason, livekit-uniffi sets `omit_checksums` for Kotlin. See livekit-uniffi/uniffi.toml.
 uniffi = "0.31"
 
 # For examples

@@ -6,6 +6,31 @@ android = true
 package_name = "io.livekit.uniffi"
 cdylib_name = "livekit_uniffi" # the name of the so file to be loaded
 
+# The Kotlin checksum test is off because it fails on ARM devices.
+#
+# UniFFI gives each checksum function a return type in the Kotlin bindings. The bindings then
+# compare the result with the expected checksum. Both available forms of this comparison are
+# defective:
+#
+#  - uniffi 0.31.1 uses the type Short. On 32-bit ARM, in release mode, the upper bits of a
+#    checksum above 32767 are incorrect. The test fails. See mozilla/uniffi-rs#2740.
+#
+#  - uniffi 0.31.2 and 0.32.0 use the type Int, but they do not mask the upper 16 bits. On 64-bit
+#    ARM, Rust extends the sign of the 16-bit value. A checksum of 0x8000 or more then has 0xFFFF
+#    in its upper bits. The test fails. See https://github.com/mozilla/uniffi-rs/pull/2897.
+#
+# mozilla/uniffi-rs#2935 adds the mask, but no release contains that change.
+#
+# The AAR contains code for arm64-v8a and for armeabi-v7a. For this reason, one of the two defects
+# applies to every uniffi release that this crate can use.
+#
+# It is safe to omit this test. The test finds a shared library that does not agree with the
+# bindings. `cargo make android-package-local` builds the library and the bindings together, thus
+# they always agree. Swift, Python, Dart and Node keep their checksum tests.
+#
+# Remove this line when a uniffi release contains mozilla/uniffi-rs#2935.
+omit_checksums = true
+
 # Two names that are perfectly fine in Rust but do not compile in Kotlin. Renamed for Kotlin only,
 # so the Rust source and the Swift/Python/Node bindings keep the original names.
 [bindings.kotlin.rename]
