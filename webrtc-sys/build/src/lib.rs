@@ -220,7 +220,7 @@ pub fn download_webrtc() -> Result<()> {
         if !transient {
             break;
         }
-        println!("cargo:warning=webrtc download attempt {} failed, retrying...", attempt);
+        println!("cargo:warning=webrtc download attempt {} failed, retrying in 5s...", attempt);
         std::thread::sleep(std::time::Duration::from_secs(5));
         resp = reqwest::blocking::get(download_url());
     }
