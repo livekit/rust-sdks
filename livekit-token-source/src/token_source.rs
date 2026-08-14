@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use crate::caching::TokenSourceCached;
 use crate::error::TokenSourceError;
 use crate::request::{TokenSourceFetchOptions, TokenSourceRequest};
 use crate::response::{TokenSourceResponse, TokenSourceResult};
@@ -69,6 +70,16 @@ pub trait TokenSourceConfigurable {
         &self,
         options: &TokenSourceFetchOptions,
     ) -> TokenSourceResult<TokenSourceResponse>;
+
+    /// Wraps this source in a caching layer that stores the last fetched
+    /// credentials and serves them for repeat fetches with equal options, for
+    /// as long as the token stays valid. See [`TokenSourceCached`].
+    fn cached(self) -> TokenSourceCached<Self>
+    where
+        Self: Sized + Send + Sync,
+    {
+        TokenSourceCached::new(self)
+    }
 }
 
 /// The return type of [`endpoint`].
