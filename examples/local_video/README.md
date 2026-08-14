@@ -65,6 +65,21 @@ Publisher usage:
    --room-name demo \
    --identity cam-1
 
+ # ROCK 5B+: capture USB MJPEG through direct V4L2, decode with Rockchip MPP,
+ # and publish H.264 with the Rockchip MPP encoder
+ CARGO_PROFILE_RELEASE_OPT_LEVEL=3 RUST_LOG=info \
+ cargo run --release -p local_video -F desktop --bin publisher -- \
+   --source v4l2 \
+   --device /dev/video0 \
+   --format mjpeg \
+   --width 1920 \
+   --height 1080 \
+   --fps 30 \
+   --codec h264 \
+   --encoder hardware \
+   --room-name demo \
+   --identity rock5-camera
+
  # publish from a Jetson MIPI CSI camera through libargus and the Jetson hardware encoder
  cargo run -p local_video -F desktop --bin publisher -- \
    --source argus \
@@ -122,13 +137,16 @@ The clock draws a 3x9 grid below the time. The top row fills from `0` to `9` for
 
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
-- `--source <uvc|argus>`: Camera backend to use (default: `uvc`). `argus` uses NVIDIA libargus for MIPI CSI cameras and is available only on Linux aarch64 Jetson builds.
-- `--format <auto|yuv|mjpeg>`: UVC camera capture format (default: `auto`). `auto` tries uncompressed YUYV first and falls back to MJPEG; `mjpeg` can reduce USB bandwidth when running multiple cameras.
+- `--source <uvc|v4l2|argus>`: Camera backend to use (default: `uvc`). `v4l2` uses direct Linux capture and supports NV12, YUYV, and MJPEG. `argus` uses NVIDIA libargus for MIPI CSI cameras and is available only on Linux aarch64 Jetson builds.
+- `--format <auto|nv12|yuv|mjpeg>`: Camera capture format (default: `auto`). UVC `auto` tries uncompressed YUYV first and falls back to MJPEG; direct V4L2 `auto` selects NV12. On Rockchip AArch64 builds with MPP headers, direct V4L2 MJPEG uses the hardware decoder and falls back to libyuv if unavailable.
+- `--device <path>`: Direct V4L2 capture node, such as `/dev/video0` or `/dev/video-camera0`. Supplying this option selects direct V4L2 capture.
+- `--sensor-subdevice <path>`: Optional V4L2 sensor subdevice used to set frame rate when the capture node rejects that setting.
 - `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
 - `--fps <n>`: Desired capture framerate (default: `30`).
 - `--codec <codec>`: Video codec to use for publishing: `h264`, `h265`, `vp8`, `vp9`, or `av1` (default: `h264`). H.265 falls back to H.264 on failure. On Jetson Orin, `h264`, `h265`, and `av1` use the hardware encoder; elsewhere `av1` is encoded in software via libaom.
+- `--encoder <auto|software|hardware|nvenc|vaapi|video-toolbox>`: Preferred encoder backend. Use `hardware` to require the Rockchip MPP encoder on the ROCK 5B+.
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
@@ -187,5 +205,6 @@ Notes:
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
 - The subscriber's video window repaints only when a frame arrives. Its separate diagnostics window updates at 10 Hz so status, timing text, channel graphs, and controls cannot pace video rendering; closing diagnostics leaves video rendering active.
 - On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. It publishes NV12 DMA buffers through the Jetson hardware encoder; local publisher preview and burned timestamps are not supported on that path.
+- On the ROCK 5B+, install `libdrm-dev` and `librockchip-mpp-dev` before building. A successful direct MJPEG run logs `Rockchip MPP MJPEG hardware decoder enabled`; its periodic V4L2 status separates MPP and libyuv frame counts and decode times.
 - Jetson AV1 hardware encoding requires an Orin-class device (e.g. Orin NX or AGX Orin on JetPack 5+); the encoder is probed at startup and on devices without AV1 support (e.g. Xavier) `--codec av1` automatically falls back to the software libaom encoder. The Jetson AV1 encoder produces a single L1T1 stream (no SVC).
 - On Linux, preview windows use the Vulkan `wgpu` backend by default to avoid GLES/EGL conflicts on Jetson desktops. Set `WGPU_BACKEND=gl` or another supported `wgpu` backend to override this.

@@ -14,7 +14,9 @@
 
 //! Direct Linux V4L2 capture for the local-video publisher.
 
-use super::{CaptureConfig as PublisherCaptureConfig, CaptureFormat};
+use super::{
+    rockchip_mjpeg::MppMjpegDecoder, CaptureConfig as PublisherCaptureConfig, CaptureFormat,
+};
 use anyhow::{Context, Result};
 use livekit::webrtc::video_frame::{
     FrameMetadata, I420Buffer, NV12Buffer, VideoBuffer, VideoFrame, VideoRotation,
@@ -40,6 +42,7 @@ const DEFAULT_DEVICE_PATH: &str = "/dev/video-camera0";
 const STREAM_BUFFER_COUNT: u32 = 4;
 const CAPTURE_TIMEOUT_MS: i32 = 5_000;
 const MAX_CONSECUTIVE_ERRORS: u32 = 30;
+const MAX_CONSECUTIVE_MPP_ERRORS: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PixelFormat {
@@ -773,9 +776,31 @@ fn run_capture_loop<S: FrameStream>(
     let mut capture_time_ms = 0.0;
     let mut conversion_time_ms = 0.0;
     let mut submit_time_ms = 0.0;
+    let mut mpp_decode_time_ms = 0.0;
+    let mut software_decode_time_ms = 0.0;
+    let mut mpp_decoded_frames = 0_u64;
+    let mut software_decoded_frames = 0_u64;
     let mut consecutive_errors = 0_u32;
     let mut consecutive_invalid_frames = 0_u32;
+    let mut consecutive_mpp_errors = 0_u32;
     let mut frame_counter = 1_u32;
+    let mut mpp_decoder = if format == PixelFormat::Mjpeg {
+        match MppMjpegDecoder::new(width, height) {
+            Ok(decoder) => {
+                info!(
+                    "Rockchip MPP MJPEG hardware decoder enabled: {}x{} NV12 output",
+                    width, height
+                );
+                Some(decoder)
+            }
+            Err(error) => {
+                info!("Rockchip MPP MJPEG hardware decoder unavailable; using libyuv: {error}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     info!(
         "Direct V4L2 {format:?} {api_name} capture started: {}x{} stride={source_stride}",
@@ -832,7 +857,7 @@ fn run_capture_loop<S: FrameStream>(
                     (conversion_finished - capture_finished).as_secs_f64() * 1_000.0;
                 submit_time_ms += conversion_finished.elapsed().as_secs_f64() * 1_000.0;
             }
-            PixelFormat::Yuyv | PixelFormat::Mjpeg => {
+            PixelFormat::Yuyv => {
                 let mut buffer = I420Buffer::new(width, height);
                 if let Err(error) = convert_to_i420(format, source, source_stride, &mut buffer) {
                     record_invalid_frame(&error, &mut consecutive_invalid_frames)?;
@@ -851,6 +876,76 @@ fn run_capture_loop<S: FrameStream>(
                     (conversion_finished - capture_finished).as_secs_f64() * 1_000.0;
                 submit_time_ms += conversion_finished.elapsed().as_secs_f64() * 1_000.0;
             }
+            PixelFormat::Mjpeg => {
+                let mut captured_with_mpp = false;
+                if let Some(decoder) = mpp_decoder.as_mut() {
+                    let decode_started = Instant::now();
+                    let mut buffer = NV12Buffer::new(width, height);
+                    match decoder.decode(source, &mut buffer) {
+                        Ok(()) => {
+                            let conversion_finished = Instant::now();
+                            let frame_metadata = next_frame_metadata(
+                                config,
+                                capture_wall_time_us,
+                                &mut frame_counter,
+                            );
+                            rtc_source.capture_frame(&VideoFrame {
+                                rotation: VideoRotation::VideoRotation0,
+                                timestamp_us,
+                                frame_metadata,
+                                buffer,
+                            });
+                            let decode_ms =
+                                (conversion_finished - decode_started).as_secs_f64() * 1_000.0;
+                            conversion_time_ms += decode_ms;
+                            mpp_decode_time_ms += decode_ms;
+                            mpp_decoded_frames += 1;
+                            submit_time_ms += conversion_finished.elapsed().as_secs_f64() * 1_000.0;
+                            consecutive_mpp_errors = 0;
+                            captured_with_mpp = true;
+                        }
+                        Err(error) => {
+                            consecutive_mpp_errors += 1;
+                            warn!(
+                                "Rockchip MPP MJPEG decode failed ({consecutive_mpp_errors}/{MAX_CONSECUTIVE_MPP_ERRORS}); using libyuv for this frame: {error}"
+                            );
+                        }
+                    }
+                }
+
+                if captured_with_mpp {
+                    consecutive_invalid_frames = 0;
+                } else {
+                    if consecutive_mpp_errors >= MAX_CONSECUTIVE_MPP_ERRORS {
+                        warn!(
+                            "Disabling Rockchip MPP MJPEG decoding after {consecutive_mpp_errors} consecutive failures"
+                        );
+                        mpp_decoder = None;
+                    }
+
+                    let decode_started = Instant::now();
+                    let mut buffer = I420Buffer::new(width, height);
+                    if let Err(error) = convert_to_i420(format, source, source_stride, &mut buffer)
+                    {
+                        record_invalid_frame(&error, &mut consecutive_invalid_frames)?;
+                        continue;
+                    }
+                    let conversion_finished = Instant::now();
+                    let frame_metadata =
+                        next_frame_metadata(config, capture_wall_time_us, &mut frame_counter);
+                    rtc_source.capture_frame(&VideoFrame {
+                        rotation: VideoRotation::VideoRotation0,
+                        timestamp_us,
+                        frame_metadata,
+                        buffer,
+                    });
+                    let decode_ms = (conversion_finished - decode_started).as_secs_f64() * 1_000.0;
+                    conversion_time_ms += decode_ms;
+                    software_decode_time_ms += decode_ms;
+                    software_decoded_frames += 1;
+                    submit_time_ms += conversion_finished.elapsed().as_secs_f64() * 1_000.0;
+                }
+            }
         }
 
         consecutive_invalid_frames = 0;
@@ -860,20 +955,43 @@ fn run_capture_loop<S: FrameStream>(
         if last_fps_log.elapsed() >= Duration::from_secs(2) {
             let elapsed = last_fps_log.elapsed().as_secs_f64();
             let frame_count = frames.max(1) as f64;
-            info!(
-                "V4L2 {format:?} {api_name}: {}x{}, ~{:.1} fps | avg ms: capture {:.2}, convert {:.2}, submit {:.2} | target {:.2}",
-                width,
-                height,
-                frames as f64 / elapsed,
-                capture_time_ms / frame_count,
-                conversion_time_ms / frame_count,
-                submit_time_ms / frame_count,
-                target.as_secs_f64() * 1_000.0,
-            );
+            if format == PixelFormat::Mjpeg {
+                let average_mpp_ms = mpp_decode_time_ms / mpp_decoded_frames.max(1) as f64;
+                let average_software_ms =
+                    software_decode_time_ms / software_decoded_frames.max(1) as f64;
+                info!(
+                    "V4L2 {format:?} {api_name}: {}x{}, ~{:.1} fps | avg ms: capture {:.2}, decode+copy mpp {:.2} ({} frames), libyuv {:.2} ({} frames), submit {:.2} | target {:.2}",
+                    width,
+                    height,
+                    frames as f64 / elapsed,
+                    capture_time_ms / frame_count,
+                    average_mpp_ms,
+                    mpp_decoded_frames,
+                    average_software_ms,
+                    software_decoded_frames,
+                    submit_time_ms / frame_count,
+                    target.as_secs_f64() * 1_000.0,
+                );
+            } else {
+                info!(
+                    "V4L2 {format:?} {api_name}: {}x{}, ~{:.1} fps | avg ms: capture {:.2}, convert {:.2}, submit {:.2} | target {:.2}",
+                    width,
+                    height,
+                    frames as f64 / elapsed,
+                    capture_time_ms / frame_count,
+                    conversion_time_ms / frame_count,
+                    submit_time_ms / frame_count,
+                    target.as_secs_f64() * 1_000.0,
+                );
+            }
             frames = 0;
             capture_time_ms = 0.0;
             conversion_time_ms = 0.0;
             submit_time_ms = 0.0;
+            mpp_decode_time_ms = 0.0;
+            software_decode_time_ms = 0.0;
+            mpp_decoded_frames = 0;
+            software_decoded_frames = 0;
             last_fps_log = Instant::now();
         }
     }

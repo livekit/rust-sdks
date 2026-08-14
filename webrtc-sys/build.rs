@@ -281,6 +281,7 @@ fn main() {
                     builder
                         .include(mpp_include)
                         .file("src/mpp/mpp_context.cpp")
+                        .file("src/mpp/mpp_mjpeg_decoder.cpp")
                         .file("src/mpp/mpp_encoder_factory.cpp")
                         .file("src/mpp/mpp_encoder_session.cpp")
                         .file("src/mpp/h264_encoder_impl.cpp")

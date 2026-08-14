@@ -116,7 +116,7 @@ static void __attribute__((constructor(101))) load_lib(void) {
 }
 #endif
 
-// MPP API symbols used by the encoder
+// MPP API symbols used by the encoder and MJPEG decoder
 static const char *const sym_names[] = {
   "mpp_create",
   "mpp_init",
@@ -149,6 +149,16 @@ static const char *const sym_names[] = {
   "mpp_meta_set_packet",
   "mpp_buffer_sync_begin_f",
   "mpp_buffer_sync_end_f",
+  "mpp_packet_get_meta",
+  "mpp_meta_set_frame",
+  "mpp_frame_get_width",
+  "mpp_frame_get_height",
+  "mpp_frame_get_hor_stride",
+  "mpp_frame_get_ver_stride",
+  "mpp_frame_get_fmt",
+  "mpp_frame_get_buffer",
+  "mpp_frame_get_errinfo",
+  "mpp_frame_get_discard",
   0
 };
 

@@ -32,6 +32,8 @@ use yuv_sys;
 #[cfg(lk_argus)]
 mod argus;
 mod codec_display;
+#[cfg(target_os = "linux")]
+mod rockchip_mjpeg;
 mod test_pattern;
 mod timestamp_burn;
 mod user_data;
