@@ -913,9 +913,7 @@ fn run_capture_loop<S: FrameStream>(
                     }
                 }
 
-                if captured_with_mpp {
-                    consecutive_invalid_frames = 0;
-                } else {
+                if !captured_with_mpp {
                     if consecutive_mpp_errors >= MAX_CONSECUTIVE_MPP_ERRORS {
                         warn!(
                             "Disabling Rockchip MPP MJPEG decoding after {consecutive_mpp_errors} consecutive failures"

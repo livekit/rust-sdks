@@ -66,7 +66,7 @@ mod imp {
     impl MppMjpegDecoder {
         /// Creates a hardware MJPEG decoder for a fixed output resolution.
         pub(crate) fn new(width: u32, height: u32) -> Result<Self> {
-            let mut error = [0_i8; ERROR_CAPACITY];
+            let mut error = [0 as c_char; ERROR_CAPACITY];
             // SAFETY: error is writable for ERROR_CAPACITY bytes. The returned
             // handle, when non-null, is uniquely owned until Drop.
             let handle = unsafe {
@@ -88,7 +88,7 @@ mod imp {
             );
             let (stride_y, stride_uv) = destination.strides();
             let (destination_y, destination_uv) = destination.data_mut();
-            let mut error = [0_i8; ERROR_CAPACITY];
+            let mut error = [0 as c_char; ERROR_CAPACITY];
             // SAFETY: handle is a live uniquely-owned decoder. All input and
             // output pointers use their exact slice lengths, and the decoder
             // validates dimensions and strides before writing.
