@@ -2,10 +2,11 @@ diff --git a/api/media_stream_interface.h b/api/media_stream_interface.h
 index fb1cc4e58e..85062ba60e 100644
 --- a/api/media_stream_interface.h
 +++ b/api/media_stream_interface.h
-@@ -267,6 +267,11 @@ class RTC_EXPORT AudioSourceInterface : public MediaSourceInterface {
+@@ -269,6 +269,11 @@ class RTC_EXPORT AudioSourceInterface : public MediaSourceInterface {
    // (for some of the settings this approach is broken, e.g. setting
    // audio network adaptation on the source is the wrong layer of abstraction).
    virtual const AudioOptions options() const;
+   virtual void SetOptions(const AudioOptions & /* options */) {}
 +
 +  // Returns true if this source delivers audio externally (via AddSink),
 +  // bypassing the ADM/AudioState audio distribution path.
