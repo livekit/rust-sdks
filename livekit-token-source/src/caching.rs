@@ -112,6 +112,9 @@ impl<S> TokenSourceCached<S> {
 
     /// Removes the stored credentials, forcing the next fetch to hit the
     /// underlying source.
+    ///
+    /// A fetch already in flight is unaffected: it still resolves and stores
+    /// its response afterwards, repopulating the cache (last writer wins).
     pub async fn invalidate(&self) {
         self.store.clear().await;
     }
