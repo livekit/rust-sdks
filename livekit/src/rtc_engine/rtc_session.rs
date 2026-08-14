@@ -51,7 +51,7 @@ use crate::{
 };
 use crate::{
     id::ParticipantSid,
-    options::TrackPublishOptions,
+    options::{TrackPublishOptions, VideoCodec},
     prelude::TrackKind,
     room::{e2ee::manager::E2eeManager, DisconnectReason},
     rtc_engine::{
@@ -361,6 +361,8 @@ struct SessionInner {
     subscriber_pc: Option<PeerTransport>,
     /// Whether single peer connection mode is active
     single_pc_mode: bool,
+    /// Codecs the server reported as enabled for publishing in the join response.
+    enabled_publish_codecs: Vec<String>,
     /// Mapping from SDP mid to track ID, used for track resolution in single PC mode
     mid_to_track_id: Mutex<HashMap<String, String>>,
 
@@ -619,6 +621,11 @@ impl RtcSession {
             publisher_pc,
             subscriber_pc,
             single_pc_mode,
+            enabled_publish_codecs: join_response
+                .enabled_publish_codecs
+                .iter()
+                .map(|codec| codec.mime.to_ascii_lowercase())
+                .collect(),
             mid_to_track_id: Mutex::new(HashMap::new()),
             dispatched_streams: Mutex::new(HashSet::new()),
             pending_tracks: Default::default(),
@@ -1919,6 +1926,20 @@ impl SessionInner {
         if track.kind() == TrackKind::Video {
             transceiver.sender().set_video_encoder_backend(options.video_encoder);
 
+            let requested_mime = format!("video/{}", options.video_codec.as_str());
+            let server_supports_requested_codec = self.enabled_publish_codecs.is_empty()
+                || self.enabled_publish_codecs.iter().any(|mime| {
+                    mime == &requested_mime
+                        || (options.video_codec == VideoCodec::H265 && mime == "video/hevc")
+                });
+            if !server_supports_requested_codec {
+                log::warn!(
+                    "server join response does not enable '{}' publishing (enabled: {}); codec negotiation may fall back",
+                    options.video_codec.as_str(),
+                    self.enabled_publish_codecs.join(", "),
+                );
+            }
+
             let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
                 match track.kind() {
                     TrackKind::Video => MediaType::Video,
@@ -1948,8 +1969,19 @@ impl SessionInner {
             }
 
             matched.append(&mut partial_matched);
-
-            transceiver.set_codec_preferences(matched)?;
+            if matched.is_empty() {
+                log::warn!(
+                    "requested video codec '{}' is not present in local sender capabilities; leaving WebRTC's default codec preferences enabled",
+                    options.video_codec.as_str(),
+                );
+            } else {
+                log::debug!(
+                    "restricting video sender to '{}' ({} matching RTP capabilities)",
+                    options.video_codec.as_str(),
+                    matched.len(),
+                );
+                transceiver.set_codec_preferences(matched)?;
+            }
         }
 
         Ok(transceiver)

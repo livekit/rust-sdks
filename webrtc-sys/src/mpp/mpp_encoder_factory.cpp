@@ -26,18 +26,26 @@
 namespace webrtc {
 
 MppVideoEncoderFactory::MppVideoEncoderFactory() {
-  // Advertise H.264 Constrained Baseline profile
+  // Advertise the highest H.264 level supported by libwebrtc's SDP parser.
+  // The encoder selects the lowest level that fits each configured stream.
   std::map<std::string, std::string> baselineParameters = {
-      {"profile-level-id", "42e01f"},
+      {"profile-level-id", "42e034"},
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };
   supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
 
-  // Check if H.265/HEVC encoding is supported on this SoC
-  if (mpp_check_support_format(MPP_CTX_ENC, MPP_VIDEO_CodingHEVC) == MPP_OK) {
+  // Check if H.265/HEVC encoding is supported on this SoC.
+  const MPP_RET h265_support =
+      mpp_check_support_format(MPP_CTX_ENC, MPP_VIDEO_CodingHEVC);
+  if (h265_support == MPP_OK) {
     supported_formats_.push_back(SdpVideoFormat("H265"));
     supported_formats_.push_back(SdpVideoFormat("HEVC"));
+    RTC_LOG(LS_INFO) << "Rockchip MPP reports H.265 encoding support";
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "Rockchip MPP H.265 encoding support probe failed: "
+        << h265_support;
   }
 }
 

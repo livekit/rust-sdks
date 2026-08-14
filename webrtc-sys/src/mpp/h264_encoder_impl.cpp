@@ -16,6 +16,8 @@
 
 #include "h264_encoder_impl.h"
 
+#include <array>
+#include <cstdint>
 #include <optional>
 
 #include "api/video/video_codec_constants.h"
@@ -32,6 +34,60 @@
 #define MPP_ALIGN(x, a) (((x) + (a) - 1) & ~((a) - 1))
 
 namespace webrtc {
+
+namespace {
+
+struct H264LevelLimit {
+  H264Level level;
+  int max_macroblocks_per_frame;
+  int max_macroblocks_per_second;
+};
+
+// H.264 table A-1 limits through the highest level understood by libwebrtc.
+constexpr std::array<H264LevelLimit, 15> kH264LevelLimits = {{
+    {H264Level::kLevel1, 99, 1485},
+    {H264Level::kLevel1_1, 396, 3000},
+    {H264Level::kLevel1_2, 396, 6000},
+    {H264Level::kLevel1_3, 396, 11880},
+    {H264Level::kLevel2, 396, 11880},
+    {H264Level::kLevel2_1, 792, 19800},
+    {H264Level::kLevel2_2, 1620, 20250},
+    {H264Level::kLevel3, 1620, 40500},
+    {H264Level::kLevel3_1, 3600, 108000},
+    {H264Level::kLevel3_2, 5120, 216000},
+    {H264Level::kLevel4, 8192, 245760},
+    {H264Level::kLevel4_1, 8192, 245760},
+    {H264Level::kLevel4_2, 8704, 522240},
+    {H264Level::kLevel5, 22080, 589824},
+    {H264Level::kLevel5_1, 36864, 983040},
+}};
+
+std::optional<H264Level> RequiredH264Level(int width,
+                                           int height,
+                                           int frames_per_second) {
+  const int64_t macroblocks_wide = (static_cast<int64_t>(width) + 15) / 16;
+  const int64_t macroblocks_high = (static_cast<int64_t>(height) + 15) / 16;
+  const int64_t macroblocks_per_frame = macroblocks_wide * macroblocks_high;
+  const int64_t macroblocks_per_second =
+      macroblocks_per_frame * frames_per_second;
+
+  for (const H264LevelLimit& limit : kH264LevelLimits) {
+    if (macroblocks_per_frame <= limit.max_macroblocks_per_frame &&
+        macroblocks_per_second <= limit.max_macroblocks_per_second) {
+      return limit.level;
+    }
+  }
+
+  // Level 5.2 has the same frame-size limit as 5.1 but permits a higher
+  // macroblock rate.
+  if (macroblocks_per_frame <= 36864 &&
+      macroblocks_per_second <= 2073600) {
+    return H264Level::kLevel5_2;
+  }
+  return std::nullopt;
+}
+
+}  // namespace
 
 MppH264EncoderImpl::MppH264EncoderImpl(const webrtc::Environment& env,
                                        const SdpVideoFormat& format)
@@ -172,6 +228,28 @@ int32_t MppH264EncoderImpl::InitEncode(const VideoCodec* inst,
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
+  std::optional<H264Level> required_level = RequiredH264Level(
+      inst->width, inst->height, static_cast<int>(inst->maxFramerate));
+  if (!required_level.has_value()) {
+    const int64_t macroblocks_per_frame =
+        ((static_cast<int64_t>(inst->width) + 15) / 16) *
+        ((static_cast<int64_t>(inst->height) + 15) / 16);
+    RTC_LOG(LS_ERROR)
+        << "MPP H.264 cannot publish " << inst->width << "x" << inst->height
+        << " @ " << inst->maxFramerate
+        << "fps as a WebRTC-compatible stream: geometry/rate requires a "
+           "level above 5.2 ("
+        << macroblocks_per_frame
+        << " macroblocks/frame; maximum is 36864). Reduce the capture "
+           "resolution (for example, 3840x1080) or use H.265.";
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
+
+  // MPP otherwise raises the SPS level from frame geometry alone and ignores
+  // macroblock rate. Configure the minimum truthful level ourselves so the
+  // emitted SPS remains consistent with the advertised WebRTC capability.
+  level_ = required_level.value();
+
   int32_t release_ret = Release();
   if (release_ret != WEBRTC_VIDEO_CODEC_OK) {
     return release_ret;
@@ -222,7 +300,8 @@ int32_t MppH264EncoderImpl::InitEncode(const VideoCodec* inst,
                    << codec_.width << "x" << codec_.height
                    << " (stride " << hor_stride_ << "x" << ver_stride_ << ")"
                    << " @ " << codec_.maxFramerate << "fps, target_bps="
-                   << configuration_.target_bps;
+                   << configuration_.target_bps
+                   << ", H.264 level=" << static_cast<int>(level_);
 
   SimulcastRateAllocator init_allocator(env_, codec_);
   VideoBitrateAllocation allocation =

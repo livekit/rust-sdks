@@ -158,6 +158,7 @@ fn video_encoder_backend_name(backend: VideoEncoderBackend) -> &'static str {
         VideoEncoderBackend::Nvenc => "nvenc",
         VideoEncoderBackend::Vaapi => "vaapi",
         VideoEncoderBackend::VideoToolbox => "videotoolbox",
+        VideoEncoderBackend::PreEncoded => "pre-encoded",
         _ => "unknown",
     }
 }
@@ -460,13 +461,40 @@ fn find_video_outbound_stats(
     fallback
 }
 
-fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
+fn find_codec_mime_type<'a>(
+    stats: &'a [livekit::webrtc::stats::RtcStats],
+    codec_id: &str,
+) -> Option<&'a str> {
+    stats.iter().find_map(|stat| {
+        let livekit::webrtc::stats::RtcStats::Codec(codec) = stat else {
+            return None;
+        };
+        (codec.rtc.id == codec_id).then_some(codec.codec.mime_type.as_str())
+    })
+}
+
+fn requested_codec_matches_mime(codec: VideoCodec, mime_type: &str) -> bool {
+    let mime_type = mime_type.to_ascii_lowercase();
+    match codec {
+        VideoCodec::H265 => mime_type == "video/h265" || mime_type == "video/hevc",
+        _ => mime_type == format!("video/{}", codec.as_str()),
+    }
+}
+
+fn log_publisher_outbound_health(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    requested_codec: VideoCodec,
+    logged_codec_mismatch: &mut bool,
+) {
     let Some(outbound) = find_video_outbound_stats(stats) else {
         return;
     };
+    let codec_mime_type = find_codec_mime_type(stats, &outbound.stream.codec_id)
+        .filter(|mime_type| !mime_type.is_empty())
+        .unwrap_or("unknown");
 
     info!(
-        "Publish health: encoded={}, sent={}, keyframes={}, packets_sent={}, bytes_sent={}, pli={}, fir={}, encoder={}",
+        "Publish health: encoded={}, sent={}, keyframes={}, packets_sent={}, bytes_sent={}, pli={}, fir={}, codec={}, encoder={}",
         outbound.outbound.frames_encoded,
         outbound.outbound.frames_sent,
         outbound.outbound.key_frames_encoded,
@@ -474,8 +502,22 @@ fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
         outbound.sent.bytes_sent,
         outbound.outbound.pli_count,
         outbound.outbound.fir_count,
+        codec_mime_type,
         outbound.outbound.encoder_implementation,
     );
+
+    if !*logged_codec_mismatch
+        && outbound.outbound.frames_encoded > 0
+        && codec_mime_type != "unknown"
+        && !requested_codec_matches_mime(requested_codec, codec_mime_type)
+    {
+        log::warn!(
+            "Requested {} publishing, but WebRTC negotiated {}; the requested codec was not accepted by the local/remote codec negotiation",
+            requested_codec.as_str(),
+            codec_mime_type,
+        );
+        *logged_codec_mismatch = true;
+    }
 
     if outbound.outbound.frames_encoded > 0 && outbound.sent.packets_sent == 0 {
         log::warn!(
@@ -490,11 +532,16 @@ fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
     }
 }
 
-async fn update_publisher_video_stats(track: LocalVideoTrack, ctrl_c_received: Arc<AtomicBool>) {
+async fn update_publisher_video_stats(
+    track: LocalVideoTrack,
+    ctrl_c_received: Arc<AtomicBool>,
+    requested_codec: VideoCodec,
+) {
     let mut last_log =
         Instant::now().checked_sub(Duration::from_secs(2)).unwrap_or_else(Instant::now);
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut logged_codec_mismatch = false;
 
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
@@ -503,7 +550,7 @@ async fn update_publisher_video_stats(track: LocalVideoTrack, ctrl_c_received: A
 
         if let Ok(stats) = track.get_stats().await {
             if last_log.elapsed() >= Duration::from_secs(2) {
-                log_publisher_outbound_health(&stats);
+                log_publisher_outbound_health(&stats, requested_codec, &mut logged_codec_mismatch);
                 last_log = Instant::now();
             }
         }
@@ -718,6 +765,14 @@ mod tests {
         assert_eq!(requested_playout_delay(Some(120), None), Some((120, 0)));
         assert_eq!(requested_playout_delay(None, Some(240)), Some((0, 240)));
         assert_eq!(requested_playout_delay(Some(120), Some(240)), Some((120, 240)));
+    }
+
+    #[test]
+    fn requested_codec_matches_negotiated_mime_type() {
+        assert!(requested_codec_matches_mime(VideoCodec::H264, "video/H264"));
+        assert!(requested_codec_matches_mime(VideoCodec::H265, "video/H265"));
+        assert!(requested_codec_matches_mime(VideoCodec::H265, "video/HEVC"));
+        assert!(!requested_codec_matches_mime(VideoCodec::H265, "video/VP8"));
     }
 
     fn timing_event(
@@ -1313,7 +1368,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             return Err(e.into());
         }
     } else {
-        info!("Published camera track");
+        info!(
+            "Published camera track; requested codec {} is pending RTP negotiation",
+            requested_codec.as_str(),
+        );
         requested_codec
     };
 
@@ -1330,8 +1388,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let user_data_channels =
         args.attach_user_data.then(|| Arc::new(Mutex::new([0.0f32; user_data::NUM_CHANNELS])));
 
-    let publish_stats_task =
-        tokio::spawn(update_publisher_video_stats(track.clone(), ctrl_c_received.clone()));
+    let publish_stats_task = tokio::spawn(update_publisher_video_stats(
+        track.clone(),
+        ctrl_c_received.clone(),
+        actual_codec,
+    ));
 
     match video_input {
         #[cfg(target_os = "linux")]
