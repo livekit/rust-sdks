@@ -1019,7 +1019,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
-    room_options.auto_subscribe = true;
+    // This participant's token is publish-only. A dedicated publisher peer
+    // connection avoids the single-PC early receive-only offer selecting VP8
+    // before the requested camera codec is applied to its transceiver.
+    room_options.auto_subscribe = false;
+    room_options.single_peer_connection = false;
     room_options.dynacast = args.dynacast;
 
     // Configure E2EE if an encryption key is provided
