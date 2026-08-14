@@ -149,8 +149,8 @@ static const char *const sym_names[] = {
   "mpp_meta_set_packet",
   "mpp_buffer_sync_begin_f",
   "mpp_buffer_sync_end_f",
-  "mpp_packet_get_meta",
-  "mpp_meta_set_frame",
+  "mpp_task_meta_set_packet",
+  "mpp_task_meta_set_frame",
   "mpp_frame_get_width",
   "mpp_frame_get_height",
   "mpp_frame_get_hor_stride",
@@ -159,6 +159,8 @@ static const char *const sym_names[] = {
   "mpp_frame_get_buffer",
   "mpp_frame_get_errinfo",
   "mpp_frame_get_discard",
+  "mpp_task_meta_get_packet",
+  "mpp_task_meta_get_frame",
   0
 };
 

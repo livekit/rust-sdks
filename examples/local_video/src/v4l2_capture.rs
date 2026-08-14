@@ -919,6 +919,7 @@ fn run_capture_loop<S: FrameStream>(
                             "Disabling Rockchip MPP MJPEG decoding after {consecutive_mpp_errors} consecutive failures"
                         );
                         mpp_decoder = None;
+                        consecutive_mpp_errors = 0;
                     }
 
                     let decode_started = Instant::now();

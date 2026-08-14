@@ -18,13 +18,11 @@
 
 #include <dlfcn.h>
 
-#include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <limits>
 #include <new>
-#include <thread>
 
 #include <rockchip/mpp_buffer.h>
 #include <rockchip/mpp_frame.h>
@@ -35,8 +33,7 @@ namespace {
 
 constexpr uint32_t kMppAlignment = 16;
 constexpr size_t kOutputBytesPerPixel = 4;
-constexpr int kQueueAttempts = 5;
-constexpr int kFrameAttempts = 20;
+constexpr int kTaskTimeoutMs = 100;
 
 int SetError(char* error, size_t capacity, const char* format, ...) {
   if (error && capacity > 0) {
@@ -129,8 +126,10 @@ bool HasRequiredMppSymbols(char* error, size_t error_capacity) {
       "mpp_packet_init_with_buffer",
       "mpp_packet_deinit",
       "mpp_packet_set_length",
-      "mpp_packet_get_meta",
-      "mpp_meta_set_frame",
+      "mpp_task_meta_set_packet",
+      "mpp_task_meta_set_frame",
+      "mpp_task_meta_get_packet",
+      "mpp_task_meta_get_frame",
       "mpp_buffer_get_with_tag",
       "mpp_buffer_put_with_caller",
       "mpp_buffer_get_ptr_with_caller",
@@ -179,6 +178,27 @@ class DecoderRecovery final {
   MppCtx context_ = nullptr;
   MppApi* api_ = nullptr;
   bool armed_ = false;
+};
+
+class PacketOwner final {
+ public:
+  explicit PacketOwner(MppPacket packet) : packet_(packet) {}
+
+  ~PacketOwner() { Deinit(); }
+
+  PacketOwner(const PacketOwner&) = delete;
+  PacketOwner& operator=(const PacketOwner&) = delete;
+
+  MppPacket get() const { return packet_; }
+
+  void Deinit() {
+    if (packet_) {
+      mpp_packet_deinit(&packet_);
+    }
+  }
+
+ private:
+  MppPacket packet_ = nullptr;
 };
 
 class MppMjpegDecoder final {
@@ -346,60 +366,124 @@ class MppMjpegDecoder final {
                       "mpp_packet_init_with_buffer failed with status %d",
                       result);
     }
+    PacketOwner packet_owner(packet);
     mpp_packet_set_length(packet, source_size);
 
-    MppMeta metadata = mpp_packet_get_meta(packet);
-    if (!metadata) {
-      mpp_packet_deinit(&packet);
+    DecoderRecovery recovery(context_, api_);
+    const MppPollType task_timeout =
+        static_cast<MppPollType>(kTaskTimeoutMs);
+    result = api_->poll(context_, MPP_PORT_INPUT, task_timeout);
+    if (result < MPP_OK) {
       return SetError(error, error_capacity,
-                      "MPP MJPEG packet did not provide metadata");
+                      "MPP MJPEG input task poll failed with status %d",
+                      result);
     }
-    result = mpp_meta_set_frame(metadata, KEY_OUTPUT_FRAME, output_frame_);
+
+    MppTask input_task = nullptr;
+    result = api_->dequeue(context_, MPP_PORT_INPUT, &input_task);
+    if (result != MPP_OK || !input_task) {
+      return SetError(error, error_capacity,
+                      "MPP MJPEG input task dequeue failed with status %d",
+                      result);
+    }
+    recovery.Arm();
+
+    result = mpp_task_meta_set_packet(input_task, KEY_INPUT_PACKET,
+                                      packet_owner.get());
     if (result != MPP_OK) {
-      mpp_packet_deinit(&packet);
+      api_->enqueue(context_, MPP_PORT_INPUT, input_task);
+      return SetError(error, error_capacity,
+                      "failed to attach the MPP input packet (status %d)",
+                      result);
+    }
+    result =
+        mpp_task_meta_set_frame(input_task, KEY_OUTPUT_FRAME, output_frame_);
+    if (result != MPP_OK) {
+      mpp_task_meta_set_packet(input_task, KEY_INPUT_PACKET, nullptr);
+      api_->enqueue(context_, MPP_PORT_INPUT, input_task);
       return SetError(error, error_capacity,
                       "failed to attach the MPP output frame (status %d)",
                       result);
     }
 
-    DecoderRecovery recovery(context_, api_);
-    for (int attempt = 0; attempt < kQueueAttempts; ++attempt) {
-      result = api_->decode_put_packet(context_, packet);
-      if (result == MPP_OK) {
-        recovery.Arm();
-        break;
-      }
-      if (result != MPP_NOK || attempt + 1 == kQueueAttempts) {
-        mpp_packet_deinit(&packet);
-        return SetError(error, error_capacity,
-                        "MPP MJPEG packet submission failed with status %d",
-                        result);
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    result = api_->enqueue(context_, MPP_PORT_INPUT, input_task);
+    if (result != MPP_OK) {
+      return SetError(error, error_capacity,
+                      "MPP MJPEG input task enqueue failed with status %d",
+                      result);
+    }
+
+    result = api_->poll(context_, MPP_PORT_OUTPUT, task_timeout);
+    if (result < MPP_OK) {
+      return SetError(error, error_capacity,
+                      "MPP MJPEG output task poll failed with status %d",
+                      result);
+    }
+
+    MppTask output_task = nullptr;
+    result = api_->dequeue(context_, MPP_PORT_OUTPUT, &output_task);
+    if (result != MPP_OK || !output_task) {
+      return SetError(error, error_capacity,
+                      "MPP MJPEG output task dequeue failed with status %d",
+                      result);
     }
 
     MppFrame decoded_frame = nullptr;
-    for (int attempt = 0; attempt < kFrameAttempts; ++attempt) {
-      result = api_->decode_get_frame(context_, &decoded_frame);
-      if (result == MPP_OK && decoded_frame) {
-        break;
-      }
-      if (result != MPP_OK && result != MPP_ERR_TIMEOUT) {
-        mpp_packet_deinit(&packet);
-        return SetError(error, error_capacity,
-                        "MPP MJPEG frame retrieval failed with status %d",
-                        result);
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    mpp_packet_deinit(&packet);
-
-    if (!decoded_frame) {
+    result = mpp_task_meta_get_frame(output_task, KEY_OUTPUT_FRAME,
+                                     &decoded_frame);
+    const MPP_RET output_enqueue_result =
+        api_->enqueue(context_, MPP_PORT_OUTPUT, output_task);
+    if (result != MPP_OK || !decoded_frame) {
       return SetError(error, error_capacity,
-                      "MPP MJPEG decoder produced no frame");
+                      "MPP MJPEG output task has no frame (status %d)",
+                      result);
     }
+    if (output_enqueue_result != MPP_OK) {
+      return SetError(error, error_capacity,
+                      "MPP MJPEG output task enqueue failed with status %d",
+                      output_enqueue_result);
+    }
+
+    result = api_->poll(context_, MPP_PORT_INPUT, task_timeout);
+    if (result < MPP_OK) {
+      return SetError(error, error_capacity,
+                      "MPP MJPEG completed input task poll failed with status %d",
+                      result);
+    }
+
+    input_task = nullptr;
+    result = api_->dequeue(context_, MPP_PORT_INPUT, &input_task);
+    if (result != MPP_OK || !input_task) {
+      return SetError(
+          error, error_capacity,
+          "MPP MJPEG completed input task dequeue failed with status %d",
+          result);
+    }
+
+    MppPacket returned_packet = nullptr;
+    result = mpp_task_meta_get_packet(input_task, KEY_INPUT_PACKET,
+                                      &returned_packet);
+    if (result != MPP_OK || !returned_packet) {
+      api_->enqueue(context_, MPP_PORT_INPUT, input_task);
+      return SetError(error, error_capacity,
+                      "MPP MJPEG completed task has no input packet (status %d)",
+                      result);
+    }
+    if (returned_packet != packet_owner.get()) {
+      api_->enqueue(context_, MPP_PORT_INPUT, input_task);
+      return SetError(error, error_capacity,
+                      "MPP MJPEG decoder returned an unexpected input packet");
+    }
+    packet_owner.Deinit();
+    const MPP_RET input_enqueue_result =
+        api_->enqueue(context_, MPP_PORT_INPUT, input_task);
+    if (input_enqueue_result != MPP_OK) {
+      return SetError(error, error_capacity,
+                      "MPP MJPEG input task recycle failed with status %d",
+                      input_enqueue_result);
+    }
+
     if (decoded_frame != output_frame_) {
-      mpp_frame_deinit(&decoded_frame);
       return SetError(error, error_capacity,
                       "MPP MJPEG decoder returned an unexpected output frame");
     }

@@ -18,7 +18,7 @@
   .hidden _librockchip_mpp_so_tramp_table
   .align 8
 _librockchip_mpp_so_tramp_table:
-  .zero 328
+  .zero 344
 
   .text
 
@@ -126,8 +126,8 @@ MPP_TRAMP mpp_buffer_group_put,         27, 216
 MPP_TRAMP mpp_meta_set_packet,          28, 224
 MPP_TRAMP mpp_buffer_sync_begin_f,       29, 232
 MPP_TRAMP mpp_buffer_sync_end_f,         30, 240
-MPP_TRAMP mpp_packet_get_meta,            31, 248
-MPP_TRAMP mpp_meta_set_frame,             32, 256
+MPP_TRAMP mpp_task_meta_set_packet,        31, 248
+MPP_TRAMP mpp_task_meta_set_frame,         32, 256
 MPP_TRAMP mpp_frame_get_width,            33, 264
 MPP_TRAMP mpp_frame_get_height,           34, 272
 MPP_TRAMP mpp_frame_get_hor_stride,       35, 280
@@ -136,3 +136,5 @@ MPP_TRAMP mpp_frame_get_fmt,              37, 296
 MPP_TRAMP mpp_frame_get_buffer,           38, 304
 MPP_TRAMP mpp_frame_get_errinfo,          39, 312
 MPP_TRAMP mpp_frame_get_discard,          40, 320
+MPP_TRAMP mpp_task_meta_get_packet,        41, 328
+MPP_TRAMP mpp_task_meta_get_frame,         42, 336
