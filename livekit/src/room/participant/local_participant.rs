@@ -399,6 +399,11 @@ impl LocalParticipant {
             req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
         }
 
+        if options.stereo && matches!(track, LocalTrack::Audio(_)) {
+            req.stereo = true;
+            req.audio_features.push(proto::AudioTrackFeature::TfStereo as i32);
+        }
+
         req.packet_trailer_features =
             options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
 
