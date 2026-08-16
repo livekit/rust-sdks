@@ -55,17 +55,26 @@ pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
-/// Settling delay before checking PeerConnection state on the resume path.
+/// How long a resume will accept "this transport never left `Connected`" as sufficient
+/// evidence of recovery.
 ///
-/// Lets a freshly issued ICE-restart offer/answer round-trip take effect when the
-/// underlying PC was still in `Connected` at the moment we started the reconnect
-/// (e.g. signal-only failure). Without this, the resume can return success
-/// immediately and the next failure detector then trips the engine into a real
-/// disconnect.
+/// This bounds *only* the ambiguous case. A transport that completes a renegotiation during
+/// the resume — the publisher's ICE-restart answer, or the subscriber offer sent by the node
+/// we landed on — is positive proof of a live path and is accepted immediately, so a genuine
+/// recovery never pays this cost.
+///
+/// It has to be long enough for ICE to notice a path that has silently died: libwebrtc keeps
+/// reporting `Connected` until its receiving timeout elapses. Too short and a dead transport
+/// is still claiming `Connected` when we look, which is precisely how a resume used to report
+/// success for a session that never received media again.
+///
+/// The trade-off is resume latency for a signal-only blip where the media plane was fine
+/// throughout: there is no renegotiation to short-circuit on, so it waits this long before
+/// declaring success.
 ///
 /// Only applied to the resume path. Full reconnect builds brand-new PCs which
 /// don't suffer from the "looks-Connected-but-isn't" race.
-pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(1);
+pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
@@ -1098,9 +1107,10 @@ impl EngineInner {
     /// each non-trivial seam is its own method so the sequence — and the reason
     /// for the ordering — is explicit rather than implied by statement order.
     /// Mirrors the resume chain in `livekit/specs/signalling-reconnection.allium`:
+    ///   0. sample the PC generations, before anything can perturb them;
     ///   1. reopen the signalling link (queue gate stays on until step 4);
     ///   2. SyncState before the publisher re-offer;
-    ///   3. re-offer the publisher, then await PC reconnection + settle;
+    ///   3. re-offer the publisher, then await *demonstrated* PC recovery;
     ///   4. re-check link liveness, then drain the queue.
     async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
         // Test-only: force the configured number of resume attempts to fail so tests
@@ -1129,6 +1139,12 @@ impl EngineInner {
 
         let session = self.running_handle.read().session.clone();
 
+        // 0. Sample the per-transport generations BEFORE touching the signalling link, so
+        //    that step 3 can require evidence of recovery (a completed renegotiation, or an
+        //    unbroken connection) rather than trusting `PeerConnectionState`, which keeps
+        //    reporting `Connected` for tens of seconds after the far end disappears.
+        let pc_snapshot = session.pc_generation_snapshot();
+
         // 1. Reopen the signalling link. The SignalClient stays gated
         //    (`reconnecting=true`) so queueable mutations buffer until step 4.
         let reconnect_response = session.restart().await?;
@@ -1140,7 +1156,7 @@ impl EngineInner {
         // 3. Re-offer the publisher (strictly AFTER SyncState) and wait for the
         //    PeerConnections to reconnect, applying the settle delay.
         session.restart_publisher().await?;
-        session.wait_pc_reconnected(PC_RECONNECT_SETTLE_DELAY).await?;
+        session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await?;
 
         // 4. Re-check link liveness and drain the queued mutations.
         self.resume_finalize(&session).await
