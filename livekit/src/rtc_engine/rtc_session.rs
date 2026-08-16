@@ -77,6 +77,21 @@ pub struct PcGenerationSnapshot {
 }
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long a PeerConnection may sit in `Disconnected` before it is treated as a failure.
+///
+/// `Disconnected` is not by itself a reason to reconnect: ICE reports it after a couple of
+/// seconds without incoming packets, and ordinary network disturbances — a brief handover, a
+/// congested link — resolve on their own well inside that. But it is also the *only* early
+/// signal that a transport has died: libwebrtc will not escalate to `Failed` until consent
+/// expires, tens of seconds later, and until this existed nothing acted in between. A
+/// session whose media plane had silently gone away therefore stayed "connected" and deaf
+/// for the whole consent window before anything began recovering.
+///
+/// So we start a countdown instead of reacting immediately, and act only if the transport is
+/// still not connected when it elapses. Long enough to ride out a transient blip, far short
+/// of consent expiry.
+pub const PC_DISCONNECTED_GRACE: Duration = Duration::from_secs(5);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
@@ -1585,7 +1600,9 @@ impl SessionInner {
         Ok(())
     }
 
-    async fn on_rtc_event(&self, event: RtcEvent) -> EngineResult<()> {
+    // `&Arc<Self>` rather than `&self`: a `Disconnected` transition arms a countdown that
+    // outlives this call and needs to keep the session alive while it runs.
+    async fn on_rtc_event(self: &Arc<Self>, event: RtcEvent) -> EngineResult<()> {
         match event {
             RtcEvent::IceCandidate { ice_candidate, target } => {
                 log::debug!("local ice_candidate {:?} {:?}", ice_candidate, target);
@@ -1627,6 +1644,9 @@ impl SessionInner {
                         proto::leave_request::Action::Resume,
                         false,
                     );
+                } else if state == PeerConnectionState::Disconnected {
+                    // Not actionable yet — see `PC_DISCONNECTED_GRACE`.
+                    self.arm_disconnected_grace(target);
                 }
             }
             RtcEvent::DataChannel { data_channel, target } => {
@@ -1988,6 +2008,67 @@ impl SessionInner {
         }
 
         Ok(transceiver)
+    }
+
+    /// The transport for `target`, or `None` when this session has none (there is no
+    /// separate subscriber in single-PC mode).
+    fn transport_for(&self, target: SignalTarget) -> Option<&PeerTransport> {
+        match target {
+            SignalTarget::Publisher => Some(&self.publisher_pc),
+            SignalTarget::Subscriber => self.subscriber_pc.as_ref(),
+        }
+    }
+
+    /// Start the [`PC_DISCONNECTED_GRACE`] countdown for a transport that has just entered
+    /// `Disconnected`, and escalate if it has not recovered by the time it elapses.
+    ///
+    /// The decision is deliberately made from the transport's state *when the countdown
+    /// elapses* rather than from the transition that started it: a connection that recovered
+    /// on its own — the common case for a transient disturbance — needs no cancellation
+    /// bookkeeping, it simply reads as connected and the countdown lapses silently. A
+    /// connection that flapped and is down again at that point is escalated, which is the
+    /// right call regardless of how many times it bounced in between.
+    ///
+    /// Escalation is left to the engine, which already knows how to interpret a transport
+    /// failure in context: outside a reconnect it starts one, and during a reconnect it
+    /// sticks a full-reconnect escalation onto the cycle rather than looping on resume.
+    fn arm_disconnected_grace(self: &Arc<Self>, target: SignalTarget) {
+        let Some(transport) = self.transport_for(target) else {
+            return;
+        };
+        if !transport.try_arm_disconnect_grace() {
+            return; // a countdown is already running for this transport
+        }
+
+        let session = self.clone();
+        livekit_runtime::spawn(async move {
+            livekit_runtime::sleep(PC_DISCONNECTED_GRACE).await;
+
+            let Some(transport) = session.transport_for(target) else {
+                return;
+            };
+            transport.disarm_disconnect_grace();
+
+            if session.closed.load(Ordering::Acquire) {
+                return;
+            }
+
+            let state = transport.peer_connection().connection_state();
+            if should_escalate_after_grace(state) {
+                log::warn!(
+                    "{:?} pc stayed in {:?} for {:?}; treating as a failed transport",
+                    target,
+                    state,
+                    PC_DISCONNECTED_GRACE,
+                );
+                session.on_session_disconnected(
+                    "pc_state disconnected beyond grace period",
+                    DisconnectReason::UnknownReason,
+                    proto::leave_request::Action::Resume,
+                    false,
+                );
+            }
+        });
     }
 
     /// Called when the SignalClient or one of the PeerConnection has lost the connection
@@ -2662,6 +2743,25 @@ pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<S
     dc.on_message(on_message.into());
 }
 
+/// Whether a transport that has sat out [`PC_DISCONNECTED_GRACE`] should be escalated,
+/// judged from its state at the moment the countdown elapses.
+///
+/// Split out from the timer so it can be exercised without waiting out a real countdown.
+fn should_escalate_after_grace(state: PeerConnectionState) -> bool {
+    match state {
+        // Recovered on its own — the transient disturbance this grace period absorbs.
+        PeerConnectionState::Connected => false,
+        // Torn down deliberately (close, or a full reconnect replacing this session).
+        PeerConnectionState::Closed => false,
+        // Already reported by the `Failed` branch in the connection-change handler; escalating
+        // here too would report the same failure twice.
+        PeerConnectionState::Failed => false,
+        // Still `Disconnected`, or never got back past `Connecting`, after a window a healthy
+        // blip would have recovered inside. Treat it as dead.
+        _ => true,
+    }
+}
+
 /// Whether a transport counts as recovered, split out from the transport so the rule can be
 /// exercised without a PeerConnection. See
 /// [`SessionInner::wait_pc_reconnected_with_snapshot`] for why the current state is not enough.
@@ -2726,7 +2826,44 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE};
+    use libwebrtc::prelude::PeerConnectionState;
+
+    use super::{
+        parse_sdp_max_message_size, recovery_decision, should_escalate_after_grace,
+        DEFAULT_MAX_MESSAGE_SIZE,
+    };
+
+    /// A transport still down when the grace period elapses is a dead transport, and must be
+    /// escalated rather than left until libwebrtc gets round to declaring it `Failed` after
+    /// consent expiry — which is tens of seconds of silently unusable media.
+    #[test]
+    fn transport_still_down_after_grace_is_escalated() {
+        assert!(should_escalate_after_grace(PeerConnectionState::Disconnected));
+        // Never made it back past Connecting within the window — equally dead.
+        assert!(should_escalate_after_grace(PeerConnectionState::Connecting));
+    }
+
+    /// The reason this is a countdown and not an immediate reaction: a brief `Disconnected`
+    /// during ordinary network disturbance is normal and self-healing, and tearing down the
+    /// session for one would be far worse than the disturbance.
+    #[test]
+    fn transport_that_recovered_during_grace_is_left_alone() {
+        assert!(!should_escalate_after_grace(PeerConnectionState::Connected));
+    }
+
+    /// `Failed` is reported the moment it happens, so escalating it here as well would
+    /// report the same failure twice.
+    #[test]
+    fn failed_is_not_double_reported_after_grace() {
+        assert!(!should_escalate_after_grace(PeerConnectionState::Failed));
+    }
+
+    /// A closed transport is a deliberate teardown — session close, or a full reconnect that
+    /// has replaced this session. Escalating would fight the shutdown it is observing.
+    #[test]
+    fn closed_transport_is_not_escalated_after_grace() {
+        assert!(!should_escalate_after_grace(PeerConnectionState::Closed));
+    }
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
