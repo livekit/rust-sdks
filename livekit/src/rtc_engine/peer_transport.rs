@@ -14,7 +14,10 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
 };
 
 use libwebrtc::prelude::*;
@@ -41,6 +44,21 @@ pub struct PeerTransport {
     peer_connection: PeerConnection,
     on_offer_handler: Mutex<Option<OnOfferCreated>>,
     inner: Arc<AsyncMutex<TransportInner>>,
+
+    /// Incremented every time a remote description is applied to this transport, i.e. every
+    /// time a negotiation round-trip completes (publisher answers, subscriber offers).
+    ///
+    /// Together with [`Self::disconnect_generation`] this lets a resume decide whether a
+    /// transport reporting `Connected` did so *because it recovered* or merely because
+    /// libwebrtc has not yet noticed the far end is gone. See
+    /// [`super::rtc_session::SessionInner::wait_pc_reconnected_with_snapshot`].
+    negotiation_generation: AtomicU32,
+
+    /// Incremented every time the PeerConnection leaves `Connected`.
+    ///
+    /// Distinguishes "still `Connected` because nothing ever broke" from "was `Connected`,
+    /// broke, and came back" — a level read of the connection state cannot tell them apart.
+    disconnect_generation: AtomicU32,
 }
 
 impl Debug for PeerTransport {
@@ -67,11 +85,46 @@ impl PeerTransport {
                 max_send_bitrate_bps: None,
                 pending_initial_offer: None,
             })),
+            negotiation_generation: AtomicU32::new(0),
+            disconnect_generation: AtomicU32::new(0),
         }
     }
 
     pub fn is_connected(&self) -> bool {
         self.peer_connection.connection_state() == PeerConnectionState::Connected
+    }
+
+    /// See [`Self::negotiation_generation`].
+    pub fn negotiation_generation(&self) -> u32 {
+        self.negotiation_generation.load(Ordering::Acquire)
+    }
+
+    /// See [`Self::disconnect_generation`].
+    pub fn disconnect_generation(&self) -> u32 {
+        self.disconnect_generation.load(Ordering::Acquire)
+    }
+
+    /// Mark this transport as awaiting a fresh ICE generation from the remote side.
+    ///
+    /// The subscriber never issues its own offer — the SFU does — so it has no
+    /// `create_and_send_offer(ice_restart)` call to set this flag. Without it, remote
+    /// candidates for the *new* generation that arrive before the SFU's offer are applied
+    /// against the old, dead remote description instead of being queued and replayed once
+    /// the new offer lands. Mirrors `subscriber.restartingIce = true` in client-sdk-js's
+    /// `PCTransportManager.triggerIceRestart`.
+    pub async fn mark_restarting_ice(&self) {
+        self.inner.lock().await.restarting_ice = true;
+    }
+
+    /// Record a PeerConnection state transition observed by the session.
+    ///
+    /// Called for every `RtcEvent::ConnectionChange` on this transport's target so that
+    /// leaving `Connected` is durably recorded, rather than having to be caught by whoever
+    /// happens to be polling at that instant.
+    pub fn note_connection_state(&self, state: PeerConnectionState) {
+        if state != PeerConnectionState::Connected {
+            self.disconnect_generation.fetch_add(1, Ordering::AcqRel);
+        }
     }
 
     pub fn peer_connection(&self) -> PeerConnection {
@@ -118,6 +171,15 @@ impl PeerTransport {
         }
 
         self.peer_connection.set_remote_description(remote_description).await?;
+
+        // A negotiation round-trip completed on this transport. Recorded *after* the
+        // description is applied, so the generation only advances on success.
+        //
+        // Note the rollback in `create_and_send_offer` deliberately calls
+        // `peer_connection.set_remote_description` directly rather than going through this
+        // method, so re-applying the existing remote description does not count as a fresh
+        // negotiation.
+        self.negotiation_generation.fetch_add(1, Ordering::AcqRel);
 
         for ic in inner.pending_candidates.drain(..) {
             self.peer_connection.add_ice_candidate(ic).await?;
@@ -650,6 +712,104 @@ mod tests {
             "the deferred renegotiation should emit a follow-up offer"
         );
         assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
+    }
+
+    /// The negotiation generation must advance exactly when a remote description is applied,
+    /// because the resume path treats that advance as proof that a transport re-established
+    /// against the node it landed on. If it failed to bump, a genuine recovery would be
+    /// rejected and escalate to an unnecessary full reconnect; if it bumped without a real
+    /// negotiation, a dead transport would be accepted as recovered.
+    #[tokio::test]
+    async fn negotiation_generation_advances_on_applied_remote_description() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let config = RtcConfiguration {
+            ice_servers: vec![],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+        };
+
+        let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
+        let bob_pc = factory.create_peer_connection(config).unwrap();
+        let _dc = alice_pc.create_data_channel("gen", DataChannelInit::default()).unwrap();
+
+        let transport =
+            PeerTransport::new(alice_pc, proto::SignalTarget::Publisher, /* single_pc_mode= */ true);
+
+        let offers = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let emitted = offers.clone();
+        transport.on_offer(Some(Box::new(move |offer| {
+            emitted.lock().expect("offers lock poisoned").push(offer);
+        })));
+
+        assert_eq!(transport.negotiation_generation(), 0);
+
+        // Sending an offer is not by itself a completed negotiation — nothing has come back
+        // from the far end yet, so there is no evidence of a live path.
+        transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+        assert_eq!(
+            transport.negotiation_generation(),
+            0,
+            "an unanswered offer must not count as a completed negotiation"
+        );
+
+        let offer = offers
+            .lock()
+            .expect("offers lock poisoned")
+            .first()
+            .cloned()
+            .expect("offer was not emitted");
+
+        bob_pc.set_remote_description(offer).await.unwrap();
+        let answer = bob_pc.create_answer(AnswerOptions::default()).await.unwrap();
+        bob_pc.set_local_description(answer.clone()).await.unwrap();
+
+        // Applying the answer completes the round-trip.
+        transport.set_remote_description(answer).await.unwrap();
+        assert_eq!(transport.negotiation_generation(), 1);
+    }
+
+    /// The disconnect generation records leaving `Connected` durably, so a resume polling
+    /// afterwards can still tell that the transport broke — the failure it must not miss is
+    /// a transport that dropped and returned to `Connected` between two polls.
+    #[test]
+    fn disconnect_generation_records_leaving_connected() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let pc = factory
+            .create_peer_connection(RtcConfiguration {
+                ice_servers: vec![],
+                continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+                ice_transport_type: IceTransportsType::All,
+            })
+            .unwrap();
+
+        let transport =
+            PeerTransport::new(pc, proto::SignalTarget::Subscriber, /* single_pc_mode= */ false);
+
+        assert_eq!(transport.disconnect_generation(), 0);
+
+        transport.note_connection_state(PeerConnectionState::Connected);
+        assert_eq!(
+            transport.disconnect_generation(),
+            0,
+            "staying Connected is not a disconnect"
+        );
+
+        transport.note_connection_state(PeerConnectionState::Disconnected);
+        assert_eq!(transport.disconnect_generation(), 1);
+
+        // Returning to Connected leaves the record standing: the resume must still be able
+        // to see that the transport broke.
+        transport.note_connection_state(PeerConnectionState::Connected);
+        assert_eq!(transport.disconnect_generation(), 1);
+
+        transport.note_connection_state(PeerConnectionState::Failed);
+        assert_eq!(transport.disconnect_generation(), 2);
     }
 
     #[test]
