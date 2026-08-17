@@ -61,6 +61,16 @@ pub trait IncomingDataStreamManagerDelegate: Send + Sync {
 
 #[uniffi::export]
 impl IncomingDataStreamManager {
+    /// Creates a manager that surfaces opened streams to `delegate`.
+    ///
+    /// `max_payload_byte_length` caps the decompressed size of a single incoming stream
+    /// (`None` = default, 5 GB) and is **fixed for the lifetime of the manager**. If the host
+    /// sources it from per-connection options that aren't final until connect — and can differ
+    /// between sessions of the same host object — construct a fresh manager for each session
+    /// rather than lazily memoizing one, or the first session's value is silently pinned. (Same
+    /// class of rough edge as a single room instance being `connect()`ed multiple times.)
+    /// Rebuilding is cheap and safe: dropping the manager cancels its tasks, and handler wiring
+    /// lives on the foreign side.
     #[uniffi::constructor]
     pub fn new(
         delegate: Arc<dyn IncomingDataStreamManagerDelegate>,

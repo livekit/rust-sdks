@@ -279,6 +279,10 @@ pub struct PolledIncomingDataStreamManager {
 }
 
 /// Builds an incoming manager whose opened streams are pulled rather than pushed.
+///
+/// `max_payload_byte_length` is fixed for the lifetime of the manager; see
+/// [`IncomingDataStreamManager::new`]. Hosts sourcing it from per-connection options should build
+/// a fresh manager per session rather than memoizing one.
 #[uniffi::export]
 pub fn polled_incoming_data_stream_manager(
     max_payload_byte_length: Option<u64>,
