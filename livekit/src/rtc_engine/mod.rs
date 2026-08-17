@@ -1166,6 +1166,19 @@ impl EngineInner {
         //    offer that fails before we ever wait — passes through the close below. Leaving
         //    the window open would strand every later remote candidate on a transport we may
         //    yet keep, i.e. the subscriber would silently stop adopting new network paths.
+        //
+        //    NOTE: one path does not reach the close — cancellation. `reconnect_task` runs in
+        //    a `select!` against `close_notifier` (see `reconnection_needed`), so an engine
+        //    close while we are awaiting here drops this future outright and the window stays
+        //    open. That is sound rather than merely tolerable: `close()` sets `closed`, which
+        //    is terminal — `wait_reconnection` refuses afterwards and no further resume runs —
+        //    so the flag is stranded on a transport nothing will use again.
+        //
+        //    It is also not fixable with a guard: `Drop` cannot await, and the flag lives
+        //    behind an async mutex. If the engine ever became reusable after close, or this
+        //    window came to gate anything beyond candidate buffering, the invariant would
+        //    need re-establishing on the close path (or the flag moving to an atomic that a
+        //    `Drop` guard can clear synchronously).
         session.begin_subscriber_ice_restart().await;
         let recovered = async {
             session.restart_publisher().await?;

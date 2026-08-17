@@ -132,6 +132,11 @@ impl PeerTransport {
     /// would otherwise stay set forever and every subsequent remote candidate would be
     /// buffered instead of applied — leaving the transport unable to adopt any new network
     /// path the server proposes.
+    ///
+    /// NOTE: a resume cancelled mid-flight by an engine close never reaches this, leaving the
+    /// window open. Sound today because an engine close is terminal, so the transport is never
+    /// used again; see the note in `EngineInner::try_resume_connection` for what would have to
+    /// change for that to matter.
     pub async fn finish_restarting_ice(&self) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
         if !inner.restarting_ice {
