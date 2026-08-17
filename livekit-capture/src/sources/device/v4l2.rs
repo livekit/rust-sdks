@@ -36,7 +36,10 @@ use v4l::{
     Device,
 };
 
-use super::timestamp::{elapsed_us, unix_time_us_now, validate_capture_timestamp_us};
+use super::timestamp::{
+    clock_time, elapsed_us, monotonic_timestamp_to_wallclock, select_capture_wall_time_us,
+    unix_time_us_now,
+};
 use super::{
     capture_frame_metadata, DeviceFormat, DeviceFormatRequest, DeviceFrameFormat, DeviceInfo,
     DeviceSelector, DeviceVideoSourceConfig, DeviceVideoSourceError,
@@ -914,19 +917,6 @@ fn validate_len(
     Ok(())
 }
 
-/// Selects the wall-clock capture time for a frame: the validated
-/// driver-reported timestamp when there is one, the read time otherwise.
-fn select_capture_wall_time_us(
-    backend_capture_timestamp: Option<Duration>,
-    fallback_wall_time_us: u64,
-    read_wall_time_us: u64,
-) -> u64 {
-    backend_capture_timestamp
-        .and_then(|timestamp| u64::try_from(timestamp.as_micros()).ok())
-        .and_then(|timestamp_us| validate_capture_timestamp_us(timestamp_us, read_wall_time_us))
-        .unwrap_or(fallback_wall_time_us)
-}
-
 fn i32_from_u32(value: u32, label: &'static str) -> Result<i32, DeviceVideoSourceError> {
     i32::try_from(value).map_err(|_| DeviceVideoSourceError::InvalidFrame(label))
 }
@@ -990,26 +980,6 @@ fn timestamp_to_wallclock(
         }
         V4lTimestampClock::Copy | V4lTimestampClock::Unsupported => None,
     }
-}
-
-fn monotonic_timestamp_to_wallclock(
-    frame_timestamp: Duration,
-    monotonic_now: Duration,
-    wall_now: Duration,
-) -> Option<Duration> {
-    let frame_age = monotonic_now.checked_sub(frame_timestamp)?;
-    wall_now.checked_sub(frame_age)
-}
-
-fn clock_time(clock_id: libc::clockid_t) -> Option<Duration> {
-    let mut time = libc::timespec { tv_sec: 0, tv_nsec: 0 };
-    // SAFETY: `time` is a valid out pointer and `clock_id` is supplied by libc constants.
-    let ret = unsafe { libc::clock_gettime(clock_id, &mut time) };
-    if ret != 0 || time.tv_sec < 0 || time.tv_nsec < 0 {
-        return None;
-    }
-
-    Some(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
 }
 
 #[cfg(test)]

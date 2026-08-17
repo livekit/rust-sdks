@@ -17,8 +17,37 @@
 #include "livekit/video_frame_buffer.h"
 
 #include "api/make_ref_counted.h"
+#include "livekit/dmabuf_video_frame_buffer.h"
 
 namespace livekit_ffi {
+
+namespace {
+
+// DmaBufVideoFrameBuffer subclass that keeps a Rust-owned release hook alive
+// for as long as the WebRTC pipeline references the buffer.  Destroying the
+// last scoped_refptr drops the rust::Box, which runs the Rust closure and
+// lets the producer reuse or free the underlying DMA buffer.
+class DmaBufVideoFrameBufferWithReleaseHook
+    : public livekit::DmaBufVideoFrameBuffer {
+ public:
+  DmaBufVideoFrameBufferWithReleaseHook(int dmabuf_fd,
+                                        int width,
+                                        int height,
+                                        livekit::DmaBufPixelFormat pixel_format,
+                                        rust::Box<DmaBufReleaseHook> on_release)
+      : DmaBufVideoFrameBuffer(dmabuf_fd, width, height, pixel_format),
+        on_release_(std::move(on_release)) {}
+
+  DmaBufVideoFrameBufferWithReleaseHook(
+      const DmaBufVideoFrameBufferWithReleaseHook&) = delete;
+  DmaBufVideoFrameBufferWithReleaseHook& operator=(
+      const DmaBufVideoFrameBufferWithReleaseHook&) = delete;
+
+ private:
+  rust::Box<DmaBufReleaseHook> on_release_;
+};
+
+}  // namespace
 
 VideoFrameBuffer::VideoFrameBuffer(
     webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer)
@@ -356,6 +385,31 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width,
                                             int stride_uv) {
   return std::make_unique<NV12Buffer>(
       webrtc::NV12Buffer::Create(width, height, stride_y, stride_uv));
+}
+
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
+    int32_t dmabuf_fd,
+    uint32_t width,
+    uint32_t height,
+    int32_t pixel_format,
+    rust::Box<DmaBufReleaseHook> on_release) {
+  return std::make_unique<VideoFrameBuffer>(
+      webrtc::make_ref_counted<DmaBufVideoFrameBufferWithReleaseHook>(
+          static_cast<int>(dmabuf_fd), static_cast<int>(width),
+          static_cast<int>(height),
+          static_cast<livekit::DmaBufPixelFormat>(pixel_format),
+          std::move(on_release)));
+}
+
+int32_t native_buffer_dmabuf_fd(
+    const std::unique_ptr<VideoFrameBuffer>& buffer) {
+  livekit::DmaBufVideoFrameBuffer* dmabuf =
+      livekit::DmaBufVideoFrameBuffer::FromNative(buffer->get().get());
+  return dmabuf ? dmabuf->dmabuf_fd() : -1;
+}
+
+void remove_dmabuf_surface_cache_entry(int32_t dmabuf_fd) {
+  livekit::RemoveDmaBufSurfaceCacheEntry(dmabuf_fd);
 }
 
 #ifndef __APPLE__

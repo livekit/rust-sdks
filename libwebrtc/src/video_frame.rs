@@ -571,6 +571,25 @@ pub mod native {
 
     new_buffer_type!(NativeBuffer, Native, as_native);
 
+    /// Pixel format of a DMA buffer surface.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum DmaBufPixelFormat {
+        Nv12 = 0,
+        Yuv420m = 1,
+    }
+
+    /// Drops the cached fd-to-surface mapping for a DMA buffer fd.
+    ///
+    /// Must be called for each fd previously wrapped with
+    /// [`NativeBuffer::from_dmabuf`] once the underlying DMA buffer is
+    /// destroyed: fd numbers get recycled by the OS, so a stale entry would
+    /// resolve a future fd to a dead surface.
+    #[cfg(target_os = "linux")]
+    pub fn remove_dmabuf_surface_cache_entry(dmabuf_fd: i32) {
+        vf_imp::remove_dmabuf_surface_cache_entry(dmabuf_fd)
+    }
+
     impl NativeBuffer {
         /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
         ///
@@ -589,6 +608,42 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+
+        /// Creates a `NativeBuffer` backed by a DMA buffer fd (e.g. a Jetson
+        /// NvBufSurface), enabling zero-copy hardware encoding.
+        ///
+        /// The buffer *borrows* the fd. `on_release` runs once the WebRTC
+        /// pipeline releases its last reference to the buffer; it runs on
+        /// whatever thread drops that reference (typically an encoder or
+        /// worker thread), so it must not block.
+        ///
+        /// Safety: `dmabuf_fd` must describe a valid DMA buffer of the given
+        /// dimensions and format, and the caller must keep the fd (and the
+        /// memory it describes) valid and unmodified until `on_release`
+        /// fires.
+        #[cfg(target_os = "linux")]
+        pub unsafe fn from_dmabuf(
+            dmabuf_fd: i32,
+            width: u32,
+            height: u32,
+            format: DmaBufPixelFormat,
+            on_release: impl FnOnce() + Send + 'static,
+        ) -> Self {
+            vf_imp::NativeBuffer::from_dmabuf(
+                dmabuf_fd,
+                width,
+                height,
+                format,
+                Box::new(on_release),
+            )
+        }
+
+        /// Returns the DMA buffer fd backing this buffer, or `None` if this
+        /// buffer is not dmabuf-backed.
+        #[cfg(target_os = "linux")]
+        pub fn dmabuf_fd(&self) -> Option<i32> {
+            self.handle.dmabuf_fd()
         }
     }
 

@@ -223,6 +223,26 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y,
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
 
+// Wraps a DMA buffer fd (e.g. a Jetson NvBufSurface) as a native video frame
+// buffer for zero-copy hardware encoding.  `pixel_format` follows
+// livekit::DmaBufPixelFormat (0 = NV12, 1 = YUV420M).  `on_release` is
+// dropped — firing its Rust closure — when the WebRTC pipeline releases its
+// last reference to the buffer; the fd is borrowed and must stay valid until
+// then.
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
+    int32_t dmabuf_fd,
+    uint32_t width,
+    uint32_t height,
+    int32_t pixel_format,
+    rust::Box<DmaBufReleaseHook> on_release);
+
+// Returns the DMA buffer fd backing a native buffer, or -1 if the buffer is
+// not dmabuf-backed.
+int32_t native_buffer_dmabuf_fd(const std::unique_ptr<VideoFrameBuffer>& buffer);
+
+// See livekit::RemoveDmaBufSurfaceCacheEntry.
+void remove_dmabuf_surface_cache_entry(int32_t dmabuf_fd);
+
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;
 }

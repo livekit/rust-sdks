@@ -27,6 +27,12 @@ enum class DmaBufPixelFormat {
   kYUV420M = 1,
 };
 
+// Drops the cached NvBufSurface pointer for a DMA buffer fd, if any.  Must be
+// called when the underlying DMA buffer is destroyed (e.g. on Argus session
+// teardown): fd numbers are recycled by the OS, so a stale cache entry would
+// resolve a future fd to a dead surface.  No-op without Jetson MMAPI support.
+void RemoveDmaBufSurfaceCacheEntry(int dmabuf_fd);
+
 // A VideoFrameBuffer backed by a Jetson NvBufSurface DMA file descriptor.
 // Reports Type::kNative so it flows through the standard WebRTC pipeline.
 // The encoder can detect this type and pass the fd directly to the hardware

@@ -28,6 +28,10 @@ pub mod ffi {
         NV12,
     }
 
+    extern "Rust" {
+        type DmaBufReleaseHook;
+    }
+
     unsafe extern "C++" {
         include!("livekit/video_frame_buffer.h");
 
@@ -160,6 +164,31 @@ pub mod ffi {
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
 
+        /// Wraps a DMA buffer fd as a native video frame buffer for zero-copy
+        /// hardware encoding. `pixel_format` follows
+        /// `livekit::DmaBufPixelFormat` (0 = NV12, 1 = YUV420M).
+        ///
+        /// # SAFETY
+        /// The fd is borrowed: it must describe a valid DMA buffer that stays
+        /// alive and unmodified until `on_release` is dropped, which happens
+        /// when the WebRTC pipeline releases its last reference.
+        unsafe fn new_native_buffer_from_dmabuf(
+            dmabuf_fd: i32,
+            width: u32,
+            height: u32,
+            pixel_format: i32,
+            on_release: Box<DmaBufReleaseHook>,
+        ) -> UniquePtr<VideoFrameBuffer>;
+
+        /// Returns the DMA buffer fd backing a native buffer, or -1 if the
+        /// buffer is not dmabuf-backed.
+        fn native_buffer_dmabuf_fd(buffer: &UniquePtr<VideoFrameBuffer>) -> i32;
+
+        /// Drops the cached fd-to-surface mapping for a DMA buffer fd. Must
+        /// be called when the underlying buffer is destroyed, since fd
+        /// numbers get recycled by the OS.
+        fn remove_dmabuf_surface_cache_entry(dmabuf_fd: i32);
+
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;
@@ -173,6 +202,27 @@ pub mod ffi {
         unsafe fn nv12_to_biyuv8(nv12: *const NV12Buffer) -> *const BiplanarYuv8Buffer;
 
         fn _unique_video_frame_buffer() -> UniquePtr<VideoFrameBuffer>;
+    }
+}
+
+/// Runs its closure when dropped, which the C++ side does when the WebRTC
+/// pipeline releases its last reference to the wrapping dmabuf buffer.
+///
+/// The closure runs on whatever thread drops that last reference (typically
+/// an encoder or worker thread), so it must not block.
+pub struct DmaBufReleaseHook(Option<Box<dyn FnOnce() + Send>>);
+
+impl DmaBufReleaseHook {
+    pub fn new(on_release: impl FnOnce() + Send + 'static) -> Self {
+        Self(Some(Box::new(on_release)))
+    }
+}
+
+impl Drop for DmaBufReleaseHook {
+    fn drop(&mut self) {
+        if let Some(on_release) = self.0.take() {
+            on_release();
+        }
     }
 }
 
