@@ -21,7 +21,9 @@ use livekit_protocol as proto;
 use prost::Message as _;
 use tokio::sync::oneshot;
 
-use super::common::{ClientCapability, DataStreamError, PacketDeliveryError, StreamTextOptions};
+use super::common::{
+    ClientCapability, DataStreamError, EncryptionType, PacketDeliveryError, StreamTextOptions,
+};
 use super::incoming::{
     ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
     TextStreamReader,
@@ -91,8 +93,7 @@ fn chunk_packet(identity: &str, chunk_index: u64, content: &[u8]) -> Bytes {
 
 /// Builds an encoded trailer `DataPacket` for stream `s1`.
 fn trailer_packet(identity: &str) -> Bytes {
-    let trailer =
-        proto::data_stream::Trailer { stream_id: "s1".to_string(), ..Default::default() };
+    let trailer = proto::data_stream::Trailer { stream_id: "s1".to_string(), ..Default::default() };
     let packet = proto::DataPacket {
         participant_identity: identity.to_string(),
         value: Some(proto::data_packet::Value::StreamTrailer(trailer)),
@@ -123,12 +124,41 @@ fn incoming_inline_text_stream_roundtrips() {
         let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
         let manager = IncomingDataStreamManager::new(delegate, None);
 
-        manager.handle_packet_received(inline_text_packet("alice", "my-topic", "hello world"));
+        manager.handle_packet_received(
+            inline_text_packet("alice", "my-topic", "hello world"),
+            EncryptionType::None,
+        );
 
         let (reader, identity) = rx.await.expect("a stream should open");
         assert_eq!(identity, "alice");
         assert_eq!(reader.info().topic, "my-topic");
         assert_eq!(reader.read_all().await.unwrap(), "hello world");
+    });
+}
+
+#[test]
+fn incoming_chunk_with_mismatched_encryption_errors_reader() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        // The stream is announced unencrypted, but a chunk arrives claiming GCM encryption.
+        manager.handle_packet_received(
+            multipacket_text_header_packet("alice", "my-topic", 5),
+            EncryptionType::None,
+        );
+        let (reader, _) = rx.await.expect("a stream should open");
+        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::Gcm);
+
+        let result = reader.read_all().await;
+        assert!(matches!(
+            result,
+            Err(DataStreamError::EncryptionTypeMismatch {
+                expected: EncryptionType::None,
+                received: EncryptionType::Gcm,
+            })
+        ));
     });
 }
 
@@ -154,9 +184,12 @@ fn incoming_trailer_fires_stream_closed() {
         let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
         let manager = IncomingDataStreamManager::new(delegate, None);
 
-        manager.handle_packet_received(multipacket_text_header_packet("alice", "my-topic", 5));
-        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"));
-        manager.handle_packet_received(trailer_packet("alice"));
+        manager.handle_packet_received(
+            multipacket_text_header_packet("alice", "my-topic", 5),
+            EncryptionType::None,
+        );
+        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::None);
+        manager.handle_packet_received(trailer_packet("alice"), EncryptionType::None);
 
         let (stream_id, identity) = rx.await.expect("the stream should close");
         assert_eq!(stream_id, "s1");
@@ -173,7 +206,10 @@ fn incoming_inline_stream_fires_stream_closed() {
         let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
         let manager = IncomingDataStreamManager::new(delegate, None);
 
-        manager.handle_packet_received(inline_text_packet("alice", "my-topic", "hello world"));
+        manager.handle_packet_received(
+            inline_text_packet("alice", "my-topic", "hello world"),
+            EncryptionType::None,
+        );
 
         let (stream_id, identity) = rx.await.expect("the stream should close");
         assert_eq!(stream_id, "s1");
@@ -189,7 +225,10 @@ fn incoming_abort_fires_stream_closed() {
         let manager = IncomingDataStreamManager::new(delegate, None);
 
         // Announce a multi-packet stream, then abort before its trailer ever arrives.
-        manager.handle_packet_received(multipacket_text_header_packet("alice", "my-topic", 5));
+        manager.handle_packet_received(
+            multipacket_text_header_packet("alice", "my-topic", 5),
+            EncryptionType::None,
+        );
         manager.abort_all_streams();
 
         let (stream_id, identity) = rx.await.expect("the stream should close");
@@ -300,8 +339,7 @@ fn outgoing_send_failure_propagates() {
         let delegate = Arc::new(FailingTransport::failing_after(0));
         let manager = OutgoingDataStreamManager::new(delegate, Arc::new(AllV2Registry));
 
-        let options =
-            StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
+        let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
         let result = manager.send_text("hello".to_string(), options).await;
         assert!(matches!(result, Err(DataStreamError::SendFailed)));
     });
@@ -314,8 +352,7 @@ fn outgoing_write_failure_errors_and_closes_writer() {
         let delegate = Arc::new(FailingTransport::failing_after(1));
         let manager = OutgoingDataStreamManager::new(delegate, Arc::new(AllV2Registry));
 
-        let options =
-            StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
+        let options = StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
         let writer = manager.stream_text(options).await.expect("opening the stream should work");
         assert!(writer.is_open().await);
 
@@ -385,7 +422,7 @@ async fn polled_roundtrip(
     {
         for packet in packets {
             packet_count += 1;
-            incoming.manager.handle_packet_received(packet);
+            incoming.manager.handle_packet_received(packet, EncryptionType::None);
         }
     }
 

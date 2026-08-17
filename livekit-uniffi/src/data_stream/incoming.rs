@@ -21,7 +21,9 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use super::common::{decode_data_packet, ByteStreamInfo, DataStreamError, TextStreamInfo};
+use super::common::{
+    decode_data_packet, ByteStreamInfo, DataStreamError, EncryptionType, TextStreamInfo,
+};
 use ds_api::StreamReader as _;
 
 /// Receives inbound data-stream packets and processes them on the incoming manager's actor loop,
@@ -81,8 +83,15 @@ impl IncomingDataStreamManager {
     ///
     /// Fire-and-forget: the packet is decoded and enqueued in order; processing happens on the
     /// manager's run loop. Non-data-stream or undecodable packets are ignored.
-    pub fn handle_packet_received(&self, packet: Bytes) {
-        if let Some(event) = decode_data_packet(&packet) {
+    ///
+    /// `encryption_type` is how this packet arrived on the wire, and must be passed by the host
+    /// because it cannot be recovered from the bytes: `encrypted_packet` is a member of the
+    /// `DataPacket.value` oneof, so decrypting replaces it with the decrypted stream packet.
+    /// Hosts without end-to-end encryption pass [`EncryptionType::None`]; hosts with E2EE pass
+    /// the type they decrypted with, letting the manager reject chunks whose encryption doesn't
+    /// match their stream's header ([`DataStreamError::EncryptionTypeMismatch`]).
+    pub fn handle_packet_received(&self, packet: Bytes, encryption_type: EncryptionType) {
+        if let Some(event) = decode_data_packet(&packet, encryption_type.into()) {
             let _ = self.input.send(event.into());
         }
     }

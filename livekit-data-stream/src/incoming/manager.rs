@@ -379,8 +379,12 @@ impl Manager {
             return;
         };
 
-        if descriptor.encryption_type != encryption_type.into() {
-            inner.close_stream_with_error(&id, StreamError::EncryptionTypeMismatch);
+        if descriptor.encryption_type != encryption_type {
+            let expected = descriptor.encryption_type;
+            inner.close_stream_with_error(
+                &id,
+                StreamError::EncryptionTypeMismatch { expected, received: encryption_type },
+            );
             return;
         }
 
@@ -929,7 +933,13 @@ mod tests {
                 chunk: chunk("s1", 0, vec![b'h', b'i']),
                 encryption_type: EncryptionType::Gcm,
             });
-            assert!(matches!(read_text(reader).await, Err(StreamError::EncryptionTypeMismatch)));
+            assert!(matches!(
+                read_text(reader).await,
+                Err(StreamError::EncryptionTypeMismatch {
+                    expected: EncryptionType::None,
+                    received: EncryptionType::Gcm,
+                })
+            ));
         }
 
         #[tokio::test]

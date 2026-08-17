@@ -46,6 +46,16 @@ impl From<common::EncryptionType> for EncryptionType {
     }
 }
 
+impl From<EncryptionType> for common::EncryptionType {
+    fn from(value: EncryptionType) -> Self {
+        match value {
+            EncryptionType::None => Self::None,
+            EncryptionType::Gcm => Self::Gcm,
+            EncryptionType::Custom => Self::Custom,
+        }
+    }
+}
+
 /// Operation type for text streams, mirroring [`ds_api::OperationType`].
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationType {
@@ -306,8 +316,8 @@ pub enum DataStreamError {
     #[error("internal error")]
     Internal,
 
-    #[error("encryption type mismatch")]
-    EncryptionTypeMismatch,
+    #[error("encryption type mismatch: expected {expected:?}, received {received:?}")]
+    EncryptionTypeMismatch { expected: EncryptionType, received: EncryptionType },
 
     #[error("stream header exceeds maximum size")]
     HeaderTooLarge,
@@ -361,7 +371,12 @@ impl From<ds_api::StreamError> for DataStreamError {
             ds_api::StreamError::SendFailed => Self::SendFailed,
             ds_api::StreamError::Io(error) => Self::Io { reason: error.to_string() },
             ds_api::StreamError::Internal => Self::Internal,
-            ds_api::StreamError::EncryptionTypeMismatch => Self::EncryptionTypeMismatch,
+            ds_api::StreamError::EncryptionTypeMismatch { expected, received } => {
+                Self::EncryptionTypeMismatch {
+                    expected: expected.into(),
+                    received: received.into(),
+                }
+            }
             ds_api::StreamError::HeaderTooLarge => Self::HeaderTooLarge,
             ds_api::StreamError::PayloadTooLarge => Self::PayloadTooLarge,
             ds_api::StreamError::Decompression => Self::Decompression,
@@ -376,18 +391,23 @@ impl From<ds_api::StreamError> for DataStreamError {
 /// incoming-manager input event. Returns `None` if the bytes don't decode or the packet isn't a
 /// data-stream packet.
 ///
-/// Encryption is defaulted to `None`: end-to-end encryption for data streams over this FFI is a
-/// follow-up (the foreign side is expected to hand us already-decrypted packets).
-pub(crate) fn decode_data_packet(bytes: &[u8]) -> Option<ds::incoming::PacketReceived> {
+/// The encryption type must be supplied by the caller and CANNOT be recovered from the bytes:
+/// `encrypted_packet` is a member of the `DataPacket.value` oneof, so a host decrypting E2EE
+/// traffic replaces it with the decrypted stream header/chunk/trailer — by the time these bytes
+/// arrive, the field is absent from the wire format. Hosts without E2EE pass
+/// [`common::EncryptionType::None`].
+pub(crate) fn decode_data_packet(
+    bytes: &[u8],
+    encryption_type: common::EncryptionType,
+) -> Option<ds::incoming::PacketReceived> {
     let mut packet = proto::DataPacket::decode(bytes).ok()?;
     let identity: common::ParticipantIdentity = packet.participant_identity.clone().into();
     let ds_packet = match packet.value.take()? {
-        proto::data_packet::Value::StreamHeader(header) => ds::Packet::Header {
-            header: header.into(),
-            encryption_type: common::EncryptionType::None,
-        },
+        proto::data_packet::Value::StreamHeader(header) => {
+            ds::Packet::Header { header: header.into(), encryption_type }
+        }
         proto::data_packet::Value::StreamChunk(chunk) => {
-            ds::Packet::Chunk { chunk: chunk.into(), encryption_type: common::EncryptionType::None }
+            ds::Packet::Chunk { chunk: chunk.into(), encryption_type }
         }
         proto::data_packet::Value::StreamTrailer(trailer) => ds::Packet::Trailer(trailer.into()),
         _ => return None,
