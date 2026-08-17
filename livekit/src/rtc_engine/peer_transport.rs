@@ -45,19 +45,10 @@ pub struct PeerTransport {
     on_offer_handler: Mutex<Option<OnOfferCreated>>,
     inner: Arc<AsyncMutex<TransportInner>>,
 
-    /// Incremented every time a remote description is applied to this transport, i.e. every
-    /// time a negotiation round-trip completes (publisher answers, subscriber offers).
-    ///
-    /// Together with [`Self::disconnect_generation`] this lets a resume decide whether a
-    /// transport reporting `Connected` did so *because it recovered* or merely because
-    /// libwebrtc has not yet noticed the far end is gone. See
-    /// [`super::rtc_session::SessionInner::wait_pc_reconnected_with_snapshot`].
-    negotiation_generation: AtomicU32,
+    /// Counts entries into `Connected`; see [`Self::note_connection_state`].
+    connected_generation: AtomicU32,
 
-    /// Incremented every time the PeerConnection leaves `Connected`.
-    ///
-    /// Distinguishes "still `Connected` because nothing ever broke" from "was `Connected`,
-    /// broke, and came back" — a level read of the connection state cannot tell them apart.
+    /// Counts exits from `Connected`; see [`Self::note_connection_state`].
     disconnect_generation: AtomicU32,
 }
 
@@ -85,7 +76,7 @@ impl PeerTransport {
                 max_send_bitrate_bps: None,
                 pending_initial_offer: None,
             })),
-            negotiation_generation: AtomicU32::new(0),
+            connected_generation: AtomicU32::new(0),
             disconnect_generation: AtomicU32::new(0),
         }
     }
@@ -94,78 +85,27 @@ impl PeerTransport {
         self.peer_connection.connection_state() == PeerConnectionState::Connected
     }
 
-    /// See [`Self::negotiation_generation`].
-    pub fn negotiation_generation(&self) -> u32 {
-        self.negotiation_generation.load(Ordering::Acquire)
+    pub fn connected_generation(&self) -> u32 {
+        self.connected_generation.load(Ordering::Acquire)
     }
 
-    /// See [`Self::disconnect_generation`].
     pub fn disconnect_generation(&self) -> u32 {
         self.disconnect_generation.load(Ordering::Acquire)
     }
 
-    /// Mark this transport as awaiting a fresh ICE generation from the remote side.
+    /// Record a connection-state transition, so a later observer can tell what the transport
+    /// has *done* rather than only what it currently reports.
     ///
-    /// The subscriber never issues its own offer — the SFU does — so it has no
-    /// `create_and_send_offer(ice_restart)` call to set this flag. Without it, remote
-    /// candidates for the *new* generation that arrive before the SFU's offer are applied
-    /// against the old, dead remote description instead of being queued and replayed once
-    /// the new offer lands. Mirrors `subscriber.restartingIce = true` in client-sdk-js's
-    /// `PCTransportManager.triggerIceRestart`.
-    ///
-    /// This is speculative in a way the publisher's equivalent is not: the publisher sets the
-    /// flag alongside an offer it will certainly receive an answer to, whereas here we are
-    /// only *expecting* the SFU to re-offer. It therefore MUST be paired with
-    /// [`Self::finish_restarting_ice`] to bound the window, or a resume where the SFU never
-    /// re-offers would leave the flag set for the lifetime of the transport.
-    pub async fn mark_restarting_ice(&self) {
-        self.inner.lock().await.restarting_ice = true;
-    }
-
-    /// End the window opened by [`Self::mark_restarting_ice`], applying anything that queued
-    /// while it was open.
-    ///
-    /// [`Self::set_remote_description`] already does this when the expected description
-    /// arrives, so in that case this is a no-op. It exists for the case where the expected
-    /// description never comes: the SFU only re-offers the subscriber when the resume
-    /// actually moved us to a new node, so after an ordinary signal-only resume the flag
-    /// would otherwise stay set forever and every subsequent remote candidate would be
-    /// buffered instead of applied — leaving the transport unable to adopt any new network
-    /// path the server proposes.
-    ///
-    /// NOTE: a resume cancelled mid-flight by an engine close never reaches this, leaving the
-    /// window open. Sound today because an engine close is terminal, so the transport is never
-    /// used again; see the note in `EngineInner::try_resume_connection` for what would have to
-    /// change for that to matter.
-    pub async fn finish_restarting_ice(&self) -> EngineResult<()> {
-        let mut inner = self.inner.lock().await;
-        if !inner.restarting_ice {
-            return Ok(());
-        }
-        inner.restarting_ice = false;
-
-        // No fresh description arrived, so anything queued belongs to the generation that is
-        // still current and can be applied exactly as it would have been before the resume.
-        // With no description to apply them against, leave them queued as
-        // `add_ice_candidate` itself would.
-        if self.peer_connection.current_remote_description().is_none() {
-            return Ok(());
-        }
-
-        for ic in inner.pending_candidates.drain(..) {
-            self.peer_connection.add_ice_candidate(ic).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Record a PeerConnection state transition observed by the session.
-    ///
-    /// Called for every `RtcEvent::ConnectionChange` on this transport's target so that
-    /// leaving `Connected` is durably recorded, rather than having to be caught by whoever
-    /// happens to be polling at that instant.
+    /// Both counters exist because `PeerConnectionState` is a level, and a level cannot
+    /// distinguish a transport that recovered from one whose far end vanished: ICE keeps
+    /// reporting `Connected` until its receiving timeout, and only reaches `Failed` after
+    /// consent expiry tens of seconds later. Comparing these against a snapshot taken before
+    /// a resume gives that history. Called for every `RtcEvent::ConnectionChange`, so a
+    /// transport that drops and returns between two polls is still visible as having dropped.
     pub fn note_connection_state(&self, state: PeerConnectionState) {
-        if state != PeerConnectionState::Connected {
+        if state == PeerConnectionState::Connected {
+            self.connected_generation.fetch_add(1, Ordering::AcqRel);
+        } else {
             self.disconnect_generation.fetch_add(1, Ordering::AcqRel);
         }
     }
@@ -214,15 +154,6 @@ impl PeerTransport {
         }
 
         self.peer_connection.set_remote_description(remote_description).await?;
-
-        // A negotiation round-trip completed on this transport. Recorded *after* the
-        // description is applied, so the generation only advances on success.
-        //
-        // Note the rollback in `create_and_send_offer` deliberately calls
-        // `peer_connection.set_remote_description` directly rather than going through this
-        // method, so re-applying the existing remote description does not count as a fresh
-        // negotiation.
-        self.negotiation_generation.fetch_add(1, Ordering::AcqRel);
 
         for ic in inner.pending_candidates.drain(..) {
             self.peer_connection.add_ice_candidate(ic).await?;
@@ -757,71 +688,11 @@ mod tests {
         assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
     }
 
-    /// The negotiation generation must advance exactly when a remote description is applied,
-    /// because the resume path treats that advance as proof that a transport re-established
-    /// against the node it landed on. If it failed to bump, a genuine recovery would be
-    /// rejected and escalate to an unnecessary full reconnect; if it bumped without a real
-    /// negotiation, a dead transport would be accepted as recovered.
-    #[tokio::test]
-    async fn negotiation_generation_advances_on_applied_remote_description() {
-        use libwebrtc::prelude::*;
-        use livekit_protocol as proto;
-
-        let factory = PeerConnectionFactory::default();
-        let config = RtcConfiguration {
-            ice_servers: vec![],
-            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
-            ice_transport_type: IceTransportsType::All,
-        };
-
-        let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
-        let bob_pc = factory.create_peer_connection(config).unwrap();
-        let _dc = alice_pc.create_data_channel("gen", DataChannelInit::default()).unwrap();
-
-        let transport = PeerTransport::new(
-            alice_pc,
-            proto::SignalTarget::Publisher,
-            /* single_pc_mode= */ true,
-        );
-
-        let offers = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let emitted = offers.clone();
-        transport.on_offer(Some(Box::new(move |offer| {
-            emitted.lock().expect("offers lock poisoned").push(offer);
-        })));
-
-        assert_eq!(transport.negotiation_generation(), 0);
-
-        // Sending an offer is not by itself a completed negotiation — nothing has come back
-        // from the far end yet, so there is no evidence of a live path.
-        transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
-        assert_eq!(
-            transport.negotiation_generation(),
-            0,
-            "an unanswered offer must not count as a completed negotiation"
-        );
-
-        let offer = offers
-            .lock()
-            .expect("offers lock poisoned")
-            .first()
-            .cloned()
-            .expect("offer was not emitted");
-
-        bob_pc.set_remote_description(offer).await.unwrap();
-        let answer = bob_pc.create_answer(AnswerOptions::default()).await.unwrap();
-        bob_pc.set_local_description(answer.clone()).await.unwrap();
-
-        // Applying the answer completes the round-trip.
-        transport.set_remote_description(answer).await.unwrap();
-        assert_eq!(transport.negotiation_generation(), 1);
-    }
-
-    /// The disconnect generation records leaving `Connected` durably, so a resume polling
-    /// afterwards can still tell that the transport broke — the failure it must not miss is
-    /// a transport that dropped and returned to `Connected` between two polls.
+    /// The two counters are the whole basis on which a resume decides a transport recovered,
+    /// so each transition must land on exactly one of them, and a transport that drops and
+    /// returns must leave both marks rather than looking untouched.
     #[test]
-    fn disconnect_generation_records_leaving_connected() {
+    fn connection_state_transitions_are_counted_separately() {
         use libwebrtc::prelude::*;
         use livekit_protocol as proto;
 
@@ -839,188 +710,24 @@ mod tests {
             proto::SignalTarget::Subscriber,
             /* single_pc_mode= */ false,
         );
+        let counters = || (transport.connected_generation(), transport.disconnect_generation());
 
-        assert_eq!(transport.disconnect_generation(), 0);
+        assert_eq!(counters(), (0, 0));
+
+        transport.note_connection_state(PeerConnectionState::Connecting);
+        assert_eq!(counters(), (0, 1));
 
         transport.note_connection_state(PeerConnectionState::Connected);
-        assert_eq!(transport.disconnect_generation(), 0, "staying Connected is not a disconnect");
+        assert_eq!(counters(), (1, 1));
 
+        // Dropping and returning must move both counters: a resume needs to see that it broke
+        // *and* that it came back, and a poll sampling only the current state sees neither.
         transport.note_connection_state(PeerConnectionState::Disconnected);
-        assert_eq!(transport.disconnect_generation(), 1);
-
-        // Returning to Connected leaves the record standing: the resume must still be able
-        // to see that the transport broke.
         transport.note_connection_state(PeerConnectionState::Connected);
-        assert_eq!(transport.disconnect_generation(), 1);
+        assert_eq!(counters(), (2, 2));
 
         transport.note_connection_state(PeerConnectionState::Failed);
-        assert_eq!(transport.disconnect_generation(), 2);
-    }
-
-    /// A resume marks the subscriber as awaiting a fresh offer, but the SFU only re-offers
-    /// when the resume moved the participant to another node. After the far more common
-    /// signal-only resume no offer arrives, so nothing in `set_remote_description` ever
-    /// clears the flag — and every subsequent remote candidate is buffered instead of
-    /// applied, leaving the transport unable to adopt any new network path the server
-    /// proposes for the rest of the session.
-    ///
-    /// `finish_restarting_ice` closes that window explicitly. This test drives the
-    /// no-re-offer sequence: mark, queue a candidate, finish, and assert the queue drained
-    /// and later candidates go straight through.
-    #[tokio::test]
-    async fn finishing_ice_restart_without_a_new_offer_resumes_applying_candidates() {
-        use libwebrtc::prelude::*;
-        use livekit_protocol as proto;
-
-        let factory = PeerConnectionFactory::default();
-        let config = RtcConfiguration {
-            ice_servers: vec![],
-            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
-            ice_transport_type: IceTransportsType::All,
-        };
-
-        // Stand up a subscriber-shaped transport that has a remote description, which is the
-        // state a resume finds it in.
-        let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
-        let bob_pc = factory.create_peer_connection(config).unwrap();
-        let _dc = bob_pc.create_data_channel("sub", DataChannelInit::default()).unwrap();
-
-        let transport = PeerTransport::new(
-            alice_pc,
-            proto::SignalTarget::Subscriber,
-            /* single_pc_mode= */ false,
-        );
-
-        // Bob (standing in for the SFU) offers; Alice answers. Alice now has a remote
-        // description, so candidates would normally apply immediately.
-        let offer = bob_pc.create_offer(OfferOptions::default()).await.unwrap();
-        bob_pc.set_local_description(offer.clone()).await.unwrap();
-        transport.create_anwser(offer, AnswerOptions::default()).await.unwrap();
-        assert!(transport.peer_connection().current_remote_description().is_some());
-
-        let candidate = |port| {
-            IceCandidate::parse(
-                "0",
-                0,
-                &format!("candidate:1 1 UDP 2130706431 192.168.1.1 {port} typ host"),
-            )
-            .expect("test candidate should parse")
-        };
-
-        // A resume opens the window; candidates must now queue rather than be applied to a
-        // generation that may be on its way out.
-        transport.mark_restarting_ice().await;
-        transport.add_ice_candidate(candidate(50000)).await.unwrap();
-        assert_eq!(
-            transport.inner.lock().await.pending_candidates.len(),
-            1,
-            "candidates must queue while the transport awaits a fresh offer"
-        );
-
-        // The SFU never re-offers -- the signal-only resume case. Closing the window must
-        // drain what queued behind it.
-        transport.finish_restarting_ice().await.unwrap();
-        assert!(
-            !transport.inner.lock().await.restarting_ice,
-            "the window must not outlive the resume that opened it"
-        );
-        assert!(
-            transport.inner.lock().await.pending_candidates.is_empty(),
-            "queued candidates must be applied when the window closes"
-        );
-
-        // And the transport must be back to applying candidates as they arrive, so it can
-        // still adopt new network paths the server proposes.
-        transport.add_ice_candidate(candidate(50001)).await.unwrap();
-        assert!(
-            transport.inner.lock().await.pending_candidates.is_empty(),
-            "later candidates must be applied directly, not buffered"
-        );
-    }
-
-    /// Closing a window that was never opened must not disturb a transport that is legitimately
-    /// queueing candidates because it has no remote description yet.
-    #[tokio::test]
-    async fn finishing_ice_restart_is_a_noop_when_not_restarting() {
-        use libwebrtc::prelude::*;
-        use livekit_protocol as proto;
-
-        let factory = PeerConnectionFactory::default();
-        let pc = factory
-            .create_peer_connection(RtcConfiguration {
-                ice_servers: vec![],
-                continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
-                ice_transport_type: IceTransportsType::All,
-            })
-            .unwrap();
-
-        let transport = PeerTransport::new(
-            pc,
-            proto::SignalTarget::Subscriber,
-            /* single_pc_mode= */ false,
-        );
-
-        // No remote description yet, so this candidate queues for that reason, not because of
-        // an ICE restart.
-        let candidate =
-            IceCandidate::parse("0", 0, "candidate:1 1 UDP 2130706431 192.168.1.1 50000 typ host")
-                .expect("test candidate should parse");
-        transport.add_ice_candidate(candidate).await.unwrap();
-        assert_eq!(transport.inner.lock().await.pending_candidates.len(), 1);
-
-        transport.finish_restarting_ice().await.unwrap();
-        assert_eq!(
-            transport.inner.lock().await.pending_candidates.len(),
-            1,
-            "candidates awaiting a first remote description must stay queued"
-        );
-    }
-
-    /// The window must close even when the resume did nothing else at all -- a publisher
-    /// offer that fails immediately after the window opens still has to leave the subscriber
-    /// applying candidates. Closing twice must also be harmless, since the SFU's offer may
-    /// already have closed the window before the resume gets round to it.
-    #[tokio::test]
-    async fn finishing_ice_restart_is_unconditional_and_idempotent() {
-        use libwebrtc::prelude::*;
-        use livekit_protocol as proto;
-
-        let factory = PeerConnectionFactory::default();
-        let config = RtcConfiguration {
-            ice_servers: vec![],
-            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
-            ice_transport_type: IceTransportsType::All,
-        };
-
-        let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
-        let bob_pc = factory.create_peer_connection(config).unwrap();
-        let _dc = bob_pc.create_data_channel("sub", DataChannelInit::default()).unwrap();
-
-        let transport = PeerTransport::new(
-            alice_pc,
-            proto::SignalTarget::Subscriber,
-            /* single_pc_mode= */ false,
-        );
-
-        let offer = bob_pc.create_offer(OfferOptions::default()).await.unwrap();
-        bob_pc.set_local_description(offer.clone()).await.unwrap();
-        transport.create_anwser(offer, AnswerOptions::default()).await.unwrap();
-
-        // Open the window, then close it with nothing having happened in between.
-        transport.mark_restarting_ice().await;
-        transport.finish_restarting_ice().await.unwrap();
-        assert!(!transport.inner.lock().await.restarting_ice);
-
-        // Closing again is a no-op rather than an error.
-        transport.finish_restarting_ice().await.unwrap();
-        assert!(!transport.inner.lock().await.restarting_ice);
-
-        // The transport is still usable: candidates apply rather than queue.
-        let candidate =
-            IceCandidate::parse("0", 0, "candidate:1 1 UDP 2130706431 192.168.1.1 50000 typ host")
-                .expect("test candidate should parse");
-        transport.add_ice_candidate(candidate).await.unwrap();
-        assert!(transport.inner.lock().await.pending_candidates.is_empty());
+        assert_eq!(counters(), (2, 3));
     }
 
     #[test]

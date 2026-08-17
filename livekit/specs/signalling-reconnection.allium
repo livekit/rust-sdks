@@ -224,12 +224,12 @@ config {
     reconnect_base_delay_ms: Integer = 300
     reconnect_backoff_multiplier: Integer = 2
     reconnect_max_delay_ms: Integer = 7000
-    -- How long a resume will accept "this transport never left connected" as
-    -- sufficient evidence of recovery (PC_RECONNECT_SETTLE_DELAY). Bounds only
-    -- the ambiguous case: a transport that completes a renegotiation during the
-    -- resume is accepted immediately. Must exceed ICE's receiving timeout, or a
-    -- transport whose far end is gone is still claiming connected when checked.
-    -- Resume-only; full reconnect builds new PCs.
+    -- How long a resume waits before accepting "this transport never left
+    -- connected" as evidence it is still good (PC_RECONNECT_SETTLE_DELAY).
+    -- Bounds only that ambiguous case: a transport that re-enters connected
+    -- during the resume is accepted immediately. Must exceed ICE's receiving
+    -- timeout, or a transport whose far end is gone still reads connected when
+    -- checked. Resume-only; full reconnect builds new PCs.
     pc_reconnect_settle_delay: Duration = 3.seconds
 }
 
@@ -542,14 +542,14 @@ rule ResumeAwaitsPeerConnections {
     requires: engine.status = reconnecting
     ensures: AwaitPeerConnectionsRequested(engine, settle: config.pc_reconnect_settle_delay)
     @guidance
-        -- Step 4: wait until each required PeerConnection has *demonstrably*
-        -- recovered, measured against generations sampled before the resume
-        -- began (step 0). A transport counts as recovered when it is connected
-        -- and either renegotiated since the resume started, or never left
-        -- connected for the whole settle window. Its connection state alone is
-        -- not sufficient: ICE keeps reporting connected for tens of seconds
-        -- after the far end disappears, so trusting it let a resume report
-        -- success for a transport that was already dead.
+        -- Step 4: wait until each required PeerConnection has demonstrably
+        -- reconnected, measured against the transition counts sampled before
+        -- the resume began (step 0). A transport qualifies when it is connected
+        -- and either entered connected since then, or never left it for the
+        -- whole settle window. The connection state alone is not sufficient:
+        -- ICE keeps reporting connected for tens of seconds after the far end
+        -- disappears, so trusting it let a resume report success for a
+        -- transport that was already dead.
 }
 
 rule ResumeRechecksLink {

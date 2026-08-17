@@ -55,25 +55,18 @@ pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
-/// How long a resume will accept "this transport never left `Connected`" as sufficient
-/// evidence of recovery.
+/// How long a resume waits before accepting "this transport never left `Connected`" as
+/// evidence that it is still good.
 ///
-/// This bounds *only* the ambiguous case. A transport that completes a renegotiation during
-/// the resume — the publisher's ICE-restart answer, or the subscriber offer sent by the node
-/// we landed on — is positive proof of a live path and is accepted immediately, so a genuine
-/// recovery never pays this cost.
+/// Only the ambiguous case waits: a transport that re-entered `Connected` during the resume
+/// has demonstrably reconnected and is accepted immediately. But a transport whose far end
+/// has silently gone away also still reports `Connected`, because ICE holds that state until
+/// its receiving timeout — so this has to outlast that timeout, or a dead transport is
+/// accepted as healthy.
 ///
-/// It has to be long enough for ICE to notice a path that has silently died: libwebrtc keeps
-/// reporting `Connected` until its receiving timeout elapses. Too short and a dead transport
-/// is still claiming `Connected` when we look, which is precisely how a resume used to report
-/// success for a session that never received media again.
-///
-/// The trade-off is resume latency for a signal-only blip where the media plane was fine
-/// throughout: there is no renegotiation to short-circuit on, so it waits this long before
-/// declaring success.
-///
-/// Only applied to the resume path. Full reconnect builds brand-new PCs which
-/// don't suffer from the "looks-Connected-but-isn't" race.
+/// The cost is resume latency for a signal-only failure, where the media plane was fine and
+/// there is no reconnection to short-circuit on. Resume-only; a full reconnect builds new
+/// PeerConnections and has no stale state to misread.
 pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1107,7 +1100,7 @@ impl EngineInner {
     /// each non-trivial seam is its own method so the sequence — and the reason
     /// for the ordering — is explicit rather than implied by statement order.
     /// Mirrors the resume chain in `livekit/specs/signalling-reconnection.allium`:
-    ///   0. sample the PC generations, before anything can perturb them;
+    ///   0. sample the PC transition counts, before anything can perturb them;
     ///   1. reopen the signalling link (queue gate stays on until step 4);
     ///   2. SyncState before the publisher re-offer;
     ///   3. re-offer the publisher, then await *demonstrated* PC recovery;
@@ -1139,10 +1132,9 @@ impl EngineInner {
 
         let session = self.running_handle.read().session.clone();
 
-        // 0. Sample the per-transport generations BEFORE touching the signalling link, so
-        //    that step 3 can require evidence of recovery (a completed renegotiation, or an
-        //    unbroken connection) rather than trusting `PeerConnectionState`, which keeps
-        //    reporting `Connected` for tens of seconds after the far end disappears.
+        // 0. Sample the transports' connection-state transition counts BEFORE anything can
+        //    perturb them, so step 3 can tell a transport that reconnected from one still
+        //    reporting a `Connected` that predates the failure.
         let pc_snapshot = session.pc_generation_snapshot();
 
         // 1. Reopen the signalling link. The SignalClient stays gated
@@ -1153,40 +1145,10 @@ impl EngineInner {
         //    SyncState, which must precede the publisher re-offer.
         self.resume_sync_state(reconnect_response).await;
 
-        // 3. Re-offer the publisher (strictly AFTER SyncState) and wait for the
-        //    PeerConnections to demonstrably recover.
-        //
-        //    The subscriber is held in "awaiting a fresh ICE generation" for the duration, so
-        //    remote candidates queue rather than being applied to a generation that may be on
-        //    its way out. The SFU only re-offers the subscriber when this resume moved us to
-        //    another node, so on an ordinary signal-only resume no offer is coming and nothing
-        //    else would ever close that window.
-        //
-        //    Both steps are therefore wrapped so that EVERY exit — including a publisher
-        //    offer that fails before we ever wait — passes through the close below. Leaving
-        //    the window open would strand every later remote candidate on a transport we may
-        //    yet keep, i.e. the subscriber would silently stop adopting new network paths.
-        //
-        //    NOTE: one path does not reach the close — cancellation. `reconnect_task` runs in
-        //    a `select!` against `close_notifier` (see `reconnection_needed`), so an engine
-        //    close while we are awaiting here drops this future outright and the window stays
-        //    open. That is sound rather than merely tolerable: `close()` sets `closed`, which
-        //    is terminal — `wait_reconnection` refuses afterwards and no further resume runs —
-        //    so the flag is stranded on a transport nothing will use again.
-        //
-        //    It is also not fixable with a guard: `Drop` cannot await, and the flag lives
-        //    behind an async mutex. If the engine ever became reusable after close, or this
-        //    window came to gate anything beyond candidate buffering, the invariant would
-        //    need re-establishing on the close path (or the flag moving to an atomic that a
-        //    `Drop` guard can clear synchronously).
-        session.begin_subscriber_ice_restart().await;
-        let recovered = async {
-            session.restart_publisher().await?;
-            session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await
-        }
-        .await;
-        session.finish_subscriber_ice_restart().await;
-        recovered?;
+        // 3. Re-offer the publisher (strictly AFTER SyncState), then wait for the transports
+        //    to have demonstrably reconnected rather than merely to report `Connected`.
+        session.restart_publisher().await?;
+        session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await?;
 
         // 4. Re-check link liveness and drain the queued mutations.
         self.resume_finalize(&session).await

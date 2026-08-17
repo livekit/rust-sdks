@@ -63,16 +63,16 @@ use crate::{
     DataPacketKind,
 };
 
-/// Per-transport negotiation/disconnect generations sampled at the start of a resume.
+/// Connection-state transition counts per transport, sampled before a resume begins.
 ///
-/// A resume compares against these to tell a transport that genuinely recovered from one
-/// that merely has not noticed its far end is gone yet. See
+/// A resume compares against these to tell a transport that actually reconnected from one
+/// still reporting a `Connected` that predates the failure. See
 /// [`SessionInner::wait_pc_reconnected_with_snapshot`].
 #[derive(Debug, Clone, Copy)]
 pub struct PcGenerationSnapshot {
-    publisher_negotiation: u32,
+    publisher_connected: u32,
     publisher_disconnect: u32,
-    subscriber_negotiation: u32,
+    subscriber_connected: u32,
     subscriber_disconnect: u32,
 }
 
@@ -370,12 +370,9 @@ struct SessionInner {
     fast_publish: AtomicBool,
 
     publisher_pc: PeerTransport,
-    /// `Some` exactly when [`Self::single_pc_mode`] is false; in single peer connection mode
-    /// this is None and publisher_pc handles both send/receive.
-    ///
-    /// The equivalence is load-bearing, not incidental: `wait_pc_connection_inner` reads
-    /// absence as "there is no second transport to wait for". Anything that could leave this
-    /// `None` in dual-PC mode would make a resume stop waiting on the subscriber.
+    /// `Some` exactly when [`Self::single_pc_mode`] is false, where publisher_pc handles both
+    /// send and receive. `wait_pc_connection_inner` relies on that equivalence, reading absence
+    /// as "no second transport to wait for".
     subscriber_pc: Option<PeerTransport>,
     /// Whether single peer connection mode is active
     single_pc_mode: bool,
@@ -845,25 +842,6 @@ impl RtcSession {
         self.inner.restart_publisher().await
     }
 
-    /// Open the subscriber's "awaiting a fresh ICE generation" window for the duration of a
-    /// resume, so remote candidates queue instead of being applied to a generation that may
-    /// be on its way out.
-    ///
-    /// MUST be paired with [`Self::finish_subscriber_ice_restart`] on every exit from the
-    /// resume, including failures: the SFU re-offers the subscriber only when the resume
-    /// moved us to a different node, so on the common signal-only resume nothing else ever
-    /// closes the window and the transport would stop applying candidates for good.
-    pub async fn begin_subscriber_ice_restart(&self) {
-        self.inner.begin_subscriber_ice_restart().await
-    }
-
-    /// Close the window opened by [`Self::begin_subscriber_ice_restart`], applying any
-    /// candidates that queued while it was open. Idempotent, and a no-op when the SFU's
-    /// offer already closed the window.
-    pub async fn finish_subscriber_ice_restart(&self) {
-        self.inner.finish_subscriber_ice_restart().await
-    }
-
     /// Ends the resume-time accumulation started by [`Self::restart`],
     /// returning the participant identities seen since. The post-resume
     /// snapshot arrived several round trips before the PeerConnections
@@ -886,21 +864,16 @@ impl RtcSession {
         self.inner.wait_pc_connection().await
     }
 
-    /// Sample the per-transport negotiation/disconnect generations.
-    ///
-    /// Must be taken *before* the resume touches the signalling link, so that any
-    /// renegotiation or disconnect caused by the resume is visible as a change against it.
+    /// Sample each transport's connection-state transition counts. Must be taken *before* the
+    /// resume touches the signalling link, so anything the resume causes shows up as a change.
     pub fn pc_generation_snapshot(&self) -> PcGenerationSnapshot {
         self.inner.pc_generation_snapshot()
     }
 
-    /// Wait for the PeerConnections to have demonstrably recovered on the resume path.
-    ///
-    /// Unlike [`Self::wait_pc_connection`], this requires evidence of recovery relative to
-    /// `snapshot` rather than trusting the current `PeerConnectionState`, which can still
-    /// read `Connected` for tens of seconds after the far end has gone away. `settle_delay`
-    /// bounds only the "nothing ever broke" case; a transport that renegotiates is accepted
-    /// as soon as it does. See [`SessionInner::wait_pc_reconnected_with_snapshot`].
+    /// Wait for the PeerConnections to have reconnected, judged against `snapshot` rather
+    /// than against the current `PeerConnectionState`, which stays `Connected` for tens of
+    /// seconds after a far end goes away. `settle_delay` bounds only the ambiguous
+    /// never-dropped case. See [`SessionInner::wait_pc_reconnected_with_snapshot`].
     pub async fn wait_pc_reconnected(
         &self,
         snapshot: PcGenerationSnapshot,
@@ -2277,33 +2250,17 @@ impl SessionInner {
     }
 
     fn pc_generation_snapshot(&self) -> PcGenerationSnapshot {
-        let (subscriber_negotiation, subscriber_disconnect) = self
+        let (subscriber_connected, subscriber_disconnect) = self
             .subscriber_pc
             .as_ref()
-            .map(|pc| (pc.negotiation_generation(), pc.disconnect_generation()))
+            .map(|pc| (pc.connected_generation(), pc.disconnect_generation()))
             .unwrap_or((0, 0));
 
         PcGenerationSnapshot {
-            publisher_negotiation: self.publisher_pc.negotiation_generation(),
+            publisher_connected: self.publisher_pc.connected_generation(),
             publisher_disconnect: self.publisher_pc.disconnect_generation(),
-            subscriber_negotiation,
+            subscriber_connected,
             subscriber_disconnect,
-        }
-    }
-
-    async fn finish_subscriber_ice_restart(&self) {
-        if let Some(ref sub_pc) = self.subscriber_pc {
-            // A candidate we cannot apply is not worth failing the resume over — it would
-            // escalate to a full reconnect over one bad candidate. The rest still drain.
-            if let Err(err) = sub_pc.finish_restarting_ice().await {
-                log::warn!("failed to apply queued subscriber ice candidates: {:?}", err);
-            }
-        }
-    }
-
-    async fn begin_subscriber_ice_restart(&self) {
-        if let Some(ref sub_pc) = self.subscriber_pc {
-            sub_pc.mark_restarting_ice().await;
         }
     }
 
@@ -2319,34 +2276,32 @@ impl SessionInner {
         Ok(())
     }
 
-    /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
+    /// Wait for the transports to connect, timing out after [`ICE_CONNECT_TIMEOUT`].
     ///
-    /// Used for the initial connect, where the transports start from `New` and there is no
-    /// stale state to be fooled by: reaching `Connected` at all is proof of connection.
+    /// For the initial connect, where transports start from `New`: reaching `Connected` is
+    /// itself the proof, since there is no earlier connection to confuse it with.
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.wait_pc_connection_inner(None, Duration::ZERO).await
     }
 
-    /// Resume-path wait: requires *evidence* that each transport recovered, not merely that
-    /// it currently reports `Connected`.
+    /// Wait for the transports to have *reconnected*, which a resume cannot establish by
+    /// reading `PeerConnectionState`.
     ///
-    /// A level read of `PeerConnectionState` cannot distinguish a transport that recovered
-    /// from one whose far end has gone away but which libwebrtc has not yet timed out (ICE
-    /// only leaves `Connected` after its receiving timeout, and only reaches `Failed` after
-    /// consent expiry, tens of seconds later). Accepting the level is what let a resume
-    /// report success while the subscriber was in fact dead, emitting `Resumed` — and hence
-    /// `RoomEvent::Reconnected` — for a session that never received media again.
+    /// That state is a level, and the level is identical for a transport that reconnected and
+    /// one whose far end has vanished: ICE holds `Connected` until its receiving timeout, and
+    /// only reaches `Failed` after consent expiry tens of seconds later. Trusting it let a
+    /// resume declare success while the subscriber was dead, emitting `Resumed` — and so
+    /// `RoomEvent::Reconnected` — for a session that received no further media.
     ///
-    /// Against the generation snapshot taken at the start of the resume, a transport counts
-    /// as recovered when it is `Connected` *and*:
-    ///   - its negotiation generation advanced — a fresh offer/answer completed since the
-    ///     resume began, which is positive proof of a live path (the publisher's ICE-restart
-    ///     answer; the subscriber's offer from the node we landed on); or
-    ///   - it never left `Connected` for the whole settle window — nothing broke, so the
-    ///     pre-existing connection is still good (the signal-only blip case).
+    /// So compare against the transition counts taken before the resume started. A transport
+    /// counts as reconnected when it is `Connected` *and* either:
+    ///   - it entered `Connected` since the snapshot, meaning ICE and DTLS completed on this
+    ///     attempt; or
+    ///   - it never left `Connected` for the whole settle window, so the pre-existing
+    ///     connection is still good (the signal-only failure, where media never broke).
     ///
-    /// A transport that left `Connected` and has not renegotiated since is explicitly *not*
-    /// recovered, however it reports right now.
+    /// A transport that dropped and has not reconnected since is not recovered, whatever it
+    /// reports now.
     async fn wait_pc_reconnected_with_snapshot(
         &self,
         snapshot: PcGenerationSnapshot,
@@ -2370,13 +2325,13 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                // The settle window only gates the "nothing ever broke" branch below; a
-                // transport that proves recovery by renegotiating is accepted immediately.
+                // The settle window gates only the "nothing ever broke" branch; a transport
+                // that reconnected is accepted as soon as it does.
                 let settled = started.elapsed() >= settle_delay;
 
                 let publisher_ok = Self::transport_recovered(
                     &self.publisher_pc,
-                    snapshot.as_ref().map(|s| (s.publisher_negotiation, s.publisher_disconnect)),
+                    snapshot.as_ref().map(|s| (s.publisher_connected, s.publisher_disconnect)),
                     settled,
                 );
 
@@ -2394,7 +2349,7 @@ impl SessionInner {
                         pc,
                         snapshot
                             .as_ref()
-                            .map(|s| (s.subscriber_negotiation, s.subscriber_disconnect)),
+                            .map(|s| (s.subscriber_connected, s.subscriber_disconnect)),
                         settled,
                     ),
                 };
@@ -2423,12 +2378,8 @@ impl SessionInner {
         }
     }
 
-    /// Decide whether `pc` has recovered.
-    ///
-    /// `generations` is `None` on the initial-connect path, where `Connected` is taken at
-    /// face value because there is no earlier state to confuse it with. On the resume path
-    /// it carries the `(negotiation, disconnect)` generations sampled before the resume
-    /// started. See [`Self::wait_pc_reconnected_with_snapshot`] for the rationale.
+    /// `generations` carries the `(connected, disconnect)` counts sampled before the resume,
+    /// or `None` on the initial connect. See [`Self::wait_pc_reconnected_with_snapshot`].
     fn transport_recovered(
         pc: &PeerTransport,
         generations: Option<(u32, u32)>,
@@ -2436,7 +2387,7 @@ impl SessionInner {
     ) -> bool {
         recovery_decision(
             pc.is_connected(),
-            pc.negotiation_generation(),
+            pc.connected_generation(),
             pc.disconnect_generation(),
             generations,
             settled,
@@ -2711,16 +2662,16 @@ pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<S
     dc.on_message(on_message.into());
 }
 
-/// The resume-path recovery decision, split out from the transport so it can be exercised
-/// without standing up a PeerConnection. See
-/// [`SessionInner::wait_pc_reconnected_with_snapshot`] for the reasoning behind each branch.
+/// Whether a transport counts as recovered, split out from the transport so the rule can be
+/// exercised without a PeerConnection. See
+/// [`SessionInner::wait_pc_reconnected_with_snapshot`] for why the current state is not enough.
 ///
-/// `generations` is the `(negotiation, disconnect)` pair sampled before the resume began, or
-/// `None` on the initial-connect path where `Connected` is taken at face value.
+/// `generations` is the `(connected, disconnect)` pair sampled before the resume began, or
+/// `None` on the initial connect.
 fn recovery_decision(
     connected: bool,
-    negotiation: u32,
-    disconnect: u32,
+    connected_generation: u32,
+    disconnect_generation: u32,
     generations: Option<(u32, u32)>,
     settled: bool,
 ) -> bool {
@@ -2728,22 +2679,21 @@ fn recovery_decision(
         return false;
     }
 
-    let Some((snap_negotiation, snap_disconnect)) = generations else {
+    let Some((snap_connected, snap_disconnect)) = generations else {
         return true; // initial connect: reaching Connected is the whole contract
     };
 
-    if negotiation != snap_negotiation {
-        return true; // renegotiated since the resume began — positive proof of a live path
+    if connected_generation != snap_connected {
+        return true; // entered Connected on this attempt, so ICE and DTLS completed
     }
 
-    if disconnect != snap_disconnect {
-        return false; // it broke, and has not renegotiated since; `Connected` is not trustworthy
+    if disconnect_generation != snap_disconnect {
+        return false; // dropped and not back since; the current state is stale
     }
 
-    // Never broke and never renegotiated. Most likely a signal-only failure where the media
-    // plane was fine throughout — but it is also what a not-yet-timed-out dead transport
-    // looks like, so only accept once the settle window has passed and ICE has had a chance
-    // to notice.
+    // Never dropped, never re-entered: either the media plane was fine throughout (a
+    // signal-only failure) or the far end is gone and ICE has not noticed. Indistinguishable
+    // until the settle window gives ICE time to time out.
     settled
 }
 
@@ -2778,70 +2728,62 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 mod tests {
     use super::{parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE};
 
-    /// The generations sampled at the start of a resume, for readability below.
+    /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
 
-    /// The defect this fix exists for.
-    ///
-    /// After a node failure the subscriber's PeerConnection keeps reporting `Connected`
-    /// until ICE times out, so a resume that trusts the connection state declares success
-    /// for a transport that is in fact dead — emitting `Resumed`, and hence
-    /// `RoomEvent::Reconnected` plus `ConnectionState::Connected`, for a session that never
-    /// receives media again. The transport left `Connected` at some point (recorded in the
-    /// disconnect generation) and has not renegotiated since, so it must not be accepted no
-    /// matter what it currently reports, and no matter how long we have settled for.
+    /// A subscriber left dead by a node failure keeps reporting `Connected` until ICE times
+    /// out. Accepting that reports a recovery that did not happen — `Resumed`, and so
+    /// `RoomEvent::Reconnected` with `ConnectionState::Connected`, for a session receiving no
+    /// media. The dropped-and-not-back-since history has to win over the current state, and
+    /// no amount of settling may override it.
     #[test]
-    fn stale_connected_after_a_disconnect_is_not_recovery() {
+    fn stale_connected_after_a_drop_is_not_recovery() {
         assert!(!recovery_decision(
             /* connected= */ true,
-            /* negotiation= */ 7, // unchanged: nothing renegotiated
-            /* disconnect= */ 4, // bumped: it left Connected at some point
+            /* connected_generation= */ 7, // unchanged: never re-entered Connected
+            /* disconnect_generation= */ 4, // bumped: it dropped at some point
             SNAPSHOT, /* settled= */ true,
         ));
     }
 
-    /// A completed renegotiation is positive proof of a live path, so it is accepted
-    /// immediately — a genuine recovery never waits out the settle window.
+    /// Re-entering `Connected` means ICE and DTLS completed on this attempt, so it is accepted
+    /// straight away and a real reconnection never pays the settle delay.
+    ///
+    /// Note this must be evidence of *connecting*, not of negotiating: the server sends its
+    /// subscriber offer while the old transport can still read `Connected`, so accepting a
+    /// completed negotiation here would reproduce the defect above.
     #[test]
-    fn renegotiation_is_accepted_immediately() {
+    fn reconnection_is_accepted_immediately() {
         assert!(recovery_decision(
             /* connected= */ true,
-            /* negotiation= */ 8, // the new node's offer/answer landed
-            /* disconnect= */
-            4, // it did break — irrelevant, it has since renegotiated
+            /* connected_generation= */ 8, // entered Connected since the snapshot
+            /* disconnect_generation= */ 4, // it did drop — irrelevant, it is back
             SNAPSHOT, /* settled= */ false, // still inside the settle window
         ));
     }
 
-    /// The signal-only blip: the media plane never broke, so the pre-existing connection is
-    /// still good. Accepted, but only once the settle window has given ICE a chance to
-    /// notice a path that died silently.
+    /// A signal-only failure leaves the media plane untouched, so the existing connection is
+    /// still good — but that is indistinguishable from a far end that vanished until ICE has
+    /// had time to notice.
     #[test]
-    fn unbroken_connection_is_accepted_only_after_settling() {
-        let unbroken = |settled| {
-            recovery_decision(
-                /* connected= */ true, /* negotiation= */ 7, /* disconnect= */ 3,
-                SNAPSHOT, settled,
-            )
-        };
+    fn untouched_connection_is_accepted_only_after_settling() {
+        let untouched = |settled| recovery_decision(true, 7, 3, SNAPSHOT, settled);
 
-        assert!(!unbroken(false), "must not accept before ICE could notice a dead path");
-        assert!(unbroken(true));
+        assert!(!untouched(false), "must not accept before ICE could notice a dead path");
+        assert!(untouched(true));
     }
 
-    /// A transport that is not currently connected is never recovered, whatever its
-    /// generations say.
     #[test]
-    fn disconnected_transport_is_never_recovered() {
-        for negotiation in [7, 8] {
+    fn transport_not_currently_connected_is_never_recovered() {
+        for connected_generation in [7, 8] {
             for settled in [false, true] {
-                assert!(!recovery_decision(false, negotiation, 3, SNAPSHOT, settled));
+                assert!(!recovery_decision(false, connected_generation, 3, SNAPSHOT, settled));
             }
         }
     }
 
-    /// The initial-connect path has no earlier state to be confused by, so reaching
-    /// `Connected` is the whole contract and must not be gated on renegotiation.
+    /// The initial connect has no earlier connection to confuse `Connected` with, so it is
+    /// taken at face value rather than gated on a transition.
     #[test]
     fn initial_connect_takes_connected_at_face_value() {
         assert!(recovery_decision(true, 0, 0, None, false));
