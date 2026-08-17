@@ -381,8 +381,8 @@ impl LocalParticipant {
         video_send_encodings: Option<Vec<RtpEncodingParameters>>,
     ) -> RoomResult<LocalTrackPublication> {
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
-        let audio_source_channels = match &track {
-            LocalTrack::Audio(audio_track) => Some(audio_track.rtc_source().num_channels()),
+        let audio_source = match &track {
+            LocalTrack::Audio(audio_track) => Some(audio_track.rtc_source()),
             LocalTrack::Video(_) => None,
         };
 
@@ -396,10 +396,10 @@ impl LocalParticipant {
             disable_red,
             encryption: proto::encryption::Type::from(self.local.encryption_type) as i32,
             stream: options.stream.clone(),
-            audio_features: audio_track_features(options.preconnect_buffer, audio_source_channels),
             ..Default::default()
         };
 
+        set_audio_track_features(&mut req, options.preconnect_buffer, audio_source.as_ref());
         req.packet_trailer_features =
             options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
 
@@ -1172,24 +1172,34 @@ impl LocalParticipant {
     }
 }
 
-fn audio_track_features(preconnect_buffer: bool, source_channels: Option<u32>) -> Vec<i32> {
-    let mut features = Vec::new();
-
+fn set_audio_track_features(
+    request: &mut proto::AddTrackRequest,
+    preconnect_buffer: bool,
+    source: Option<&RtcAudioSource>,
+) {
     if preconnect_buffer {
-        features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
+        request.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
     }
 
-    if source_channels.is_some_and(|channels| channels >= 2) {
-        features.push(proto::AudioTrackFeature::TfStereo as i32);
+    if source.is_some_and(|source| source.num_channels() >= 2) {
+        request.audio_features.push(proto::AudioTrackFeature::TfStereo as i32);
     }
-
-    features
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::options::FrameMetadataFeatures;
+    use libwebrtc::audio_source::{native::NativeAudioSource, AudioSourceOptions};
+
+    fn audio_publish_request(channels: u32, preconnect_buffer: bool) -> proto::AddTrackRequest {
+        let source = NativeAudioSource::new(AudioSourceOptions::default(), 48_000, channels, 100);
+        let source = RtcAudioSource::Native(source);
+        let mut request = proto::AddTrackRequest::default();
+
+        set_audio_track_features(&mut request, preconnect_buffer, Some(&source));
+        request
+    }
 
     #[test]
     fn timing_subscribers_request_video_sender_transformer_without_frame_metadata() {
@@ -1227,21 +1237,24 @@ mod tests {
 
     #[test]
     fn stereo_audio_sources_request_stereo_encoding() {
-        assert_eq!(
-            audio_track_features(false, Some(2)),
-            vec![proto::AudioTrackFeature::TfStereo as i32]
-        );
+        let request = audio_publish_request(2, false);
+
+        assert_eq!(request.audio_features, vec![proto::AudioTrackFeature::TfStereo as i32]);
     }
 
     #[test]
     fn mono_audio_sources_do_not_request_stereo_encoding() {
-        assert!(audio_track_features(false, Some(1)).is_empty());
+        let request = audio_publish_request(1, false);
+
+        assert!(request.audio_features.is_empty());
     }
 
     #[test]
     fn audio_track_features_include_preconnect_buffer_and_stereo() {
+        let request = audio_publish_request(2, true);
+
         assert_eq!(
-            audio_track_features(true, Some(2)),
+            request.audio_features,
             vec![
                 proto::AudioTrackFeature::TfPreconnectBuffer as i32,
                 proto::AudioTrackFeature::TfStereo as i32,
