@@ -2458,25 +2458,33 @@ fn is_internal_topic(topic: &str) -> bool {
     INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
 }
 
-/// Receives packets from the outgoing stream manager and send them.
+/// Receives packet batches from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
-    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>,
+    mut packet_rx: UnboundedRequestReceiver<Vec<proto::DataPacket>, Result<(), SendError>>,
     engine: Arc<RtcEngine>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
     loop {
         tokio::select! {
-            Ok((packet, responder)) = packet_rx.recv() => {
-                // A packet stamped with an explicit sender identity (impersonation, e.g. an
-                // agent attributing a stream to another participant) must be sent raw so the
-                // session doesn't overwrite the identity with the local participant's.
-                let is_raw_packet = !packet.participant_identity.is_empty();
-                // Bridge the engine error into the data-stream crate's opaque `SendError`
-                // (the crate only needs to know whether the send failed).
-                let result = engine
-                    .publish_data(packet, DataPacketKind::Reliable, is_raw_packet)
-                    .await
-                    .map_err(|_| SendError);
+            Ok((packets, responder)) = packet_rx.recv() => {
+                // The batch is acknowledged as a whole; the first failure fails the request.
+                let mut result = Ok(());
+                for packet in packets {
+                    // A packet stamped with an explicit sender identity (impersonation, e.g. an
+                    // agent attributing a stream to another participant) must be sent raw so the
+                    // session doesn't overwrite the identity with the local participant's.
+                    let is_raw_packet = !packet.participant_identity.is_empty();
+                    // Bridge the engine error into the data-stream crate's opaque `SendError`
+                    // (the crate only needs to know whether the send failed).
+                    if engine
+                        .publish_data(packet, DataPacketKind::Reliable, is_raw_packet)
+                        .await
+                        .is_err()
+                    {
+                        result = Err(SendError);
+                        break;
+                    }
+                }
                 let _ = responder.respond(result);
             },
             _ = close_rx.recv() => {

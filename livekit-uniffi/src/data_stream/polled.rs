@@ -43,6 +43,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use super::common::PacketDeliveryError;
 use super::incoming::{
     ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
     TextStreamReader,
@@ -90,12 +91,15 @@ impl OutgoingPacketQueue {
 }
 
 impl OutgoingDataStreamManagerDelegate for OutgoingPacketQueue {
-    fn on_packets_available(&self, packets: Vec<Bytes>) {
+    // Acknowledges once buffered: a pull adapter has no synchronous transport feedback, so send
+    // failures observed while draining must be handled host-side.
+    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         for packet in packets {
             if self.tx.send(packet).is_ok() {
                 warn_if_deep("outgoing packet", self.depth.fetch_add(1, Ordering::Relaxed) + 1);
             }
         }
+        Ok(())
     }
 }
 

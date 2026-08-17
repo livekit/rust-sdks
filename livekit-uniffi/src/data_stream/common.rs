@@ -322,6 +322,32 @@ pub enum DataStreamError {
     InvalidFileName,
 }
 
+/// A foreign transport failed to deliver outbound packets; thrown by hosts from
+/// [`OutgoingDataStreamManagerDelegate::on_packets_available`](super::outgoing::OutgoingDataStreamManagerDelegate::on_packets_available).
+///
+/// Morally `struct PacketDeliveryError(String)`, but uniffi error types must be enums, so the
+/// string travels as the single variant's `reason` (free-form host context: logged, not parsed).
+#[derive(uniffi::Error, thiserror::Error, Debug)]
+pub enum PacketDeliveryError {
+    #[error("failed to deliver packets: {reason}")]
+    Failed { reason: String },
+}
+
+// Required because foreign code implements delegate methods returning this error: an exception
+// that is NOT a `PacketDeliveryError` surfaces through this catch-all rather than aborting.
+impl From<uniffi::UnexpectedUniFFICallbackError> for PacketDeliveryError {
+    fn from(error: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed { reason: error.reason }
+    }
+}
+
+impl From<PacketDeliveryError> for DataStreamError {
+    fn from(error: PacketDeliveryError) -> Self {
+        log::error!("outbound packet delivery failed: {error}");
+        Self::Internal
+    }
+}
+
 impl From<ds_api::StreamError> for DataStreamError {
     fn from(error: ds_api::StreamError) -> Self {
         match error {

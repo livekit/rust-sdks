@@ -21,8 +21,8 @@ use prost::Message as _;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::common::{
-    ByteStreamInfo, ClientCapability, DataStreamError, StreamByteOptions, StreamTextOptions,
-    TextStreamInfo,
+    ByteStreamInfo, ClientCapability, DataStreamError, PacketDeliveryError, StreamByteOptions,
+    StreamTextOptions, TextStreamInfo,
 };
 use ds_api::StreamWriter as _;
 
@@ -38,8 +38,17 @@ pub struct OutgoingDataStreamManager {
 /// Delegate for receiving outbound packets from [`OutgoingDataStreamManager`].
 #[uniffi::export(with_foreign)]
 pub trait OutgoingDataStreamManagerDelegate: Send + Sync {
-    /// Encoded [`livekit_protocol::DataPacket`]s to be sent over the data channel transport.
-    fn on_packets_available(&self, packets: Vec<Bytes>);
+    /// Encoded [`livekit_protocol::DataPacket`]s to be sent over the data channel transport, in
+    /// order. One-shot sends (`send_text`/`send_bytes`) deliver their entire stream — header,
+    /// chunks, trailer — in a single call; incremental writers and `send_file` deliver one packet
+    /// per call.
+    ///
+    /// Return only once the packets have been handed to the transport: the originating
+    /// `send_*`/`write` call stays pending until then, which is what bounds how fast a producer
+    /// can enqueue. Throwing [`PacketDeliveryError`] fails that call with
+    /// [`DataStreamError::SendFailed`](super::common::DataStreamError::SendFailed) and closes the
+    /// affected stream (`is_open` becomes false for writers).
+    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError>;
 }
 
 /// Read access to remote participants' advertised protocol and capabilities, implemented by the
@@ -88,18 +97,24 @@ impl OutgoingDataStreamManager {
         let token = CancellationToken::new();
         let (manager, mut packet_rx) = ds::outgoing::Manager::new();
 
-        // Forward each outbound packet to the transport delegate and acknowledge the send. Wire
-        // send-failures are not propagated back to the originating `send_*` call for now (matches
-        // the data-track delegate); can be upgraded to a Result-returning delegate later.
+        // Forward each outbound packet batch to the transport delegate, acknowledging the send
+        // with the delegate's own result so wire failures propagate back to the originating
+        // `send_*`/`write` call (which surfaces them as `DataStreamError::SendFailed`).
         let forward_token = token.clone();
         crate::runtime::runtime().spawn(async move {
             loop {
                 tokio::select! {
                     _ = forward_token.cancelled() => break,
                     recv = packet_rx.recv() => match recv {
-                        Ok((packet, responder)) => {
-                            delegate.on_packets_available(vec![Bytes::from(packet.encode_to_vec())]);
-                            let _ = responder.respond(Ok(()));
+                        Ok((packets, responder)) => {
+                            let encoded = packets
+                                .iter()
+                                .map(|packet| Bytes::from(packet.encode_to_vec()))
+                                .collect();
+                            let result = delegate
+                                .on_packets_available(encoded)
+                                .map_err(|_| ds_api::SendError);
+                            let _ = responder.respond(result);
                         }
                         Err(_) => break,
                     }

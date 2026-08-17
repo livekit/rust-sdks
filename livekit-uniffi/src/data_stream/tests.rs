@@ -21,7 +21,7 @@ use livekit_protocol as proto;
 use prost::Message as _;
 use tokio::sync::oneshot;
 
-use super::common::{ClientCapability, StreamTextOptions};
+use super::common::{ClientCapability, DataStreamError, PacketDeliveryError, StreamTextOptions};
 use super::incoming::{
     ByteStreamReader, IncomingDataStreamManager, IncomingDataStreamManagerDelegate,
     TextStreamReader,
@@ -202,8 +202,9 @@ fn incoming_abort_fires_stream_closed() {
 struct PacketCapture(Mutex<Vec<Bytes>>);
 
 impl OutgoingDataStreamManagerDelegate for PacketCapture {
-    fn on_packets_available(&self, packets: Vec<Bytes>) {
+    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         self.0.lock().unwrap().extend(packets);
+        Ok(())
     }
 }
 
@@ -253,6 +254,92 @@ fn outgoing_all_v2_text_inlines_compressed() {
         assert_eq!(header.compression(), proto::data_stream::CompressionType::DeflateRaw);
         let inline = header.inline_content.expect("inline content should be present");
         assert_ne!(inline.as_slice(), b"hello hello compressible world", "should be compressed");
+    });
+}
+
+/// A transport delegate that accepts a fixed number of calls, then fails every subsequent one.
+struct FailingTransport(std::sync::atomic::AtomicUsize);
+
+impl FailingTransport {
+    fn failing_after(successful_calls: usize) -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(successful_calls))
+    }
+}
+
+impl OutgoingDataStreamManagerDelegate for FailingTransport {
+    fn on_packets_available(&self, _packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
+        let remaining = &self.0;
+        if remaining
+            .fetch_update(
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+                |n| n.checked_sub(1),
+            )
+            .is_ok()
+        {
+            Ok(())
+        } else {
+            Err(PacketDeliveryError::Failed { reason: "transport is down".to_string() })
+        }
+    }
+}
+
+/// Collects the batch boundaries of each delegate invocation.
+struct BatchCapture(Mutex<Vec<usize>>);
+
+impl OutgoingDataStreamManagerDelegate for BatchCapture {
+    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
+        self.0.lock().unwrap().push(packets.len());
+        Ok(())
+    }
+}
+
+#[test]
+fn outgoing_send_failure_propagates() {
+    crate::runtime::runtime().block_on(async {
+        let delegate = Arc::new(FailingTransport::failing_after(0));
+        let manager = OutgoingDataStreamManager::new(delegate, Arc::new(AllV2Registry));
+
+        let options =
+            StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
+        let result = manager.send_text("hello".to_string(), options).await;
+        assert!(matches!(result, Err(DataStreamError::SendFailed)));
+    });
+}
+
+#[test]
+fn outgoing_write_failure_errors_and_closes_writer() {
+    crate::runtime::runtime().block_on(async {
+        // Allow the header through, then fail: the failure lands on the write.
+        let delegate = Arc::new(FailingTransport::failing_after(1));
+        let manager = OutgoingDataStreamManager::new(delegate, Arc::new(AllV2Registry));
+
+        let options =
+            StreamTextOptions { topic: "chat".to_string(), ..Default::default() };
+        let writer = manager.stream_text(options).await.expect("opening the stream should work");
+        assert!(writer.is_open().await);
+
+        let result = writer.write("hello".to_string()).await;
+        assert!(matches!(result, Err(DataStreamError::SendFailed)));
+        assert!(!writer.is_open().await, "a failed send should close the stream");
+    });
+}
+
+#[test]
+fn outgoing_one_shot_send_is_a_single_delegate_call() {
+    crate::runtime::runtime().block_on(async {
+        let delegate = Arc::new(BatchCapture(Mutex::new(Vec::new())));
+        let manager = OutgoingDataStreamManager::new(delegate.clone(), Arc::new(PreV2Registry));
+
+        // 40 KB to a pre-v2 recipient: legacy framing, header + 3 chunks + trailer — the whole
+        // stream must arrive as ONE delegate call, not one call per packet.
+        let options = StreamTextOptions {
+            topic: "chat".to_string(),
+            destination_identities: vec!["bob".to_string()],
+            ..Default::default()
+        };
+        manager.send_text("A".repeat(40_000), options).await.expect("send_text should succeed");
+        assert_eq!(*delegate.0.lock().unwrap(), vec![5]);
     });
 }
 
