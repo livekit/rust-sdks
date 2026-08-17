@@ -38,8 +38,8 @@ pub struct IncomingDataStreamManager {
 
 /// Delegate for receiving output events from [`IncomingDataStreamManager`].
 ///
-/// Only stream-open events are surfaced. The manager's deprecated v1 raw chunk/trailer
-/// notifications are intentionally not forwarded over the FFI boundary.
+/// Only stream lifecycle events (opened/closed) are surfaced. The manager's deprecated v1 raw
+/// chunk/trailer notifications are intentionally not forwarded over the FFI boundary.
 #[uniffi::export(with_foreign)]
 pub trait IncomingDataStreamManagerDelegate: Send + Sync {
     /// A byte stream was opened by `identity` and is ready to be read.
@@ -47,6 +47,14 @@ pub trait IncomingDataStreamManagerDelegate: Send + Sync {
 
     /// A text stream was opened by `identity` and is ready to be read.
     fn on_text_stream_opened(&self, reader: Arc<TextStreamReader>, identity: String);
+
+    /// A previously opened stream terminated on the wire and will produce no further data: its
+    /// trailer arrived, its (single-packet) inline payload completed, it failed, or it was
+    /// aborted. Emitted exactly once per opened stream, after the corresponding open event.
+    ///
+    /// Hosts delivering streams on ordered topics use this to know when a stream's handler chain
+    /// can advance — a stream that is still open must not block streams opened after it forever.
+    fn on_stream_closed(&self, stream_id: String, identity: String);
 }
 
 #[uniffi::export]
@@ -202,6 +210,14 @@ impl DelegateForwardTask {
                         self.delegate.on_text_stream_opened(reader, identity);
                     }
                 }
+            }
+            ds::incoming::OutputEvent::StreamClosed(ds::incoming::StreamClosed {
+                stream_id,
+                participant_identity,
+                topic: _,
+            }) => {
+                self.delegate
+                    .on_stream_closed(stream_id.to_string(), participant_identity.to_string());
             }
             // Deprecated v1 raw chunk/trailer notifications are not surfaced over the FFI boundary.
             ds::incoming::OutputEvent::ChunkReceived(_)

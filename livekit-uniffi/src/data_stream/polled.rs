@@ -166,7 +166,17 @@ pub struct OpenedStream {
     pub text_reader: Option<Arc<TextStreamReader>>,
 }
 
-/// Buffers opened streams so they can be pulled instead of pushed.
+/// A stream closed by a remote participant (or terminated by an error/abort); see
+/// [`IncomingDataStreamManagerDelegate::on_stream_closed`].
+#[derive(uniffi::Record)]
+pub struct ClosedStream {
+    /// Id of the stream that closed.
+    pub stream_id: String,
+    /// Identity of the participant that opened the stream.
+    pub identity: String,
+}
+
+/// Buffers opened and closed streams so they can be pulled instead of pushed.
 ///
 /// Implements [`IncomingDataStreamManagerDelegate`] in Rust; see the module docs.
 #[derive(uniffi::Object)]
@@ -174,16 +184,23 @@ pub struct IncomingStreamQueue {
     tx: UnboundedSender<OpenedStream>,
     rx: Mutex<UnboundedReceiver<OpenedStream>>,
     depth: AtomicUsize,
+    closed_tx: UnboundedSender<ClosedStream>,
+    closed_rx: Mutex<UnboundedReceiver<ClosedStream>>,
+    closed_depth: AtomicUsize,
     shutdown: CancellationToken,
 }
 
 impl IncomingStreamQueue {
     fn new() -> Self {
         let (tx, rx) = unbounded_channel();
+        let (closed_tx, closed_rx) = unbounded_channel();
         Self {
             tx,
             rx: Mutex::new(rx),
             depth: AtomicUsize::new(0),
+            closed_tx,
+            closed_rx: Mutex::new(closed_rx),
+            closed_depth: AtomicUsize::new(0),
             shutdown: CancellationToken::new(),
         }
     }
@@ -202,6 +219,12 @@ impl IncomingDataStreamManagerDelegate for IncomingStreamQueue {
 
     fn on_text_stream_opened(&self, reader: Arc<TextStreamReader>, identity: String) {
         self.push(OpenedStream { identity, byte_reader: None, text_reader: Some(reader) });
+    }
+
+    fn on_stream_closed(&self, stream_id: String, identity: String) {
+        if self.closed_tx.send(ClosedStream { stream_id, identity }).is_ok() {
+            warn_if_deep("closed stream", self.closed_depth.fetch_add(1, Ordering::Relaxed) + 1);
+        }
     }
 }
 
@@ -222,8 +245,23 @@ impl IncomingStreamQueue {
         Some(opened)
     }
 
-    /// Wakes a pending [`Self::next_opened_stream`] with `None`. See
-    /// [`OutgoingPacketQueue::close`].
+    /// Awaits the next stream-closed notification.
+    ///
+    /// Pulled independently of [`Self::next_opened_stream`], so ordering across the two queues is
+    /// not guaranteed — correlate by `stream_id` (a close always follows its open on the push
+    /// side). Returns `None` once the manager has shut down.
+    pub async fn next_closed_stream(&self) -> Option<ClosedStream> {
+        let mut rx = self.closed_rx.lock().await;
+        let closed = tokio::select! {
+            _ = self.shutdown.cancelled() => return None,
+            received = rx.recv() => received?,
+        };
+        self.closed_depth.fetch_sub(1, Ordering::Relaxed);
+        Some(closed)
+    }
+
+    /// Wakes a pending [`Self::next_opened_stream`] or [`Self::next_closed_stream`] with `None`.
+    /// See [`OutgoingPacketQueue::close`].
     pub fn close(&self) {
         self.shutdown.cancel();
     }

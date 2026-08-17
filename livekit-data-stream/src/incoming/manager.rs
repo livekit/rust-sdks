@@ -29,7 +29,8 @@ use crate::{
 
 use super::{
     events::{
-        ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamOpened, TrailerReceived,
+        ChunkReceived, InputEvent, OutputEvent, PacketReceived, StreamClosed, StreamOpened,
+        TrailerReceived,
     },
     stream_reader::AnyStreamReader,
 };
@@ -184,15 +185,14 @@ impl ManagerInput {
 pub struct Manager {
     inner: ManagerInner,
     input_rx: UnboundedReceiver<InputEvent>,
-    output_tx: UnboundedSender<OutputEvent>,
 
     /// Max number of bytes that a data stream can contain before it is deemed to be malicious
     max_payload_byte_length: usize,
 }
 
-#[derive(Default)]
 struct ManagerInner {
     open_streams: HashMap<StreamId, Descriptor>,
+    output_tx: UnboundedSender<OutputEvent>,
 }
 
 impl Manager {
@@ -204,9 +204,8 @@ impl Manager {
         let (input_tx, input_rx) = mpsc::unbounded_channel();
         let (output_tx, output_rx) = mpsc::unbounded_channel();
         let manager = Self {
-            inner: ManagerInner::default(),
+            inner: ManagerInner { open_streams: HashMap::new(), output_tx },
             input_rx,
-            output_tx,
 
             max_payload_byte_length: max_payload_byte_length
                 .unwrap_or(DEFAULT_MAX_PAYLOAD_BYTE_LENGTH),
@@ -288,18 +287,20 @@ impl Manager {
         }
 
         let (stream_reader, chunk_tx, progress_tx) = AnyStreamReader::from(info);
-        let _ = self.output_tx.send(
+        let _ = self.inner.output_tx.send(
             StreamOpened { stream_reader, participant_identity: participant_identity.clone() }
                 .into(),
         );
 
         if bytes_total.is_some_and(|total| total > self.max_payload_byte_length as u64) {
             let _ = chunk_tx.send(Err(StreamError::PayloadTooLarge));
+            self.inner.emit_stream_closed(&id, participant_identity, topic);
             return;
         }
 
         // Inline single-packet stream: synthesize the complete content now; no chunk/trailer
-        // packets will follow, so we never register an open descriptor.
+        // packets will follow, so we never register an open descriptor. Every path below
+        // terminates the stream, so each emits `StreamClosed` (there is no trailer to do it).
         if let Some(content) = inline_content {
             let content = if is_compressed {
                 match inflate_raw(&content, self.max_payload_byte_length).await {
@@ -308,12 +309,14 @@ impl Manager {
                         // Defensive: a conforming sender never sends a compressed stream we
                         // can't read, but drop gracefully if it happens.
                         let _ = chunk_tx.send(Err(error));
+                        self.inner.emit_stream_closed(&id, participant_identity, topic);
                         return;
                     }
                 }
             } else {
                 if content.len() > self.max_payload_byte_length {
                     let _ = chunk_tx.send(Err(StreamError::PayloadTooLarge));
+                    self.inner.emit_stream_closed(&id, participant_identity, topic);
                     return;
                 }
                 content
@@ -329,6 +332,7 @@ impl Manager {
                 let _ = chunk_tx.send(Ok(Bytes::from(content)));
             }
             // Dropping `chunk_tx` closes the reader.
+            self.inner.emit_stream_closed(&id, participant_identity, topic);
             return;
         }
 
@@ -364,7 +368,7 @@ impl Manager {
         encryption_type: EncryptionType,
     ) {
         let id = chunk.stream_id.clone();
-        let _ = self.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
+        let _ = self.inner.output_tx.send(OutputEvent::ChunkReceived(ChunkReceived {
             chunk: chunk.clone(),
             participant_identity,
             topic: self.topic_associated_with_stream_id(&id),
@@ -466,7 +470,7 @@ impl Manager {
     /// Handles an incoming trailer packet.
     fn handle_trailer(&mut self, trailer: Trailer, participant_identity: ParticipantIdentity) {
         let id = trailer.stream_id.clone();
-        let _ = self.output_tx.send(
+        let _ = self.inner.output_tx.send(
             TrailerReceived {
                 trailer: trailer.clone(),
                 participant_identity,
@@ -553,12 +557,15 @@ impl ManagerInner {
 
     fn close_stream(&mut self, id: &StreamId) {
         // Dropping the sender closes the channel.
-        self.open_streams.remove(id);
+        if let Some(descriptor) = self.open_streams.remove(id) {
+            self.emit_stream_closed(id, descriptor.sender_identity, descriptor.topic);
+        }
     }
 
     fn close_stream_with_error(&mut self, id: &StreamId, error: StreamError) {
         if let Some(descriptor) = self.open_streams.remove(id) {
             let _ = descriptor.chunk_tx.send(Err(error));
+            self.emit_stream_closed(id, descriptor.sender_identity, descriptor.topic);
         }
     }
 
@@ -566,13 +573,28 @@ impl ManagerInner {
         &mut self,
         checker: impl Fn(&StreamId, &Descriptor) -> Result<(), StreamError>,
     ) {
-        self.open_streams.retain(|id, descriptor| match checker(id, &descriptor) {
+        let Self { open_streams, output_tx } = self;
+        open_streams.retain(|id, descriptor| match checker(id, &descriptor) {
             Ok(_) => true,
             Err(error) => {
                 let _ = descriptor.chunk_tx.send(Err(error));
+                let _ = output_tx.send(OutputEvent::StreamClosed(StreamClosed {
+                    stream_id: id.clone(),
+                    participant_identity: descriptor.sender_identity.clone(),
+                    topic: descriptor.topic.clone(),
+                }));
                 false
             }
         });
+    }
+
+    /// Announces that a stream previously announced via [`StreamOpened`] is terminated.
+    fn emit_stream_closed(&self, id: &StreamId, identity: ParticipantIdentity, topic: String) {
+        let _ = self.output_tx.send(OutputEvent::StreamClosed(StreamClosed {
+            stream_id: id.clone(),
+            participant_identity: identity,
+            topic,
+        }));
     }
 }
 
@@ -719,6 +741,22 @@ mod tests {
                         participant_identity,
                     }) => {
                         return (stream_reader, participant_identity);
+                    }
+                    _ => continue,
+                }
+            }
+        }
+
+        /// Awaits the next closed stream, returning its id, sender identity, and topic.
+        async fn next_closed(&mut self) -> (String, String, String) {
+            loop {
+                match self.output_rx.recv().await.expect("a stream should be closed") {
+                    OutputEvent::StreamClosed(StreamClosed {
+                        stream_id,
+                        participant_identity,
+                        topic,
+                    }) => {
+                        return (stream_id.to_string(), participant_identity.to_string(), topic);
                     }
                     _ => continue,
                 }
@@ -1528,6 +1566,106 @@ mod tests {
         }
     }
 
+    /// Every opened stream terminates with exactly one `StreamClosed`, whatever the terminal
+    /// path — hosts rely on it to sequence handler invocations for ordered topics.
+    mod stream_closed {
+        use super::*;
+
+        #[tokio::test]
+        async fn trailer_close_emits_stream_closed() {
+            let mut h = Harness::new();
+            let text = "hello world";
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(text.len() as u64),
+                    HashMap::new(),
+                    None,
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, text.as_bytes().to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert_eq!(read_text(reader).await.unwrap(), text);
+        }
+
+        #[tokio::test]
+        async fn inline_stream_emits_stream_closed() {
+            // Inline single-packet streams never receive a trailer, so the closed signal must be
+            // synthesized when the inline payload completes.
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(5),
+                    HashMap::new(),
+                    Some(b"hello".to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert_eq!(read_text(reader).await.unwrap(), "hello");
+        }
+
+        #[tokio::test]
+        async fn error_close_emits_stream_closed() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            // A chunk-index gap closes the stream with `MissedChunk`.
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 5, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert!(matches!(read_text(reader).await, Err(StreamError::MissedChunk)));
+        }
+
+        #[tokio::test]
+        async fn abort_emits_stream_closed() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            h.abort(ParticipantIdentity::from(SENDER));
+            assert_eq!(h.next_closed().await, ("s1".into(), SENDER.into(), "topic".into()));
+            assert!(matches!(read_text(reader).await, Err(StreamError::AbnormalEnd(_))));
+        }
+
+        #[tokio::test]
+        async fn trailer_for_unopened_stream_emits_no_stream_closed() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Trailer(trailer("never-opened")));
+            // A second, well-formed inline stream: if the orphan trailer had produced a closed
+            // event, it would be observed before this stream's.
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s2",
+                    Some(2),
+                    HashMap::new(),
+                    Some(b"hi".to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (closed_id, _, _) = h.next_closed().await;
+            assert_eq!(closed_id, "s2");
+        }
+    }
+
     #[tokio::test]
     async fn empty_chunks_are_ignored() {
         let mut h = Harness::new();
@@ -1632,7 +1770,7 @@ mod tests {
                     | OutputEvent::TrailerReceived(TrailerReceived { topic, .. }) => {
                         return topic;
                     }
-                    OutputEvent::StreamOpened(_) => continue,
+                    _ => continue,
                 }
             }
         }

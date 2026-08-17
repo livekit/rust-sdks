@@ -17,7 +17,7 @@ use livekit_common::ParticipantIdentity;
 
 use crate::{
     incoming::AnyStreamReader,
-    types::{Chunk, Packet, Trailer},
+    types::{Chunk, Packet, StreamId, Trailer},
 };
 
 pub struct PacketReceived {
@@ -53,6 +53,20 @@ pub struct StreamOpened {
     pub participant_identity: ParticipantIdentity,
 }
 
+/// A stream previously announced via [`StreamOpened`] has terminated and will produce no further
+/// data: its trailer arrived, its inline payload completed, it failed with an error, or it was
+/// aborted.
+///
+/// Emitted exactly once per opened stream. Hosts delivering streams on ordered topics use this to
+/// know when a stream's handler can be considered finished on the wire (a trailer alone is not
+/// enough: inline single-packet streams never receive one).
+pub struct StreamClosed {
+    pub stream_id: StreamId,
+    pub participant_identity: ParticipantIdentity,
+    /// Topic the stream was opened on.
+    pub topic: String,
+}
+
 /// A "raw chunk received" notification, which is used to trigger
 /// the deprecated [RoomEvent:::StreamChunkReceived] event.
 pub struct ChunkReceived {
@@ -82,6 +96,7 @@ pub struct TrailerReceived {
 #[derive(FromVariants)]
 pub enum OutputEvent {
     StreamOpened(StreamOpened),
+    StreamClosed(StreamClosed),
     ChunkReceived(ChunkReceived),
     TrailerReceived(TrailerReceived),
 }

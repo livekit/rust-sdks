@@ -2438,6 +2438,9 @@ async fn incoming_data_stream_task(
                         dispatcher.dispatch(&RoomEvent::StreamTrailerReceived { trailer: trailer.into(), participant_identity: participant_identity.into() });
                     }
                 }
+                // The Rust SDK observes completion through the reader itself; the explicit
+                // closed signal exists for FFI hosts sequencing handlers on ordered topics.
+                ds::incoming::OutputEvent::StreamClosed(_) => {}
             },
             _ = close_rx.recv() => {
                 _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);

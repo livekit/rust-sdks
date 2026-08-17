@@ -52,6 +52,55 @@ fn inline_text_packet(identity: &str, topic: &str, text: &str) -> Bytes {
     Bytes::from(packet.encode_to_vec())
 }
 
+/// Builds an encoded v1 multi-packet text stream header `DataPacket` (no inline content).
+fn multipacket_text_header_packet(identity: &str, topic: &str, total_length: u64) -> Bytes {
+    let header = proto::data_stream::Header {
+        stream_id: "s1".to_string(),
+        topic: topic.to_string(),
+        mime_type: "text/plain".to_string(),
+        timestamp: 0,
+        total_length: Some(total_length),
+        content_header: Some(proto::data_stream::header::ContentHeader::TextHeader(
+            proto::data_stream::TextHeader::default(),
+        )),
+        ..Default::default()
+    };
+    let packet = proto::DataPacket {
+        participant_identity: identity.to_string(),
+        value: Some(proto::data_packet::Value::StreamHeader(header)),
+        ..Default::default()
+    };
+    Bytes::from(packet.encode_to_vec())
+}
+
+/// Builds an encoded chunk `DataPacket` for stream `s1`.
+fn chunk_packet(identity: &str, chunk_index: u64, content: &[u8]) -> Bytes {
+    let chunk = proto::data_stream::Chunk {
+        stream_id: "s1".to_string(),
+        chunk_index,
+        content: content.to_vec(),
+        ..Default::default()
+    };
+    let packet = proto::DataPacket {
+        participant_identity: identity.to_string(),
+        value: Some(proto::data_packet::Value::StreamChunk(chunk)),
+        ..Default::default()
+    };
+    Bytes::from(packet.encode_to_vec())
+}
+
+/// Builds an encoded trailer `DataPacket` for stream `s1`.
+fn trailer_packet(identity: &str) -> Bytes {
+    let trailer =
+        proto::data_stream::Trailer { stream_id: "s1".to_string(), ..Default::default() };
+    let packet = proto::DataPacket {
+        participant_identity: identity.to_string(),
+        value: Some(proto::data_packet::Value::StreamTrailer(trailer)),
+        ..Default::default()
+    };
+    Bytes::from(packet.encode_to_vec())
+}
+
 /// Captures the first opened text reader.
 struct TextCapture(Mutex<Option<oneshot::Sender<(Arc<TextStreamReader>, String)>>>);
 
@@ -63,6 +112,8 @@ impl IncomingDataStreamManagerDelegate for TextCapture {
             let _ = tx.send((reader, identity));
         }
     }
+
+    fn on_stream_closed(&self, _stream_id: String, _identity: String) {}
 }
 
 #[test]
@@ -78,6 +129,72 @@ fn incoming_inline_text_stream_roundtrips() {
         assert_eq!(identity, "alice");
         assert_eq!(reader.info().topic, "my-topic");
         assert_eq!(reader.read_all().await.unwrap(), "hello world");
+    });
+}
+
+/// Captures the first stream-closed notification.
+struct ClosedCapture(Mutex<Option<oneshot::Sender<(String, String)>>>);
+
+impl IncomingDataStreamManagerDelegate for ClosedCapture {
+    fn on_byte_stream_opened(&self, _reader: Arc<ByteStreamReader>, _identity: String) {}
+
+    fn on_text_stream_opened(&self, _reader: Arc<TextStreamReader>, _identity: String) {}
+
+    fn on_stream_closed(&self, stream_id: String, identity: String) {
+        if let Some(tx) = self.0.lock().unwrap().take() {
+            let _ = tx.send((stream_id, identity));
+        }
+    }
+}
+
+#[test]
+fn incoming_trailer_fires_stream_closed() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        manager.handle_packet_received(multipacket_text_header_packet("alice", "my-topic", 5));
+        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"));
+        manager.handle_packet_received(trailer_packet("alice"));
+
+        let (stream_id, identity) = rx.await.expect("the stream should close");
+        assert_eq!(stream_id, "s1");
+        assert_eq!(identity, "alice");
+    });
+}
+
+#[test]
+fn incoming_inline_stream_fires_stream_closed() {
+    // Inline single-packet streams never receive a trailer, so the closed signal must still fire
+    // once their payload is delivered.
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        manager.handle_packet_received(inline_text_packet("alice", "my-topic", "hello world"));
+
+        let (stream_id, identity) = rx.await.expect("the stream should close");
+        assert_eq!(stream_id, "s1");
+        assert_eq!(identity, "alice");
+    });
+}
+
+#[test]
+fn incoming_abort_fires_stream_closed() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(ClosedCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        // Announce a multi-packet stream, then abort before its trailer ever arrives.
+        manager.handle_packet_received(multipacket_text_header_packet("alice", "my-topic", 5));
+        manager.abort_all_streams();
+
+        let (stream_id, identity) = rx.await.expect("the stream should close");
+        assert_eq!(stream_id, "s1");
+        assert_eq!(identity, "alice");
     });
 }
 
