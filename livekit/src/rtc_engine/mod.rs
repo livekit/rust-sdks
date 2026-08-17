@@ -1156,7 +1156,15 @@ impl EngineInner {
         // 3. Re-offer the publisher (strictly AFTER SyncState) and wait for the
         //    PeerConnections to reconnect, applying the settle delay.
         session.restart_publisher().await?;
-        session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await?;
+        let reconnected = session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await;
+
+        // The SFU re-offers the subscriber only when the resume moved us to a different
+        // node; on an ordinary signal-only resume no offer is coming, so close the window
+        // `restart_publisher` opened and apply whatever queued behind it. Done on the
+        // failure path too: leaving it open would strand every later remote candidate on a
+        // transport we may yet keep.
+        session.finish_subscriber_ice_restart().await;
+        reconnected?;
 
         // 4. Re-check link liveness and drain the queued mutations.
         self.resume_finalize(&session).await
