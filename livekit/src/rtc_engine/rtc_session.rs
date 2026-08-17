@@ -370,7 +370,12 @@ struct SessionInner {
     fast_publish: AtomicBool,
 
     publisher_pc: PeerTransport,
-    /// In single peer connection mode, this is None and publisher_pc handles both send/receive
+    /// `Some` exactly when [`Self::single_pc_mode`] is false; in single peer connection mode
+    /// this is None and publisher_pc handles both send/receive.
+    ///
+    /// The equivalence is load-bearing, not incidental: `wait_pc_connection_inner` reads
+    /// absence as "there is no second transport to wait for". Anything that could leave this
+    /// `None` in dual-PC mode would make a resume stop waiting on the subscriber.
     subscriber_pc: Option<PeerTransport>,
     /// Whether single peer connection mode is active
     single_pc_mode: bool,
@@ -2375,19 +2380,23 @@ impl SessionInner {
                     settled,
                 );
 
-                let subscriber_ok = if self.single_pc_mode || !self.subscriber_primary {
-                    true // No subscriber in single PC mode or if PC is publisher primary
-                } else {
-                    match self.subscriber_pc.as_ref() {
-                        None => true,
-                        Some(pc) => Self::transport_recovered(
-                            pc,
-                            snapshot
-                                .as_ref()
-                                .map(|s| (s.subscriber_negotiation, s.subscriber_disconnect)),
-                            settled,
-                        ),
-                    }
+                // The subscriber transport exists exactly when this is not single-PC mode
+                // (see `RtcSession::connect`), so matching on the `Option` itself states the
+                // cases without a fail-open default for a combination that cannot occur:
+                // absent means single-PC mode, where the publisher is the only transport and
+                // there is nothing else to wait for.
+                let subscriber_ok = match self.subscriber_pc.as_ref() {
+                    None => true,
+                    // Present, but a publisher-primary connection does not carry media on it,
+                    // so it is not on the critical path for this wait.
+                    Some(_) if !self.subscriber_primary => true,
+                    Some(pc) => Self::transport_recovered(
+                        pc,
+                        snapshot
+                            .as_ref()
+                            .map(|s| (s.subscriber_negotiation, s.subscriber_disconnect)),
+                        settled,
+                    ),
                 };
 
                 // In single-PC mode the publisher is the only transport, so it must always
