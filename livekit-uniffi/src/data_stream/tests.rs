@@ -162,6 +162,28 @@ fn incoming_chunk_with_mismatched_encryption_errors_reader() {
     });
 }
 
+#[test]
+fn incoming_open_stream_count_tracks_headers_and_aborts() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, _rx) = oneshot::channel();
+        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+        assert_eq!(manager.open_stream_count().await, 0);
+
+        // The count query is processed in order with the packets enqueued before it, so this
+        // waits for the (orphaned) header to register without racing the run loop — exactly what
+        // exercising the abort paths requires.
+        manager.handle_packet_received(
+            multipacket_text_header_packet("alice", "my-topic", 5),
+            EncryptionType::None,
+        );
+        assert_eq!(manager.open_stream_count().await, 1);
+
+        manager.abort_all_streams();
+        assert_eq!(manager.open_stream_count().await, 0);
+    });
+}
+
 /// Captures the first stream-closed notification.
 struct ClosedCapture(Mutex<Option<oneshot::Sender<(String, String)>>>);
 

@@ -59,7 +59,7 @@ pub trait IncomingDataStreamManagerDelegate: Send + Sync {
     fn on_stream_closed(&self, stream_id: String, identity: String);
 }
 
-#[uniffi::export]
+#[uniffi::export(async_runtime = "tokio")]
 impl IncomingDataStreamManager {
     /// Creates a manager that surfaces opened streams to `delegate`.
     ///
@@ -117,6 +117,21 @@ impl IncomingDataStreamManager {
     /// mid-send), so their readers error instead of hanging.
     pub fn abort_streams_from(&self, identity: String) {
         let _ = self.input.send(ds::incoming::InputEvent::AbortStreamsFrom(identity.into()));
+    }
+
+    /// Number of currently open incoming streams: streams announced by a header that are still
+    /// awaiting more packets. Inline (single-packet) streams complete immediately and are never
+    /// counted.
+    ///
+    /// The query runs on the manager's loop in order with previously submitted events, so a
+    /// packet or abort passed beforehand is reflected in the answer — useful in tests to wait for
+    /// a header to register (or an abort to land) without racing the run loop.
+    pub async fn open_stream_count(&self) -> u64 {
+        let (respond_to, response) = tokio::sync::oneshot::channel();
+        if self.input.send(ds::incoming::InputEvent::QueryOpenStreamCount(respond_to)).is_err() {
+            return 0;
+        }
+        response.await.unwrap_or(0) as u64
     }
 }
 

@@ -42,6 +42,11 @@ pub enum InputEvent {
     /// Abort every open stream (e.g. the local connection is going away). Unlike
     /// [`InputEvent::Shutdown`], the run loop keeps going so streams opened later are still handled.
     AbortAllStreams,
+    /// Reply with the number of currently open streams (registered by a header and awaiting more
+    /// packets). Processed in order with the other events, so the answer reflects everything
+    /// enqueued before it.
+    #[from_variants(skip)]
+    QueryOpenStreamCount(tokio::sync::oneshot::Sender<usize>),
     /// Stop the run loop.
     Shutdown,
 }

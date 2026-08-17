@@ -234,6 +234,9 @@ impl Manager {
                 }
                 InputEvent::AbortStreamsFrom(identity) => self.handle_abort(identity),
                 InputEvent::AbortAllStreams => self.handle_abort_all(),
+                InputEvent::QueryOpenStreamCount(respond_to) => {
+                    let _ = respond_to.send(self.inner.open_streams.len());
+                }
                 InputEvent::Shutdown => break,
             }
         }
@@ -734,6 +737,13 @@ mod tests {
 
         fn abort(&self, identity: ParticipantIdentity) {
             self.input.send(InputEvent::AbortStreamsFrom(identity)).unwrap();
+        }
+
+        /// Queries the number of currently open (descriptor-registered) streams.
+        async fn open_stream_count(&self) -> usize {
+            let (respond_to, response) = tokio::sync::oneshot::channel();
+            self.input.send(InputEvent::QueryOpenStreamCount(respond_to)).unwrap();
+            response.await.expect("the manager should answer the query")
         }
 
         /// Awaits the next opened stream's reader (skipping back-compat chunk/trailer outputs).
@@ -1573,6 +1583,64 @@ mod tests {
             let values = collect_progress(progress_of(&reader)).await;
             assert_progress_completes(&values, total);
             drop(reader);
+        }
+    }
+
+    /// The open-stream count reflects descriptor-registered streams, answered in order with the
+    /// events enqueued before the query — tests use it to wait for a header/abort to land.
+    mod open_stream_count {
+        use super::*;
+
+        #[tokio::test]
+        async fn counts_streams_across_their_lifecycle() {
+            let mut h = Harness::new();
+            assert_eq!(h.open_stream_count().await, 0);
+
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(5), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.open_stream_count().await, 1);
+
+            h.send_packet(Packet::Header {
+                header: text_header("s2", Some(5), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(h.open_stream_count().await, 2);
+
+            // Keep the readers alive so the streams aren't closed by reader drop.
+            let (reader1, _) = h.next_opened().await;
+            let (reader2, _) = h.next_opened().await;
+
+            h.send_packet(Packet::Chunk {
+                chunk: chunk("s1", 0, b"hello".to_vec()),
+                encryption_type: EncryptionType::None,
+            });
+            h.send_packet(Packet::Trailer(trailer("s1")));
+            assert_eq!(h.open_stream_count().await, 1);
+
+            h.abort(ParticipantIdentity::from(SENDER));
+            assert_eq!(h.open_stream_count().await, 0);
+            drop((reader1, reader2));
+        }
+
+        #[tokio::test]
+        async fn inline_streams_are_never_counted() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header(
+                    "s1",
+                    Some(5),
+                    HashMap::new(),
+                    Some(b"hello".to_vec()),
+                    CompressionType::None,
+                ),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            // The inline stream completes during header handling; no descriptor is registered.
+            assert_eq!(h.open_stream_count().await, 0);
+            assert_eq!(read_text(reader).await.unwrap(), "hello");
         }
     }
 
