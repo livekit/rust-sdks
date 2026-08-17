@@ -971,6 +971,53 @@ mod tests {
         );
     }
 
+    /// The window must close even when the resume did nothing else at all -- a publisher
+    /// offer that fails immediately after the window opens still has to leave the subscriber
+    /// applying candidates. Closing twice must also be harmless, since the SFU's offer may
+    /// already have closed the window before the resume gets round to it.
+    #[tokio::test]
+    async fn finishing_ice_restart_is_unconditional_and_idempotent() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let config = RtcConfiguration {
+            ice_servers: vec![],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+        };
+
+        let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
+        let bob_pc = factory.create_peer_connection(config).unwrap();
+        let _dc = bob_pc.create_data_channel("sub", DataChannelInit::default()).unwrap();
+
+        let transport = PeerTransport::new(
+            alice_pc,
+            proto::SignalTarget::Subscriber,
+            /* single_pc_mode= */ false,
+        );
+
+        let offer = bob_pc.create_offer(OfferOptions::default()).await.unwrap();
+        bob_pc.set_local_description(offer.clone()).await.unwrap();
+        transport.create_anwser(offer, AnswerOptions::default()).await.unwrap();
+
+        // Open the window, then close it with nothing having happened in between.
+        transport.mark_restarting_ice().await;
+        transport.finish_restarting_ice().await.unwrap();
+        assert!(!transport.inner.lock().await.restarting_ice);
+
+        // Closing again is a no-op rather than an error.
+        transport.finish_restarting_ice().await.unwrap();
+        assert!(!transport.inner.lock().await.restarting_ice);
+
+        // The transport is still usable: candidates apply rather than queue.
+        let candidate =
+            IceCandidate::parse("0", 0, "candidate:1 1 UDP 2130706431 192.168.1.1 50000 typ host")
+                .expect("test candidate should parse");
+        transport.add_ice_candidate(candidate).await.unwrap();
+        assert!(transport.inner.lock().await.pending_candidates.is_empty());
+    }
+
     #[test]
     fn no_video_codec_is_noop() {
         // Audio-only SDP should not be modified

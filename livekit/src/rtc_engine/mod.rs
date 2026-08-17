@@ -1154,17 +1154,26 @@ impl EngineInner {
         self.resume_sync_state(reconnect_response).await;
 
         // 3. Re-offer the publisher (strictly AFTER SyncState) and wait for the
-        //    PeerConnections to reconnect, applying the settle delay.
-        session.restart_publisher().await?;
-        let reconnected = session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await;
-
-        // The SFU re-offers the subscriber only when the resume moved us to a different
-        // node; on an ordinary signal-only resume no offer is coming, so close the window
-        // `restart_publisher` opened and apply whatever queued behind it. Done on the
-        // failure path too: leaving it open would strand every later remote candidate on a
-        // transport we may yet keep.
+        //    PeerConnections to demonstrably recover.
+        //
+        //    The subscriber is held in "awaiting a fresh ICE generation" for the duration, so
+        //    remote candidates queue rather than being applied to a generation that may be on
+        //    its way out. The SFU only re-offers the subscriber when this resume moved us to
+        //    another node, so on an ordinary signal-only resume no offer is coming and nothing
+        //    else would ever close that window.
+        //
+        //    Both steps are therefore wrapped so that EVERY exit — including a publisher
+        //    offer that fails before we ever wait — passes through the close below. Leaving
+        //    the window open would strand every later remote candidate on a transport we may
+        //    yet keep, i.e. the subscriber would silently stop adopting new network paths.
+        session.begin_subscriber_ice_restart().await;
+        let recovered = async {
+            session.restart_publisher().await?;
+            session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await
+        }
+        .await;
         session.finish_subscriber_ice_restart().await;
-        reconnected?;
+        recovered?;
 
         // 4. Re-check link liveness and drain the queued mutations.
         self.resume_finalize(&session).await

@@ -840,12 +840,21 @@ impl RtcSession {
         self.inner.restart_publisher().await
     }
 
-    /// Close the subscriber's "awaiting a fresh offer" window opened by
-    /// [`Self::restart_publisher`], applying any candidates that queued while it was open.
+    /// Open the subscriber's "awaiting a fresh ICE generation" window for the duration of a
+    /// resume, so remote candidates queue instead of being applied to a generation that may
+    /// be on its way out.
     ///
-    /// Must be called once the resume can no longer expect an offer from the SFU — it only
-    /// re-offers the subscriber when the resume moved us to a different node, so on the
-    /// common signal-only resume nothing else would ever close the window.
+    /// MUST be paired with [`Self::finish_subscriber_ice_restart`] on every exit from the
+    /// resume, including failures: the SFU re-offers the subscriber only when the resume
+    /// moved us to a different node, so on the common signal-only resume nothing else ever
+    /// closes the window and the transport would stop applying candidates for good.
+    pub async fn begin_subscriber_ice_restart(&self) {
+        self.inner.begin_subscriber_ice_restart().await
+    }
+
+    /// Close the window opened by [`Self::begin_subscriber_ice_restart`], applying any
+    /// candidates that queued while it was open. Idempotent, and a no-op when the SFU's
+    /// offer already closed the window.
     pub async fn finish_subscriber_ice_restart(&self) {
         self.inner.finish_subscriber_ice_restart().await
     }
@@ -2287,15 +2296,13 @@ impl SessionInner {
         }
     }
 
-    async fn restart_publisher(&self) -> EngineResult<()> {
-        // The SFU restarts the subscriber's ICE and sends us a fresh offer *if* this resume
-        // moved us to another node. Queue remote candidates until we know, rather than
-        // applying them to a generation that may be on its way out. Closed by
-        // `finish_subscriber_ice_restart` once the resume can no longer expect that offer.
+    async fn begin_subscriber_ice_restart(&self) {
         if let Some(ref sub_pc) = self.subscriber_pc {
             sub_pc.mark_restarting_ice().await;
         }
+    }
 
+    async fn restart_publisher(&self) -> EngineResult<()> {
         // In single-PC mode the publisher is the only transport, so always restart its ICE
         // even if the user hasn't explicitly published a track yet. Otherwise only restart
         // when we have something to keep alive on the publisher side.
