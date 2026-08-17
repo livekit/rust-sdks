@@ -840,6 +840,16 @@ impl RtcSession {
         self.inner.restart_publisher().await
     }
 
+    /// Close the subscriber's "awaiting a fresh offer" window opened by
+    /// [`Self::restart_publisher`], applying any candidates that queued while it was open.
+    ///
+    /// Must be called once the resume can no longer expect an offer from the SFU — it only
+    /// re-offers the subscriber when the resume moved us to a different node, so on the
+    /// common signal-only resume nothing else would ever close the window.
+    pub async fn finish_subscriber_ice_restart(&self) {
+        self.inner.finish_subscriber_ice_restart().await
+    }
+
     /// Ends the resume-time accumulation started by [`Self::restart`],
     /// returning the participant identities seen since. The post-resume
     /// snapshot arrived several round trips before the PeerConnections
@@ -2267,10 +2277,21 @@ impl SessionInner {
         }
     }
 
+    async fn finish_subscriber_ice_restart(&self) {
+        if let Some(ref sub_pc) = self.subscriber_pc {
+            // A candidate we cannot apply is not worth failing the resume over — it would
+            // escalate to a full reconnect over one bad candidate. The rest still drain.
+            if let Err(err) = sub_pc.finish_restarting_ice().await {
+                log::warn!("failed to apply queued subscriber ice candidates: {:?}", err);
+            }
+        }
+    }
+
     async fn restart_publisher(&self) -> EngineResult<()> {
-        // The subscriber's ICE is restarted by the SFU, which will send us a fresh offer.
-        // Queue any remote candidates until it arrives rather than applying them to the
-        // outgoing generation.
+        // The SFU restarts the subscriber's ICE and sends us a fresh offer *if* this resume
+        // moved us to another node. Queue remote candidates until we know, rather than
+        // applying them to a generation that may be on its way out. Closed by
+        // `finish_subscriber_ice_restart` once the resume can no longer expect that offer.
         if let Some(ref sub_pc) = self.subscriber_pc {
             sub_pc.mark_restarting_ice().await;
         }
@@ -2758,9 +2779,8 @@ mod tests {
         assert!(!recovery_decision(
             /* connected= */ true,
             /* negotiation= */ 7, // unchanged: nothing renegotiated
-            /* disconnect= */ 4,  // bumped: it left Connected at some point
-            SNAPSHOT,
-            /* settled= */ true,
+            /* disconnect= */ 4, // bumped: it left Connected at some point
+            SNAPSHOT, /* settled= */ true,
         ));
     }
 
@@ -2771,9 +2791,9 @@ mod tests {
         assert!(recovery_decision(
             /* connected= */ true,
             /* negotiation= */ 8, // the new node's offer/answer landed
-            /* disconnect= */ 4,  // it did break — irrelevant, it has since renegotiated
-            SNAPSHOT,
-            /* settled= */ false, // still inside the settle window
+            /* disconnect= */
+            4, // it did break — irrelevant, it has since renegotiated
+            SNAPSHOT, /* settled= */ false, // still inside the settle window
         ));
     }
 
@@ -2784,11 +2804,8 @@ mod tests {
     fn unbroken_connection_is_accepted_only_after_settling() {
         let unbroken = |settled| {
             recovery_decision(
-                /* connected= */ true,
-                /* negotiation= */ 7,
-                /* disconnect= */ 3,
-                SNAPSHOT,
-                settled,
+                /* connected= */ true, /* negotiation= */ 7, /* disconnect= */ 3,
+                SNAPSHOT, settled,
             )
         };
 
