@@ -90,10 +90,11 @@ impl OutgoingPacketQueue {
     }
 }
 
+#[async_trait::async_trait]
 impl OutgoingDataStreamManagerDelegate for OutgoingPacketQueue {
     // Acknowledges once buffered: a pull adapter has no synchronous transport feedback, so send
     // failures observed while draining must be handled host-side.
-    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
+    async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         for packet in packets {
             if self.tx.send(packet).is_ok() {
                 warn_if_deep("outgoing packet", self.depth.fetch_add(1, Ordering::Relaxed) + 1);

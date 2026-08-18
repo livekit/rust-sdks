@@ -28,6 +28,7 @@ futures-util = { workspace = true, default-features = false, features = ["sink"]
 bytes = { workspace = true }
 once_cell = "1.21.3"
 thiserror = { workspace = true }
+async-trait = "0.1"
 # Dart binding generator. Not published to crates.io, so pinned by git rev. The
 # rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
 # above, or it cannot read this crate's compiled metadata.

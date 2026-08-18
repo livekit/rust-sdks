@@ -37,6 +37,7 @@ pub struct OutgoingDataStreamManager {
 
 /// Delegate for receiving outbound packets from [`OutgoingDataStreamManager`].
 #[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
 pub trait OutgoingDataStreamManagerDelegate: Send + Sync {
     /// Encoded [`livekit_protocol::DataPacket`]s to be sent over the data channel transport, in
     /// order. One-shot sends (`send_text`/`send_bytes`) deliver their entire stream — header,
@@ -48,7 +49,7 @@ pub trait OutgoingDataStreamManagerDelegate: Send + Sync {
     /// can enqueue. Throwing [`PacketDeliveryError`] fails that call with
     /// [`DataStreamError::SendFailed`](super::common::DataStreamError::SendFailed) and closes the
     /// affected stream (`is_open` becomes false for writers).
-    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError>;
+    async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError>;
 }
 
 /// Read access to remote participants' advertised protocol and capabilities, implemented by the
@@ -113,6 +114,7 @@ impl OutgoingDataStreamManager {
                                 .collect();
                             let result = delegate
                                 .on_packets_available(encoded)
+                                .await
                                 .map_err(|_| ds_api::SendError);
                             let _ = responder.respond(result);
                         }

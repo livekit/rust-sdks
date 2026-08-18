@@ -262,8 +262,9 @@ fn incoming_abort_fires_stream_closed() {
 /// Collects every outbound packet the manager emits.
 struct PacketCapture(Mutex<Vec<Bytes>>);
 
+#[async_trait::async_trait]
 impl OutgoingDataStreamManagerDelegate for PacketCapture {
-    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
+    async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         self.0.lock().unwrap().extend(packets);
         Ok(())
     }
@@ -327,8 +328,9 @@ impl FailingTransport {
     }
 }
 
+#[async_trait::async_trait]
 impl OutgoingDataStreamManagerDelegate for FailingTransport {
-    fn on_packets_available(&self, _packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
+    async fn on_packets_available(&self, _packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         let remaining = &self.0;
         if remaining
             .fetch_update(
@@ -348,8 +350,9 @@ impl OutgoingDataStreamManagerDelegate for FailingTransport {
 /// Collects the batch boundaries of each delegate invocation.
 struct BatchCapture(Mutex<Vec<usize>>);
 
+#[async_trait::async_trait]
 impl OutgoingDataStreamManagerDelegate for BatchCapture {
-    fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
+    async fn on_packets_available(&self, packets: Vec<Bytes>) -> Result<(), PacketDeliveryError> {
         self.0.lock().unwrap().push(packets.len());
         Ok(())
     }
