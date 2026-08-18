@@ -316,6 +316,8 @@ fn main() {
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
+            // rtc_base's platform certificate verifier calls SecTrust.
+            println!("cargo:rustc-link-lib=framework=Security");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
             println!("cargo:rustc-link-lib=framework=AudioToolbox");
             println!("cargo:rustc-link-lib=framework=Appkit");
@@ -344,6 +346,8 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
+            // rtc_base's platform certificate verifier calls SecTrust.
+            println!("cargo:rustc-link-lib=framework=Security");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
             println!("cargo:rustc-link-lib=framework=UIKit");
             println!("cargo:rustc-link-lib=framework=CoreVideo");
