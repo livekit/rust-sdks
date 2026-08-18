@@ -965,13 +965,14 @@ fn get_livekit_url(
                 .append_pair("reconnect", "1")
                 .append_pair("sid", participant_sid);
 
-            // The server reads this to attribute why clients reconnect
-            // (`rtcservice.go`: `r.FormValue("reconnect_reason")`). On the v1 path the
-            // equivalent travels inside the JoinRequest protobuf instead.
-            if let Some(reason) = reconnect_reason {
+            // The server parses this with `strconv.Atoi` (`rtcservice.go`), so it is the
+            // enum's numeric value stringified, not its name. `reconnect_reason` is already
+            // an `i32` (the caller casts), so `to_string` yields e.g. "3". On the v1 path the
+            // equivalent travels inside the JoinRequest protobuf as an integer field.
+            if let Some(reason_value) = reconnect_reason {
                 lk_url
                     .query_pairs_mut()
-                    .append_pair("reconnect_reason", reason.to_string().as_str());
+                    .append_pair("reconnect_reason", reason_value.to_string().as_str());
             }
         }
     }
@@ -1140,9 +1141,13 @@ mod tests {
         .unwrap();
         let v0_params: Vec<(String, String)> =
             v0.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+        // The server parses this with `strconv.Atoi`, so it must be the enum's numeric value
+        // stringified ("3"), never its name ("RR_SUBSCRIBER_FAILED"). Pinned as a literal so
+        // the wire format is asserted rather than restated.
+        assert_eq!(reason as i32, 3);
         assert!(
-            v0_params.contains(&("reconnect_reason".to_string(), (reason as i32).to_string())),
-            "v0 resume must send reconnect_reason, got {v0_params:?}"
+            v0_params.contains(&("reconnect_reason".to_string(), "3".to_string())),
+            "v0 resume must send reconnect_reason as the stringified number, got {v0_params:?}"
         );
 
         let v1 = get_livekit_url(
@@ -1160,10 +1165,7 @@ mod tests {
             .find(|(k, _)| k == "join_request")
             .map(|(_, v)| v.into_owned())
             .expect("v1 resume must carry a join_request");
-        assert_eq!(
-            decode_join_request_param_for_test(&join_request_param).reconnect_reason,
-            reason as i32,
-        );
+        assert_eq!(decode_join_request_param_for_test(&join_request_param).reconnect_reason, 3);
     }
 
     /// An initial connect is not a reconnect, so it must not claim a reason.
