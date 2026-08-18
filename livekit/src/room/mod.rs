@@ -1130,8 +1130,8 @@ impl RoomSession {
             EngineEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
                 self.handle_data_stream_chunk(chunk, participant_identity, encryption_type);
             }
-            EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
-                self.handle_data_stream_trailer(trailer, participant_identity);
+            EngineEvent::DataStreamTrailer { trailer, participant_identity, encryption_type } => {
+                self.handle_data_stream_trailer(trailer, participant_identity, encryption_type);
             }
             EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 self.handle_data_channel_buffered_low_threshold_change(kind, threshold);
@@ -1951,10 +1951,14 @@ impl RoomSession {
         &self,
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     ) {
         let _ = self.incoming_data_stream_input.send(
             ds::incoming::PacketReceived::new(
-                ds::Packet::Trailer(trailer.into()),
+                ds::Packet::Trailer {
+                    trailer: trailer.into(),
+                    encryption_type: encryption_type.into(),
+                },
                 participant_identity.into(),
             )
             .into(),

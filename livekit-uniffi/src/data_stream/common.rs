@@ -409,7 +409,9 @@ pub(crate) fn decode_data_packet(
         proto::data_packet::Value::StreamChunk(chunk) => {
             ds::Packet::Chunk { chunk: chunk.into(), encryption_type }
         }
-        proto::data_packet::Value::StreamTrailer(trailer) => ds::Packet::Trailer(trailer.into()),
+        proto::data_packet::Value::StreamTrailer(trailer) => {
+            ds::Packet::Trailer { trailer: trailer.into(), encryption_type }
+        }
         _ => return None,
     };
     Some(ds::incoming::PacketReceived::new(ds_packet, identity))

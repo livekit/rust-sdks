@@ -163,6 +163,33 @@ fn incoming_chunk_with_mismatched_encryption_errors_reader() {
 }
 
 #[test]
+fn incoming_trailer_with_mismatched_encryption_errors_reader() {
+    crate::runtime::runtime().block_on(async {
+        let (tx, rx) = oneshot::channel();
+        let delegate = Arc::new(TextCapture(Mutex::new(Some(tx))));
+        let manager = IncomingDataStreamManager::new(delegate, None);
+
+        // The stream is announced under GCM, but its trailer arrives in plaintext.
+        manager.handle_packet_received(
+            multipacket_text_header_packet("alice", "my-topic", 5),
+            EncryptionType::Gcm,
+        );
+        let (reader, _) = rx.await.expect("a stream should open");
+        manager.handle_packet_received(chunk_packet("alice", 0, b"hello"), EncryptionType::Gcm);
+        manager.handle_packet_received(trailer_packet("alice"), EncryptionType::None);
+
+        let result = reader.read_all().await;
+        assert!(matches!(
+            result,
+            Err(DataStreamError::EncryptionTypeMismatch {
+                expected: EncryptionType::Gcm,
+                received: EncryptionType::None,
+            })
+        ));
+    });
+}
+
+#[test]
 fn incoming_open_stream_count_tracks_headers_and_aborts() {
     crate::runtime::runtime().block_on(async {
         let (tx, _rx) = oneshot::channel();

@@ -209,6 +209,7 @@ pub enum EngineEvent {
     DataStreamTrailer {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataChannelBufferedAmountLowThresholdChanged {
         kind: DataPacketKind,
@@ -718,10 +719,12 @@ impl EngineInner {
                     encryption_type,
                 });
             }
-            SessionEvent::DataStreamTrailer { trailer, participant_identity } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::DataStreamTrailer { trailer, participant_identity });
+            SessionEvent::DataStreamTrailer { trailer, participant_identity, encryption_type } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamTrailer {
+                    trailer,
+                    participant_identity,
+                    encryption_type,
+                });
             }
             SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 let _ = self.engine_tx.send(
