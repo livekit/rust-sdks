@@ -67,6 +67,14 @@ pub(crate) type EngineResult<T> = Result<T, EngineError>;
 /// The cost is resume latency for a signal-only failure, where the media plane was fine and
 /// there is no reconnection to short-circuit on. Resume-only; a full reconnect builds new
 /// PeerConnections and has no stale state to misread.
+///
+/// This window cannot be replaced by watching for an ICE restart to take effect. Measured
+/// against a dev server, a same-node resume does perform a real subscriber ICE restart — the
+/// server's offer carries a fresh ice-ufrag and both transports gather a new generation — yet
+/// neither `IceConnectionState` nor `PeerConnectionState` leaves `Connected` at any point,
+/// because libwebrtc keeps the old candidate pair selected until the new one is ready. So
+/// "nothing transitioned" is the *normal* outcome of a healthy resume, and requiring an
+/// observed transition would time out every signal-only resume into a full reconnect.
 pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
