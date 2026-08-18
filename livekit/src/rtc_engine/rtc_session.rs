@@ -186,6 +186,10 @@ pub enum SessionEvent {
     Close {
         source: String,
         reason: DisconnectReason,
+        /// Cause reported to the server on the next resume, so it can attribute
+        /// client reconnects. Distinct from `reason`, which is the disconnect
+        /// reason used if recovery ultimately fails.
+        reconnect_reason: proto::ReconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
     },
@@ -819,8 +823,11 @@ impl RtcSession {
         self.inner.publish_data(data, kind, is_raw_packet).await
     }
 
-    pub async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
-        self.inner.restart().await
+    pub async fn restart(
+        &self,
+        reason: proto::ReconnectReason,
+    ) -> EngineResult<proto::ReconnectResponse> {
+        self.inner.restart(reason).await
     }
 
     pub async fn restart_publisher(&self) -> EngineResult<()> {
@@ -1119,6 +1126,7 @@ impl SessionInner {
                                 self.on_session_disconnected(
                                     format!("signal client closed: {:?}", reason).as_str(),
                                     DisconnectReason::UnknownReason,
+                                    proto::ReconnectReason::RrSignalDisconnected,
                                     proto::leave_request::Action::Resume,
                                     false,
                                 );
@@ -1418,6 +1426,8 @@ impl SessionInner {
                 self.on_session_disconnected(
                     "server request to leave",
                     leave.reason(),
+                    // The server initiated this and already knows why.
+                    proto::ReconnectReason::RrUnknown,
                     leave.action(),
                     true,
                 );
@@ -1589,6 +1599,10 @@ impl SessionInner {
                     self.on_session_disconnected(
                         "pc_state failed",
                         DisconnectReason::UnknownReason,
+                        match target {
+                            SignalTarget::Subscriber => proto::ReconnectReason::RrSubscriberFailed,
+                            SignalTarget::Publisher => proto::ReconnectReason::RrPublisherFailed,
+                        },
                         proto::leave_request::Action::Resume,
                         false,
                     );
@@ -1961,6 +1975,7 @@ impl SessionInner {
         &self,
         source: &str,
         reason: DisconnectReason,
+        reconnect_reason: proto::ReconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
     ) {
@@ -1972,6 +1987,7 @@ impl SessionInner {
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
+            reconnect_reason,
             action,
             retry_now,
         });
@@ -2188,12 +2204,15 @@ impl SessionInner {
 
     /// This reconnection if more seemless compared to the full reconnection implemented in
     /// ['RTCEngine']
-    async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
+    async fn restart(
+        &self,
+        reason: proto::ReconnectReason,
+    ) -> EngineResult<proto::ReconnectResponse> {
         // Start accumulating before the signal client reconnects: once
         // `restart` returns, the resumed stream immediately delivers events
         // (including the post-resume participant snapshot) on a concurrent task.
         *self.resume_seen_identities.lock() = Some(HashSet::new());
-        let reconnect_response = self.signal_client.restart().await?;
+        let reconnect_response = self.signal_client.restart(reason).await?;
         log::debug!("received reconnect response: {:?}", reconnect_response);
 
         let rtc_config =

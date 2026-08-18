@@ -246,6 +246,12 @@ struct EngineHandle {
     // Carried through so that, if reconnection ultimately fails, the engine
     // closes with the original cause rather than a generic `UnknownReason`.
     reconnect_reason: DisconnectReason,
+
+    // The cause reported to the server on each resume attempt of this episode, so
+    // server-side telemetry can attribute why clients reconnect. Set from the
+    // failure that started the episode and not overwritten by later failures,
+    // which are consequences of the first.
+    reported_reconnect_reason: proto::ReconnectReason,
     engine_task: Option<(JoinHandle<()>, oneshot::Sender<()>)>,
 }
 
@@ -484,6 +490,7 @@ impl EngineInner {
                             can_reconnect: true,
                             full_reconnect: false,
                             reconnect_reason: DisconnectReason::UnknownReason,
+                            reported_reconnect_reason: proto::ReconnectReason::RrUnknown,
                             engine_task: None,
                         }),
                         options,
@@ -580,7 +587,7 @@ impl EngineInner {
 
     async fn on_session_event(self: &Arc<Self>, event: SessionEvent) -> EngineResult<()> {
         match event {
-            SessionEvent::Close { source, reason, action, retry_now } => {
+            SessionEvent::Close { source, reason, reconnect_reason, action, retry_now } => {
                 match action {
                     proto::leave_request::Action::Resume
                     | proto::leave_request::Action::Reconnect => {
@@ -605,6 +612,7 @@ impl EngineInner {
                             retry_now,
                             action == proto::leave_request::Action::Reconnect,
                             reason,
+                            reconnect_reason,
                         );
                     }
                     proto::leave_request::Action::Disconnect => {
@@ -805,6 +813,7 @@ impl EngineInner {
         retry_now: bool,
         full_reconnect: bool,
         reason: DisconnectReason,
+        reported_reconnect_reason: proto::ReconnectReason,
     ) {
         let mut running_handle = self.running_handle.write();
 
@@ -839,8 +848,9 @@ impl EngineInner {
         // full reconnect in `try_restart_connection`.
         running_handle.full_reconnect |= full_reconnect;
         // Remember the cause so a failed reconnection closes with it rather than
-        // a generic UnknownReason.
+        // a generic UnknownReason, and so each attempt can report it to the server.
         running_handle.reconnect_reason = reason;
+        running_handle.reported_reconnect_reason = reported_reconnect_reason;
 
         livekit_runtime::spawn({
             let inner = self.clone();
@@ -1123,7 +1133,12 @@ impl EngineInner {
             // the next cycle; pre-fix it was dropped and the engine resumed again.
             if self.fail_transport_during_next_resume.swap(false, Ordering::AcqRel) {
                 log::warn!("test fault injection: simulating concurrent failure during resume");
-                self.reconnection_needed(false, false, DisconnectReason::UnknownReason);
+                self.reconnection_needed(
+                    false,
+                    false,
+                    DisconnectReason::UnknownReason,
+                    proto::ReconnectReason::RrUnknown,
+                );
             }
         }
 
@@ -1131,7 +1146,8 @@ impl EngineInner {
 
         // 1. Reopen the signalling link. The SignalClient stays gated
         //    (`reconnecting=true`) so queueable mutations buffer until step 4.
-        let reconnect_response = session.restart().await?;
+        let reported_reason = self.running_handle.read().reported_reconnect_reason;
+        let reconnect_response = session.restart(reported_reason).await?;
 
         // 2. Hand the ReconnectResponse to the room and wait until it has sent
         //    SyncState, which must precede the publisher re-offer.

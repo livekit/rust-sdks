@@ -302,10 +302,15 @@ impl SignalClient {
     /// in the queue. Caller MUST invoke [`Self::set_reconnected`] once the resume
     /// has fully recovered (PC connected, SyncState sent) to drain the queue and
     /// re-enable normal sends.
-    pub async fn restart(&self) -> SignalResult<proto::ReconnectResponse> {
+    /// Reopen the signalling link for a resume, reporting `reason` to the server so it can
+    /// attribute why the client reconnected.
+    pub async fn restart(
+        &self,
+        reason: proto::ReconnectReason,
+    ) -> SignalResult<proto::ReconnectResponse> {
         self.close().await;
 
-        let (reconnect_response, stream_events) = self.inner.restart().await?;
+        let (reconnect_response, stream_events) = self.inner.restart(reason).await?;
         let signal_task = livekit_runtime::spawn(signal_task(
             self.inner.clone(),
             self.emitter.clone(),
@@ -540,6 +545,7 @@ impl SignalInner {
     /// stream is in place.
     pub async fn restart(
         self: &Arc<Self>,
+        reason: proto::ReconnectReason,
     ) -> SignalResult<(
         proto::ReconnectResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
@@ -561,7 +567,7 @@ impl SignalInner {
             &self.options,
             self.single_pc_mode_active,
             true,
-            None,
+            Some(reason as i32),
             sid,
             None,
         )
@@ -958,6 +964,15 @@ fn get_livekit_url(
                 .query_pairs_mut()
                 .append_pair("reconnect", "1")
                 .append_pair("sid", participant_sid);
+
+            // The server reads this to attribute why clients reconnect
+            // (`rtcservice.go`: `r.FormValue("reconnect_reason")`). On the v1 path the
+            // equivalent travels inside the JoinRequest protobuf instead.
+            if let Some(reason) = reconnect_reason {
+                lk_url
+                    .query_pairs_mut()
+                    .append_pair("reconnect_reason", reason.to_string().as_str());
+            }
         }
     }
 
@@ -1103,6 +1118,68 @@ mod tests {
         let wrapped_bytes = BASE64_STANDARD.decode(param).unwrap();
         let wrapped = proto::WrappedJoinRequest::decode(wrapped_bytes.as_slice()).unwrap();
         proto::JoinRequest::decode(wrapped.join_request.as_slice()).unwrap()
+    }
+
+    /// The server attributes client reconnects from this value
+    /// (`rtcservice.go`: `r.FormValue("reconnect_reason")`), so a resume that omits it is
+    /// invisible in that telemetry. Both signalling paths must carry it: v0 as a query
+    /// parameter, v1 inside the JoinRequest protobuf.
+    #[test]
+    fn resume_reports_the_reconnect_reason_on_both_signalling_paths() {
+        let reason = proto::ReconnectReason::RrSubscriberFailed;
+
+        let v0 = get_livekit_url(
+            "ws://localhost:7880",
+            &SignalOptions::default(),
+            /* use_v1_path= */ false,
+            /* reconnect= */ true,
+            Some(reason as i32),
+            "PA_test",
+            None,
+        )
+        .unwrap();
+        let v0_params: Vec<(String, String)> =
+            v0.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+        assert!(
+            v0_params.contains(&("reconnect_reason".to_string(), (reason as i32).to_string())),
+            "v0 resume must send reconnect_reason, got {v0_params:?}"
+        );
+
+        let v1 = get_livekit_url(
+            "ws://localhost:7880",
+            &SignalOptions::default(),
+            /* use_v1_path= */ true,
+            /* reconnect= */ true,
+            Some(reason as i32),
+            "PA_test",
+            None,
+        )
+        .unwrap();
+        let join_request_param = v1
+            .query_pairs()
+            .find(|(k, _)| k == "join_request")
+            .map(|(_, v)| v.into_owned())
+            .expect("v1 resume must carry a join_request");
+        assert_eq!(
+            decode_join_request_param_for_test(&join_request_param).reconnect_reason,
+            reason as i32,
+        );
+    }
+
+    /// An initial connect is not a reconnect, so it must not claim a reason.
+    #[test]
+    fn initial_connect_sends_no_reconnect_reason() {
+        let url = get_livekit_url(
+            "ws://localhost:7880",
+            &SignalOptions::default(),
+            /* use_v1_path= */ false,
+            /* reconnect= */ false,
+            None,
+            "",
+            None,
+        )
+        .unwrap();
+        assert!(url.query_pairs().all(|(k, _)| k != "reconnect_reason"));
     }
 
     #[test]
