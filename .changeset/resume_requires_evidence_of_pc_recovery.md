@@ -1,5 +1,6 @@
 ---
 livekit: patch
+livekit-ffi: patch
 ---
 
 Fix resume reporting success for a PeerConnection that had not recovered.
