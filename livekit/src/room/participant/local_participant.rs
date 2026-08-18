@@ -1181,7 +1181,8 @@ fn set_audio_track_features(
         request.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
     }
 
-    if source.is_some_and(|source| source.num_channels() >= 2) {
+    // TfStereo configures Opus stereo; higher channel counts do not imply a stereo layout.
+    if source.is_some_and(|source| source.num_channels() == 2) {
         request.audio_features.push(proto::AudioTrackFeature::TfStereo as i32);
     }
 }
@@ -1250,6 +1251,13 @@ mod tests {
     }
 
     #[test]
+    fn audio_sources_with_more_than_two_channels_do_not_request_stereo_encoding() {
+        let request = audio_publish_request(3, false);
+
+        assert!(request.audio_features.is_empty());
+    }
+
+    #[test]
     fn audio_track_features_include_preconnect_buffer_and_stereo() {
         let request = audio_publish_request(2, true);
 
@@ -1259,6 +1267,18 @@ mod tests {
                 proto::AudioTrackFeature::TfPreconnectBuffer as i32,
                 proto::AudioTrackFeature::TfStereo as i32,
             ]
+        );
+    }
+
+    #[test]
+    fn non_audio_tracks_preserve_preconnect_buffer_feature() {
+        let mut request = proto::AddTrackRequest::default();
+
+        set_audio_track_features(&mut request, true, None);
+
+        assert_eq!(
+            request.audio_features,
+            vec![proto::AudioTrackFeature::TfPreconnectBuffer as i32]
         );
     }
 }
