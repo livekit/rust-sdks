@@ -29,12 +29,14 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(lk_argus)]
 mod argus;
 mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
 mod user_data;
+#[cfg(target_os = "linux")]
+mod v4l2_capture;
 mod video_display;
 mod viewport_aspect;
 
@@ -68,15 +70,19 @@ impl From<PublisherCodec> for VideoCodec {
 enum SourceKind {
     /// USB / V4L2 camera via the `nokhwa` crate (default).
     Uvc,
+    /// Direct Linux V4L2 mmap capture, including Rockchip ISP multiplanar NV12.
+    V4l2,
     /// NVIDIA Jetson MIPI CSI camera via libargus (Jetson-only).
     Argus,
 }
 
-/// Selects the UVC camera capture pixel format.
+/// Selects the camera capture pixel format.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum CaptureFormat {
     /// Try YUYV first and fall back to MJPEG.
     Auto,
+    /// Request NV12 direct V4L2 capture.
+    Nv12,
     /// Request uncompressed YUYV capture.
     Yuv,
     /// Request compressed MJPEG capture.
@@ -87,6 +93,7 @@ impl CaptureFormat {
     fn frame_formats(self) -> &'static [FrameFormat] {
         match self {
             Self::Auto => &[FrameFormat::YUYV, FrameFormat::MJPEG],
+            Self::Nv12 => &[],
             Self::Yuv => &[FrameFormat::YUYV],
             Self::Mjpeg => &[FrameFormat::MJPEG],
         }
@@ -97,6 +104,7 @@ impl std::fmt::Display for CaptureFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Auto => write!(f, "auto"),
+            Self::Nv12 => write!(f, "nv12"),
             Self::Yuv => write!(f, "yuv"),
             Self::Mjpeg => write!(f, "mjpeg"),
         }
@@ -167,13 +175,21 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
 
-    /// Camera backend: `uvc` (default, V4L2/USB via nokhwa) or `argus` (Jetson MIPI CSI).
+    /// Camera backend: `uvc` (default, V4L2/USB via nokhwa), `v4l2` (direct Linux V4L2), or `argus` (Jetson MIPI CSI).
     #[arg(long, value_enum, default_value_t = SourceKind::Uvc)]
     source: SourceKind,
 
-    /// UVC camera capture format: `auto` tries YUYV then MJPEG; `mjpeg` uses less USB bandwidth.
+    /// Camera capture format: `auto` tries YUYV then MJPEG for UVC; direct V4L2 treats `auto` as NV12.
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
+
+    /// V4L2 device path for direct Linux capture, e.g. /dev/video-camera0.
+    #[arg(long)]
+    device: Option<String>,
+
+    /// Sensor subdevice used to set the frame interval when the capture node rejects it.
+    #[arg(long)]
+    sensor_subdevice: Option<String>,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
     #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
@@ -806,10 +822,15 @@ mod tests {
 }
 
 fn list_cameras() -> Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        v4l2_capture::list_devices();
+    }
+
     let cams = nokhwa::query(ApiBackend::Auto)?;
-    println!("Available cameras:");
+    println!("Nokhwa cameras:");
     for (i, cam) in cams.iter().enumerate() {
-        println!("{}. {}", i, cam.human_name());
+        println!("  {}. {}", i, cam.human_name());
     }
     Ok(())
 }
@@ -827,7 +848,9 @@ enum VideoInput {
         camera: Camera,
         is_yuyv: bool,
     },
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    #[cfg(target_os = "linux")]
+    V4l2(v4l2_capture::CaptureDevice),
+    #[cfg(lk_argus)]
     Argus(argus::ArgusCaptureSession),
 }
 
@@ -885,14 +908,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // LiveKit connection details
     let url = args
         .url
+        .clone()
         .or_else(|| env::var("LIVEKIT_URL").ok())
         .expect("LIVEKIT_URL must be provided via --url or env");
     let api_key = args
         .api_key
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_KEY").ok())
         .expect("LIVEKIT_API_KEY must be provided via --api-key or env");
     let api_secret = args
         .api_secret
+        .clone()
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
@@ -973,8 +999,39 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     }
 
     let (width, height, video_input) = match args.source {
+        SourceKind::V4l2 => {
+            #[cfg(target_os = "linux")]
+            {
+                if args.test_pattern {
+                    anyhow::bail!("--test-pattern is not supported with --source v4l2");
+                }
+                if args.display_video {
+                    anyhow::bail!("--display-video is not supported with --source v4l2");
+                }
+                if args.burn_timestamp {
+                    anyhow::bail!("--burn-timestamp is not supported with --source v4l2");
+                }
+                let capture = v4l2_capture::configure(
+                    args.device.as_deref(),
+                    args.sensor_subdevice.as_deref(),
+                    args.format,
+                    args.width,
+                    args.height,
+                    args.fps,
+                )?;
+                (capture.width, capture.height, VideoInput::V4l2(capture))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                anyhow::bail!(
+                    "--source v4l2 requires Linux; this binary was built for {}-{}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                );
+            }
+        }
         SourceKind::Argus => {
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            #[cfg(lk_argus)]
             {
                 if args.test_pattern {
                     anyhow::bail!("--test-pattern is not supported with --source argus");
@@ -1002,10 +1059,45 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 );
                 (session.width(), session.height(), VideoInput::Argus(session))
             }
-            #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+            #[cfg(not(lk_argus))]
             {
                 anyhow::bail!(
-                    "--source argus requires Linux aarch64 on NVIDIA Jetson; this binary was built for {}-{}",
+                    "--source argus requires NVIDIA Jetson Argus headers and libraries; this binary was built without lk_argus for {}-{}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                );
+            }
+        }
+        SourceKind::Uvc
+            if args.device.is_some()
+                || args.sensor_subdevice.is_some()
+                || matches!(args.format, CaptureFormat::Nv12) =>
+        {
+            #[cfg(target_os = "linux")]
+            {
+                if args.test_pattern {
+                    anyhow::bail!("--test-pattern is not supported with direct V4L2 capture");
+                }
+                if args.display_video {
+                    anyhow::bail!("--display-video is not supported with direct V4L2 capture");
+                }
+                if args.burn_timestamp {
+                    anyhow::bail!("--burn-timestamp is not supported with direct V4L2 capture");
+                }
+                let capture = v4l2_capture::configure(
+                    args.device.as_deref(),
+                    args.sensor_subdevice.as_deref(),
+                    args.format,
+                    args.width,
+                    args.height,
+                    args.fps,
+                )?;
+                (capture.width, capture.height, VideoInput::V4l2(capture))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                anyhow::bail!(
+                    "--format nv12, --device, and --sensor-subdevice require Linux direct V4L2 capture; this binary was built for {}-{}",
                     std::env::consts::OS,
                     std::env::consts::ARCH,
                 );
@@ -1240,7 +1332,23 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         tokio::spawn(update_publisher_video_stats(track.clone(), ctrl_c_received.clone()));
 
     match video_input {
-        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        #[cfg(target_os = "linux")]
+        VideoInput::V4l2(capture) => {
+            let capture_stop = ctrl_c_received.clone();
+            let capture_result = v4l2_capture::run(
+                capture_config,
+                ctrl_c_received,
+                rtc_source,
+                capture,
+                width,
+                height,
+            )
+            .await;
+            capture_stop.store(true, Ordering::Release);
+            let _ = publish_stats_task.await;
+            capture_result?;
+        }
+        #[cfg(lk_argus)]
         VideoInput::Argus(session) => {
             let capture_result = run_argus_capture_loop(
                 capture_config,
@@ -1552,7 +1660,11 @@ async fn run_capture_loop(
                     true,
                 )
             }
-            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            #[cfg(target_os = "linux")]
+            VideoInput::V4l2(_) => {
+                unreachable!("direct V4L2 capture must be driven by run_v4l2_capture_loop")
+            }
+            #[cfg(lk_argus)]
             VideoInput::Argus(_) => {
                 // The Argus source bypasses this loop entirely and is dispatched to
                 // `run_argus_capture_loop` from `run`. This arm exists only to satisfy
@@ -1715,7 +1827,7 @@ async fn run_capture_loop(
 /// dedicated OS thread and pushes NV12 DMA-buffer fds straight into `NativeVideoSource`
 /// via [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
 /// to the Jetson hardware encoder.
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+#[cfg(lk_argus)]
 async fn run_argus_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,

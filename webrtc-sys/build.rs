@@ -27,6 +27,8 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
+    println!("cargo:rerun-if-env-changed=LK_MPP_INCLUDE_DIR");
+    println!("cargo:rerun-if-env-changed=PKG_CONFIG_SYSROOT_DIR");
 
     let mut rust_files = vec![
         "src/peer_connection.rs",
@@ -197,6 +199,7 @@ fn main() {
 
             let x86 = target_arch == "x86_64" || target_arch == "i686";
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
+            let aarch64 = target_arch == "aarch64";
 
             if x86 {
                 if let Some(libva_include) = pkg_config::get_variable("libva", "includedir").ok() {
@@ -268,6 +271,29 @@ fn main() {
                         println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
                     }
                     println!("cargo:rustc-link-lib=dylib=v4l2");
+                }
+            }
+
+            if aarch64 {
+                if let Some(mpp_include) = find_mpp_include_dir() {
+                    let mpp_header = mpp_include.join("rockchip/rk_mpi.h");
+                    println!("cargo:rerun-if-changed={}", mpp_header.display());
+                    builder
+                        .include(mpp_include)
+                        .file("src/mpp/mpp_context.cpp")
+                        .file("src/mpp/mpp_encoder_factory.cpp")
+                        .file("src/mpp/mpp_encoder_session.cpp")
+                        .file("src/mpp/h264_encoder_impl.cpp")
+                        .file("src/mpp/h265_encoder_impl.cpp")
+                        .flag("-DUSE_MPP_VIDEO_CODEC=1");
+
+                    add_lazy_load_so(
+                        &mut builder,
+                        "mpp",
+                        ["rockchip_mpp"].map(String::from).to_vec(),
+                    );
+                } else {
+                    println!("cargo:warning=rk_mpi.h not found; building without Rockchip MPP hardware encoder support");
                 }
             }
 
@@ -493,6 +519,37 @@ fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>)
             + ".so.tramp.S";
         builder.file(implib_file_c_name).file(implib_file_asm_name);
     }
+}
+
+fn find_mpp_include_dir() -> Option<PathBuf> {
+    let header = Path::new("rockchip/rk_mpi.h");
+
+    if let Ok(path) = env::var("LK_MPP_INCLUDE_DIR") {
+        let include_dir = PathBuf::from(path);
+        if include_dir.join(header).is_file() {
+            return Some(include_dir);
+        }
+        println!(
+            "cargo:warning=LK_MPP_INCLUDE_DIR does not contain {}; ignoring it",
+            header.display()
+        );
+    }
+
+    if let Ok(path) = env::var("PKG_CONFIG_SYSROOT_DIR") {
+        let include_dir = PathBuf::from(path).join("usr/include");
+        if include_dir.join(header).is_file() {
+            return Some(include_dir);
+        }
+    }
+
+    if env::var("HOST").ok() == env::var("TARGET").ok() {
+        let include_dir = PathBuf::from("/usr/include");
+        if include_dir.join(header).is_file() {
+            return Some(include_dir);
+        }
+    }
+
+    None
 }
 
 fn add_gio_headers(builder: &mut cc::Build) {

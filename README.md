@@ -33,6 +33,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
   - [x] H.264, H.265, AV1 on NVidia discrete GPUs (Linux)
   - [x] H.264, H.265 on AMD CPUs & GPUs (Linux)
   - [x] H.264, H.265, AV1 on NVidia Jetson (Linux)
+  - [x] H.264, H.265 on Rockchip AArch64 SoCs (Linux)
 - Supported Platforms
   - [x] Windows
   - [x] MacOS
@@ -193,6 +194,21 @@ export CUDA_HOME="$(dirname "$(dirname "$(sudo find /usr/local /usr -path '*/inc
 
 cargo build
   
+```
+
+On Ubuntu AArch64, install LLVM's linker before building. The workspace uses
+LLD for this target because GNU `ld` cannot link the bundled WebRTC archive:
+
+```sh
+sudo apt update
+sudo apt install -y lld
+```
+
+Rockchip boards such as the Radxa ROCK 5B+ also need the MPP development
+headers and DRM headers. On Radxa Ubuntu images, install them with:
+
+```sh
+sudo apt install -y libdrm-dev librockchip-mpp-dev
 ```
 
 ### MacOS

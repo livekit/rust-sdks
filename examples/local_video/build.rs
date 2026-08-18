@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(lk_argus)");
+
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
 
@@ -12,6 +14,9 @@ fn main() {
     let argus_include = PathBuf::from("/usr/src/jetson_multimedia_api/argus/include");
     let mmapi_include = PathBuf::from("/usr/src/jetson_multimedia_api/include");
 
+    println!("cargo:rerun-if-changed={}", argus_include.display());
+    println!("cargo:rerun-if-changed={}", mmapi_include.display());
+
     if !argus_include.exists() {
         println!(
             "cargo:warning=Argus headers not found at {}; skipping lk_argus build",
@@ -20,6 +25,7 @@ fn main() {
         return;
     }
 
+    println!("cargo:rustc-cfg=lk_argus");
     println!("cargo:rerun-if-changed=src/lk_argus.cpp");
 
     cc::Build::new()
