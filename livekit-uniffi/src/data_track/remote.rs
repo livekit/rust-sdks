@@ -72,10 +72,21 @@ impl RemoteDataTrack {
             .await
             .map(|stream| DataTrackStream(Mutex::new(stream)))
     }
+
+    /// Configures options for the pipeline handling incoming packets for this track.
+    ///
+    /// These options apply to all current and future subscriptions of this track, and may be
+    /// set at any time. New options take affect with the next received packet.
+    ///
+    pub fn set_pipeline_options(&self, options: RemoteDataTrackPipelineOptions) {
+        self.0.set_pipeline_options(options.into())
+    }
 }
 
 #[derive(uniffi::Record)]
 pub struct DataTrackSubscribeOptions {
+    /// Maximum number of received frames buffered internally. Zero is clamped to one.
+    #[uniffi(default = 16)]
     pub buffer_size: u32,
 }
 
@@ -83,6 +94,29 @@ impl From<DataTrackSubscribeOptions> for livekit_datatrack::api::DataTrackSubscr
     fn from(options: DataTrackSubscribeOptions) -> Self {
         livekit_datatrack::api::DataTrackSubscribeOptions::default()
             .with_buffer_size(options.buffer_size as usize)
+    }
+}
+
+/// FFI wrapper around [`livekit_datatrack::api::RemoteDataTrackPipelineOptions`]. The underlying
+/// type uses the builder pattern with private fields.
+///
+#[derive(uniffi::Record)]
+pub struct RemoteDataTrackPipelineOptions {
+    /// Maximum number of partial frames the depacketizer will track concurrently for this track.
+    ///
+    /// Higher values give more out-of-order tolerance for high-frequency senders at the cost of
+    /// additional buffering. Zero is clamped to one.
+    ///
+    #[uniffi(default = 1)]
+    pub max_partial_frames: u32,
+}
+
+impl From<RemoteDataTrackPipelineOptions>
+    for livekit_datatrack::api::RemoteDataTrackPipelineOptions
+{
+    fn from(options: RemoteDataTrackPipelineOptions) -> Self {
+        livekit_datatrack::api::RemoteDataTrackPipelineOptions::default()
+            .with_max_partial_frames(options.max_partial_frames as usize)
     }
 }
 
