@@ -1,5 +1,6 @@
 ---
 livekit: patch
+livekit-ffi: patch
 ---
 
 Escalate a PeerConnection that stays disconnected, instead of waiting for `Failed`.
