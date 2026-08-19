@@ -1,0 +1,36 @@
+[package]
+name = "livekit-token-source"
+description = "Token sources for the LiveKit Rust SDK"
+version = "0.1.1"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+# By default no TLS is enabled; pick one of the TLS features below.
+default = ["native-tokio"]
+
+# Backend bundles — pass-throughs to livekit-net. With none enabled the crate is
+# backend-blind: the host must register a client via `livekit_net::set_http_client`.
+native-tokio      = ["livekit-net/native-tokio"]
+native-async      = ["livekit-net/native-async"]
+native-dispatcher = ["livekit-net/native-dispatcher"]
+
+# TLS pass-throughs (only meaningful with a native backend). See livekit-api's
+# Cargo.toml for guidance on choosing one, notably in container deployments.
+native-tls              = ["livekit-net/native-tls"]
+native-tls-vendored     = ["livekit-net/native-tls-vendored"]
+rustls-tls-native-roots = ["livekit-net/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["livekit-net/rustls-tls-webpki-roots"]
+
+[dependencies]
+async-trait = "0.1"
+base64 = { version = "0.21", features = ["std"] }
+livekit-net = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }

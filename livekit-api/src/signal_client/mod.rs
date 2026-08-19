@@ -55,14 +55,30 @@ const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
 /// Capabilities the Rust SDK advertises to the SFU at connect time.
-const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
-    &[proto::client_info::Capability::CapPacketTrailer];
+///
+/// `CapCompressionDeflateRaw` is always advertised because the SDK's deflate-raw codec
+/// (flate2/miniz_oxide) is pure-Rust and compiled in unconditionally.
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] = &[
+    proto::client_info::Capability::CapPacketTrailer,
+    proto::client_info::Capability::CapCompressionDeflateRaw,
+];
 
-pub use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
+pub use livekit_common::{
+    CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DATA_STREAM_V2, CLIENT_PROTOCOL_DEFAULT,
+};
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.
-const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
+const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_V2;
+
+/// The client protocol advertised to other clients, honoring the legacy data streams opt-out.
+fn advertised_client_protocol(options: &SignalOptions) -> i32 {
+    if options.use_legacy_data_streams {
+        CLIENT_PROTOCOL_DATA_STREAM_RPC
+    } else {
+        CLIENT_PROTOCOL_VERSION
+    }
+}
 
 #[derive(Error, Debug)]
 #[non_exhaustive]
@@ -131,11 +147,17 @@ pub enum SignalError {
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
+    /// Comma separated list of additional LiveKit SDKs layered on top of this one, with
+    /// versions, e.g. `"components-js:1.2.3,track-processors-js:1.2.3"`. Sent to the server
+    /// as `ClientInfo.other_sdks`. `None` when there are none — optional so callers that
+    /// predate the field keep working unchanged.
+    #[doc(hidden)]
+    pub other_sdks: Option<String>,
 }
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: None }
+        Self { sdk: "rust".to_string(), sdk_version: None, other_sdks: None }
     }
 }
 
@@ -149,6 +171,10 @@ pub struct SignalOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Advertise only legacy data stream support: caps ClientInfo.client_protocol at
+    /// [`CLIENT_PROTOCOL_DATA_STREAM_RPC`] instead of [`CLIENT_PROTOCOL_DATA_STREAM_V2`].
+    #[doc(hidden)]
+    pub use_legacy_data_streams: bool,
 }
 
 impl Default for SignalOptions {
@@ -159,6 +185,7 @@ impl Default for SignalOptions {
             sdk_options: SignalSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            use_legacy_data_streams: false,
         }
     }
 }
@@ -794,7 +821,8 @@ fn create_join_request_param(
         os_version,
         device_model,
         capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
-        client_protocol: CLIENT_PROTOCOL_VERSION,
+        client_protocol: advertised_client_protocol(options),
+        other_sdks: options.sdk_options.other_sdks.clone().unwrap_or_default(),
         ..Default::default()
     };
 
@@ -913,12 +941,21 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-            .append_pair("client_protocol", CLIENT_PROTOCOL_VERSION.to_string().as_str())
+            .append_pair(
+                "client_protocol",
+                advertised_client_protocol(options).to_string().as_str(),
+            )
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        if let Some(other_sdks) =
+            options.sdk_options.other_sdks.as_deref().filter(|s| !s.is_empty())
+        {
+            lk_url.query_pairs_mut().append_pair("other_sdks", other_sdks);
         }
 
         // parse client capabilities
@@ -1248,6 +1285,83 @@ mod tests {
 
         assert_eq!(client_info.sdk, proto::client_info::Sdk::Cpp as i32);
         assert_eq!(client_info.version, "9.9.9-test");
+    }
+
+    #[test]
+    fn livekit_url_legacy_data_streams_advertises_v1_client_protocol() {
+        let mut io = SignalOptions::default();
+        io.use_legacy_data_streams = true;
+
+        // v1 path: client_protocol is inside the join_request param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let join_request = decode_join_request_param_for_test(&join_request_param);
+        let client_info = join_request.client_info.unwrap();
+        assert_eq!(client_info.client_protocol, CLIENT_PROTOCOL_DATA_STREAM_RPC);
+
+        // v0 path: client_protocol is a query param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let client_protocol = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "client_protocol").then(|| value.into_owned()))
+            .unwrap();
+        assert_eq!(client_protocol, CLIENT_PROTOCOL_DATA_STREAM_RPC.to_string());
+    }
+
+    #[test]
+    fn livekit_url_forwards_other_sdks_on_both_paths() {
+        let mut io = signal_options_for_cpp("9.9.9-test");
+        io.sdk_options.other_sdks = Some("ros_portal:1.2.3,another-sdk:2.0.0".to_string());
+
+        // v1 path: other_sdks travels inside the join_request param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let join_request = decode_join_request_param_for_test(&join_request_param);
+        let client_info = join_request.client_info.unwrap();
+        assert_eq!(client_info.other_sdks, "ros_portal:1.2.3,another-sdk:2.0.0");
+
+        // v0 path: other_sdks is a query param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let other_sdks = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "other_sdks").then(|| value.into_owned()))
+            .unwrap();
+        assert_eq!(other_sdks, "ros_portal:1.2.3,another-sdk:2.0.0");
+    }
+
+    #[test]
+    fn livekit_url_omits_other_sdks_when_unset() {
+        assert!(SignalOptions::default().sdk_options.other_sdks.is_none());
+
+        // `None` (callers predating the field) and `Some("")` must both behave as
+        // "no additional SDKs" on either path.
+        for other_sdks in [None, Some(String::new())] {
+            let mut io = SignalOptions::default();
+            io.sdk_options.other_sdks = other_sdks;
+
+            let lk_url =
+                get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+            assert!(lk_url.query_pairs().all(|(key, _)| key != "other_sdks"));
+
+            let lk_url =
+                get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+            let join_request_param = lk_url
+                .query_pairs()
+                .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+                .unwrap();
+            let join_request = decode_join_request_param_for_test(&join_request_param);
+            assert!(join_request.client_info.unwrap().other_sdks.is_empty());
+        }
     }
 
     #[test]

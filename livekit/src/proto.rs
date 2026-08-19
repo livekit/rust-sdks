@@ -182,6 +182,9 @@ impl From<participant_info::KindDetail> for participant::ParticipantKindDetail {
             participant_info::KindDetail::BridgeRtsp => {
                 participant::ParticipantKindDetail::BridgeRtsp
             }
+            participant_info::KindDetail::Simulation => {
+                participant::ParticipantKindDetail::Simulation
+            }
         }
     }
 }

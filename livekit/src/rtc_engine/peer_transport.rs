@@ -127,6 +127,10 @@ impl PeerTransport {
 
         if inner.renegotiate {
             inner.renegotiate = false;
+            // Release the lock before re-entering `create_and_send_offer`, which re-acquires
+            // `self.inner`. `tokio::sync::Mutex` is not reentrant, so holding the guard across
+            // this call would deadlock the task.
+            drop(inner);
             self.create_and_send_offer(OfferOptions::default()).await?;
         }
 
@@ -549,6 +553,104 @@ impl PeerTransport {
 #[cfg(test)]
 mod tests {
     use super::PeerTransport;
+
+    /// Reproduces the publisher-transport self-deadlock.
+    ///
+    /// `PeerTransport::set_remote_description` locks `self.inner` and then, when
+    /// `inner.renegotiate` is set, calls `create_and_send_offer` *while still holding that
+    /// guard*. `create_and_send_offer`'s first statement re-locks the same
+    /// `tokio::sync::Mutex`, which is not reentrant, so the task waits forever for a lock it
+    /// already holds.
+    ///
+    /// This test drives the production-reachable `HaveLocalOffer` sequence that sets
+    /// `renegotiate = true`:
+    ///
+    ///  1. The publisher creates and sends an ordinary offer, entering `HaveLocalOffer`.
+    ///  2. Before the answer is applied, another publish/unpublish negotiation is requested.
+    ///     `create_and_send_offer` sees `HaveLocalOffer` and sets `renegotiate = true`.
+    ///  3. The answer reaches the transport. Because `renegotiate == true`,
+    ///     `set_remote_description` re-enters `create_and_send_offer`; holding the inner lock
+    ///     across that call would deadlock.
+    ///
+    /// The `timeout` distinguishes a deadlock (the future never resolves) from success. On the
+    /// buggy code this test fails via the timeout assertion; with the lock released before the
+    /// nested call it passes.
+    #[tokio::test]
+    async fn renegotiation_does_not_deadlock() {
+        use std::{
+            sync::{Arc, Mutex},
+            time::Duration,
+        };
+
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let config = RtcConfiguration {
+            ice_servers: vec![],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+        };
+
+        let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
+        let bob_pc = factory.create_peer_connection(config).unwrap();
+
+        // Give the publisher an m-line so the offer/answer exchange is non-trivial.
+        let _dc = alice_pc.create_data_channel("repro", DataChannelInit::default()).unwrap();
+
+        let transport = PeerTransport::new(
+            alice_pc,
+            proto::SignalTarget::Publisher,
+            /* single_pc_mode= */ true,
+        );
+
+        let offers = Arc::new(Mutex::new(Vec::new()));
+        let emitted_offers = offers.clone();
+        transport.on_offer(Some(Box::new(move |offer| {
+            emitted_offers.lock().expect("offers lock poisoned").push(offer);
+        })));
+
+        // 1. Send an ordinary publisher offer, putting Alice in `HaveLocalOffer`.
+        transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+        assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
+
+        let offer = offers
+            .lock()
+            .expect("offers lock poisoned")
+            .first()
+            .cloned()
+            .expect("first offer was not emitted");
+
+        // Bob prepares the answer, but it has not reached Alice yet.
+        bob_pc.set_remote_description(offer).await.unwrap();
+        let answer = bob_pc.create_answer(AnswerOptions::default()).await.unwrap();
+        bob_pc.set_local_description(answer.clone()).await.unwrap();
+
+        // 2. Model another publish/unpublish negotiation during the offer/answer RTT. Because
+        //    Alice is still in `HaveLocalOffer`, this only sets `renegotiate = true`.
+        transport.create_and_send_offer(OfferOptions::default()).await.unwrap();
+        assert_eq!(offers.lock().expect("offers lock poisoned").len(), 1);
+
+        // 3. Applying the answer must complete and emit the deferred follow-up offer.
+        let res =
+            tokio::time::timeout(Duration::from_secs(10), transport.set_remote_description(answer))
+                .await;
+
+        assert!(
+            res.is_ok(),
+            "DEADLOCK: set_remote_description re-locked the transport's `inner` AsyncMutex while \
+             renegotiating (peer_transport.rs: lock at set_remote_description, re-lock at \
+             create_and_send_offer)"
+        );
+        res.unwrap().expect("set_remote_description returned an error");
+
+        assert_eq!(
+            offers.lock().expect("offers lock poisoned").len(),
+            2,
+            "the deferred renegotiation should emit a follow-up offer"
+        );
+        assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
+    }
 
     #[test]
     fn no_video_codec_is_noop() {

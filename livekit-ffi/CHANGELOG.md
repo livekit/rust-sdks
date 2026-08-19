@@ -316,6 +316,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.75 (2026-08-10)
+
+### Features
+
+- Add `other_sdks` field to propagate additional SDK metadata to the server.
+
+### Fixes
+
+- Only advertise internal H264 decode formats if the decoder works - #1313 (@MaxHeimbrock)
+
+## 0.12.74 (2026-08-03)
+
+### Fixes
+
+- Add a unified `EgressClient::start_egress` that calls the v2 `Egress.StartEgress` RPC with a `StartEgressRequest`, alongside the existing per-type helpers.
+- Fix a publisher-transport deadlock during renegotiation. When another negotiation was requested while an offer was awaiting its answer, `set_remote_description` re-entered `create_and_send_offer` while holding the transport's non-reentrant inner mutex, permanently wedging publishing.
+- Move the concept of "internal" data streams into `livekit` crate from `livekit-data-stream` - #1304 (@1egoman)
+
+#### Fix H.264, H.265, and AV1 NVENC sessions so live bitrate and frame rate updates
+
+reconfigure the hardware without restarting the encoder.
+
+## 0.12.73 (2026-07-29)
+
+### Fixes
+
+- allow for audio filters to be registered after initial room connection - #1273 (@lukasIO)
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+- Add data streams v2 - #1192 (@1egoman)
+- Ensure participant disconnects are synthesized after connection resume - #1250 (@lukasIO)
+
+## 0.12.72 (2026-07-27)
+
+### Fixes
+
+- Address typo in parsing rpc server version - #1268 (@1egoman)
+- Data tracks schema metadata support.
+- Emit black keepalive frames from NativeVideoSource instead of uninitialized memory. webrtc::I420Buffer::Create leaves the pixel planes uninitialized, so the pre-capture keepalive frames could leak recycled heap contents (often fragments of earlier frames from the same process) to subscribers as the first keyframes - #1271 (@eh-steve)
+- ensure failing audio filter init doesn't degrade audio quality - #1270 (@lukasIO)
+- Add NVIDIA NVENC AV1 encoding when the GPU reports AV1 encode support.
+
+#### Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
+
+The signalling WebSocket and the two pre-connect HTTP GETs (validate, region discovery) now go through pluggable transport traits (`WsClient` for the WebSocket, `HttpClient` for request/response) resolved from a process-global registry with independent slots — a consumer can bring only HTTP, or only WebSocket. The new `livekit-net` crate owns the WebSocket/HTTP/TLS stack behind those traits and ships native (tokio / async-std) backends. Native builds are unchanged in behavior.
+
+**Breaking (`livekit-api`, and `livekit` via `EngineError::Signal`):**
+
+- `SignalError::WsError` is removed — `tungstenite` is no longer part of the public API. A failed WebSocket handshake now surfaces its HTTP status as `SignalError::Client`/`Server`; transport connection and close failures surface as the new `SignalError::Connection(String)` / `SignalError::Closed` variants (previously all collapsed into `Timeout`).
+- `SignalError` is now `#[non_exhaustive]`, and gains a `SignalError::TransportNotConfigured` variant — returned when no transport is registered (host/foreign builds must call `livekit_net::set_ws_client` / `set_http_client` before connecting). This is a permanent configuration error; callers must not retry.
+- The signalling WebSocket/HTTP/TLS crates are no longer transitive dependencies of `livekit-api`; TLS features delegate to `livekit-net`. Existing `signal-client-tokio` / `-async` / `-dispatcher` and TLS feature names are unchanged.
+
 ## 0.12.71 (2026-07-17)
 
 ### Fixes

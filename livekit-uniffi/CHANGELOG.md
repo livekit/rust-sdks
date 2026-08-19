@@ -1,3 +1,34 @@
+## 0.1.8 (2026-08-03)
+
+### Fixes
+
+- Add a unified `EgressClient::start_egress` that calls the v2 `Egress.StartEgress` RPC with a `StartEgressRequest`, alongside the existing per-type helpers.
+- Fix the Android AAR build. Two cargo-make bugs kept `cargo make --profile release android-package` from ever producing a release artifact: the per-arch tasks' `env = { TARGET = ... }` replaced (rather than merged) the parent env map, dropping the `--release` flag, and the `TARGET` they set leaked into the Kotlin bindgen's host build, which then cross-compiled with the host linker. Also raise the Swift and Android size budgets to match the binaries as they stand since the data-track UniFFI surface landed, and check out the released tag rather than the dispatch ref when building the wrapper packages.
+
+## 0.1.7 (2026-07-29)
+
+### Fixes
+
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+- Add data streams v2 - #1192 (@1egoman)
+
+## 0.1.6 (2026-07-27)
+
+### Fixes
+
+- Data tracks schema metadata support.
+- Gate the uniffi `cli` feature (clap + bindgen backends) behind an opt-in feature so it is no longer compiled into shipped library builds, shrinking the static archive by ~43 MiB. The dynamic library is byte-unchanged. - #1275 (@jhugman)
+
+#### Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
+
+The signalling WebSocket and the two pre-connect HTTP GETs (validate, region discovery) now go through pluggable transport traits (`WsClient` for the WebSocket, `HttpClient` for request/response) resolved from a process-global registry with independent slots — a consumer can bring only HTTP, or only WebSocket. The new `livekit-net` crate owns the WebSocket/HTTP/TLS stack behind those traits and ships native (tokio / async-std) backends. Native builds are unchanged in behavior.
+
+**Breaking (`livekit-api`, and `livekit` via `EngineError::Signal`):**
+
+- `SignalError::WsError` is removed — `tungstenite` is no longer part of the public API. A failed WebSocket handshake now surfaces its HTTP status as `SignalError::Client`/`Server`; transport connection and close failures surface as the new `SignalError::Connection(String)` / `SignalError::Closed` variants (previously all collapsed into `Timeout`).
+- `SignalError` is now `#[non_exhaustive]`, and gains a `SignalError::TransportNotConfigured` variant — returned when no transport is registered (host/foreign builds must call `livekit_net::set_ws_client` / `set_http_client` before connecting). This is a permanent configuration error; callers must not retry.
+- The signalling WebSocket/HTTP/TLS crates are no longer transitive dependencies of `livekit-api`; TLS features delegate to `livekit-net`. Existing `signal-client-tokio` / `-async` / `-dispatcher` and TLS feature names are unchanged.
+
 ## 0.1.5 (2026-07-14)
 
 ### Features

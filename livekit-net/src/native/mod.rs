@@ -31,16 +31,40 @@ fn error_chain(e: &dyn std::error::Error) -> String {
     msg
 }
 
-/// The built-in native transport. One stateless type implements both [`WsClient`]
-/// and [`HttpClient`]; the registry hands out a fresh `Arc` per trait.
-pub struct NativeTransport;
+/// The built-in native transport. One type implements both [`WsClient`] and
+/// [`HttpClient`]. On the tokio backend it owns the reqwest client, so the
+/// connection pool lives and dies with the transport object.
+pub struct NativeTransport {
+    // reqwest pools connections per client, so a per-request client would redo
+    // TCP/TLS setup (and root-store loading) on every call.
+    #[cfg(feature = "__native-tokio")]
+    http: reqwest::Client,
+}
+
+impl NativeTransport {
+    pub(crate) fn new() -> Self {
+        Self {
+            #[cfg(feature = "__native-tokio")]
+            http: reqwest::Client::new(),
+        }
+    }
+}
+
+/// The shared default transport behind the registry fallback. Memoized because
+/// consumers resolve a client per request: a fresh transport per resolution
+/// would defeat its connection pooling.
+fn default_transport() -> Arc<NativeTransport> {
+    use std::sync::OnceLock;
+    static DEFAULT: OnceLock<Arc<NativeTransport>> = OnceLock::new();
+    Arc::clone(DEFAULT.get_or_init(|| Arc::new(NativeTransport::new())))
+}
 
 pub(crate) fn native_ws_client() -> Arc<dyn WsClient> {
-    Arc::new(NativeTransport)
+    default_transport()
 }
 
 pub(crate) fn native_http_client() -> Arc<dyn HttpClient> {
-    Arc::new(NativeTransport)
+    default_transport()
 }
 
 #[async_trait::async_trait]
@@ -109,7 +133,7 @@ impl HttpClient for NativeTransport {
     ) -> Result<HttpResponse, TransportError> {
         #[cfg(feature = "__native-tokio")]
         {
-            let client = reqwest::Client::new();
+            let client = &self.http;
             let mut req = match method {
                 HttpMethod::Get => client.get(&url),
                 HttpMethod::Post => client.post(&url),

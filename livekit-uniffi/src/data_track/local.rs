@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use super::common::{
-    deserialize_signal_response, DataTrackFrame, DataTrackInfo, HandleSignalResponseError,
+    deserialize_signal_response, DataTrackFrame, DataTrackInfo, DataTrackSchemaId,
+    HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
 use livekit_datatrack::{
-    api::{DataTrack, Local, PublishError, PushFrameErrorReason},
+    api::{DataTrack, DataTrackFrameEncoding, Local, PublishError, PushFrameErrorReason},
     backend::{local, EncryptionProvider},
 };
 use livekit_protocol as proto;
@@ -53,8 +54,9 @@ impl LocalDataTrack {
 
     /// Try pushing a frame to subscribers of the track.
     pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
-        // `PushFrameError` returns ownership of the unpublished frame to the caller;
-        // since this isn't applicable in an FFI context, just provide the reason.
+        // `PushFrameError` returns ownership of the unpublished frame to the caller because Rust's
+        // `try_push` moves it. Across the FFI boundary the frame is lowered by copy, so the caller
+        // still holds its own value and can retry with it directly; just provide the reason.
         self.0.try_push(frame.into()).map_err(|err| err.reason())
     }
 
@@ -72,11 +74,22 @@ impl LocalDataTrack {
 #[derive(uniffi::Record)]
 pub struct DataTrackOptions {
     pub name: String,
+    #[uniffi(default)]
+    pub schema: Option<DataTrackSchemaId>,
+    #[uniffi(default)]
+    pub frame_encoding: Option<DataTrackFrameEncoding>,
 }
 
 impl From<DataTrackOptions> for livekit_datatrack::api::DataTrackOptions {
-    fn from(options: DataTrackOptions) -> Self {
-        livekit_datatrack::api::DataTrackOptions::new(options.name)
+    fn from(source: DataTrackOptions) -> Self {
+        let mut options = livekit_datatrack::api::DataTrackOptions::new(source.name);
+        if let Some(schema) = source.schema {
+            options = options.with_schema(schema.into());
+        }
+        if let Some(frame_encoding) = source.frame_encoding {
+            options = options.with_frame_encoding(frame_encoding);
+        }
+        options
     }
 }
 

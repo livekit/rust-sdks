@@ -110,8 +110,8 @@ index 06fcf84a9d..627e204582 100644
    }
  
    generate_jni("generated_peerconnection_jni") {
-@@ -1637,11 +1648,13 @@ if (current_os == "linux" || is_android) {
-       "api/org/webrtc/audio/AudioProcessingState.java",
+@@ -1603,11 +1614,13 @@ if (current_os == "linux" || is_android) {
+       "src/java/org/webrtc/PlatformCertificateVerifier.java",
      ]
      namespace = "webrtc::jni"
 +    package_prefix = android_package_prefix

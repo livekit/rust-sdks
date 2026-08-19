@@ -15,18 +15,19 @@
 syntax = "proto2";
 
 package livekit.proto;
-option csharp_namespace = "LiveKit.Proto";
 
-// import "handle.proto";
-import "e2ee.proto";
-import "track.proto";
-import "track_publication.proto";
-import "room.proto";
-import "video_frame.proto";
 import "audio_frame.proto";
-import "rpc.proto";
 import "data_stream.proto";
 import "data_track.proto";
+// import "handle.proto";
+import "e2ee.proto";
+import "room.proto";
+import "rpc.proto";
+import "track.proto";
+import "track_publication.proto";
+import "video_frame.proto";
+
+option csharp_namespace = "LiveKit.Proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -165,6 +166,10 @@ message FfiRequest {
     DataTrackStreamReadRequest data_track_stream_read = 75;
     RemoteDataTrackSetPipelineOptionsRequest remote_data_track_set_pipeline_options = 84;
 
+    // Data Track (schemas)
+    DefineSchemaRequest define_schema = 85;
+    GetSchemaRequest get_schema = 86;
+
     // Reconnection / chaos testing
     SimulateScenarioRequest simulate_scenario = 76;
 
@@ -179,7 +184,7 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 85
+    // NEXT_ID: 87
   }
 }
 
@@ -290,6 +295,10 @@ message FfiResponse {
     DataTrackStreamReadResponse data_track_stream_read = 74;
     RemoteDataTrackSetPipelineOptionsResponse remote_data_track_set_pipeline_options = 84;
 
+    // Data Track (schemas)
+    DefineSchemaResponse define_schema = 85;
+    GetSchemaResponse get_schema = 86;
+
     // Reconnection / chaos testing
     SimulateScenarioResponse simulate_scenario = 75;
 
@@ -304,7 +313,7 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 85
+    // NEXT_ID: 87
   }
 }
 
@@ -369,7 +378,11 @@ message FfiEvent {
 
     SimulateScenarioCallback simulate_scenario = 44;
 
-    // NEXT_ID: 45
+    // Data Track (schemas)
+    DefineSchemaCallback define_schema = 45;
+    GetSchemaCallback get_schema = 46;
+
+    // NEXT_ID: 47
   }
 }
 

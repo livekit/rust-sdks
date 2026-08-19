@@ -35,6 +35,8 @@ Output (JSON on stdout):
     "present":           [[pkg, bump], ...], # bumps already in the changeset
     "missing":           [pkg, ...],         # required packages not yet covered
     "invalid":           [{...}, ...],       # bump lines in a format knope would ignore
+    "unmanaged":         [pkg, ...],         # publishable crates missing from knope.toml
+    "stale":             [pkg, ...],         # knope.toml entries with no workspace crate
     "changeset_content": str,               # a changeset prefilled with `missing`
   }
 """
@@ -204,6 +206,38 @@ def detect(meta, knope_packages, changed_files, present):
     }
 
 
+def is_publishable(pkg):
+    """True unless the crate opts out of publishing with `publish = false`.
+
+    `cargo metadata` encodes the manifest's `publish` field as: `null` (default,
+    publishable to any registry), `[]` (`publish = false`), or a list of allowed
+    registry names. Only the empty list means "never published".
+    """
+    return pkg.get("publish") != []
+
+
+def reconcile_knope_config(meta, knope_packages):
+    """Find drift between the Cargo workspace and knope.toml.
+
+    Returns (unmanaged, stale):
+      unmanaged  publishable workspace crates absent from knope.toml. These
+                 silently escape changeset enforcement and are never released.
+                 Fix by adding a `[packages.<name>]` block, or by setting
+                 `publish = false` if the crate isn't meant to ship.
+      stale      knope.toml package names with no matching workspace crate
+                 (e.g. a renamed or removed crate leaving a dangling entry).
+
+    Note the rule is one-directional: publishable implies knope-managed, but a
+    knope-managed crate may set `publish = false` (e.g. livekit-ffi / livekit-
+    uniffi, which CI publishes via wrapper packages rather than `cargo publish`).
+    """
+    workspace_names = {pkg["name"] for pkg in meta["packages"]}
+    publishable = {pkg["name"] for pkg in meta["packages"] if is_publishable(pkg)}
+    unmanaged = sorted(publishable - knope_packages)
+    stale = sorted(knope_packages - workspace_names)
+    return unmanaged, stale
+
+
 def load_cargo_metadata():
     """Fetch workspace metadata (--no-deps avoids network access)."""
     return json.loads(subprocess.check_output(
@@ -227,12 +261,14 @@ def main():
             "direct": [], "downstream": [], "required": [],
             "present": sorted(present.items()), "missing": [],
             "invalid": invalid,
+            "unmanaged": [], "stale": [],
             "changeset_content": "",
         })
         return  # emit calls sys.exit, but guard against falling through
 
     result = detect(meta, knope_packages, changed_files, present)
     result["invalid"] = invalid
+    result["unmanaged"], result["stale"] = reconcile_knope_config(meta, knope_packages)
     emit(result)
 
 

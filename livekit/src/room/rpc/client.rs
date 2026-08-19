@@ -17,7 +17,7 @@ use super::{
     ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_V1_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
-use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
+use crate::data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
 use libwebrtc::native::create_random_uuid;
 use livekit_api::signal_client::CLIENT_PROTOCOL_DATA_STREAM_RPC;
@@ -209,12 +209,9 @@ impl RpcClientManager {
             .insert(ATTR_RESPONSE_TIMEOUT_MS.to_string(), response_timeout.as_millis().to_string());
         attributes.insert(ATTR_VERSION.to_string(), RPC_VERSION_V2.to_string());
 
-        let options = StreamTextOptions {
-            topic: RPC_REQUEST_TOPIC.to_string(),
-            attributes,
-            destination_identities: vec![ParticipantIdentity(destination_identity.to_string())],
-            ..Default::default()
-        };
+        let options = StreamTextOptions::new_with_topic(RPC_REQUEST_TOPIC)
+            .with_attributes(attributes)
+            .with_destination_identity(destination_identity);
 
         transport
             .send_text(payload, options)
@@ -275,7 +272,8 @@ impl RpcClientManager {
     /// on the `lk.rpc_response` topic. Error responses always arrive
     /// as v1 packets and are handled by `handle_response`.
     pub(crate) async fn handle_v2_response_stream(&self, reader: TextStreamReader) {
-        let request_id = reader.info().attributes.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
+        let request_id =
+            reader.info().attributes().get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
 
         if request_id.is_empty() {
             log::error!("RPC v2 response stream missing request_id attribute");
