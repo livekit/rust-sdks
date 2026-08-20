@@ -17,10 +17,7 @@ use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
-    prelude::{
-        ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack,
-        RtcConfiguration,
-    },
+    prelude::{MediaStream, MediaStreamTrack, RtcConfiguration},
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
@@ -467,13 +464,8 @@ impl Default for RoomOptions {
             e2ee: None,
             encryption: None,
 
-            // Explicitly set the default values
-            rtc_config: RtcConfiguration {
-                ice_servers: vec![], /* When empty, this will automatically be filled by the
-                                      * JoinResponse */
-                continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
-                ice_transport_type: IceTransportsType::All,
-            },
+            // Defaults; ice_servers is empty here and filled from the JoinResponse.
+            rtc_config: RtcConfiguration::default(),
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: true,

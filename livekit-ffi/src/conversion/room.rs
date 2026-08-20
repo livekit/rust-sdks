@@ -237,19 +237,20 @@ impl From<proto::IceServer> for IceServer {
 
 impl From<proto::RtcConfig> for RtcConfiguration {
     fn from(value: proto::RtcConfig) -> Self {
-        let default = RoomOptions::default().rtc_config; // Always use RoomOptions as the default reference
+        // Start from RoomOptions defaults; RtcConfiguration is #[non_exhaustive]
+        // so it must be built from Default rather than a struct literal.
+        let mut config = RoomOptions::default().rtc_config;
 
-        Self {
-            ice_transport_type: value.ice_transport_type.map_or(default.ice_transport_type, |x| {
+        config.ice_transport_type =
+            value.ice_transport_type.map_or(config.ice_transport_type, |x| {
                 proto::IceTransportType::try_from(x).unwrap().into()
-            }),
-            continual_gathering_policy: value
-                .continual_gathering_policy
-                .map_or(default.continual_gathering_policy, |x| {
-                    proto::ContinualGatheringPolicy::try_from(x).unwrap().into()
-                }),
-            ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
-        }
+            });
+        config.continual_gathering_policy =
+            value.continual_gathering_policy.map_or(config.continual_gathering_policy, |x| {
+                proto::ContinualGatheringPolicy::try_from(x).unwrap().into()
+            });
+        config.ice_servers = value.ice_servers.into_iter().map(Into::into).collect();
+        config
     }
 }
 

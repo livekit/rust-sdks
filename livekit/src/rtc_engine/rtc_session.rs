@@ -501,6 +501,10 @@ impl RtcSession {
         let (emitter, session_events) = mpsc::unbounded_channel();
 
         let lk_runtime = LkRuntime::instance();
+
+        let mut options = options;
+        options.rtc_config.enable_sctp_snap = true;
+
         let use_single_pc = options.signal_options.single_peer_connection;
 
         let mut publisher_offer = None;
