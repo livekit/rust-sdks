@@ -473,6 +473,7 @@ impl Default for RoomOptions {
                                       * JoinResponse */
                 continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
                 ice_transport_type: IceTransportsType::All,
+                enable_sctp_snap: false,
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
