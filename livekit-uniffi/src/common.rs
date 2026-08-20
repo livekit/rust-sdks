@@ -14,4 +14,10 @@
 
 use bytes::Bytes;
 
-uniffi::custom_type!(Bytes, Vec<u8>, { remote });
+// `Bytes` is a remote type, so each UniFFI component that registers it with
+// `custom_type!` emits its own converter — and the two component Swift files are
+// compiled into one module, so a second `typealias Bytes` fails to build
+// ("invalid redeclaration of 'Bytes'"). Reuse livekit-datatrack's registration
+// instead of adding a second one; the type is then emitted once, in the file that
+// owns it. Upstream: https://github.com/mozilla/uniffi-rs/issues/2933
+uniffi::use_remote_type!(livekit_datatrack::Bytes);
