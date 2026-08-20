@@ -84,7 +84,9 @@ impl PeerConnectionFactory {
     /// may be combined.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_options(zero_playout_delay: bool, enable_warp: bool) -> Self {
-        Self { handle: imp_pcf::PeerConnectionFactory::with_options(zero_playout_delay, enable_warp) }
+        Self {
+            handle: imp_pcf::PeerConnectionFactory::with_options(zero_playout_delay, enable_warp),
+        }
     }
 
     pub fn create_peer_connection(
