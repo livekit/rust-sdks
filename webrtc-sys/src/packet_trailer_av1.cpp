@@ -42,7 +42,7 @@ void WriteLeb128(uint64_t value, std::vector<uint8_t>& out) {
   out.push_back(static_cast<uint8_t>(value));
 }
 
-bool ReadLeb128(webrtc::ArrayView<const uint8_t> data,
+bool ReadLeb128(std::span<const uint8_t> data,
                 size_t& pos,
                 uint64_t& value) {
   value = 0;
@@ -62,7 +62,7 @@ bool ReadLeb128(webrtc::ArrayView<const uint8_t> data,
 }
 
 std::vector<uint8_t> BuildMetadataObu(
-    webrtc::ArrayView<const uint8_t> trailer) {
+    std::span<const uint8_t> trailer) {
   std::vector<uint8_t> metadata_payload;
   WriteLeb128(kAv1MetadataTypeLiveKitPacketTrailer, metadata_payload);
   metadata_payload.insert(metadata_payload.end(), trailer.begin(), trailer.end());
@@ -76,7 +76,7 @@ std::vector<uint8_t> BuildMetadataObu(
   return obu;
 }
 
-size_t FindMetadataInsertOffset(webrtc::ArrayView<const uint8_t> data) {
+size_t FindMetadataInsertOffset(std::span<const uint8_t> data) {
   size_t pos = 0;
   size_t insert_offset = 0;
 
@@ -138,8 +138,8 @@ bool IsAv1Frame(const webrtc::TransformableFrameInterface& frame) {
 }
 
 std::vector<uint8_t> InsertTrailerObu(
-    webrtc::ArrayView<const uint8_t> data,
-    webrtc::ArrayView<const uint8_t> trailer) {
+    std::span<const uint8_t> data,
+    std::span<const uint8_t> trailer) {
   std::vector<uint8_t> obu = BuildMetadataObu(trailer);
   if (data.empty()) {
     return obu;
@@ -155,7 +155,7 @@ std::vector<uint8_t> InsertTrailerObu(
 }
 
 std::optional<PacketTrailerMetadata> ExtractTrailer(
-    webrtc::ArrayView<const uint8_t> data,
+    std::span<const uint8_t> data,
     std::vector<uint8_t>& out_data) {
   std::vector<uint8_t> stripped_data;
   stripped_data.reserve(data.size());
@@ -193,13 +193,13 @@ std::optional<PacketTrailerMetadata> ExtractTrailer(
     const size_t obu_end = payload_start + payload_size;
 
     if (obu_type == kAv1ObuTypeMetadata) {
-      auto metadata_payload = data.subview(payload_start, obu_end - payload_start);
+      auto metadata_payload = data.subspan(payload_start, obu_end - payload_start);
       size_t metadata_pos = 0;
       uint64_t metadata_type = 0;
       if (ReadLeb128(metadata_payload, metadata_pos, metadata_type) &&
           metadata_type == kAv1MetadataTypeLiveKitPacketTrailer &&
           metadata_pos <= metadata_payload.size()) {
-        auto trailer_payload = metadata_payload.subview(
+        auto trailer_payload = metadata_payload.subspan(
             metadata_pos, metadata_payload.size() - metadata_pos);
         if (auto meta = ParseTrailerPayload(trailer_payload)) {
           stripped_data.insert(stripped_data.end(), data.begin() + obu_end,

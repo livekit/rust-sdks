@@ -8,6 +8,10 @@ rustflags = ["-C", "target-feature=+crt-static"]
 [target.aarch64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 
+# `-ObjC` must also be passed to rustdoc: doctest binaries are linked by rustdoc
+# and do not inherit `rustflags`. Without it the ObjC categories in libwebrtc's
+# static lib (e.g. `NSString (StdString)`) are not loaded, and static
+# initializers such as RTCH264ProfileLevelId.mm abort at process startup.
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-args=-ObjC"]
 rustdocflags = ["-C", "link-args=-ObjC"]

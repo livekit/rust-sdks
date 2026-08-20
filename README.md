@@ -179,8 +179,16 @@ Building on Ubuntu 24 x86_64:
 ```
 # install required libs
 sudo apt install -y \
-  libglib2.0-dev build-essential clang \
+  libglib2.0-dev build-essential \
   libclang-dev libc6-dev pkg-config libjpeg-turbo8-dev
+
+# webrtc-sys compiles against the hermetic libc++ shipped inside the libwebrtc
+# artifact, which tracks LLVM trunk and needs clang 21 or later. Ubuntu 24's
+# clang is 18, so install a newer one from apt.llvm.org:
+wget https://apt.llvm.org/llvm.sh
+chmod +x llvm.sh
+sudo ./llvm.sh 21
+export CC=clang-21 CXX=clang++-21
 
 # install cuda-toolkit if you have an Nvidia GPU and want to use NVENC for video encoding
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb

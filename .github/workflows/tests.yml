@@ -74,6 +74,15 @@ jobs:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # Ubuntu 24 ships clang 18; webrtc-sys needs 21+ for libwebrtc's hermetic
+      # libc++. Must run before the sccache step, which wraps whatever CC/CXX
+      # this sets. (The previous default here was the host `cc`/`c++`, i.e. GCC,
+      # which webrtc-sys/build.rs now rejects outright: GCC silently ignores
+      # libc++'s trivial_abi annotations and miscompiles unique_ptr returns.)
+      - name: Install clang for webrtc-sys
+        if: ${{ runner.os == 'Linux' }}
+        run: .github/scripts/install-clang.sh
+
       # sccache wraps both rustc and the C/C++ compilers used by `cxx_build`
       # in `webrtc-sys`. The Mozilla action installs the binary; the probe
       # step below only enables wrapping if the GHA cache backend is reachable
@@ -94,9 +103,11 @@ jobs:
             # All three matrix targets in tests.yml are host targets (no
             # cross-compile), so wrapping CC/CXX is safe. Skip on Windows:
             # MSVC `cl` setup needs more care.
+            # On Linux CC/CXX already point at the clang installed above; keep
+            # that compiler and just prepend the wrapper.
             if [ "${{ runner.os }}" != "Windows" ]; then
-              echo "CC=sccache cc"  >> "$GITHUB_ENV"
-              echo "CXX=sccache c++" >> "$GITHUB_ENV"
+              echo "CC=sccache ${CC:-cc}"   >> "$GITHUB_ENV"
+              echo "CXX=sccache ${CXX:-c++}" >> "$GITHUB_ENV"
             fi
             echo "::notice::sccache enabled (RUSTC_WRAPPER=sccache)"
           else
