@@ -241,9 +241,10 @@ impl From<proto::RtcConfig> for RtcConfiguration {
         // so it must be built from Default rather than a struct literal.
         let mut config = RoomOptions::default().rtc_config;
 
-        config.ice_transport_type = value.ice_transport_type.map_or(config.ice_transport_type, |x| {
-            proto::IceTransportType::try_from(x).unwrap().into()
-        });
+        config.ice_transport_type =
+            value.ice_transport_type.map_or(config.ice_transport_type, |x| {
+                proto::IceTransportType::try_from(x).unwrap().into()
+            });
         config.continual_gathering_policy =
             value.continual_gathering_policy.map_or(config.continual_gathering_policy, |x| {
                 proto::ContinualGatheringPolicy::try_from(x).unwrap().into()

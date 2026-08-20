@@ -17,9 +17,7 @@ use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
-    prelude::{
-        MediaStream, MediaStreamTrack, RtcConfiguration,
-    },
+    prelude::{MediaStream, MediaStreamTrack, RtcConfiguration},
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
