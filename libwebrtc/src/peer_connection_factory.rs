@@ -43,7 +43,8 @@ pub enum IceTransportsType {
 ///
 /// This type is `#[non_exhaustive]`: construct it from [`RtcConfiguration::default`]
 /// and set the fields you need, e.g.
-/// ```ignore
+/// ```
+/// # use libwebrtc::peer_connection_factory::{IceTransportsType, RtcConfiguration};
 /// let mut cfg = RtcConfiguration::default();
 /// cfg.ice_transport_type = IceTransportsType::Relay;
 /// ```
