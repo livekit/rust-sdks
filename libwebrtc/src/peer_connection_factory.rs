@@ -39,7 +39,17 @@ pub enum IceTransportsType {
     All,
 }
 
+/// Configuration for a [`PeerConnection`].
+///
+/// This type is `#[non_exhaustive]`: construct it from [`RtcConfiguration::default`]
+/// and set the fields you need, e.g.
+/// ```ignore
+/// let mut cfg = RtcConfiguration::default();
+/// cfg.ice_transport_type = IceTransportsType::Relay;
+/// ```
+/// New fields may be added in future releases without a breaking change.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RtcConfiguration {
     pub ice_servers: Vec<IceServer>,
     pub continual_gathering_policy: ContinualGatheringPolicy,
