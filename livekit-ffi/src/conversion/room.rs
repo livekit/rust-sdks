@@ -249,6 +249,7 @@ impl From<proto::RtcConfig> for RtcConfiguration {
                     proto::ContinualGatheringPolicy::try_from(x).unwrap().into()
                 }),
             ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
+            enable_sctp_snap: default.enable_sctp_snap,
         }
     }
 }
