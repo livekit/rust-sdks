@@ -7,13 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Breaking
-
-- `RtcConfiguration` is now `#[non_exhaustive]` and gained an `enable_sctp_snap` field
-  (WARP / SNAP — SCTP-INIT-in-SDP). Construct it from `RtcConfiguration::default()` and
-  set the fields you need instead of a struct literal; future fields can then be added
-  without a breaking change.
-
 ## [0.3.26](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.25...rust-sdks/libwebrtc@0.3.26) - 2026-02-16
 
 ### Other
