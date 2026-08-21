@@ -14,11 +14,11 @@
 
 #![doc = include_str!("../README.md")]
 
+// The token implementation lives in the livekit-token crate. This alias keeps
+// the historical `livekit_api::access_token::*` paths working, and remains the
+// documented, supported way to reach these types.
 #[cfg(feature = "access-token")]
-pub mod access_token;
-
-#[cfg(feature = "access-token")]
-mod jwt_provider;
+pub use livekit_token as access_token;
 
 #[cfg(any(feature = "services-tokio", feature = "services-async"))]
 pub mod services;
@@ -37,10 +37,3 @@ mod region;
 
 #[cfg(feature = "webhooks")]
 pub mod webhooks;
-
-#[allow(dead_code)]
-pub(crate) fn get_env_keys() -> Result<(String, String), std::env::VarError> {
-    let api_key = std::env::var("LIVEKIT_API_KEY")?;
-    let api_secret = std::env::var("LIVEKIT_API_SECRET")?;
-    Ok((api_key, api_secret))
-}

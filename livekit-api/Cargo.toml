@@ -31,9 +31,9 @@ signal-client-tokio      = ["signal-client", "livekit-net/native-tokio", "liveki
 signal-client-async      = ["signal-client", "livekit-net/native-async",      "livekit-runtime/async"]
 signal-client-dispatcher = ["signal-client", "livekit-net/native-dispatcher",  "livekit-runtime/dispatcher"]
 
-services-tokio = ["dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
-services-async = ["dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
-access-token = ["dep:jsonwebtoken", "dep:hmac", "dep:signature"]
+services-tokio = ["access-token", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
+services-async = ["access-token", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
+access-token = ["dep:livekit-token"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
 # TLS Configuration
@@ -71,6 +71,7 @@ __rustls-tls            = ["livekit-net?/__rustls-tls",             "reqwest?/__
 [dependencies]
 livekit-net = { workspace = true, optional = true }
 livekit-protocol = { workspace = true }
+livekit-token = { workspace = true, optional = true }
 livekit-common = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -84,12 +85,6 @@ pbjson-types = "0.6"
 # webhooks
 serde_json = { workspace = true, optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
-
-# access_token: HS256 only, via the in-crate HMAC CryptoProvider (jwt_provider.rs).
-# Dropping jsonwebtoken's rust_crypto bundle avoids linking RSA/EC/EdDSA.
-jsonwebtoken = { version = "10", default-features = false, optional = true }
-hmac = { version = "0.12", optional = true }
-signature = { version = "2", optional = true }
 
 # signal_client
 livekit-runtime = { workspace = true, optional = true, default-features = false }
