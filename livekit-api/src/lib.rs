@@ -18,6 +18,7 @@
 // the historical `livekit_api::access_token::*` paths working, and remains the
 // documented, supported way to reach these types.
 #[cfg(feature = "access-token")]
+#[doc(inline)]
 pub use livekit_token as access_token;
 
 #[cfg(any(feature = "services-tokio", feature = "services-async"))]

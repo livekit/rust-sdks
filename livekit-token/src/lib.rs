@@ -24,6 +24,7 @@ pub use access_token::*;
 ///
 /// Used by [`AccessToken::new`] and [`TokenVerifier::new`], and by the server-API
 /// service clients in `livekit-api` for their own env-based constructors.
+#[doc(hidden)]
 pub fn get_env_keys() -> Result<(String, String), std::env::VarError> {
     let api_key = std::env::var("LIVEKIT_API_KEY")?;
     let api_secret = std::env::var("LIVEKIT_API_SECRET")?;
