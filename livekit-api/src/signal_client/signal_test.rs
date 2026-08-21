@@ -50,13 +50,15 @@ fn base_url() -> String {
     std::env::var("LK_TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:9999".to_owned())
 }
 
-async fn reachable(base: &str) -> bool {
-    reqwest::Client::new()
-        .get(format!("{base}/settings/regions"))
-        .send()
-        .await
-        .map(|r| r.status().is_success())
-        .unwrap_or(false)
+/// Reachability probe over a plain TCP connect rather than an HTTP request, so this file
+/// needs no HTTP client and can therefore run under a pinned `signal-client-tokio` build
+/// (the HTTP client arrives only with `services-tokio`). It also draws the better line:
+/// "server offline" (skip, local dev) is told apart from "server up but answering wrongly",
+/// which must fail a test rather than silently skip it. `services_async.rs` probes the same
+/// way.
+fn server_up(base: &str) -> bool {
+    let authority = base.split("://").nth(1).unwrap_or(base).trim_end_matches('/');
+    std::net::TcpStream::connect(authority).is_ok()
 }
 
 /// Mint a token whose `lk.mock` attribute selects `mode` (empty → no attribute,
@@ -114,7 +116,7 @@ async fn next_event(events: &mut SignalEvents, dur: Duration) -> SignalEvent {
 
 macro_rules! skip_if_offline {
     ($base:expr) => {
-        if !reachable(&$base).await {
+        if !server_up(&$base) {
             eprintln!("skipping: mock test server not reachable at {}", $base);
             return;
         }
