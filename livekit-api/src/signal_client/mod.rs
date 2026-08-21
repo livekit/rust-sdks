@@ -1144,11 +1144,13 @@ mod tests {
     /// in `send`. The stream slot is None so any actual write would be dropped,
     /// which is fine — these tests only assert which side of the queue each
     /// message lands on.
+    #[cfg(feature = "signal-client-tokio")]
     fn make_stub_inner() -> Arc<SignalInner> {
         make_stub_inner_with(proto::JoinResponse::default())
     }
 
     /// As `make_stub_inner`, with a join response — `restart` reads the participant sid from it.
+    #[cfg(feature = "signal-client-tokio")]
     fn make_stub_inner_with(join_response: proto::JoinResponse) -> Arc<SignalInner> {
         Arc::new(SignalInner {
             stream: AsyncRwLock::new(None),
@@ -1163,6 +1165,7 @@ mod tests {
         })
     }
 
+    #[cfg(feature = "signal-client-tokio")]
     fn mute(sid: &str) -> proto::signal_request::Message {
         proto::signal_request::Message::Mute(proto::MuteTrackRequest {
             sid: sid.into(),
@@ -1171,6 +1174,7 @@ mod tests {
     }
 
     /// The sids of the queued mute requests, in queue order.
+    #[cfg(feature = "signal-client-tokio")]
     async fn queued_sids(inner: &Arc<SignalInner>) -> Vec<String> {
         inner
             .queue
@@ -1187,6 +1191,10 @@ mod tests {
     /// A live stream over the shared mock transport, for the tests that need the
     /// difference between "held because we are reconnecting" and "held because
     /// there is nowhere to send".
+    ///
+    /// Gated like its callers: `test_transport` only exists for the tokio flavour, so an
+    /// ungated helper would break the `signal-client-async` build.
+    #[cfg(feature = "signal-client-tokio")]
     async fn mock_stream() -> SignalStream {
         use crate::signal_client::test_transport::install_mock_transport;
         install_mock_transport();
