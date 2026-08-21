@@ -15,6 +15,7 @@ members = [
     "livekit-ffi-node-bindings",
     "livekit-net",
     "livekit-runtime",
+    "livekit-signaling",
     "livekit-wakeword",
     "tools/bindgens",
     "libwebrtc",
@@ -57,6 +58,7 @@ livekit = { version = "0.8.4", path = "livekit" }
 livekit-api = { version = "0.6.4", path = "livekit-api" }
 livekit-ffi = { version = "0.12.76", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.14", path = "livekit-datatrack" }
+livekit-signaling = { version = "0.1.0", path = "livekit-signaling" }
 livekit-token = { version = "0.1.1", path = "livekit-token" }
 livekit-token-source = { version = "0.1.2", path = "livekit-token-source" }
 livekit-common = { version = "0.1.2", path = "livekit-common" }
