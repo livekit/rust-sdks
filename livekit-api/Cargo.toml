@@ -19,6 +19,7 @@ default = ["services-tokio", "access-token", "webhooks"]
 # a registered livekit_net::transport() at runtime.
 signal-client = [
     "dep:livekit-net",
+    "dep:livekit-region",
     "dep:livekit-runtime",
     "dep:tokio",
     "dep:base64",
@@ -31,10 +32,10 @@ signal-client-tokio      = ["signal-client", "livekit-net/native-tokio", "liveki
 signal-client-async      = ["signal-client", "livekit-net/native-async",      "livekit-runtime/async"]
 signal-client-dispatcher = ["signal-client", "livekit-net/native-dispatcher",  "livekit-runtime/dispatcher"]
 
-services-tokio = ["access-token", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
-services-async = ["access-token", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
+services-tokio = ["access-token", "dep:livekit-region", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
+services-async = ["access-token", "dep:livekit-region", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
 access-token = ["dep:livekit-token"]
-webhooks = ["access-token", "dep:serde_json", "dep:base64"]
+webhooks = ["access-token", "dep:serde_json", "dep:base6V
 
 # TLS Configuration
 # -----------------
@@ -72,6 +73,7 @@ __rustls-tls            = ["livekit-net?/__rustls-tls",             "reqwest?/__
 livekit-net = { workspace = true, optional = true }
 livekit-protocol = { workspace = true }
 livekit-token = { workspace = true, optional = true }
+livekit-region = { workspace = true, optional = true }
 livekit-common = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
