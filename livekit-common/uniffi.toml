@@ -1,0 +1,4 @@
+[bindings.swift]
+# Matches the Rust<Name> convention used by the other components; the cargo-swift
+# fork folds every component's header into the single RustLiveKitUniFFI framework.
+ffi_module_name = "RustLiveKitCommon"
