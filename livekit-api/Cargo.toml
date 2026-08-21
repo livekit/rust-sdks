@@ -35,7 +35,7 @@ signal-client-dispatcher = ["signal-client", "livekit-net/native-dispatcher",  "
 services-tokio = ["access-token", "dep:livekit-region", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
 services-async = ["access-token", "dep:livekit-region", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
 access-token = ["dep:livekit-token"]
-webhooks = ["access-token", "dep:serde_json", "dep:base6V
+webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
 # TLS Configuration
 # -----------------
@@ -72,8 +72,8 @@ __rustls-tls            = ["livekit-net?/__rustls-tls",             "reqwest?/__
 [dependencies]
 livekit-net = { workspace = true, optional = true }
 livekit-protocol = { workspace = true }
-livekit-token = { workspace = true, optional = true }
 livekit-region = { workspace = true, optional = true }
+livekit-token = { workspace = true, optional = true }
 livekit-common = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
