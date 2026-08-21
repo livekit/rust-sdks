@@ -1,5 +1,9 @@
 ---
+livekit: patch
 livekit-api: patch
+livekit-ffi: patch
+livekit-token: patch
+livekit-uniffi: patch
 ---
 
 Moves access-token generation and verification into a new `livekit-token` crate.
