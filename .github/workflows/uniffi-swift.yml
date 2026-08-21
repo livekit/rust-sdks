@@ -85,8 +85,7 @@ jobs:
 
       - name: Publish to hosting repo
         if: ${{ !inputs.dry_run }}
-        # TODO: repin to the merge commit once livekit/publish-xcframework-action#5 lands.
-        uses: livekit/publish-xcframework-action@94cb0ea28a25e18469c4a3e43c7f162a84da2169 # feat/glob-sources @ feat: allow path patterns as file sources (#5)
+        uses: livekit/publish-xcframework-action@a1bc3de909f9c0a2b7f92172a95d6dd35cb20b1a # main @ feat: allow path patterns as file sources (#5)
         with:
           xcframework-zip: ${{ env.OUTPUT_DIR }}/Rust${{ env.SPM_NAME }}.xcframework.zip
           version: ${{ inputs.version }}
