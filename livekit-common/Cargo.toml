@@ -9,10 +9,10 @@ repository.workspace = true
 
 [dependencies]
 livekit-protocol = { workspace = true }
-bytes = { workspace = true }
+bytes = { workspace = true, optional = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
 
 [features]
 # Exposes this crate's shared FFI type registrations. Enabled transitively by
 # livekit-uniffi so every component borrows one converter per type.
-uniffi = ["dep:uniffi"]
+uniffi = ["dep:uniffi", "dep:bytes"]
