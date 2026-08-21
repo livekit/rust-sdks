@@ -1,5 +1,8 @@
 ---
 livekit-api: patch
+livekit: patch
+livekit-ffi: patch
+livekit-signaling: patch
 ---
 
 Moves the signalling client into a new `livekit-signaling` crate. livekit-api
