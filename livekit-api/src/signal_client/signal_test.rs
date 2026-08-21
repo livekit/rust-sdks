@@ -371,8 +371,8 @@ async fn close_before_join() {
         .err()
         .expect("connect must fail when the server closes before the join");
     assert!(
-        matches!(err, SignalError::WsError(_)),
-        "expected a WS error for a close before join, got {err:?}"
+        matches!(err, SignalError::Closed),
+        "a server that closes before answering is a close, not a timeout, got {err:?}"
     );
 }
 
@@ -429,8 +429,8 @@ async fn server_unreachable() {
         .err()
         .expect("connecting to a dead port must fail");
     assert!(
-        matches!(err, SignalError::WsError(_)),
-        "expected a transport (WS) error for an unreachable server, got {err:?}"
+        matches!(err, SignalError::Connection(_)),
+        "expected a transport connection error for an unreachable server, got {err:?}"
     );
 }
 
