@@ -141,7 +141,6 @@ fn main() {
              Run: git submodule update --init --recursive"
         );
     }
-    
     let cloned = clone_if_needed(&output_dir, &libyuv_dir);
 
     let include_files = fs::read_dir(include_dir.join("libyuv"))
