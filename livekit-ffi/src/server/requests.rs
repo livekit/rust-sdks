@@ -1485,11 +1485,15 @@ pub fn handle_request(
         Request::StopRecording(req) => platform_audio::on_stop_recording(server, req)?.into(),
 
         #[cfg(feature = "capture")]
+        Request::NewCaptureSource(req) => capture::on_new_capture_source(server, req)?.into(),
+        #[cfg(feature = "capture")]
         Request::StartCapture(req) => capture::on_start_capture(server, req)?.into(),
         #[cfg(feature = "capture")]
         Request::StopCapture(req) => capture::on_stop_capture(server, req)?.into(),
         #[cfg(not(feature = "capture"))]
-        Request::StartCapture(_) | Request::StopCapture(_) => {
+        Request::NewCaptureSource(_)
+        | Request::StartCapture(_)
+        | Request::StopCapture(_) => {
             return Err(FfiError::InvalidRequest(
                 "livekit-ffi was built without the 'capture' feature".into(),
             ));
