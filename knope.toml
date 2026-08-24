@@ -208,3 +208,11 @@ versioned_files = [
   { path = "Cargo.toml", dependency = "livekit-token-source" },
 ]
 changelog = "livekit-token-source/CHANGELOG.md"
+
+[packages.livekit-capture]
+versioned_files = [
+  "livekit-capture/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-capture" },
+]
+changelog = "livekit-capture/CHANGELOG.md"
