@@ -59,6 +59,7 @@ named `source-<module>`. Each module documents its source.
 
 | Feature            | Source                 | Kind    |
 | ------------------ | ---------------------- | ------- |
+| `source-device`    | `DeviceVideoSource`    | pixel   |
 | `source-gstreamer` | `GStreamerVideoSource` | encoded |
 | `source-rtsp`      | `RtspVideoSource`      | encoded |
 | `source-pattern`   | `PatternVideoSource`   | pixel   |
