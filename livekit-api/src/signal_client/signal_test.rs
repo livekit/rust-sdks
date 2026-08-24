@@ -31,7 +31,7 @@
 use std::time::Duration;
 
 use livekit_protocol as proto;
-use tokio::time::timeout;
+use tokio::time::{timeout, timeout_at, Instant};
 
 use super::{SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions};
 use crate::access_token::{AccessToken, VideoGrants};
@@ -166,15 +166,26 @@ async fn happy_stays_connected() {
     let (client, join, mut events) =
         connect(&base, &token("happy"), false).await.expect("happy connect should succeed");
 
-    // Wait comfortably past the ping timeout: if pongs weren't flowing, the
-    // signal task would emit Close("ping timeout") by then.
+    // Wait comfortably past the ping timeout: if pongs weren't flowing, the signal task
+    // would emit Close("ping timeout") by then.
+    //
+    // Drained in a loop against a fixed deadline rather than a single `recv`. In happy mode
+    // the server's pong is forwarded as a `Message`, and it arrives within the first ping
+    // interval — so a one-shot recv returns on that pong, long before the window is up, and
+    // the test passes no matter what happens afterwards. A connection that dies right after
+    // its first pong is exactly the failure this test exists to catch.
     let window = Duration::from_secs(join.ping_timeout as u64) + Duration::from_secs(2);
-    if let Ok(Some(event)) = timeout(window, events.recv()).await {
-        match event {
-            SignalEvent::Close(reason) => {
+    let deadline = Instant::now() + window;
+    loop {
+        match timeout_at(deadline, events.recv()).await {
+            // the whole window elapsed with no Close — the connection stayed up, which is
+            // the only outcome that passes
+            Err(_) => break,
+            Ok(Some(SignalEvent::Close(reason))) => {
                 panic!("connection closed while it should stay alive: {reason}")
             }
-            SignalEvent::Message(_) => { /* server-initiated messages are fine */ }
+            Ok(Some(SignalEvent::Message(_))) => { /* server-initiated traffic is fine */ }
+            Ok(None) => panic!("event stream closed unexpectedly"),
         }
     }
 
