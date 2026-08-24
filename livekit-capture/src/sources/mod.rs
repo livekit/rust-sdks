@@ -12,20 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Video capture for the LiveKit Rust SDK.
-//!
-//! A capture source produces video: pixel frames ([`pixel`]) or pre-encoded
-//! access units ([`encoded`]). A pump drives a source and publishes its
-//! output to an RTC video source. Ready-made sources live in [`sources`]
-//! and can be enabled by their corresponding features.
-
-pub mod encoded;
-pub mod error;
-pub mod pixel;
-pub mod primitive;
-pub mod pump;
-pub mod sources;
+//! Ready-made capture sources. Each source is gated behind its own
+//! `source-*` feature.
 
 #[cfg(feature = "source-pattern")]
-mod renderer;
-mod utils;
+pub mod pattern;

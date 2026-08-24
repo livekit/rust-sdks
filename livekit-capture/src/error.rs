@@ -20,6 +20,9 @@
 
 use std::{error::Error as StdError, fmt};
 
+#[cfg(feature = "source-pattern")]
+pub use crate::renderer::RendererError;
+
 /// Error returned by a capture source.
 ///
 /// `Display` and [`StdError::source`] delegate to the wrapped backend
