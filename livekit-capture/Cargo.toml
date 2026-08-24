@@ -1,0 +1,28 @@
+[package]
+name = "livekit-capture"
+description = "Encoded video ingest helpers for LiveKit"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+bytes = { workspace = true }
+livekit = { workspace = true }
+schemars = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
+
+[features]
+default = []
+serde = ["dep:serde"]
+schemars = ["dep:schemars", "serde"]
+
+# Async convenience wrappers for blocking source construction when using
+# a tokio runtime.
+tokio = ["tokio/rt"]
