@@ -22,7 +22,7 @@ use std::error::Error;
 
 type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
-#[cfg(feature = "source-pattern")]
+#[cfg(any(feature = "source-clock", feature = "source-pattern"))]
 pub use crate::renderer::RendererError;
 
 /// Error returned by a capture source.
