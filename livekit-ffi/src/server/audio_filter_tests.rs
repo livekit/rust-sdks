@@ -34,7 +34,7 @@ use std::{
 };
 
 use livekit::prelude::DisconnectReason;
-use livekit_api::access_token::{AccessToken, VideoGrants};
+use livekit_token::{AccessToken, VideoGrants};
 
 use crate::{
     proto,

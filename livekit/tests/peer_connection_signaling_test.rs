@@ -53,7 +53,7 @@ use libwebrtc::video_source::native::NativeVideoSource;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::{Room, RoomEvent, RoomOptions, SimulateScenario};
-use livekit_api::access_token::{AccessToken, VideoGrants};
+use livekit_token::{AccessToken, VideoGrants};
 use std::collections::HashSet;
 use std::env;
 use std::sync::Arc;
