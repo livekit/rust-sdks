@@ -57,6 +57,7 @@ named `source-<module>`. Each module documents its source.
 | Feature            | Source                 | Kind    |
 | ------------------ | ---------------------- | ------- |
 | `source-pattern`   | `PatternVideoSource`   | pixel   |
+| `source-clock`     | `ClockVideoSource`     | pixel   |
 
 ## Custom sources
 
