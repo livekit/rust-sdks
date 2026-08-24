@@ -14,6 +14,7 @@ members = [
     "livekit-token",
     "livekit-token-source",
     "livekit-ffi-node-bindings",
+    "livekit-capture",
     "livekit-net",
     "livekit-signaling",
     "livekit-wakeword",
@@ -53,10 +54,11 @@ license = "Apache-2.0"
 [workspace.dependencies]
 device-info = { version = "0.1.1", path = "device-info" }
 imgproc = { version = "0.3.20", path = "imgproc" }
-libwebrtc = { version = "0.3.48", path = "libwebrtc" }
-livekit = { version = "0.9.1", path = "livekit" }
-livekit-api = { version = "0.7.1", path = "livekit-api" }
-livekit-ffi = { version = "0.12.78", path = "livekit-ffi" }
+libwebrtc = { version = "0.3.47", path = "libwebrtc" }
+livekit = { version = "0.9.0", path = "livekit" }
+livekit-api = { version = "0.7.0", path = "livekit-api" }
+livekit-capture = { version = "0.1.0", path = "livekit-capture" }
+livekit-ffi = { version = "0.12.77", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.15", path = "livekit-datatrack" }
 livekit-signaling = { version = "0.1.2", path = "livekit-signaling" }
 livekit-token = { version = "0.1.2", path = "livekit-token" }
@@ -89,6 +91,7 @@ prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
 rand = "0.9"
+schemars = "1.2"
 serde = "1"
 serde_json = "1.0"
 thiserror = "2"
