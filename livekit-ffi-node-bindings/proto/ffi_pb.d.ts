@@ -28,6 +28,7 @@ import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, Registe
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
 import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
+import type { CaptureSourceEvent, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -611,6 +612,18 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: ReadyForRoomEventRequest;
     case: "readyForRoomEvent";
+  } | {
+    /**
+     * @generated from field: livekit.proto.StartCaptureRequest start_capture = 88;
+     */
+    value: StartCaptureRequest;
+    case: "startCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.StopCaptureRequest stop_capture = 89;
+     */
+    value: StopCaptureRequest;
+    case: "stopCapture";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1173,6 +1186,18 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: ReadyForRoomEventResponse;
     case: "readyForRoomEvent";
+  } | {
+    /**
+     * @generated from field: livekit.proto.StartCaptureResponse start_capture = 88;
+     */
+    value: StartCaptureResponse;
+    case: "startCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.StopCaptureResponse stop_capture = 89;
+     */
+    value: StopCaptureResponse;
+    case: "stopCapture";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1481,6 +1506,12 @@ export declare class FfiEvent extends Message<FfiEvent> {
      */
     value: GetSchemaCallback;
     case: "getSchema";
+  } | {
+    /**
+     * @generated from field: livekit.proto.CaptureSourceEvent capture_source_event = 48;
+     */
+    value: CaptureSourceEvent;
+    case: "captureSourceEvent";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);
