@@ -1,0 +1,101 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
+
+import "handle.proto";
+import "room.proto";
+import "video_frame.proto";
+
+// Capture sources (livekit-capture)
+//
+// A capture source owns a media producer (e.g. a GStreamer pipeline) and the
+// pump that forwards its frames into an RTC video source, so no per-frame
+// FFI traffic is needed. These requests are only served when the FFI server
+// is built with the `capture` feature; otherwise they fail with an error.
+//
+// Usage:
+// 1. NewCaptureSourceRequest (async): builds and starts the producer,
+//    discovers stream settings, and returns an OwnedCaptureSource. Its info
+//    embeds an OwnedVideoSource for the existing CreateVideoTrackRequest and
+//    the recommended TrackPublishOptions for PublishTrackRequest.
+// 2. StartCaptureRequest: starts pumping frames into the RTC source.
+// 3. The capture runs until StopCaptureRequest, end of stream, or an error;
+//    a CaptureSourceEvent is delivered exactly once when it ends.
+
+// Kind of media a capture source produces.
+enum CaptureSourceKind {
+  // Pixel frames, published through the WebRTC encoder.
+  CAPTURE_SOURCE_PIXEL = 0;
+  // Pre-encoded access units, published as passthrough.
+  CAPTURE_SOURCE_ENCODED = 1;
+}
+
+message CaptureSourceInfo {
+  required CaptureSourceKind kind = 1;
+  // Declared or discovered stream resolution.
+  required VideoSourceResolution resolution = 2;
+  // Codec produced by the source; encoded sources only.
+  optional VideoCodec codec = 3;
+  // Publish options derived from the source (codec, encoder backend, ...).
+  // Merge application options (e.g. track source) over these when calling
+  // PublishTrackRequest.
+  required TrackPublishOptions recommended_publish_options = 4;
+  // RTC video source fed by this capture source; pass its handle to
+  // CreateVideoTrackRequest. Owned by the client like any other handle.
+  required OwnedVideoSource video_source = 5;
+}
+
+message OwnedCaptureSource {
+  required FfiOwnedHandle handle = 1;
+  required CaptureSourceInfo info = 2;
+}
+
+// Start pumping frames from a capture source into its RTC video source.
+message StartCaptureRequest { required uint64 capture_handle = 1; }
+message StartCaptureResponse { optional string error = 1; }
+
+// Signal a running capture to stop after the frame in flight. The terminal
+// CaptureSourceEvent follows shortly. Stopping an already-finished capture
+// is a no-op.
+message StopCaptureRequest { required uint64 capture_handle = 1; }
+message StopCaptureResponse { optional string error = 1; }
+
+// Why a capture ended without error.
+enum CaptureExit {
+  // Stopped by StopCaptureRequest (or handle disposal).
+  CAPTURE_EXIT_STOPPED = 0;
+  // The producer reached the end of its stream.
+  CAPTURE_EXIT_END_OF_STREAM = 1;
+}
+
+message CaptureFinished {
+  required uint64 frames_captured = 1;
+  required CaptureExit exit = 2;
+}
+
+message CaptureError { required string error = 1; }
+
+// Delivered exactly once when a started capture ends, regardless of why
+// (stop request, end of stream, or failure).
+message CaptureSourceEvent {
+  required uint64 capture_handle = 1;
+  oneof message {
+    CaptureFinished finished = 2;
+    CaptureError error = 3;
+  }
+}
