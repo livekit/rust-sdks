@@ -25,6 +25,14 @@
 //! platform-native buffers without a CPU copy. Otherwise they are converted
 //! to I420.
 
+#[cfg(target_os = "macos")]
+mod avfoundation;
+#[cfg(target_os = "macos")]
+mod timestamp;
+
+#[cfg(target_os = "macos")]
+use avfoundation as backend;
+#[cfg(not(target_os = "macos"))]
 use unsupported as backend;
 
 use std::fmt;
@@ -390,7 +398,7 @@ pub enum DeviceVideoSourceError {
 
 /// Builds the packet-trailer metadata that device frames are pre-filled
 /// with. A metadata callback set on the pump takes precedence.
-#[allow(dead_code)]
+#[cfg(target_os = "macos")]
 fn capture_frame_metadata(
     capture_wall_time_us: u64,
 ) -> livekit::webrtc::video_frame::FrameMetadata {
@@ -403,7 +411,7 @@ fn capture_frame_metadata(
 
 /// Validates the platform-neutral parts of a configuration; `supported`
 /// reports whether the backend can deliver a frame format.
-#[allow(dead_code)]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn validate_config(
     config: &DeviceVideoSourceConfig,
     supported: fn(DeviceFrameFormat) -> bool,
@@ -465,6 +473,7 @@ fn validate_config(
 }
 
 /// Stub backend for platforms without device capture.
+#[cfg(not(target_os = "macos"))]
 mod unsupported {
     use livekit::webrtc::video_frame::BoxVideoFrame;
 
