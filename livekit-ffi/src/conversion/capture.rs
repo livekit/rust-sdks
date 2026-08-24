@@ -15,10 +15,14 @@
 use crate::proto;
 use livekit_capture::{encoded::EncodedVideoCodec, primitive::VideoResolution};
 
-#[cfg(feature = "capture-pattern")]
+#[cfg(any(feature = "capture-gstreamer", feature = "capture-pattern"))]
 use crate::{FfiError, FfiResult};
 #[cfg(feature = "capture-clock")]
 use livekit_capture::sources::clock::ClockVideoSourceConfig;
+#[cfg(feature = "capture-gstreamer")]
+use livekit_capture::sources::gstreamer::{
+    GStreamerBitrateUnit, GStreamerRateControlConfig, GStreamerVideoSourceConfig,
+};
 #[cfg(feature = "capture-pattern")]
 use livekit_capture::sources::pattern::{Pattern, PatternVideoSourceConfig};
 
@@ -51,6 +55,27 @@ pub fn pattern_config_from_proto(
     })
 }
 
+#[cfg(feature = "capture-gstreamer")]
+impl From<proto::GstreamerBitrateUnit> for GStreamerBitrateUnit {
+    fn from(unit: proto::GstreamerBitrateUnit) -> Self {
+        match unit {
+            proto::GstreamerBitrateUnit::Bps => Self::BitsPerSecond,
+            proto::GstreamerBitrateUnit::Kbps => Self::KilobitsPerSecond,
+        }
+    }
+}
+
+#[cfg(feature = "capture-gstreamer")]
+pub fn video_codec_from_proto(codec: proto::VideoCodec) -> EncodedVideoCodec {
+    match codec {
+        proto::VideoCodec::H264 => EncodedVideoCodec::H264,
+        proto::VideoCodec::H265 => EncodedVideoCodec::H265,
+        proto::VideoCodec::Vp8 => EncodedVideoCodec::VP8,
+        proto::VideoCodec::Vp9 => EncodedVideoCodec::VP9,
+        proto::VideoCodec::Av1 => EncodedVideoCodec::AV1,
+    }
+}
+
 pub fn video_codec_to_proto(codec: EncodedVideoCodec) -> Option<proto::VideoCodec> {
     match codec {
         EncodedVideoCodec::H264 => Some(proto::VideoCodec::H264),
@@ -62,4 +87,38 @@ pub fn video_codec_to_proto(codec: EncodedVideoCodec) -> Option<proto::VideoCode
         // are simply not reported.
         _ => None,
     }
+}
+
+#[cfg(feature = "capture-gstreamer")]
+pub fn gstreamer_config_from_proto(
+    config: proto::GstreamerVideoSourceConfig,
+) -> FfiResult<GStreamerVideoSourceConfig> {
+    let codec = config
+        .codec
+        .map(|value| {
+            proto::VideoCodec::try_from(value)
+                .map(video_codec_from_proto)
+                .map_err(|_| FfiError::InvalidRequest("invalid codec".into()))
+        })
+        .transpose()?;
+
+    let rate_control = config
+        .rate_control
+        .map(|rate_control| {
+            let unit = proto::GstreamerBitrateUnit::try_from(rate_control.unit)
+                .map_err(|_| FfiError::InvalidRequest("invalid bitrate unit".into()))?;
+            Ok::<_, FfiError>(GStreamerRateControlConfig {
+                element: rate_control.element,
+                property: rate_control.property,
+                unit: unit.into(),
+            })
+        })
+        .transpose()?;
+
+    Ok(GStreamerVideoSourceConfig {
+        pipeline: config.pipeline,
+        codec,
+        resolution: config.resolution.map(VideoResolution::from),
+        rate_control,
+    })
 }
