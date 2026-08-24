@@ -27,9 +27,18 @@ on:
 jobs:
   # Exercise every runtime backend so a regression in one (e.g. the async/isahc
   # server API silently failing to compile) is caught. Each leg pins a single
-  # runtime via --no-default-features; the mock server backs the legs that make
-  # real requests (services-*), and is a harmless no-op for the livekit-signaling
-  # legs, which spin up their own ephemeral listeners.
+  # runtime via --no-default-features.
+  #
+  # The mock server below is load-bearing for all four legs, not just the
+  # services-* ones: services::api_test and services_async issue Twirp requests
+  # against it, and signal_tokio and signal_async connect to it and expect a
+  # JoinResponse. All of them reach it at LK_TEST_SERVER_URL, default
+  # http://127.0.0.1:9999.
+  #
+  # Every one of those tests returns early when the server is unreachable, so
+  # removing the service does not fail the build — it quietly demotes these legs
+  # to a compile check. Only signal_unreachable is independent of it: that one
+  # dials a dead port on purpose.
   #
   # The job name stays `livekit-api` even though it now also covers
   # livekit-signaling: it is a required status check, and renaming it would break
