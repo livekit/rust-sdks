@@ -22,6 +22,14 @@ use livekit_protocol as proto;
 
 mod enum_dispatch;
 
+// Must sit at the crate root: it defines `crate::UniFfiTag`, which the registrations in
+// `ffi_types` resolve against.
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
+#[cfg(feature = "uniffi")]
+mod ffi_types;
+
 // -------------------------------------------------------------------------------------------------
 // Client protocol
 // -------------------------------------------------------------------------------------------------

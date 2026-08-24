@@ -3963,7 +3963,9 @@ dependencies = [
 name = "livekit-common"
 version = "0.1.1"
 dependencies = [
+ "bytes",
  "livekit-protocol",
+ "uniffi",
 ]
 
 [[package]]
@@ -3999,6 +4001,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "indexmap 2.14.0",
+ "livekit-common",
  "livekit-protocol",
  "livekit-runtime",
  "log",
@@ -4104,6 +4107,7 @@ dependencies = [
  "camino",
  "futures-util",
  "livekit-api",
+ "livekit-common",
  "livekit-datatrack",
  "livekit-protocol",
  "log",
