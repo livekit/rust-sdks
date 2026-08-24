@@ -23,6 +23,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 # producers. This enables the capture scaffolding only; enable a
 # `capture-*` feature to include a specific source.
 capture = ["dep:livekit-capture", "livekit-capture/tokio"]
+capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 [dependencies]
 livekit = { workspace = true }
