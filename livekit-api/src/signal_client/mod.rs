@@ -39,9 +39,6 @@ use livekit_net::HttpClientExt;
 mod region_url_provider;
 mod signal_stream;
 
-#[cfg(all(test, feature = "signal-client-tokio", feature = "access-token"))]
-mod signal_test;
-
 // Shared mock WsClient/HttpClient for the unit tests below. Gated on the signal client alone,
 // since the tests that use it do not need access-token.
 #[cfg(all(test, feature = "signal-client-tokio"))]

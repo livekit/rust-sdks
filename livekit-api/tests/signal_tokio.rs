@@ -27,14 +27,25 @@
 //!
 //! These are the Rust counterparts to cmd/test-server/signal_test.go, which
 //! exercises the same modes from the server side.
+#![cfg(all(feature = "signal-client-tokio", feature = "access-token"))]
+//
+// Moved out of `src/signal_client/signal_test.rs`: as an in-crate `#[cfg(test)]` module it
+// shared a test binary with the unit tests that call `install_mock_transport()`, which
+// registers a process-wide `WsClient` in a `OnceLock` that never resets. Once installed the
+// mock answers every `connect()` with a canned pong and a close, so whether these
+// real-transport cases saw a `JoinResponse` or a dead socket came down to which test
+// reached the transport first. Same reasoning that moved `signal_unreachable` out; the mock
+// is never installed in this binary.
 
 use std::time::Duration;
 
 use livekit_protocol as proto;
 use tokio::time::{timeout, timeout_at, Instant};
 
-use super::{SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions};
-use crate::access_token::{AccessToken, VideoGrants};
+use livekit_api::access_token::{AccessToken, VideoGrants};
+use livekit_api::signal_client::{
+    SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions, SignalResult,
+};
 
 /// The mock verifies tokens against this secret by default (matches
 /// `livekit-server --dev` and the test-server's `--api-secret` default).
@@ -98,14 +109,18 @@ fn mint(mode: &str, leave_action: Option<i32>) -> String {
 }
 
 fn options(single_peer_connection: bool) -> SignalOptions {
-    SignalOptions { single_peer_connection, ..Default::default() }
+    // `SignalOptions` is #[non_exhaustive], so a struct expression is only available inside
+    // the crate; assigning the field is not.
+    let mut options = SignalOptions::default();
+    options.single_peer_connection = single_peer_connection;
+    options
 }
 
 async fn connect(
     base: &str,
     token: &str,
     single_peer_connection: bool,
-) -> super::SignalResult<(SignalClient, proto::JoinResponse, SignalEvents)> {
+) -> SignalResult<(SignalClient, proto::JoinResponse, SignalEvents)> {
     SignalClient::connect(base, token, options(single_peer_connection), None).await
 }
 

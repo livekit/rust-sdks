@@ -109,6 +109,9 @@ device-info = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
+# Already a hard dependency; repeated here so the integration tests under tests/ can build
+# the protobuf messages they assert on.
+livekit-protocol = { workspace = true }
 # Minimal executor to drive the runtime-agnostic `services-async` (isahc) tests.
 futures = "0.3"
 async-trait = "0.1"
