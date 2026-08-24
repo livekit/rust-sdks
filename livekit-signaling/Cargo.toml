@@ -8,7 +8,12 @@ repository.workspace = true
 readme = "README.md"
 
 [features]
-default = []
+# Defaults to the tokio flavour so `cargo test -p livekit-signaling` works out
+# of the box: without a flavour livekit-runtime exports nothing and the crate
+# does not compile. Consumers never see this — the workspace dependency entry
+# sets default-features = false, so each one picks its own flavour, exactly as
+# livekit-runtime does.
+default = ["tokio"]
 
 # Runtime flavour only — transport stays blind; the host must register a
 # livekit_net transport (set_ws_client / set_http_client) before connecting.

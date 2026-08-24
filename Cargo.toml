@@ -58,7 +58,10 @@ livekit = { version = "0.8.4", path = "livekit" }
 livekit-api = { version = "0.6.4", path = "livekit-api" }
 livekit-ffi = { version = "0.12.76", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.14", path = "livekit-datatrack" }
-livekit-signaling = { version = "0.1.0", path = "livekit-signaling" }
+# default-features off for the same reason as livekit-runtime below: the crate
+# defaults to the tokio flavour so its own test command works, and forcing that
+# on consumers would collide with `async`/`dispatcher` builds.
+livekit-signaling = { version = "0.1.0", path = "livekit-signaling", default-features = false }
 livekit-token = { version = "0.1.1", path = "livekit-token" }
 livekit-token-source = { version = "0.1.2", path = "livekit-token-source" }
 livekit-common = { version = "0.1.2", path = "livekit-common" }
