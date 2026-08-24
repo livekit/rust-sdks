@@ -30,6 +30,7 @@ const { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMe
 const { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } = require("./track_publication_pb.js");
 const { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } = require("./data_stream_pb.js");
 const { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } = require("./data_track_pb.js");
+const { CaptureSourceEvent, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } = require("./capture_pb.js");
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -139,6 +140,10 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 81, name: "start_recording", kind: "message", T: StartRecordingRequest, oneof: "message" },
     { no: 82, name: "stop_recording", kind: "message", T: StopRecordingRequest, oneof: "message" },
     { no: 83, name: "ready_for_room_event", kind: "message", T: ReadyForRoomEventRequest, oneof: "message" },
+    { StartCaptureRequest, StopCaptureRequest },
+    { no: 88, name: "start_capture", kind: "message", T: StartCaptureRequest, oneof: "message" },
+    { no: 89, name: "stop_capture", kind: "message", T: StopCaptureRequest, oneof: "message" },
+    { no: 90, name: "list_capture_devices", kind: "message", T: ListCaptureDevicesRequest, oneof: "message" },
   ],
 );
 
@@ -234,6 +239,10 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 80, name: "start_recording", kind: "message", T: StartRecordingResponse, oneof: "message" },
     { no: 81, name: "stop_recording", kind: "message", T: StopRecordingResponse, oneof: "message" },
     { no: 82, name: "ready_for_room_event", kind: "message", T: ReadyForRoomEventResponse, oneof: "message" },
+    { StartCaptureResponse, StopCaptureResponse },
+    { no: 88, name: "start_capture", kind: "message", T: StartCaptureResponse, oneof: "message" },
+    { no: 89, name: "stop_capture", kind: "message", T: StopCaptureResponse, oneof: "message" },
+    { no: 90, name: "list_capture_devices", kind: "message", T: ListCaptureDevicesResponse, oneof: "message" },
   ],
 );
 
@@ -292,6 +301,9 @@ const FfiEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 44, name: "simulate_scenario", kind: "message", T: SimulateScenarioCallback, oneof: "message" },
     { no: 45, name: "define_schema", kind: "message", T: DefineSchemaCallback, oneof: "message" },
     { no: 46, name: "get_schema", kind: "message", T: GetSchemaCallback, oneof: "message" },
+    { CaptureSourceEvent },
+    { no: 48, name: "capture_source_event", kind: "message", T: CaptureSourceEvent, oneof: "message" },
+    { no: 49, name: "list_capture_devices", kind: "message", T: ListCaptureDevicesCallback, oneof: "message" },
   ],
 );
 
