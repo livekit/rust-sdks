@@ -18,6 +18,9 @@
 #[cfg(feature = "source-clock")]
 pub mod clock;
 
+#[cfg(feature = "source-device")]
+pub mod device;
+
 #[cfg(feature = "source-gstreamer")]
 pub mod gstreamer;
 
