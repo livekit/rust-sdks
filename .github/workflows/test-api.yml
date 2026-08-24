@@ -27,9 +27,10 @@ on:
 jobs:
   # Exercise every runtime backend so a regression in one (e.g. the async/isahc
   # server API silently failing to compile) is caught. Each leg pins a single
-  # runtime via --no-default-features; the mock server backs the legs that make
-  # real requests (services-*), and is a harmless no-op for the signal-client
-  # legs, which spin up their own ephemeral listeners.
+  # runtime via --no-default-features, and every leg reaches the mock server: the
+  # services-* legs over HTTP, the signal-client legs over the WebSocket, selecting
+  # server behaviour with the token's `lk.mock` attribute. So the service container is
+  # a prerequisite for all of them, not a convenience for some.
   livekit-api:
     runs-on: ubuntu-latest
     strategy:
@@ -41,9 +42,9 @@ jobs:
           - name: services (async / isahc)
             cmd: cargo test -p livekit-api --no-default-features --features services-async,access-token --test services_async -- --nocapture
           - name: signal-client (tokio)
-            cmd: cargo test -p livekit-api --no-default-features --features signal-client-tokio --lib signal_client -- --nocapture
+            cmd: cargo test -p livekit-api --no-default-features --features signal-client-tokio,access-token --lib --test signal_tokio --test signal_unreachable -- --nocapture
           - name: signal-client (async)
-            cmd: cargo test -p livekit-api --no-default-features --features signal-client-async --lib signal_client -- --nocapture
+            cmd: cargo test -p livekit-api --no-default-features --features signal-client-async,access-token --lib --test signal_async -- --nocapture
     services:
       mock-server:
         image: livekit/test-server:latest
