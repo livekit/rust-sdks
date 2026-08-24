@@ -55,5 +55,10 @@ prost = "0.12"
 url = "2.3"
 
 [dev-dependencies]
+# The signal_* integration tests mint an access token to connect with.
+livekit-token = { workspace = true }
+# Minimal executor to drive the runtime-agnostic `native-async` signal tests,
+# which cannot use #[tokio::test].
+futures = { workspace = true }
 async-trait = "0.1"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }

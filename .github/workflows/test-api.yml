@@ -45,9 +45,9 @@ jobs:
           - name: services (async / isahc)
             cmd: cargo test -p livekit-api --no-default-features --features services-async,access-token --test services_async -- --nocapture
           - name: livekit-signaling (tokio)
-            cmd: cargo test -p livekit-signaling --no-default-features --features signal-client-tokio,access-token --lib --test signal_tokio --test signal_unreachable -- --nocapture
+            cmd: cargo test -p livekit-signaling --no-default-features --features native-tokio --lib --test signal_tokio --test signal_unreachable -- --nocapture
           - name: livekit-signaling (async)
-            cmd: cargo test -p livekit-signaling --no-default-features --features signal-client-async,access-token --lib --test signal_async -- --nocapture
+            cmd: cargo test -p livekit-signaling --no-default-features --features native-async --lib --test signal_async -- --nocapture
     services:
       mock-server:
         image: livekit/test-server:latest

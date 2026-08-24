@@ -24,12 +24,12 @@
 //! (the integration tests take seconds, so this one won the race) and failed when it was
 //! not. Nothing about ordering or gating fixes that within one binary; a separate binary
 //! does, because the mock is never installed here.
-#![cfg(all(feature = "signal-client-tokio", feature = "access-token"))]
+#![cfg(feature = "native-tokio")]
 
 use std::time::Duration;
 
-use livekit_api::access_token::{AccessToken, VideoGrants};
-use livekit_api::signal_client::{SignalClient, SignalError, SignalOptions};
+use livekit_signaling::{SignalClient, SignalError, SignalOptions};
+use livekit_token::{AccessToken, VideoGrants};
 
 const TEST_SECRET: &str = "secret";
 const TEST_API_KEY: &str = "APItest";
