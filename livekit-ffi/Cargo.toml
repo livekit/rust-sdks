@@ -24,6 +24,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 # `capture-*` feature to include a specific source.
 capture = ["dep:livekit-capture", "livekit-capture/tokio"]
 capture-clock = ["capture", "livekit-capture/source-clock"]
+capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 [dependencies]
