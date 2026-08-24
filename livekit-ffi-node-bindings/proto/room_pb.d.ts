@@ -127,6 +127,8 @@ export declare enum VideoEncoderBackend {
   ENCODER_BACKEND_VIDEOTOOLBOX = 5,
 
   /**
+   * Pre-encoded passthrough: the application supplies encoded frames.
+   *
    * @generated from enum value: ENCODER_BACKEND_PRE_ENCODED = 6;
    */
   ENCODER_BACKEND_PRE_ENCODED = 6,
