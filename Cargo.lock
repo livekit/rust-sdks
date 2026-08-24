@@ -4010,6 +4010,8 @@ dependencies = [
  "gstreamer-rtsp",
  "gstreamer-rtsp-server",
  "http-auth",
+ "image",
+ "libc",
  "livekit",
  "log",
  "objc2 0.6.4",
@@ -4030,6 +4032,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "url",
+ "v4l",
  "wgpu",
  "yuv-sys",
 ]
