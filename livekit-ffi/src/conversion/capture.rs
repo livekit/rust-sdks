@@ -16,6 +16,7 @@ use crate::proto;
 use livekit_capture::{encoded::EncodedVideoCodec, primitive::VideoResolution};
 
 #[cfg(any(
+    feature = "capture-device",
     feature = "capture-gstreamer",
     feature = "capture-pattern",
     feature = "capture-rtsp"
@@ -23,6 +24,11 @@ use livekit_capture::{encoded::EncodedVideoCodec, primitive::VideoResolution};
 use crate::{FfiError, FfiResult};
 #[cfg(feature = "capture-clock")]
 use livekit_capture::sources::clock::ClockVideoSourceConfig;
+#[cfg(feature = "capture-device")]
+use livekit_capture::sources::device::{
+    DeviceFormat, DeviceFormatRequest, DeviceFrameFormat, DeviceInfo, DeviceSelector,
+    DeviceVideoSourceConfig,
+};
 #[cfg(feature = "capture-gstreamer")]
 use livekit_capture::sources::gstreamer::{
     GStreamerBitrateUnit, GStreamerRateControlConfig, GStreamerVideoSourceConfig,
@@ -92,6 +98,118 @@ pub fn video_codec_to_proto(codec: EncodedVideoCodec) -> Option<proto::VideoCode
         // The codec enum is non-exhaustive; codecs unknown to the protocol
         // are simply not reported.
         _ => None,
+    }
+}
+
+#[cfg(feature = "capture-device")]
+fn device_frame_format_from_proto(format: proto::DeviceFrameFormat) -> DeviceFrameFormat {
+    match format {
+        proto::DeviceFrameFormat::I420 => DeviceFrameFormat::I420,
+        proto::DeviceFrameFormat::Nv12 => DeviceFrameFormat::Nv12,
+        proto::DeviceFrameFormat::Bgra => DeviceFrameFormat::Bgra,
+        proto::DeviceFrameFormat::Rgb24 => DeviceFrameFormat::Rgb24,
+        proto::DeviceFrameFormat::Bgr24 => DeviceFrameFormat::Bgr24,
+        proto::DeviceFrameFormat::Yuyv => DeviceFrameFormat::Yuyv,
+        proto::DeviceFrameFormat::Uyvy => DeviceFrameFormat::Uyvy,
+        proto::DeviceFrameFormat::Grey => DeviceFrameFormat::Grey,
+        proto::DeviceFrameFormat::Mjpeg => DeviceFrameFormat::Mjpeg,
+    }
+}
+
+#[cfg(feature = "capture-device")]
+fn device_frame_format_to_proto(format: DeviceFrameFormat) -> Option<proto::DeviceFrameFormat> {
+    match format {
+        DeviceFrameFormat::I420 => Some(proto::DeviceFrameFormat::I420),
+        DeviceFrameFormat::Nv12 => Some(proto::DeviceFrameFormat::Nv12),
+        DeviceFrameFormat::Bgra => Some(proto::DeviceFrameFormat::Bgra),
+        DeviceFrameFormat::Rgb24 => Some(proto::DeviceFrameFormat::Rgb24),
+        DeviceFrameFormat::Bgr24 => Some(proto::DeviceFrameFormat::Bgr24),
+        DeviceFrameFormat::Yuyv => Some(proto::DeviceFrameFormat::Yuyv),
+        DeviceFrameFormat::Uyvy => Some(proto::DeviceFrameFormat::Uyvy),
+        DeviceFrameFormat::Grey => Some(proto::DeviceFrameFormat::Grey),
+        DeviceFrameFormat::Mjpeg => Some(proto::DeviceFrameFormat::Mjpeg),
+        // The frame format enum is non-exhaustive; formats unknown to the
+        // protocol are simply not reported.
+        _ => None,
+    }
+}
+
+#[cfg(feature = "capture-device")]
+fn decode_device_frame_format(value: i32) -> FfiResult<DeviceFrameFormat> {
+    proto::DeviceFrameFormat::try_from(value)
+        .map(device_frame_format_from_proto)
+        .map_err(|_| FfiError::InvalidRequest("invalid device frame format".into()))
+}
+
+#[cfg(feature = "capture-device")]
+fn device_format_from_proto(format: proto::DeviceFormat) -> FfiResult<DeviceFormat> {
+    Ok(DeviceFormat {
+        resolution: format.resolution.into(),
+        framerate_fps: format.framerate_fps,
+        frame_format: decode_device_frame_format(format.frame_format)?,
+    })
+}
+
+#[cfg(feature = "capture-device")]
+fn device_format_to_proto(format: DeviceFormat) -> Option<proto::DeviceFormat> {
+    Some(proto::DeviceFormat {
+        resolution: proto::VideoSourceResolution {
+            width: format.resolution.width,
+            height: format.resolution.height,
+        },
+        framerate_fps: format.framerate_fps,
+        frame_format: device_frame_format_to_proto(format.frame_format)?.into(),
+    })
+}
+
+#[cfg(feature = "capture-device")]
+fn device_format_request_from_proto(
+    request: proto::DeviceFormatRequest,
+) -> FfiResult<DeviceFormatRequest> {
+    use proto::device_format_request::Request;
+    Ok(match request.request {
+        None => DeviceFormatRequest::Default,
+        Some(Request::Exact(format)) => {
+            DeviceFormatRequest::Exact(device_format_from_proto(format)?)
+        }
+        Some(Request::Closest(format)) => {
+            DeviceFormatRequest::Closest(device_format_from_proto(format)?)
+        }
+        Some(Request::HighestFramerate(constraint)) => DeviceFormatRequest::HighestFramerate {
+            resolution: constraint.resolution.map(VideoResolution::from),
+            frame_format: constraint.frame_format.map(decode_device_frame_format).transpose()?,
+        },
+        Some(Request::HighestResolution(constraint)) => DeviceFormatRequest::HighestResolution {
+            framerate_fps: constraint.framerate_fps,
+            frame_format: constraint.frame_format.map(decode_device_frame_format).transpose()?,
+        },
+    })
+}
+
+#[cfg(feature = "capture-device")]
+pub fn device_config_from_proto(
+    config: proto::DeviceVideoSourceConfig,
+) -> FfiResult<DeviceVideoSourceConfig> {
+    use proto::device_video_source_config::Device;
+    let device = match config.device {
+        None => DeviceSelector::Default,
+        Some(Device::DeviceIndex(index)) => DeviceSelector::Index(index as usize),
+        Some(Device::DeviceId(id)) => DeviceSelector::Id(id),
+    };
+    let format =
+        config.format.map(device_format_request_from_proto).transpose()?.unwrap_or_default();
+    Ok(DeviceVideoSourceConfig { device, format })
+}
+
+#[cfg(feature = "capture-device")]
+pub fn device_info_to_proto(info: DeviceInfo) -> proto::CaptureDeviceInfo {
+    proto::CaptureDeviceInfo {
+        id: info.id,
+        name: info.name,
+        model_id: info.model_id,
+        manufacturer: info.manufacturer,
+        formats: info.formats.into_iter().filter_map(device_format_to_proto).collect(),
+        formats_complete: info.formats_complete,
     }
 }
 

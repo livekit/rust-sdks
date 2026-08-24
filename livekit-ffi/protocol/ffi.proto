@@ -193,8 +193,9 @@ message FfiRequest {
     NewCaptureSourceRequest new_capture_source = 91;
     StartCaptureRequest start_capture = 89;
     StopCaptureRequest stop_capture = 90;
+    ListCaptureDevicesRequest list_capture_devices = 92;
 
-    // NEXT_ID: 92
+    // NEXT_ID: 93
   }
 }
 
@@ -331,8 +332,9 @@ message FfiResponse {
     NewCaptureSourceResponse new_capture_source = 91;
     StartCaptureResponse start_capture = 89;
     StopCaptureResponse stop_capture = 90;
+    ListCaptureDevicesResponse list_capture_devices = 92;
 
-    // NEXT_ID: 92
+    // NEXT_ID: 93
   }
 }
 
@@ -404,8 +406,9 @@ message FfiEvent {
     // Capture sources (livekit-capture; requires the `capture` feature)
     NewCaptureSourceCallback new_capture_source = 47;
     CaptureSourceEvent capture_source_event = 48;
+    ListCaptureDevicesCallback list_capture_devices = 49;
 
-    // NEXT_ID: 49
+    // NEXT_ID: 50
   }
 }
 
