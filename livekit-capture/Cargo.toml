@@ -52,7 +52,43 @@ tokio = ["tokio/rt"]
 
 # Pixel sources
 source-clock = ["dep:chrono", "dep:pollster", "dep:wgpu", "dep:yuv-sys"]
-source-device = []
+source-device = [
+    "dep:yuv-sys",
+    # macOS backend
+    "dep:dispatch2",
+    "dep:objc2",
+    "dep:objc2-av-foundation",
+    "dep:objc2-core-media",
+    "dep:objc2-core-video",
+    "dep:objc2-foundation",
+    "objc2-av-foundation/AVCaptureDevice",
+    "objc2-av-foundation/AVCaptureInput",
+    "objc2-av-foundation/AVCaptureOutputBase",
+    "objc2-av-foundation/AVCaptureSession",
+    "objc2-av-foundation/AVCaptureSessionPreset",
+    "objc2-av-foundation/AVCaptureVideoDataOutput",
+    "objc2-av-foundation/AVMediaFormat",
+    "objc2-av-foundation/AVVideoSettings",
+    "objc2-av-foundation/dispatch2",
+    "objc2-av-foundation/objc2-core-media",
+    "objc2-core-media/CMFormatDescription",
+    "objc2-core-media/CMSync",
+    "objc2-core-media/CMTime",
+    "objc2-core-media/CMSampleBuffer",
+    "objc2-core-media/objc2-core-video",
+    "objc2-core-video/CVBase",
+    "objc2-core-video/CVBuffer",
+    "objc2-core-video/CVImageBuffer",
+    "objc2-core-video/CVPixelBuffer",
+    "objc2-core-video/CVReturn",
+    "objc2-foundation/NSArray",
+    "objc2-foundation/NSDictionary",
+    "objc2-foundation/NSError",
+    "objc2-foundation/NSObject",
+    "objc2-foundation/NSValue",
+    "objc2-foundation/NSString",
+    "objc2-foundation/objc2-core-foundation",
+]
 source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
@@ -74,3 +110,11 @@ __test-source-rtsp = [
     "dep:gstreamer-rtsp",
     "dep:gstreamer-rtsp-server",
 ]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+dispatch2 = { version = "0.3.1", default-features = false, features = ["std"], optional = true }
+objc2 = { version = "0.6.4", default-features = false, features = ["std"], optional = true }
+objc2-av-foundation = { version = "0.3.2", default-features = false, optional = true }
+objc2-core-media = { version = "0.3.2", default-features = false, optional = true }
+objc2-core-video = { version = "0.3.2", default-features = false, optional = true }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std"], optional = true }
