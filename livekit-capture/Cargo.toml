@@ -93,6 +93,12 @@ source-device = [
     "dep:libc",
     "dep:v4l",
 ]
+# Adds NVIDIA Jetson CSI capture through libargus as an additional Linux
+# device-source backend. The libargus-sys build probes for the Jetson
+# Multimedia API and falls back to inert stubs when it is absent, so this
+# feature compiles on any target; it only has an effect on aarch64 Linux
+# (inert elsewhere).
+source-device-argus = ["source-device", "dep:libargus-sys"]
 source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
@@ -125,5 +131,6 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 
 [target.'cfg(target_os = "linux")'.dependencies]
 image = { workspace = true, optional = true }
+libargus-sys = { workspace = true, optional = true }
 libc = { version = "0.2", optional = true }
 v4l = { version = "0.14", default-features = false, features = ["v4l2"], optional = true }
