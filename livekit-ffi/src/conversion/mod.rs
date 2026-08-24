@@ -13,6 +13,8 @@
 // limitations under the License.
 
 pub mod audio_frame;
+#[cfg(feature = "capture")]
+pub mod capture;
 pub mod data_stream;
 pub mod data_track;
 pub mod participant;
