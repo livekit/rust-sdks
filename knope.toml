@@ -216,3 +216,11 @@ versioned_files = [
   { path = "Cargo.toml", dependency = "livekit-capture" },
 ]
 changelog = "livekit-capture/CHANGELOG.md"
+
+[packages.libargus-sys]
+versioned_files = [
+  "libargus-sys/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "libargus-sys" },
+]
+changelog = "libargus-sys/CHANGELOG.md"
