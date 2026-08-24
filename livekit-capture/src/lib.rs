@@ -22,9 +22,14 @@
 //! [`rtc_source`](pixel::PixelVideoPump::rtc_source) with its
 //! [`publish_options`](pixel::PixelVideoPump::publish_options). Spawning the
 //! pump returns a [`RunningPump`](pump::RunningPump) to await or stop.
+//! output to an RTC video source.
 
 pub mod encoded;
 pub mod error;
 pub mod pixel;
 pub mod primitive;
 pub mod pump;
+pub mod sources;
+
+#[cfg(feature = "source-pattern")]
+mod renderer;
