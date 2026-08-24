@@ -50,16 +50,22 @@ const TEST_IDENTITY: &str = "tester";
 /// The attribute key the mock reads its signal-behaviour control object from.
 const SIGNAL_CONTROL_ATTRIBUTE: &str = "lk.mock";
 
-fn base_url() -> String {
-    std::env::var("LK_TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:9999".to_owned())
-}
-
-/// Reachability probe kept separate from the assertions, so "server offline" (skip, local
-/// dev) is told apart from "server up but the client misbehaved" (a real regression). The
-/// tokio suite probes the same way.
-fn server_up(base: &str) -> bool {
-    let authority = base.split("://").nth(1).unwrap_or(base).trim_end_matches('/');
-    std::net::TcpStream::connect(authority).is_ok()
+/// The mock server's base URL, if it is up.
+///
+/// `None` means "no server here" — a local checkout without one, where the tests it gates
+/// return early instead of failing. Probing the port only, never a response, is deliberate:
+/// a server that is up but answering wrongly is a real regression and must fail a test
+/// rather than be waved through as "offline". Plain TCP also keeps this file free of an
+/// HTTP client, which `access-token` alone does not provide.
+fn online_lk_test_server() -> Option<String> {
+    let base =
+        std::env::var("LK_TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:9999".to_owned());
+    let authority = base.split("://").nth(1).unwrap_or(&base).trim_end_matches('/');
+    if std::net::TcpStream::connect(authority).is_ok() {
+        return Some(base);
+    }
+    eprintln!("skipping: mock test server not reachable at {base}");
+    None
 }
 
 /// Mint a token whose `lk.mock` control object selects a server behaviour.
@@ -79,21 +85,11 @@ fn token(mode: &str) -> String {
     at.to_jwt().expect("mint token")
 }
 
-macro_rules! skip_if_offline {
-    ($base:expr) => {
-        if !server_up(&$base) {
-            eprintln!("skipping: mock test server not reachable at {}", $base);
-            return;
-        }
-    };
-}
-
 /// The connect path end to end on this flavour: WS upgrade, join response, keepalive
 /// config. Proves the transport seam and `livekit_runtime::spawn` work here at all.
 #[test]
 fn signal_async_happy_join() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     futures::executor::block_on(async {
         let (client, join, _events) =
@@ -113,8 +109,7 @@ fn signal_async_happy_join() {
 /// classification lives in `get_async_message!`, one of the two runtime-sensitive spots.
 #[test]
 fn signal_async_close_before_join_is_a_close() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     futures::executor::block_on(async {
         let err = SignalClient::connect(
@@ -140,8 +135,7 @@ fn signal_async_close_before_join_is_a_close() {
 /// finding.
 #[test]
 fn signal_async_no_first_message_times_out() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     futures::executor::block_on(async {
         let started = Instant::now();

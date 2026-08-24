@@ -46,19 +46,22 @@ const TEST_IDENTITY: &str = "tester";
 /// The attribute key the mock reads its signal-behavior control object from.
 const SIGNAL_CONTROL_ATTRIBUTE: &str = "lk.mock";
 
-fn base_url() -> String {
-    std::env::var("LK_TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:9999".to_owned())
-}
-
-/// Reachability probe over a plain TCP connect rather than an HTTP request, so this file
-/// needs no HTTP client and can therefore run under a pinned `signal-client-tokio` build
-/// (the HTTP client arrives only with `services-tokio`). It also draws the better line:
-/// "server offline" (skip, local dev) is told apart from "server up but answering wrongly",
-/// which must fail a test rather than silently skip it. `services_async.rs` probes the same
-/// way.
-fn server_up(base: &str) -> bool {
-    let authority = base.split("://").nth(1).unwrap_or(base).trim_end_matches('/');
-    std::net::TcpStream::connect(authority).is_ok()
+/// The mock server's base URL, if it is up.
+///
+/// `None` means "no server here" — a local checkout without one, where the tests it gates
+/// return early instead of failing. Probing the port only, never a response, is deliberate:
+/// a server that is up but answering wrongly is a real regression and must fail a test
+/// rather than be waved through as "offline". Plain TCP also keeps this file free of an
+/// HTTP client, which `access-token` alone does not provide.
+fn online_lk_test_server() -> Option<String> {
+    let base =
+        std::env::var("LK_TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:9999".to_owned());
+    let authority = base.split("://").nth(1).unwrap_or(&base).trim_end_matches('/');
+    if std::net::TcpStream::connect(authority).is_ok() {
+        return Some(base);
+    }
+    eprintln!("skipping: mock test server not reachable at {base}");
+    None
 }
 
 /// Mint a token whose `lk.mock` attribute selects `mode` (empty → no attribute,
@@ -114,23 +117,13 @@ async fn next_event(events: &mut SignalEvents, dur: Duration) -> SignalEvent {
         .expect("signal event stream closed unexpectedly")
 }
 
-macro_rules! skip_if_offline {
-    ($base:expr) => {
-        if !server_up(&$base) {
-            eprintln!("skipping: mock test server not reachable at {}", $base);
-            return;
-        }
-    };
-}
-
 // -- happy path -------------------------------------------------------------
 
 /// `happy` — the WS sends a `JoinResponse` populated with the room from the
 /// token and non-zero ping config (so the client arms keepalive).
 #[tokio::test]
 async fn happy_join() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, join, _events) =
         connect(&base, &token("happy"), false).await.expect("happy connect should succeed");
@@ -152,8 +145,7 @@ async fn happy_join() {
 /// yields a `JoinResponse`.
 #[tokio::test]
 async fn v1_path_happy() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, join, _events) =
         connect(&base, &token("happy"), true).await.expect("v1 happy connect should succeed");
@@ -169,8 +161,7 @@ async fn v1_path_happy() {
 /// (Mirrors the server-side ping/pong assertions in `TestHappyJoinAndPingPong`.)
 #[tokio::test]
 async fn happy_stays_connected() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, join, mut events) =
         connect(&base, &token("happy"), false).await.expect("happy connect should succeed");
@@ -196,8 +187,7 @@ async fn happy_stays_connected() {
 /// The client drives this via [`SignalClient::restart`] after an initial connect.
 #[tokio::test]
 async fn reconnect_response() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, _join, _events) =
         connect(&base, &token("happy"), false).await.expect("initial connect should succeed");
@@ -213,8 +203,7 @@ async fn reconnect_response() {
 /// unaffected, so the initial connect still succeeds.
 #[tokio::test]
 async fn leave_during_reconnect() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, _join, _events) = connect(&base, &token("leave_during_reconnect"), false)
         .await
@@ -238,8 +227,7 @@ async fn leave_during_reconnect() {
 /// keepalive fires and the signal task emits `Close` (ping timeout).
 #[tokio::test]
 async fn no_pong_times_out() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, join, mut events) = connect(&base, &token("no_pong"), false)
         .await
@@ -264,8 +252,7 @@ async fn no_pong_times_out() {
 /// (code 1011). The client observes the stream ending as a `Close` event.
 #[tokio::test]
 async fn close_when_connected() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, _join, mut events) = connect(&base, &token("close_when_connected"), false)
         .await
@@ -288,8 +275,7 @@ async fn close_when_connected() {
 /// surfaces this as a `Close` event.
 #[tokio::test]
 async fn drop_when_connected() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, _join, mut events) = connect(&base, &token("drop_when_connected"), false)
         .await
@@ -311,8 +297,7 @@ async fn drop_when_connected() {
 /// `DISCONNECT` action.
 #[tokio::test]
 async fn leave_when_connected() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let (client, _join, mut events) = connect(&base, &token("leave_when_connected"), false)
         .await
@@ -328,8 +313,7 @@ async fn leave_when_connected() {
 /// The `leaveAction` control field overrides the action on emitted leaves.
 #[tokio::test]
 async fn leave_action_override() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let tok =
         token_with_leave_action("leave_when_connected", proto::leave_request::Action::Reconnect);
@@ -365,8 +349,7 @@ async fn recv_leave(events: &mut SignalEvents) -> proto::LeaveRequest {
 /// while it was waiting for the join).
 #[tokio::test]
 async fn close_before_join() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let err = connect(&base, &token("close_before_join"), false)
         .await
@@ -382,8 +365,7 @@ async fn close_before_join() {
 /// client times out waiting for the join.
 #[tokio::test]
 async fn no_first_message_times_out() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let err = connect(&base, &token("no_first_message"), false)
         .await
@@ -407,8 +389,7 @@ async fn no_first_message_times_out() {
 /// `SignalError::LeaveRequest`; see `leave_during_reconnect`.
 #[tokio::test]
 async fn leave_first_message_rejects_join() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let err = connect(&base, &token("leave_first_message"), false)
         .await
@@ -420,21 +401,8 @@ async fn leave_first_message_rejects_join() {
     );
 }
 
-/// A server that isn't listening: the WS connect is refused and the `validate`
-/// probe also fails to connect, so the original transport error is surfaced.
-/// (client-sdk-js classifies this as `ServerUnreachable`.) Needs no mock server.
-#[tokio::test]
-async fn server_unreachable() {
-    // Nothing is listening on this port, so the connect is refused immediately.
-    let err = connect("ws://127.0.0.1:59999", &token("happy"), false)
-        .await
-        .err()
-        .expect("connecting to a dead port must fail");
-    assert!(
-        matches!(err, SignalError::Connection(_)),
-        "expected a transport connection error for an unreachable server, got {err:?}"
-    );
-}
+// `server_unreachable` lives in tests/signal_unreachable.rs: it needs the real transport,
+// which the mock installed by this binary's other tests permanently replaces.
 
 // -- validate-endpoint error classification ---------------------------------
 //
@@ -453,8 +421,7 @@ async fn server_unreachable() {
 /// more useful behavior; we assert that rather than matching the JS shadowing.
 #[tokio::test]
 async fn validate_500_is_server_error() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let err = connect(&base, &token("validate_500"), false)
         .await
@@ -470,8 +437,7 @@ async fn validate_500_is_server_error() {
 /// whose body does NOT contain the "requested room does not exist" marker.
 #[tokio::test]
 async fn validate_service_not_found_is_client_error() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let err = connect(&base, &token("validate_service_not_found"), false)
         .await
@@ -492,8 +458,7 @@ async fn validate_service_not_found_is_client_error() {
 /// `room_not_found` — 404 with the "requested room does not exist" marker.
 #[tokio::test]
 async fn room_not_found_is_client_error_with_marker() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let err = connect(&base, &token("room_not_found"), false)
         .await
@@ -515,8 +480,7 @@ async fn room_not_found_is_client_error_with_marker() {
 /// validate fallback confirms it as a client error.
 #[tokio::test]
 async fn bad_token_is_client_error() {
-    let base = base_url();
-    skip_if_offline!(base);
+    let Some(base) = online_lk_test_server() else { return };
 
     let err =
         connect(&base, "not-a-jwt", false).await.err().expect("a bad token must fail the connect");
