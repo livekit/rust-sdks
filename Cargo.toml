@@ -20,6 +20,7 @@ members = [
     "livekit-wakeword",
     "tools/bindgens",
     "libwebrtc",
+    "libargus-sys",
     "soxr-sys",
     "yuv-sys",
     "imgproc",
@@ -69,6 +70,7 @@ livekit-net = { version = "0.1.3", path = "livekit-net" }
 livekit-protocol = { version = "0.7.13", path = "livekit-protocol" }
 livekit-region = { version = "0.1.1", path = "livekit-region" }
 livekit-rpc = { version = "0.1.1", path = "livekit-rpc" }
+libargus-sys = { version = "0.1.0", path = "libargus-sys" }
 soxr-sys = { version = "0.1.3", path = "soxr-sys" }
 webrtc-sys = { version = "0.3.45", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.19", path = "webrtc-sys/build" }
