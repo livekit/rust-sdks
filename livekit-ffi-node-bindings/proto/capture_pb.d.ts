@@ -62,6 +62,58 @@ export declare enum Pattern {
 }
 
 /**
+ * Frame format delivered by a capture device.
+ *
+ * @generated from enum livekit.proto.DeviceFrameFormat
+ */
+export declare enum DeviceFrameFormat {
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_I420 = 0;
+   */
+  I420 = 0,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_NV12 = 1;
+   */
+  NV12 = 1,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_BGRA = 2;
+   */
+  BGRA = 2,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_RGB24 = 3;
+   */
+  RGB24 = 3,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_BGR24 = 4;
+   */
+  BGR24 = 4,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_YUYV = 5;
+   */
+  YUYV = 5,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_UYVY = 6;
+   */
+  UYVY = 6,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_GREY = 7;
+   */
+  GREY = 7,
+
+  /**
+   * @generated from enum value: DEVICE_FRAME_FORMAT_MJPEG = 8;
+   */
+  MJPEG = 8,
+}
+
+/**
  * Kind of media a capture source produces.
  *
  * @generated from enum livekit.proto.CaptureSourceKind
@@ -280,6 +332,400 @@ export declare class ClockVideoSourceConfig extends Message<ClockVideoSourceConf
 }
 
 /**
+ * Capture format offered by or requested from a device.
+ *
+ * @generated from message livekit.proto.DeviceFormat
+ */
+export declare class DeviceFormat extends Message<DeviceFormat> {
+  /**
+   * Frame dimensions.
+   *
+   * @generated from field: required livekit.proto.VideoSourceResolution resolution = 1;
+   */
+  resolution?: VideoSourceResolution;
+
+  /**
+   * Frame rate in frames per second.
+   *
+   * @generated from field: required uint32 framerate_fps = 2;
+   */
+  framerateFps?: number;
+
+  /**
+   * Frame format.
+   *
+   * @generated from field: required livekit.proto.DeviceFrameFormat frame_format = 3;
+   */
+  frameFormat?: DeviceFrameFormat;
+
+  constructor(data?: PartialMessage<DeviceFormat>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DeviceFormat";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeviceFormat;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeviceFormat;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeviceFormat;
+
+  static equals(a: DeviceFormat | PlainMessage<DeviceFormat> | undefined, b: DeviceFormat | PlainMessage<DeviceFormat> | undefined): boolean;
+}
+
+/**
+ * Format selection requested from a capture device. The device negotiates
+ * the delivered format; CaptureSourceInfo reports the outcome.
+ *
+ * @generated from message livekit.proto.DeviceFormatRequest
+ */
+export declare class DeviceFormatRequest extends Message<DeviceFormatRequest> {
+  /**
+   * The device's default format when unset.
+   *
+   * @generated from oneof livekit.proto.DeviceFormatRequest.request
+   */
+  request: {
+    /**
+     * Require an exact format match.
+     *
+     * @generated from field: livekit.proto.DeviceFormat exact = 1;
+     */
+    value: DeviceFormat;
+    case: "exact";
+  } | {
+    /**
+     * Use the device's closest supported format.
+     *
+     * @generated from field: livekit.proto.DeviceFormat closest = 2;
+     */
+    value: DeviceFormat;
+    case: "closest";
+  } | {
+    /**
+     * @generated from field: livekit.proto.DeviceFormatRequest.HighestFramerate highest_framerate = 3;
+     */
+    value: DeviceFormatRequest_HighestFramerate;
+    case: "highestFramerate";
+  } | {
+    /**
+     * @generated from field: livekit.proto.DeviceFormatRequest.HighestResolution highest_resolution = 4;
+     */
+    value: DeviceFormatRequest_HighestResolution;
+    case: "highestResolution";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<DeviceFormatRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DeviceFormatRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeviceFormatRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeviceFormatRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeviceFormatRequest;
+
+  static equals(a: DeviceFormatRequest | PlainMessage<DeviceFormatRequest> | undefined, b: DeviceFormatRequest | PlainMessage<DeviceFormatRequest> | undefined): boolean;
+}
+
+/**
+ * Prefer the highest frame rate, optionally constrained.
+ *
+ * @generated from message livekit.proto.DeviceFormatRequest.HighestFramerate
+ */
+export declare class DeviceFormatRequest_HighestFramerate extends Message<DeviceFormatRequest_HighestFramerate> {
+  /**
+   * @generated from field: optional livekit.proto.VideoSourceResolution resolution = 1;
+   */
+  resolution?: VideoSourceResolution;
+
+  /**
+   * @generated from field: optional livekit.proto.DeviceFrameFormat frame_format = 2;
+   */
+  frameFormat?: DeviceFrameFormat;
+
+  constructor(data?: PartialMessage<DeviceFormatRequest_HighestFramerate>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DeviceFormatRequest.HighestFramerate";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeviceFormatRequest_HighestFramerate;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeviceFormatRequest_HighestFramerate;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeviceFormatRequest_HighestFramerate;
+
+  static equals(a: DeviceFormatRequest_HighestFramerate | PlainMessage<DeviceFormatRequest_HighestFramerate> | undefined, b: DeviceFormatRequest_HighestFramerate | PlainMessage<DeviceFormatRequest_HighestFramerate> | undefined): boolean;
+}
+
+/**
+ * Prefer the highest resolution, optionally constrained.
+ *
+ * @generated from message livekit.proto.DeviceFormatRequest.HighestResolution
+ */
+export declare class DeviceFormatRequest_HighestResolution extends Message<DeviceFormatRequest_HighestResolution> {
+  /**
+   * @generated from field: optional uint32 framerate_fps = 1;
+   */
+  framerateFps?: number;
+
+  /**
+   * @generated from field: optional livekit.proto.DeviceFrameFormat frame_format = 2;
+   */
+  frameFormat?: DeviceFrameFormat;
+
+  constructor(data?: PartialMessage<DeviceFormatRequest_HighestResolution>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DeviceFormatRequest.HighestResolution";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeviceFormatRequest_HighestResolution;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeviceFormatRequest_HighestResolution;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeviceFormatRequest_HighestResolution;
+
+  static equals(a: DeviceFormatRequest_HighestResolution | PlainMessage<DeviceFormatRequest_HighestResolution> | undefined, b: DeviceFormatRequest_HighestResolution | PlainMessage<DeviceFormatRequest_HighestResolution> | undefined): boolean;
+}
+
+/**
+ * Camera device capture using the platform's native capture stack.
+ *
+ * @generated from message livekit.proto.DeviceVideoSourceConfig
+ */
+export declare class DeviceVideoSourceConfig extends Message<DeviceVideoSourceConfig> {
+  /**
+   * Device to capture from; the platform default device when unset.
+   *
+   * @generated from oneof livekit.proto.DeviceVideoSourceConfig.device
+   */
+  device: {
+    /**
+     * Position in the platform enumeration order.
+     *
+     * @generated from field: uint32 device_index = 1;
+     */
+    value: number;
+    case: "deviceIndex";
+  } | {
+    /**
+     * Platform-stable identifier, as reported by CaptureDeviceInfo.id.
+     *
+     * @generated from field: string device_id = 2;
+     */
+    value: string;
+    case: "deviceId";
+  } | { case: undefined; value?: undefined };
+
+  /**
+   * Format requested from the device; the device default when unset.
+   *
+   * @generated from field: optional livekit.proto.DeviceFormatRequest format = 3;
+   */
+  format?: DeviceFormatRequest;
+
+  constructor(data?: PartialMessage<DeviceVideoSourceConfig>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DeviceVideoSourceConfig";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeviceVideoSourceConfig;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeviceVideoSourceConfig;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeviceVideoSourceConfig;
+
+  static equals(a: DeviceVideoSourceConfig | PlainMessage<DeviceVideoSourceConfig> | undefined, b: DeviceVideoSourceConfig | PlainMessage<DeviceVideoSourceConfig> | undefined): boolean;
+}
+
+/**
+ * Video capture device discovered by ListCaptureDevicesRequest.
+ *
+ * @generated from message livekit.proto.CaptureDeviceInfo
+ */
+export declare class CaptureDeviceInfo extends Message<CaptureDeviceInfo> {
+  /**
+   * Platform-stable device identifier.
+   *
+   * @generated from field: required string id = 1;
+   */
+  id?: string;
+
+  /**
+   * Human-readable device name.
+   *
+   * @generated from field: required string name = 2;
+   */
+  name?: string;
+
+  /**
+   * Device model identifier, when available.
+   *
+   * @generated from field: optional string model_id = 3;
+   */
+  modelId?: string;
+
+  /**
+   * Device manufacturer, when available.
+   *
+   * @generated from field: optional string manufacturer = 4;
+   */
+  manufacturer?: string;
+
+  /**
+   * Capture formats reported by the device.
+   *
+   * @generated from field: repeated livekit.proto.DeviceFormat formats = 5;
+   */
+  formats: DeviceFormat[];
+
+  /**
+   * Whether `formats` is a complete list; some platforms do not enumerate
+   * formats up front.
+   *
+   * @generated from field: required bool formats_complete = 6;
+   */
+  formatsComplete?: boolean;
+
+  constructor(data?: PartialMessage<CaptureDeviceInfo>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.CaptureDeviceInfo";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureDeviceInfo;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CaptureDeviceInfo;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureDeviceInfo;
+
+  static equals(a: CaptureDeviceInfo | PlainMessage<CaptureDeviceInfo> | undefined, b: CaptureDeviceInfo | PlainMessage<CaptureDeviceInfo> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.CaptureDeviceList
+ */
+export declare class CaptureDeviceList extends Message<CaptureDeviceList> {
+  /**
+   * @generated from field: repeated livekit.proto.CaptureDeviceInfo devices = 1;
+   */
+  devices: CaptureDeviceInfo[];
+
+  constructor(data?: PartialMessage<CaptureDeviceList>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.CaptureDeviceList";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureDeviceList;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CaptureDeviceList;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureDeviceList;
+
+  static equals(a: CaptureDeviceList | PlainMessage<CaptureDeviceList> | undefined, b: CaptureDeviceList | PlainMessage<CaptureDeviceList> | undefined): boolean;
+}
+
+/**
+ * List the video capture devices available on this machine.
+ *
+ * Completes asynchronously with a ListCaptureDevicesCallback: enumeration
+ * queries the platform capture stack and may block briefly.
+ *
+ * @generated from message livekit.proto.ListCaptureDevicesRequest
+ */
+export declare class ListCaptureDevicesRequest extends Message<ListCaptureDevicesRequest> {
+  /**
+   * @generated from field: optional uint64 request_async_id = 1;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<ListCaptureDevicesRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ListCaptureDevicesRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListCaptureDevicesRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListCaptureDevicesRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListCaptureDevicesRequest;
+
+  static equals(a: ListCaptureDevicesRequest | PlainMessage<ListCaptureDevicesRequest> | undefined, b: ListCaptureDevicesRequest | PlainMessage<ListCaptureDevicesRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.ListCaptureDevicesResponse
+ */
+export declare class ListCaptureDevicesResponse extends Message<ListCaptureDevicesResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<ListCaptureDevicesResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ListCaptureDevicesResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListCaptureDevicesResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListCaptureDevicesResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListCaptureDevicesResponse;
+
+  static equals(a: ListCaptureDevicesResponse | PlainMessage<ListCaptureDevicesResponse> | undefined, b: ListCaptureDevicesResponse | PlainMessage<ListCaptureDevicesResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.ListCaptureDevicesCallback
+ */
+export declare class ListCaptureDevicesCallback extends Message<ListCaptureDevicesCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  /**
+   * @generated from oneof livekit.proto.ListCaptureDevicesCallback.message
+   */
+  message: {
+    /**
+     * @generated from field: string error = 2;
+     */
+    value: string;
+    case: "error";
+  } | {
+    /**
+     * @generated from field: livekit.proto.CaptureDeviceList devices = 3;
+     */
+    value: CaptureDeviceList;
+    case: "devices";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<ListCaptureDevicesCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ListCaptureDevicesCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListCaptureDevicesCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListCaptureDevicesCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListCaptureDevicesCallback;
+
+  static equals(a: ListCaptureDevicesCallback | PlainMessage<ListCaptureDevicesCallback> | undefined, b: ListCaptureDevicesCallback | PlainMessage<ListCaptureDevicesCallback> | undefined): boolean;
+}
+
+/**
  * @generated from message livekit.proto.CaptureSourceInfo
  */
 export declare class CaptureSourceInfo extends Message<CaptureSourceInfo> {
@@ -388,6 +834,12 @@ export declare class NewCaptureSourceRequest extends Message<NewCaptureSourceReq
      */
     value: PatternVideoSourceConfig;
     case: "pattern";
+  } | {
+    /**
+     * @generated from field: livekit.proto.DeviceVideoSourceConfig device = 4;
+     */
+    value: DeviceVideoSourceConfig;
+    case: "device";
   } | {
     /**
      * @generated from field: livekit.proto.ClockVideoSourceConfig clock = 5;

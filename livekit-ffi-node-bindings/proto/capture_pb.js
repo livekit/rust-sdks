@@ -52,6 +52,26 @@ const Pattern = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * Frame format delivered by a capture device.
+ *
+ * @generated from enum livekit.proto.DeviceFrameFormat
+ */
+const DeviceFrameFormat = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.DeviceFrameFormat",
+  [
+    {no: 0, name: "DEVICE_FRAME_FORMAT_I420", localName: "I420"},
+    {no: 1, name: "DEVICE_FRAME_FORMAT_NV12", localName: "NV12"},
+    {no: 2, name: "DEVICE_FRAME_FORMAT_BGRA", localName: "BGRA"},
+    {no: 3, name: "DEVICE_FRAME_FORMAT_RGB24", localName: "RGB24"},
+    {no: 4, name: "DEVICE_FRAME_FORMAT_BGR24", localName: "BGR24"},
+    {no: 5, name: "DEVICE_FRAME_FORMAT_YUYV", localName: "YUYV"},
+    {no: 6, name: "DEVICE_FRAME_FORMAT_UYVY", localName: "UYVY"},
+    {no: 7, name: "DEVICE_FRAME_FORMAT_GREY", localName: "GREY"},
+    {no: 8, name: "DEVICE_FRAME_FORMAT_MJPEG", localName: "MJPEG"},
+  ],
+);
+
+/**
  * Kind of media a capture source produces.
  *
  * @generated from enum livekit.proto.CaptureSourceKind
@@ -135,6 +155,142 @@ const ClockVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * Capture format offered by or requested from a device.
+ *
+ * @generated from message livekit.proto.DeviceFormat
+ */
+const DeviceFormat = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DeviceFormat",
+  () => [
+    { no: 1, name: "resolution", kind: "message", T: VideoSourceResolution, req: true },
+    { no: 2, name: "framerate_fps", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 3, name: "frame_format", kind: "enum", T: proto2.getEnumType(DeviceFrameFormat), req: true },
+  ],
+);
+
+/**
+ * Format selection requested from a capture device. The device negotiates
+ * the delivered format; CaptureSourceInfo reports the outcome.
+ *
+ * @generated from message livekit.proto.DeviceFormatRequest
+ */
+const DeviceFormatRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DeviceFormatRequest",
+  () => [
+    { no: 1, name: "exact", kind: "message", T: DeviceFormat, oneof: "request" },
+    { no: 2, name: "closest", kind: "message", T: DeviceFormat, oneof: "request" },
+    { no: 3, name: "highest_framerate", kind: "message", T: DeviceFormatRequest_HighestFramerate, oneof: "request" },
+    { no: 4, name: "highest_resolution", kind: "message", T: DeviceFormatRequest_HighestResolution, oneof: "request" },
+  ],
+);
+
+/**
+ * Prefer the highest frame rate, optionally constrained.
+ *
+ * @generated from message livekit.proto.DeviceFormatRequest.HighestFramerate
+ */
+const DeviceFormatRequest_HighestFramerate = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DeviceFormatRequest.HighestFramerate",
+  () => [
+    { no: 1, name: "resolution", kind: "message", T: VideoSourceResolution, opt: true },
+    { no: 2, name: "frame_format", kind: "enum", T: proto2.getEnumType(DeviceFrameFormat), opt: true },
+  ],
+  {localName: "DeviceFormatRequest_HighestFramerate"},
+);
+
+/**
+ * Prefer the highest resolution, optionally constrained.
+ *
+ * @generated from message livekit.proto.DeviceFormatRequest.HighestResolution
+ */
+const DeviceFormatRequest_HighestResolution = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DeviceFormatRequest.HighestResolution",
+  () => [
+    { no: 1, name: "framerate_fps", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 2, name: "frame_format", kind: "enum", T: proto2.getEnumType(DeviceFrameFormat), opt: true },
+  ],
+  {localName: "DeviceFormatRequest_HighestResolution"},
+);
+
+/**
+ * Camera device capture using the platform's native capture stack.
+ *
+ * @generated from message livekit.proto.DeviceVideoSourceConfig
+ */
+const DeviceVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DeviceVideoSourceConfig",
+  () => [
+    { no: 1, name: "device_index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, oneof: "device" },
+    { no: 2, name: "device_id", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "device" },
+    { no: 3, name: "format", kind: "message", T: DeviceFormatRequest, opt: true },
+  ],
+);
+
+/**
+ * Video capture device discovered by ListCaptureDevicesRequest.
+ *
+ * @generated from message livekit.proto.CaptureDeviceInfo
+ */
+const CaptureDeviceInfo = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.CaptureDeviceInfo",
+  () => [
+    { no: 1, name: "id", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "model_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 4, name: "manufacturer", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 5, name: "formats", kind: "message", T: DeviceFormat, repeated: true },
+    { no: 6, name: "formats_complete", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.CaptureDeviceList
+ */
+const CaptureDeviceList = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.CaptureDeviceList",
+  () => [
+    { no: 1, name: "devices", kind: "message", T: CaptureDeviceInfo, repeated: true },
+  ],
+);
+
+/**
+ * List the video capture devices available on this machine.
+ *
+ * Completes asynchronously with a ListCaptureDevicesCallback: enumeration
+ * queries the platform capture stack and may block briefly.
+ *
+ * @generated from message livekit.proto.ListCaptureDevicesRequest
+ */
+const ListCaptureDevicesRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ListCaptureDevicesRequest",
+  () => [
+    { no: 1, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.ListCaptureDevicesResponse
+ */
+const ListCaptureDevicesResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ListCaptureDevicesResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.ListCaptureDevicesCallback
+ */
+const ListCaptureDevicesCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ListCaptureDevicesCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "message" },
+    { no: 3, name: "devices", kind: "message", T: CaptureDeviceList, oneof: "message" },
+  ],
+);
+
+/**
  * @generated from message livekit.proto.CaptureSourceInfo
  */
 const CaptureSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
@@ -173,6 +329,7 @@ const NewCaptureSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "gstreamer", kind: "message", T: GstreamerVideoSourceConfig, oneof: "config" },
     { no: 2, name: "pattern", kind: "message", T: PatternVideoSourceConfig, oneof: "config" },
+    { no: 4, name: "device", kind: "message", T: DeviceVideoSourceConfig, oneof: "config" },
     { no: 5, name: "clock", kind: "message", T: ClockVideoSourceConfig, oneof: "config" },
     { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
@@ -285,12 +442,23 @@ const CaptureSourceEvent = /*@__PURE__*/ proto2.makeMessageType(
 
 exports.GstreamerBitrateUnit = GstreamerBitrateUnit;
 exports.Pattern = Pattern;
+exports.DeviceFrameFormat = DeviceFrameFormat;
 exports.CaptureSourceKind = CaptureSourceKind;
 exports.CaptureExit = CaptureExit;
 exports.GstreamerRateControl = GstreamerRateControl;
 exports.GstreamerVideoSourceConfig = GstreamerVideoSourceConfig;
 exports.PatternVideoSourceConfig = PatternVideoSourceConfig;
 exports.ClockVideoSourceConfig = ClockVideoSourceConfig;
+exports.DeviceFormat = DeviceFormat;
+exports.DeviceFormatRequest = DeviceFormatRequest;
+exports.DeviceFormatRequest_HighestFramerate = DeviceFormatRequest_HighestFramerate;
+exports.DeviceFormatRequest_HighestResolution = DeviceFormatRequest_HighestResolution;
+exports.DeviceVideoSourceConfig = DeviceVideoSourceConfig;
+exports.CaptureDeviceInfo = CaptureDeviceInfo;
+exports.CaptureDeviceList = CaptureDeviceList;
+exports.ListCaptureDevicesRequest = ListCaptureDevicesRequest;
+exports.ListCaptureDevicesResponse = ListCaptureDevicesResponse;
+exports.ListCaptureDevicesCallback = ListCaptureDevicesCallback;
 exports.CaptureSourceInfo = CaptureSourceInfo;
 exports.OwnedCaptureSource = OwnedCaptureSource;
 exports.NewCaptureSourceRequest = NewCaptureSourceRequest;
