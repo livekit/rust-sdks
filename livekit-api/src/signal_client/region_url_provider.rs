@@ -23,6 +23,7 @@ use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 
 use crate::region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
+use crate::{http_client, url_with_path_suffix};
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 use livekit_net::HttpClientExt;
@@ -210,7 +211,7 @@ fn region_endpoint(url: &str) -> SignalResult<String> {
         "ws" => url.set_scheme("http").unwrap(),
         _ => (),
     }
-    url.set_path("/settings/regions");
+    let url = url_with_path_suffix(&url, "/settings/regions");
 
     Ok(url.to_string())
 }

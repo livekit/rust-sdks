@@ -23,7 +23,7 @@ use thiserror::Error;
 use url::Url;
 
 use super::failover::{self, FailoverConfig};
-use crate::http_client;
+use crate::{http_client, url_with_path_suffix};
 
 pub const DEFAULT_PREFIX: &str = "/twirp";
 
@@ -215,7 +215,6 @@ impl TwirpClient {
         timeout: Duration,
     ) -> ServerResult<R> {
         let original = Url::parse(&self.host)?;
-        let path = format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method);
         headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
         #[cfg(test)]
         for (k, v) in &self.default_headers {
@@ -232,8 +231,10 @@ impl TwirpClient {
 
         for attempt in 0..max_attempts {
             let is_last = attempt + 1 >= max_attempts;
-            let mut url = current.clone();
-            url.set_path(&path);
+            let url = url_with_path_suffix(
+                &current,
+                &format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method),
+            );
 
             let send = self
                 .client

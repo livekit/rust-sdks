@@ -178,8 +178,9 @@ fn max_age_from_cache_control(value: Option<&str>) -> Option<Duration> {
 
 #[cfg(feature = "services-tokio")]
 async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
-    let mut url = base.clone();
-    url.set_path("/settings/regions");
+    use crate::url_with_path_suffix;
+
+    let url = url_with_path_suffix(base, "/settings/regions");
 
     let resp = reqwest::Client::new()
         .get(url)
@@ -200,11 +201,11 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<D
 
 #[cfg(all(feature = "services-async", not(feature = "services-tokio")))]
 async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
+    use crate::url_with_path_suffix;
     use isahc::config::Configurable;
     use isahc::AsyncReadResponseExt;
 
-    let mut url = base.clone();
-    url.set_path("/settings/regions");
+    let url = url_with_path_suffix(base, "/settings/regions");
 
     let mut builder = isahc::Request::get(url.as_str()).timeout(DISCOVERY_TIMEOUT);
     // isahc vendors `http` 0.2, so pass name/value as &str/&[u8] to stay agnostic
