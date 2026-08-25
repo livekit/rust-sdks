@@ -129,6 +129,42 @@ export declare class PatternVideoSourceConfig extends Message<PatternVideoSource
 }
 
 /**
+ * Wall clock with millisecond precision, rendered on the GPU. Shows the
+ * local time of the machine that runs the FFI server.
+ *
+ * @generated from message livekit.proto.ClockVideoSourceConfig
+ */
+export declare class ClockVideoSourceConfig extends Message<ClockVideoSourceConfig> {
+  /**
+   * Output resolution.
+   *
+   * @generated from field: required livekit.proto.VideoSourceResolution resolution = 1;
+   */
+  resolution?: VideoSourceResolution;
+
+  /**
+   * Output frame rate in frames per second.
+   *
+   * @generated from field: required uint32 framerate_fps = 2;
+   */
+  framerateFps?: number;
+
+  constructor(data?: PartialMessage<ClockVideoSourceConfig>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ClockVideoSourceConfig";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ClockVideoSourceConfig;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ClockVideoSourceConfig;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ClockVideoSourceConfig;
+
+  static equals(a: ClockVideoSourceConfig | PlainMessage<ClockVideoSourceConfig> | undefined, b: ClockVideoSourceConfig | PlainMessage<ClockVideoSourceConfig> | undefined): boolean;
+}
+
+/**
  * @generated from message livekit.proto.CaptureSourceInfo
  */
 export declare class CaptureSourceInfo extends Message<CaptureSourceInfo> {
@@ -231,6 +267,12 @@ export declare class NewCaptureSourceRequest extends Message<NewCaptureSourceReq
      */
     value: PatternVideoSourceConfig;
     case: "pattern";
+  } | {
+    /**
+     * @generated from field: livekit.proto.ClockVideoSourceConfig clock = 5;
+     */
+    value: ClockVideoSourceConfig;
+    case: "clock";
   } | { case: undefined; value?: undefined };
 
   /**
