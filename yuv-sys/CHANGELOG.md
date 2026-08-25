@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - fix yuv simd errors
+## 0.3.15 (2026-08-25)
+
+### Fixes
+
+- yuv-sys: fail with an actionable error when the libyuv submodule is not initialized
+
 ## 0.3.14 (2026-04-02)
 
 ### Fixes
