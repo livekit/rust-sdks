@@ -24,6 +24,27 @@ import type { TrackPublishOptions } from "./room_pb.js";
 import type { FfiOwnedHandle } from "./handle_pb.js";
 
 /**
+ * Test patterns built into livekit-capture.
+ *
+ * @generated from enum livekit.proto.Pattern
+ */
+export declare enum Pattern {
+  /**
+   * Animated color gradient.
+   *
+   * @generated from enum value: PATTERN_GRADIENT = 0;
+   */
+  GRADIENT = 0,
+
+  /**
+   * Bouncing LiveKit logo.
+   *
+   * @generated from enum value: PATTERN_LOGO = 1;
+   */
+  LOGO = 1,
+}
+
+/**
  * Kind of media a capture source produces.
  *
  * @generated from enum livekit.proto.CaptureSourceKind
@@ -63,6 +84,48 @@ export declare enum CaptureExit {
    * @generated from enum value: CAPTURE_EXIT_END_OF_STREAM = 1;
    */
   END_OF_STREAM = 1,
+}
+
+/**
+ * Test pattern rendered on the GPU.
+ *
+ * @generated from message livekit.proto.PatternVideoSourceConfig
+ */
+export declare class PatternVideoSourceConfig extends Message<PatternVideoSourceConfig> {
+  /**
+   * Output resolution.
+   *
+   * @generated from field: required livekit.proto.VideoSourceResolution resolution = 1;
+   */
+  resolution?: VideoSourceResolution;
+
+  /**
+   * Output frame rate in frames per second.
+   *
+   * @generated from field: required uint32 framerate_fps = 2;
+   */
+  framerateFps?: number;
+
+  /**
+   * Pattern to render.
+   *
+   * @generated from field: required livekit.proto.Pattern pattern = 3;
+   */
+  pattern?: Pattern;
+
+  constructor(data?: PartialMessage<PatternVideoSourceConfig>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PatternVideoSourceConfig";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PatternVideoSourceConfig;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PatternVideoSourceConfig;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PatternVideoSourceConfig;
+
+  static equals(a: PatternVideoSourceConfig | PlainMessage<PatternVideoSourceConfig> | undefined, b: PatternVideoSourceConfig | PlainMessage<PatternVideoSourceConfig> | undefined): boolean;
 }
 
 /**
@@ -147,6 +210,112 @@ export declare class OwnedCaptureSource extends Message<OwnedCaptureSource> {
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): OwnedCaptureSource;
 
   static equals(a: OwnedCaptureSource | PlainMessage<OwnedCaptureSource> | undefined, b: OwnedCaptureSource | PlainMessage<OwnedCaptureSource> | undefined): boolean;
+}
+
+/**
+ * Create a new capture source from configuration.
+ *
+ * Completes asynchronously with a NewCaptureSourceCallback: construction
+ * starts the producer and may wait for its first output to discover stream
+ * settings.
+ *
+ * @generated from message livekit.proto.NewCaptureSourceRequest
+ */
+export declare class NewCaptureSourceRequest extends Message<NewCaptureSourceRequest> {
+  /**
+   * @generated from oneof livekit.proto.NewCaptureSourceRequest.config
+   */
+  config: {
+    /**
+     * @generated from field: livekit.proto.PatternVideoSourceConfig pattern = 2;
+     */
+    value: PatternVideoSourceConfig;
+    case: "pattern";
+  } | { case: undefined; value?: undefined };
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<NewCaptureSourceRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewCaptureSourceRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewCaptureSourceRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewCaptureSourceRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewCaptureSourceRequest;
+
+  static equals(a: NewCaptureSourceRequest | PlainMessage<NewCaptureSourceRequest> | undefined, b: NewCaptureSourceRequest | PlainMessage<NewCaptureSourceRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.NewCaptureSourceResponse
+ */
+export declare class NewCaptureSourceResponse extends Message<NewCaptureSourceResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<NewCaptureSourceResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewCaptureSourceResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewCaptureSourceResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewCaptureSourceResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewCaptureSourceResponse;
+
+  static equals(a: NewCaptureSourceResponse | PlainMessage<NewCaptureSourceResponse> | undefined, b: NewCaptureSourceResponse | PlainMessage<NewCaptureSourceResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.NewCaptureSourceCallback
+ */
+export declare class NewCaptureSourceCallback extends Message<NewCaptureSourceCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  /**
+   * @generated from oneof livekit.proto.NewCaptureSourceCallback.message
+   */
+  message: {
+    /**
+     * @generated from field: string error = 2;
+     */
+    value: string;
+    case: "error";
+  } | {
+    /**
+     * @generated from field: livekit.proto.OwnedCaptureSource source = 3;
+     */
+    value: OwnedCaptureSource;
+    case: "source";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<NewCaptureSourceCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewCaptureSourceCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewCaptureSourceCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewCaptureSourceCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewCaptureSourceCallback;
+
+  static equals(a: NewCaptureSourceCallback | PlainMessage<NewCaptureSourceCallback> | undefined, b: NewCaptureSourceCallback | PlainMessage<NewCaptureSourceCallback> | undefined): boolean;
 }
 
 /**
