@@ -26,6 +26,19 @@ const { TrackPublishOptions } = require("./room_pb.js");
 const { FfiOwnedHandle } = require("./handle_pb.js");
 
 /**
+ * Bitrate unit expected by a GStreamer encoder property.
+ *
+ * @generated from enum livekit.proto.GstreamerBitrateUnit
+ */
+const GstreamerBitrateUnit = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.GstreamerBitrateUnit",
+  [
+    {no: 0, name: "GSTREAMER_BITRATE_UNIT_BPS", localName: "BPS"},
+    {no: 1, name: "GSTREAMER_BITRATE_UNIT_KBPS", localName: "KBPS"},
+  ],
+);
+
+/**
  * Test patterns built into livekit-capture.
  *
  * @generated from enum livekit.proto.Pattern
@@ -61,6 +74,35 @@ const CaptureExit = /*@__PURE__*/ proto2.makeEnum(
   [
     {no: 0, name: "CAPTURE_EXIT_STOPPED", localName: "STOPPED"},
     {no: 1, name: "CAPTURE_EXIT_END_OF_STREAM", localName: "END_OF_STREAM"},
+  ],
+);
+
+/**
+ * Binding from WebRTC rate-control targets to a GStreamer encoder property.
+ *
+ * @generated from message livekit.proto.GstreamerRateControl
+ */
+const GstreamerRateControl = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GstreamerRateControl",
+  () => [
+    { no: 1, name: "element", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "property", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "unit", kind: "enum", T: proto2.getEnumType(GstreamerBitrateUnit), req: true },
+  ],
+);
+
+/**
+ * Encoded ingest from a GStreamer pipeline.
+ *
+ * @generated from message livekit.proto.GstreamerVideoSourceConfig
+ */
+const GstreamerVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GstreamerVideoSourceConfig",
+  () => [
+    { no: 1, name: "pipeline", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), opt: true },
+    { no: 3, name: "resolution", kind: "message", T: VideoSourceResolution, opt: true },
+    { no: 4, name: "rate_control", kind: "message", T: GstreamerRateControl, opt: true },
   ],
 );
 
@@ -129,6 +171,7 @@ const OwnedCaptureSource = /*@__PURE__*/ proto2.makeMessageType(
 const NewCaptureSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.NewCaptureSourceRequest",
   () => [
+    { no: 1, name: "gstreamer", kind: "message", T: GstreamerVideoSourceConfig, oneof: "config" },
     { no: 2, name: "pattern", kind: "message", T: PatternVideoSourceConfig, oneof: "config" },
     { no: 5, name: "clock", kind: "message", T: ClockVideoSourceConfig, oneof: "config" },
     { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
@@ -240,9 +283,12 @@ const CaptureSourceEvent = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 
+exports.GstreamerBitrateUnit = GstreamerBitrateUnit;
 exports.Pattern = Pattern;
 exports.CaptureSourceKind = CaptureSourceKind;
 exports.CaptureExit = CaptureExit;
+exports.GstreamerRateControl = GstreamerRateControl;
+exports.GstreamerVideoSourceConfig = GstreamerVideoSourceConfig;
 exports.PatternVideoSourceConfig = PatternVideoSourceConfig;
 exports.ClockVideoSourceConfig = ClockVideoSourceConfig;
 exports.CaptureSourceInfo = CaptureSourceInfo;
