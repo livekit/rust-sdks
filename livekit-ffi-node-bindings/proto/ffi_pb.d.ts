@@ -628,13 +628,15 @@ export declare class FfiRequest extends Message<FfiRequest> {
     case: "readyForRoomEvent";
   } | {
     /**
-     * @generated from field: livekit.proto.StartCaptureRequest start_capture = 88;
+     * Capture sources (livekit-capture; requires the `capture` feature)
+     *
+     * @generated from field: livekit.proto.StartCaptureRequest start_capture = 89;
      */
     value: StartCaptureRequest;
     case: "startCapture";
   } | {
     /**
-     * @generated from field: livekit.proto.StopCaptureRequest stop_capture = 89;
+     * @generated from field: livekit.proto.StopCaptureRequest stop_capture = 90;
      */
     value: StopCaptureRequest;
     case: "stopCapture";
@@ -1216,13 +1218,15 @@ export declare class FfiResponse extends Message<FfiResponse> {
     case: "readyForRoomEvent";
   } | {
     /**
-     * @generated from field: livekit.proto.StartCaptureResponse start_capture = 88;
+     * Capture sources (livekit-capture; requires the `capture` feature)
+     *
+     * @generated from field: livekit.proto.StartCaptureResponse start_capture = 89;
      */
     value: StartCaptureResponse;
     case: "startCapture";
   } | {
     /**
-     * @generated from field: livekit.proto.StopCaptureResponse stop_capture = 89;
+     * @generated from field: livekit.proto.StopCaptureResponse stop_capture = 90;
      */
     value: StopCaptureResponse;
     case: "stopCapture";
@@ -1536,6 +1540,8 @@ export declare class FfiEvent extends Message<FfiEvent> {
     case: "getSchema";
   } | {
     /**
+     * Capture sources (livekit-capture; requires the `capture` feature)
+     *
      * @generated from field: livekit.proto.CaptureSourceEvent capture_source_event = 48;
      */
     value: CaptureSourceEvent;
