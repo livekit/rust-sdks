@@ -27,3 +27,19 @@ pub(crate) async fn run_blocking<T: Send + 'static>(
         Err(err) => Err(crate::error::SourceError::new(err)),
     }
 }
+
+#[cfg(all(test, feature = "tokio"))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[should_panic(expected = "boom")]
+    async fn propagates_panic() {
+        let _ = run_blocking::<()>(|| panic!("boom")).await;
+    }
+
+    #[tokio::test]
+    async fn returns_result() {
+        assert_eq!(run_blocking(|| Ok(7)).await.unwrap(), 7);
+    }
+}
