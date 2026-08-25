@@ -145,6 +145,7 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceRequest, oneof: "message" },
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureRequest, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureRequest, oneof: "message" },
+    { no: 92, name: "list_capture_devices", kind: "message", T: ListCaptureDevicesRequest, oneof: "message" },
   ],
 );
 
@@ -245,6 +246,7 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceResponse, oneof: "message" },
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureResponse, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureResponse, oneof: "message" },
+    { no: 92, name: "list_capture_devices", kind: "message", T: ListCaptureDevicesResponse, oneof: "message" },
   ],
 );
 
@@ -305,6 +307,7 @@ const FfiEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 46, name: "get_schema", kind: "message", T: GetSchemaCallback, oneof: "message" },
     { no: 47, name: "new_capture_source", kind: "message", T: NewCaptureSourceCallback, oneof: "message" },
     { no: 48, name: "capture_source_event", kind: "message", T: CaptureSourceEvent, oneof: "message" },
+    { no: 49, name: "list_capture_devices", kind: "message", T: ListCaptureDevicesCallback, oneof: "message" },
   ],
 );
 

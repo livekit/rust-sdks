@@ -648,7 +648,7 @@ export declare class FfiRequest extends Message<FfiRequest> {
     case: "stopCapture";
   } | {
     /**
-     * @generated from field: livekit.proto.ListCaptureDevicesRequest list_capture_devices = 90;
+     * @generated from field: livekit.proto.ListCaptureDevicesRequest list_capture_devices = 92;
      */
     value: ListCaptureDevicesRequest;
     case: "listCaptureDevices";
@@ -1250,7 +1250,7 @@ export declare class FfiResponse extends Message<FfiResponse> {
     case: "stopCapture";
   } | {
     /**
-     * @generated from field: livekit.proto.ListCaptureDevicesResponse list_capture_devices = 90;
+     * @generated from field: livekit.proto.ListCaptureDevicesResponse list_capture_devices = 92;
      */
     value: ListCaptureDevicesResponse;
     case: "listCaptureDevices";
