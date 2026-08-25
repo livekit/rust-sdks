@@ -79,6 +79,20 @@ const PatternVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * Wall clock with millisecond precision, rendered on the GPU. Shows the
+ * local time of the machine that runs the FFI server.
+ *
+ * @generated from message livekit.proto.ClockVideoSourceConfig
+ */
+const ClockVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ClockVideoSourceConfig",
+  () => [
+    { no: 1, name: "resolution", kind: "message", T: VideoSourceResolution, req: true },
+    { no: 2, name: "framerate_fps", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+  ],
+);
+
+/**
  * @generated from message livekit.proto.CaptureSourceInfo
  */
 const CaptureSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
@@ -116,6 +130,7 @@ const NewCaptureSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.NewCaptureSourceRequest",
   () => [
     { no: 2, name: "pattern", kind: "message", T: PatternVideoSourceConfig, oneof: "config" },
+    { no: 5, name: "clock", kind: "message", T: ClockVideoSourceConfig, oneof: "config" },
     { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
@@ -229,6 +244,7 @@ exports.Pattern = Pattern;
 exports.CaptureSourceKind = CaptureSourceKind;
 exports.CaptureExit = CaptureExit;
 exports.PatternVideoSourceConfig = PatternVideoSourceConfig;
+exports.ClockVideoSourceConfig = ClockVideoSourceConfig;
 exports.CaptureSourceInfo = CaptureSourceInfo;
 exports.OwnedCaptureSource = OwnedCaptureSource;
 exports.NewCaptureSourceRequest = NewCaptureSourceRequest;
