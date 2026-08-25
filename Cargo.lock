@@ -3909,6 +3909,7 @@ dependencies = [
  "livekit-datatrack",
  "livekit-protocol",
  "livekit-runtime",
+ "livekit-token",
  "log",
  "parking_lot",
  "prost 0.12.6",
@@ -3934,14 +3935,13 @@ dependencies = [
  "device-info",
  "flate2",
  "futures",
- "hmac",
  "http 1.4.2",
  "isahc",
- "jsonwebtoken",
  "livekit-common",
  "livekit-net",
  "livekit-protocol",
  "livekit-runtime",
+ "livekit-token",
  "log",
  "os_info",
  "parking_lot",
@@ -3953,7 +3953,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "signature",
  "thiserror 2.0.19",
  "tokio",
  "url",
@@ -4030,8 +4029,8 @@ dependencies = [
  "lazy_static",
  "link-cplusplus",
  "livekit",
- "livekit-api",
  "livekit-protocol",
+ "livekit-token",
  "log",
  "parking_lot",
  "prost 0.14.4",
@@ -4087,6 +4086,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-token"
+version = "0.1.0"
+dependencies = [
+ "hmac",
+ "jsonwebtoken",
+ "livekit-protocol",
+ "serde",
+ "sha2",
+ "signature",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "livekit-token-source"
 version = "0.1.1"
 dependencies = [
@@ -4106,10 +4118,10 @@ dependencies = [
  "bytes",
  "camino",
  "futures-util",
- "livekit-api",
  "livekit-common",
  "livekit-datatrack",
  "livekit-protocol",
+ "livekit-token",
  "log",
  "once_cell",
  "prost 0.12.6",

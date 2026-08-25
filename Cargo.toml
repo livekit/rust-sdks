@@ -9,6 +9,7 @@ members = [
     "livekit-ffi",
     "livekit-uniffi",
     "livekit-datatrack",
+    "livekit-token",
     "livekit-token-source",
     "livekit-ffi-node-bindings",
     "livekit-net",
@@ -54,6 +55,7 @@ livekit = { version = "0.8.3", path = "livekit" }
 livekit-api = { version = "0.6.3", path = "livekit-api" }
 livekit-ffi = { version = "0.12.75", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.13", path = "livekit-datatrack" }
+livekit-token = { version = "0.1.0", path = "livekit-token" }
 livekit-token-source = { version = "0.1.1", path = "livekit-token-source" }
 livekit-common = { version = "0.1.1", path = "livekit-common" }
 livekit-data-stream = { version = "0.1.2", path = "livekit-data-stream" }

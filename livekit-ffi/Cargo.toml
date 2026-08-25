@@ -49,7 +49,7 @@ prost-build = { workspace = true }
 webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]
-livekit-api = { workspace = true }
+livekit-token = { workspace = true }
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
