@@ -82,6 +82,81 @@ impl<'a> BitReader<'a> {
     }
 }
 
+/// Byte-level reader over untrusted input. Every read returns `None` past
+/// the end of the input, so callers cannot index out of bounds.
+#[derive(Debug, Clone)]
+pub(super) struct ByteReader<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> ByteReader<'a> {
+    /// Creates a reader positioned at the first byte.
+    pub(super) fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes }
+    }
+
+    /// Returns `true` when all input was consumed.
+    pub(super) fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    /// Reads one byte.
+    pub(super) fn get_u8(&mut self) -> Option<u8> {
+        let (&byte, rest) = self.bytes.split_first()?;
+        self.bytes = rest;
+        Some(byte)
+    }
+
+    /// Reads a big-endian `u16`.
+    pub(super) fn get_u16_be(&mut self) -> Option<u16> {
+        let bytes = self.take(2)?;
+        Some(u16::from_be_bytes([bytes[0], bytes[1]]))
+    }
+
+    /// Reads a big-endian `u32`.
+    pub(super) fn get_u32_be(&mut self) -> Option<u32> {
+        let bytes = self.take(4)?;
+        Some(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+
+    /// Reads an AV1/LEB128-encoded length.
+    pub(super) fn get_leb128(&mut self) -> Option<usize> {
+        let mut value = 0usize;
+        let mut shift = 0usize;
+        loop {
+            let byte = self.get_u8()?;
+            value |= usize::from(byte & 0x7f) << shift;
+            if byte & 0x80 == 0 {
+                return Some(value);
+            }
+            shift += 7;
+            if shift >= usize::BITS as usize {
+                return None;
+            }
+        }
+    }
+
+    /// Reads the next `len` bytes.
+    pub(super) fn take(&mut self, len: usize) -> Option<&'a [u8]> {
+        if len > self.bytes.len() {
+            return None;
+        }
+        let (taken, rest) = self.bytes.split_at(len);
+        self.bytes = rest;
+        Some(taken)
+    }
+
+    /// Skips over the next `len` bytes.
+    pub(super) fn skip(&mut self, len: usize) -> Option<()> {
+        self.take(len).map(|_| ())
+    }
+
+    /// Consumes and returns the unread remainder.
+    pub(super) fn take_rest(&mut self) -> &'a [u8] {
+        std::mem::take(&mut self.bytes)
+    }
+}
+
 /// Reads an AV1/LEB128 length from `bytes` at `cursor`, advancing it.
 pub(super) fn read_leb128(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
     let mut value = 0usize;
@@ -143,6 +218,28 @@ mod tests {
     fn exp_golomb_past_end_is_none() {
         let mut reader = BitReader::new(&[0b0000_0000]);
         assert_eq!(reader.read_ue(), None);
+    }
+
+    #[test]
+    fn byte_reader_reads_and_bounds() {
+        let mut reader = ByteReader::new(&[1, 0, 2, 0, 0, 0, 3, 4, 5, 6]);
+        assert_eq!(reader.get_u8(), Some(1));
+        assert_eq!(reader.get_u16_be(), Some(2));
+        assert_eq!(reader.get_u32_be(), Some(3));
+        assert_eq!(reader.take(2), Some(&[4, 5][..]));
+        assert!(reader.skip(2).is_none());
+        assert_eq!(reader.take_rest(), &[6]);
+        assert!(reader.is_empty());
+        assert_eq!(reader.get_u8(), None);
+    }
+
+    #[test]
+    fn byte_reader_reads_leb128() {
+        let mut reader = ByteReader::new(&[0xac, 0x02, 0x00]);
+        assert_eq!(reader.get_leb128(), Some(300));
+        assert_eq!(reader.get_leb128(), Some(0));
+        assert_eq!(reader.get_leb128(), None);
+        assert_eq!(ByteReader::new(&[0x80]).get_leb128(), None);
     }
 
     #[test]
