@@ -4071,6 +4071,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-telemetry"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "livekit-net",
+ "livekit-runtime",
+ "log",
+ "opentelemetry-proto",
+ "prost 0.14.4",
+ "thiserror 2.0.19",
+ "tokio",
+ "uniffi",
+]
+
+[[package]]
 name = "livekit-token"
 version = "0.1.1"
 dependencies = [
@@ -5298,6 +5313,40 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "opentelemetry"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0142c63252a9e054e68a4c61a5778f7b14f576274d593f8ce883d191a099682"
+dependencies = [
+ "js-sys",
+]
+
+[[package]]
+name = "opentelemetry-proto"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d658ba1faf63f7b9c492cfbe6e0ec365440a16132d3270c1065f7b33f1b638"
+dependencies = [
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "prost 0.14.4",
+]
+
+[[package]]
+name = "opentelemetry_sdk"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b59f80e1ac4d5ff7a2db8fb6c80badb7f0f3f858211fba08dd9aaec750894f9"
+dependencies = [
+ "futures-channel",
+ "futures-executor",
+ "futures-util",
+ "opentelemetry",
+ "portable-atomic",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
