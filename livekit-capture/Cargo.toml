@@ -18,7 +18,7 @@ gstreamer-app = { version = "0.25.2", optional = true }
 gio = { version = "0.22", optional = true }
 gstreamer-rtsp = { version = "0.25", optional = true }
 gstreamer-rtsp-server = { version = "0.25", optional = true }
-md-5 = { version = "0.10", optional = true }
+http-auth = { version = "0.1", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pki-types = { version = "1", optional = true }
@@ -53,7 +53,7 @@ source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
-source-rtsp = ["dep:base64", "dep:md-5"]
+source-rtsp = ["dep:base64", "dep:http-auth"]
 # Adds `rtsps://` (RTSP over TLS, 1.2+) support to the RTSP source.
 # Certificates are verified against the system roots by default.
 source-rtsp-tls = ["source-rtsp", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types"]

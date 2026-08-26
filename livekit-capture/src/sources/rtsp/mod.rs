@@ -190,15 +190,10 @@ pub enum RtspVideoSourceError {
     /// The server requires authentication but no credentials were supplied.
     #[error("RTSP authentication required but no credentials were supplied")]
     MissingCredentials,
-    /// The authentication challenge was malformed.
-    #[error("invalid RTSP authentication challenge")]
-    InvalidAuthChallenge,
-    /// The authentication scheme is not supported.
-    #[error("unsupported RTSP authentication scheme: {0}")]
-    UnsupportedAuthScheme(String),
-    /// The Digest algorithm is not supported.
-    #[error("unsupported RTSP Digest algorithm: {0}")]
-    UnsupportedDigestAlgorithm(String),
+    /// The authentication challenge was malformed or unsupported, or the
+    /// response to it could not be built.
+    #[error("RTSP authentication failed: {0}")]
+    Auth(String),
     /// The SDP was missing a supported video track.
     #[error("RTSP SDP does not contain a supported video track")]
     MissingVideoTrack,
