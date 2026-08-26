@@ -157,24 +157,6 @@ impl<'a> ByteReader<'a> {
     }
 }
 
-/// Reads an AV1/LEB128 length from `bytes` at `cursor`, advancing it.
-pub(super) fn read_leb128(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
-    let mut value = 0usize;
-    let mut shift = 0usize;
-    loop {
-        let &byte = bytes.get(*cursor)?;
-        *cursor += 1;
-        value |= usize::from(byte & 0x7f) << shift;
-        if byte & 0x80 == 0 {
-            return Some(value);
-        }
-        shift += 7;
-        if shift >= usize::BITS as usize {
-            return None;
-        }
-    }
-}
-
 /// Appends `value` to `out` as LEB128.
 pub(super) fn write_leb128(mut value: usize, out: &mut Vec<u8>) {
     loop {
@@ -247,15 +229,9 @@ mod tests {
         for value in [0usize, 1, 127, 128, 300, 16_383, 16_384, usize::from(u16::MAX)] {
             let mut encoded = Vec::new();
             write_leb128(value, &mut encoded);
-            let mut cursor = 0;
-            assert_eq!(read_leb128(&encoded, &mut cursor), Some(value));
-            assert_eq!(cursor, encoded.len());
+            let mut reader = ByteReader::new(&encoded);
+            assert_eq!(reader.get_leb128(), Some(value));
+            assert!(reader.is_empty());
         }
-    }
-
-    #[test]
-    fn leb128_rejects_truncated_input() {
-        let mut cursor = 0;
-        assert_eq!(read_leb128(&[0x80], &mut cursor), None);
     }
 }
