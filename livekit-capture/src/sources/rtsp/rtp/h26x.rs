@@ -16,7 +16,7 @@
 
 use super::{FragmentState, RtpAccessUnitAssembler, RtpDepacketizerError, RtpPacket};
 use crate::encoded::{
-    h26x::{access_unit_from_nalus, h264_nal_type, h265_nal_type},
+    h26x::{access_unit_from_nalus, avc_nalus, h264_nal_type, h265_nal_type},
     EncodedFrameType, EncodedVideoCodec,
 };
 
@@ -63,24 +63,17 @@ impl RtpAccessUnitAssembler {
 
     /// Unpacks the length-prefixed NAL units of an H.264 STAP-A or H.265 AP
     /// payload, whose aggregation headers the caller has already stripped.
+    ///
+    /// The layout is the same 2-byte-length-prefixed sequence as an
+    /// AVC-format access unit, so the AVC splitter does the walking.
     fn push_h26x_aggregation(
         &mut self,
         rtp_timestamp: u32,
         payload: &[u8],
     ) -> Result<(), RtpDepacketizerError> {
-        let mut cursor = 0;
-        while cursor < payload.len() {
-            if payload.len() < cursor + 2 {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            }
-            let len = u16::from_be_bytes([payload[cursor], payload[cursor + 1]]) as usize;
-            cursor += 2;
-            if len == 0 || payload.len() < cursor + len {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            }
-            self.current_mut(rtp_timestamp)?.nal_units.push(payload[cursor..cursor + len].to_vec());
-            cursor += len;
-        }
+        let nal_units: Vec<Vec<u8>> =
+            avc_nalus(payload, 2)?.into_iter().map(<[u8]>::to_vec).collect();
+        self.current_mut(rtp_timestamp)?.nal_units.extend(nal_units);
         Ok(())
     }
 
@@ -305,6 +298,14 @@ mod tests {
             access_unit.payload.as_ref(),
             &[0, 0, 0, 1, 0x67, 9, 0, 0, 0, 1, 0x68, 8, 0, 0, 0, 1, 0x65, 1]
         );
+    }
+
+    #[test]
+    fn rejects_empty_h264_aggregation() {
+        let mut assembler = assembler(EncodedVideoCodec::H264);
+        // A STAP-A with no NAL entries is malformed.
+        let empty_stap = rtp_packet(10, 12_000, true, &[0x18]);
+        assert!(assembler.push(&empty_stap).is_err());
     }
 
     #[test]
