@@ -14,7 +14,11 @@
 
 use std::time::Duration;
 
-use crate::{Runtime, runtime::BoxFuture};
+use crate::{BoxFuture, Runtime};
+
+/// Not a runtime service: this is a concrete generic parameter that `livekit-net`
+/// threads into `tungstenite`, so it stays backend-specific.
+pub use tokio::net::TcpStream;
 
 /// Runs LiveKit on the ambient tokio runtime. A tokio reactor must be entered
 /// (`#[tokio::main]`, `Runtime::block_on`, ...) before the first spawn.
@@ -22,6 +26,12 @@ use crate::{Runtime, runtime::BoxFuture};
 pub struct TokioRuntime;
 
 impl Runtime for TokioRuntime {
-    fn spawn_future(&self, fut: BoxFuture) { tokio::task::spawn(fut); }
-    fn sleep(&self, dur: Duration) -> BoxFuture { Box::pin(tokio::time::sleep(dur)) }
+    fn spawn_future(&self, fut: BoxFuture) {
+        // Dropping tokio's handle detaches the task.
+        tokio::task::spawn(fut);
+    }
+
+    fn sleep(&self, dur: Duration) -> BoxFuture {
+        Box::pin(tokio::time::sleep(dur))
+    }
 }

@@ -4080,9 +4080,10 @@ dependencies = [
  "async-io",
  "async-std",
  "async-task",
- "futures",
+ "futures-channel",
+ "futures-core",
+ "futures-executor",
  "tokio",
- "tokio-stream",
 ]
 
 [[package]]

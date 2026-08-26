@@ -12,6 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Async runtime compatibility layer for LiveKit.
+//!
+//! The SDK reaches the active runtime through the [`Runtime`] trait, which has
+//! exactly two required methods: [`Runtime::spawn_future`] and [`Runtime::sleep`].
+//! Everything else the SDK uses — [`spawn`], [`sleep`], [`timeout`], [`interval`]
+//! — is derived from those two, so a new backend is two functions, and adding a
+//! new operation never widens what a backend has to provide.
+//!
+//! Which runtime is active is selected by Cargo feature (`tokio`, `async`,
+//! `dispatcher`); [`set_runtime`] overrides that, and is the only option when the
+//! crate is built with no backend feature at all.
+
 #[cfg(any(
     all(feature = "tokio", feature = "async"),
     all(feature = "tokio", feature = "dispatcher"),
@@ -19,13 +31,20 @@
 ))]
 compile_error!("Cannot compile livekit with multiple runtimes");
 
+use std::{
+    error::Error,
+    fmt::Display,
+    future::Future,
+    sync::{Arc, OnceLock},
+};
+
 mod join_handle;
-use join_handle::JoinHandle;
-
 mod runtime;
-use std::{error::Error, fmt::Display, future::Future, sync::{Arc, OnceLock}};
+mod time;
 
-pub use runtime::{Runtime, RuntimeExt};
+pub use join_handle::JoinHandle;
+pub use runtime::{BoxFuture, Runtime, RuntimeExt};
+pub use time::*;
 
 static RUNTIME: OnceLock<Arc<dyn Runtime>> = OnceLock::new();
 
@@ -40,11 +59,12 @@ impl Display for RuntimeAlreadySet {
 }
 impl Error for RuntimeAlreadySet {}
 
+/// The active runtime, initialized from the compiled-in default on first use.
 pub fn runtime() -> &'static Arc<dyn Runtime> {
     RUNTIME.get_or_init(|| {
         default_runtime().expect(
             "no async runtime available: enable one of livekit-runtime's \
-             `tokio` / `smol` / `async` features, or call \
+             `tokio` / `async` / `dispatcher` features, or call \
              livekit_runtime::set_runtime() before the first spawn",
         )
     })
@@ -52,29 +72,31 @@ pub fn runtime() -> &'static Arc<dyn Runtime> {
 
 /// Register the process-wide runtime. Must be called before the first spawn,
 /// sleep, or `Room::connect` — after that the default has already been set
-/// and this returns `RuntimeAlreadySet.
+/// and this returns [`RuntimeAlreadySet`].
 pub fn set_runtime(rt: Arc<dyn Runtime>) -> Result<(), RuntimeAlreadySet> {
     RUNTIME.set(rt).map_err(|_| RuntimeAlreadySet)
 }
 
-/// The compiled-in default, if any. Features are additive, so several built-ins
-/// can be present at once; this fixes the priority. `tokio` wins because it is
-/// the documented default. An explicit `set_runtime` always beats this.
+/// The compiled-in default, if any. The `compile_error!` above keeps the backend
+/// features mutually exclusive, so at most one arm survives cfg expansion. An
+/// explicit [`set_runtime`] always beats this.
 fn default_runtime() -> Option<Arc<dyn Runtime>> {
     #[cfg(feature = "tokio")]
     return Some(Arc::new(crate::tokio::TokioRuntime));
 
-    #[cfg(feature = "smol")]
-    return Some(Arc::new(crate::smol::SmolRuntime));
-
     #[cfg(feature = "async")]
     return Some(Arc::new(crate::async_std::AsyncStdRuntime));
+
+    #[cfg(feature = "dispatcher")]
+    return Some(Arc::new(crate::dispatcher::DispatcherRuntime::ambient()));
 
     #[allow(unreachable_code)]
     None
 }
 
-#[deprecated = "Use runtime().spawn(...) instead."]
+/// Spawn a detached task on the active runtime.
+// TODO: restore `#[deprecated = "Use runtime().spawn(...) instead."]` once the
+// ~70 in-tree call sites have moved over to `runtime().spawn(...)`.
 pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
 where
     F: Future + Send + 'static,

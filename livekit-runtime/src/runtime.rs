@@ -12,29 +12,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::Future, pin::Pin, sync::{Arc, OnceLock}, time::Duration};
+use std::{future::Future, pin::Pin, time::Duration};
 
-use tokio::sync::oneshot;
+use futures_channel::oneshot;
 
 use crate::join_handle::JoinHandle;
 
+/// A type-erased, detached unit of work.
+///
+/// Erasing the future here is what keeps [`Runtime`] object safe, so the SDK can
+/// hold an `Arc<dyn Runtime>`.
 pub type BoxFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
-/// Everything the SDK needs from an async runtime. Two methods; `timeout` and
-/// `interval` are derived from `sleep` below, so adding helpers never widens
-/// what an implementor must provide.
+/// Everything the SDK needs from an async runtime.
+///
+/// Two required methods. `timeout`, `interval` and the rest of the time surface are
+/// derived from `sleep` in [`crate::time`], so adding a helper never widens what an
+/// implementor has to provide.
 pub trait Runtime: Send + Sync + 'static {
     /// Spawn a detached task. Dropping the caller's handle does not cancel it.
     fn spawn_future(&self, fut: BoxFuture);
+
     /// A future that completes after `dur`.
     fn sleep(&self, dur: Duration) -> BoxFuture;
 }
 
+/// The generic half of [`Runtime`], split out so the trait itself stays object
+/// safe. Blanket-implemented for every `Runtime`, `dyn Runtime` included.
 pub trait RuntimeExt: Runtime {
+    /// Spawn `fut` and return a handle to its output.
+    ///
+    /// The task is detached — the handle only observes the result, it does not own
+    /// the task — so every backend gets the same cancellation semantics regardless
+    /// of what its native handle does on drop.
     fn spawn<F>(&self, fut: F) -> JoinHandle<F::Output>
-    where F: Future + Send + 'static, F::Output: Send + 'static {
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
         let (tx, rx) = oneshot::channel();
-        self.spawn_future(Box::pin(async move { let _ = tx.send(fut.await); }));
+        self.spawn_future(Box::pin(async move {
+            let _ = tx.send(fut.await);
+        }));
         JoinHandle::new(rx)
     }
 }

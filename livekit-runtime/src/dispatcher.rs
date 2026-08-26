@@ -12,26 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures::{channel::mpsc::UnboundedReceiver, select_biased, Future, FutureExt, StreamExt};
-use std::{sync::OnceLock, task::Poll, time::Duration};
+use std::{sync::OnceLock, time::Duration};
 
+use crate::{BoxFuture, Runtime};
+
+/// Not a runtime service: this is a concrete generic parameter that `livekit-net`
+/// threads into `tungstenite`, so it stays backend-specific.
 pub use async_std::net::TcpStream;
 pub use async_task::Runnable;
-pub use futures::Stream;
-pub use std::time::Instant;
-
-/// This is semantically equivalent to Tokio's MissedTickBehavior:
-/// https://docs.rs/tokio/1.36.0/tokio/time/enum.MissedTickBehavior.html
-#[derive(Default, Copy, Clone)]
-pub enum MissedTickBehavior {
-    #[default]
-    Burst,
-    Delay,
-    Skip,
-}
 
 static DISPATCHER: OnceLock<&'static dyn Dispatcher> = OnceLock::new();
 
+/// A host-provided executor. `dispatch` must eventually `run()` the runnable;
+/// `dispatch_after` must do the same, but no sooner than `duration`.
 pub trait Dispatcher: 'static + Send + Sync {
     fn dispatch(&self, runnable: Runnable);
     fn dispatch_after(&self, duration: Duration, runnable: Runnable);
@@ -46,136 +39,64 @@ fn get_dispatcher() -> &'static dyn Dispatcher {
     *DISPATCHER.get().expect("The livekit dispatcher requires a call to set_dispatcher()")
 }
 
-#[derive(Debug)]
-pub struct JoinHandle<T> {
-    task: Option<async_task::Task<T>>,
-}
+/// Adapts a [`Dispatcher`] to [`Runtime`].
+///
+/// `Dispatcher` cannot implement `Runtime` itself: `async_task::spawn` needs a
+/// `'static` schedule closure, and the `&self` handed to `spawn_future` is not
+/// `'static`. Hence the `&'static dyn Dispatcher` held here — which is also how
+/// [`set_dispatcher`] has always stored it.
+pub struct DispatcherRuntime(Option<&'static dyn Dispatcher>);
 
-pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
-where
-    F: Future + 'static + Send,
-    F::Output: 'static + Send,
-{
-    let dispatcher = get_dispatcher();
-    let (runnable, task) = async_task::spawn(future, |runnable| dispatcher.dispatch(runnable));
-    runnable.schedule();
-    JoinHandle { task: Some(task) }
-}
+impl DispatcherRuntime {
+    /// Resolve the dispatcher lazily through [`set_dispatcher`]'s global.
+    ///
+    /// This is the feature-selected default, and it preserves the original
+    /// behaviour of panicking on first *use* rather than at construction when
+    /// `set_dispatcher` was never called.
+    pub const fn ambient() -> Self {
+        Self(None)
+    }
 
-impl<T> Future for JoinHandle<T> {
-    type Output = T;
+    /// Bind a specific dispatcher, for `set_runtime(Arc::new(...))`.
+    pub fn new(dispatcher: impl Dispatcher) -> Self {
+        Self(Some(Box::leak(Box::new(dispatcher))))
+    }
 
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Self::Output> {
-        self.task.as_mut().expect("poll should not be called after drop").poll_unpin(cx)
+    fn dispatcher(&self) -> &'static dyn Dispatcher {
+        self.0.unwrap_or_else(get_dispatcher)
     }
 }
 
-impl<T> Drop for JoinHandle<T> {
-    fn drop(&mut self) {
-        self.task.take().expect("This is the only place the option is mutated").detach();
+impl From<&'static dyn Dispatcher> for DispatcherRuntime {
+    fn from(dispatcher: &'static dyn Dispatcher) -> Self {
+        Self(Some(dispatcher))
     }
 }
 
-pub struct Sleep {
-    task: async_task::Task<()>,
-}
+impl Runtime for DispatcherRuntime {
+    fn spawn_future(&self, fut: BoxFuture) {
+        let dispatcher = self.dispatcher();
+        let (runnable, task) =
+            async_task::spawn(fut, move |runnable| dispatcher.dispatch(runnable));
+        runnable.schedule();
+        // Detached, matching what the old `JoinHandle`'s `Drop` did.
+        task.detach();
+    }
 
-pub fn sleep(time: Duration) -> Sleep {
-    let dispatcher = get_dispatcher();
-    let (runnable, task) =
-        async_task::spawn(async {}, move |runnable| dispatcher.dispatch_after(time, runnable));
-    runnable.schedule();
-
-    Sleep { task }
-}
-
-impl Sleep {
-    pub fn reset(&mut self, deadline: Instant) {
-        let duration = deadline.saturating_duration_since(Instant::now());
-        self.task = sleep(duration).task
+    fn sleep(&self, dur: Duration) -> BoxFuture {
+        let dispatcher = self.dispatcher();
+        // The empty future's first (and only) schedule goes through
+        // `dispatch_after`, so the host's timer *is* the sleep. Dropping the
+        // returned future cancels the task, as the old `Sleep` did.
+        let (runnable, task) =
+            async_task::spawn(async {}, move |runnable| dispatcher.dispatch_after(dur, runnable));
+        runnable.schedule();
+        Box::pin(task)
     }
 }
 
-impl Future for Sleep {
-    type Output = ();
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Self::Output> {
-        self.task.poll_unpin(cx)
-    }
-}
-
-pub struct TimeoutError {}
-
-pub fn timeout<T>(
-    duration: Duration,
-    future: T,
-) -> impl Future<Output = Result<T::Output, TimeoutError>>
-where
-    T: Future,
-{
-    async move {
-        select_biased! {
-            res = future.fuse() => Ok(res),
-            _ = sleep(duration).fuse() => Err(TimeoutError {}),
-        }
-    }
-}
-
-pub struct Interval {
-    duration: Duration,
-    _timer_loop: JoinHandle<()>,
-    missed_tick_behavior: MissedTickBehavior,
-    rx: UnboundedReceiver<Instant>,
-}
-
-pub fn interval(duration: Duration) -> Interval {
-    let (tx, rx) = futures::channel::mpsc::unbounded();
-    let timer_loop = spawn(async move {
-        loop {
-            sleep(duration).await;
-            tx.unbounded_send(Instant::now()).ok();
-        }
-    });
-
-    Interval {
-        duration,
-        rx,
-        _timer_loop: timer_loop,
-        missed_tick_behavior: MissedTickBehavior::default(),
-    }
-}
-
-impl Interval {
-    pub fn reset(&mut self) {
-        let missed_tick_behavior = self.missed_tick_behavior;
-        *self = interval(self.duration);
-        self.set_missed_tick_behavior(missed_tick_behavior);
-    }
-
-    pub async fn tick(&mut self) -> Instant {
-        self.rx.next().await.expect("timer loop should always be running")
-    }
-
-    pub fn set_missed_tick_behavior(&mut self, behavior: MissedTickBehavior) {
-        self.missed_tick_behavior = behavior;
-    }
-}
-
-impl Future for Interval {
-    type Output = Instant;
-
-    fn poll(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Self::Output> {
-        self.rx.next().poll_unpin(cx).map(|option| {
-            option.expect("join loop should be running for as long as the interval exists")
-        })
+impl std::fmt::Debug for DispatcherRuntime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DispatcherRuntime").field("bound", &self.0.is_some()).finish()
     }
 }
