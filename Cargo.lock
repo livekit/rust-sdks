@@ -4121,6 +4121,7 @@ dependencies = [
  "livekit-common",
  "livekit-datatrack",
  "livekit-protocol",
+ "livekit-telemetry",
  "livekit-token",
  "log",
  "once_cell",

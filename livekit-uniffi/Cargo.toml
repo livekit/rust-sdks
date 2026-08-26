@@ -16,6 +16,7 @@ livekit-protocol = { workspace = true }
 livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-token = { workspace = true }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
+livekit-telemetry = { workspace = true, features = ["uniffi"] }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns", "tokio"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
