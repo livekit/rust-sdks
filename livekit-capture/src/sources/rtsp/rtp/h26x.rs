@@ -170,6 +170,9 @@ impl RtpAccessUnitAssembler {
     /// passthrough subscribers may join mid-stream and can only initialize
     /// their decoder from parameter sets inside the keyframe itself.
     pub(super) fn finish_current(&mut self) -> Result<(), RtpDepacketizerError> {
+        // An open fragment carrying into the next unit undercounts by at
+        // most one NAL's fragment, which the generous cap absorbs.
+        self.pending_bytes = 0;
         let Some(current) = self.current.take() else {
             return Ok(());
         };
