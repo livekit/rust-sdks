@@ -223,16 +223,21 @@ fn main() {
             }
 
             if arm {
-                let jetson_mmapi_include = PathBuf::from("/usr/src/jetson_multimedia_api/include");
+                println!("cargo:rerun-if-env-changed=LK_JETSON_MMAPI_DIR");
+                let jetson_mmapi_dir = PathBuf::from(match env::var("LK_JETSON_MMAPI_DIR") {
+                    Ok(p) => p,
+                    Err(_) => "/usr/src/jetson_multimedia_api".to_owned(),
+                });
+                let jetson_mmapi_include = jetson_mmapi_dir.join("include");
                 if jetson_mmapi_include.exists() {
-                    let jetson_classes_dir =
-                        PathBuf::from("/usr/src/jetson_multimedia_api/samples/common/classes");
+                    let jetson_classes_dir = jetson_mmapi_dir.join("samples/common/classes");
 
                     builder
                         .include(&jetson_mmapi_include)
                         .include("src/jetson")
                         .file("src/jetson/jetson_mmapi_encoder.cpp")
                         .file("src/jetson/jetson_plane_layout.cpp")
+                        .file("src/jetson/jetson_runtime_loader.cpp")
                         .file("src/jetson/h264_encoder_impl.cpp")
                         .file("src/jetson/h265_encoder_impl.cpp")
                         .file("src/jetson/av1_encoder_impl.cpp")
@@ -260,16 +265,15 @@ fn main() {
                         }
                     }
 
-                    let tegra_lib_dir = PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra");
-                    if tegra_lib_dir.exists() {
-                        println!("cargo:rustc-link-search=native={}", tegra_lib_dir.display());
-                    }
-                    println!("cargo:rustc-link-lib=dylib=nvv4l2");
-                    println!("cargo:rustc-link-lib=dylib=nvbufsurface");
-                    if tegra_lib_dir.join("libnvbuf_utils.so").exists() {
-                        println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
-                    }
-                    println!("cargo:rustc-link-lib=dylib=v4l2");
+                    // libv4l2/libnvv4l2 and libnvbufsurface are dlopened at
+                    // runtime (see src/jetson/jetson_runtime_loader.cpp), so
+                    // the same aarch64 binary loads on non-Jetson systems
+                    // where those libraries are absent.
+                    add_lazy_load_so(
+                        &mut builder,
+                        "jetson",
+                        ["v4l2", "nvbufsurface"].map(String::from).to_vec(),
+                    );
                 }
             }
 
