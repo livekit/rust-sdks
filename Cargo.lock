@@ -736,6 +736,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bstr"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "built"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2064,6 +2073,12 @@ dependencies = [
  "either",
  "rand 0.9.5",
 ]
+
+[[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "fastrand"
@@ -4002,6 +4017,7 @@ dependencies = [
  "rustls-native-certs",
  "rustls-pki-types",
  "schemars",
+ "sdp-types",
  "serde",
  "test-log",
  "thiserror 2.0.19",
@@ -6821,6 +6837,18 @@ dependencies = [
  "memmap2",
  "smithay-client-toolkit 0.19.2",
  "tiny-skia",
+]
+
+[[package]]
+name = "sdp-types"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46d46be065d0565cf5c6703b6ba9f92b0de85b20a4c83f87e110bc0a1040b1bc"
+dependencies = [
+ "bstr",
+ "fallible-iterator",
+ "hex",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
