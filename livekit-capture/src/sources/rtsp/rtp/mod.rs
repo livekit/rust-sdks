@@ -28,7 +28,8 @@ use thiserror::Error;
 
 use crate::{
     encoded::{
-        h26x::H26xParseError, EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
+        h26x::{H26xParseError, MAX_PENDING_ACCESS_UNIT_BYTES},
+        EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     primitive::VideoResolution,
 };
@@ -211,8 +212,12 @@ pub(super) struct RtpAccessUnitAssembler {
     av1_fragment: Option<Av1FragmentState>,
     ready: VecDeque<OwnedEncodedAccessUnit>,
     awaiting_keyframe: bool,
+    /// Payload bytes accumulated since the last completed or discarded
+    /// access unit, bounding what an endless unit can buffer.
+    pending_bytes: usize,
     logged_ssrc_mismatch: bool,
     warned_missing_parameter_sets: bool,
+    warned_oversized_pending: bool,
     sequence_gaps: u64,
     dropped_access_units: u64,
 }
@@ -277,8 +282,10 @@ impl RtpAccessUnitAssembler {
             av1_fragment: None,
             ready: VecDeque::new(),
             awaiting_keyframe: false,
+            pending_bytes: 0,
             logged_ssrc_mismatch: false,
             warned_missing_parameter_sets: false,
+            warned_oversized_pending: false,
             sequence_gaps: 0,
             dropped_access_units: 0,
         })
@@ -336,6 +343,25 @@ impl RtpAccessUnitAssembler {
             EncodedVideoCodec::VP8 => self.push_vp8_payload(&packet)?,
             EncodedVideoCodec::VP9 => self.push_vp9_payload(&packet)?,
             EncodedVideoCodec::AV1 => self.push_av1_payload(&packet)?,
+        }
+
+        // Bound what an unfinished access unit can buffer: a stream that
+        // never completes one must not grow memory without limit. Counting
+        // raw payload bytes slightly overestimates, which only trips the
+        // generous cap earlier.
+        self.pending_bytes = self.pending_bytes.saturating_add(packet.payload.len());
+        if self.pending_bytes > MAX_PENDING_ACCESS_UNIT_BYTES {
+            if !self.warned_oversized_pending {
+                self.warned_oversized_pending = true;
+                log::warn!(
+                    "discarding an access unit still incomplete after \
+                     {MAX_PENDING_ACCESS_UNIT_BYTES} buffered bytes; \
+                     waiting for the next keyframe"
+                );
+            }
+            self.discard_in_progress();
+            self.dropped_access_units += 1;
+            return Ok(());
         }
 
         if packet.marker {
@@ -411,6 +437,7 @@ impl RtpAccessUnitAssembler {
         self.fragment = None;
         self.current_frame = None;
         self.av1_fragment = None;
+        self.pending_bytes = 0;
         self.awaiting_keyframe = true;
     }
 
@@ -475,6 +502,9 @@ impl RtpAccessUnitAssembler {
 
     /// Completes the pending VP8/VP9/AV1 frame and queues it.
     fn finish_current_frame(&mut self) -> Result<(), RtpDepacketizerError> {
+        // An open fragment carrying into the next unit undercounts by at
+        // most one frame's fragment, which the generous cap absorbs.
+        self.pending_bytes = 0;
         let Some(current) = self.current_frame.take() else {
             return Ok(());
         };
@@ -622,6 +652,58 @@ mod tests {
         let access_unit = push_one(&mut assembler, &second).unwrap();
         assert_eq!(access_unit.frame_type, EncodedFrameType::Delta);
         assert_eq!(assembler.stats().sequence_gaps, 0);
+    }
+
+    #[test]
+    fn caps_h264_pending_access_unit_bytes() {
+        let mut assembler = assembler(EncodedVideoCodec::H264);
+        let chunk = [0xaa; 60_000];
+
+        // An FU-A start followed by endless continuations at one timestamp:
+        // the fragment never completes, so buffering must stop at the cap.
+        let mut payload = vec![0x7c, 0x85];
+        payload.extend_from_slice(&chunk);
+        assert!(push_one(&mut assembler, &rtp_packet(0, 12_000, false, &payload)).is_none());
+
+        let mut payload = vec![0x7c, 0x05];
+        payload.extend_from_slice(&chunk);
+        let mut sequence_number = 1u16;
+        while !assembler.stats().awaiting_keyframe {
+            assert!(sequence_number < 1_000, "the pending byte cap never triggered");
+            let packet = rtp_packet(sequence_number, 12_000, false, &payload);
+            assert!(push_one(&mut assembler, &packet).is_none());
+            sequence_number += 1;
+        }
+        assert!(assembler.stats().dropped_access_units >= 1);
+
+        // The stream recovers at the next keyframe.
+        let key = rtp_packet(sequence_number, 15_000, true, &[0x65, 1, 2]);
+        let access_unit = push_one(&mut assembler, &key).unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
+    }
+
+    #[test]
+    fn caps_vp8_pending_frame_bytes() {
+        let mut assembler = assembler(EncodedVideoCodec::VP8);
+        let chunk = [0xaa; 60_000];
+
+        let mut payload = vec![0x10, 0x00];
+        payload.extend_from_slice(&chunk);
+        assert!(push_one(&mut assembler, &rtp_packet(0, 12_000, false, &payload)).is_none());
+
+        let mut payload = vec![0x00];
+        payload.extend_from_slice(&chunk);
+        let mut sequence_number = 1u16;
+        while !assembler.stats().awaiting_keyframe {
+            assert!(sequence_number < 1_000, "the pending byte cap never triggered");
+            let packet = rtp_packet(sequence_number, 12_000, false, &payload);
+            assert!(push_one(&mut assembler, &packet).is_none());
+            sequence_number += 1;
+        }
+
+        let key = rtp_packet(sequence_number, 15_000, true, &[0x10, 0x00, 1, 2]);
+        let access_unit = push_one(&mut assembler, &key).unwrap();
+        assert_eq!(access_unit.frame_type, EncodedFrameType::Key);
     }
 
     #[test]
