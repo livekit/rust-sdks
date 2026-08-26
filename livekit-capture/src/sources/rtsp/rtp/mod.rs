@@ -32,6 +32,7 @@ use crate::{
         EncodedFrameType, EncodedVideoCodec, OwnedEncodedAccessUnit,
     },
     primitive::VideoResolution,
+    sources::rtsp::bits::ByteReader,
 };
 
 /// Out-of-band H.26x parameter sets, decoded from SDP `fmtp` attributes.
@@ -77,53 +78,48 @@ pub(super) struct RtpPacket<'a> {
 impl<'a> RtpPacket<'a> {
     /// Parses a single RTP packet.
     pub(super) fn parse(bytes: &'a [u8]) -> Result<Self, RtpDepacketizerError> {
+        let too_short = || RtpDepacketizerError::PacketTooShort;
         if bytes.len() < 12 {
-            return Err(RtpDepacketizerError::PacketTooShort);
+            return Err(too_short());
         }
-        if bytes[0] >> 6 != 2 {
-            return Err(RtpDepacketizerError::UnsupportedVersion(bytes[0] >> 6));
-        }
+        let mut reader = ByteReader::new(bytes);
 
-        let has_padding = (bytes[0] & 0x20) != 0;
-        let has_extension = (bytes[0] & 0x10) != 0;
-        let csrc_count = (bytes[0] & 0x0f) as usize;
-        let mut payload_start = 12 + csrc_count * 4;
-        if bytes.len() < payload_start {
-            return Err(RtpDepacketizerError::PacketTooShort);
+        let flags = reader.get_u8().ok_or_else(too_short)?;
+        if flags >> 6 != 2 {
+            return Err(RtpDepacketizerError::UnsupportedVersion(flags >> 6));
         }
+        let has_padding = (flags & 0x20) != 0;
+        let has_extension = (flags & 0x10) != 0;
+        let csrc_count = (flags & 0x0f) as usize;
+
+        let marker_and_type = reader.get_u8().ok_or_else(too_short)?;
+        let sequence_number = reader.get_u16_be().ok_or_else(too_short)?;
+        let timestamp = reader.get_u32_be().ok_or_else(too_short)?;
+        let ssrc = reader.get_u32_be().ok_or_else(too_short)?;
+        reader.skip(csrc_count * 4).ok_or_else(too_short)?;
 
         if has_extension {
-            if bytes.len() < payload_start + 4 {
-                return Err(RtpDepacketizerError::PacketTooShort);
-            }
-            let extension_words =
-                u16::from_be_bytes([bytes[payload_start + 2], bytes[payload_start + 3]]) as usize;
-            payload_start += 4 + extension_words * 4;
-            if bytes.len() < payload_start {
-                return Err(RtpDepacketizerError::PacketTooShort);
-            }
+            reader.skip(2).ok_or_else(too_short)?; // profile-specific identifier
+            let extension_words = reader.get_u16_be().ok_or_else(too_short)? as usize;
+            reader.skip(extension_words * 4).ok_or_else(too_short)?;
         }
 
-        let payload_end = if has_padding {
-            let Some(padding) = bytes.last().copied() else {
-                return Err(RtpDepacketizerError::PacketTooShort);
-            };
-            let padding = padding as usize;
-            if padding == 0 || bytes.len() < payload_start + padding {
+        let mut payload = reader.take_rest();
+        if has_padding {
+            let padding = *payload.last().ok_or_else(too_short)? as usize;
+            if padding == 0 || padding > payload.len() {
                 return Err(RtpDepacketizerError::PacketTooShort);
             }
-            bytes.len() - padding
-        } else {
-            bytes.len()
-        };
+            payload = &payload[..payload.len() - padding];
+        }
 
         Ok(Self {
-            marker: (bytes[1] & 0x80) != 0,
-            payload_type: bytes[1] & 0x7f,
-            sequence_number: u16::from_be_bytes([bytes[2], bytes[3]]),
-            timestamp: u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
-            ssrc: u32::from_be_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
-            payload: &bytes[payload_start..payload_end],
+            marker: (marker_and_type & 0x80) != 0,
+            payload_type: marker_and_type & 0x7f,
+            sequence_number,
+            timestamp,
+            ssrc,
+            payload,
         })
     }
 }

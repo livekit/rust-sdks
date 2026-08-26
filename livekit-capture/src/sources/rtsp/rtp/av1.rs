@@ -20,7 +20,7 @@
 use super::{Av1FragmentState, RtpAccessUnitAssembler, RtpDepacketizerError, RtpPacket};
 use crate::{
     encoded::EncodedFrameType,
-    sources::rtsp::bits::{read_leb128, write_leb128, BitReader},
+    sources::rtsp::bits::{write_leb128, BitReader, ByteReader},
 };
 
 impl RtpAccessUnitAssembler {
@@ -89,44 +89,29 @@ struct Av1PayloadDescriptor<'a> {
 fn parse_av1_payload_descriptor(
     payload: &[u8],
 ) -> Result<Av1PayloadDescriptor<'_>, RtpDepacketizerError> {
-    let Some(&header) = payload.first() else {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    };
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
+    let mut reader = ByteReader::new(payload);
+
+    let header = reader.get_u8().ok_or_else(malformed)?;
     let starts_fragment = header & 0x80 != 0;
     let ends_fragment = header & 0x40 != 0;
-    let element_count = (header >> 4) & 0x03;
+    let element_count = usize::from((header >> 4) & 0x03);
 
-    let mut cursor = 1;
     let mut elements = Vec::new();
     if element_count == 0 {
-        while cursor < payload.len() {
-            let len = read_leb128(payload, &mut cursor)
-                .ok_or(RtpDepacketizerError::UnsupportedPayload)?;
-            let Some(end) = cursor.checked_add(len) else {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            };
-            if end > payload.len() {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            }
-            elements.push(&payload[cursor..end]);
-            cursor = end;
+        while !reader.is_empty() {
+            let len = reader.get_leb128().ok_or_else(malformed)?;
+            elements.push(reader.take(len).ok_or_else(malformed)?);
         }
     } else {
-        for index in 0..usize::from(element_count) {
-            let len = if index + 1 == usize::from(element_count) {
-                payload.len().saturating_sub(cursor)
+        for index in 0..element_count {
+            let element = if index + 1 == element_count {
+                reader.take_rest()
             } else {
-                read_leb128(payload, &mut cursor)
-                    .ok_or(RtpDepacketizerError::UnsupportedPayload)?
+                let len = reader.get_leb128().ok_or_else(malformed)?;
+                reader.take(len).ok_or_else(malformed)?
             };
-            let Some(end) = cursor.checked_add(len) else {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            };
-            if end > payload.len() {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            }
-            elements.push(&payload[cursor..end]);
-            cursor = end;
+            elements.push(element);
         }
     }
 
@@ -135,39 +120,34 @@ fn parse_av1_payload_descriptor(
 
 /// Converts an RTP OBU element into a size-prefixed OBU.
 fn av1_obu_from_rtp_element(element: &[u8]) -> Result<Vec<u8>, RtpDepacketizerError> {
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
     let Some(&header) = element.first() else {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
+        return Err(malformed());
     };
     if header & 0x80 != 0 {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
+        return Err(malformed());
     }
+    let header_len = if header & 0x04 != 0 { 2 } else { 1 };
 
     if header & 0x02 != 0 {
-        let mut cursor = if header & 0x04 != 0 { 2 } else { 1 };
-        if cursor > element.len() {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        }
-        let payload_size =
-            read_leb128(element, &mut cursor).ok_or(RtpDepacketizerError::UnsupportedPayload)?;
-        if payload_size != element.len().saturating_sub(cursor) {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
+        // Already size-prefixed; validate the size against the element.
+        let mut reader = ByteReader::new(element);
+        reader.skip(header_len).ok_or_else(malformed)?;
+        let payload_size = reader.get_leb128().ok_or_else(malformed)?;
+        if payload_size != reader.take_rest().len() {
+            return Err(malformed());
         }
         return Ok(element.to_vec());
     }
 
-    let payload_offset = if header & 0x04 != 0 { 2 } else { 1 };
-    if payload_offset > element.len() {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    }
-
-    let payload_size = element.len() - payload_offset;
+    let payload = element.get(header_len..).ok_or_else(malformed)?;
     let mut obu = Vec::with_capacity(element.len() + 8);
     obu.push(header | 0x02);
     if header & 0x04 != 0 {
         obu.push(element[1]);
     }
-    write_leb128(payload_size, &mut obu);
-    obu.extend_from_slice(&element[payload_offset..]);
+    write_leb128(payload.len(), &mut obu);
+    obu.extend_from_slice(payload);
     Ok(obu)
 }
 
@@ -214,34 +194,27 @@ fn av1_frame_type(
 
 /// Splits an OBU into its type and payload bytes.
 fn av1_obu_parts(obu: &[u8]) -> Result<Option<(u8, &[u8])>, RtpDepacketizerError> {
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
     let Some(&header) = obu.first() else {
         return Ok(None);
     };
     if header & 0x80 != 0 {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
+        return Err(malformed());
     }
 
     let obu_type = (header & 0x78) >> 3;
     let has_extension = header & 0x04 != 0;
     let has_size = header & 0x02 != 0;
-    let mut cursor = if has_extension { 2 } else { 1 };
-    if cursor > obu.len() {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    }
+    let mut reader = ByteReader::new(obu);
+    reader.skip(if has_extension { 2 } else { 1 }).ok_or_else(malformed)?;
 
     if !has_size {
-        return Ok(Some((obu_type, &obu[cursor..])));
+        return Ok(Some((obu_type, reader.take_rest())));
     }
 
-    let payload_size =
-        read_leb128(obu, &mut cursor).ok_or(RtpDepacketizerError::UnsupportedPayload)?;
-    let Some(end) = cursor.checked_add(payload_size) else {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    };
-    if end > obu.len() {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    }
-    Ok(Some((obu_type, &obu[cursor..end])))
+    let payload_size = reader.get_leb128().ok_or_else(malformed)?;
+    let payload = reader.take(payload_size).ok_or_else(malformed)?;
+    Ok(Some((obu_type, payload)))
 }
 
 #[cfg(test)]
