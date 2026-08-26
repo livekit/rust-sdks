@@ -17,7 +17,11 @@
 use super::{FragmentState, RtpAccessUnitAssembler, RtpDepacketizerError, RtpPacket};
 use crate::{
     encoded::{
-        h26x::{access_unit_from_nalus, avc_nalus, h264_nal_type, h265_nal_type},
+        h26x::{
+            access_unit_from_nalus, avc_nalus, h264_nal_type, h265_nal_type, H264_NAL_IDR,
+            H264_NAL_PPS, H264_NAL_SPS, H265_NAL_IDR_N_LP, H265_NAL_IDR_W_RADL, H265_NAL_PPS,
+            H265_NAL_SPS, H265_NAL_VPS,
+        },
         EncodedFrameType, EncodedVideoCodec,
     },
     sources::rtsp::bits::ByteReader,
@@ -279,16 +283,16 @@ impl NalPresence {
     fn record(&mut self, codec: EncodedVideoCodec, nal: &[u8]) {
         match codec {
             EncodedVideoCodec::H264 => match h264_nal_type(nal) {
-                Ok(5) => self.idr = true,
-                Ok(7) => self.sps = true,
-                Ok(8) => self.pps = true,
+                Ok(H264_NAL_IDR) => self.idr = true,
+                Ok(H264_NAL_SPS) => self.sps = true,
+                Ok(H264_NAL_PPS) => self.pps = true,
                 _ => {}
             },
             EncodedVideoCodec::H265 => match h265_nal_type(nal) {
-                Ok(19 | 20) => self.idr = true,
-                Ok(32) => self.vps = true,
-                Ok(33) => self.sps = true,
-                Ok(34) => self.pps = true,
+                Ok(H265_NAL_IDR_W_RADL | H265_NAL_IDR_N_LP) => self.idr = true,
+                Ok(H265_NAL_VPS) => self.vps = true,
+                Ok(H265_NAL_SPS) => self.sps = true,
+                Ok(H265_NAL_PPS) => self.pps = true,
                 _ => {}
             },
             _ => {}
