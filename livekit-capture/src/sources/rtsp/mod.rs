@@ -613,6 +613,12 @@ fn duration_ms(ms: Option<u32>, default: Duration) -> Duration {
     ms.map(|ms| Duration::from_millis(ms.into())).unwrap_or(default)
 }
 
+/// Escapes text that may quote server-provided bytes before it enters an
+/// error message or a log line.
+fn sanitized(text: impl AsRef<str>) -> String {
+    text.as_ref().escape_debug().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use std::{

@@ -26,6 +26,8 @@ use std::{
 use bytes::{Buf, Bytes, BytesMut};
 use rtsp_types::{headers, HeaderName, Message, Method, ParseError, Url, Version};
 
+#[cfg(feature = "source-rtsp-tls")]
+use super::sanitized;
 use super::{auth::RtspAuthContext, auth::RtspCredentials, RtspPhase, RtspVideoSourceError};
 
 /// Socket read timeout: the poll granularity for the stop token, keepalives,
@@ -547,7 +549,7 @@ mod tls {
     use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
     use rustls_pki_types::ServerName;
 
-    use super::{is_timeout_io_error, RtspPhase, RtspVideoSourceError};
+    use super::{is_timeout_io_error, sanitized, RtspPhase, RtspVideoSourceError};
 
     /// Establishes TLS over a connected TCP stream, driving the handshake to
     /// completion bounded by `deadline`.
@@ -565,9 +567,9 @@ mod tls {
         // `ServerName` accepts both DNS names and the IP literals cameras
         // are usually addressed by.
         let server_name = ServerName::try_from(host.to_owned())
-            .map_err(|err| RtspVideoSourceError::Tls(err.to_string()))?;
+            .map_err(|err| RtspVideoSourceError::Tls(sanitized(err.to_string())))?;
         let mut connection = ClientConnection::new(Arc::new(config), server_name)
-            .map_err(|err| RtspVideoSourceError::Tls(err.to_string()))?;
+            .map_err(|err| RtspVideoSourceError::Tls(sanitized(err.to_string())))?;
 
         let mut stream = stream;
         while connection.is_handshaking() {
@@ -581,7 +583,7 @@ mod tls {
                 }
                 // rustls reports TLS-level handshake failures as InvalidData.
                 Err(err) if err.kind() == io::ErrorKind::InvalidData => {
-                    return Err(RtspVideoSourceError::Tls(err.to_string()));
+                    return Err(RtspVideoSourceError::Tls(sanitized(err.to_string())));
                 }
                 Err(err) => return Err(err.into()),
             }
