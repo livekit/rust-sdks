@@ -44,7 +44,7 @@ pub enum H26xParseError {
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
 /// Upper bound on bytes buffered while waiting for an access-unit boundary.
-const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
 
 /// Byte-stream access-unit parser shared by the encoded ingest sources.
 ///
