@@ -139,7 +139,10 @@ impl RtspResponse {
     fn from_message(response: rtsp_types::Response<Vec<u8>>) -> Self {
         Self {
             status_code: response.status().into(),
-            reason: response.reason_phrase().to_owned(),
+            // The reason phrase flows into error strings and logs; strip
+            // control characters so a server cannot forge log lines or
+            // emit terminal escapes.
+            reason: response.reason_phrase().chars().filter(|c| !c.is_control()).collect(),
             headers: response
                 .headers()
                 .map(|(name, value)| (name.as_str().to_owned(), value.as_str().to_owned()))
@@ -855,6 +858,16 @@ mod tests {
         assert_eq!(response.header("cseq"), Some("1"));
         assert_eq!(response.body, b"body");
         assert!(response.is_success());
+    }
+
+    #[test]
+    fn strips_control_characters_from_reason_phrases() {
+        let message = rtsp_types::Response::builder(Version::V1_0, rtsp_types::StatusCode::Ok)
+            .reason_phrase("OK\u{1b}[31m\nfake log line")
+            .build(Vec::new());
+
+        let response = RtspResponse::from_message(message);
+        assert_eq!(response.reason, "OK[31mfake log line");
     }
 
     #[test]
