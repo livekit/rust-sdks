@@ -74,6 +74,29 @@ pub(super) fn parse_sdp_session(
     })?;
     let session_control = attribute_value(&session.attributes, "control");
 
+    // Selecting among multiple video tracks is not supported (only ordinal
+    // selection would have standard SDP footing); surface the choice so it
+    // is not hidden.
+    let video_tracks = || session.medias.iter().filter(|media| media.media == "video");
+    let video_track_count = video_tracks().count();
+    if video_track_count > 1 {
+        let summary = video_tracks()
+            .map(|media| {
+                let codecs: Vec<&str> = attribute_values(&media.attributes, "rtpmap")
+                    .filter_map(|rtpmap| rtpmap.split_whitespace().nth(1))
+                    .filter_map(|encoding| encoding.split('/').next())
+                    .collect();
+                if codecs.is_empty() { "?".to_owned() } else { codecs.join("+") }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        log::info!(
+            "RTSP SDP offers {video_track_count} video tracks ({}); \
+             using the first one with a supported codec",
+            super::sanitized(summary),
+        );
+    }
+
     let mut offered = Vec::new();
     for media in &session.medias {
         if media.media != "video" {
