@@ -70,7 +70,7 @@ impl RtspAuthContext {
                 // RTSP requests carry no body relevant to `auth-int`.
                 body: Some(&[]),
             })
-            .map_err(RtspVideoSourceError::Auth)?;
+            .map_err(|err| RtspVideoSourceError::Auth(super::sanitized(err)))?;
         Ok(Some(authorization))
     }
 
@@ -87,7 +87,9 @@ impl RtspAuthContext {
         for challenges in response.headers("www-authenticate") {
             builder = builder.challenges(challenges);
         }
-        self.client = Some(builder.build().map_err(RtspVideoSourceError::Auth)?);
+        // Build errors can quote the server's challenge bytes.
+        self.client =
+            Some(builder.build().map_err(|err| RtspVideoSourceError::Auth(super::sanitized(err)))?);
         Ok(())
     }
 }
@@ -157,6 +159,19 @@ mod tests {
         let err =
             context.update_from_unauthorized(&unauthorized(&["Bearer token=\"abc\""])).unwrap_err();
         assert!(matches!(err, RtspVideoSourceError::Auth(_)), "unexpected error: {err:?}");
+    }
+
+    #[test]
+    fn escapes_control_characters_in_auth_errors() {
+        let mut context = context_with_credentials();
+        let err = context
+            .update_from_unauthorized(&unauthorized(&["Bearer \u{7f}\u{1b}[31mfake"]))
+            .unwrap_err();
+        let message = err.to_string();
+        assert!(
+            !message.chars().any(char::is_control),
+            "control characters in message: {message:?}"
+        );
     }
 
     #[test]
