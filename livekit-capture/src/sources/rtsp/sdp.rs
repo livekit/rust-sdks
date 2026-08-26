@@ -49,15 +49,6 @@ pub(super) struct SdpVideoTrack {
     pub(super) framesize: Option<VideoResolution>,
 }
 
-#[derive(Debug, Clone, Default)]
-struct PartialVideoTrack {
-    payload_types: Vec<u8>,
-    rtp_maps: Vec<SdpRtpMap>,
-    fmtps: Vec<(u8, String)>,
-    framesizes: Vec<(u8, VideoResolution)>,
-    control: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SdpRtpMap {
     payload_type: u8,
@@ -73,62 +64,26 @@ struct SdpRtpMap {
 /// one, the first supported video track is selected.
 pub(super) fn parse_sdp_session(
     base_url: &str,
-    sdp: &str,
+    sdp: &[u8],
     expected_codec: Option<EncodedVideoCodec>,
 ) -> Result<SdpSession, RtspVideoSourceError> {
-    let mut session_control = None;
-    let mut tracks = Vec::new();
-    let mut current: Option<PartialVideoTrack> = None;
-    let mut in_media_section = false;
-
-    for line in sdp.lines().map(str::trim).filter(|line| !line.is_empty()) {
-        if let Some(media) = line.strip_prefix("m=") {
-            if let Some(track) = current.take() {
-                tracks.push(track);
-            }
-            in_media_section = true;
-            if let Some(video) = media.strip_prefix("video ") {
-                current = Some(parse_video_media(video));
-            }
-            continue;
-        }
-
-        if !in_media_section {
-            if let Some(control) = line.strip_prefix("a=control:") {
-                session_control = Some(control.trim().to_owned());
-            }
-            continue;
-        }
-
-        let Some(track) = current.as_mut() else {
-            continue;
-        };
-        if let Some(control) = line.strip_prefix("a=control:") {
-            track.control = Some(control.trim().to_owned());
-        } else if let Some(rtpmap) = line.strip_prefix("a=rtpmap:") {
-            if let Some(rtp_map) = parse_rtpmap(rtpmap) {
-                track.rtp_maps.push(rtp_map);
-            }
-        } else if let Some(fmtp) = line.strip_prefix("a=fmtp:") {
-            if let Some((payload_type, params)) = fmtp.trim().split_once(char::is_whitespace) {
-                if let Ok(payload_type) = payload_type.parse() {
-                    track.fmtps.push((payload_type, params.to_owned()));
-                }
-            }
-        } else if let Some(framesize) = line.strip_prefix("a=framesize:") {
-            if let Some(parsed) = parse_framesize(framesize) {
-                track.framesizes.push(parsed);
-            }
-        }
-    }
-    if let Some(track) = current {
-        tracks.push(track);
-    }
+    let session = sdp_types::Session::parse(sdp).map_err(|err| {
+        log::debug!("failed to parse SDP: {err}");
+        RtspVideoSourceError::InvalidSdp
+    })?;
+    let session_control = attribute_value(&session.attributes, "control");
 
     let mut offered = Vec::new();
-    for track in tracks {
-        for payload_type in &track.payload_types {
-            let Some(rtp_map) = track.rtp_maps.iter().find(|map| map.payload_type == *payload_type)
+    for media in &session.medias {
+        if media.media != "video" {
+            continue;
+        }
+        let rtp_maps: Vec<SdpRtpMap> = attribute_values(&media.attributes, "rtpmap")
+            .filter_map(parse_rtpmap)
+            .collect();
+
+        for payload_type in media.fmt.split_whitespace().filter_map(|pt| pt.parse::<u8>().ok()) {
+            let Some(rtp_map) = rtp_maps.iter().find(|map| map.payload_type == payload_type)
             else {
                 continue;
             };
@@ -141,28 +96,33 @@ pub(super) fn parse_sdp_session(
                 }
             }
 
-            let parameter_sets = track
-                .fmtps
-                .iter()
-                .find(|(fmtp_payload_type, _)| fmtp_payload_type == payload_type)
-                .map(|(_, params)| parse_fmtp_parameter_sets(rtp_map.codec, params))
+            let parameter_sets = attribute_values(&media.attributes, "fmtp")
+                .find_map(|value| {
+                    let (fmtp_payload_type, params) =
+                        value.trim().split_once(char::is_whitespace)?;
+                    (fmtp_payload_type.parse::<u8>().ok()? == payload_type)
+                        .then(|| parse_fmtp_parameter_sets(rtp_map.codec, params))
+                })
                 .unwrap_or_default();
-            let framesize = track
-                .framesizes
-                .iter()
-                .find(|(framesize_payload_type, _)| framesize_payload_type == payload_type)
-                .map(|(_, resolution)| *resolution);
+            let framesize = attribute_values(&media.attributes, "framesize")
+                .filter_map(parse_framesize)
+                .find_map(|(framesize_payload_type, resolution)| {
+                    (framesize_payload_type == payload_type).then_some(resolution)
+                });
 
             return Ok(SdpSession {
                 video: SdpVideoTrack {
                     codec: rtp_map.codec,
-                    payload_type: *payload_type,
+                    payload_type,
                     clock_rate: rtp_map.clock_rate,
-                    control_url: resolve_control_url(base_url, track.control.as_deref()),
+                    control_url: resolve_control_url(
+                        base_url,
+                        attribute_value(&media.attributes, "control"),
+                    ),
                     parameter_sets,
                     framesize,
                 },
-                aggregate_control_url: resolve_control_url(base_url, session_control.as_deref()),
+                aggregate_control_url: resolve_control_url(base_url, session_control),
             });
         }
     }
@@ -175,13 +135,21 @@ pub(super) fn parse_sdp_session(
     }
 }
 
-fn parse_video_media(media: &str) -> PartialVideoTrack {
-    let payload_types = media
-        .split_whitespace()
-        .skip(2)
-        .filter_map(|payload_type| payload_type.parse().ok())
-        .collect();
-    PartialVideoTrack { payload_types, ..Default::default() }
+/// Returns the first value of the named attribute.
+fn attribute_value<'a>(attributes: &'a [sdp_types::Attribute], name: &'a str) -> Option<&'a str> {
+    attribute_values(attributes, name).next()
+}
+
+/// Returns every value of the named attribute.
+fn attribute_values<'a>(
+    attributes: &'a [sdp_types::Attribute],
+    name: &'a str,
+) -> impl Iterator<Item = &'a str> + 'a {
+    attributes
+        .iter()
+        .filter(move |attribute| attribute.attribute == name)
+        .filter_map(|attribute| attribute.value.as_deref())
+        .map(str::trim)
 }
 
 fn parse_rtpmap(rtpmap: &str) -> Option<SdpRtpMap> {
@@ -313,7 +281,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=1\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, Some(EncodedVideoCodec::H264)).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
 
         assert_eq!(session.video.codec, EncodedVideoCodec::H264);
         assert_eq!(session.video.payload_type, 96);
@@ -339,7 +307,7 @@ a=control:trackID=1\r\n\
 a=rtpmap:96 {rtpmap}\r\n"
             );
 
-            let session = parse_sdp_session(BASE_URL, &sdp, Some(codec)).unwrap();
+            let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(codec)).unwrap();
 
             assert_eq!(session.video.codec, codec);
             assert_eq!(session.video.payload_type, 96);
@@ -355,7 +323,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=1\r\n\
 a=rtpmap:96 VP9/90000\r\n";
 
-        let err = parse_sdp_session(BASE_URL, sdp, Some(EncodedVideoCodec::AV1)).unwrap_err();
+        let err = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::AV1)).unwrap_err();
 
         match err {
             RtspVideoSourceError::CodecMismatch { expected, offered } => {
@@ -375,7 +343,7 @@ a=control:trackID=1\r\n\
 a=rtpmap:98 H265/90000\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, Some(EncodedVideoCodec::H264)).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
 
         assert_eq!(session.video.codec, EncodedVideoCodec::H264);
         assert_eq!(session.video.payload_type, 96);
@@ -392,7 +360,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=2\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, Some(EncodedVideoCodec::H264)).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
 
         assert_eq!(session.video.codec, EncodedVideoCodec::H264);
         assert_eq!(session.video.control_url, "rtsp://camera.example/live/trackID=2");
@@ -407,7 +375,7 @@ a=control:trackID=1\r\n\
 a=rtpmap:98 H265/90000\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let err = parse_sdp_session(BASE_URL, sdp, Some(EncodedVideoCodec::VP8)).unwrap_err();
+        let err = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::VP8)).unwrap_err();
 
         match err {
             RtspVideoSourceError::CodecMismatch { expected, offered } => {
@@ -429,7 +397,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=2\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, None).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.video.codec, EncodedVideoCodec::H264);
         assert_eq!(session.video.control_url, "rtsp://camera.example/live/trackID=2");
@@ -444,7 +412,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=rtpmap:96 H264/90000\r\n\
 a=fmtp:96 packetization-mode=1;sprop-parameter-sets=ZwlA,aAlB;profile-level-id=42e01e\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, None).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.video.parameter_sets.sps, vec![vec![0x67, 0x09, 0x40]]);
         assert_eq!(session.video.parameter_sets.pps, vec![vec![0x68, 0x09, 0x41]]);
@@ -460,7 +428,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=rtpmap:96 H265/90000\r\n\
 a=fmtp:96 sprop-vps=QAEB;sprop-sps=QgEC;sprop-pps=RAED\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, None).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.video.parameter_sets.vps, vec![vec![0x40, 0x01, 0x01]]);
         assert_eq!(session.video.parameter_sets.sps, vec![vec![0x42, 0x01, 0x02]]);
@@ -475,7 +443,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=rtpmap:96 H264/90000\r\n\
 a=fmtp:96 sprop-parameter-sets=!!!not-base64!!!,ZwlA\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, None).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.video.parameter_sets.sps, vec![vec![0x67, 0x09, 0x40]]);
         assert!(session.video.parameter_sets.pps.is_empty());
@@ -489,7 +457,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=rtpmap:96 H264/90000\r\n\
 a=framesize:96 1280-720\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, None).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.video.framesize, Some(VideoResolution::new(1280, 720)));
     }
@@ -503,7 +471,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=1\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, None).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.aggregate_control_url, "rtsp://camera.example/live/aggregate");
         assert_eq!(session.video.control_url, "rtsp://camera.example/live/trackID=1");
@@ -518,7 +486,7 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=1\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp, None).unwrap();
+        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.aggregate_control_url, BASE_URL);
     }
@@ -559,7 +527,7 @@ a=control:trackID=1\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
         let session =
-            parse_sdp_session("rtsp://camera.example/relocated/", sdp, None).unwrap();
+            parse_sdp_session("rtsp://camera.example/relocated/", sdp.as_bytes(), None).unwrap();
 
         assert_eq!(session.video.control_url, "rtsp://camera.example/relocated/trackID=1");
     }
