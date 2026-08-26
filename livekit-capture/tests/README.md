@@ -27,6 +27,9 @@ x265, and VP8 encoder plugins:
 cargo test -p livekit-capture --features __test-source-rtsp --test source_rtsp_test
 ```
 
+The RTSPS tests generate a self-signed certificate at run time (via
+`rcgen`), so TLS needs no host setup beyond the GStreamer packages above.
+
 ## Logging
 
 Tests use the [`test-log`](https://crates.io/crates/test-log) `#[test]`
