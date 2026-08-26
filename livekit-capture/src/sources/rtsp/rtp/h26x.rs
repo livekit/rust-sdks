@@ -15,29 +15,137 @@
 //! H.264 (RFC 6184) and H.265 (RFC 7798) RTP payload handling.
 
 use super::{FragmentState, RtpAccessUnitAssembler, RtpDepacketizerError, RtpPacket};
-use crate::encoded::{
-    h26x::{access_unit_from_nalus, avc_nalus, h264_nal_type, h265_nal_type},
-    EncodedFrameType, EncodedVideoCodec,
+use crate::{
+    encoded::{
+        h26x::{access_unit_from_nalus, avc_nalus, h264_nal_type, h265_nal_type},
+        EncodedFrameType, EncodedVideoCodec,
+    },
+    sources::rtsp::bits::ByteReader,
 };
+
+/// One parsed H.264 RTP payload (RFC 6184).
+#[derive(Debug, PartialEq, Eq)]
+enum H264Payload<'a> {
+    /// A complete NAL unit (types 1-23), including its header.
+    Nal(&'a [u8]),
+    /// STAP-A: aggregated complete NAL units.
+    Aggregation(Vec<&'a [u8]>),
+    /// FU-A: a fragment of one NAL unit.
+    Fragment(Fragment<'a>),
+}
+
+/// One parsed H.265 RTP payload (RFC 7798).
+#[derive(Debug, PartialEq, Eq)]
+enum H265Payload<'a> {
+    /// A complete NAL unit (types 0-47), including its header.
+    Nal(&'a [u8]),
+    /// AP: aggregated complete NAL units.
+    Aggregation(Vec<&'a [u8]>),
+    /// FU: a fragment of one NAL unit.
+    Fragment(Fragment<'a>),
+}
+
+/// A fragment of one NAL unit.
+#[derive(Debug, PartialEq, Eq)]
+struct Fragment<'a> {
+    /// Whether this is the first fragment of the NAL unit.
+    start: bool,
+    /// Whether this is the last fragment of the NAL unit.
+    end: bool,
+    /// The fragmented NAL unit's header, reconstructed from the
+    /// fragmentation headers.
+    nal_header: NalHeader,
+    /// Fragment payload bytes.
+    payload: &'a [u8],
+}
+
+/// A reconstructed NAL unit header.
+#[derive(Debug, PartialEq, Eq)]
+enum NalHeader {
+    H264(u8),
+    H265([u8; 2]),
+}
+
+impl NalHeader {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::H264(header) => std::slice::from_ref(header),
+            Self::H265(header) => header,
+        }
+    }
+}
+
+/// Parses one H.264 RTP payload without touching assembly state.
+fn parse_h264_payload(payload: &[u8]) -> Result<H264Payload<'_>, RtpDepacketizerError> {
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
+    let mut reader = ByteReader::new(payload);
+    let indicator = reader.get_u8().ok_or_else(malformed)?;
+
+    match indicator & 0x1f {
+        1..=23 => Ok(H264Payload::Nal(payload)),
+        // STAP-A: 2-byte-length-prefixed NAL units, like an AVC access unit.
+        24 => Ok(H264Payload::Aggregation(avc_nalus(reader.take_rest(), 2)?)),
+        28 => {
+            let fu_header = reader.get_u8().ok_or_else(malformed)?;
+            let nal_type = fu_header & 0x1f;
+            if nal_type == 0 || nal_type > 23 {
+                return Err(malformed());
+            }
+            Ok(H264Payload::Fragment(Fragment {
+                start: fu_header & 0x80 != 0,
+                end: fu_header & 0x40 != 0,
+                nal_header: NalHeader::H264((indicator & 0xe0) | nal_type),
+                payload: reader.take_rest(),
+            }))
+        }
+        _ => Err(malformed()),
+    }
+}
+
+/// Parses one H.265 RTP payload without touching assembly state.
+fn parse_h265_payload(payload: &[u8]) -> Result<H265Payload<'_>, RtpDepacketizerError> {
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
+    let mut reader = ByteReader::new(payload);
+    let header = [
+        reader.get_u8().ok_or_else(malformed)?,
+        reader.get_u8().ok_or_else(malformed)?,
+    ];
+
+    match (header[0] >> 1) & 0x3f {
+        0..=47 => Ok(H265Payload::Nal(payload)),
+        // AP: 2-byte-length-prefixed NAL units, like an AVC access unit.
+        48 => Ok(H265Payload::Aggregation(avc_nalus(reader.take_rest(), 2)?)),
+        49 => {
+            let fu_header = reader.get_u8().ok_or_else(malformed)?;
+            let nal_type = fu_header & 0x3f;
+            if nal_type > 47 {
+                return Err(malformed());
+            }
+            Ok(H265Payload::Fragment(Fragment {
+                start: fu_header & 0x80 != 0,
+                end: fu_header & 0x40 != 0,
+                nal_header: NalHeader::H265([(header[0] & 0x81) | (nal_type << 1), header[1]]),
+                payload: reader.take_rest(),
+            }))
+        }
+        _ => Err(malformed()),
+    }
+}
 
 impl RtpAccessUnitAssembler {
     pub(super) fn push_h264_payload(
         &mut self,
         packet: &RtpPacket<'_>,
     ) -> Result<(), RtpDepacketizerError> {
-        let payload = packet.payload;
-        let Some(&header) = payload.first() else {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        };
-        let nal_type = header & 0x1f;
-
-        match nal_type {
-            1..=23 => self.current_mut(packet.timestamp)?.nal_units.push(payload.to_vec()),
-            24 => self.push_h26x_aggregation(packet.timestamp, &payload[1..])?,
-            28 => self.push_h264_fu_a(packet.timestamp, payload)?,
-            _ => return Err(RtpDepacketizerError::UnsupportedPayload),
+        match parse_h264_payload(packet.payload)? {
+            H264Payload::Nal(nal_unit) => {
+                self.current_mut(packet.timestamp)?.nal_units.push(nal_unit.to_vec());
+            }
+            H264Payload::Aggregation(nal_units) => {
+                self.push_aggregation(packet.timestamp, nal_units)?;
+            }
+            H264Payload::Fragment(fragment) => self.apply_fragment(packet.timestamp, fragment)?,
         }
-
         Ok(())
     }
 
@@ -45,117 +153,55 @@ impl RtpAccessUnitAssembler {
         &mut self,
         packet: &RtpPacket<'_>,
     ) -> Result<(), RtpDepacketizerError> {
-        let payload = packet.payload;
-        if payload.len() < 2 {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
+        match parse_h265_payload(packet.payload)? {
+            H265Payload::Nal(nal_unit) => {
+                self.current_mut(packet.timestamp)?.nal_units.push(nal_unit.to_vec());
+            }
+            H265Payload::Aggregation(nal_units) => {
+                self.push_aggregation(packet.timestamp, nal_units)?;
+            }
+            H265Payload::Fragment(fragment) => self.apply_fragment(packet.timestamp, fragment)?,
         }
-        let nal_type = (payload[0] >> 1) & 0x3f;
-
-        match nal_type {
-            0..=47 => self.current_mut(packet.timestamp)?.nal_units.push(payload.to_vec()),
-            48 => self.push_h26x_aggregation(packet.timestamp, &payload[2..])?,
-            49 => self.push_h265_fragment(packet.timestamp, payload)?,
-            _ => return Err(RtpDepacketizerError::UnsupportedPayload),
-        }
-
         Ok(())
     }
 
-    /// Unpacks the length-prefixed NAL units of an H.264 STAP-A or H.265 AP
-    /// payload, whose aggregation headers the caller has already stripped.
-    ///
-    /// The layout is the same 2-byte-length-prefixed sequence as an
-    /// AVC-format access unit, so the AVC splitter does the walking.
-    fn push_h26x_aggregation(
+    /// Adds the complete NAL units of an aggregation packet.
+    fn push_aggregation(
         &mut self,
         rtp_timestamp: u32,
-        payload: &[u8],
+        nal_units: Vec<&[u8]>,
     ) -> Result<(), RtpDepacketizerError> {
-        let nal_units: Vec<Vec<u8>> =
-            avc_nalus(payload, 2)?.into_iter().map(<[u8]>::to_vec).collect();
+        let nal_units: Vec<Vec<u8>> = nal_units.into_iter().map(<[u8]>::to_vec).collect();
         self.current_mut(rtp_timestamp)?.nal_units.extend(nal_units);
         Ok(())
     }
 
-    fn push_h264_fu_a(
+    /// Applies one NAL fragment: starts, extends, or completes the pending
+    /// fragmented NAL unit.
+    fn apply_fragment(
         &mut self,
         rtp_timestamp: u32,
-        payload: &[u8],
+        fragment: Fragment<'_>,
     ) -> Result<(), RtpDepacketizerError> {
-        if payload.len() < 2 {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        }
-
-        let indicator = payload[0];
-        let header = payload[1];
-        let start = (header & 0x80) != 0;
-        let end = (header & 0x40) != 0;
-        let nal_type = header & 0x1f;
-        if nal_type == 0 || nal_type > 23 {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        }
-
-        if start {
-            let mut nal_unit = Vec::with_capacity(1 + payload.len().saturating_sub(2));
-            nal_unit.push((indicator & 0xe0) | nal_type);
-            nal_unit.extend_from_slice(&payload[2..]);
+        if fragment.start {
+            let nal_header = fragment.nal_header.as_slice();
+            let mut nal_unit = Vec::with_capacity(nal_header.len() + fragment.payload.len());
+            nal_unit.extend_from_slice(nal_header);
+            nal_unit.extend_from_slice(fragment.payload);
             self.fragment = Some(FragmentState { rtp_timestamp, nal_unit });
             return Ok(());
         }
 
-        let Some(fragment) =
-            self.fragment.as_mut().filter(|fragment| fragment.rtp_timestamp == rtp_timestamp)
+        let Some(state) =
+            self.fragment.as_mut().filter(|state| state.rtp_timestamp == rtp_timestamp)
         else {
             // A continuation without its start means the preceding packets were lost.
             self.discard_in_progress();
             return Ok(());
         };
-        fragment.nal_unit.extend_from_slice(&payload[2..]);
+        state.nal_unit.extend_from_slice(fragment.payload);
 
-        if end {
-            let nal_unit =
-                self.fragment.take().ok_or(RtpDepacketizerError::InvalidFragment)?.nal_unit;
-            self.current_mut(rtp_timestamp)?.nal_units.push(nal_unit);
-        }
-        Ok(())
-    }
-
-    fn push_h265_fragment(
-        &mut self,
-        rtp_timestamp: u32,
-        payload: &[u8],
-    ) -> Result<(), RtpDepacketizerError> {
-        if payload.len() < 3 {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        }
-
-        let fu_header = payload[2];
-        let start = (fu_header & 0x80) != 0;
-        let end = (fu_header & 0x40) != 0;
-        let nal_type = fu_header & 0x3f;
-        if nal_type > 47 {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        }
-
-        if start {
-            let mut nal_unit = Vec::with_capacity(2 + payload.len().saturating_sub(3));
-            nal_unit.push((payload[0] & 0x81) | (nal_type << 1));
-            nal_unit.push(payload[1]);
-            nal_unit.extend_from_slice(&payload[3..]);
-            self.fragment = Some(FragmentState { rtp_timestamp, nal_unit });
-            return Ok(());
-        }
-
-        let Some(fragment) =
-            self.fragment.as_mut().filter(|fragment| fragment.rtp_timestamp == rtp_timestamp)
-        else {
-            // A continuation without its start means the preceding packets were lost.
-            self.discard_in_progress();
-            return Ok(());
-        };
-        fragment.nal_unit.extend_from_slice(&payload[3..]);
-
-        if end {
+        if fragment.end {
             let nal_unit =
                 self.fragment.take().ok_or(RtpDepacketizerError::InvalidFragment)?.nal_unit;
             self.current_mut(rtp_timestamp)?.nal_units.push(nal_unit);
@@ -275,6 +321,68 @@ mod tests {
 
     fn annex_b_nals(access_unit: &OwnedEncodedAccessUnit) -> Vec<&[u8]> {
         crate::encoded::h26x::annex_b_nalus(&access_unit.payload)
+    }
+
+    #[test]
+    fn parses_h264_payloads() {
+        assert_eq!(parse_h264_payload(&[0x65, 1, 2]), Ok(H264Payload::Nal(&[0x65, 1, 2])));
+        assert_eq!(
+            parse_h264_payload(&[0x18, 0, 2, 0x67, 9, 0, 1, 0x68]),
+            Ok(H264Payload::Aggregation(vec![&[0x67, 9][..], &[0x68][..]]))
+        );
+        // FU-A start: the NAL header is rebuilt from the indicator's NRI
+        // bits and the FU header's type.
+        assert_eq!(
+            parse_h264_payload(&[0x7c, 0x85, 1, 2]),
+            Ok(H264Payload::Fragment(Fragment {
+                start: true,
+                end: false,
+                nal_header: NalHeader::H264(0x65),
+                payload: &[1, 2],
+            }))
+        );
+        // FU-A end.
+        assert_eq!(
+            parse_h264_payload(&[0x7c, 0x45, 3]),
+            Ok(H264Payload::Fragment(Fragment {
+                start: false,
+                end: true,
+                nal_header: NalHeader::H264(0x65),
+                payload: &[3],
+            }))
+        );
+        // Truncated, forbidden fragment types, and unsupported packet types.
+        assert!(parse_h264_payload(&[]).is_err());
+        assert!(parse_h264_payload(&[0x7c]).is_err());
+        assert!(parse_h264_payload(&[0x7c, 0x80]).is_err()); // FU of type 0
+        assert!(parse_h264_payload(&[0x19, 1]).is_err()); // STAP-B
+    }
+
+    #[test]
+    fn parses_h265_payloads() {
+        assert_eq!(
+            parse_h265_payload(&[0x26, 0x01, 1]),
+            Ok(H265Payload::Nal(&[0x26, 0x01, 1]))
+        );
+        assert_eq!(
+            parse_h265_payload(&[0x60, 0x01, 0, 2, 0x40, 0x01]),
+            Ok(H265Payload::Aggregation(vec![&[0x40, 0x01][..]]))
+        );
+        // FU start: the 2-byte NAL header keeps the layer and temporal-id
+        // bits and takes the type from the FU header.
+        assert_eq!(
+            parse_h265_payload(&[0x62, 0x01, 0x93, 1, 2]),
+            Ok(H265Payload::Fragment(Fragment {
+                start: true,
+                end: false,
+                nal_header: NalHeader::H265([0x26, 0x01]),
+                payload: &[1, 2],
+            }))
+        );
+        // Truncated inputs and reserved fragment types.
+        assert!(parse_h265_payload(&[0x62]).is_err());
+        assert!(parse_h265_payload(&[0x62, 0x01]).is_err());
+        assert!(parse_h265_payload(&[0x62, 0x01, 0xb0]).is_err()); // FU of type 48
     }
 
     #[test]
