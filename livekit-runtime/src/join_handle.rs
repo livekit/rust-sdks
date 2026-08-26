@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,16 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::time::Duration;
+use std::{future::Future, pin::Pin, task::{Context, Poll}};
 
-use crate::{Runtime, runtime::BoxFuture};
+use tokio::sync::oneshot;
 
-/// Runs LiveKit on the ambient tokio runtime. A tokio reactor must be entered
-/// (`#[tokio::main]`, `Runtime::block_on`, ...) before the first spawn.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct TokioRuntime;
+pub struct JoinHandle<T> { rx: oneshot::Receiver<T> }
 
-impl Runtime for TokioRuntime {
-    fn spawn_future(&self, fut: BoxFuture) { tokio::task::spawn(fut); }
-    fn sleep(&self, dur: Duration) -> BoxFuture { Box::pin(tokio::time::sleep(dur)) }
+impl<T> JoinHandle<T> {
+    pub fn new(rx: oneshot::Receiver<T>) -> Self {
+        Self { rx }
+    }
+}
+
+impl<T> Future for JoinHandle<T> {
+    type Output = T;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
+        Pin::new(&mut self.rx).poll(cx).map(|r| r.expect("Tasks should not panic"))
+    }
 }
