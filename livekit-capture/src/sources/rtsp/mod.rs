@@ -27,6 +27,11 @@
 //! The connection is not re-established on failure: a connection error ends
 //! the source with an error, and a clean server-side end of stream ends it
 //! like any finite source.
+//!
+//! One video track is ingested per source: when the SDP offers several, the
+//! first one carrying a supported (or the configured) codec is used and the
+//! choice is logged. Cameras exposing multiple streams as separate URLs are
+//! served by one source per URL.
 
 mod auth;
 mod bits;
