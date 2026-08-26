@@ -8,10 +8,12 @@ edition.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64 = { version = "0.22", optional = true }
 bytes = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
+md-5 = { version = "0.10", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
 pollster = { version = "0.4", optional = true }
@@ -40,3 +42,4 @@ source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
+source-rtsp = ["dep:base64", "dep:md-5"]
