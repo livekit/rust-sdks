@@ -637,7 +637,9 @@ fn find_start_code(bytes: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
-fn avc_nalus(payload: &[u8], nal_length_size: u8) -> Result<Vec<&[u8]>, H26xParseError> {
+/// Splits a sequence of length-prefixed NAL units, as used by AVC-format
+/// access units and, with a 2-byte length, RTP aggregation packets.
+pub(crate) fn avc_nalus(payload: &[u8], nal_length_size: u8) -> Result<Vec<&[u8]>, H26xParseError> {
     let ranges = avc_nal_ranges(payload, nal_length_size, true)?;
     if ranges.is_empty() {
         return Err(H26xParseError::EmptyPayload);
