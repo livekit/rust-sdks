@@ -20,7 +20,7 @@
 use super::bits::{BitReader, ByteReader};
 use crate::{
     encoded::{
-        h26x::{annex_b_nalus, h264_nal_type, h265_nal_type},
+        h26x::{annex_b_nalus, h264_nal_type, h265_nal_type, H264_NAL_SPS, H265_NAL_SPS},
         EncodedVideoCodec,
     },
     primitive::VideoResolution,
@@ -34,11 +34,11 @@ pub(super) fn access_unit_resolution(
     match codec {
         EncodedVideoCodec::H264 => annex_b_nalus(payload)
             .into_iter()
-            .find(|nal| matches!(h264_nal_type(nal), Ok(7)))
+            .find(|nal| matches!(h264_nal_type(nal), Ok(H264_NAL_SPS)))
             .and_then(|nal| sps_resolution(codec, nal)),
         EncodedVideoCodec::H265 => annex_b_nalus(payload)
             .into_iter()
-            .find(|nal| matches!(h265_nal_type(nal), Ok(33)))
+            .find(|nal| matches!(h265_nal_type(nal), Ok(H265_NAL_SPS)))
             .and_then(|nal| sps_resolution(codec, nal)),
         EncodedVideoCodec::VP8 => vp8_keyframe_resolution(payload),
         EncodedVideoCodec::VP9 => vp9_keyframe_resolution(payload),
