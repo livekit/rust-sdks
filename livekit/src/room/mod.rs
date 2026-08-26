@@ -900,6 +900,14 @@ impl Room {
         self.inner.rtc_engine.drop_disconnected_updates(enabled);
     }
 
+    /// Test-only: the publisher transport's current connection state. Lets a test assert
+    /// that teardown really closed the transport, rather than inferring it from room-level
+    /// state that can reach `Disconnected` while the transport is still open.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
+        self.inner.rtc_engine.session().publisher_connection_state()
+    }
+
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
         self.inner.rtc_engine.get_stats().await
     }
