@@ -15,9 +15,13 @@ gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
 # Test-only (`__test-source-rtsp`); in `[dependencies]` because Cargo has no
 # optional dev-dependencies.
+gio = { version = "0.22", optional = true }
 gstreamer-rtsp = { version = "0.25", optional = true }
 gstreamer-rtsp-server = { version = "0.25", optional = true }
 md-5 = { version = "0.10", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+rustls-pki-types = { version = "1", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
 pollster = { version = "0.4", optional = true }
@@ -30,6 +34,7 @@ yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
 [dev-dependencies]
 log = { workspace = true }
+rcgen = "0.13"
 test-log = "0.2"
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
@@ -49,6 +54,9 @@ source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 source-rtsp = ["dep:base64", "dep:md-5"]
+# Adds `rtsps://` (RTSP over TLS, 1.2+) support to the RTSP source.
+# Certificates are verified against the system roots by default.
+source-rtsp-tls = ["source-rtsp", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types"]
 
 # Testing
 # In-process RTSP server for `tests/source_rtsp_test.rs`. Requires the
@@ -56,6 +64,8 @@ source-rtsp = ["dep:base64", "dep:md-5"]
 # API.
 __test-source-rtsp = [
     "source-rtsp",
+    "source-rtsp-tls",
+    "dep:gio",
     "dep:gstreamer",
     "dep:gstreamer-rtsp",
     "dep:gstreamer-rtsp-server",

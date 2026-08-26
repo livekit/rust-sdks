@@ -19,6 +19,11 @@
 //! re-encoding. Basic and Digest authentication are supported, and packet
 //! loss is recovered by waiting for the next keyframe.
 //!
+//! With the `source-rtsp-tls` feature, `rtsps://` URLs are supported: the
+//! whole connection — control and interleaved media — runs over TLS (1.2 or
+//! newer). Certificates are verified against the system roots unless
+//! [`RtspVideoSourceConfig::accept_invalid_tls_certs`] opts out.
+//!
 //! The connection is not re-established on failure: a connection error ends
 //! the source with an error, and a clean server-side end of stream ends it
 //! like any finite source.
@@ -72,7 +77,8 @@ const DEFAULT_SESSION_TIMEOUT_SECS: u64 = 60;
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct RtspVideoSourceConfig {
-    /// RTSP URL (`rtsp://host[:port]/path`).
+    /// RTSP URL (`rtsp://host[:port]/path`, or `rtsps://` with the
+    /// `source-rtsp-tls` feature).
     ///
     /// URL userinfo (`rtsp://user:password@...`) is accepted and stripped
     /// from requests; [`Self::username`] and [`Self::password`] take
@@ -112,6 +118,15 @@ pub struct RtspVideoSourceConfig {
     /// limit.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub idle_timeout_ms: Option<u32>,
+
+    /// Disables TLS certificate verification for `rtsps://` URLs.
+    ///
+    /// Most cameras present self-signed certificates, which fail
+    /// verification against the system roots. Enabling this accepts any
+    /// certificate: the connection is still encrypted, but not
+    /// authenticated — a network attacker could impersonate the camera.
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "std::ops::Not::not"))]
+    pub accept_invalid_tls_certs: bool,
 }
 
 /// Protocol phase a timeout occurred in.
@@ -201,6 +216,12 @@ pub enum RtspVideoSourceError {
     /// Interleaved framing was malformed or a non-interleaved byte arrived.
     #[error("unexpected RTSP interleaved data")]
     UnexpectedData,
+    /// The URL requires TLS but the `source-rtsp-tls` feature is disabled.
+    #[error("rtsps:// requires the `source-rtsp-tls` feature, which is not enabled")]
+    TlsNotSupported,
+    /// TLS configuration or the TLS handshake failed.
+    #[error("RTSP TLS failed: {0}")]
+    Tls(String),
     /// The stream produced no keyframe during resolution discovery.
     #[error(
         "stream produced no keyframe during resolution discovery; declare `resolution` in the \
@@ -297,12 +318,21 @@ impl RtspVideoSource {
 
     fn connect(config: RtspVideoSourceConfig) -> Result<Self, RtspVideoSourceError> {
         let url = RtspUrl::parse(&config.url)?;
+        #[cfg(not(feature = "source-rtsp-tls"))]
+        if url.tls {
+            return Err(RtspVideoSourceError::TlsNotSupported);
+        }
         let credentials = merge_credentials(&config, &url);
         let connect_timeout = duration_ms(config.connect_timeout_ms, DEFAULT_CONNECT_TIMEOUT);
         let idle_timeout = duration_ms(config.idle_timeout_ms, DEFAULT_IDLE_TIMEOUT);
         let handshake_deadline = Instant::now() + connect_timeout;
 
-        let mut client = RtspClient::connect(&url, credentials, handshake_deadline)?;
+        let mut client = RtspClient::connect(
+            &url,
+            credentials,
+            config.accept_invalid_tls_certs,
+            handshake_deadline,
+        )?;
 
         let describe = client.request(
             "DESCRIBE",
@@ -614,7 +644,16 @@ a=rtpmap:96 VP8/90000\r\n";
             resolution: Some(VideoResolution::new(640, 480)),
             connect_timeout_ms: Some(2_000),
             idle_timeout_ms: None,
+            accept_invalid_tls_certs: false,
         }
+    }
+
+    #[cfg(not(feature = "source-rtsp-tls"))]
+    #[test]
+    fn rejects_rtsps_url_without_tls_feature() {
+        let err = RtspVideoSource::new_blocking(config("rtsps://127.0.0.1:322/camera".to_owned()))
+            .unwrap_err();
+        assert!(err.to_string().contains("source-rtsp-tls"), "unexpected error: {err}");
     }
 
     fn rtp_packet(sequence_number: u16, timestamp: u32, marker: bool, payload: &[u8]) -> Vec<u8> {

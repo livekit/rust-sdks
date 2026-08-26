@@ -27,6 +27,7 @@ capture-clock = ["capture", "livekit-capture/source-clock"]
 capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
 capture-rtsp = ["capture", "livekit-capture/source-rtsp"]
+capture-rtsp-tls = ["capture-rtsp", "livekit-capture/source-rtsp-tls"]
 
 [dependencies]
 livekit = { workspace = true }
