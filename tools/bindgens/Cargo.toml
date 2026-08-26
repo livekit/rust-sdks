@@ -1,0 +1,15 @@
+[package]
+name = "bindgens"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Foreign-binding generator CLIs for the LiveKit Rust crates"
+publish = false
+
+# Tooling crate: each bin is a code-generation CLI shared across the workspace's
+# uniffi-exposing crates (livekit-ffi, livekit-uniffi, ...). It has no library
+# target — the bindgens read metadata from an already-compiled cdylib via
+# `--library`, so they never depend on the crates they generate for.
+[dependencies]
+uniffi = { workspace = true, features = ["cli"] }

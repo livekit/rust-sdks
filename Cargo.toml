@@ -15,6 +15,7 @@ members = [
     "livekit-net",
     "livekit-runtime",
     "livekit-wakeword",
+    "tools/bindgens",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
