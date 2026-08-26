@@ -17,7 +17,7 @@
 //! Every parser returns `None` on malformed or unexpected input; discovery
 //! treats that as "not discoverable" rather than a stream error.
 
-use super::bits::{read_leb128, BitReader};
+use super::bits::{BitReader, ByteReader};
 use crate::{
     encoded::{
         h26x::{annex_b_nalus, h264_nal_type, h265_nal_type},
@@ -302,29 +302,29 @@ fn vp9_keyframe_resolution(payload: &[u8]) -> Option<VideoResolution> {
 /// Parses the maximum frame dimensions from the sequence header OBU of an
 /// AV1 access unit built from size-prefixed OBUs.
 fn av1_sequence_header_resolution(payload: &[u8]) -> Option<VideoResolution> {
-    let mut cursor = 0;
-    while cursor < payload.len() {
-        let header = *payload.get(cursor)?;
+    let mut reader = ByteReader::new(payload);
+    while !reader.is_empty() {
+        let header = reader.get_u8()?;
         if header & 0x80 != 0 {
             return None; // obu_forbidden_bit
         }
         let obu_type = (header & 0x78) >> 3;
         let has_extension = header & 0x04 != 0;
         let has_size = header & 0x02 != 0;
-        cursor += if has_extension { 2 } else { 1 };
+        if has_extension {
+            reader.skip(1)?;
+        }
         if !has_size {
             // Without a size field the OBU extends to the end of the unit.
             return (obu_type == 1)
-                .then(|| av1_sequence_header_obu_resolution(payload.get(cursor..)?))
+                .then(|| av1_sequence_header_obu_resolution(reader.take_rest()))
                 .flatten();
         }
-        let size = read_leb128(payload, &mut cursor)?;
-        let end = cursor.checked_add(size)?;
-        let obu_payload = payload.get(cursor..end)?;
+        let size = reader.get_leb128()?;
+        let obu_payload = reader.take(size)?;
         if obu_type == 1 {
             return av1_sequence_header_obu_resolution(obu_payload);
         }
-        cursor = end;
     }
     None
 }
