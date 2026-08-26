@@ -13,6 +13,10 @@ bytes = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 gstreamer = { version = "0.25.2", optional = true }
 gstreamer-app = { version = "0.25.2", optional = true }
+# Test-only (`__test-source-rtsp`); in `[dependencies]` because Cargo has no
+# optional dev-dependencies.
+gstreamer-rtsp = { version = "0.25", optional = true }
+gstreamer-rtsp-server = { version = "0.25", optional = true }
 md-5 = { version = "0.10", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
@@ -25,6 +29,8 @@ wgpu = { workspace = true, optional = true }
 yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
 [dev-dependencies]
+log = { workspace = true }
+test-log = "0.2"
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [features]
@@ -43,3 +49,14 @@ source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
 source-rtsp = ["dep:base64", "dep:md-5"]
+
+# Testing
+# In-process RTSP server for `tests/source_rtsp_test.rs`. Requires the
+# system GStreamer RTSP server library. Test-only; not part of the public
+# API.
+__test-source-rtsp = [
+    "source-rtsp",
+    "dep:gstreamer",
+    "dep:gstreamer-rtsp",
+    "dep:gstreamer-rtsp-server",
+]
