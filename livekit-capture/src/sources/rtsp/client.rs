@@ -709,6 +709,14 @@ fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).take(MAX_HEADER_BYTES).position(|window| window == b"\r\n\r\n")
 }
 
+#[cfg(test)]
+impl RtspResponse {
+    /// Parses one complete response, for tests in sibling modules.
+    pub(super) fn parse_for_tests(bytes: &[u8]) -> Self {
+        parse_response(bytes).expect("invalid response").expect("incomplete response").0
+    }
+}
+
 /// Extracts the session identifier from a `Session` header value.
 pub(super) fn parse_session_id(session_header: &str) -> Result<String, RtspVideoSourceError> {
     let session_id = session_header.split(';').next().unwrap_or_default().trim();
