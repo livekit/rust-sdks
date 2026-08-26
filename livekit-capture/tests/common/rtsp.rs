@@ -22,29 +22,69 @@ use std::{
 
 use gstreamer::{self as gst, glib};
 use gstreamer_rtsp_server::{prelude::*, RTSPAuth, RTSPMediaFactory, RTSPServer, RTSPToken};
-use livekit_capture::sources::rtsp::RtspVideoSourceConfig;
+use livekit_capture::{primitive::VideoResolution, sources::rtsp::RtspVideoSourceConfig};
 
-/// Test streams are 640x480 at 30 fps with a keyframe every 30 frames.
-pub const TEST_WIDTH: u32 = 640;
-pub const TEST_HEIGHT: u32 = 480;
+/// Default test streams are 640x480 at 30 fps with a keyframe every 30
+/// frames.
+pub const TEST_RESOLUTION: VideoResolution = VideoResolution::new(640, 480);
 
-pub const H264_PIPELINE: &str = "videotestsrc is-live=true \
-    ! video/x-raw,width=640,height=480,framerate=30/1 ! videoconvert \
-    ! x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 bitrate=500 \
-      byte-stream=true aud=true \
-    ! h264parse config-interval=-1 ! rtph264pay name=pay0 pt=96 config-interval=1";
+/// Codecs the test server can encode.
+#[derive(Debug, Clone, Copy)]
+pub enum TestCodec {
+    H264,
+    H265,
+    Vp8,
+    Vp9,
+    Av1,
+}
 
-pub const H265_PIPELINE: &str = "videotestsrc is-live=true \
-    ! video/x-raw,width=640,height=480,framerate=30/1 ! videoconvert \
-    ! x265enc tune=zerolatency speed-preset=ultrafast key-int-max=30 bitrate=500 \
-      option-string=repeat-headers=1:aud=1:open-gop=0 \
-    ! h265parse config-interval=-1 ! rtph265pay name=pay0 pt=96 config-interval=1";
+/// Builds an encoder pipeline for the test server at the given resolution.
+pub fn pipeline(codec: TestCodec, resolution: VideoResolution) -> String {
+    let encode = match codec {
+        TestCodec::H264 => {
+            "x264enc tune=zerolatency speed-preset=ultrafast key-int-max=30 bitrate=500 \
+             byte-stream=true aud=true \
+             ! h264parse config-interval=-1 ! rtph264pay name=pay0 pt=96 config-interval=1"
+        }
+        TestCodec::H265 => {
+            "x265enc tune=zerolatency speed-preset=ultrafast key-int-max=30 bitrate=500 \
+             option-string=repeat-headers=1:aud=1:open-gop=0 \
+             ! h265parse config-interval=-1 ! rtph265pay name=pay0 pt=96 config-interval=1"
+        }
+        TestCodec::Vp8 => {
+            "vp8enc deadline=1 cpu-used=8 keyframe-max-dist=30 lag-in-frames=0 \
+             target-bitrate=500000 ! rtpvp8pay name=pay0 pt=96"
+        }
+        TestCodec::Vp9 => {
+            "vp9enc deadline=1 cpu-used=8 keyframe-max-dist=30 lag-in-frames=0 \
+             target-bitrate=500000 ! rtpvp9pay name=pay0 pt=96"
+        }
+        TestCodec::Av1 => {
+            "av1enc cpu-used=8 usage-profile=realtime keyframe-max-dist=30 lag-in-frames=0 \
+             target-bitrate=500 ! av1parse \
+             ! video/x-av1,stream-format=obu-stream,alignment=tu ! rtpav1pay name=pay0 pt=96"
+        }
+    };
+    format!(
+        "videotestsrc is-live=true \
+         ! video/x-raw,width={},height={},framerate=30/1 ! videoconvert ! {encode}",
+        resolution.width, resolution.height,
+    )
+}
 
-pub const VP8_PIPELINE: &str = "videotestsrc is-live=true \
-    ! video/x-raw,width=640,height=480,framerate=30/1 ! videoconvert \
-    ! vp8enc deadline=1 cpu-used=8 keyframe-max-dist=30 lag-in-frames=0 \
-      target-bitrate=500000 \
-    ! rtpvp8pay name=pay0 pt=96";
+/// Builds a pipeline at the default resolution.
+pub fn default_pipeline(codec: TestCodec) -> String {
+    pipeline(codec, TEST_RESOLUTION)
+}
+
+/// Builds a two-track pipeline: video at the default resolution plus a PCMA
+/// audio track, mirroring the SDP shape of a typical camera.
+pub fn default_pipeline_with_audio(codec: TestCodec) -> String {
+    format!(
+        "{} audiotestsrc is-live=true ! alawenc ! rtppcmapay name=pay1 pt=8",
+        default_pipeline(codec),
+    )
+}
 
 /// An in-process GStreamer RTSP server serving one launch pipeline at
 /// `/test` on an ephemeral localhost port.
@@ -55,11 +95,28 @@ pub struct RtspTestServer {
     tls: bool,
 }
 
+/// Authentication required by a test server.
+#[derive(Debug, Clone, Copy)]
+enum TestAuth<'a> {
+    None,
+    Basic { username: &'a str, password: &'a str },
+    Digest { username: &'a str, password: &'a str },
+}
+
 impl RtspTestServer {
-    /// Starts a server streaming `media_pipeline`, which must end in an RTP
+    /// Starts a server streaming `media_pipeline`, which must contain an RTP
     /// payloader named `pay0`.
     pub fn launch(media_pipeline: &str) -> Self {
-        Self::launch_inner(media_pipeline, None, false)
+        Self::launch_inner(media_pipeline, TestAuth::None, false)
+    }
+
+    /// Starts a server that requires Basic authentication.
+    pub fn launch_with_basic_auth(
+        media_pipeline: &str,
+        username: &str,
+        password: &str,
+    ) -> Self {
+        Self::launch_inner(media_pipeline, TestAuth::Basic { username, password }, false)
     }
 
     /// Starts a server that requires Digest authentication.
@@ -68,13 +125,13 @@ impl RtspTestServer {
         username: &str,
         password: &str,
     ) -> Self {
-        Self::launch_inner(media_pipeline, Some((username, password)), false)
+        Self::launch_inner(media_pipeline, TestAuth::Digest { username, password }, false)
     }
 
     /// Starts a server that requires TLS (`rtsps://`), presenting a
     /// freshly generated self-signed certificate.
     pub fn launch_tls(media_pipeline: &str) -> Self {
-        Self::launch_inner(media_pipeline, None, true)
+        Self::launch_inner(media_pipeline, TestAuth::None, true)
     }
 
     /// Starts a server that requires both TLS and Digest authentication.
@@ -83,10 +140,10 @@ impl RtspTestServer {
         username: &str,
         password: &str,
     ) -> Self {
-        Self::launch_inner(media_pipeline, Some((username, password)), true)
+        Self::launch_inner(media_pipeline, TestAuth::Digest { username, password }, true)
     }
 
-    fn launch_inner(media_pipeline: &str, digest: Option<(&str, &str)>, tls: bool) -> Self {
+    fn launch_inner(media_pipeline: &str, test_auth: TestAuth<'_>, tls: bool) -> Self {
         gst::init().expect("failed to initialize GStreamer");
 
         // Each server runs on its own main context so parallel tests never
@@ -101,7 +158,7 @@ impl RtspTestServer {
         factory.set_launch(&format!("( {media_pipeline} )"));
         factory.set_shared(false);
 
-        if digest.is_some() || tls {
+        if !matches!(test_auth, TestAuth::None) || tls {
             factory.add_role_from_structure(
                 &gst::Structure::builder("user")
                     .field("media.factory.access", true)
@@ -114,14 +171,21 @@ impl RtspTestServer {
                 // every connection to this server instance.
                 auth.set_tls_certificate(Some(&self_signed_certificate()));
             }
-            if let Some((username, password)) = digest {
-                let token = RTSPToken::builder().field("media.factory.role", "user").build();
-                auth.set_supported_methods(gstreamer_rtsp::RTSPAuthMethod::Digest);
-                auth.add_digest(username, password, &token);
-            } else {
-                // TLS without authentication: admit anonymous clients.
-                let mut token = RTSPToken::builder().field("media.factory.role", "user").build();
-                auth.set_default_token(Some(&mut token));
+            let token = RTSPToken::builder().field("media.factory.role", "user").build();
+            match test_auth {
+                TestAuth::None => {
+                    // TLS without authentication: admit anonymous clients.
+                    let mut token = token;
+                    auth.set_default_token(Some(&mut token));
+                }
+                TestAuth::Basic { username, password } => {
+                    auth.set_supported_methods(gstreamer_rtsp::RTSPAuthMethod::Basic);
+                    auth.add_basic(&RTSPAuth::make_basic(username, password), &token);
+                }
+                TestAuth::Digest { username, password } => {
+                    auth.set_supported_methods(gstreamer_rtsp::RTSPAuthMethod::Digest);
+                    auth.add_digest(username, password, &token);
+                }
             }
             server.set_auth(Some(&auth));
         }
@@ -136,7 +200,11 @@ impl RtspTestServer {
         log::info!(
             "RTSP test server listening at {}://127.0.0.1:{port}/test{}",
             if tls { "rtsps" } else { "rtsp" },
-            if digest.is_some() { " (digest auth)" } else { "" },
+            match test_auth {
+                TestAuth::None => "",
+                TestAuth::Basic { .. } => " (basic auth)",
+                TestAuth::Digest { .. } => " (digest auth)",
+            },
         );
         log::debug!("RTSP test server pipeline: {media_pipeline}");
 
