@@ -336,15 +336,13 @@ impl RtspVideoSource {
             handshake_deadline,
             RtspPhase::Describe,
         )?;
-        let sdp_text =
-            str::from_utf8(&describe.body).map_err(|_| RtspVideoSourceError::InvalidSdp)?;
         // Relative control URLs resolve against the Content-Base per
         // RFC 2326 appendix C.1.1, falling back to the request URL.
         let base_url = describe
             .header("content-base")
             .or_else(|| describe.header("content-location"))
             .unwrap_or(&url.request_uri);
-        let session = sdp::parse_sdp_session(base_url, sdp_text, config.codec)?;
+        let session = sdp::parse_sdp_session(base_url, &describe.body, config.codec)?;
 
         let setup = client.request(
             "SETUP",
