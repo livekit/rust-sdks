@@ -1,0 +1,11 @@
+[package]
+name = "telemetry_ping"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+livekit-telemetry = { workspace = true, features = ["net"] }
+livekit-net = { workspace = true, features = ["native-tokio"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+env_logger = { workspace = true }
