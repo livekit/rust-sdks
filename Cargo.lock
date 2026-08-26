@@ -4035,6 +4035,7 @@ dependencies = [
  "test-log",
  "thiserror 2.0.19",
  "tokio",
+ "url",
  "v4l",
  "wgpu",
  "yuv-sys",
