@@ -481,12 +481,14 @@ fn is_keyframe_nalus(
     }
 }
 
-fn h264_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
+/// Extracts the type of an H.264 NAL unit from its header.
+pub(crate) fn h264_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
     let header = nal.first().ok_or(H26xParseError::EmptyPayload)?;
     Ok(header & 0x1f)
 }
 
-fn h265_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
+/// Extracts the type of an H.265 NAL unit from its header.
+pub(crate) fn h265_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
     if nal.is_empty() {
         return Err(H26xParseError::EmptyPayload);
     }
