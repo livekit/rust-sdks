@@ -15,7 +15,10 @@
 //! H.264 (RFC 6184) and H.265 (RFC 7798) RTP payload handling.
 
 use super::{FragmentState, RtpAccessUnitAssembler, RtpDepacketizerError, RtpPacket};
-use crate::encoded::{h26x::access_unit_from_nalus, EncodedFrameType, EncodedVideoCodec};
+use crate::encoded::{
+    h26x::{access_unit_from_nalus, h264_nal_type, h265_nal_type},
+    EncodedFrameType, EncodedVideoCodec,
+};
 
 impl RtpAccessUnitAssembler {
     pub(super) fn push_h264_payload(
@@ -232,21 +235,18 @@ struct NalPresence {
 
 impl NalPresence {
     fn record(&mut self, codec: EncodedVideoCodec, nal: &[u8]) {
-        let Some(&header) = nal.first() else {
-            return;
-        };
         match codec {
-            EncodedVideoCodec::H264 => match header & 0x1f {
-                5 => self.idr = true,
-                7 => self.sps = true,
-                8 => self.pps = true,
+            EncodedVideoCodec::H264 => match h264_nal_type(nal) {
+                Ok(5) => self.idr = true,
+                Ok(7) => self.sps = true,
+                Ok(8) => self.pps = true,
                 _ => {}
             },
-            EncodedVideoCodec::H265 => match (header >> 1) & 0x3f {
-                19 | 20 => self.idr = true,
-                32 => self.vps = true,
-                33 => self.sps = true,
-                34 => self.pps = true,
+            EncodedVideoCodec::H265 => match h265_nal_type(nal) {
+                Ok(19 | 20) => self.idr = true,
+                Ok(32) => self.vps = true,
+                Ok(33) => self.sps = true,
+                Ok(34) => self.pps = true,
                 _ => {}
             },
             _ => {}
