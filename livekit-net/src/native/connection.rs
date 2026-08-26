@@ -17,7 +17,10 @@ use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
-use livekit_runtime::TcpStream;
+#[cfg(feature = "__native-tokio")]
+use tokio::net::TcpStream;
+#[cfg(feature = "__native-async")]
+use async_std::net::TcpStream;
 use tokio::sync::Mutex;
 
 #[cfg(feature = "__native-async")]

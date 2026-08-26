@@ -43,7 +43,7 @@ use tokio::{
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 #[cfg(feature = "__native-tokio")]
-use livekit_runtime::TcpStream;
+use tokio::net::TcpStream;
 
 #[cfg(feature = "__native-tokio")]
 pub(super) async fn connect_ws(
