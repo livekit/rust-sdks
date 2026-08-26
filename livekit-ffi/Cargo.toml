@@ -28,6 +28,7 @@ capture-device = ["capture", "livekit-capture/source-device"]
 capture-device-argus = ["capture-device", "livekit-capture/source-device-argus"]
 capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
+capture-rtsp = ["capture", "livekit-capture/source-rtsp"]
 
 [dependencies]
 livekit = { workspace = true }
