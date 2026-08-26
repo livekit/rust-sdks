@@ -24,6 +24,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "logg
 rustls-native-certs = { version = "0.8", optional = true }
 rustls-pki-types = { version = "1", optional = true }
 sdp-types = { version = "0.2", optional = true }
+url = { version = "2", optional = true }
 livekit = { workspace = true }
 log = { workspace = true }
 pollster = { version = "0.4", optional = true }
@@ -55,7 +56,7 @@ source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
 # Encoded sources
 source-gstreamer = ["dep:gstreamer", "dep:gstreamer-app"]
-source-rtsp = ["dep:base64", "dep:http-auth", "dep:rtsp-types", "dep:sdp-types"]
+source-rtsp = ["dep:base64", "dep:http-auth", "dep:rtsp-types", "dep:sdp-types", "dep:url"]
 # Adds `rtsps://` (RTSP over TLS, 1.2+) support to the RTSP source.
 # Certificates are verified against the system roots by default.
 source-rtsp-tls = ["source-rtsp", "dep:rustls", "dep:rustls-native-certs", "dep:rustls-pki-types"]
