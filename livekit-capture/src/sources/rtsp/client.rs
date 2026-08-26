@@ -61,47 +61,46 @@ pub(super) struct RtspUrl {
 impl RtspUrl {
     /// Parses an `rtsp(s)://[user:password@]host[:port][/path]` URL.
     pub(super) fn parse(url: &str) -> Result<Self, RtspVideoSourceError> {
-        let (scheme, rest, tls) = if let Some(rest) = url.strip_prefix("rtsp://") {
-            ("rtsp://", rest, false)
-        } else if let Some(rest) = url.strip_prefix("rtsps://") {
-            ("rtsps://", rest, true)
+        let parsed =
+            Url::parse(url).map_err(|_| RtspVideoSourceError::InvalidUrl("malformed URL"))?;
+        let tls = match parsed.scheme() {
+            "rtsp" => false,
+            "rtsps" => true,
+            _ => {
+                return Err(RtspVideoSourceError::InvalidUrl(
+                    "expected rtsp:// or rtsps:// scheme",
+                ))
+            }
+        };
+
+        // `Host::Ipv6` renders unbracketed, as `ToSocketAddrs` expects.
+        let connect_host = match parsed.host() {
+            Some(url::Host::Domain(domain)) if !domain.is_empty() => domain.to_owned(),
+            Some(url::Host::Ipv4(address)) => address.to_string(),
+            Some(url::Host::Ipv6(address)) => address.to_string(),
+            _ => return Err(RtspVideoSourceError::InvalidUrl("missing host")),
+        };
+        let port = parsed.port().unwrap_or(if tls { 322 } else { 554 });
+
+        let credentials = if parsed.username().is_empty() && parsed.password().is_none() {
+            None
         } else {
-            return Err(RtspVideoSourceError::InvalidUrl("expected rtsp:// or rtsps:// scheme"));
-        };
-        let (authority, path_suffix) = match rest.find('/') {
-            Some(path_start) => (&rest[..path_start], &rest[path_start..]),
-            None => (rest, ""),
+            let username = percent_decode(parsed.username());
+            if username.is_empty() {
+                return Err(RtspVideoSourceError::InvalidUrl("missing username"));
+            }
+            let password = parsed.password().map(percent_decode).unwrap_or_default();
+            Some(RtspCredentials { username, password })
         };
 
-        let (credentials, host_port) = match authority.rsplit_once('@') {
-            Some((userinfo, host_port)) => (Some(parse_userinfo(userinfo)?), host_port),
-            None => (None, authority),
-        };
-        if host_port.is_empty() {
-            return Err(RtspVideoSourceError::InvalidUrl("missing host"));
-        }
-        let default_port = if tls { 322 } else { 554 };
-        let (connect_host, port) = parse_host_port(host_port, default_port)?;
+        // Strip userinfo so credentials never appear on the wire outside
+        // the `Authorization` header.
+        let mut request_uri = parsed;
+        let _ = request_uri.set_username("");
+        let _ = request_uri.set_password(None);
 
-        Ok(Self {
-            request_uri: format!("{scheme}{host_port}{path_suffix}"),
-            credentials,
-            tls,
-            connect_host,
-            port,
-        })
+        Ok(Self { request_uri: request_uri.to_string(), credentials, tls, connect_host, port })
     }
-}
-
-fn parse_userinfo(userinfo: &str) -> Result<RtspCredentials, RtspVideoSourceError> {
-    let (username, password) = userinfo.split_once(':').unwrap_or((userinfo, ""));
-    if username.is_empty() {
-        return Err(RtspVideoSourceError::InvalidUrl("missing username"));
-    }
-    Ok(RtspCredentials {
-        username: percent_decode(username),
-        password: percent_decode(password),
-    })
 }
 
 /// Decodes RFC 3986 percent-escapes; malformed escapes pass through as-is.
@@ -124,31 +123,6 @@ fn percent_decode(value: &str) -> String {
         }
     }
     String::from_utf8_lossy(&decoded).into_owned()
-}
-
-fn parse_host_port(
-    host_port: &str,
-    default_port: u16,
-) -> Result<(String, u16), RtspVideoSourceError> {
-    if let Some(rest) = host_port.strip_prefix('[') {
-        let Some((host, after_host)) = rest.split_once(']') else {
-            return Err(RtspVideoSourceError::InvalidUrl("malformed IPv6 host"));
-        };
-        let port = after_host.strip_prefix(':').map(parse_port).transpose()?.unwrap_or(default_port);
-        return Ok((host.to_owned(), port));
-    }
-
-    if let Some((host, port)) = host_port.rsplit_once(':') {
-        if !host.contains(':') {
-            return Ok((host.to_owned(), parse_port(port)?));
-        }
-    }
-
-    Ok((host_port.to_owned(), default_port))
-}
-
-fn parse_port(port: &str) -> Result<u16, RtspVideoSourceError> {
-    port.parse().map_err(|_| RtspVideoSourceError::InvalidUrl("invalid port"))
 }
 
 /// A parsed RTSP response.
