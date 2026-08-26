@@ -9,7 +9,7 @@ repository.workspace = true
 
 [dependencies]
 livekit-runtime = { workspace = true, features = ["tokio"] }
-tokio = { workspace = true, default-features = false, features = ["macros", "sync"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "sync", "time"] }
 log = { workspace = true }
 thiserror = { workspace = true }
 async-trait = "0.1"

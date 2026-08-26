@@ -15,11 +15,18 @@
 use std::{sync::Arc, time::Duration};
 
 use livekit_runtime::{interval, sleep, timeout, Instant, MissedTickBehavior};
-use tokio::sync::{mpsc, oneshot};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::Interval,
+};
 
 use crate::{
-    event::now_unix_nanos, otlp, store::Store, BatchCache, ExportError, ExportRequest,
-    TelemetryConfig, TelemetryTransport,
+    event::now_unix_nanos,
+    otlp,
+    stats::{Counters, Snapshot},
+    store::Store,
+    AppState, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
+    TelemetryTransport,
 };
 
 /// Retries per upload attempt after the first, for failures without `Retry-After`.
@@ -32,6 +39,7 @@ const UPLOAD_BACKOFF: Duration = Duration::from_secs(60);
 pub(crate) enum Command {
     Flush(oneshot::Sender<()>),
     Shutdown(oneshot::Sender<()>),
+    DeviceState(DeviceState),
 }
 
 /// Outcome of uploading one encoded batch.
@@ -49,15 +57,18 @@ enum Delivery {
 
 /// Background actor that turns stored events into OTLP requests.
 ///
-/// The role of OTel's `BatchLogRecordProcessor` + OTLP exporter in one place. Every
-/// `flush_interval_ms` it [`enqueue`](Self::enqueue)s: drains up to `max_batch_size` events,
-/// encodes them and writes the batch to the [`BatchCache`] *before* any network is involved;
-/// then it [`upload`](Self::upload)s the cache oldest-first through the
-/// [`TelemetryTransport`], removing what the collector accepted or rejected. A failed upload
-/// pauses the cache for a minute; a `Retry-After` additionally drops new batches for its
-/// duration (throttling must not become a disk-backed queue); `Disabled` empties the cache and
-/// silences the exporter for good. With a [`FileCache`](crate::FileCache) this is crash- and
-/// restart-safe; with the default [`MemoryCache`](crate::MemoryCache) it is process-bound.
+/// The role of OTel's `BatchLogRecordProcessor` + OTLP exporter in one place. Every tick it
+/// [`enqueue`](Self::enqueue)s: drains up to `max_batch_size` events, appends an
+/// `lk.telemetry.report` when something was dropped or failed since the last one, encodes the
+/// batch and writes it to the [`BatchCache`] *before* any network is involved; then it
+/// [`upload`](Self::upload)s the cache oldest-first through the [`TelemetryTransport`],
+/// removing what the collector accepted or rejected. A failed upload pauses the cache for a
+/// minute; a `Retry-After` additionally drops new batches for its duration (throttling must not
+/// become a disk-backed queue); `Disabled` empties the cache and silences the exporter for good.
+///
+/// The tick period is `flush_interval_ms × DeviceState::cadence_factor`: thermal pressure,
+/// low-power mode and the background stretch it up to 4×, and entering the background flushes
+/// once immediately (the app may be suspended any moment).
 ///
 /// Drive it with `spawn(exporter.run())` on the consumer's runtime. It stops after
 /// [`Telemetry::shutdown`](crate::Telemetry::shutdown) or when the last
@@ -67,6 +78,7 @@ pub struct Exporter {
     transport: Arc<dyn TelemetryTransport>,
     config: Arc<TelemetryConfig>,
     cache: Arc<dyn BatchCache>,
+    counters: Arc<Counters>,
     commands: mpsc::UnboundedReceiver<Command>,
     silenced: bool,
     /// Leave the cache alone until then: the last upload failed or we were throttled.
@@ -76,6 +88,9 @@ pub struct Exporter {
     seq: u64,
     /// Batches the cache could not store (disk full, directory unusable). Drives one-shot logging.
     cache_failures: u64,
+    /// Counter values at the last `lk.telemetry.report`.
+    last_report: Snapshot,
+    cadence_factor: u32,
 }
 
 impl Exporter {
@@ -84,6 +99,7 @@ impl Exporter {
         transport: Arc<dyn TelemetryTransport>,
         config: Arc<TelemetryConfig>,
         cache: Arc<dyn BatchCache>,
+        counters: Arc<Counters>,
         commands: mpsc::UnboundedReceiver<Command>,
     ) -> Self {
         Self {
@@ -91,12 +107,15 @@ impl Exporter {
             transport,
             config,
             cache,
+            counters,
             commands,
             silenced: false,
             paused_until: None,
             throttled_until: None,
             seq: 0,
             cache_failures: 0,
+            last_report: Snapshot::default(),
+            cadence_factor: 1,
         }
     }
 
@@ -104,8 +123,7 @@ impl Exporter {
     /// demand.
     pub async fn run(mut self) {
         self.upload().await;
-        let mut ticker = interval(Duration::from_millis(self.config.flush_interval_ms.max(1)));
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let mut ticker = self.ticker();
         loop {
             tokio::select! {
                 _ = ticker.tick() => self.export_pending().await,
@@ -113,6 +131,16 @@ impl Exporter {
                     Some(Command::Flush(done)) => {
                         self.export_pending().await;
                         let _ = done.send(());
+                    }
+                    Some(Command::DeviceState(state)) => {
+                        let factor = state.cadence_factor();
+                        if factor != self.cadence_factor {
+                            self.cadence_factor = factor;
+                            ticker = self.ticker();
+                        }
+                        if state.app_state == AppState::Background {
+                            self.export_pending().await;
+                        }
                     }
                     Some(Command::Shutdown(done)) => {
                         // Last chance: ignore the upload backoff, but respect throttling.
@@ -132,6 +160,14 @@ impl Exporter {
         }
     }
 
+    fn ticker(&self) -> Interval {
+        let period =
+            Duration::from_millis(self.config.flush_interval_ms.max(1)) * self.cadence_factor;
+        let mut ticker = interval(period);
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        ticker
+    }
+
     async fn export_pending(&mut self) {
         self.enqueue();
         self.upload().await;
@@ -140,15 +176,27 @@ impl Exporter {
     /// Encode everything queued into the cache — no network involved.
     fn enqueue(&mut self) {
         loop {
-            let batch = self.store.drain(self.config.max_batch_size.max(1) as usize);
+            let mut batch = self.store.drain(self.config.max_batch_size.max(1) as usize);
             if batch.is_empty() {
                 return;
             }
-            let count = batch.len() as u64;
-            if self.silenced || self.throttled_until.is_some_and(|t| Instant::now() < t) {
-                self.store.add_dropped(count);
+            if self.silenced {
+                Counters::add(&self.counters.disabled, batch.len() as u64);
                 continue;
             }
+            if self.throttled_until.is_some_and(|t| Instant::now() < t) {
+                Counters::add(&self.counters.throttled, batch.len() as u64);
+                continue;
+            }
+            // Self-telemetry rides along with real data: never its own request, never its own
+            // cadence, and only when there is something to report.
+            let now = self.counters.snapshot();
+            let delta = now.since(&self.last_report);
+            if delta.has_problems() {
+                batch.push(delta.report(self.cache.pending().len() as u64));
+                self.last_report = now;
+            }
+            let count = batch.len() as u64;
             let body = otlp::encode_logs(&self.config.resource, batch);
             self.seq += 1;
             let id = format!("{:020}-{:06}-{count}", now_unix_nanos(), self.seq);
@@ -162,7 +210,7 @@ impl Exporter {
                     log::debug!("telemetry: could not cache {count} events: {err}");
                 }
                 self.cache_failures += 1;
-                self.store.add_dropped(count);
+                Counters::add(&self.counters.cache_error, count);
             }
         }
     }
@@ -178,10 +226,13 @@ impl Exporter {
                 continue;
             };
             match self.deliver(&body).await {
-                Delivery::Sent => self.cache.remove(&id),
+                Delivery::Sent => {
+                    self.cache.remove(&id);
+                    Counters::add(&self.counters.uploads_sent, 1);
+                }
                 Delivery::Rejected => {
                     self.cache.remove(&id);
-                    self.store.add_dropped(events_in(&id));
+                    Counters::add(&self.counters.rejected, events_in(&id));
                 }
                 Delivery::Failed => {
                     self.paused_until = Some(Instant::now() + UPLOAD_BACKOFF);
@@ -206,7 +257,7 @@ impl Exporter {
         log::warn!("telemetry disabled by the collector; going silent");
         self.silenced = true;
         let cached: u64 = self.cache.pending().iter().map(|id| events_in(id)).sum();
-        self.store.add_dropped(cached);
+        Counters::add(&self.counters.disabled, cached);
         self.cache.clear();
     }
 
@@ -234,8 +285,12 @@ impl Exporter {
                 }
                 Ok(Err(ExportError::Retryable { message, retry_after_ms: None })) => {
                     log::debug!("telemetry upload failed (attempt {}): {message}", attempt + 1);
+                    Counters::add(&self.counters.upload_failures, 1);
                 }
-                Err(_) => log::debug!("telemetry upload timed out (attempt {})", attempt + 1),
+                Err(_) => {
+                    log::debug!("telemetry upload timed out (attempt {})", attempt + 1);
+                    Counters::add(&self.counters.upload_failures, 1);
+                }
             }
             if attempt < MAX_RETRIES {
                 sleep(RETRY_BACKOFF * (attempt + 1)).await;

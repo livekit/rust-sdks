@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use livekit_runtime::timeout;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    event::now_unix_nanos, exporter::Command, store::Store, Attribute, BatchCache, Exporter,
-    FileCache, MemoryCache, TelemetryEvent, TelemetryTransport,
+    event::now_unix_nanos, exporter::Command, stats::Counters, store::Store, Attribute, BatchCache,
+    DeviceState, Exporter, FileCache, MemoryCache, TelemetryEvent, TelemetryStats,
+    TelemetryTransport,
 };
 
 /// Pipeline configuration.
@@ -44,6 +49,7 @@ pub struct TelemetryConfig {
     /// Cap on cached batches, in memory or on disk; the oldest are evicted first.
     #[cfg_attr(feature = "uniffi", uniffi(default = 4194304))]
     pub max_cache_bytes: u64,
+    /// Base export cadence; stretched up to 4× by [`DeviceState::cadence_factor`].
     #[cfg_attr(feature = "uniffi", uniffi(default = 1000))]
     pub flush_interval_ms: u64,
     /// Events buffered before the oldest are dropped.
@@ -77,8 +83,8 @@ impl TelemetryConfig {
 /// Entry point: the synchronous, never-blocking side SDKs push into.
 ///
 /// Fail-open by design: [`emit`](Self::emit) cannot fail or block — when the queue is full the
-/// oldest event is dropped and counted in [`dropped_count`](Self::dropped_count). Cheap to
-/// clone; every clone feeds the same pipeline.
+/// oldest event is dropped and counted in [`stats`](Self::stats). Cheap to clone; every clone
+/// feeds the same pipeline.
 ///
 /// ```
 /// # use std::sync::Arc;
@@ -101,6 +107,9 @@ impl TelemetryConfig {
 pub struct Telemetry {
     store: Arc<Store>,
     config: Arc<TelemetryConfig>,
+    cache: Arc<dyn BatchCache>,
+    counters: Arc<Counters>,
+    device: Arc<Mutex<Option<DeviceState>>>,
     commands: mpsc::UnboundedSender<Command>,
 }
 
@@ -133,10 +142,19 @@ impl Telemetry {
     ) -> (Self, Exporter) {
         add_sdk_resource(&mut config.resource);
         let config = Arc::new(config);
-        let store = Arc::new(Store::new(config.max_queue_size.max(1) as usize));
+        let counters = Arc::new(Counters::default());
+        let store = Arc::new(Store::new(config.max_queue_size.max(1) as usize, counters.clone()));
         let (commands, receiver) = mpsc::unbounded_channel();
-        let exporter = Exporter::new(store.clone(), transport, config.clone(), cache, receiver);
-        (Self { store, config, commands }, exporter)
+        let exporter = Exporter::new(
+            store.clone(),
+            transport,
+            config.clone(),
+            cache.clone(),
+            counters.clone(),
+            receiver,
+        );
+        let telemetry = Self { store, config, cache, counters, device: Arc::default(), commands };
+        (telemetry, exporter)
     }
 
     /// Queue an event for export. Stamps it with the current time unless it carries one.
@@ -145,6 +163,19 @@ impl Telemetry {
             event.timestamp_ns = Some(now_unix_nanos());
         }
         self.store.push(event);
+    }
+
+    /// Tell the pipeline what the device looks like. Emits the `lk.device.*.changed` events for
+    /// whatever differs from the last state (everything, the first time) and re-tunes the export
+    /// cadence: thermal pressure, low-power mode and the background stretch it up to 4×; entering
+    /// the background also flushes once right away.
+    pub fn set_device_state(&self, state: DeviceState) {
+        let mut previous = self.device.lock().unwrap_or_else(|e| e.into_inner());
+        for event in state.change_events(previous.as_ref()) {
+            self.emit(event);
+        }
+        *previous = Some(state);
+        let _ = self.commands.send(Command::DeviceState(state));
     }
 
     /// Cache everything queued and upload what the transport accepts right now.
@@ -160,10 +191,10 @@ impl Telemetry {
         let _ = timeout(bound, self.command(Command::Shutdown)).await;
     }
 
-    /// Events dropped so far (queue overflow, cache failure, rejected or throttled batches,
-    /// disabled collector).
-    pub fn dropped_count(&self) -> u64 {
-        self.store.dropped()
+    /// Pipeline health: drops by reason, uploads, cached batches. The same numbers ride to the
+    /// backend as `lk.telemetry.report` events whenever something went wrong.
+    pub fn stats(&self) -> TelemetryStats {
+        TelemetryStats::new(self.counters.snapshot(), self.cache.pending().len() as u64)
     }
 
     async fn command(&self, make: impl FnOnce(oneshot::Sender<()>) -> Command) {
@@ -198,8 +229,11 @@ mod tests {
     use super::*;
     use crate::{
         cache::temp_dir,
-        proto::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest, ExportError,
-        ExportRequest,
+        proto::opentelemetry::proto::{
+            collector::logs::v1::ExportLogsServiceRequest, common::v1::any_value::Value,
+            logs::v1::LogRecord,
+        },
+        AppState, ExportError, ExportRequest, ThermalState,
     };
 
     #[derive(Default)]
@@ -256,13 +290,17 @@ mod tests {
         fs::read_dir(dir).map(|d| d.count()).unwrap_or(0)
     }
 
-    fn event_names(request: &ExportRequest) -> Vec<String> {
+    fn records(request: &ExportRequest) -> Vec<LogRecord> {
         let decoded = ExportLogsServiceRequest::decode(&request.body[..]).expect("valid OTLP");
-        decoded.resource_logs[0].scope_logs[0]
-            .log_records
-            .iter()
-            .map(|r| r.event_name.clone())
-            .collect()
+        decoded.resource_logs[0].scope_logs[0].log_records.clone()
+    }
+
+    fn event_names(request: &ExportRequest) -> Vec<String> {
+        records(request).iter().map(|r| r.event_name.clone()).collect()
+    }
+
+    fn attribute(record: &LogRecord, key: &str) -> Option<Value> {
+        record.attributes.iter().find(|kv| kv.key == key)?.value.as_ref()?.value.clone()
     }
 
     #[tokio::test(start_paused = true)]
@@ -282,7 +320,8 @@ mod tests {
         let decoded = ExportLogsServiceRequest::decode(&sent[0].body[..]).expect("valid OTLP");
         let resource = decoded.resource_logs[0].resource.as_ref().expect("resource");
         assert!(resource.attributes.iter().any(|kv| kv.key == "telemetry.sdk.name"));
-        assert_eq!(telemetry.dropped_count(), 0);
+        assert_eq!(telemetry.stats().dropped, 0);
+        assert_eq!(telemetry.stats().uploads_sent, 1);
     }
 
     #[tokio::test(start_paused = true)]
@@ -292,7 +331,9 @@ mod tests {
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
         assert_eq!(transport.sent().len(), 3, "first attempt plus two retries");
-        assert_eq!(telemetry.dropped_count(), 0, "kept in the memory cache, not dropped");
+        assert_eq!(telemetry.stats().dropped, 0, "kept in the memory cache, not dropped");
+        assert_eq!(telemetry.stats().upload_failures, 3);
+        assert_eq!(telemetry.stats().cached_batches, 1);
 
         telemetry.flush().await;
         assert_eq!(transport.sent().len(), 3, "backoff: no upload right away");
@@ -300,6 +341,45 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(61)).await;
         assert_eq!(transport.sent().len(), 4, "retried once the backoff elapsed");
         assert_eq!(event_names(&transport.sent()[3]), ["lk.ping"]);
+        assert_eq!(telemetry.stats().cached_batches, 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn self_telemetry_report_rides_along_after_problems() {
+        let transport = FakeTransport::scripted([offline(), offline(), offline()]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        tokio::time::sleep(Duration::from_secs(61)).await; // backoff over, batch uploads
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        let last = &sent[sent.len() - 1];
+        assert_eq!(event_names(last), ["lk.ping", "lk.telemetry.report"]);
+        let report = &records(last)[1];
+        assert_eq!(attribute(report, "lk.telemetry.uploads.failed"), Some(Value::IntValue(3)));
+        assert_eq!(attribute(report, "lk.telemetry.uploads.sent"), Some(Value::IntValue(1)));
+        assert_eq!(attribute(report, "lk.telemetry.cache.batches"), Some(Value::IntValue(0)));
+        assert_eq!(attribute(report, "lk.telemetry.dropped.queue_full"), None, "zeros omitted");
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(event_names(&sent[sent.len() - 1]), ["lk.ping"], "nothing new to report");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn queue_overflow_is_counted_by_reason() {
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.max_queue_size = 1;
+        let telemetry = start(config, FakeTransport::scripted([]));
+        for _ in 0..3 {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+        }
+        let stats = telemetry.stats();
+        assert_eq!(stats.dropped_queue_full, 2);
+        assert_eq!(stats.dropped, 2);
     }
 
     #[tokio::test(start_paused = true)]
@@ -311,7 +391,7 @@ mod tests {
         telemetry.flush().await;
 
         assert_eq!(transport.sent().len(), 1);
-        assert_eq!(telemetry.dropped_count(), 1);
+        assert_eq!(telemetry.stats().dropped_rejected, 1);
     }
 
     #[tokio::test(start_paused = true)]
@@ -324,7 +404,7 @@ mod tests {
         telemetry.shutdown().await;
 
         assert_eq!(transport.sent().len(), 1);
-        assert_eq!(telemetry.dropped_count(), 2);
+        assert_eq!(telemetry.stats().dropped_disabled, 2);
     }
 
     #[tokio::test(start_paused = true)]
@@ -335,7 +415,7 @@ mod tests {
         first.emit(TelemetryEvent::new("lk.ping"));
         first.flush().await;
         assert_eq!(first_transport.sent().len(), 3);
-        assert_eq!(first.dropped_count(), 0);
+        assert_eq!(first.stats().dropped, 0);
         assert_eq!(files_in(&dir), 1, "written before the first attempt, kept after failure");
 
         let second_transport = FakeTransport::scripted([]);
@@ -359,11 +439,11 @@ mod tests {
         telemetry.flush().await;
         assert_eq!(transport.sent().len(), 1, "no retries on Retry-After");
         assert_eq!(files_in(&dir), 1, "the throttled batch stays cached");
-        assert_eq!(telemetry.dropped_count(), 0);
+        assert_eq!(telemetry.stats().dropped, 0);
 
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
-        assert_eq!(telemetry.dropped_count(), 1, "new batches are dropped inside the window");
+        assert_eq!(telemetry.stats().dropped_throttled, 1, "new batches dropped inside the window");
         assert_eq!(files_in(&dir), 1, "and never written");
 
         tokio::time::sleep(Duration::from_secs(6)).await;
@@ -381,7 +461,7 @@ mod tests {
         telemetry.shutdown().await;
 
         assert_eq!(files_in(&dir), 1, "cached before the network was tried, kept after it failed");
-        assert_eq!(telemetry.dropped_count(), 0);
+        assert_eq!(telemetry.stats().dropped, 0);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -400,5 +480,51 @@ mod tests {
         let pending = cache.pending();
         assert_eq!(pending.len(), 1);
         assert!(pending[0].ends_with("-1"), "id carries the event count: {}", pending[0]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn device_state_emits_change_events_and_stretches_cadence() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.set_device_state(DeviceState {
+            thermal: ThermalState::Critical,
+            ..DeviceState::default()
+        });
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        let names = event_names(&sent[0]);
+        assert!(names.contains(&"lk.device.thermal.changed".to_owned()), "{names:?}");
+        assert_eq!(names.len(), 3, "initial value for every field");
+        let thermal = records(&sent[0])
+            .into_iter()
+            .find(|r| r.event_name == "lk.device.thermal.changed")
+            .expect("thermal event");
+        assert_eq!(
+            attribute(&thermal, "lk.device.thermal.state"),
+            Some(Value::StringValue("critical".into()))
+        );
+
+        // 1 s base interval × 4 under critical thermal pressure.
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(transport.sent().len(), 1, "not yet: cadence stretched to 4 s");
+        tokio::time::sleep(Duration::from_millis(2_500)).await;
+        assert_eq!(transport.sent().len(), 2, "exported on the stretched tick");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn entering_background_flushes_immediately() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.set_device_state(DeviceState {
+            app_state: AppState::Background,
+            ..DeviceState::default()
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1, "flushed on the state change, not on the tick");
+        assert!(event_names(&sent[0]).contains(&"lk.ping".to_owned()));
     }
 }

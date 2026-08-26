@@ -33,7 +33,9 @@ let (telemetry, exporter) = Telemetry::new(config, Arc::new(transport));
 tokio::spawn(exporter.run());
 
 telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.ping.seq", 1i64));
+telemetry.set_device_state(DeviceState { thermal: ThermalState::Serious, ..Default::default() });
 telemetry.shutdown().await; // cache, then upload what the network allows; bounded by `export_timeout_ms`
+println!("{:?}", telemetry.stats()); // drops by reason, uploads, cached batches
 ```
 
 Event names and attributes are defined in [`SPEC.md`](SPEC.md).
@@ -68,6 +70,18 @@ start it again and run once more to watch the cached batch replay.
   writes `.tmp` → rename, evicts oldest above `max_cache_bytes`, expires after 24 h using the
   timestamp in the file name (not file metadata — an Apple required-reason API), and treats a
   full disk as a counted drop with a single warning.
+- **Self-telemetry rides along.** Counters for every way data can be lost (`queue_full`,
+  `cache_error`, `rejected`, `throttled`, `disabled`) and for uploads (`sent`, `failures`) are
+  readable via [`Telemetry::stats`] and shipped as an `lk.telemetry.report` event appended to
+  the next batch whenever something went wrong since the previous report — the Sentry
+  "client report" shape, with reason names from the OTel SDK self-metrics conventions. Never
+  an extra request, never persisted on its own, silent when nothing is wrong.
+- **Device state comes from the host; the policy lives here.** Thermal, low-power and
+  foreground/background are OS APIs the host already watches; it pushes them through
+  [`Telemetry::set_device_state`]. The core emits the `lk.device.*.changed` events from
+  `SPEC.md` and stretches its cadence up to 4× under pressure (background also flushes once).
+  No Rust crate can observe these without a JVM/ObjC bridge, and `device-info` (in this
+  workspace) covers static facts, not state.
 - **Transport is the only injection point.** The core composes URL, headers and body; the
   transport moves bytes and reports [`ExportError`] so the core alone decides retry / drop /
   persist / go-silent. No Rust HTTP/TLS stack is linked unless the `net` feature is enabled.

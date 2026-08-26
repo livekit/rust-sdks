@@ -15,14 +15,17 @@
 //! Client telemetry core from the [`livekit-telemetry`] crate.
 //!
 //! FFI clients construct one [`Telemetry`] per pipeline with a host-implemented
-//! `TelemetryTransport` (e.g. a URLSession/OkHttp POST), then `emit` from any thread. The
-//! exporter runs on the global runtime; `shutdown` flushes within `export_timeout_ms`.
+//! `TelemetryTransport` (e.g. a URLSession/OkHttp POST), then `emit` from any thread and push
+//! `DeviceState` changes as the OS reports them. The exporter runs on the global runtime;
+//! `shutdown` flushes within `export_timeout_ms`.
 
 use std::sync::Arc;
 
-use livekit_telemetry::{TelemetryConfig, TelemetryEvent, TelemetryTransport};
+use livekit_telemetry::{
+    DeviceState, TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport,
+};
 
-/// Telemetry pipeline: buffer, batch and export events as OTLP.
+/// Telemetry pipeline: buffer, batch, cache and export events as OTLP.
 #[derive(uniffi::Object)]
 pub struct Telemetry(livekit_telemetry::Telemetry);
 
@@ -40,6 +43,12 @@ impl Telemetry {
         self.0.emit(event);
     }
 
+    /// Report the device state (thermal, low power, foreground/background). Emits the matching
+    /// `lk.device.*.changed` events and adapts the export cadence.
+    pub fn set_device_state(&self, state: DeviceState) {
+        self.0.set_device_state(state);
+    }
+
     /// Export everything queued and wait for the transport.
     pub async fn flush(&self) {
         self.0.flush().await;
@@ -50,8 +59,8 @@ impl Telemetry {
         self.0.shutdown().await;
     }
 
-    /// Events dropped so far (queue overflow, rejected/failed exports, disabled collector).
-    pub fn dropped_count(&self) -> u64 {
-        self.0.dropped_count()
+    /// Pipeline health: drops by reason, uploads, cached batches.
+    pub fn stats(&self) -> TelemetryStats {
+        self.0.stats()
     }
 }

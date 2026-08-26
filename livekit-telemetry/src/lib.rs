@@ -20,6 +20,12 @@ mod event;
 /// Bounded in-memory queue between `emit` and the exporter.
 mod store;
 
+/// Pipeline health counters and the `lk.telemetry.report` event.
+mod stats;
+
+/// Host-reported device state and the cadence policy derived from it.
+mod device;
+
 /// Batch exporter actor: timer, OTLP encoding, retry policy.
 mod exporter;
 
@@ -39,8 +45,10 @@ mod transport;
 mod telemetry;
 
 pub use cache::{BatchCache, FileCache, MemoryCache};
+pub use device::*;
 pub use event::*;
 pub use exporter::Exporter;
+pub use stats::TelemetryStats;
 pub use telemetry::*;
 pub use transport::*;
 

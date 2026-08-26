@@ -14,40 +14,33 @@
 
 use std::{
     collections::VecDeque,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
-use crate::TelemetryEvent;
+use crate::{stats::Counters, TelemetryEvent};
 
 /// Bounded FIFO of events waiting for export.
 ///
 /// When full, the *oldest* event is dropped so the freshest context survives a burst
 /// (the queue role of OTel's `BatchLogRecordProcessor`, with drop-oldest instead of
-/// drop-newest). Also keeps the pipeline's own health counter: events dropped anywhere.
+/// drop-newest); every eviction is counted as `queue_full`.
 // ponytail: one mutex around a VecDeque; a lock-free ring only if `emit` shows up in a profile.
 pub(crate) struct Store {
     queue: Mutex<VecDeque<TelemetryEvent>>,
     capacity: usize,
-    dropped: AtomicU64,
+    counters: Arc<Counters>,
 }
 
 impl Store {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            queue: Mutex::new(VecDeque::with_capacity(capacity.min(1024))),
-            capacity,
-            dropped: AtomicU64::new(0),
-        }
+    pub fn new(capacity: usize, counters: Arc<Counters>) -> Self {
+        Self { queue: Mutex::new(VecDeque::with_capacity(capacity.min(1024))), capacity, counters }
     }
 
     pub fn push(&self, event: TelemetryEvent) {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         if queue.len() >= self.capacity {
             queue.pop_front();
-            self.dropped.fetch_add(1, Ordering::Relaxed);
+            Counters::add(&self.counters.queue_full, 1);
         }
         queue.push_back(event);
     }
@@ -58,14 +51,6 @@ impl Store {
         let n = max.min(queue.len());
         queue.drain(..n).collect()
     }
-
-    pub fn add_dropped(&self, n: u64) {
-        self.dropped.fetch_add(n, Ordering::Relaxed);
-    }
-
-    pub fn dropped(&self) -> u64 {
-        self.dropped.load(Ordering::Relaxed)
-    }
 }
 
 #[cfg(test)]
@@ -74,13 +59,14 @@ mod tests {
 
     #[test]
     fn drops_oldest_when_full() {
-        let store = Store::new(2);
+        let counters = Arc::new(Counters::default());
+        let store = Store::new(2, counters.clone());
         for name in ["a", "b", "c"] {
             store.push(TelemetryEvent::new(name));
         }
         let names: Vec<_> = store.drain(10).into_iter().map(|e| e.name).collect();
         assert_eq!(names, ["b", "c"]);
-        assert_eq!(store.dropped(), 1);
+        assert_eq!(counters.snapshot().queue_full, 1);
         assert!(store.drain(10).is_empty());
     }
 }

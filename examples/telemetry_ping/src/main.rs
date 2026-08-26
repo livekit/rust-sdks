@@ -40,5 +40,5 @@ async fn main() {
             .with_attribute("lk.ping.seq", 1i64),
     );
     telemetry.shutdown().await;
-    println!("sent lk.ping to {endpoint} (dropped: {})", telemetry.dropped_count());
+    println!("sent lk.ping to {endpoint}; {:?}", telemetry.stats());
 }
