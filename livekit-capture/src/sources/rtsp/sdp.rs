@@ -68,7 +68,8 @@ pub(super) fn parse_sdp_session(
     expected_codec: Option<EncodedVideoCodec>,
 ) -> Result<SdpSession, RtspVideoSourceError> {
     let session = sdp_types::Session::parse(sdp).map_err(|err| {
-        log::debug!("failed to parse SDP: {err}");
+        // The parser error can quote server-provided bytes; escape them.
+        log::debug!("failed to parse SDP: {}", err.to_string().escape_debug());
         RtspVideoSourceError::InvalidSdp
     })?;
     let session_control = attribute_value(&session.attributes, "control");
