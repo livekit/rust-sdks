@@ -164,6 +164,58 @@ fn rejects_codec_mismatch() {
 }
 
 #[test]
+fn streams_h264_over_rtsps() {
+    let server = RtspTestServer::launch_tls(H264_PIPELINE);
+    let mut source = RtspVideoSource::new_blocking(RtspVideoSourceConfig {
+        codec: Some(EncodedVideoCodec::H264),
+        resolution: Some(TEST_RESOLUTION),
+        // The test server's certificate is self-signed.
+        accept_invalid_tls_certs: true,
+        ..test_config(server.url())
+    })
+    .expect("failed to connect over TLS");
+
+    let access_units = pull_access_units(&mut source, 5);
+    assert_eq!(access_units[0].frame_type, EncodedFrameType::Key);
+    assert_increasing_timestamps(&access_units);
+}
+
+#[test]
+fn rejects_untrusted_tls_certificate() {
+    let server = RtspTestServer::launch_tls(H264_PIPELINE);
+    // Default configuration verifies against the system roots, which must
+    // reject the server's self-signed certificate.
+    let err = RtspVideoSource::new_blocking(RtspVideoSourceConfig {
+        resolution: Some(TEST_RESOLUTION),
+        ..test_config(server.url())
+    })
+    .unwrap_err();
+
+    let message = err.to_string();
+    assert!(
+        message.contains("TLS") || message.contains("certificate"),
+        "unexpected error: {message}"
+    );
+}
+
+#[test]
+fn authenticates_with_digest_over_rtsps() {
+    let server = RtspTestServer::launch_tls_with_digest_auth(H264_PIPELINE, "admin", "secret");
+    let mut source = RtspVideoSource::new_blocking(RtspVideoSourceConfig {
+        username: Some("admin".to_owned()),
+        password: Some("secret".to_owned()),
+        codec: Some(EncodedVideoCodec::H264),
+        resolution: Some(TEST_RESOLUTION),
+        accept_invalid_tls_certs: true,
+        ..test_config(server.url())
+    })
+    .expect("failed to connect with credentials over TLS");
+
+    let first = pull_access_units(&mut source, 1).remove(0);
+    assert_eq!(first.frame_type, EncodedFrameType::Key);
+}
+
+#[test]
 fn authenticates_with_digest() {
     let server = RtspTestServer::launch_with_digest_auth(H264_PIPELINE, "admin", "secret");
 

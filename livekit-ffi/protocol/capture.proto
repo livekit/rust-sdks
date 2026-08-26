@@ -74,8 +74,9 @@ message GstreamerVideoSourceConfig {
 
 // Encoded ingest from an RTSP server over TCP-interleaved RTP.
 message RtspVideoSourceConfig {
-  // RTSP URL (rtsp://host[:port]/path). URL userinfo is accepted and
-  // stripped from requests; `username`/`password` take precedence over it.
+  // RTSP URL (rtsp://host[:port]/path, or rtsps:// when the server is built
+  // with TLS support). URL userinfo is accepted and stripped from requests;
+  // `username`/`password` take precedence over it.
   required string url = 1;
   // Username for RTSP authentication, overriding URL userinfo.
   optional string username = 2;
@@ -92,6 +93,11 @@ message RtspVideoSourceConfig {
   optional uint32 connect_timeout_ms = 6;
   // Maximum tolerated stream silence in milliseconds (default 30000).
   optional uint32 idle_timeout_ms = 7;
+  // Disables TLS certificate verification for rtsps:// URLs. Most cameras
+  // present self-signed certificates, which fail verification against the
+  // system roots. The connection stays encrypted but is not authenticated:
+  // a network attacker could impersonate the camera.
+  optional bool accept_invalid_tls_certs = 8;
 }
 
 // Test patterns built into livekit-capture.

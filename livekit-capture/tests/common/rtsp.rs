@@ -52,13 +52,14 @@ pub struct RtspTestServer {
     main_loop: glib::MainLoop,
     thread: Option<thread::JoinHandle<()>>,
     port: i32,
+    tls: bool,
 }
 
 impl RtspTestServer {
     /// Starts a server streaming `media_pipeline`, which must end in an RTP
     /// payloader named `pay0`.
     pub fn launch(media_pipeline: &str) -> Self {
-        Self::launch_inner(media_pipeline, None)
+        Self::launch_inner(media_pipeline, None, false)
     }
 
     /// Starts a server that requires Digest authentication.
@@ -67,10 +68,25 @@ impl RtspTestServer {
         username: &str,
         password: &str,
     ) -> Self {
-        Self::launch_inner(media_pipeline, Some((username, password)))
+        Self::launch_inner(media_pipeline, Some((username, password)), false)
     }
 
-    fn launch_inner(media_pipeline: &str, digest: Option<(&str, &str)>) -> Self {
+    /// Starts a server that requires TLS (`rtsps://`), presenting a
+    /// freshly generated self-signed certificate.
+    pub fn launch_tls(media_pipeline: &str) -> Self {
+        Self::launch_inner(media_pipeline, None, true)
+    }
+
+    /// Starts a server that requires both TLS and Digest authentication.
+    pub fn launch_tls_with_digest_auth(
+        media_pipeline: &str,
+        username: &str,
+        password: &str,
+    ) -> Self {
+        Self::launch_inner(media_pipeline, Some((username, password)), true)
+    }
+
+    fn launch_inner(media_pipeline: &str, digest: Option<(&str, &str)>, tls: bool) -> Self {
         gst::init().expect("failed to initialize GStreamer");
 
         // Each server runs on its own main context so parallel tests never
@@ -85,17 +101,28 @@ impl RtspTestServer {
         factory.set_launch(&format!("( {media_pipeline} )"));
         factory.set_shared(false);
 
-        if let Some((username, password)) = digest {
+        if digest.is_some() || tls {
             factory.add_role_from_structure(
                 &gst::Structure::builder("user")
                     .field("media.factory.access", true)
                     .field("media.factory.construct", true)
                     .build(),
             );
-            let token = RTSPToken::builder().field("media.factory.role", "user").build();
             let auth = RTSPAuth::new();
-            auth.set_supported_methods(gstreamer_rtsp::RTSPAuthMethod::Digest);
-            auth.add_digest(username, password, &token);
+            if tls {
+                // Once a certificate is set, gst-rtsp-server requires TLS on
+                // every connection to this server instance.
+                auth.set_tls_certificate(Some(&self_signed_certificate()));
+            }
+            if let Some((username, password)) = digest {
+                let token = RTSPToken::builder().field("media.factory.role", "user").build();
+                auth.set_supported_methods(gstreamer_rtsp::RTSPAuthMethod::Digest);
+                auth.add_digest(username, password, &token);
+            } else {
+                // TLS without authentication: admit anonymous clients.
+                let mut token = RTSPToken::builder().field("media.factory.role", "user").build();
+                auth.set_default_token(Some(&mut token));
+            }
             server.set_auth(Some(&auth));
         }
 
@@ -107,7 +134,8 @@ impl RtspTestServer {
         let port = server.bound_port();
         assert!(port > 0, "RTSP server reported no bound port");
         log::info!(
-            "RTSP test server listening at rtsp://127.0.0.1:{port}/test{}",
+            "RTSP test server listening at {}://127.0.0.1:{port}/test{}",
+            if tls { "rtsps" } else { "rtsp" },
             if digest.is_some() { " (digest auth)" } else { "" },
         );
         log::debug!("RTSP test server pipeline: {media_pipeline}");
@@ -129,13 +157,25 @@ impl RtspTestServer {
             thread::sleep(Duration::from_millis(1));
         }
 
-        Self { main_loop, thread: Some(thread), port }
+        Self { main_loop, thread: Some(thread), port, tls }
     }
 
-    /// The stream's RTSP URL.
+    /// The stream's RTSP or RTSPS URL.
     pub fn url(&self) -> String {
-        format!("rtsp://127.0.0.1:{}/test", self.port)
+        let scheme = if self.tls { "rtsps" } else { "rtsp" };
+        format!("{scheme}://127.0.0.1:{}/test", self.port)
     }
+}
+
+/// Generates a fresh self-signed certificate for the test server.
+fn self_signed_certificate() -> gio::TlsCertificate {
+    let certified = rcgen::generate_simple_self_signed(vec![
+        "localhost".to_owned(),
+        "127.0.0.1".to_owned(),
+    ])
+    .expect("failed to generate a self-signed certificate");
+    let pem = format!("{}{}", certified.cert.pem(), certified.key_pair.serialize_pem());
+    gio::TlsCertificate::from_pem(&pem).expect("failed to load the certificate into GIO")
 }
 
 impl Drop for RtspTestServer {
@@ -158,5 +198,6 @@ pub fn test_config(url: String) -> RtspVideoSourceConfig {
         resolution: None,
         connect_timeout_ms: Some(5_000),
         idle_timeout_ms: Some(10_000),
+        accept_invalid_tls_certs: false,
     }
 }

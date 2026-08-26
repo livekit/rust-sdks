@@ -266,6 +266,7 @@ pub fn rtsp_config_from_proto(
         resolution: config.resolution.map(VideoResolution::from),
         connect_timeout_ms: config.connect_timeout_ms,
         idle_timeout_ms: config.idle_timeout_ms,
+        accept_invalid_tls_certs: config.accept_invalid_tls_certs.unwrap_or_default(),
     })
 }
 #[cfg(feature = "capture-gstreamer")]

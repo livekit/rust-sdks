@@ -41,7 +41,7 @@ const MAX_HEADER_BYTES: usize = 64 * 1024;
 /// Bytes requested from the socket per read.
 const READ_CHUNK_BYTES: usize = 8 * 1024;
 
-/// A parsed `rtsp://` URL.
+/// A parsed `rtsp://` or `rtsps://` URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RtspUrl {
     /// Request URI with any userinfo stripped, so credentials never appear
@@ -51,15 +51,21 @@ pub(super) struct RtspUrl {
     pub(super) host_header: String,
     /// Credentials from the URL userinfo, percent-decoded.
     pub(super) credentials: Option<RtspCredentials>,
+    /// Whether the URL requires TLS (`rtsps://`).
+    pub(super) tls: bool,
     connect_host: String,
     port: u16,
 }
 
 impl RtspUrl {
-    /// Parses an `rtsp://[user:password@]host[:port][/path]` URL.
+    /// Parses an `rtsp(s)://[user:password@]host[:port][/path]` URL.
     pub(super) fn parse(url: &str) -> Result<Self, RtspVideoSourceError> {
-        let Some(rest) = url.strip_prefix("rtsp://") else {
-            return Err(RtspVideoSourceError::InvalidUrl("expected rtsp:// scheme"));
+        let (scheme, rest, tls) = if let Some(rest) = url.strip_prefix("rtsp://") {
+            ("rtsp://", rest, false)
+        } else if let Some(rest) = url.strip_prefix("rtsps://") {
+            ("rtsps://", rest, true)
+        } else {
+            return Err(RtspVideoSourceError::InvalidUrl("expected rtsp:// or rtsps:// scheme"));
         };
         let (authority, path_suffix) = match rest.find('/') {
             Some(path_start) => (&rest[..path_start], &rest[path_start..]),
@@ -73,7 +79,8 @@ impl RtspUrl {
         if host_port.is_empty() {
             return Err(RtspVideoSourceError::InvalidUrl("missing host"));
         }
-        let (connect_host, port) = parse_host_port(host_port)?;
+        let default_port = if tls { 322 } else { 554 };
+        let (connect_host, port) = parse_host_port(host_port, default_port)?;
         let host_header = if host_port.contains(':') {
             host_port.to_owned()
         } else {
@@ -81,9 +88,10 @@ impl RtspUrl {
         };
 
         Ok(Self {
-            request_uri: format!("rtsp://{host_port}{path_suffix}"),
+            request_uri: format!("{scheme}{host_port}{path_suffix}"),
             host_header,
             credentials,
+            tls,
             connect_host,
             port,
         })
@@ -123,12 +131,15 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&decoded).into_owned()
 }
 
-fn parse_host_port(host_port: &str) -> Result<(String, u16), RtspVideoSourceError> {
+fn parse_host_port(
+    host_port: &str,
+    default_port: u16,
+) -> Result<(String, u16), RtspVideoSourceError> {
     if let Some(rest) = host_port.strip_prefix('[') {
         let Some((host, after_host)) = rest.split_once(']') else {
             return Err(RtspVideoSourceError::InvalidUrl("malformed IPv6 host"));
         };
-        let port = after_host.strip_prefix(':').map(parse_port).transpose()?.unwrap_or(554);
+        let port = after_host.strip_prefix(':').map(parse_port).transpose()?.unwrap_or(default_port);
         return Ok((host.to_owned(), port));
     }
 
@@ -138,7 +149,7 @@ fn parse_host_port(host_port: &str) -> Result<(String, u16), RtspVideoSourceErro
         }
     }
 
-    Ok((host_port.to_owned(), 554))
+    Ok((host_port.to_owned(), default_port))
 }
 
 fn parse_port(port: &str) -> Result<u16, RtspVideoSourceError> {
@@ -201,10 +212,56 @@ enum StreamFill {
     TimedOut,
 }
 
-/// RTSP connection: owns the TCP stream, the read buffer, the request
+/// The connection's byte stream: plain TCP, or TLS over TCP for `rtsps://`.
+enum Transport {
+    Plain(TcpStream),
+    #[cfg(feature = "source-rtsp-tls")]
+    Tls(Box<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>),
+}
+
+impl Transport {
+    /// The underlying TCP socket, whose timeouts bound every read and write.
+    fn socket(&self) -> &TcpStream {
+        match self {
+            Self::Plain(stream) => stream,
+            #[cfg(feature = "source-rtsp-tls")]
+            Self::Tls(stream) => stream.get_ref(),
+        }
+    }
+}
+
+impl Read for Transport {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.read(buf),
+            #[cfg(feature = "source-rtsp-tls")]
+            Self::Tls(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for Transport {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.write(buf),
+            #[cfg(feature = "source-rtsp-tls")]
+            Self::Tls(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Plain(stream) => stream.flush(),
+            #[cfg(feature = "source-rtsp-tls")]
+            Self::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
+/// RTSP connection: owns the transport stream, the read buffer, the request
 /// sequence number, and the authentication context.
 pub(super) struct RtspClient {
-    stream: TcpStream,
+    stream: Transport,
     buf: BytesMut,
     scratch: Vec<u8>,
     cseq: u32,
@@ -225,13 +282,17 @@ impl fmt::Debug for RtspClient {
 }
 
 impl RtspClient {
-    /// Connects to the URL's host, bounded by `deadline`, and prepares the
-    /// socket for polled reads.
+    /// Connects to the URL's host, bounded by `deadline`, establishes TLS
+    /// for `rtsps://` URLs, and prepares the socket for polled reads.
     pub(super) fn connect(
         url: &RtspUrl,
         credentials: Option<RtspCredentials>,
+        accept_invalid_tls_certs: bool,
         deadline: Instant,
     ) -> Result<Self, RtspVideoSourceError> {
+        #[cfg(not(feature = "source-rtsp-tls"))]
+        let _ = accept_invalid_tls_certs;
+
         let addrs = (url.connect_host.as_str(), url.port).to_socket_addrs()?;
         let mut last_error = None;
         let mut stream = None;
@@ -259,6 +320,19 @@ impl RtspClient {
         }
         stream.set_read_timeout(Some(READ_POLL))?;
         stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
+
+        let stream = match url.tls {
+            false => Transport::Plain(stream),
+            #[cfg(feature = "source-rtsp-tls")]
+            true => Transport::Tls(Box::new(tls::establish(
+                stream,
+                &url.connect_host,
+                accept_invalid_tls_certs,
+                deadline,
+            )?)),
+            #[cfg(not(feature = "source-rtsp-tls"))]
+            true => return Err(RtspVideoSourceError::TlsNotSupported),
+        };
 
         Ok(Self {
             stream,
@@ -427,7 +501,147 @@ impl RtspClient {
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if is_timeout_io_error(&err) => return Ok(StreamFill::TimedOut),
+                // TLS peers that drop the connection without a close_notify
+                // (most cameras) surface as UnexpectedEof; treat it like a
+                // plain EOF and let the caller decide whether the framing
+                // was left mid-unit.
+                Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+                    return Ok(StreamFill::Eof)
+                }
                 Err(err) => return Err(err.into()),
+            }
+        }
+    }
+}
+
+/// TLS support for `rtsps://` URLs.
+#[cfg(feature = "source-rtsp-tls")]
+mod tls {
+    use std::{io, net::TcpStream, sync::Arc, time::Instant};
+
+    use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+    use rustls_pki_types::ServerName;
+
+    use super::{is_timeout_io_error, RtspPhase, RtspVideoSourceError};
+
+    /// Establishes TLS over a connected TCP stream, driving the handshake to
+    /// completion bounded by `deadline`.
+    ///
+    /// The handshake must finish here: afterwards, writes never need to
+    /// read, so the request path's timeout handling stays valid. During the
+    /// handshake, the socket's read timeout is the retry granularity.
+    pub(super) fn establish(
+        stream: TcpStream,
+        host: &str,
+        accept_invalid_certs: bool,
+        deadline: Instant,
+    ) -> Result<StreamOwned<ClientConnection, TcpStream>, RtspVideoSourceError> {
+        let config = client_config(accept_invalid_certs)?;
+        // `ServerName` accepts both DNS names and the IP literals cameras
+        // are usually addressed by.
+        let server_name = ServerName::try_from(host.to_owned())
+            .map_err(|err| RtspVideoSourceError::Tls(err.to_string()))?;
+        let mut connection = ClientConnection::new(Arc::new(config), server_name)
+            .map_err(|err| RtspVideoSourceError::Tls(err.to_string()))?;
+
+        let mut stream = stream;
+        while connection.is_handshaking() {
+            match connection.complete_io(&mut stream) {
+                Ok(_) => {}
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+                Err(err) if is_timeout_io_error(&err) => {
+                    if Instant::now() >= deadline {
+                        return Err(RtspVideoSourceError::Timeout { phase: RtspPhase::Connect });
+                    }
+                }
+                // rustls reports TLS-level handshake failures as InvalidData.
+                Err(err) if err.kind() == io::ErrorKind::InvalidData => {
+                    return Err(RtspVideoSourceError::Tls(err.to_string()));
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Ok(StreamOwned::new(connection, stream))
+    }
+
+    fn client_config(accept_invalid_certs: bool) -> Result<ClientConfig, RtspVideoSourceError> {
+        if accept_invalid_certs {
+            return Ok(ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(Arc::new(danger::NoVerification))
+                .with_no_client_auth());
+        }
+
+        let mut roots = RootCertStore::empty();
+        // Individually unparsable certificates in the OS store are skipped;
+        // an entirely unavailable store is an error.
+        let native = rustls_native_certs::load_native_certs();
+        for cert in native.certs {
+            let _ = roots.add(cert);
+        }
+        if roots.is_empty() {
+            return Err(RtspVideoSourceError::Tls(
+                "no usable system root certificates".to_owned(),
+            ));
+        }
+        Ok(ClientConfig::builder().with_root_certificates(roots).with_no_client_auth())
+    }
+
+    /// Certificate "verification" that accepts anything; see
+    /// [`RtspVideoSourceConfig::accept_invalid_tls_certs`](super::super::RtspVideoSourceConfig::accept_invalid_tls_certs).
+    mod danger {
+        use rustls::{
+            client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+            crypto::{ring, verify_tls12_signature, verify_tls13_signature},
+            DigitallySignedStruct, Error, SignatureScheme,
+        };
+        use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
+
+        #[derive(Debug)]
+        pub(super) struct NoVerification;
+
+        impl ServerCertVerifier for NoVerification {
+            fn verify_server_cert(
+                &self,
+                _end_entity: &CertificateDer<'_>,
+                _intermediates: &[CertificateDer<'_>],
+                _server_name: &ServerName<'_>,
+                _ocsp_response: &[u8],
+                _now: UnixTime,
+            ) -> Result<ServerCertVerified, Error> {
+                Ok(ServerCertVerified::assertion())
+            }
+
+            fn verify_tls12_signature(
+                &self,
+                message: &[u8],
+                cert: &CertificateDer<'_>,
+                dss: &DigitallySignedStruct,
+            ) -> Result<HandshakeSignatureValid, Error> {
+                verify_tls12_signature(
+                    message,
+                    cert,
+                    dss,
+                    &ring::default_provider().signature_verification_algorithms,
+                )
+            }
+
+            fn verify_tls13_signature(
+                &self,
+                message: &[u8],
+                cert: &CertificateDer<'_>,
+                dss: &DigitallySignedStruct,
+            ) -> Result<HandshakeSignatureValid, Error> {
+                verify_tls13_signature(
+                    message,
+                    cert,
+                    dss,
+                    &ring::default_provider().signature_verification_algorithms,
+                )
+            }
+
+            fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+                ring::default_provider().signature_verification_algorithms.supported_schemes()
             }
         }
     }
@@ -559,6 +773,23 @@ mod tests {
                 password: "p@ss/word".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn parses_rtsps_urls() {
+        let url = RtspUrl::parse("rtsps://camera.example/live").unwrap();
+        assert!(url.tls);
+        assert_eq!(url.port, 322);
+        assert_eq!(url.host_header, "camera.example:322");
+        assert_eq!(url.request_uri, "rtsps://camera.example/live");
+
+        let url = RtspUrl::parse("rtsps://admin:secret@camera.example:7441/live").unwrap();
+        assert!(url.tls);
+        assert_eq!(url.port, 7441);
+        assert_eq!(url.request_uri, "rtsps://camera.example:7441/live");
+        assert!(url.credentials.is_some());
+
+        assert!(!RtspUrl::parse("rtsp://camera.example/live").unwrap().tls);
     }
 
     #[test]
