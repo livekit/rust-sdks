@@ -198,7 +198,7 @@ async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<D
     Ok((normalize(list), max_age))
 }
 
-#[cfg(all(feature = "services-async", not(feature = "services-tokio")))]
+#[cfg(all(feature = "__services-isahc", not(feature = "services-tokio")))]
 async fn fetch(base: &Url, headers: &HeaderMap) -> Result<(Vec<String>, Option<Duration>), ()> {
     use isahc::config::Configurable;
     use isahc::AsyncReadResponseExt;

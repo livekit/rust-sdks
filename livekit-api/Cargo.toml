@@ -29,10 +29,17 @@ signal-client = [
 
 signal-client-tokio      = ["signal-client", "livekit-net/native-tokio", "livekit-runtime/tokio"]
 signal-client-async      = ["signal-client", "livekit-net/native-async",      "livekit-runtime/async"]
-signal-client-dispatcher = ["signal-client", "livekit-net/native-dispatcher",  "livekit-runtime/dispatcher"]
+signal-client-smol       = ["signal-client", "livekit-net/native-smol",       "livekit-runtime/smol"]
 
-services-tokio = ["access-token", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
-services-async = ["access-token", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
+services-tokio = ["__services", "access-token", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
+services-smol  = ["__services", "__services-isahc", "access-token", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/smol"]
+services-async = ["__services", "__services-isahc", "access-token", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
+
+# Internal markers, same idea as livekit-net's `__native-*`: "some services
+# backend is enabled" and "its HTTP client is isahc rather than reqwest". They
+# keep the cfgs from having to enumerate every services-* flavor.
+__services = []
+__services-isahc = []
 access-token = ["dep:livekit-token"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 

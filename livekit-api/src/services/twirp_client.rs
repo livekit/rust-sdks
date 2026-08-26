@@ -60,7 +60,7 @@ pub enum ServerError {
     #[cfg(feature = "services-tokio")]
     #[error("failed to execute the request: {0}")]
     Request(#[from] reqwest::Error),
-    #[cfg(feature = "services-async")]
+    #[cfg(feature = "__services-isahc")]
     #[error("failed to execute the request: {0}")]
     Request(#[from] std::io::Error),
     #[error("server error: {0}")]

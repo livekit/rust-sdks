@@ -24,7 +24,7 @@ mod tokio {
 #[cfg(feature = "services-tokio")]
 pub use tokio::*;
 
-#[cfg(feature = "services-async")]
+#[cfg(feature = "__services-isahc")]
 mod async_std {
 
     #[cfg(any(
@@ -131,5 +131,5 @@ mod async_std {
     }
 }
 
-#[cfg(feature = "services-async")]
+#[cfg(feature = "__services-isahc")]
 pub use async_std::*;
