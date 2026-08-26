@@ -18,7 +18,7 @@
 //! with [`RtpDepacketizerError::UnsupportedPayloadDescriptor`].
 
 use super::{RtpAccessUnitAssembler, RtpDepacketizerError, RtpPacket};
-use crate::encoded::EncodedFrameType;
+use crate::{encoded::EncodedFrameType, sources::rtsp::bits::ByteReader};
 
 impl RtpAccessUnitAssembler {
     pub(super) fn push_vp8_payload(
@@ -100,92 +100,77 @@ struct Vp9PayloadDescriptor<'a> {
 fn parse_vp8_payload_descriptor(
     payload: &[u8],
 ) -> Result<Vp8PayloadDescriptor<'_>, RtpDepacketizerError> {
-    let Some(&descriptor) = payload.first() else {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    };
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
+    let mut reader = ByteReader::new(payload);
+
+    let descriptor = reader.get_u8().ok_or_else(malformed)?;
     let start_of_partition = descriptor & 0x10 != 0;
     let partition_id = descriptor & 0x0f;
-    let mut cursor = 1;
     if descriptor & 0x80 != 0 {
-        let Some(&extension) = payload.get(cursor) else {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        };
-        cursor += 1;
+        let extension = reader.get_u8().ok_or_else(malformed)?;
         if extension & 0x80 != 0 {
-            let Some(&picture_id) = payload.get(cursor) else {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            };
-            cursor += if picture_id & 0x80 != 0 { 2 } else { 1 };
+            let picture_id = reader.get_u8().ok_or_else(malformed)?;
+            if picture_id & 0x80 != 0 {
+                reader.skip(1).ok_or_else(malformed)?;
+            }
         }
         if extension & 0x40 != 0 {
-            cursor += 1;
+            reader.skip(1).ok_or_else(malformed)?;
         }
         if extension & 0x20 != 0 || extension & 0x10 != 0 {
-            cursor += 1;
+            reader.skip(1).ok_or_else(malformed)?;
         }
     }
-    if cursor > payload.len() {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    }
-    Ok(Vp8PayloadDescriptor { start_of_partition, partition_id, payload: &payload[cursor..] })
+    Ok(Vp8PayloadDescriptor { start_of_partition, partition_id, payload: reader.take_rest() })
 }
 
 fn parse_vp9_payload_descriptor(
     payload: &[u8],
 ) -> Result<Vp9PayloadDescriptor<'_>, RtpDepacketizerError> {
-    let Some(&descriptor) = payload.first() else {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    };
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
+    let mut reader = ByteReader::new(payload);
+
+    let descriptor = reader.get_u8().ok_or_else(malformed)?;
     if descriptor & 0x10 != 0 {
         return Err(RtpDepacketizerError::UnsupportedPayloadDescriptor);
     }
 
     let beginning_of_frame = descriptor & 0x08 != 0;
     let inter_picture_predicted = descriptor & 0x40 != 0;
-    let mut cursor = 1;
     if descriptor & 0x80 != 0 {
-        let Some(&picture_id) = payload.get(cursor) else {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        };
-        cursor += if picture_id & 0x80 != 0 { 2 } else { 1 };
+        let picture_id = reader.get_u8().ok_or_else(malformed)?;
+        if picture_id & 0x80 != 0 {
+            reader.skip(1).ok_or_else(malformed)?;
+        }
     }
 
     let mut spatial_id = None;
     let mut inter_layer_predicted = None;
     if descriptor & 0x20 != 0 {
-        let Some(&layer_info) = payload.get(cursor) else {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        };
-        cursor += 1;
+        let layer_info = reader.get_u8().ok_or_else(malformed)?;
         spatial_id = Some((layer_info >> 1) & 0x07);
         inter_layer_predicted = Some(layer_info & 0x01 != 0);
-        cursor += 1; // TL0PICIDX is present in non-flexible mode.
+        reader.skip(1).ok_or_else(malformed)?; // TL0PICIDX in non-flexible mode
     }
 
     if descriptor & 0x02 != 0 {
-        skip_vp9_scalability_structure(payload, &mut cursor)?;
+        skip_vp9_scalability_structure(&mut reader)?;
     }
 
-    if cursor > payload.len() {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    }
     Ok(Vp9PayloadDescriptor {
         beginning_of_frame,
         inter_picture_predicted,
         spatial_id,
         inter_layer_predicted,
-        payload: &payload[cursor..],
+        payload: reader.take_rest(),
     })
 }
 
 fn skip_vp9_scalability_structure(
-    payload: &[u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'_>,
 ) -> Result<(), RtpDepacketizerError> {
-    let Some(&structure) = payload.get(*cursor) else {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    };
-    *cursor += 1;
+    let malformed = || RtpDepacketizerError::UnsupportedPayload;
+    let structure = reader.get_u8().ok_or_else(malformed)?;
 
     let spatial_layers = ((structure >> 5) & 0x07) + 1;
     if spatial_layers != 1 {
@@ -193,39 +178,17 @@ fn skip_vp9_scalability_structure(
     }
 
     if structure & 0x10 != 0 {
-        let bytes = usize::from(spatial_layers) * 4;
-        skip_bytes(payload, cursor, bytes)?;
+        reader.skip(usize::from(spatial_layers) * 4).ok_or_else(malformed)?;
     }
 
     if structure & 0x08 != 0 {
-        let Some(&group_count) = payload.get(*cursor) else {
-            return Err(RtpDepacketizerError::UnsupportedPayload);
-        };
-        *cursor += 1;
+        let group_count = reader.get_u8().ok_or_else(malformed)?;
         for _ in 0..group_count {
-            let Some(&group) = payload.get(*cursor) else {
-                return Err(RtpDepacketizerError::UnsupportedPayload);
-            };
-            *cursor += 1;
-            skip_bytes(payload, cursor, usize::from((group >> 2) & 0x03))?;
+            let group = reader.get_u8().ok_or_else(malformed)?;
+            reader.skip(usize::from((group >> 2) & 0x03)).ok_or_else(malformed)?;
         }
     }
 
-    Ok(())
-}
-
-fn skip_bytes(
-    payload: &[u8],
-    cursor: &mut usize,
-    bytes: usize,
-) -> Result<(), RtpDepacketizerError> {
-    let Some(next) = cursor.checked_add(bytes) else {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    };
-    if next > payload.len() {
-        return Err(RtpDepacketizerError::UnsupportedPayload);
-    }
-    *cursor = next;
     Ok(())
 }
 
