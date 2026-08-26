@@ -49,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - move imgproc to main rust-sdks monorepo
+## 0.3.20 (2026-08-25)
+
+### Fixes
+
+- yuv-sys: fail with an actionable error when the libyuv submodule is not initialized
+
 ## 0.3.19 (2026-04-02)
 
 ### Fixes

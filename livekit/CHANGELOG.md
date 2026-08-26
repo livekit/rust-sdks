@@ -257,6 +257,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.8.4 (2026-08-25)
+
+### Features
+
+#### feat: enable WARP (SPED + SNAP) by default, gated by the server
+
+WARP is now always enabled on the client and negotiated with the SFU: SPED
+(DTLS-in-STUN) via the `WebRTC-IceHandshakeDtls` field trial, and SNAP
+(SCTP-INIT-in-SDP) via the `RtcConfiguration.enable_sctp_snap` field. When the
+server does not enable WARP it is not advertised and the connection falls back to
+plain DTLS/SCTP, so there is no client-side toggle.
+
+BREAKING CHANGE: `libwebrtc::RtcConfiguration` is now `#[non_exhaustive]` and has a
+new `enable_sctp_snap` field. Construct it from `RtcConfiguration::default()` and set
+the fields you need instead of a struct literal.
+
+### Fixes
+
+- differentiate signal connection errors correctly from timeouts - #1234 (@lukasIO)
+- Automatically retry webrtc build downloads
+- feat: upgrade libwebrtc to m150. - #1284 (@cloudwebrtc)
+- fix(uniffi): register the Bytes custom type once, in livekit-common - #1343 (@pblazej)
+
+#### fix: bump libwebrtc to webrtc-b9233c3-2 so TURN/TLS can use the OS trust store
+
+WebRTC validates TURN/TLS against a small set of anchors compiled into
+`rtc_base/ssl_roots.h`, generated in 2023 from Google's own PKI list. It has no
+Amazon, Starfield Services or ISRG roots, so a relay-only connection to a TURN
+server fronted by AWS ACM or Let's Encrypt times out with `unknown_ca` even
+though the host OS trusts the chain.
+
+This build picks up webrtc-sdk/webrtc#277, which falls back to the operating
+system's trust store when the built-in anchors yield no path. It sits in
+`rtc_base` below every SDK, so the C++ API that webrtc-sys binds is covered
+without any Rust-side change.
+
+#### Moves access-token generation and verification into a new `livekit-token` crate.
+
+`livekit_api::access_token::*` continues to resolve to the same types via a
+re-export, so no consumer changes are needed.
+
+Also fixes the `services-tokio` and `services-async` features, which used the
+access-token types without declaring the `access-token` feature. Building with
+`--no-default-features --features services-tokio` previously failed to compile.
+
 ## 0.8.3 (2026-08-10)
 
 ### Features
