@@ -26,6 +26,7 @@ capture = ["dep:livekit-capture", "livekit-capture/tokio"]
 capture-clock = ["capture", "livekit-capture/source-clock"]
 capture-gstreamer = ["capture", "livekit-capture/source-gstreamer"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
+capture-rtsp = ["capture", "livekit-capture/source-rtsp"]
 
 [dependencies]
 livekit = { workspace = true }

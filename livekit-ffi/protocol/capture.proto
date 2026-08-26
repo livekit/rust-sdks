@@ -72,6 +72,28 @@ message GstreamerVideoSourceConfig {
   optional GstreamerRateControl rate_control = 4;
 }
 
+// Encoded ingest from an RTSP server over TCP-interleaved RTP.
+message RtspVideoSourceConfig {
+  // RTSP URL (rtsp://host[:port]/path). URL userinfo is accepted and
+  // stripped from requests; `username`/`password` take precedence over it.
+  required string url = 1;
+  // Username for RTSP authentication, overriding URL userinfo.
+  optional string username = 2;
+  // Password for RTSP authentication, overriding URL userinfo.
+  optional string password = 3;
+  // Codec required from the stream; the first supported video track offered
+  // by the SDP is used when omitted.
+  optional VideoCodec codec = 4;
+  // Encoded frame resolution. When omitted, it is discovered from the SDP
+  // when declared there, and from the stream's first keyframe otherwise;
+  // when set, the first keyframe is verified against it.
+  optional VideoSourceResolution resolution = 5;
+  // TCP connect and RTSP handshake timeout in milliseconds (default 10000).
+  optional uint32 connect_timeout_ms = 6;
+  // Maximum tolerated stream silence in milliseconds (default 30000).
+  optional uint32 idle_timeout_ms = 7;
+}
+
 // Test patterns built into livekit-capture.
 enum Pattern {
   // Animated color gradient.
@@ -137,6 +159,7 @@ message NewCaptureSourceRequest {
     GstreamerVideoSourceConfig gstreamer = 1;
     PatternVideoSourceConfig pattern = 2;
     ClockVideoSourceConfig clock = 5;
+    RtspVideoSourceConfig rtsp = 6;
   }
   optional uint64 request_async_id = 3;
 }

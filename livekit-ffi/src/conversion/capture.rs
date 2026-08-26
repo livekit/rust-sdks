@@ -15,7 +15,11 @@
 use crate::proto;
 use livekit_capture::{encoded::EncodedVideoCodec, primitive::VideoResolution};
 
-#[cfg(any(feature = "capture-gstreamer", feature = "capture-pattern"))]
+#[cfg(any(
+    feature = "capture-gstreamer",
+    feature = "capture-pattern",
+    feature = "capture-rtsp"
+))]
 use crate::{FfiError, FfiResult};
 #[cfg(feature = "capture-clock")]
 use livekit_capture::sources::clock::ClockVideoSourceConfig;
@@ -25,6 +29,8 @@ use livekit_capture::sources::gstreamer::{
 };
 #[cfg(feature = "capture-pattern")]
 use livekit_capture::sources::pattern::{Pattern, PatternVideoSourceConfig};
+#[cfg(feature = "capture-rtsp")]
+use livekit_capture::sources::rtsp::RtspVideoSourceConfig;
 
 impl From<proto::VideoSourceResolution> for VideoResolution {
     fn from(resolution: proto::VideoSourceResolution) -> Self {
@@ -65,7 +71,7 @@ impl From<proto::GstreamerBitrateUnit> for GStreamerBitrateUnit {
     }
 }
 
-#[cfg(feature = "capture-gstreamer")]
+#[cfg(any(feature = "capture-gstreamer", feature = "capture-rtsp"))]
 pub fn video_codec_from_proto(codec: proto::VideoCodec) -> EncodedVideoCodec {
     match codec {
         proto::VideoCodec::H264 => EncodedVideoCodec::H264,
@@ -87,6 +93,30 @@ pub fn video_codec_to_proto(codec: EncodedVideoCodec) -> Option<proto::VideoCode
         // are simply not reported.
         _ => None,
     }
+}
+
+#[cfg(feature = "capture-rtsp")]
+pub fn rtsp_config_from_proto(
+    config: proto::RtspVideoSourceConfig,
+) -> FfiResult<RtspVideoSourceConfig> {
+    let codec = config
+        .codec
+        .map(|value| {
+            proto::VideoCodec::try_from(value)
+                .map(video_codec_from_proto)
+                .map_err(|_| FfiError::InvalidRequest("invalid codec".into()))
+        })
+        .transpose()?;
+
+    Ok(RtspVideoSourceConfig {
+        url: config.url,
+        username: config.username,
+        password: config.password,
+        codec,
+        resolution: config.resolution.map(VideoResolution::from),
+        connect_timeout_ms: config.connect_timeout_ms,
+        idle_timeout_ms: config.idle_timeout_ms,
+    })
 }
 
 #[cfg(feature = "capture-gstreamer")]
