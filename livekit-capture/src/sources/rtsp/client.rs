@@ -24,6 +24,7 @@ use std::{
 };
 
 use bytes::{Buf, Bytes, BytesMut};
+use rtsp_types::{headers, HeaderName, Message, Method, ParseError, Url, Version};
 
 use super::{auth::RtspAuthContext, auth::RtspCredentials, RtspPhase, RtspVideoSourceError};
 
@@ -35,8 +36,10 @@ const READ_POLL: Duration = Duration::from_millis(100);
 /// connection is gone.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Upper bound on an RTSP response header.
-const MAX_HEADER_BYTES: usize = 64 * 1024;
+/// Upper bound on one buffered-but-incomplete RTSP message. Interleaved
+/// frames are at most 4 + 65535 bytes, and responses are far smaller, so an
+/// incomplete message larger than this means the framing is corrupt.
+const MAX_PENDING_MESSAGE_BYTES: usize = 128 * 1024;
 
 /// Bytes requested from the socket per read.
 const READ_CHUNK_BYTES: usize = 8 * 1024;
@@ -47,8 +50,6 @@ pub(super) struct RtspUrl {
     /// Request URI with any userinfo stripped, so credentials never appear
     /// on the wire outside the `Authorization` header.
     pub(super) request_uri: String,
-    /// Value for the `Host` header, always including the port.
-    pub(super) host_header: String,
     /// Credentials from the URL userinfo, percent-decoded.
     pub(super) credentials: Option<RtspCredentials>,
     /// Whether the URL requires TLS (`rtsps://`).
@@ -81,15 +82,9 @@ impl RtspUrl {
         }
         let default_port = if tls { 322 } else { 554 };
         let (connect_host, port) = parse_host_port(host_port, default_port)?;
-        let host_header = if host_port.contains(':') {
-            host_port.to_owned()
-        } else {
-            format!("{host_port}:{port}")
-        };
 
         Ok(Self {
             request_uri: format!("{scheme}{host_port}{path_suffix}"),
-            host_header,
             credentials,
             tls,
             connect_host,
@@ -166,6 +161,19 @@ pub(super) struct RtspResponse {
 }
 
 impl RtspResponse {
+    /// Converts a parsed `rtsp-types` response into the client's view.
+    fn from_message(response: rtsp_types::Response<Vec<u8>>) -> Self {
+        Self {
+            status_code: response.status().into(),
+            reason: response.reason_phrase().to_owned(),
+            headers: response
+                .headers()
+                .map(|(name, value)| (name.as_str().to_owned(), value.as_str().to_owned()))
+                .collect(),
+            body: response.into_body(),
+        }
+    }
+
     pub(super) fn is_success(&self) -> bool {
         (200..300).contains(&self.status_code)
     }
@@ -266,8 +274,8 @@ pub(super) struct RtspClient {
     scratch: Vec<u8>,
     cseq: u32,
     auth: RtspAuthContext,
-    host_header: String,
     last_read_at: Instant,
+    logged_server_request: bool,
 }
 
 // Manual so the read buffer's contents are not dumped; the authentication
@@ -275,7 +283,6 @@ pub(super) struct RtspClient {
 impl fmt::Debug for RtspClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RtspClient")
-            .field("host_header", &self.host_header)
             .field("cseq", &self.cseq)
             .finish_non_exhaustive()
     }
@@ -340,8 +347,8 @@ impl RtspClient {
             scratch: vec![0; READ_CHUNK_BYTES],
             cseq: 1,
             auth: RtspAuthContext::new(credentials),
-            host_header: url.host_header.clone(),
             last_read_at: Instant::now(),
+            logged_server_request: false,
         })
     }
 
@@ -380,29 +387,33 @@ impl RtspClient {
         &mut self,
         method: &str,
         uri: &str,
-        headers: &[(&str, &str)],
+        extra_headers: &[(&str, &str)],
     ) -> Result<(), RtspVideoSourceError> {
-        use fmt::Write as _;
-
         let cseq = self.cseq;
         self.cseq = self.cseq.saturating_add(1);
         let authorization = self.auth.header(method, uri)?;
+        let request_uri = Url::parse(uri)
+            .map_err(|_| RtspVideoSourceError::InvalidUrl("request URI is not a valid URL"))?;
 
-        let mut request = String::with_capacity(256);
-        // Writing to a `String` cannot fail.
-        let _ = write!(request, "{method} {uri} RTSP/1.0\r\n");
-        let _ = write!(request, "CSeq: {cseq}\r\n");
-        let _ = write!(request, "User-Agent: livekit-capture/0.1\r\n");
-        let _ = write!(request, "Host: {}\r\n", self.host_header);
+        let mut request = rtsp_types::Request::builder(request_method(method), Version::V1_0)
+            .request_uri(request_uri)
+            .header(headers::CSEQ, cseq.to_string())
+            .header(headers::USER_AGENT, "livekit-capture/0.1".to_owned());
         if let Some(authorization) = authorization {
-            let _ = write!(request, "Authorization: {authorization}\r\n");
+            request = request.header(headers::AUTHORIZATION, authorization);
         }
-        for (name, value) in headers {
-            let _ = write!(request, "{name}: {value}\r\n");
+        for (name, value) in extra_headers {
+            // Header names come from this crate's own call sites.
+            let name = HeaderName::try_from(*name).expect("static header names are valid");
+            request = request.header(name, (*value).to_owned());
         }
-        request.push_str("\r\n");
 
-        self.stream.write_all(request.as_bytes())?;
+        let mut bytes = Vec::with_capacity(256);
+        request
+            .empty()
+            .write(&mut bytes)
+            .map_err(|err| RtspVideoSourceError::Io(io::Error::other(err)))?;
+        self.stream.write_all(&bytes)?;
         self.stream.flush()?;
         Ok(())
     }
@@ -414,9 +425,26 @@ impl RtspClient {
         phase: RtspPhase,
     ) -> Result<RtspResponse, RtspVideoSourceError> {
         loop {
-            if let Some((response, consumed)) = parse_response(&self.buf)? {
-                self.buf.advance(consumed);
-                return Ok(response);
+            if !self.buf.is_empty() {
+                match Message::parse(&self.buf) {
+                    Ok((message, consumed)) => {
+                        self.buf.advance(consumed);
+                        match message {
+                            Message::Response(response) => {
+                                return Ok(RtspResponse::from_message(response));
+                            }
+                            Message::Data(_) | Message::Request(_) => {
+                                return Err(RtspVideoSourceError::InvalidResponse(
+                                    "expected a response",
+                                ));
+                            }
+                        }
+                    }
+                    Err(ParseError::Incomplete(_)) => self.check_pending_size()?,
+                    Err(ParseError::Error) => {
+                        return Err(RtspVideoSourceError::InvalidResponse("malformed response"));
+                    }
+                }
             }
             match self.fill()? {
                 StreamFill::Filled => {}
@@ -430,6 +458,14 @@ impl RtspClient {
                 }
             }
         }
+    }
+
+    /// Fails when a still-incomplete message exceeds the framing bound.
+    fn check_pending_size(&self) -> Result<(), RtspVideoSourceError> {
+        if self.buf.len() > MAX_PENDING_MESSAGE_BYTES {
+            return Err(RtspVideoSourceError::InvalidResponse("message too large"));
+        }
+        Ok(())
     }
 
     /// Reads the next interleaved unit, returning within roughly one
@@ -461,31 +497,43 @@ impl RtspClient {
 
     /// Parses one complete unit from the front of the buffer.
     fn parse_front(&mut self) -> Result<Option<InterleavedPoll>, RtspVideoSourceError> {
-        let Some(&magic) = self.buf.first() else {
-            return Ok(None);
-        };
-        match magic {
-            b'$' => {
-                if self.buf.len() < 4 {
-                    return Ok(None);
-                }
-                let channel = self.buf[1];
-                let payload_len = u16::from_be_bytes([self.buf[2], self.buf[3]]) as usize;
-                if self.buf.len() < 4 + payload_len {
-                    return Ok(None);
-                }
-                self.buf.advance(4);
-                let payload = self.buf.split_to(payload_len).freeze();
-                Ok(Some(InterleavedPoll::Frame { channel, payload }))
+        loop {
+            if self.buf.is_empty() {
+                return Ok(None);
             }
-            b'R' => match parse_response(&self.buf)? {
-                Some((response, consumed)) => {
+            match Message::parse(&self.buf) {
+                Ok((message, consumed)) => {
                     self.buf.advance(consumed);
-                    Ok(Some(InterleavedPoll::Response(response)))
+                    match message {
+                        Message::Data(data) => {
+                            let channel = data.channel_id();
+                            let payload = Bytes::from(data.into_body());
+                            return Ok(Some(InterleavedPoll::Frame { channel, payload }));
+                        }
+                        Message::Response(response) => {
+                            return Ok(Some(InterleavedPoll::Response(
+                                RtspResponse::from_message(response),
+                            )));
+                        }
+                        Message::Request(request) => {
+                            // Some servers send requests (ANNOUNCE, keepalive
+                            // checks) to the client mid-stream; ignore them.
+                            if !self.logged_server_request {
+                                self.logged_server_request = true;
+                                log::warn!(
+                                    "ignoring in-band RTSP {:?} request from the server",
+                                    request.method(),
+                                );
+                            }
+                        }
+                    }
                 }
-                None => Ok(None),
-            },
-            _ => Err(RtspVideoSourceError::UnexpectedData),
+                Err(ParseError::Incomplete(_)) => {
+                    self.check_pending_size()?;
+                    return Ok(None);
+                }
+                Err(ParseError::Error) => return Err(RtspVideoSourceError::UnexpectedData),
+            }
         }
     }
 
@@ -651,69 +699,26 @@ fn is_timeout_io_error(err: &io::Error) -> bool {
     matches!(err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
-/// Parses one RTSP response from the front of `buf`, returning the response
-/// and the bytes it consumed, or `Ok(None)` when more bytes are needed.
-fn parse_response(buf: &[u8]) -> Result<Option<(RtspResponse, usize)>, RtspVideoSourceError> {
-    let Some(header_end) = find_header_end(buf) else {
-        if buf.len() > MAX_HEADER_BYTES {
-            return Err(RtspVideoSourceError::InvalidResponse("header too large"));
-        }
-        return Ok(None);
-    };
-
-    let header_text = str::from_utf8(&buf[..header_end])
-        .map_err(|_| RtspVideoSourceError::InvalidResponse("header is not UTF-8"))?;
-    let mut lines = header_text.split("\r\n");
-    let status_line =
-        lines.next().ok_or(RtspVideoSourceError::InvalidResponse("missing status line"))?;
-    let mut status_parts = status_line.splitn(3, ' ');
-    if status_parts.next() != Some("RTSP/1.0") {
-        return Err(RtspVideoSourceError::InvalidResponse("unsupported version"));
+/// Maps a request method from this crate's own call sites to its typed form.
+fn request_method(method: &str) -> Method {
+    match method {
+        "DESCRIBE" => Method::Describe,
+        "SETUP" => Method::Setup,
+        "PLAY" => Method::Play,
+        "OPTIONS" => Method::Options,
+        "TEARDOWN" => Method::Teardown,
+        other => Method::Extension(other.to_owned()),
     }
-    let status_code = status_parts
-        .next()
-        .ok_or(RtspVideoSourceError::InvalidResponse("missing status code"))?
-        .parse()
-        .map_err(|_| RtspVideoSourceError::InvalidResponse("invalid status code"))?;
-    let reason = status_parts.next().unwrap_or_default().to_owned();
-
-    let mut headers = Vec::new();
-    for line in lines {
-        let Some((name, value)) = line.split_once(':') else {
-            return Err(RtspVideoSourceError::InvalidResponse("malformed header"));
-        };
-        headers.push((name.trim().to_owned(), value.trim().to_owned()));
-    }
-
-    let content_length = headers
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
-        .map(|(_, value)| value.parse::<usize>())
-        .transpose()
-        .map_err(|_| RtspVideoSourceError::InvalidResponse("invalid content length"))?
-        .unwrap_or(0);
-    let body_start = header_end + 4;
-    let Some(consumed) = body_start.checked_add(content_length) else {
-        return Err(RtspVideoSourceError::InvalidResponse("invalid content length"));
-    };
-    if buf.len() < consumed {
-        return Ok(None);
-    }
-    let body = buf[body_start..consumed].to_vec();
-
-    Ok(Some((RtspResponse { status_code, reason, headers, body }, consumed)))
-}
-
-/// Finds the end of the response header (the start of `\r\n\r\n`).
-fn find_header_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4).take(MAX_HEADER_BYTES).position(|window| window == b"\r\n\r\n")
 }
 
 #[cfg(test)]
 impl RtspResponse {
     /// Parses one complete response, for tests in sibling modules.
     pub(super) fn parse_for_tests(bytes: &[u8]) -> Self {
-        parse_response(bytes).expect("invalid response").expect("incomplete response").0
+        match Message::parse(bytes).expect("invalid response") {
+            (Message::Response(response), _) => Self::from_message(response),
+            (other, _) => panic!("expected a response, got {other:?}"),
+        }
     }
 }
 
@@ -764,7 +769,6 @@ mod tests {
         let url = RtspUrl::parse("rtsp://admin:secret@camera.example:554/live").unwrap();
 
         assert_eq!(url.request_uri, "rtsp://camera.example:554/live");
-        assert_eq!(url.host_header, "camera.example:554");
         assert_eq!(
             url.credentials,
             Some(RtspCredentials { username: "admin".to_owned(), password: "secret".to_owned() })
@@ -788,7 +792,6 @@ mod tests {
         let url = RtspUrl::parse("rtsps://camera.example/live").unwrap();
         assert!(url.tls);
         assert_eq!(url.port, 322);
-        assert_eq!(url.host_header, "camera.example:322");
         assert_eq!(url.request_uri, "rtsps://camera.example/live");
 
         let url = RtspUrl::parse("rtsps://admin:secret@camera.example:7441/live").unwrap();
@@ -804,7 +807,6 @@ mod tests {
     fn defaults_to_port_554() {
         let url = RtspUrl::parse("rtsp://camera.example/live").unwrap();
         assert_eq!(url.port, 554);
-        assert_eq!(url.host_header, "camera.example:554");
         assert_eq!(url.request_uri, "rtsp://camera.example/live");
     }
 
@@ -813,7 +815,6 @@ mod tests {
         let url = RtspUrl::parse("rtsp://[2001:db8::1]:8554/live").unwrap();
         assert_eq!(url.connect_host, "2001:db8::1");
         assert_eq!(url.port, 8554);
-        assert_eq!(url.host_header, "[2001:db8::1]:8554");
         assert_eq!(url.request_uri, "rtsp://[2001:db8::1]:8554/live");
     }
 
@@ -838,34 +839,48 @@ mod tests {
     }
 
     #[test]
-    fn parses_response_with_body_and_reports_consumed_bytes() {
-        let bytes =
-            b"RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 4\r\n\r\nbody$leftover";
-        let (response, consumed) = parse_response(bytes).unwrap().unwrap();
+    fn rejects_oversized_incomplete_message() {
+        use std::{net::TcpListener, thread};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // Claim a body far larger than the framing bound, stream past
+            // the bound without completing it, then stall.
+            stream
+                .write_all(b"RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 999999\r\n\r\n")
+                .unwrap();
+            stream.write_all(&vec![b'a'; MAX_PENDING_MESSAGE_BYTES + 8 * 1024]).unwrap();
+            stream.flush().unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+
+        let url = RtspUrl::parse(&format!("rtsp://{addr}/test")).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut client = RtspClient::connect(&url, None, false, deadline).unwrap();
+        let err = client
+            .request("DESCRIBE", &url.request_uri, &[], deadline, RtspPhase::Describe)
+            .unwrap_err();
+
+        assert!(
+            matches!(err, RtspVideoSourceError::InvalidResponse("message too large")),
+            "unexpected error: {err:?}"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn converts_parsed_responses() {
+        let response = RtspResponse::parse_for_tests(
+            b"RTSP/1.0 200 OK\r\nCSeq: 1\r\nContent-Length: 4\r\n\r\nbody",
+        );
 
         assert_eq!(response.status_code, 200);
         assert_eq!(response.reason, "OK");
         assert_eq!(response.header("cseq"), Some("1"));
         assert_eq!(response.body, b"body");
-        assert_eq!(&bytes[consumed..], b"$leftover");
-    }
-
-    #[test]
-    fn incomplete_response_needs_more_bytes() {
-        assert!(parse_response(b"RTSP/1.0 200 OK\r\nCSeq:").unwrap().is_none());
-        assert!(parse_response(b"RTSP/1.0 200 OK\r\nContent-Length: 4\r\n\r\nbo")
-            .unwrap()
-            .is_none());
-    }
-
-    #[test]
-    fn rejects_oversized_header() {
-        let mut bytes = b"RTSP/1.0 200 OK\r\n".to_vec();
-        bytes.resize(MAX_HEADER_BYTES + 8, b'a');
-        assert!(matches!(
-            parse_response(&bytes),
-            Err(RtspVideoSourceError::InvalidResponse("header too large"))
-        ));
+        assert!(response.is_success());
     }
 
     #[test]
