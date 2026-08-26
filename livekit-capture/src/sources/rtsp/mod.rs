@@ -317,6 +317,13 @@ impl RtspVideoSource {
         if url.tls {
             return Err(RtspVideoSourceError::TlsNotSupported);
         }
+        if url.tls && config.accept_invalid_tls_certs {
+            log::warn!(
+                "TLS certificate verification is disabled for {}; \
+                 the connection is encrypted but the server is not authenticated",
+                url.request_uri,
+            );
+        }
         let credentials = merge_credentials(&config, &url);
         let connect_timeout = duration_ms(config.connect_timeout_ms, DEFAULT_CONNECT_TIMEOUT);
         let idle_timeout = duration_ms(config.idle_timeout_ms, DEFAULT_IDLE_TIMEOUT);
