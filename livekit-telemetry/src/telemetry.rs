@@ -18,8 +18,8 @@ use livekit_runtime::timeout;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    event::now_unix_nanos, exporter::Command, persist::FileCache, store::Store, Attribute,
-    Exporter, TelemetryEvent, TelemetryTransport,
+    event::now_unix_nanos, exporter::Command, store::Store, Attribute, BatchCache, Exporter,
+    FileCache, MemoryCache, TelemetryEvent, TelemetryTransport,
 };
 
 /// Pipeline configuration.
@@ -37,13 +37,13 @@ pub struct TelemetryConfig {
     /// Resource attributes describing the emitter (`service.name`, `os.name`,
     /// `device.model.identifier`, `session.id`, …). `telemetry.sdk.*` are filled in by the core.
     pub resource: Vec<Attribute>,
-    /// Directory for the on-disk cache of undeliverable batches (created if missing). `None`
-    /// disables persistence: batches that fail after retries are dropped.
+    /// Directory for the on-disk batch cache (created if missing; its parent must exist).
+    /// `None` keeps batches in memory only: they survive failed uploads, not the process.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub storage_dir: Option<String>,
-    /// Cap on the on-disk cache; the oldest batches are evicted first.
+    /// Cap on cached batches, in memory or on disk; the oldest are evicted first.
     #[cfg_attr(feature = "uniffi", uniffi(default = 4194304))]
-    pub max_storage_bytes: u64,
+    pub max_cache_bytes: u64,
     #[cfg_attr(feature = "uniffi", uniffi(default = 1000))]
     pub flush_interval_ms: u64,
     /// Events buffered before the oldest are dropped.
@@ -58,14 +58,14 @@ pub struct TelemetryConfig {
 }
 
 impl TelemetryConfig {
-    /// Defaults for the given endpoint; no persistence.
+    /// Defaults for the given endpoint; in-memory cache.
     pub fn new(endpoint: impl Into<String>) -> Self {
         Self {
             endpoint: endpoint.into(),
             headers: HashMap::new(),
             resource: Vec::new(),
             storage_dir: None,
-            max_storage_bytes: 4 * 1024 * 1024,
+            max_cache_bytes: 4 * 1024 * 1024,
             flush_interval_ms: 1000,
             max_queue_size: 2048,
             max_batch_size: 512,
@@ -105,22 +105,33 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
-    /// Build the pipeline. Spawn the returned [`Exporter`] with `exporter.run()` on your runtime.
-    ///
-    /// An unusable `storage_dir` is logged and persistence is skipped — never an error.
+    /// Build the pipeline with the cache the config asks for: a [`FileCache`] in `storage_dir`,
+    /// or a [`MemoryCache`] when unset — or when the directory is unusable (logged, never an
+    /// error). Spawn the returned [`Exporter`] with `exporter.run()` on your runtime.
     pub fn new(
-        mut config: TelemetryConfig,
+        config: TelemetryConfig,
         transport: Arc<dyn TelemetryTransport>,
     ) -> (Self, Exporter) {
+        let cache: Arc<dyn BatchCache> = match config.storage_dir.as_deref() {
+            Some(dir) => match FileCache::open(dir, config.max_cache_bytes) {
+                Ok(cache) => Arc::new(cache),
+                Err(err) => {
+                    log::warn!("telemetry: cannot use storage dir {dir}: {err}; caching in memory");
+                    Arc::new(MemoryCache::new(config.max_cache_bytes))
+                }
+            },
+            None => Arc::new(MemoryCache::new(config.max_cache_bytes)),
+        };
+        Self::with_cache(config, transport, cache)
+    }
+
+    /// Build the pipeline around a caller-provided [`BatchCache`] (`storage_dir` is ignored).
+    pub fn with_cache(
+        mut config: TelemetryConfig,
+        transport: Arc<dyn TelemetryTransport>,
+        cache: Arc<dyn BatchCache>,
+    ) -> (Self, Exporter) {
         add_sdk_resource(&mut config.resource);
-        let cache = config.storage_dir.as_deref().and_then(|dir| {
-            FileCache::open(dir, config.max_storage_bytes)
-                .map(Arc::new)
-                .map_err(|err| {
-                    log::warn!("telemetry: cannot use storage dir {dir}: {err}; not persisting")
-                })
-                .ok()
-        });
         let config = Arc::new(config);
         let store = Arc::new(Store::new(config.max_queue_size.max(1) as usize));
         let (commands, receiver) = mpsc::unbounded_channel();
@@ -136,20 +147,21 @@ impl Telemetry {
         self.store.push(event);
     }
 
-    /// Export everything queued and wait until the transport accepted (or the exporter gave up on) it.
+    /// Cache everything queued and upload what the transport accepts right now.
     pub async fn flush(&self) {
         self.command(Command::Flush).await;
     }
 
     /// Flush, then stop the exporter. Bounded by `export_timeout_ms`; events emitted afterwards
-    /// are never exported. With `storage_dir` set, queued events are written to disk before the
-    /// network is tried, so nothing is lost if the process dies mid-way.
+    /// are never exported. Queued events reach the cache before the network is tried, so with
+    /// a [`FileCache`] nothing is lost if the process dies mid-way.
     pub async fn shutdown(&self) {
         let bound = Duration::from_millis(self.config.export_timeout_ms.max(1));
         let _ = timeout(bound, self.command(Command::Shutdown)).await;
     }
 
-    /// Events dropped so far (queue overflow, rejected/throttled/failed exports, disabled collector).
+    /// Events dropped so far (queue overflow, cache failure, rejected or throttled batches,
+    /// disabled collector).
     pub fn dropped_count(&self) -> u64 {
         self.store.dropped()
     }
@@ -185,7 +197,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        persist::temp_dir,
+        cache::temp_dir,
         proto::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest, ExportError,
         ExportRequest,
     };
@@ -220,6 +232,10 @@ mod tests {
         Err(ExportError::Retryable { message: "offline".into(), retry_after_ms: None })
     }
 
+    fn offline_forever() -> impl Iterator<Item = Result<(), ExportError>> {
+        std::iter::repeat_with(offline).take(64)
+    }
+
     fn pipeline(transport: Arc<FakeTransport>) -> Telemetry {
         start(TelemetryConfig::new("http://collector/v1/logs"), transport)
     }
@@ -240,6 +256,15 @@ mod tests {
         fs::read_dir(dir).map(|d| d.count()).unwrap_or(0)
     }
 
+    fn event_names(request: &ExportRequest) -> Vec<String> {
+        let decoded = ExportLogsServiceRequest::decode(&request.body[..]).expect("valid OTLP");
+        decoded.resource_logs[0].scope_logs[0]
+            .log_records
+            .iter()
+            .map(|r| r.event_name.clone())
+            .collect()
+    }
+
     #[tokio::test(start_paused = true)]
     async fn batches_events_into_one_otlp_request() {
         let transport = FakeTransport::scripted([]);
@@ -253,24 +278,28 @@ mod tests {
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].url, "http://collector/v1/logs");
         assert_eq!(sent[0].headers["Content-Type"], "application/x-protobuf");
+        assert_eq!(event_names(&sent[0]), ["lk.ping"; 3]);
         let decoded = ExportLogsServiceRequest::decode(&sent[0].body[..]).expect("valid OTLP");
-        let records = &decoded.resource_logs[0].scope_logs[0].log_records;
-        assert_eq!(records.len(), 3);
-        assert!(records.iter().all(|r| r.event_name == "lk.ping" && r.time_unix_nano > 0));
         let resource = decoded.resource_logs[0].resource.as_ref().expect("resource");
         assert!(resource.attributes.iter().any(|kv| kv.key == "telemetry.sdk.name"));
         assert_eq!(telemetry.dropped_count(), 0);
     }
 
     #[tokio::test(start_paused = true)]
-    async fn retries_transient_failures_then_drops_without_storage() {
+    async fn failed_upload_waits_in_memory_and_is_retried_after_backoff() {
         let transport = FakeTransport::scripted([offline(), offline(), offline()]);
         let telemetry = pipeline(transport.clone());
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 3, "first attempt plus two retries");
+        assert_eq!(telemetry.dropped_count(), 0, "kept in the memory cache, not dropped");
 
-        assert_eq!(transport.sent().len(), 3);
-        assert_eq!(telemetry.dropped_count(), 1);
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 3, "backoff: no upload right away");
+
+        tokio::time::sleep(Duration::from_secs(61)).await;
+        assert_eq!(transport.sent().len(), 4, "retried once the backoff elapsed");
+        assert_eq!(event_names(&transport.sent()[3]), ["lk.ping"]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -299,38 +328,46 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn failed_batch_is_persisted_and_replayed_on_next_start() {
+    async fn batch_is_written_before_upload_and_replayed_on_next_start() {
         let dir = temp_dir("replay");
-        let first_transport = FakeTransport::scripted(std::iter::repeat_with(offline).take(12));
+        let first_transport = FakeTransport::scripted(offline_forever());
         let first = persisted_pipeline(first_transport.clone(), &dir);
         first.emit(TelemetryEvent::new("lk.ping"));
         first.flush().await;
         assert_eq!(first_transport.sent().len(), 3);
-        assert_eq!(first.dropped_count(), 0, "persisted, not dropped");
-        assert_eq!(files_in(&dir), 1);
+        assert_eq!(first.dropped_count(), 0);
+        assert_eq!(files_in(&dir), 1, "written before the first attempt, kept after failure");
 
         let second_transport = FakeTransport::scripted([]);
         let second = persisted_pipeline(second_transport.clone(), &dir);
         second.flush().await;
         let sent = second_transport.sent();
         assert_eq!(sent.len(), 1, "replayed on start");
-        let decoded = ExportLogsServiceRequest::decode(&sent[0].body[..]).expect("valid OTLP");
-        assert_eq!(decoded.resource_logs[0].scope_logs[0].log_records[0].event_name, "lk.ping");
+        assert_eq!(event_names(&sent[0]), ["lk.ping"]);
         assert_eq!(files_in(&dir), 0);
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[tokio::test(start_paused = true)]
-    async fn throttled_batch_is_dropped_not_persisted() {
+    async fn throttling_keeps_cached_batches_and_drops_new_ones() {
         let dir = temp_dir("throttle");
         let throttled =
-            || Err(ExportError::Retryable { message: "429".into(), retry_after_ms: Some(1000) });
-        let transport = FakeTransport::scripted([throttled(), throttled(), throttled()]);
+            Err(ExportError::Retryable { message: "429".into(), retry_after_ms: Some(5_000) });
+        let transport = FakeTransport::scripted([throttled]);
         let telemetry = persisted_pipeline(transport.clone(), &dir);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "no retries on Retry-After");
+        assert_eq!(files_in(&dir), 1, "the throttled batch stays cached");
+        assert_eq!(telemetry.dropped_count(), 0);
 
-        assert_eq!(telemetry.dropped_count(), 1);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(telemetry.dropped_count(), 1, "new batches are dropped inside the window");
+        assert_eq!(files_in(&dir), 1, "and never written");
+
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(transport.sent().len(), 2, "cached batch uploaded after Retry-After");
         assert_eq!(files_in(&dir), 0);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -338,13 +375,30 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn shutdown_offline_keeps_queue_on_disk() {
         let dir = temp_dir("spill");
-        let transport = FakeTransport::scripted(std::iter::repeat_with(offline).take(12));
+        let transport = FakeTransport::scripted(offline_forever());
         let telemetry = persisted_pipeline(transport.clone(), &dir);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.shutdown().await;
 
-        assert_eq!(files_in(&dir), 1, "spilled before the network was tried, kept after it failed");
+        assert_eq!(files_in(&dir), 1, "cached before the network was tried, kept after it failed");
         assert_eq!(telemetry.dropped_count(), 0);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn custom_cache_is_used_as_is() {
+        let cache = Arc::new(MemoryCache::new(1 << 20));
+        let transport = FakeTransport::scripted(offline_forever());
+        let (telemetry, exporter) = Telemetry::with_cache(
+            TelemetryConfig::new("http://collector/v1/logs"),
+            transport,
+            cache.clone(),
+        );
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let pending = cache.pending();
+        assert_eq!(pending.len(), 1);
+        assert!(pending[0].ends_with("-1"), "id carries the event count: {}", pending[0]);
     }
 }

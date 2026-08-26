@@ -9,20 +9,17 @@ once — batching, encoding, retry, persistence, go-silent — while platforms p
 they are uniquely placed to: instruments (OS signals) and the byte-moving transport.
 
 ```text
- SDK / instruments ──emit()──▶ Telemetry ──▶ Store ──drain──▶ Exporter ──ExportRequest──▶ TelemetryTransport
-                              (source)      (bounded queue)   (tick · OTLP encode · retry)    (NetTransport | host HTTP | data channel …)
-                                                                   │ failed after retries
-                                                                   ▼
-                                                              FileCache (one file per encoded batch, replayed oldest-first)
+ SDK / instruments ──emit()──▶ Telemetry ──▶ Store ──drain──▶ Exporter ──push──▶ BatchCache ──upload oldest-first──▶ TelemetryTransport
+                              (source)      (events)          (tick · encode)   (MemoryCache | FileCache | yours)   (NetTransport | host HTTP | data channel …)
 ```
 
 | Layer | OTel equivalent | Type |
 |---|---|---|
 | source | `Logger.emit` | [`Telemetry::emit`] with [`TelemetryEvent`] |
-| store | `BatchLogRecordProcessor` queue | `Store` (in-memory, drop-oldest) |
+| store | `BatchLogRecordProcessor` queue | `Store` (in-memory events, drop-oldest) |
 | sink | `BatchLogRecordProcessor` timer + `LogRecordExporter` | [`Exporter`] (actor, spawn `run()`) |
+| cache | disk-buffering exporter wrapper | [`BatchCache`] trait: [`MemoryCache`] (default), [`FileCache`] (`storage_dir`), or your own via [`Telemetry::with_cache`] |
 | transport | exporter's HTTP client | [`TelemetryTransport`] trait; `NetTransport` over `livekit-net` (feature `net`) |
-| persistence | disk-buffering exporter wrapper | `FileCache` (opt-in via `storage_dir`) |
 
 ## Usage
 
@@ -36,7 +33,7 @@ let (telemetry, exporter) = Telemetry::new(config, Arc::new(transport));
 tokio::spawn(exporter.run());
 
 telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.ping.seq", 1i64));
-telemetry.shutdown().await; // spill to disk, then flush; bounded by `export_timeout_ms`
+telemetry.shutdown().await; // cache, then upload what the network allows; bounded by `export_timeout_ms`
 ```
 
 Event names and attributes are defined in [`SPEC.md`](SPEC.md).
@@ -58,16 +55,19 @@ start it again and run once more to watch the cached batch replay.
 - **Typed events in the store, OTLP at the edge.** Events are stored as [`TelemetryEvent`], not
   pre-serialized bytes: batches need grouping under one resource/scope, batch-time attributes
   can be attached, and a human-readable dump is a `Debug`/JSON view away.
-- **Persistence is a file cache at the exporter, not a database.** What every client SDK does:
-  Sentry (envelope files, capped count, oldest evicted), Datadog (batch files, 5 MB/file,
-  18 h max age), opentelemetry-android disk-buffering (`.tmp` → rename, 1 MB files, 10 MB dir),
-  Amplitude/Segment (delimited JSON files, ~1 MB / 475 KB rotation). We persist the *encoded*
-  request body: nothing to re-encode on replay, URL/headers recomposed from the current config
-  (rotated tokens just work), zero dependencies. Throttled (`Retry-After`), rejected and
-  disabled data is never written (persistence must not become a disk-backed retry queue).
-  `shutdown` spills the queue to disk before trying the network, so an app killed offline
-  loses nothing. Age is derived from file names, not file timestamps (an Apple
-  required-reason API).
+- **Write-ahead cache between exporter and transport.** Every batch is encoded and pushed to
+  the [`BatchCache`] *before* the network is tried, then uploaded oldest-first and removed on
+  success — the shape every client SDK converges on (Sentry envelopes, Datadog batch files,
+  opentelemetry-android disk buffering, Amplitude/Segment event files). The exporter only knows
+  the trait: [`MemoryCache`] by default (failed uploads wait for the next attempt, lost with the
+  process), [`FileCache`] with `storage_dir` (survives crashes; the next launch replays), or a
+  caller-provided implementation. Cached bodies are ready-to-send OTLP with URL/headers
+  recomposed at upload time, so a rotated token just works. A failed upload pauses the cache
+  for a minute; a `Retry-After` keeps cached batches but drops new ones for its duration
+  (throttling must not become a disk-backed queue); `Disabled` empties the cache. `FileCache`
+  writes `.tmp` → rename, evicts oldest above `max_cache_bytes`, expires after 24 h using the
+  timestamp in the file name (not file metadata — an Apple required-reason API), and treats a
+  full disk as a counted drop with a single warning.
 - **Transport is the only injection point.** The core composes URL, headers and body; the
   transport moves bytes and reports [`ExportError`] so the core alone decides retry / drop /
   persist / go-silent. No Rust HTTP/TLS stack is linked unless the `net` feature is enabled.

@@ -26,8 +26,8 @@ mod exporter;
 /// OTLP/HTTP protobuf encoding of a batch.
 mod otlp;
 
-/// On-disk cache of undeliverable batches.
-mod persist;
+/// Queue of encoded batches between the exporter and the transport (memory or disk).
+mod cache;
 
 /// OTLP protobuf types (re-exported from `opentelemetry-proto`).
 mod proto;
@@ -38,6 +38,7 @@ mod transport;
 /// Entry point and configuration.
 mod telemetry;
 
+pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use event::*;
 pub use exporter::Exporter;
 pub use telemetry::*;

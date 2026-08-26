@@ -18,47 +18,46 @@ use livekit_runtime::{interval, sleep, timeout, Instant, MissedTickBehavior};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    otlp, persist::FileCache, store::Store, ExportError, ExportRequest, TelemetryConfig,
-    TelemetryEvent, TelemetryTransport,
+    event::now_unix_nanos, otlp, store::Store, BatchCache, ExportError, ExportRequest,
+    TelemetryConfig, TelemetryTransport,
 };
 
-/// Retries per batch after the first attempt. Fixed for now; see [`Exporter::deliver`].
+/// Retries per upload attempt after the first, for failures without `Retry-After`.
 const MAX_RETRIES: u32 = 2;
 const RETRY_BACKOFF: Duration = Duration::from_secs(1);
-const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
-/// Pause before the on-disk cache is retried after a failed replay (Sentry: stop consuming the
+/// Pause before the cache is tried again after a failed upload (Sentry: stop consuming the
 /// cache until `Retry-After` elapses; here also for plain connectivity failures).
-const REPLAY_BACKOFF: Duration = Duration::from_secs(60);
+const UPLOAD_BACKOFF: Duration = Duration::from_secs(60);
 
 pub(crate) enum Command {
     Flush(oneshot::Sender<()>),
     Shutdown(oneshot::Sender<()>),
 }
 
-/// Outcome of delivering one encoded batch, after retries.
+/// Outcome of uploading one encoded batch.
 enum Delivery {
     Sent,
-    /// Transient failure (network, timeout, 5xx) — worth keeping for later.
+    /// Transient failure (network, timeout, 5xx) after retries — keep the batch.
     Failed,
-    /// The collector asked us to back off (`Retry-After`) — dropped, never persisted.
-    Throttled,
+    /// The collector asked us to back off; keep the batch, drop new ones meanwhile.
+    Throttled {
+        retry_after: Option<Duration>,
+    },
     Rejected,
     Disabled,
 }
 
 /// Background actor that turns stored events into OTLP requests.
 ///
-/// The role of OTel's `BatchLogRecordProcessor` + OTLP exporter in one place: every
-/// `flush_interval_ms` it drains up to `max_batch_size` events, encodes them, and hands the
-/// request to the [`TelemetryTransport`]. Transient failures are retried with a bounded
-/// backoff (honoring `Retry-After`), rejected batches are dropped, and once the collector
-/// reports telemetry as disabled the exporter goes silent for good — dropping instead of
-/// retrying, so a disabled project never sees a request storm.
-///
-/// With `storage_dir` configured, batches that still fail after retries are written to a
-/// [`FileCache`] and replayed oldest-first on the next tick (after a backoff) and on the next
-/// launch; `shutdown` spills whatever is queued to disk *before* trying the network, so an app
-/// being killed offline loses nothing. Throttled, rejected and disabled data is never persisted.
+/// The role of OTel's `BatchLogRecordProcessor` + OTLP exporter in one place. Every
+/// `flush_interval_ms` it [`enqueue`](Self::enqueue)s: drains up to `max_batch_size` events,
+/// encodes them and writes the batch to the [`BatchCache`] *before* any network is involved;
+/// then it [`upload`](Self::upload)s the cache oldest-first through the
+/// [`TelemetryTransport`], removing what the collector accepted or rejected. A failed upload
+/// pauses the cache for a minute; a `Retry-After` additionally drops new batches for its
+/// duration (throttling must not become a disk-backed queue); `Disabled` empties the cache and
+/// silences the exporter for good. With a [`FileCache`](crate::FileCache) this is crash- and
+/// restart-safe; with the default [`MemoryCache`](crate::MemoryCache) it is process-bound.
 ///
 /// Drive it with `spawn(exporter.run())` on the consumer's runtime. It stops after
 /// [`Telemetry::shutdown`](crate::Telemetry::shutdown) or when the last
@@ -67,12 +66,16 @@ pub struct Exporter {
     store: Arc<Store>,
     transport: Arc<dyn TelemetryTransport>,
     config: Arc<TelemetryConfig>,
-    cache: Option<Arc<FileCache>>,
+    cache: Arc<dyn BatchCache>,
     commands: mpsc::UnboundedReceiver<Command>,
     silenced: bool,
-    replay_after: Option<Instant>,
+    /// Leave the cache alone until then: the last upload failed or we were throttled.
+    paused_until: Option<Instant>,
+    /// Drop new batches until then (`Retry-After` window).
+    throttled_until: Option<Instant>,
+    seq: u64,
     /// Batches the cache could not store (disk full, directory unusable). Drives one-shot logging.
-    persist_failures: u64,
+    cache_failures: u64,
 }
 
 impl Exporter {
@@ -80,7 +83,7 @@ impl Exporter {
         store: Arc<Store>,
         transport: Arc<dyn TelemetryTransport>,
         config: Arc<TelemetryConfig>,
-        cache: Option<Arc<FileCache>>,
+        cache: Arc<dyn BatchCache>,
         commands: mpsc::UnboundedReceiver<Command>,
     ) -> Self {
         Self {
@@ -90,35 +93,38 @@ impl Exporter {
             cache,
             commands,
             silenced: false,
-            replay_after: None,
-            persist_failures: 0,
+            paused_until: None,
+            throttled_until: None,
+            seq: 0,
+            cache_failures: 0,
         }
     }
 
-    /// Run until shut down. Replays persisted batches, then exports on every tick and on demand.
+    /// Run until shut down: replay whatever the cache holds, then export on every tick and on
+    /// demand.
     pub async fn run(mut self) {
-        self.replay().await;
+        self.upload().await;
         let mut ticker = interval(Duration::from_millis(self.config.flush_interval_ms.max(1)));
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
         loop {
             tokio::select! {
-                _ = ticker.tick() => {
-                    self.replay().await;
-                    self.export_pending(false).await;
-                }
+                _ = ticker.tick() => self.export_pending().await,
                 command = self.commands.recv() => match command {
                     Some(Command::Flush(done)) => {
-                        self.export_pending(true).await;
+                        self.export_pending().await;
                         let _ = done.send(());
                     }
                     Some(Command::Shutdown(done)) => {
-                        self.shutdown().await;
+                        // Last chance: ignore the upload backoff, but respect throttling.
+                        self.paused_until = self.throttled_until;
+                        self.export_pending().await;
                         let _ = done.send(());
                         return;
                     }
                     // Every `Telemetry` handle is gone.
                     None => {
-                        self.shutdown().await;
+                        self.paused_until = self.throttled_until;
+                        self.export_pending().await;
                         return;
                     }
                 },
@@ -126,82 +132,65 @@ impl Exporter {
         }
     }
 
-    /// Final flush. With a cache: spill everything to disk first (cheap, local), then send as
-    /// much as the network allows — whatever remains is replayed on the next launch.
-    async fn shutdown(&mut self) {
-        if self.cache.is_some() && !self.silenced {
-            self.spill();
-            self.replay_after = None;
-            self.replay().await;
-        } else {
-            self.export_pending(true).await;
-        }
+    async fn export_pending(&mut self) {
+        self.enqueue();
+        self.upload().await;
     }
 
-    /// Export one batch, or everything queued when `drain_all` is set.
-    async fn export_pending(&mut self, drain_all: bool) {
-        loop {
-            let batch = self.store.drain(self.config.max_batch_size.max(1) as usize);
-            if batch.is_empty() {
-                return;
-            }
-            self.export(batch).await;
-            if !drain_all {
-                return;
-            }
-        }
-    }
-
-    async fn export(&mut self, batch: Vec<TelemetryEvent>) {
-        let count = batch.len() as u64;
-        if self.silenced {
-            self.store.add_dropped(count);
-            return;
-        }
-        let body = otlp::encode_logs(&self.config.resource, batch);
-        match self.deliver(&body).await {
-            Delivery::Sent => {}
-            Delivery::Failed => {
-                self.persist_or_drop(&body, count);
-                // The network just failed; do not hammer it with the cache on the next tick.
-                self.replay_after = Some(Instant::now() + REPLAY_BACKOFF);
-            }
-            Delivery::Throttled | Delivery::Rejected => self.store.add_dropped(count),
-            Delivery::Disabled => {
-                self.silence();
-                self.store.add_dropped(count);
-            }
-        }
-    }
-
-    /// Encode everything queued straight to disk, without touching the network.
-    fn spill(&mut self) {
+    /// Encode everything queued into the cache — no network involved.
+    fn enqueue(&mut self) {
         loop {
             let batch = self.store.drain(self.config.max_batch_size.max(1) as usize);
             if batch.is_empty() {
                 return;
             }
             let count = batch.len() as u64;
+            if self.silenced || self.throttled_until.is_some_and(|t| Instant::now() < t) {
+                self.store.add_dropped(count);
+                continue;
+            }
             let body = otlp::encode_logs(&self.config.resource, batch);
-            self.persist_or_drop(&body, count);
+            self.seq += 1;
+            let id = format!("{:020}-{:06}-{count}", now_unix_nanos(), self.seq);
+            if let Err(err) = self.cache.push(&id, &body) {
+                // A full disk is a steady state, not an event: warn once, then stay quiet.
+                if self.cache_failures == 0 {
+                    log::warn!(
+                        "telemetry: cannot cache batches ({err}); dropping until it recovers"
+                    );
+                } else {
+                    log::debug!("telemetry: could not cache {count} events: {err}");
+                }
+                self.cache_failures += 1;
+                self.store.add_dropped(count);
+            }
         }
     }
 
-    /// Send persisted batches oldest-first until one fails; then back off.
-    async fn replay(&mut self) {
-        let Some(cache) = self.cache.clone() else { return };
-        if self.silenced || self.replay_after.is_some_and(|t| Instant::now() < t) {
+    /// Send cached batches oldest-first until one fails; then back off.
+    async fn upload(&mut self) {
+        if self.silenced || self.paused_until.is_some_and(|t| Instant::now() < t) {
             return;
         }
-        for path in cache.pending() {
-            let Ok(body) = cache.read(&path) else {
-                cache.remove(&path);
+        for id in self.cache.pending() {
+            let Some(body) = self.cache.read(&id) else {
+                self.cache.remove(&id);
                 continue;
             };
             match self.deliver(&body).await {
-                Delivery::Sent | Delivery::Rejected => cache.remove(&path),
-                Delivery::Failed | Delivery::Throttled => {
-                    self.replay_after = Some(Instant::now() + REPLAY_BACKOFF);
+                Delivery::Sent => self.cache.remove(&id),
+                Delivery::Rejected => {
+                    self.cache.remove(&id);
+                    self.store.add_dropped(events_in(&id));
+                }
+                Delivery::Failed => {
+                    self.paused_until = Some(Instant::now() + UPLOAD_BACKOFF);
+                    return;
+                }
+                Delivery::Throttled { retry_after } => {
+                    let until = Instant::now() + retry_after.unwrap_or(UPLOAD_BACKOFF);
+                    self.paused_until = Some(until);
+                    self.throttled_until = Some(until);
                     return;
                 }
                 Delivery::Disabled => {
@@ -212,38 +201,16 @@ impl Exporter {
         }
     }
 
-    fn persist_or_drop(&mut self, body: &[u8], count: u64) {
-        match self.cache.as_deref().map(|cache| cache.store(body)) {
-            Some(Ok(())) => log::debug!("telemetry: persisted {count} events for later delivery"),
-            Some(Err(err)) => {
-                // Disk full is a steady state, not an event: warn once, then stay quiet.
-                if self.persist_failures == 0 {
-                    log::warn!(
-                        "telemetry: cannot persist events ({err}); dropping until it recovers"
-                    );
-                } else {
-                    log::debug!("telemetry: could not persist {count} events: {err}");
-                }
-                self.persist_failures += 1;
-                self.store.add_dropped(count);
-            }
-            None => {
-                log::warn!("telemetry: export failed, dropping {count} events");
-                self.store.add_dropped(count);
-            }
-        }
-    }
-
-    /// Telemetry is disabled for this project: never send again, and never replay what is on disk.
+    /// Telemetry is disabled for this project: never send again, and never replay what is cached.
     fn silence(&mut self) {
         log::warn!("telemetry disabled by the collector; going silent");
         self.silenced = true;
-        if let Some(cache) = &self.cache {
-            cache.clear();
-        }
+        let cached: u64 = self.cache.pending().iter().map(|id| events_in(id)).sum();
+        self.store.add_dropped(cached);
+        self.cache.clear();
     }
 
-    /// Deliver one encoded batch with bounded retries and classify the outcome.
+    /// Upload one encoded batch with bounded retries and classify the outcome.
     async fn deliver(&self, body: &[u8]) -> Delivery {
         let mut headers = self.config.headers.clone();
         headers.insert("Content-Type".to_owned(), otlp::CONTENT_TYPE.to_owned());
@@ -251,38 +218,34 @@ impl Exporter {
             ExportRequest { url: self.config.endpoint.clone(), headers, body: body.to_vec() };
         let attempt_timeout = Duration::from_millis(self.config.export_timeout_ms.max(1));
 
-        // ponytail: linear backoff, 2 retries, blocks the tick loop while sleeping (bounded by
-        // MAX_RETRIES × MAX_RETRY_DELAY). Exponential + jitter once real fleets exercise this.
-        let mut throttled = false;
+        // ponytail: linear backoff, 2 retries, blocks the tick loop while sleeping (≤ 3 s).
+        // Exponential + jitter once real fleets exercise this.
         for attempt in 0..=MAX_RETRIES {
-            let delay = match timeout(attempt_timeout, self.transport.send(request.clone())).await {
+            match timeout(attempt_timeout, self.transport.send(request.clone())).await {
                 Ok(Ok(())) => return Delivery::Sent,
                 Ok(Err(ExportError::Disabled)) => return Delivery::Disabled,
                 Ok(Err(ExportError::Rejected { message })) => {
                     log::warn!("telemetry batch rejected: {message}");
                     return Delivery::Rejected;
                 }
-                Ok(Err(ExportError::Retryable { message, retry_after_ms })) => {
-                    log::debug!("telemetry export failed (attempt {}): {message}", attempt + 1);
-                    throttled = retry_after_ms.is_some();
-                    retry_after_ms
-                        .map(Duration::from_millis)
-                        .unwrap_or(RETRY_BACKOFF * (attempt + 1))
+                Ok(Err(ExportError::Retryable { message, retry_after_ms: Some(ms) })) => {
+                    log::debug!("telemetry throttled for {ms} ms: {message}");
+                    return Delivery::Throttled { retry_after: Some(Duration::from_millis(ms)) };
                 }
-                Err(_) => {
-                    log::debug!("telemetry export timed out (attempt {})", attempt + 1);
-                    throttled = false;
-                    RETRY_BACKOFF * (attempt + 1)
+                Ok(Err(ExportError::Retryable { message, retry_after_ms: None })) => {
+                    log::debug!("telemetry upload failed (attempt {}): {message}", attempt + 1);
                 }
-            };
+                Err(_) => log::debug!("telemetry upload timed out (attempt {})", attempt + 1),
+            }
             if attempt < MAX_RETRIES {
-                sleep(delay.min(MAX_RETRY_DELAY)).await;
+                sleep(RETRY_BACKOFF * (attempt + 1)).await;
             }
         }
-        if throttled {
-            Delivery::Throttled
-        } else {
-            Delivery::Failed
-        }
+        Delivery::Failed
     }
+}
+
+/// The event count the exporter encodes as the last component of a batch id.
+fn events_in(id: &str) -> u64 {
+    id.rsplit('-').next().and_then(|n| n.parse().ok()).unwrap_or(0)
 }
