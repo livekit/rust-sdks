@@ -22,7 +22,8 @@
 use std::sync::Arc;
 
 use livekit_telemetry::{
-    DeviceState, TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport,
+    AttributeValue, DeviceState, RtcStatsSample, TelemetryConfig, TelemetryEvent, TelemetryStats,
+    TelemetryTransport,
 };
 
 /// Telemetry pipeline: buffer, batch, cache and export events as OTLP.
@@ -47,6 +48,17 @@ impl Telemetry {
     /// `lk.device.*.changed` events and adapts the export cadence.
     pub fn set_device_state(&self, state: DeviceState) {
         self.0.set_device_state(state);
+    }
+
+    /// Set (or, with `None`, remove) a session-wide attribute attached to every record from now
+    /// on: `lk.room.sid`, `lk.participant.identity`, or the app's own correlation ids.
+    pub fn set_attribute(&self, key: String, value: Option<AttributeValue>) {
+        self.0.set_attribute(&key, value);
+    }
+
+    /// Push one `getStats()` reading for a track; windowed on device into `lk.rtc.stats.sample`.
+    pub fn record_stats(&self, sample: RtcStatsSample) {
+        self.0.record_stats(sample);
     }
 
     /// Export everything queued and wait for the transport.

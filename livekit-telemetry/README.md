@@ -33,6 +33,11 @@ let (telemetry, exporter) = Telemetry::new(config, Arc::new(transport));
 tokio::spawn(exporter.run());
 
 telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.ping.seq", 1i64));
+telemetry.emit(TelemetryEvent::new("").with_severity(Severity::Error).with_body("connect failed")); // log record
+let mut sample = RtcStatsSample::new("TR_abc", TrackKind::Audio, StreamDirection::Inbound);
+sample.bytes = Some(48_000);
+sample.jitter_ms = Some(12.0);
+telemetry.record_stats(sample); // every 1–2 s; shipped as one lk.rtc.stats.sample per 15 s window
 telemetry.set_device_state(DeviceState { thermal: ThermalState::Serious, ..Default::default() });
 telemetry.shutdown().await; // cache, then upload what the network allows; bounded by `export_timeout_ms`
 println!("{:?}", telemetry.stats()); // drops by reason, uploads, cached batches
@@ -70,6 +75,15 @@ start it again and run once more to watch the cached batch replay.
   writes `.tmp` → rename, evicts oldest above `max_cache_bytes`, expires after 24 h using the
   timestamp in the file name (not file metadata — an Apple required-reason API), and treats a
   full disk as a counted drop with a single warning.
+- **Logs are records, events have names.** A `TelemetryEvent` with an empty `name` is a plain
+  OTLP log record (`severity` + `body`); only `Warn`/`Error` leave the device, `emit` drops the
+  rest. Discrete events are capped at `max_events_per_10min` (300, the design doc's flood
+  guard); RTC windows and self-telemetry are exempt.
+- **RTC stats are windowed on device.** Platforms push raw `getStats()` readings as
+  [`RtcStatsSample`]s every 1–2 s; the core ships one `lk.rtc.stats.sample` per track and
+  direction per `stats_window_ms` (15 s, stretched with the cadence) — cumulative counters as
+  the last value (monotonic, W3C webrtc-stats model), gauges as min/max/avg. Windows close early
+  on background and shutdown.
 - **Self-telemetry rides along.** Counters for every way data can be lost (`queue_full`,
   `cache_error`, `rejected`, `throttled`, `disabled`) and for uploads (`sent`, `failures`) are
   readable via [`Telemetry::stats`] and shipped as an `lk.telemetry.report` event appended to

@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use livekit_runtime::{interval, sleep, timeout, Instant, MissedTickBehavior};
 use tokio::{
@@ -23,10 +26,11 @@ use tokio::{
 use crate::{
     event::now_unix_nanos,
     otlp,
+    rtc::StatsWindows,
     stats::{Counters, Snapshot},
     store::Store,
-    AppState, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
-    TelemetryTransport,
+    AppState, Attribute, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
+    TelemetryEvent, TelemetryTransport,
 };
 
 /// Retries per upload attempt after the first, for failures without `Retry-After`.
@@ -79,6 +83,9 @@ pub struct Exporter {
     config: Arc<TelemetryConfig>,
     cache: Arc<dyn BatchCache>,
     counters: Arc<Counters>,
+    windows: Arc<Mutex<StatsWindows>>,
+    /// Session-wide attributes merged into every record at encode time.
+    attributes: Arc<Mutex<Vec<Attribute>>>,
     commands: mpsc::UnboundedReceiver<Command>,
     silenced: bool,
     /// Leave the cache alone until then: the last upload failed or we were throttled.
@@ -94,12 +101,16 @@ pub struct Exporter {
 }
 
 impl Exporter {
+    // Wiring, not an API: every handle is shared with `Telemetry`, which owns their creation.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         store: Arc<Store>,
         transport: Arc<dyn TelemetryTransport>,
         config: Arc<TelemetryConfig>,
         cache: Arc<dyn BatchCache>,
         counters: Arc<Counters>,
+        windows: Arc<Mutex<StatsWindows>>,
+        attributes: Arc<Mutex<Vec<Attribute>>>,
         commands: mpsc::UnboundedReceiver<Command>,
     ) -> Self {
         Self {
@@ -108,6 +119,8 @@ impl Exporter {
             config,
             cache,
             counters,
+            windows,
+            attributes,
             commands,
             silenced: false,
             paused_until: None,
@@ -123,10 +136,12 @@ impl Exporter {
     /// demand.
     pub async fn run(mut self) {
         self.upload().await;
-        let mut ticker = self.ticker();
+        let mut ticker = self.ticker(self.config.flush_interval_ms);
+        let mut stats_ticker = self.window_ticker();
         loop {
             tokio::select! {
                 _ = ticker.tick() => self.export_pending().await,
+                _ = stats_ticker.tick() => self.close_windows(),
                 command = self.commands.recv() => match command {
                     Some(Command::Flush(done)) => {
                         self.export_pending().await;
@@ -136,15 +151,20 @@ impl Exporter {
                         let factor = state.cadence_factor();
                         if factor != self.cadence_factor {
                             self.cadence_factor = factor;
-                            ticker = self.ticker();
+                            ticker = self.ticker(self.config.flush_interval_ms);
+                            stats_ticker = self.window_ticker();
                         }
                         if state.app_state == AppState::Background {
+                            // The app may be suspended any moment: close the RTC windows and
+                            // get everything into the cache (and out, if the network allows).
+                            self.close_windows();
                             self.export_pending().await;
                         }
                     }
                     Some(Command::Shutdown(done)) => {
                         // Last chance: ignore the upload backoff, but respect throttling.
                         self.paused_until = self.throttled_until;
+                        self.close_windows();
                         self.export_pending().await;
                         let _ = done.send(());
                         return;
@@ -152,6 +172,7 @@ impl Exporter {
                     // Every `Telemetry` handle is gone.
                     None => {
                         self.paused_until = self.throttled_until;
+                        self.close_windows();
                         self.export_pending().await;
                         return;
                     }
@@ -160,12 +181,32 @@ impl Exporter {
         }
     }
 
-    fn ticker(&self) -> Interval {
-        let period =
-            Duration::from_millis(self.config.flush_interval_ms.max(1)) * self.cadence_factor;
+    /// A ticker at `base_ms × cadence_factor`.
+    fn ticker(&self, base_ms: u64) -> Interval {
+        let period = Duration::from_millis(base_ms.max(1)) * self.cadence_factor;
         let mut ticker = interval(period);
         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
         ticker
+    }
+
+    /// The stats-window ticker. Unlike `interval`, whose first tick is immediate, the first window
+    /// closes a full period after it opens — otherwise readings taken before the first tick
+    /// would ship as a zero-length window.
+    fn window_ticker(&self) -> Interval {
+        let period =
+            Duration::from_millis(self.config.stats_window_ms.max(1)) * self.cadence_factor;
+        let mut ticker = tokio::time::interval_at(Instant::now() + period, period);
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        ticker
+    }
+
+    /// Turn every open RTC stats window into its `lk.rtc.stats.sample` event. Windows bypass the
+    /// flood guard: they are the pipeline's own, bounded output.
+    fn close_windows(&mut self) {
+        let events = self.windows.lock().unwrap_or_else(|e| e.into_inner()).close();
+        for event in events {
+            self.store.push(event);
+        }
     }
 
     async fn export_pending(&mut self) {
@@ -196,6 +237,7 @@ impl Exporter {
                 batch.push(delta.report(self.cache.pending().len() as u64));
                 self.last_report = now;
             }
+            self.attach_session_attributes(&mut batch);
             let count = batch.len() as u64;
             let body = otlp::encode_logs(&self.config.resource, batch);
             self.seq += 1;
@@ -211,6 +253,21 @@ impl Exporter {
                 }
                 self.cache_failures += 1;
                 Counters::add(&self.counters.cache_error, count);
+            }
+        }
+    }
+
+    /// Merge the session-wide attributes into each record, without overriding explicit ones.
+    fn attach_session_attributes(&self, batch: &mut [TelemetryEvent]) {
+        let session = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
+        if session.is_empty() {
+            return;
+        }
+        for event in batch {
+            for attribute in session.iter() {
+                if !event.attributes.iter().any(|a| a.key == attribute.key) {
+                    event.attributes.push(attribute.clone());
+                }
             }
         }
     }

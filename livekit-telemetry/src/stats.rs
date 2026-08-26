@@ -33,6 +33,8 @@ pub(crate) struct Counters {
     pub throttled: AtomicU64,
     /// Events dropped after the collector disabled telemetry.
     pub disabled: AtomicU64,
+    /// Discrete events dropped by the flood guard (`max_events_per_10min`).
+    pub rate_limited: AtomicU64,
     /// Batches the collector accepted.
     pub uploads_sent: AtomicU64,
     /// Upload attempts that failed transiently (network, timeout, 5xx).
@@ -52,6 +54,7 @@ impl Counters {
             rejected: get(&self.rejected),
             throttled: get(&self.throttled),
             disabled: get(&self.disabled),
+            rate_limited: get(&self.rate_limited),
             uploads_sent: get(&self.uploads_sent),
             upload_failures: get(&self.upload_failures),
         }
@@ -66,6 +69,7 @@ pub(crate) struct Snapshot {
     pub rejected: u64,
     pub throttled: u64,
     pub disabled: u64,
+    pub rate_limited: u64,
     pub uploads_sent: u64,
     pub upload_failures: u64,
 }
@@ -79,6 +83,7 @@ impl Snapshot {
             rejected: self.rejected.saturating_sub(earlier.rejected),
             throttled: self.throttled.saturating_sub(earlier.throttled),
             disabled: self.disabled.saturating_sub(earlier.disabled),
+            rate_limited: self.rate_limited.saturating_sub(earlier.rate_limited),
             uploads_sent: self.uploads_sent.saturating_sub(earlier.uploads_sent),
             upload_failures: self.upload_failures.saturating_sub(earlier.upload_failures),
         }
@@ -86,7 +91,12 @@ impl Snapshot {
 
     /// Anything worth telling the backend about: data lost or uploads failing.
     pub fn has_problems(&self) -> bool {
-        self.queue_full + self.cache_error + self.rejected + self.throttled + self.upload_failures
+        self.queue_full
+            + self.cache_error
+            + self.rejected
+            + self.throttled
+            + self.rate_limited
+            + self.upload_failures
             > 0
     }
 
@@ -103,6 +113,7 @@ impl Snapshot {
             ("lk.telemetry.dropped.cache_error", self.cache_error),
             ("lk.telemetry.dropped.rejected", self.rejected),
             ("lk.telemetry.dropped.throttled", self.throttled),
+            ("lk.telemetry.dropped.rate_limited", self.rate_limited),
         ] {
             if value > 0 {
                 event = event.with_attribute(key, value as i64);
@@ -123,6 +134,7 @@ pub struct TelemetryStats {
     pub dropped_rejected: u64,
     pub dropped_throttled: u64,
     pub dropped_disabled: u64,
+    pub dropped_rate_limited: u64,
     /// Batches the collector accepted.
     pub uploads_sent: u64,
     /// Upload attempts that failed transiently.
@@ -138,12 +150,14 @@ impl TelemetryStats {
                 + snapshot.cache_error
                 + snapshot.rejected
                 + snapshot.throttled
-                + snapshot.disabled,
+                + snapshot.disabled
+                + snapshot.rate_limited,
             dropped_queue_full: snapshot.queue_full,
             dropped_cache_error: snapshot.cache_error,
             dropped_rejected: snapshot.rejected,
             dropped_throttled: snapshot.throttled,
             dropped_disabled: snapshot.disabled,
+            dropped_rate_limited: snapshot.rate_limited,
             uploads_sent: snapshot.uploads_sent,
             upload_failures: snapshot.upload_failures,
             cached_batches,

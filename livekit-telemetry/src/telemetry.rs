@@ -15,16 +15,16 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use livekit_runtime::timeout;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    event::now_unix_nanos, exporter::Command, stats::Counters, store::Store, Attribute, BatchCache,
-    DeviceState, Exporter, FileCache, MemoryCache, TelemetryEvent, TelemetryStats,
-    TelemetryTransport,
+    event::now_unix_nanos, exporter::Command, rtc::StatsWindows, stats::Counters, store::Store,
+    Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache, MemoryCache,
+    RtcStatsSample, Severity, TelemetryEvent, TelemetryStats, TelemetryTransport,
 };
 
 /// Pipeline configuration.
@@ -61,6 +61,14 @@ pub struct TelemetryConfig {
     /// Bound on a single transport attempt, and on `shutdown`.
     #[cfg_attr(feature = "uniffi", uniffi(default = 10000))]
     pub export_timeout_ms: u64,
+    /// RTC stats window: readings pushed with [`Telemetry::record_stats`] are summarised into one
+    /// `lk.rtc.stats.sample` per track and direction every window (stretched like the cadence).
+    #[cfg_attr(feature = "uniffi", uniffi(default = 15000))]
+    pub stats_window_ms: u64,
+    /// Flood guard for discrete events: beyond this many `emit`s per 10 minutes the rest are
+    /// dropped and counted as `rate_limited`. RTC windows and self-telemetry are exempt; 0 = off.
+    #[cfg_attr(feature = "uniffi", uniffi(default = 300))]
+    pub max_events_per_10min: u32,
 }
 
 impl TelemetryConfig {
@@ -76,6 +84,8 @@ impl TelemetryConfig {
             max_queue_size: 2048,
             max_batch_size: 512,
             export_timeout_ms: 10_000,
+            stats_window_ms: 15_000,
+            max_events_per_10min: 300,
         }
     }
 }
@@ -110,7 +120,41 @@ pub struct Telemetry {
     cache: Arc<dyn BatchCache>,
     counters: Arc<Counters>,
     device: Arc<Mutex<Option<DeviceState>>>,
+    windows: Arc<Mutex<StatsWindows>>,
+    guard: Arc<Mutex<FloodGuard>>,
+    attributes: Arc<Mutex<Vec<Attribute>>>,
     commands: mpsc::UnboundedSender<Command>,
+}
+
+/// Fixed-window cap on discrete events (the design doc's ~300 per 10 min).
+struct FloodGuard {
+    max: u32,
+    window_start: Instant,
+    count: u32,
+}
+
+impl FloodGuard {
+    const WINDOW: Duration = Duration::from_secs(10 * 60);
+
+    fn new(max: u32) -> Self {
+        Self { max, window_start: Instant::now(), count: 0 }
+    }
+
+    fn admit(&mut self) -> bool {
+        if self.max == 0 {
+            return true;
+        }
+        let now = Instant::now();
+        if now.duration_since(self.window_start) >= Self::WINDOW {
+            self.window_start = now;
+            self.count = 0;
+        }
+        if self.count >= self.max {
+            return false;
+        }
+        self.count += 1;
+        true
+    }
 }
 
 impl Telemetry {
@@ -145,24 +189,70 @@ impl Telemetry {
         let counters = Arc::new(Counters::default());
         let store = Arc::new(Store::new(config.max_queue_size.max(1) as usize, counters.clone()));
         let (commands, receiver) = mpsc::unbounded_channel();
+        let windows = Arc::new(Mutex::new(StatsWindows::default()));
+        let guard = Arc::new(Mutex::new(FloodGuard::new(config.max_events_per_10min)));
+        let attributes = Arc::new(Mutex::new(Vec::new()));
         let exporter = Exporter::new(
             store.clone(),
             transport,
             config.clone(),
             cache.clone(),
             counters.clone(),
+            windows.clone(),
+            attributes.clone(),
             receiver,
         );
-        let telemetry = Self { store, config, cache, counters, device: Arc::default(), commands };
+        let telemetry = Self {
+            store,
+            config,
+            cache,
+            counters,
+            device: Arc::default(),
+            windows,
+            guard,
+            attributes,
+            commands,
+        };
         (telemetry, exporter)
     }
 
-    /// Queue an event for export. Stamps it with the current time unless it carries one.
+    /// Queue an event or log record for export. Stamps it with the current time unless it
+    /// carries one.
+    ///
+    /// A record with an empty `name` is a plain log line: only `Warn` and `Error` ones leave the
+    /// device (design doc: debug/info logs never do). Discrete events are subject to the flood
+    /// guard (`max_events_per_10min`); what it drops is counted as `rate_limited`.
     pub fn emit(&self, mut event: TelemetryEvent) {
+        if event.name.is_empty()
+            && matches!(event.severity, Severity::Trace | Severity::Debug | Severity::Info)
+        {
+            return;
+        }
+        if !self.guard.lock().unwrap_or_else(|e| e.into_inner()).admit() {
+            Counters::add(&self.counters.rate_limited, 1);
+            return;
+        }
         if event.timestamp_ns.is_none() {
             event.timestamp_ns = Some(now_unix_nanos());
         }
         self.store.push(event);
+    }
+
+    /// Set a session-wide attribute (`lk.room.sid`, `lk.participant.identity`, or a consumer's
+    /// own `acme.call_id`), attached to every record exported from now on unless the record
+    /// already carries the key. `None` removes it.
+    pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
+        let mut attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
+        attributes.retain(|a| a.key != key);
+        if let Some(value) = value {
+            attributes.push(Attribute::new(key, value));
+        }
+    }
+
+    /// Push one `getStats()` reading. Readings are windowed on device into `lk.rtc.stats.sample`
+    /// events (see `stats_window_ms`); they never count against the flood guard.
+    pub fn record_stats(&self, sample: RtcStatsSample) {
+        self.windows.lock().unwrap_or_else(|e| e.into_inner()).record(sample);
     }
 
     /// Tell the pipeline what the device looks like. Emits the `lk.device.*.changed` events for
@@ -233,7 +323,7 @@ mod tests {
             collector::logs::v1::ExportLogsServiceRequest, common::v1::any_value::Value,
             logs::v1::LogRecord,
         },
-        AppState, ExportError, ExportRequest, ThermalState,
+        AppState, ExportError, ExportRequest, StreamDirection, ThermalState, TrackKind,
     };
 
     #[derive(Default)]
@@ -511,6 +601,118 @@ mod tests {
         assert_eq!(transport.sent().len(), 1, "not yet: cadence stretched to 4 s");
         tokio::time::sleep(Duration::from_millis(2_500)).await;
         assert_eq!(transport.sent().len(), 2, "exported on the stretched tick");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn debug_and_info_logs_never_leave_the_device() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("").with_severity(Severity::Info).with_body("noise"));
+        telemetry.emit(TelemetryEvent::new("").with_severity(Severity::Error).with_body("boom"));
+        telemetry.flush().await;
+
+        let sent = transport.sent();
+        let records = records(&sent[0]);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].event_name, "", "a log line, not an event");
+        assert_eq!(records[0].severity_text, "ERROR");
+        assert_eq!(
+            records[0].body.as_ref().and_then(|b| b.value.clone()),
+            Some(Value::StringValue("boom".into()))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn flood_guard_caps_events_but_not_stats_windows() {
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.max_events_per_10min = 1;
+        config.stats_window_ms = 1_000;
+        let transport = FakeTransport::scripted([]);
+        let telemetry = start(config, transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.record_stats(RtcStatsSample::new(
+            "TR_1",
+            TrackKind::Audio,
+            StreamDirection::Inbound,
+        ));
+        assert_eq!(telemetry.stats().dropped_rate_limited, 1);
+
+        tokio::time::sleep(Duration::from_millis(1_100)).await; // stats window closes
+        telemetry.flush().await;
+        let names: Vec<String> = transport.sent().iter().flat_map(event_names).collect();
+        assert_eq!(names.iter().filter(|n| *n == "lk.ping").count(), 1);
+        assert!(names.contains(&"lk.rtc.stats.sample".to_owned()), "{names:?}");
+        assert!(names.contains(&"lk.telemetry.report".to_owned()), "rate limiting is reported");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stats_readings_are_windowed_into_one_event() {
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.stats_window_ms = 2_000;
+        let transport = FakeTransport::scripted([]);
+        let telemetry = start(config, transport.clone());
+        for (bytes, jitter) in [(100, 1.0), (200, 3.0), (300, 2.0)] {
+            let mut sample =
+                RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Inbound);
+            sample.bytes = Some(bytes);
+            sample.jitter_ms = Some(jitter);
+            sample.codec = Some("video/VP8".into());
+            telemetry.record_stats(sample);
+        }
+        telemetry.flush().await;
+        assert!(transport.sent().is_empty(), "windows do not flush early");
+
+        tokio::time::sleep(Duration::from_millis(2_100)).await;
+        telemetry.flush().await;
+        let sent = transport.sent();
+        let window = records(&sent[0])
+            .into_iter()
+            .find(|r| r.event_name == "lk.rtc.stats.sample")
+            .expect("window");
+        assert_eq!(attribute(&window, "lk.track.kind"), Some(Value::StringValue("video".into())));
+        assert_eq!(
+            attribute(&window, "lk.rtc.codec"),
+            Some(Value::StringValue("video/VP8".into()))
+        );
+        assert_eq!(attribute(&window, "lk.rtc.bytes"), Some(Value::IntValue(300)));
+        assert_eq!(attribute(&window, "lk.rtc.samples"), Some(Value::IntValue(3)));
+        assert_eq!(attribute(&window, "lk.rtc.jitter_ms.avg"), Some(Value::DoubleValue(2.0)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_closes_open_stats_windows() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.record_stats(RtcStatsSample::new(
+            "TR_1",
+            TrackKind::Audio,
+            StreamDirection::Outbound,
+        ));
+        telemetry.shutdown().await;
+        let names: Vec<String> = transport.sent().iter().flat_map(event_names).collect();
+        assert_eq!(names, ["lk.rtc.stats.sample"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn session_attributes_are_attached_to_every_record() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.set_attribute("lk.room.sid", Some("RM_1".into()));
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room.sid", "RM_override"));
+        telemetry.flush().await;
+        let first = records(&transport.sent()[0]);
+        assert_eq!(attribute(&first[0], "lk.room.sid"), Some(Value::StringValue("RM_1".into())));
+        assert_eq!(
+            attribute(&first[1], "lk.room.sid"),
+            Some(Value::StringValue("RM_override".into())),
+            "an explicit attribute wins"
+        );
+        telemetry.set_attribute("lk.room.sid", None);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room.sid"), None);
     }
 
     #[tokio::test(start_paused = true)]

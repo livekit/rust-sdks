@@ -83,3 +83,50 @@ platforms: all
 | thermal `critical` | 4 |
 | low-power mode | 2 |
 | background | 2 |
+
+## Log records
+
+A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without `event_name`):
+`severity` + `body` (the message) + attributes such as `code.function`, `code.file.path`,
+`code.line.number`, `lk.log.type` (the SDK logger's category). Only `warn` and `error` records
+leave the device; `trace`/`debug`/`info` are dropped in `emit`.
+
+## Flood guard
+
+Discrete events (`emit`) are capped at `max_events_per_10min` (default 300, design doc); what
+exceeds it is dropped and reported as `lk.telemetry.dropped.rate_limited`. `lk.rtc.stats.sample`
+windows and `lk.telemetry.report` are exempt.
+
+```yaml
+event: lk.rtc.stats.sample
+area: rtc
+severity: info
+cadence: one per track and direction per stats window (default 15 s, stretched by the cadence
+         factor); closed early on background and shutdown. Produced by the core from raw
+         `record_stats` readings (1–2 s getStats polling on the platform).
+attributes:
+  lk.track.sid: string
+  lk.track.kind: enum(audio | video)
+  lk.track.direction: enum(inbound | outbound)
+  lk.rtc.codec: string                      # mimeType, when known
+  lk.rtc.window_ms: int                     # actual window length
+  lk.rtc.samples: int                       # readings in the window
+  # cumulative counters — the last reading's value, monotonic (W3C webrtc-stats model)
+  lk.rtc.bytes: int
+  lk.rtc.packets: int
+  lk.rtc.packets_lost: int                  # inbound
+  lk.rtc.freeze_count: int                  # inbound video
+  lk.rtc.freezes_duration_ms: int           # inbound video
+  lk.rtc.concealed_samples: int             # inbound audio
+  lk.rtc.concealment_events: int            # inbound audio
+  lk.rtc.jitter_buffer_delay_ms: int        # inbound
+  lk.rtc.jitter_buffer_emitted_count: int   # inbound
+  lk.rtc.quality_limitation.bandwidth_ms: int   # outbound video
+  lk.rtc.quality_limitation.cpu_ms: int         # outbound video
+  # gauges — min / max / avg over the window
+  lk.rtc.jitter_ms.{min,max,avg}: double
+  lk.rtc.rtt_ms.{min,max,avg}: double       # remote-inbound RTT for outbound, candidate-pair for inbound
+  lk.rtc.fps.{min,max,avg}: double          # video
+  lk.rtc.audio_level.{min,max,avg}: double  # audio
+platforms: all
+```

@@ -26,6 +26,9 @@ mod stats;
 /// Host-reported device state and the cadence policy derived from it.
 mod device;
 
+/// RTC stats samples and their on-device windowing.
+mod rtc;
+
 /// Batch exporter actor: timer, OTLP encoding, retry policy.
 mod exporter;
 
@@ -48,6 +51,7 @@ pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use device::*;
 pub use event::*;
 pub use exporter::Exporter;
+pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
 pub use stats::TelemetryStats;
 pub use telemetry::*;
 pub use transport::*;

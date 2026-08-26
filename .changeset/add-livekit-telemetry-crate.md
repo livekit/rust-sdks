@@ -7,4 +7,6 @@ batched and exported as OTLP/HTTP log records through a pluggable `TelemetryTran
 written to a `BatchCache` (in memory by default, on disk with `storage_dir`) before upload, so
 failed uploads, crashes and offline shutdowns lose nothing. Pipeline health is exposed as `Telemetry::stats` and shipped as `lk.telemetry.report`
 events; hosts push `DeviceState` (thermal, low power, foreground/background) and the core emits
-the `lk.device.*.changed` events and stretches its cadence under pressure.
+the `lk.device.*.changed` events and stretches its cadence under pressure. Log records (`Warn`/`Error` only), a flood guard for discrete events, on-device RTC
+stats windows (`record_stats` → `lk.rtc.stats.sample`) and session-wide attributes complete the
+design doc's v0 surface.
