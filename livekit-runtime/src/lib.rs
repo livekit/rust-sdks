@@ -20,14 +20,17 @@
 //! — is derived from those two, so a new backend is two functions, and adding a
 //! new operation never widens what a backend has to provide.
 //!
-//! Which runtime is active is selected by Cargo feature (`tokio`, `async`,
-//! `dispatcher`); [`set_runtime`] overrides that, and is the only option when the
-//! crate is built with no backend feature at all.
+//! Which runtime is active is selected by Cargo feature (`tokio`, `smol`, or the
+//! deprecated `async`); [`set_runtime`] overrides that, and is the only option when
+//! the crate is built with no backend feature at all.
+//!
+//! A backend supplies an executor and a timer, nothing else. Sockets belong to the
+//! transport (`livekit-net`), which is why no `TcpStream` is re-exported here.
 
 #[cfg(any(
+    all(feature = "tokio", feature = "smol"),
     all(feature = "tokio", feature = "async"),
-    all(feature = "tokio", feature = "dispatcher"),
-    all(feature = "dispatcher", feature = "async")
+    all(feature = "smol", feature = "async")
 ))]
 compile_error!("Cannot compile livekit with multiple runtimes");
 
@@ -64,7 +67,7 @@ pub fn runtime() -> &'static Arc<dyn Runtime> {
     RUNTIME.get_or_init(|| {
         default_runtime().expect(
             "no async runtime available: enable one of livekit-runtime's \
-             `tokio` / `async` / `dispatcher` features, or call \
+             `tokio` / `smol` / `async` features, or call \
              livekit_runtime::set_runtime() before the first spawn",
         )
     })
@@ -84,11 +87,12 @@ fn default_runtime() -> Option<Arc<dyn Runtime>> {
     #[cfg(feature = "tokio")]
     return Some(Arc::new(crate::tokio::TokioRuntime));
 
-    #[cfg(feature = "async")]
-    return Some(Arc::new(crate::async_std::AsyncStdRuntime));
+    #[cfg(feature = "smol")]
+    return Some(Arc::new(crate::smol::SmolRuntime));
 
-    #[cfg(feature = "dispatcher")]
-    return Some(Arc::new(crate::dispatcher::DispatcherRuntime::ambient()));
+    #[cfg(feature = "async")]
+    #[allow(deprecated)]
+    return Some(Arc::new(crate::async_std::AsyncStdRuntime));
 
     #[allow(unreachable_code)]
     None
@@ -110,12 +114,13 @@ mod tokio;
 #[cfg(feature = "tokio")]
 pub use tokio::*;
 
+#[cfg(feature = "smol")]
+mod smol;
+#[cfg(feature = "smol")]
+pub use smol::*;
+
 #[cfg(feature = "async")]
 mod async_std;
 #[cfg(feature = "async")]
+#[allow(deprecated)]
 pub use async_std::*;
-
-#[cfg(feature = "dispatcher")]
-mod dispatcher;
-#[cfg(feature = "dispatcher")]
-pub use dispatcher::*;

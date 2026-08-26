@@ -18,8 +18,8 @@
 //!
 //! ```sh
 //! cargo test -p livekit-runtime --no-default-features --features tokio
+//! cargo test -p livekit-runtime --no-default-features --features smol
 //! cargo test -p livekit-runtime --no-default-features --features async
-//! cargo test -p livekit-runtime --no-default-features --features dispatcher
 //! ```
 //!
 //! Two things are deliberately *not* covered here, because they cannot be

@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,28 +16,24 @@ use std::time::Duration;
 
 use crate::{BoxFuture, Runtime};
 
-/// Runs LiveKit on async-std's global executor.
+/// Runs LiveKit on smol's global executor.
 ///
-/// # Deprecated
-///
-/// async-std is discontinued upstream — its own README says "`async-std` has been
-/// discontinued; use `smol` instead". Enable livekit-runtime's `smol` feature and
-/// [`crate::smol::SmolRuntime`] instead.
+/// smol drives that executor itself, spawning worker threads on demand, so unlike
+/// [`crate::tokio::TokioRuntime`] there is no reactor to enter first and no
+/// requirement about which thread a spawn happens on. Tasks land on the same pool
+/// that an application's own `smol::spawn` uses.
 #[derive(Debug, Clone, Copy, Default)]
-#[deprecated(
-    since = "0.5.0",
-    note = "async-std is discontinued upstream; enable livekit-runtime's `smol` feature instead"
-)]
-pub struct AsyncStdRuntime;
+pub struct SmolRuntime;
 
-#[allow(deprecated)]
-impl Runtime for AsyncStdRuntime {
+impl Runtime for SmolRuntime {
     fn spawn_future(&self, fut: BoxFuture) {
-        // Dropping async-std's `JoinHandle` detaches the task.
-        async_std::task::spawn(fut);
+        // `Task::detach` is what keeps it running; dropping the task would cancel it.
+        smol::spawn(fut).detach();
     }
 
     fn sleep(&self, dur: Duration) -> BoxFuture {
-        Box::pin(async_std::task::sleep(dur))
+        Box::pin(async move {
+            smol::Timer::after(dur).await;
+        })
     }
 }

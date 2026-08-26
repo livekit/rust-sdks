@@ -9,8 +9,10 @@ repository.workspace = true
 [features]
 default = ["tokio"]
 tokio = ["dep:tokio"]
-async = ["dep:async-std", "dep:async-io"]
-dispatcher = ["dep:async-std", "dep:async-task"]
+smol = ["dep:smol"]
+# Deprecated. async-std is discontinued upstream ("`async-std` has been
+# discontinued; use `smol` instead"), so enable `smol` for new work.
+async = ["dep:async-std"]
 
 [dependencies]
 # The `Runtime` trait, `JoinHandle`, and the time helpers derived from
@@ -21,20 +23,15 @@ dispatcher = ["dep:async-std", "dep:async-task"]
 futures-channel = { workspace = true }
 futures-core = { workspace = true }
 
-# tokio
+# Backends. Each needs only an executor and a timer: sockets are the transport's
+# business, not the runtime's, so no backend pulls in a networking stack.
 tokio = { workspace = true, default-features = false, optional = true, features = [
     "rt",
     "rt-multi-thread",
-    "net",
     "time",
 ] }
-
-# async-std backend; also the source of `TcpStream` for the dispatcher backend.
+smol = { version = "2", optional = true }
 async-std = { version = "1", optional = true }
-async-io = { version = "2.3.1", optional = true }
-
-# dispatcher
-async-task = { version = "4.7.0", optional = true }
 
 [dev-dependencies]
 # Drives futures in the flavor-agnostic test harness (tests/support/mod.rs).

@@ -16,10 +16,6 @@ use std::time::Duration;
 
 use crate::{BoxFuture, Runtime};
 
-/// Not a runtime service: this is a concrete generic parameter that `livekit-net`
-/// threads into `tungstenite`, so it stays backend-specific.
-pub use tokio::net::TcpStream;
-
 /// Runs LiveKit on the ambient tokio runtime. A tokio reactor must be entered
 /// (`#[tokio::main]`, `Runtime::block_on`, ...) before the first spawn.
 #[derive(Debug, Clone, Copy, Default)]

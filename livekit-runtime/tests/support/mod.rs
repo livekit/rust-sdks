@@ -48,13 +48,12 @@ pub fn block_on<F: Future>(fut: F) -> F::Output {
     async_std::task::block_on(fut)
 }
 
-#[cfg(feature = "dispatcher")]
+#[cfg(feature = "smol")]
 pub fn block_on<F: Future>(fut: F) -> F::Output {
-    install_test_dispatcher();
-    futures_executor::block_on(fut)
+    smol::block_on(fut)
 }
 
-#[cfg(not(any(feature = "tokio", feature = "async", feature = "dispatcher")))]
+#[cfg(not(any(feature = "tokio", feature = "async", feature = "smol")))]
 pub fn block_on<F: Future>(fut: F) -> F::Output {
     bare_block_on(fut)
 }
@@ -111,56 +110,3 @@ impl Runtime for RecordingRuntime {
 pub fn recording_runtime() -> Arc<RecordingRuntime> {
     Arc::new(RecordingRuntime::default())
 }
-
-// ── dispatcher backend ────────────────────────────────────────────────────────
-
-#[cfg(feature = "dispatcher")]
-mod test_dispatcher {
-    use std::{
-        sync::{mpsc, Mutex, OnceLock},
-        time::Duration,
-    };
-
-    use livekit_runtime::{set_dispatcher, Dispatcher, Runnable};
-
-    /// A minimal stand-in for a host main loop: one worker thread that runs
-    /// whatever it is handed, plus a thread per delayed runnable.
-    ///
-    /// Single-threaded on purpose — that is the shape real dispatcher hosts have,
-    /// so a task that fails to yield shows up here as a hang rather than being
-    /// papered over by a thread pool.
-    struct TestDispatcher {
-        tx: Mutex<mpsc::Sender<Runnable>>,
-    }
-
-    impl Dispatcher for TestDispatcher {
-        fn dispatch(&self, runnable: Runnable) {
-            let _ = self.tx.lock().expect("dispatcher sender").send(runnable);
-        }
-
-        fn dispatch_after(&self, duration: Duration, runnable: Runnable) {
-            let tx = self.tx.lock().expect("dispatcher sender").clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(duration);
-                let _ = tx.send(runnable);
-            });
-        }
-    }
-
-    /// Idempotent: `set_dispatcher` is a `OnceLock` and silently ignores repeats.
-    pub fn install() {
-        static INSTALLED: OnceLock<()> = OnceLock::new();
-        INSTALLED.get_or_init(|| {
-            let (tx, rx) = mpsc::channel::<Runnable>();
-            std::thread::spawn(move || {
-                while let Ok(runnable) = rx.recv() {
-                    runnable.run();
-                }
-            });
-            set_dispatcher(TestDispatcher { tx: Mutex::new(tx) });
-        });
-    }
-}
-
-#[cfg(feature = "dispatcher")]
-pub use test_dispatcher::install as install_test_dispatcher;

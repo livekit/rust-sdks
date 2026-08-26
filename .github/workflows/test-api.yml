@@ -93,10 +93,10 @@ jobs:
         include:
           - name: runtime (tokio)
             cmd: cargo test -p livekit-runtime --no-default-features --features tokio
-          - name: runtime (async / async-std)
+          - name: runtime (smol)
+            cmd: cargo test -p livekit-runtime --no-default-features --features smol
+          - name: runtime (async-std, deprecated)
             cmd: cargo test -p livekit-runtime --no-default-features --features async
-          - name: runtime (dispatcher)
-            cmd: cargo test -p livekit-runtime --no-default-features --features dispatcher
           # No backend feature at all: everything outside the three backend
           # modules must still compile, since that is the `set_runtime`-only build.
           - name: runtime (no backend)
@@ -114,9 +114,8 @@ jobs:
         run: ${{ matrix.cmd }}
 
   # Compile guards for the consumer paths that pair a non-tokio runtime with the
-  # transport layer. `TcpStream` is the one part of the old surface that stays
-  # backend-specific, so it can only be checked here, not in the runtime tests.
-  # The two dispatcher legs are the first CI coverage that path has ever had.
+  # transport layer. The runtime tests cannot cover these: a backend supplies only
+  # an executor and a timer, while the socket and TLS stack live in livekit-net.
   runtime-consumers:
     runs-on: ubuntu-latest
     strategy:
@@ -125,10 +124,12 @@ jobs:
         include:
           - name: livekit-net (async)
             cmd: cargo check -p livekit-net --no-default-features --features native-async
-          - name: livekit-net (dispatcher)
-            cmd: cargo check -p livekit-net --no-default-features --features native-dispatcher
-          - name: livekit-api signal-client (dispatcher)
-            cmd: cargo check -p livekit-api --no-default-features --features signal-client-dispatcher,access-token
+          - name: livekit-net (smol)
+            cmd: cargo check -p livekit-net --no-default-features --features native-smol
+          - name: livekit-api signal-client (smol)
+            cmd: cargo check -p livekit-api --no-default-features --features signal-client-smol,access-token
+          - name: livekit-api services (smol)
+            cmd: cargo check -p livekit-api --no-default-features --features services-smol,access-token
     steps:
       - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
         with:
