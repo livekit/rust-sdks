@@ -271,6 +271,14 @@ fn decode_base64_nals(value: &str) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// Splits an `rtsp://` or `rtsps://` URL into its scheme and remainder.
+fn split_rtsp_scheme(url: &str) -> Option<(&str, &str)> {
+    if let Some(rest) = url.strip_prefix("rtsp://") {
+        return Some(("rtsp://", rest));
+    }
+    url.strip_prefix("rtsps://").map(|rest| ("rtsps://", rest))
+}
+
 /// Resolves an SDP `control` attribute against the session base URL.
 fn resolve_control_url(base_url: &str, control: Option<&str>) -> String {
     let Some(control) = control.map(str::trim).filter(|control| !control.is_empty()) else {
@@ -279,15 +287,14 @@ fn resolve_control_url(base_url: &str, control: Option<&str>) -> String {
     if control == "*" {
         return base_url.to_owned();
     }
-    if control.starts_with("rtsp://") {
+    if split_rtsp_scheme(control).is_some() {
         return control.to_owned();
     }
     if control.starts_with('/') {
-        let authority = base_url
-            .strip_prefix("rtsp://")
-            .map(|rest| rest.split('/').next().unwrap_or(rest))
-            .unwrap_or_default();
-        return format!("rtsp://{authority}{control}");
+        // An absolute path keeps the base URL's scheme and authority.
+        let (scheme, rest) = split_rtsp_scheme(base_url).unwrap_or(("rtsp://", base_url));
+        let authority = rest.split('/').next().unwrap_or(rest);
+        return format!("{scheme}{authority}{control}");
     }
     format!("{}/{}", base_url.trim_end_matches('/'), control)
 }
@@ -521,6 +528,25 @@ a=rtpmap:96 H264/90000\r\n";
         assert_eq!(
             resolve_control_url(BASE_URL, Some("/stream/trackID=1")),
             "rtsp://camera.example/stream/trackID=1"
+        );
+    }
+
+    #[test]
+    fn resolves_control_urls_with_rtsps_scheme() {
+        // An absolute path keeps the rtsps scheme of the base URL.
+        assert_eq!(
+            resolve_control_url("rtsps://camera.example:7441/live", Some("/stream/trackID=1")),
+            "rtsps://camera.example:7441/stream/trackID=1"
+        );
+        // A relative control appends to the rtsps base.
+        assert_eq!(
+            resolve_control_url("rtsps://camera.example:7441/live", Some("trackID=1")),
+            "rtsps://camera.example:7441/live/trackID=1"
+        );
+        // An absolute rtsps URL passes through.
+        assert_eq!(
+            resolve_control_url(BASE_URL, Some("rtsps://camera.example/other")),
+            "rtsps://camera.example/other"
         );
     }
 
