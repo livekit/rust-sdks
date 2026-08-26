@@ -26,6 +26,7 @@
 
 #ifdef USE_JETSON_VIDEO_CODEC
 #include "NvBufSurface.h"
+#include "jetson_runtime_loader.h"
 #endif
 
 #include "third_party/libyuv/include/libyuv/convert.h"
@@ -56,6 +57,14 @@ int DmaBufVideoFrameBuffer::height() const {
 webrtc::scoped_refptr<webrtc::I420BufferInterface>
 DmaBufVideoFrameBuffer::ToI420() {
 #ifdef USE_JETSON_VIDEO_CODEC
+  // The NvBufSurface* symbols are lazily bound and abort the process if
+  // invoked while the Jetson userspace libraries are absent.
+  if (!lk_jetson_runtime_libs_available()) {
+    RTC_LOG(LS_ERROR) << "DmaBufVideoFrameBuffer::ToI420: Jetson multimedia "
+                         "libraries are not available";
+    return nullptr;
+  }
+
   // Cache NvBufSurface pointers per fd to avoid calling NvBufSurfaceFromFd
   // on every frame.  On some JetPack versions the fd-to-surface lookup
   // prints spurious "Wrong buffer index" warnings.  The surface pointer is
