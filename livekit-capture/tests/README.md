@@ -15,8 +15,9 @@ section below documents its prerequisites.
 
 Each test starts an in-process GStreamer RTSP server on an ephemeral
 localhost port and streams real encoded video to the source. The system
-GStreamer installation must include the RTSP server library and the x264,
-x265, and VP8 encoder plugins:
+GStreamer installation must include the RTSP server library, the x264,
+x265, VP8/VP9, and AV1 encoder plugins, and the RTP payloaders from
+gst-plugins-rs (`rtpav1pay`):
 
 - macOS: `brew install gstreamer`
 - Debian/Ubuntu: `apt install libgstrtspserver-1.0-dev
