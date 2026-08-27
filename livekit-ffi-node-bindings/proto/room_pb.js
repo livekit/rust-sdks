@@ -164,6 +164,7 @@ const ConnectResponse = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.ConnectResponse",
   () => [
     { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
 

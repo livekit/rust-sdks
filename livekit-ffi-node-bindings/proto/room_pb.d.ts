@@ -308,6 +308,18 @@ export declare class ConnectResponse extends Message<ConnectResponse> {
    */
   asyncId?: bigint;
 
+  /**
+   * Allocated as soon as ConnectRequest is received, before Room::connect
+   * finishes. DisconnectRequest with this handle aborts the in-flight
+   * handshake and close()s any Room that already completed (rust-sdks#1334:
+   * dropping a completed Room without close leaks ICE sockets). Old clients
+   * ignore this proto2 optional field. A missed ReadyFor handshake must fail
+   * this room only, never Panic the host (python-sdks#785).
+   *
+   * @generated from field: optional uint64 room_handle = 2;
+   */
+  roomHandle?: bigint;
+
   constructor(data?: PartialMessage<ConnectResponse>);
 
   static readonly runtime: typeof proto2;

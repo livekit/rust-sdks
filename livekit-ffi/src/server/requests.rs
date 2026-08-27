@@ -147,8 +147,7 @@ fn on_ready_for_room_event(
     // ConnectResponse.room_handle is valid during handshake. Queue the permit
     // on FfiConnectingRoom so a client that readies as soon as it has the
     // handle does not type-error and then time out after ConnectCallback.
-    let connecting =
-        server.retrieve_handle::<room::FfiConnectingRoom>(request.room_handle)?;
+    let connecting = server.retrieve_handle::<room::FfiConnectingRoom>(request.room_handle)?;
     connecting.ready_for_room_event();
     Ok(proto::ReadyForRoomEventResponse::default())
 }
