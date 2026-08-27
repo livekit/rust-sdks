@@ -71,7 +71,24 @@ fn on_disconnect(
         .map(DisconnectReason::from)
         .unwrap_or(DisconnectReason::ClientInitiated);
 
+    if let Ok(connecting) =
+        server.retrieve_handle::<room::FfiConnectingRoom>(disconnect.room_handle)
+    {
+        let finished = connecting.finished_flag();
+        connecting.cancel();
+        let handle = server.async_runtime.spawn(async move {
+            // Wait until the connect task has finished. If Room::connect already
+            // returned Ok, settle_aborted_connect close()s that Room. Abort during
+            // wait_pc_connection still has no Room to close.
+            room::wait_until_flag(&finished).await;
+            let _ = server.send_event(proto::DisconnectCallback { async_id }.into());
+        });
+        server.watch_panic(handle);
+        return Ok(proto::DisconnectResponse { async_id });
+    }
+
     let ffi_room = server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle)?.clone();
+    ffi_room.cancel();
 
     let handle = server.async_runtime.spawn(async move {
         ffi_room.close(server, reason).await;
@@ -123,8 +140,16 @@ fn on_ready_for_room_event(
     server: &'static FfiServer,
     request: proto::ReadyForRoomEventRequest,
 ) -> FfiResult<proto::ReadyForRoomEventResponse> {
-    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?.clone();
-    ffi_room.ready_for_room_event();
+    if let Ok(ffi_room) = server.retrieve_handle::<room::FfiRoom>(request.room_handle) {
+        ffi_room.ready_for_room_event();
+        return Ok(proto::ReadyForRoomEventResponse::default());
+    }
+    // ConnectResponse.room_handle is valid during handshake. Queue the permit
+    // on FfiConnectingRoom so a client that readies as soon as it has the
+    // handle does not type-error and then time out after ConnectCallback.
+    let connecting =
+        server.retrieve_handle::<room::FfiConnectingRoom>(request.room_handle)?;
+    connecting.ready_for_room_event();
     Ok(proto::ReadyForRoomEventResponse::default())
 }
 
