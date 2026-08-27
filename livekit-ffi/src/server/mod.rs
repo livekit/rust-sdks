@@ -181,8 +181,10 @@ impl FfiServer {
     }
 
     /// Cancel every in-flight `Room::connect` and wait until those tasks settle.
-    /// rust-sdks#1340: dispose used to only close `FfiRoom`s, so a handshake in
-    /// progress kept ICE sockets after the server was torn down.
+    /// rust-sdks#1340: dispose used to only close live `FfiRoom`s, so a handshake
+    /// in progress kept running after the server was torn down. `close()` any
+    /// Room that already completed; abort before connect returns Ok still does
+    /// not enter `SessionInner::close`.
     pub async fn cancel_connecting_rooms(&'static self) {
         let connecting = self.list_connecting_rooms();
         let mut finished_flags = Vec::with_capacity(connecting.len());
