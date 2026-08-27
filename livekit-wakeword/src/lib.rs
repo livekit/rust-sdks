@@ -16,7 +16,10 @@ use std::path::Path;
 #[cfg(use_tract)]
 use std::sync::Once;
 
-use ort::session::Session;
+use ort::session::{
+    builder::{GraphOptimizationLevel, SessionBuilder},
+    Session,
+};
 
 #[cfg(use_tract)]
 static INIT_TRACT: Once = Once::new();
@@ -74,15 +77,25 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
     }
 }
 
+// Graph optimization is opt-in for the alternative backend: `ort-tract` only runs
+// tract's `into_optimized()` when the session asks for an optimization level, and
+// `Session::builder()` does not set one by default. Without this call the tract
+// backend executes the unoptimized graph, which measured several times slower on
+// the wake word models. `Level3` matches ONNX Runtime's own default, so the native
+// backend is unaffected.
+fn session_builder() -> Result<SessionBuilder, WakeWordError> {
+    Ok(Session::builder()?.with_optimization_level(GraphOptimizationLevel::Level3)?)
+}
+
 pub(crate) fn build_session_from_memory(bytes: &[u8]) -> Result<Session, WakeWordError> {
     #[cfg(use_tract)]
     ensure_tract_backend();
-    Ok(Session::builder()?.commit_from_memory(bytes)?)
+    Ok(session_builder()?.commit_from_memory(bytes)?)
 }
 
 pub(crate) fn build_session_from_file(path: impl AsRef<Path>) -> Result<Session, WakeWordError> {
     #[cfg(use_tract)]
     ensure_tract_backend();
     let bytes = std::fs::read(path)?;
-    Ok(Session::builder()?.commit_from_memory(&bytes)?)
+    Ok(session_builder()?.commit_from_memory(&bytes)?)
 }
