@@ -42,3 +42,31 @@
 - Launch backends in-process or automatically; a test must not depend on a
   manually started process
 - Document host prerequisites and the run command in `tests/README.md`
+
+## Handling untrusted input
+
+All bytes from the network or a device are attacker-controlled. When parsing:
+
+- Never index or slice untrusted bytes with manual cursor arithmetic; read
+  through the `Option`-returning readers (`ByteReader`, `BitReader`) so
+  bounds-safety is structural
+  - Do not use panicking accessors (e.g., `bytes::Buf` getters) on
+    untrusted input
+- Bound every buffer that grows across packets or messages with an explicit
+  cap (e.g., `MAX_PENDING_ACCESS_UNIT_BYTES`), and never let a claimed
+  length drive an allocation — allocate only for bytes actually received
+- Use checked arithmetic on untrusted lengths and bound varint/loop
+  decoders (LEB128, Exp-Golomb) so they cannot spin
+- Malformed input is data, not a crash: return a typed error or engage loss
+  recovery; keep parser state valid after every error
+- Escape or strip untrusted strings before logging them or embedding them
+  in error messages (strip control characters; log via `{:?}` or
+  `escape_debug`)
+- Never let credentials reach logs, error strings, or request URIs; redact
+  them in `Debug` implementations
+- Insecure opt-outs (e.g., disabled TLS verification) must be explicit
+  configuration, documented as such, and warned about at runtime
+- Prefer well-maintained crates for standard wire grammars (RTSP, SDP,
+  auth, TLS); keep only domain interpretation in this crate
+- Keep (de)serialization in small pure functions with unit tests, so they
+  stay auditable and fuzzable
