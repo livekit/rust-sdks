@@ -21,9 +21,6 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
-};
 use livekit_data_stream::backend as ds;
 use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
@@ -31,6 +28,9 @@ use livekit_datatrack::{
 };
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
+use livekit_signaling::{
+    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+};
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::SignalTarget;

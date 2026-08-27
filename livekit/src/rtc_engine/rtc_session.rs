@@ -25,10 +25,10 @@ use std::{
 
 use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
+use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::SignalTarget;

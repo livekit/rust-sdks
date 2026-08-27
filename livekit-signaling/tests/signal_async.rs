@@ -30,16 +30,12 @@
 //! Only the public surface is visible from here — `SignalInner`, its queue and the mock
 //! transport are all private to the crate — so this covers client-observable behaviour,
 //! which is the right level for the timing paths anyway.
-#![cfg(all(
-    feature = "signal-client-async",
-    feature = "access-token",
-    not(feature = "signal-client-tokio")
-))]
+#![cfg(all(feature = "native-async", not(feature = "native-tokio")))]
 
 use std::time::{Duration, Instant};
 
-use livekit_api::access_token::{AccessToken, VideoGrants};
-use livekit_api::signal_client::{SignalClient, SignalError, SignalOptions};
+use livekit_signaling::{SignalClient, SignalError, SignalOptions};
+use livekit_token::{AccessToken, VideoGrants};
 
 /// The mock verifies tokens against this secret by default.
 const TEST_SECRET: &str = "secret";

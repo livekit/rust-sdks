@@ -11,9 +11,9 @@ readme = "README.md"
 # By default ws TLS is not enabled
 default = ["tokio"]
 
-async = ["livekit-api/signal-client-async", "livekit-runtime/async"]
-tokio = ["livekit-api/signal-client-tokio", "livekit-runtime/tokio"]
-dispatcher = ["livekit-api/signal-client-dispatcher", "livekit-runtime/dispatcher"]
+async = ["livekit-signaling/native-async", "livekit-runtime/async"]
+tokio = ["livekit-signaling/native-tokio", "livekit-runtime/tokio"]
+dispatcher = ["livekit-signaling/native-dispatcher", "livekit-runtime/dispatcher"]
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
 # GDBus requires a GLib event loop to be running. Enable this feature if you
@@ -23,17 +23,17 @@ glib-main-loop = [ "libwebrtc/glib-main-loop" ]
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys
-native-tls = ["livekit-api/native-tls"]
-native-tls-vendored = ["livekit-api/native-tls-vendored"]
-rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
-rustls-tls-webpki-roots = ["livekit-api/rustls-tls-webpki-roots"]
-__rustls-tls = ["livekit-api/__rustls-tls"]
+native-tls = ["livekit-signaling/native-tls"]
+native-tls-vendored = ["livekit-signaling/native-tls-vendored"]
+rustls-tls-native-roots = ["livekit-signaling/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["livekit-signaling/rustls-tls-webpki-roots"]
+__rustls-tls = ["livekit-signaling/__rustls-tls"]
 __lk-internal = [] # internal features (used by livekit-ffi)
 __lk-e2e-test = ["livekit-data-stream/test-utils"] # end-to-end testing with a LiveKit server
 
 [dependencies]
 livekit-runtime = { workspace = true }
-livekit-api = { workspace = true }
+livekit-signaling = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
 livekit-common = { workspace = true }

@@ -11,28 +11,19 @@ readme = "README.md"
 # By default ws TLS is not enabled
 default = ["services-tokio", "access-token", "webhooks"]
 
-# Signalling client, blind to the transport backend. Pulls livekit-net (no
-# backend), the tokio crate (signal_client uses tokio::sync directly), and
-# protobuf helpers. The livekit-runtime flavor comes from the signal-client-<rt>
-# wrappers below or the top crate — not here, so async/dispatcher don't collide
-# with tokio under the one-runtime guard. Needs a runtime flavor to compile, and
-# a registered livekit_net::transport() at runtime.
-signal-client = [
-    "dep:livekit-net",
-    "dep:livekit-runtime",
-    "dep:tokio",
-    "dep:base64",
-    "dep:flate2",
-    "dep:bytes",
-    "dep:serde_json",
-]
+# Signalling client. This is an internal compatibility shim: prefer depending on
+# the livekit-signaling crate directly. Enabling it here only re-exports that
+# crate under the historical `livekit_api::signal_client` path, which is marked
+# deprecated. Resolution is unchanged from when signal_client lived here:
+# livekit-signaling/native-<rt> forwards to livekit-net/native-<rt>, which
+# already folds in livekit-runtime/<rt>.
+signal-client            = ["dep:livekit-signaling"]
+signal-client-tokio      = ["signal-client", "livekit-signaling/native-tokio"]
+signal-client-async      = ["signal-client", "livekit-signaling/native-async"]
+signal-client-dispatcher = ["signal-client", "livekit-signaling/native-dispatcher"]
 
-signal-client-tokio      = ["signal-client", "livekit-net/native-tokio", "livekit-runtime/tokio"]
-signal-client-async      = ["signal-client", "livekit-net/native-async",      "livekit-runtime/async"]
-signal-client-dispatcher = ["signal-client", "livekit-net/native-dispatcher",  "livekit-runtime/dispatcher"]
-
-services-tokio = ["access-token", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
-services-async = ["access-token", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
+services-tokio = ["access-token", "dep:livekit-region", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
+services-async = ["access-token", "dep:livekit-region", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
 access-token = ["dep:livekit-token"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
@@ -57,28 +48,27 @@ webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 #      the embedded certificates can expire, requiring a fresh build to update them.
 
 # Uses the platform's native TLS implementation (OpenSSL on Linux, Secure Transport on macOS, SChannel on Windows)
-native-tls              = ["livekit-net?/native-tls",             "reqwest?/native-tls"]
+native-tls              = ["livekit-signaling?/native-tls",             "reqwest?/native-tls"]
 # Same as native-tls but compiles OpenSSL from source (useful for cross-compilation)
-native-tls-vendored     = ["livekit-net?/native-tls-vendored",    "reqwest?/native-tls-vendored"]
+native-tls-vendored     = ["livekit-signaling?/native-tls-vendored",    "reqwest?/native-tls-vendored"]
 # Uses rustls with the operating system's CA certificate store.
 # Requires ca-certificates to be installed in container environments.
-rustls-tls-native-roots = ["livekit-net?/rustls-tls-native-roots", "reqwest?/rustls-tls-native-roots"]
+rustls-tls-native-roots = ["livekit-signaling?/rustls-tls-native-roots", "reqwest?/rustls-tls-native-roots"]
 # Uses rustls with Mozilla's bundled root certificates.
 # RECOMMENDED for container deployments - no system CA certificates required.
-rustls-tls-webpki-roots = ["livekit-net?/rustls-tls-webpki-roots", "reqwest?/rustls-tls-webpki-roots"]
-__rustls-tls            = ["livekit-net?/__rustls-tls",             "reqwest?/__rustls"]
+rustls-tls-webpki-roots = ["livekit-signaling?/rustls-tls-webpki-roots", "reqwest?/rustls-tls-webpki-roots"]
+__rustls-tls            = ["livekit-signaling?/__rustls-tls",             "reqwest?/__rustls"]
 
 [dependencies]
-livekit-net = { workspace = true, optional = true }
+livekit-signaling = { workspace = true, optional = true }
 livekit-protocol = { workspace = true }
+livekit-region = { workspace = true, optional = true }
 livekit-token = { workspace = true, optional = true }
-livekit-common = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 sha2 = "0.10"
 url = "2.3"
 log = { workspace = true }
-parking_lot = { workspace = true }
 prost = "0.12"
 pbjson-types = "0.6"
 
@@ -95,18 +85,9 @@ http = "1.1"
 reqwest = { version = "0.12", default-features = false, features = [ "json" ], optional = true }
 isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
 
-flate2 = { version = "1", optional = true }
-bytes = { workspace = true, optional = true }
-scopeguard = "1.2.0"
 rand = { workspace = true }
-os_info = "3.14.0"
-device-info = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
-# Already a hard dependency; repeated here so the integration tests under tests/ can build
-# the protobuf messages they assert on.
-livekit-protocol = { workspace = true }
 # Minimal executor to drive the runtime-agnostic `services-async` (isahc) tests.
 futures = "0.3"
-async-trait = "0.1"

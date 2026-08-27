@@ -13,16 +13,16 @@
 // limitations under the License.
 
 //! Region discovery shared by the two `/settings/regions` consumers: the
-//! signaling region provider ([`crate::signal_client::region_url_provider`]) and
-//! the API failover ([`crate::services::failover`]).
+//! signalling region provider in `livekit-signaling`, and the API failover in
+//! `livekit-api`.
 //!
 //! This holds the runtime-independent pieces both need: the response types, the
 //! cloud-host / `Cache-Control` helpers, and the [`RegionCache`] (TTL lookups,
 //! stale fallback, pruning). Each consumer owns its own cache instance — they
-//! store URLs in different schemes (`wss://` for signaling, `http(s)` for the API)
-//! — but the caching logic lives here once. The network fetch stays with each
-//! consumer: they authenticate differently (bearer token vs. forwarded headers)
-//! and run on different HTTP clients / feature islands.
+//! store URLs in different schemes (`wss://` for signalling, `http(s)` for the
+//! API) — but the caching logic lives here once. The network fetch stays with
+//! each consumer: they authenticate differently (bearer token vs. forwarded
+//! headers) and run on different HTTP clients / feature islands.
 
 use std::{
     collections::HashMap,
@@ -37,26 +37,26 @@ use serde::Deserialize;
 /// body missing `regions` is rejected so a malformed discovery response surfaces
 /// as an error rather than an empty region list.
 #[derive(Debug, Deserialize)]
-pub(crate) struct RegionsResponse {
+pub struct RegionsResponse {
     pub regions: Vec<RegionInfo>,
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct RegionInfo {
+pub struct RegionInfo {
     pub url: String,
 }
 
 /// Reports whether `host` belongs to a LiveKit Cloud project — a
 /// `*.livekit.cloud` or `*.livekit.run` subdomain. Region discovery and API
 /// failover only engage for these hosts.
-pub(crate) fn is_cloud_host(host: &str) -> bool {
+pub fn is_cloud_host(host: &str) -> bool {
     host.ends_with(".livekit.cloud") || host.ends_with(".livekit.run")
 }
 
 /// Parses the `max-age` directive (in seconds) out of a `Cache-Control` header
 /// value, e.g. `"public, max-age=300"` -> `Some(300s)`. Returns `None` when the
 /// directive is absent or unparseable. Directive names are case-insensitive.
-pub(crate) fn parse_max_age(cache_control: &str) -> Option<Duration> {
+pub fn parse_max_age(cache_control: &str) -> Option<Duration> {
     cache_control.split(',').find_map(|directive| {
         let (name, value) = directive.split_once('=')?;
         name.trim().eq_ignore_ascii_case("max-age").then_some(())?;
@@ -73,7 +73,7 @@ struct CachedRegions {
 }
 
 /// Outcome of a [`RegionCache::get`] lookup.
-pub(crate) enum Cached {
+pub enum Cached {
     /// Entry exists and is within the TTL — safe to use without re-fetching.
     Fresh(Vec<String>),
     /// Entry exists but is older than the TTL — the caller should re-fetch, but
@@ -88,7 +88,7 @@ pub(crate) enum Cached {
 /// TTL derived from the server's `Cache-Control: max-age`, fresh/stale/miss
 /// lookups (stale entries are retained for fallback), and pruning of failed
 /// regions.
-pub(crate) struct RegionCache {
+pub struct RegionCache {
     entries: Mutex<HashMap<String, CachedRegions>>,
     default_ttl: Duration,
 }
@@ -96,15 +96,15 @@ pub(crate) struct RegionCache {
 impl RegionCache {
     /// Fallback entry lifetime, used when the region response carries no
     /// `Cache-Control: max-age`. Matches client-sdk-js's `DEFAULT_MAX_AGE_MS`.
-    pub(crate) const DEFAULT_TTL: Duration = Duration::from_secs(5);
+    pub const DEFAULT_TTL: Duration = Duration::from_secs(5);
 
-    pub(crate) fn new(default_ttl: Duration) -> Self {
+    pub fn new(default_ttl: Duration) -> Self {
         Self { entries: Mutex::new(HashMap::new()), default_ttl }
     }
 
     /// Looks up the cached region URLs for `host`, reporting whether the entry is
     /// fresh (within its TTL), stale, or absent.
-    pub(crate) fn get(&self, host: &str) -> Cached {
+    pub fn get(&self, host: &str) -> Cached {
         let entries = self.entries.lock().unwrap();
         match entries.get(host) {
             Some(e) if e.fetched_at.elapsed() < e.ttl => Cached::Fresh(e.urls.clone()),
@@ -116,7 +116,7 @@ impl RegionCache {
     /// Stores `urls` for `host`, honouring the server's `Cache-Control: max-age`
     /// (`max_age`) as the entry's TTL and falling back to [`Self::DEFAULT_TTL`]
     /// when the header is absent.
-    pub(crate) fn insert(&self, host: String, urls: Vec<String>, max_age: Option<Duration>) {
+    pub fn insert(&self, host: String, urls: Vec<String>, max_age: Option<Duration>) {
         let ttl = max_age.unwrap_or(self.default_ttl);
         self.entries
             .lock()
@@ -128,8 +128,7 @@ impl RegionCache {
     /// out again. If that empties the list, the entry is dropped entirely,
     /// forcing a re-fetch on the next lookup.
     // Only the signaling consumer prunes individual failed regions.
-    #[allow(dead_code)]
-    pub(crate) fn mark_failed(&self, host: &str, failed_url: &str) {
+    pub fn mark_failed(&self, host: &str, failed_url: &str) {
         let mut entries = self.entries.lock().unwrap();
         if let Some(entry) = entries.get_mut(host) {
             entry.urls.retain(|u| u != failed_url);
@@ -140,14 +139,12 @@ impl RegionCache {
     }
 
     /// Drops the cached entry for `host`, forcing a re-fetch on the next lookup.
-    #[allow(dead_code)]
-    pub(crate) fn invalidate(&self, host: &str) {
+    pub fn invalidate(&self, host: &str) {
         self.entries.lock().unwrap().remove(host);
     }
 
     /// Drops every cached entry.
-    #[allow(dead_code)]
-    pub(crate) fn clear(&self) {
+    pub fn clear(&self) {
         self.entries.lock().unwrap().clear();
     }
 }
