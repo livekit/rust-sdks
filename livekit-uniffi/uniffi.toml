@@ -43,6 +43,9 @@ omit_checksums = true
 "IncomingStreamQueue.close" = "close_stream"
 "OutgoingPacketQueue.close" = "close_stream"
 
+# `WsConnection.close` needs the same treatment, but a rename table only reaches items from the
+# crate whose uniffi.toml it came from -- see livekit-net/uniffi.toml.
+
 # DataStreamError's variant fields cannot be renamed from here: uniffi keys the rename table by
 # crate name but looks up enum and record members by the item's full module path, so a rename for
 # anything declared in a submodule is silently ignored (methods use the crate name and do work).
