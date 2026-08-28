@@ -3770,6 +3770,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-rpc"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "livekit-common",
+ "livekit-data-stream",
+ "livekit-protocol",
+ "log",
+ "parking_lot",
+ "semver",
+ "thiserror 2.0.19",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "livekit-signaling"
 version = "0.1.0"
 dependencies = [

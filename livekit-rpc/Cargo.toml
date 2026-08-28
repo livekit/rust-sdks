@@ -1,0 +1,26 @@
+[package]
+name = "livekit-rpc"
+description = "RPC core logic for LiveKit"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+livekit-common = { workspace = true }
+livekit-data-stream = { workspace = true }
+livekit-protocol = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+semver = "1.0"
+tokio = { workspace = true, default-features = false, features = ["sync", "time", "rt"] }
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+# Enables `TextStreamReader::new_for_test`, used by the mock transport in `src/tests.rs`.
+livekit-data-stream = { workspace = true, features = ["test-utils"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }
+bytes = { workspace = true }
+chrono = "0.4.38"
