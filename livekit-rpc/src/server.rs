@@ -104,25 +104,18 @@ impl RpcServerManager {
                 .await
         };
 
-        let (resp_payload, error) = match response {
+        let response = match response {
             Ok(response_payload) if response_payload.len() <= MAX_V1_PAYLOAD_BYTES => {
-                (Some(response_payload), None)
+                Ok(response_payload)
             }
-            Ok(_) => (
-                None,
-                Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None).to_proto()),
-            ),
-            Err(e) => (None, Some(e.to_proto())),
+            Ok(_) => {
+                Err(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None).to_proto())
+            }
+            Err(e) => Err(e.to_proto()),
         };
 
         if let Err(e) = self
-            .publish_rpc_response_packet(
-                transport,
-                &caller_identity.0,
-                &request_id,
-                resp_payload,
-                error,
-            )
+            .publish_rpc_response_packet(transport, &caller_identity.0, &request_id, response)
             .await
         {
             log::error!("Failed to publish RPC response: {:?}", e);
@@ -166,8 +159,7 @@ impl RpcServerManager {
                     transport,
                     &caller_identity.0,
                     &request_id,
-                    None,
-                    Some(error.to_proto()),
+                    Err(error.to_proto()),
                 )
                 .await;
             return;
@@ -187,8 +179,7 @@ impl RpcServerManager {
                         transport,
                         &caller_identity.0,
                         &request_id,
-                        None,
-                        Some(error.to_proto()),
+                        Err(error.to_proto()),
                     )
                     .await;
                 return;
@@ -218,8 +209,7 @@ impl RpcServerManager {
                             transport,
                             &caller_identity.0,
                             &request_id,
-                            None,
-                            Some(error.to_proto()),
+                            Err(error.to_proto()),
                         )
                         .await;
                 }
@@ -231,8 +221,7 @@ impl RpcServerManager {
                         transport,
                         &caller_identity.0,
                         &request_id,
-                        None,
-                        Some(e.to_proto()),
+                        Err(e.to_proto()),
                     )
                     .await
                 {
@@ -286,14 +275,13 @@ impl RpcServerManager {
         transport: &impl RpcTransport,
         destination_identity: &str,
         request_id: &str,
-        payload: Option<String>,
-        error: Option<proto::RpcError>,
+        response: Result<String, proto::RpcError>,
     ) -> Result<(), RpcTransportError> {
         let rpc_response_message = proto::RpcResponse {
             request_id: request_id.to_string(),
-            value: Some(match error {
-                Some(error) => proto::rpc_response::Value::Error(error),
-                None => proto::rpc_response::Value::Payload(payload.unwrap()),
+            value: Some(match response {
+                Ok(payload) => proto::rpc_response::Value::Payload(payload),
+                Err(error) => proto::rpc_response::Value::Error(error),
             }),
             ..Default::default()
         };
