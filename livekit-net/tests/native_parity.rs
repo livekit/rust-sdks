@@ -71,7 +71,6 @@ async fn http_get_returns_status_and_body() {
     assert_eq!(res.body, b"hello");
 }
 
-#[cfg(feature = "__native-tokio")]
 #[tokio::test]
 async fn ws_connect_404_yields_transport_http_error() {
     // Spin up a one-shot TCP server that accepts the WS upgrade request and
