@@ -31,6 +31,9 @@ use tokio::sync::oneshot;
 ///
 /// Tracks pending ACKs and responses, handles v1 packet and v2 data stream
 /// transport selection based on the remote participant's client protocol.
+/// The oldest server version that supports RPC.
+const MIN_RPC_SERVER_VERSION: Version = Version::new(1, 8, 0);
+
 /// Generates a random RPC request identifier (UUID v4).
 fn create_random_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
@@ -62,10 +65,16 @@ impl RpcClientManager {
         let min_effective_timeout = Duration::from_millis(1000);
 
         if let Some(version_str) = transport.server_version() {
-            let server_version = Version::parse(&version_str).unwrap();
-            let min_required_version = Version::parse("1.8.0").unwrap();
-            if server_version < min_required_version {
-                return Err(RpcError::built_in(RpcErrorCode::UnsupportedServer, None));
+            match Version::parse(&version_str) {
+                Ok(server_version) if server_version < MIN_RPC_SERVER_VERSION => {
+                    return Err(RpcError::built_in(RpcErrorCode::UnsupportedServer, None));
+                }
+                Ok(_) => {}
+                // A version we cannot parse is not evidence that the server is too old, so
+                // fail open and let the call proceed rather than rejecting every RPC.
+                Err(err) => {
+                    log::warn!("Could not parse server version {version_str:?}: {err}");
+                }
             }
         }
 

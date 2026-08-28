@@ -796,6 +796,30 @@ async fn test_server_below_minimum_version_rejected() {
     assert!(transport.texts().is_empty());
 }
 
+/// A server version we cannot parse must not panic, and must not block the call: we fail open
+/// and let the request go out rather than rejecting every RPC on a cosmetic version string.
+#[tokio::test]
+async fn test_unparseable_server_version_allows_call() {
+    let client = RpcClientManager::new();
+    let transport = MockTransport::new()
+        .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+        .with_server_version(Some("not-a-semver"));
+
+    let result = client
+        .perform_rpc(
+            PerformRpcData::new("dest", "greet")
+                .with_payload("hi")
+                .with_response_timeout(Duration::from_millis(50))
+                .with_max_round_trip_latency(Duration::from_millis(50)),
+            &transport,
+        )
+        .await;
+
+    // The request was sent; it only fails later, waiting for an ack the mock never delivers.
+    assert_eq!(result.unwrap_err().code, RpcErrorCode::ConnectionTimeout as u32);
+    assert_eq!(transport.texts().len(), 1);
+}
+
 /// Verify unregistered method returns UNSUPPORTED_METHOD error via v2 path.
 #[tokio::test]
 async fn test_v2_handler_unsupported_method() {
