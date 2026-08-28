@@ -41,7 +41,7 @@ mod user_data;
 mod video_display;
 mod viewport_aspect;
 
-use test_pattern::TestPattern;
+use test_pattern::{TestPattern, TestPatternMode};
 use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
 
@@ -180,9 +180,14 @@ struct Args {
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
 
-    /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
-    test_pattern: bool,
+    /// Generate test video instead of using a camera: 0=static, 1=animated
+    #[arg(
+        long,
+        value_enum,
+        value_name = "n",
+        conflicts_with_all = ["list_cameras", "list_encoders"]
+    )]
+    test_pattern: Option<TestPatternMode>,
 
     /// Desired width
     #[arg(long, default_value_t = 1280)]
@@ -934,6 +939,23 @@ mod tests {
     }
 
     #[test]
+    fn publisher_test_pattern_modes_parse() {
+        let static_args = Args::try_parse_from(["publisher", "--test-pattern", "0"])
+            .expect("static test pattern should parse");
+        let animated_args = Args::try_parse_from(["publisher", "--test-pattern", "1"])
+            .expect("animated test pattern should parse");
+
+        assert_eq!(static_args.test_pattern, Some(TestPatternMode::Static));
+        assert_eq!(animated_args.test_pattern, Some(TestPatternMode::Animated));
+    }
+
+    #[test]
+    fn publisher_test_pattern_rejects_unknown_mode() {
+        assert!(Args::try_parse_from(["publisher", "--test-pattern", "2"]).is_err());
+        assert!(Args::try_parse_from(["publisher", "--test-pattern"]).is_err());
+    }
+
+    #[test]
     fn publisher_frame_log_flags_parse_inclusive_bounds() {
         let args = Args::try_parse_from([
             "publisher",
@@ -1168,7 +1190,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         SourceKind::Argus => {
             #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
             {
-                if args.test_pattern {
+                if args.test_pattern.is_some() {
                     anyhow::bail!("--test-pattern is not supported with --source argus");
                 }
                 if args.display_video {
@@ -1204,15 +1226,22 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         }
         SourceKind::Uvc => {
-            if args.test_pattern {
+            if let Some(test_pattern_mode) = args.test_pattern {
                 let width = args.width;
                 let height = args.height;
                 let fps = args.fps;
                 info!(
-                    "Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps",
-                    width, height, fps
+                    "Test pattern enabled: {} at {}x{} @ {} fps",
+                    test_pattern_mode.description(),
+                    width,
+                    height,
+                    fps
                 );
-                (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
+                (
+                    width,
+                    height,
+                    VideoInput::TestPattern(TestPattern::new(width, height, test_pattern_mode)),
+                )
             } else {
                 // Setup camera
                 let index = CameraIndex::Index(args.camera_index as u32);
