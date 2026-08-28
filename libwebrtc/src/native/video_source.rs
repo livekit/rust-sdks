@@ -21,7 +21,7 @@ use std::{
 };
 
 use cxx::SharedPtr;
-use livekit_runtime::interval;
+use tokio::time::interval;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
 #[cfg(target_os = "linux")]
@@ -79,7 +79,7 @@ impl NativeVideoSource {
         };
 
         if raw_keepalive {
-            livekit_runtime::spawn({
+            tokio::spawn({
                 let source = source.clone();
                 // This buffer reaches the encoder without any plane ever being
                 // written, so it must be black-initialized: `I420Buffer::new`
