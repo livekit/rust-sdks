@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use livekit_protocol as proto;
-use livekit_runtime::JoinHandle;
 use prost::Message as ProtoMessage;
 use std::{sync::Arc, time::Duration};
+use tokio::task::JoinHandle;
 
 use tokio::sync::{mpsc, oneshot};
 
@@ -65,7 +65,7 @@ impl SignalStream {
         // an outer Rust-side timeout as a backstop: a foreign/host transport that
         // ignores or mishandles `timeout_ms` must not be able to hang connect (and
         // thus the engine's reconnect loop) forever.
-        let conn = livekit_runtime::timeout(
+        let conn = tokio::time::timeout(
             connect_timeout,
             transport.connect(url.to_string(), headers, connect_timeout.as_millis() as u64),
         )
@@ -75,9 +75,8 @@ impl SignalStream {
 
         let (emitter, events) = mpsc::unbounded_channel();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
-        let write_handle = livekit_runtime::spawn(Self::write_task(internal_rx, conn.clone()));
-        let read_handle =
-            livekit_runtime::spawn(Self::read_task(internal_tx.clone(), conn, emitter));
+        let write_handle = tokio::spawn(Self::write_task(internal_rx, conn.clone()));
+        let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), conn, emitter));
 
         Ok((Self { internal_tx, read_handle, write_handle }, events))
     }
