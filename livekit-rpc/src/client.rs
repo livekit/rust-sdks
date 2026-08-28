@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    PerformRpcData, RpcError, RpcErrorCode, RpcTransport, ATTR_METHOD, ATTR_REQUEST_ID,
-    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_V1_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
+use crate::constants::{
+    ATTR_METHOD, ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, RPC_REQUEST_TOPIC,
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
-use crate::data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
-use crate::room::id::ParticipantIdentity;
-use libwebrtc::native::create_random_uuid;
+use crate::transport::{RpcTransport, RpcTransportError};
+use crate::types::{PerformRpcData, RpcError, RpcErrorCode, MAX_V1_PAYLOAD_BYTES};
+use livekit_common::{ParticipantIdentity, CLIENT_PROTOCOL_DATA_STREAM_RPC};
+use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use livekit_protocol as proto;
-use livekit_signaling::CLIENT_PROTOCOL_DATA_STREAM_RPC;
 use parking_lot::Mutex;
 use semver::Version;
 use std::collections::HashMap;
@@ -32,6 +31,11 @@ use tokio::sync::oneshot;
 ///
 /// Tracks pending ACKs and responses, handles v1 packet and v2 data stream
 /// transport selection based on the remote participant's client protocol.
+/// Generates a random RPC request identifier (UUID v4).
+fn create_random_uuid() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
 pub struct RpcClientManager {
     pending_acks: Mutex<HashMap<String, oneshot::Sender<()>>>,
     pending_responses: Mutex<HashMap<String, oneshot::Sender<Result<String, RpcError>>>>,
@@ -49,7 +53,7 @@ impl RpcClientManager {
     ///
     /// Selects v1 (data packet) or v2 (data stream) transport based on
     /// the remote participant's client_protocol.
-    pub(crate) async fn perform_rpc(
+    pub async fn perform_rpc(
         &self,
         data: PerformRpcData,
         transport: &(impl RpcTransport + 'static),
@@ -165,7 +169,7 @@ impl RpcClientManager {
     }
 
     /// Publish a v1 RPC request data packet.
-    pub(crate) async fn send_v1_request(
+    async fn send_v1_request(
         &self,
         transport: &impl RpcTransport,
         destination_identity: &str,
@@ -173,7 +177,7 @@ impl RpcClientManager {
         method: &str,
         payload: &str,
         response_timeout: Duration,
-    ) -> Result<(), crate::room::RoomError> {
+    ) -> Result<(), RpcTransportError> {
         let rpc_request_message = proto::RpcRequest {
             id: id.to_string(),
             method: method.to_string(),
@@ -236,7 +240,7 @@ impl RpcClientManager {
         self.pending_responses.lock().insert(request_id, tx);
     }
 
-    pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
+    pub fn handle_incoming_rpc_ack(&self, request_id: String) {
         let mut pending = self.pending_acks.lock();
         if let Some(tx) = pending.remove(&request_id) {
             let _ = tx.send(());
@@ -249,7 +253,7 @@ impl RpcClientManager {
     ///
     /// Also handles error responses for v2 calls, since error responses
     /// always use v1 packets regardless of transport version.
-    pub(crate) fn handle_v1_response_packet(
+    pub fn handle_v1_response_packet(
         &self,
         request_id: String,
         payload: Option<String>,
@@ -271,7 +275,7 @@ impl RpcClientManager {
     /// Success responses between v2 clients arrive as text data streams
     /// on the `lk.rpc_response` topic. Error responses always arrive
     /// as v1 packets and are handled by `handle_response`.
-    pub(crate) async fn handle_v2_response_stream(&self, reader: TextStreamReader) {
+    pub async fn handle_v2_response_stream(&self, reader: TextStreamReader) {
         let request_id =
             reader.info().attributes().get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
 
