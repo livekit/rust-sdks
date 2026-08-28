@@ -27,6 +27,9 @@ use livekit_datatrack::{
     backend as dt,
 };
 use livekit_protocol as proto;
+use livekit_rpc::backend::{
+    HandleRequestOptions, RpcClientManager, RpcServerManager, RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC,
+};
 use livekit_signaling::{
     SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
@@ -73,6 +76,8 @@ pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod rpc;
+mod rpc_transport;
+use rpc_transport::SessionTransport;
 pub mod track;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -531,8 +536,8 @@ pub(crate) struct RoomSession {
     pub(crate) outgoing_stream_manager: ds::outgoing::Manager,
     local_dt_input: dt::local::ManagerInput,
     remote_dt_input: dt::remote::ManagerInput,
-    pub(crate) rpc_client: rpc::RpcClientManager,
-    pub(crate) rpc_server: rpc::RpcServerManager,
+    pub(crate) rpc_client: RpcClientManager,
+    pub(crate) rpc_server: RpcServerManager,
     handle: AsyncMutex<Option<Handle>>,
 }
 
@@ -751,8 +756,8 @@ impl Room {
             outgoing_stream_manager,
             local_dt_input,
             remote_dt_input,
-            rpc_client: rpc::RpcClientManager::new(),
-            rpc_server: rpc::RpcServerManager::new(),
+            rpc_client: RpcClientManager::new(),
+            rpc_server: RpcServerManager::new(),
             handle: Default::default(),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
@@ -1102,11 +1107,11 @@ impl RoomSession {
                 let session = self.clone();
                 let caller = caller_identity.unwrap();
                 tokio::spawn(async move {
-                    let transport = rpc::SessionTransport(session.clone());
+                    let transport = SessionTransport(session.clone());
                     session
                         .rpc_server
                         .handle_v1_request(
-                            rpc::HandleRequestOptions {
+                            HandleRequestOptions {
                                 caller_identity: caller,
                                 request_id,
                                 method,
@@ -2405,10 +2410,10 @@ async fn incoming_data_stream_task(
                     AnyStreamReader::Text(reader) => {
                         let topic = reader.info().topic.clone();
                         match topic.as_str() {
-                            rpc::RPC_REQUEST_TOPIC => {
+                            RPC_REQUEST_TOPIC => {
                                 let session = session.clone();
                                 tokio::spawn(async move {
-                                    let transport = rpc::SessionTransport(session.clone());
+                                    let transport = SessionTransport(session.clone());
                                     session.rpc_server.handle_v2_request_stream(
                                         reader,
                                         participant_identity,
@@ -2416,7 +2421,7 @@ async fn incoming_data_stream_task(
                                     ).await;
                                 });
                             }
-                            rpc::RPC_RESPONSE_TOPIC => {
+                            RPC_RESPONSE_TOPIC => {
                                 let session = session.clone();
                                 tokio::spawn(async move {
                                     session.rpc_client.handle_v2_response_stream(reader).await;
@@ -2457,7 +2462,7 @@ async fn incoming_data_stream_task(
 
 /// Data stream topics reserved for internal SDK use (e.g. RPC). Events for these topics are
 /// handled within the `livekit` crate and never surfaced through `RoomEvent`.
-const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[rpc::RPC_REQUEST_TOPIC, rpc::RPC_RESPONSE_TOPIC];
+const INTERNAL_DATA_STREAM_TOPICS: &[&str] = &[RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC];
 
 fn is_internal_topic(topic: &str) -> bool {
     INTERNAL_DATA_STREAM_TOPICS.contains(&topic)

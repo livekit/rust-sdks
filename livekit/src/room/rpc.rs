@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,9 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Re-export all RPC types, mirroring what `room::rpc` exposes.
-// This keeps existing imports from `room::participant::*` working.
+//! Re-exports of the [`livekit_rpc`] crate at the paths RPC has always occupied.
+//!
+//! This module exists purely for source compatibility — it has no callers inside this crate.
+//! Code within `livekit` imports from `livekit_rpc` directly; the production transport lives
+//! in [`super::rpc_transport`].
+
 pub use livekit_rpc::api::*;
 
+// Historically public at `livekit::rpc::*`, but not usable without a transport, which is
+// internal. Kept reachable so existing code compiles, hidden from the docs.
 #[doc(hidden)]
 pub use livekit_rpc::backend::{HandleRequestOptions, RpcClientManager, RpcServerManager};
