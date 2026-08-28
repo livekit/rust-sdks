@@ -35,7 +35,6 @@ use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::rpc::{RpcError, RpcErrorCode, RpcInvocationData},
     rtc_engine::lk_runtime::LkRuntime,
     rtc_engine::{EngineError, EngineResult, RtcEngine},
     ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
@@ -909,7 +908,7 @@ impl LocalParticipant {
         let session = self.session().ok_or_else(|| {
             RpcError::built_in(RpcErrorCode::SendFailed, Some("Not connected".to_string()))
         })?;
-        let transport = crate::room::rpc::SessionTransport(session.clone());
+        let transport = crate::room::rpc_transport::SessionTransport(session.clone());
         session.rpc_client.perform_rpc(data, &transport).await
     }
 
