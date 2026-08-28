@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use livekit_wakeword::{WakeWordModel, SAMPLE_RATE};
+use livekit_wakeword::{OptimizationLevel, SessionOptions, WakeWordModel, SAMPLE_RATE};
 
 mod common;
 
@@ -81,4 +81,60 @@ fn test_negative_wav_below_threshold() {
         score < THRESHOLD,
         "expected negative sample score ({score}) < threshold ({THRESHOLD})"
     );
+}
+
+/// Session options supplied at runtime must not change what the model predicts,
+/// including the options a backend cannot honour (`ort-tract` implements only the
+/// graph optimization level and skips the rest).
+#[test]
+fn test_session_options_preserve_scores() {
+    let (sample_rate, samples) = common::read_wav("positive.wav");
+
+    let options = SessionOptions {
+        intra_threads: Some(1),
+        inter_threads: Some(1),
+        parallel_execution: Some(false),
+        intra_op_spinning: Some(false),
+        inter_op_spinning: Some(false),
+        config_entries: vec![("session.use_env_allocators".to_string(), "1".to_string())],
+        ..Default::default()
+    };
+
+    let mut default = WakeWordModel::new(&[classifier_path()], sample_rate).unwrap();
+    let mut tuned =
+        WakeWordModel::with_session_options(&[classifier_path()], sample_rate, options).unwrap();
+
+    assert_eq!(
+        default.predict(&samples).unwrap()["hey_livekit"],
+        tuned.predict(&samples).unwrap()["hey_livekit"]
+    );
+}
+
+/// Every optimization level builds a working model, and a per-classifier override
+/// leaves the model's own options in place.
+#[test]
+fn test_optimization_levels_and_per_model_options() {
+    let (sample_rate, samples) = common::read_wav("positive.wav");
+
+    for level in [OptimizationLevel::Disable, OptimizationLevel::Level1, OptimizationLevel::Level3]
+    {
+        let options = SessionOptions { optimization_level: level, ..Default::default() };
+        let mut model =
+            WakeWordModel::with_session_options(&[classifier_path()], sample_rate, options)
+                .unwrap();
+        let score = model.predict(&samples).unwrap()["hey_livekit"];
+        assert!(score > THRESHOLD, "{level:?} scored {score}");
+    }
+
+    let no_models: &[PathBuf] = &[];
+    let mut model = WakeWordModel::new(no_models, sample_rate).unwrap();
+    let options =
+        SessionOptions { optimization_level: OptimizationLevel::Disable, ..Default::default() };
+    model
+        .load_model_with_session_options(classifier_path(), Some("unoptimized"), &options)
+        .unwrap();
+    model.load_model(classifier_path(), Some("default")).unwrap();
+
+    let predictions = model.predict(&samples).unwrap();
+    assert_eq!(predictions["unoptimized"], predictions["default"]);
 }
