@@ -155,8 +155,23 @@ impl PeerTransport {
 
         self.peer_connection.set_remote_description(remote_description).await?;
 
+        // Apply every queued candidate, even if one fails. A candidate can be rejected on its
+        // own merits — a malformed or stale line from the server — and that must not abort the
+        // replay: `drain`'s `Drop` clears the whole range however far iteration got, so an early
+        // return discards the untried candidates instead of leaving them queued. It would also
+        // skip the `restarting_ice` reset below, leaving the transport queuing every future
+        // candidate forever. The remote description is already applied at this point, so there
+        // is nothing to unwind — the failure is per-candidate and the rest still stand.
         for ic in inner.pending_candidates.drain(..) {
-            self.peer_connection.add_ice_candidate(ic).await?;
+            let candidate = ic.to_string();
+            if let Err(err) = self.peer_connection.add_ice_candidate(ic).await {
+                log::warn!(
+                    "{:?}: failed to add pending ice candidate {}: {:?}",
+                    self.signal_target,
+                    candidate,
+                    err
+                );
+            }
         }
 
         inner.restarting_ice = false;
