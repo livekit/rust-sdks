@@ -15,8 +15,25 @@
 #![doc = include_str!("../README.md")]
 
 mod client;
+mod constants;
 mod server;
+mod transport;
 mod types;
 
 #[cfg(test)]
 mod tests;
+
+/// Public API re-exported by client SDKs (surfaced to end users through the `livekit` crate).
+pub mod api {
+    pub use crate::types::{
+        PerformRpcData, RpcError, RpcErrorCode, RpcInvocationData, MAX_V1_PAYLOAD_BYTES,
+    };
+}
+
+/// Internal APIs used within the `livekit` SDK to power RPC.
+pub mod backend {
+    pub use crate::client::RpcClientManager;
+    pub use crate::constants::{RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC};
+    pub use crate::server::{HandleRequestOptions, RpcServerManager};
+    pub use crate::transport::{RpcTransport, RpcTransportError};
+}

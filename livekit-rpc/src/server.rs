@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD, ATTR_REQUEST_ID,
-    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_V1_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC,
+use crate::constants::{
+    ATTR_METHOD, ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, RPC_RESPONSE_TOPIC,
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
-use crate::data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
-use crate::room::id::ParticipantIdentity;
+use crate::transport::{RpcTransport, RpcTransportError};
+use crate::types::{RpcError, RpcErrorCode, RpcInvocationData, MAX_V1_PAYLOAD_BYTES};
+use livekit_common::ParticipantIdentity;
+use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
-pub(crate) type RpcHandlerFn = Arc<
+type RpcHandlerFn = Arc<
     dyn Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
         + Send
         + Sync,
@@ -68,7 +69,7 @@ impl RpcServerManager {
         self.handlers.lock().remove(method);
     }
 
-    pub(crate) fn get_handler(&self, method: &str) -> Option<RpcHandlerFn> {
+    fn get_handler(&self, method: &str) -> Option<RpcHandlerFn> {
         self.handlers.lock().get(method).cloned()
     }
 
@@ -76,7 +77,7 @@ impl RpcServerManager {
     ///
     /// Sends ACK, invokes the registered handler, and sends the response
     /// as a v1 RPC response packet.
-    pub(crate) async fn handle_v1_request(
+    pub async fn handle_v1_request(
         &self,
         options: HandleRequestOptions,
         transport: &(impl RpcTransport + 'static),
@@ -132,7 +133,7 @@ impl RpcServerManager {
     /// Parses request metadata from stream attributes, sends ACK,
     /// invokes the handler, and sends the response. Success responses
     /// use a v2 data stream; error responses always use v1 packets.
-    pub(crate) async fn handle_v2_request_stream(
+    pub async fn handle_v2_request_stream(
         &self,
         reader: TextStreamReader,
         caller_identity: ParticipantIdentity,
@@ -286,7 +287,7 @@ impl RpcServerManager {
         request_id: &str,
         payload: Option<String>,
         error: Option<proto::RpcError>,
-    ) -> Result<(), crate::room::RoomError> {
+    ) -> Result<(), RpcTransportError> {
         let rpc_response_message = proto::RpcResponse {
             request_id: request_id.to_string(),
             value: Some(match error {
@@ -311,7 +312,7 @@ impl RpcServerManager {
         transport: &impl RpcTransport,
         destination_identity: &str,
         request_id: &str,
-    ) -> Result<(), crate::room::RoomError> {
+    ) -> Result<(), RpcTransportError> {
         let rpc_ack_message =
             proto::RpcAck { request_id: request_id.to_string(), ..Default::default() };
 

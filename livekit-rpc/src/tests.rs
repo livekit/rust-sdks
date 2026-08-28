@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
-use crate::data_stream::api::{
-    OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
-};
-use crate::e2ee::EncryptionType;
-use crate::room::id::ParticipantIdentity;
-use crate::room::participant::ClientCapability;
-use crate::room::RoomError;
+use crate::client::RpcClientManager;
+use crate::constants::*;
+use crate::server::{HandleRequestOptions, RpcServerManager};
+use crate::transport::{RpcTransport, RpcTransportError};
+use crate::types::*;
 use bytes::Bytes;
 use chrono::Utc;
-use livekit_common::RemoteParticipantRegistry;
+use livekit_common::{
+    ClientCapability, EncryptionType, ParticipantIdentity, RemoteParticipantRegistry,
+    CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT,
+};
+use livekit_data_stream::api::{
+    OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
+};
 use livekit_protocol as proto;
-use livekit_signaling::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 use parking_lot::{Mutex as ParkingMutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -113,7 +115,7 @@ impl MockTransport {
 }
 
 impl RpcTransport for MockTransport {
-    async fn publish_data(&self, data: proto::DataPacket) -> Result<(), RoomError> {
+    async fn publish_data(&self, data: proto::DataPacket) -> Result<(), RpcTransportError> {
         self.sent_packets.lock().push(data);
         self.packet_sent.notify_waiters();
         Ok(())
