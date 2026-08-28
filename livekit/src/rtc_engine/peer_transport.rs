@@ -14,7 +14,10 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
 };
 
 use libwebrtc::prelude::*;
@@ -41,6 +44,12 @@ pub struct PeerTransport {
     peer_connection: PeerConnection,
     on_offer_handler: Mutex<Option<OnOfferCreated>>,
     inner: Arc<AsyncMutex<TransportInner>>,
+
+    /// Counts entries into `Connected`; see [`Self::note_connection_state`].
+    connected_generation: AtomicU32,
+
+    /// Counts exits from `Connected`; see [`Self::note_connection_state`].
+    disconnect_generation: AtomicU32,
 }
 
 impl Debug for PeerTransport {
@@ -67,11 +76,38 @@ impl PeerTransport {
                 max_send_bitrate_bps: None,
                 pending_initial_offer: None,
             })),
+            connected_generation: AtomicU32::new(0),
+            disconnect_generation: AtomicU32::new(0),
         }
     }
 
     pub fn is_connected(&self) -> bool {
         self.peer_connection.connection_state() == PeerConnectionState::Connected
+    }
+
+    pub fn connected_generation(&self) -> u32 {
+        self.connected_generation.load(Ordering::Acquire)
+    }
+
+    pub fn disconnect_generation(&self) -> u32 {
+        self.disconnect_generation.load(Ordering::Acquire)
+    }
+
+    /// Record a connection-state transition, so a later observer can tell what the transport
+    /// has *done* rather than only what it currently reports.
+    ///
+    /// Both counters exist because `PeerConnectionState` is a level, and a level cannot
+    /// distinguish a transport that recovered from one whose far end vanished: ICE keeps
+    /// reporting `Connected` until its receiving timeout, and only reaches `Failed` after
+    /// consent expiry tens of seconds later. Comparing these against a snapshot taken before
+    /// a resume gives that history. Called for every `RtcEvent::ConnectionChange`, so a
+    /// transport that drops and returns between two polls is still visible as having dropped.
+    pub fn note_connection_state(&self, state: PeerConnectionState) {
+        if state == PeerConnectionState::Connected {
+            self.connected_generation.fetch_add(1, Ordering::AcqRel);
+        } else {
+            self.disconnect_generation.fetch_add(1, Ordering::AcqRel);
+        }
     }
 
     pub fn peer_connection(&self) -> PeerConnection {
@@ -119,8 +155,23 @@ impl PeerTransport {
 
         self.peer_connection.set_remote_description(remote_description).await?;
 
+        // Apply every queued candidate, even if one fails. A candidate can be rejected on its
+        // own merits — a malformed or stale line from the server — and that must not abort the
+        // replay: `drain`'s `Drop` clears the whole range however far iteration got, so an early
+        // return discards the untried candidates instead of leaving them queued. It would also
+        // skip the `restarting_ice` reset below, leaving the transport queuing every future
+        // candidate forever. The remote description is already applied at this point, so there
+        // is nothing to unwind — the failure is per-candidate and the rest still stand.
         for ic in inner.pending_candidates.drain(..) {
-            self.peer_connection.add_ice_candidate(ic).await?;
+            let candidate = ic.to_string();
+            if let Err(err) = self.peer_connection.add_ice_candidate(ic).await {
+                log::warn!(
+                    "{:?}: failed to add pending ice candidate {}: {:?}",
+                    self.signal_target,
+                    candidate,
+                    err
+                );
+            }
         }
 
         inner.restarting_ice = false;
@@ -648,6 +699,48 @@ mod tests {
             "the deferred renegotiation should emit a follow-up offer"
         );
         assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
+    }
+
+    /// The two counters are the whole basis on which a resume decides a transport recovered,
+    /// so each transition must land on exactly one of them, and a transport that drops and
+    /// returns must leave both marks rather than looking untouched.
+    #[test]
+    fn connection_state_transitions_are_counted_separately() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let pc = factory
+            .create_peer_connection(RtcConfiguration {
+                ice_servers: vec![],
+                continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+                ice_transport_type: IceTransportsType::All,
+            })
+            .unwrap();
+
+        let transport = PeerTransport::new(
+            pc,
+            proto::SignalTarget::Subscriber,
+            /* single_pc_mode= */ false,
+        );
+        let counters = || (transport.connected_generation(), transport.disconnect_generation());
+
+        assert_eq!(counters(), (0, 0));
+
+        transport.note_connection_state(PeerConnectionState::Connecting);
+        assert_eq!(counters(), (0, 1));
+
+        transport.note_connection_state(PeerConnectionState::Connected);
+        assert_eq!(counters(), (1, 1));
+
+        // Dropping and returning must move both counters: a resume needs to see that it broke
+        // *and* that it came back, and a poll sampling only the current state sees neither.
+        transport.note_connection_state(PeerConnectionState::Disconnected);
+        transport.note_connection_state(PeerConnectionState::Connected);
+        assert_eq!(counters(), (2, 2));
+
+        transport.note_connection_state(PeerConnectionState::Failed);
+        assert_eq!(counters(), (2, 3));
     }
 
     #[test]

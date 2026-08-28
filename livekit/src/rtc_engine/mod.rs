@@ -55,17 +55,27 @@ pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
 pub(crate) type EngineResult<T> = Result<T, EngineError>;
 
-/// Settling delay before checking PeerConnection state on the resume path.
+/// How long a resume waits before accepting "this transport never left `Connected`" as
+/// evidence that it is still good.
 ///
-/// Lets a freshly issued ICE-restart offer/answer round-trip take effect when the
-/// underlying PC was still in `Connected` at the moment we started the reconnect
-/// (e.g. signal-only failure). Without this, the resume can return success
-/// immediately and the next failure detector then trips the engine into a real
-/// disconnect.
+/// Only the ambiguous case waits: a transport that re-entered `Connected` during the resume
+/// has demonstrably reconnected and is accepted immediately. But a transport whose far end
+/// has silently gone away also still reports `Connected`, because ICE holds that state until
+/// its receiving timeout — so this has to outlast that timeout, or a dead transport is
+/// accepted as healthy.
 ///
-/// Only applied to the resume path. Full reconnect builds brand-new PCs which
-/// don't suffer from the "looks-Connected-but-isn't" race.
-pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(1);
+/// The cost is resume latency for a signal-only failure, where the media plane was fine and
+/// there is no reconnection to short-circuit on. Resume-only; a full reconnect builds new
+/// PeerConnections and has no stale state to misread.
+///
+/// This window cannot be replaced by watching for an ICE restart to take effect. Measured
+/// against a dev server, a same-node resume does perform a real subscriber ICE restart — the
+/// server's offer carries a fresh ice-ufrag and both transports gather a new generation — yet
+/// neither `IceConnectionState` nor `PeerConnectionState` leaves `Connected` at any point,
+/// because libwebrtc keeps the old candidate pair selected until the new one is ready. So
+/// "nothing transitioned" is the *normal* outcome of a healthy resume, and requiring an
+/// observed transition would time out every signal-only resume into a full reconnect.
+pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
@@ -1098,9 +1108,10 @@ impl EngineInner {
     /// each non-trivial seam is its own method so the sequence — and the reason
     /// for the ordering — is explicit rather than implied by statement order.
     /// Mirrors the resume chain in `livekit/specs/signalling-reconnection.allium`:
+    ///   0. sample the PC transition counts, before anything can perturb them;
     ///   1. reopen the signalling link (queue gate stays on until step 4);
     ///   2. SyncState before the publisher re-offer;
-    ///   3. re-offer the publisher, then await PC reconnection + settle;
+    ///   3. re-offer the publisher, then await *demonstrated* PC recovery;
     ///   4. re-check link liveness, then drain the queue.
     async fn try_resume_connection(self: &Arc<Self>) -> EngineResult<()> {
         // Test-only: force the configured number of resume attempts to fail so tests
@@ -1129,6 +1140,11 @@ impl EngineInner {
 
         let session = self.running_handle.read().session.clone();
 
+        // 0. Sample the transports' connection-state transition counts BEFORE anything can
+        //    perturb them, so step 3 can tell a transport that reconnected from one still
+        //    reporting a `Connected` that predates the failure.
+        let pc_snapshot = session.pc_generation_snapshot();
+
         // 1. Reopen the signalling link. The SignalClient stays gated
         //    (`reconnecting=true`) so queueable mutations buffer until step 4.
         let reconnect_response = session.restart().await?;
@@ -1137,10 +1153,10 @@ impl EngineInner {
         //    SyncState, which must precede the publisher re-offer.
         self.resume_sync_state(reconnect_response).await;
 
-        // 3. Re-offer the publisher (strictly AFTER SyncState) and wait for the
-        //    PeerConnections to reconnect, applying the settle delay.
+        // 3. Re-offer the publisher (strictly AFTER SyncState), then wait for the transports
+        //    to have demonstrably reconnected rather than merely to report `Connected`.
         session.restart_publisher().await?;
-        session.wait_pc_reconnected(PC_RECONNECT_SETTLE_DELAY).await?;
+        session.wait_pc_reconnected(pc_snapshot, PC_RECONNECT_SETTLE_DELAY).await?;
 
         // 4. Re-check link liveness and drain the queued mutations.
         self.resume_finalize(&session).await
