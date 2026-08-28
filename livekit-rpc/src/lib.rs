@@ -13,3 +13,10 @@
 // limitations under the License.
 
 #![doc = include_str!("../README.md")]
+
+mod client;
+mod server;
+mod types;
+
+#[cfg(test)]
+mod tests;
