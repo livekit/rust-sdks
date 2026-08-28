@@ -30,7 +30,8 @@ type RpcHandlerFn = Arc<
         + Sync,
 >;
 
-/// Parameters for [`RpcServerManager::handle_request`].
+/// Parameters for [`RpcServerManager::handle_v1_request`] and
+/// [`RpcServerManager::handle_v2_request_stream`].
 pub struct HandleRequestOptions {
     pub caller_identity: ParticipantIdentity,
     pub request_id: String,
