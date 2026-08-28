@@ -105,28 +105,12 @@ impl WakeWordModel {
 
     /// Load a wake word classifier ONNX model from disk.
     ///
-    /// If `model_name` is `None`, the file stem is used as the classifier name.
-    ///
-    /// The session is created with the options this model was built with.
+    /// If `model_name` is `None`, the file stem is used as the classifier name. The
+    /// session is created with the [`SessionOptions`] this model was built with.
     pub fn load_model(
         &mut self,
         model_path: impl AsRef<Path>,
         model_name: Option<&str>,
-    ) -> Result<(), WakeWordError> {
-        let session_options = self.session_options.clone();
-        self.load_model_with_session_options(model_path, model_name, &session_options)
-    }
-
-    /// Load a wake word classifier ONNX model from disk with its own session options.
-    ///
-    /// Only this classifier's session is affected; the model's own options, used by
-    /// [`load_model`](Self::load_model) and by the bundled feature extraction
-    /// models, are left alone.
-    pub fn load_model_with_session_options(
-        &mut self,
-        model_path: impl AsRef<Path>,
-        model_name: Option<&str>,
-        session_options: &SessionOptions,
     ) -> Result<(), WakeWordError> {
         let path = model_path.as_ref();
         if !path.exists() {
@@ -138,7 +122,7 @@ impl WakeWordModel {
             None => path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
         };
 
-        let session = build_session_from_file(path, session_options)?;
+        let session = build_session_from_file(path, &self.session_options)?;
         self.classifiers.insert(name, session);
         Ok(())
     }

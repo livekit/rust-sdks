@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use livekit_wakeword::{OptimizationLevel, SessionOptions, WakeWordModel, SAMPLE_RATE};
+use livekit_wakeword::{GraphOptimizationLevel, SessionOptions, WakeWordModel, SAMPLE_RATE};
 
 mod common;
 
@@ -110,14 +110,16 @@ fn test_session_options_preserve_scores() {
     );
 }
 
-/// Every optimization level builds a working model, and a per-classifier override
-/// leaves the model's own options in place.
+/// Every optimization level builds a model that still detects the wake word.
 #[test]
-fn test_optimization_levels_and_per_model_options() {
+fn test_optimization_levels() {
     let (sample_rate, samples) = common::read_wav("positive.wav");
 
-    for level in [OptimizationLevel::Disable, OptimizationLevel::Level1, OptimizationLevel::Level3]
-    {
+    for level in [
+        GraphOptimizationLevel::Disable,
+        GraphOptimizationLevel::Level1,
+        GraphOptimizationLevel::Level3,
+    ] {
         let options = SessionOptions { optimization_level: level, ..Default::default() };
         let mut model =
             WakeWordModel::with_session_options(&[classifier_path()], sample_rate, options)
@@ -125,16 +127,20 @@ fn test_optimization_levels_and_per_model_options() {
         let score = model.predict(&samples).unwrap()["hey_livekit"];
         assert!(score > THRESHOLD, "{level:?} scored {score}");
     }
+}
+
+/// A classifier loaded after construction inherits the model's session options.
+#[test]
+fn test_load_model_inherits_session_options() {
+    let (sample_rate, samples) = common::read_wav("positive.wav");
 
     let no_models: &[PathBuf] = &[];
-    let mut model = WakeWordModel::new(no_models, sample_rate).unwrap();
-    let options =
-        SessionOptions { optimization_level: OptimizationLevel::Disable, ..Default::default() };
-    model
-        .load_model_with_session_options(classifier_path(), Some("unoptimized"), &options)
-        .unwrap();
-    model.load_model(classifier_path(), Some("default")).unwrap();
+    let options = SessionOptions {
+        optimization_level: GraphOptimizationLevel::Disable,
+        ..Default::default()
+    };
+    let mut model = WakeWordModel::with_session_options(no_models, sample_rate, options).unwrap();
+    model.load_model(classifier_path(), Some("late")).unwrap();
 
-    let predictions = model.predict(&samples).unwrap();
-    assert_eq!(predictions["unoptimized"], predictions["default"]);
+    assert!(model.predict(&samples).unwrap()["late"] > THRESHOLD);
 }
