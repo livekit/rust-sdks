@@ -1,5 +1,7 @@
 ---
 libwebrtc: minor
+livekit: patch
+livekit-ffi: patch
 ---
 
 # Expose network_type on IceCandidateStats
