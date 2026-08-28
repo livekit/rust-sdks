@@ -166,15 +166,50 @@ void PeerConnection::restart_ice() const {
   peer_connection_->RestartIce();
 }
 
+std::function<void(const webrtc::RTCError&)> make_add_ice_candidate_callback(
+    rust::Box<PeerContext> ctx,
+    rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) {
+  auto completion =
+      std::make_shared<AddIceCandidateCompletion>(std::move(ctx), on_complete);
+  return [completion = std::move(completion)](const webrtc::RTCError& err) {
+    completion->Complete(err);
+  };
+}
+
 void PeerConnection::add_ice_candidate(
     std::shared_ptr<IceCandidate> candidate,
     rust::Box<PeerContext> ctx,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const {
   peer_connection_->AddIceCandidate(
-      candidate->release(), [&](const webrtc::RTCError& err) {
-        on_complete(std::move(ctx), to_error(err));
-      });
+      candidate->release(),
+      make_add_ice_candidate_callback(std::move(ctx), on_complete));
 }
+
+#ifdef LIVEKIT_TEST
+void complete_add_ice_candidate_for_test(
+    rust::Box<PeerContext> ctx,
+    rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete,
+    rust::String error_message,
+    size_t invocations) {
+  // The completion state belongs to `make_add_ice_candidate_callback`'s frame,
+  // which is gone by the time the callback runs.
+  auto callback = make_add_ice_candidate_callback(std::move(ctx), on_complete);
+
+  // libwebrtc's operations chain stores the callback in a copyable
+  // `std::function` and drops the original.
+  auto queued = callback;
+  callback = nullptr;
+
+  webrtc::RTCError error =
+      error_message.empty()
+          ? webrtc::RTCError::OK()
+          : webrtc::RTCError(webrtc::RTCErrorType::INVALID_PARAMETER,
+                             std::string(error_message));
+
+  for (size_t i = 0; i < invocations; ++i)
+    queued(error);
+}
+#endif
 
 std::shared_ptr<DataChannel> PeerConnection::create_data_channel(
     rust::String label,
