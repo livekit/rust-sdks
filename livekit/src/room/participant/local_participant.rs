@@ -48,10 +48,10 @@ use libwebrtc::{
     video_source::RtcVideoSource,
 };
 use livekit_protocol as proto;
-use livekit_runtime::timeout;
 use livekit_signaling::SignalError;
 use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
+use tokio::time::timeout;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
