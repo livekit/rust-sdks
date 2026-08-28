@@ -27,10 +27,6 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
-/// Manages outgoing RPC calls (caller/client side).
-///
-/// Tracks pending ACKs and responses, handles v1 packet and v2 data stream
-/// transport selection based on the remote participant's client protocol.
 /// The oldest server version that supports RPC.
 const MIN_RPC_SERVER_VERSION: Version = Version::new(1, 8, 0);
 
@@ -46,6 +42,10 @@ struct Pending<T> {
     tx: oneshot::Sender<T>,
 }
 
+/// Manages outgoing RPC calls (caller/client side).
+///
+/// Tracks pending ACKs and responses, handles v1 packet and v2 data stream
+/// transport selection based on the remote participant's client protocol.
 pub struct RpcClientManager {
     pending_acks: Mutex<HashMap<String, Pending<()>>>,
     pending_responses: Mutex<HashMap<String, Pending<Result<String, RpcError>>>>,
