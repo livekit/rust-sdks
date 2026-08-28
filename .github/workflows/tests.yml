@@ -183,6 +183,11 @@ jobs:
           cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native
           cargo test --verbose --target ${{ matrix.target }} -p livekit-signaling --features native
 
+      - name: Test RPC seam (livekit-rpc)
+        shell: bash
+        run: |
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-rpc
+
       - name: Build livekit-net uniffi feature (foreign transport bindings)
         shell: bash
         run: |
