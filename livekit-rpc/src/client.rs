@@ -39,9 +39,16 @@ fn create_random_uuid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// An in-flight request, tagged with who it went to so it can be failed if that participant
+/// leaves before responding.
+struct Pending<T> {
+    destination_identity: ParticipantIdentity,
+    tx: oneshot::Sender<T>,
+}
+
 pub struct RpcClientManager {
-    pending_acks: Mutex<HashMap<String, oneshot::Sender<()>>>,
-    pending_responses: Mutex<HashMap<String, oneshot::Sender<Result<String, RpcError>>>>,
+    pending_acks: Mutex<HashMap<String, Pending<()>>>,
+    pending_responses: Mutex<HashMap<String, Pending<Result<String, RpcError>>>>,
 }
 
 impl RpcClientManager {
@@ -101,8 +108,13 @@ impl RpcClientManager {
         {
             let mut pending_acks = self.pending_acks.lock();
             let mut pending_responses = self.pending_responses.lock();
-            pending_acks.insert(id.clone(), ack_tx);
-            pending_responses.insert(id.clone(), response_tx);
+            let destination = ParticipantIdentity(data.destination_identity.clone());
+            pending_acks.insert(
+                id.clone(),
+                Pending { destination_identity: destination.clone(), tx: ack_tx },
+            );
+            pending_responses
+                .insert(id.clone(), Pending { destination_identity: destination, tx: response_tx });
         }
 
         let send_result = if use_v2 {
@@ -147,7 +159,12 @@ impl RpcClientManager {
                 pending_responses.remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
             }
-            Ok(_) => {
+            Ok(Err(_)) => {
+                // Sender dropped: the recipient disconnected before acknowledging.
+                self.pending_responses.lock().remove(&id);
+                return Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None));
+            }
+            Ok(Ok(())) => {
                 // Ack received, continue to wait for response
             }
         }
@@ -244,15 +261,53 @@ impl RpcClientManager {
     pub(crate) fn insert_pending_response(
         &self,
         request_id: String,
+        destination_identity: impl Into<ParticipantIdentity>,
         tx: tokio::sync::oneshot::Sender<Result<String, RpcError>>,
     ) {
-        self.pending_responses.lock().insert(request_id, tx);
+        self.pending_responses
+            .lock()
+            .insert(request_id, Pending { destination_identity: destination_identity.into(), tx });
+    }
+
+    /// Fail every call still waiting on `identity`.
+    ///
+    /// Without this, a participant that leaves mid-call strands the caller until its response
+    /// timeout expires (15s by default) and reports `ResponseTimeout` rather than
+    /// `RecipientDisconnected`.
+    pub fn handle_participant_disconnected(&self, identity: &ParticipantIdentity) {
+        self.pending_acks.lock().retain(|_, pending| pending.destination_identity != *identity);
+
+        let stranded: Vec<_> = {
+            let mut pending_responses = self.pending_responses.lock();
+            let ids: Vec<String> = pending_responses
+                .iter()
+                .filter(|(_, pending)| pending.destination_identity == *identity)
+                .map(|(id, _)| id.clone())
+                .collect();
+            ids.into_iter().filter_map(|id| pending_responses.remove(&id)).collect()
+        };
+
+        for pending in stranded {
+            let _ =
+                pending.tx.send(Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)));
+        }
+    }
+
+    /// Fail every in-flight call, whoever it was addressed to. Used when the room closes.
+    pub fn fail_all_pending(&self) {
+        self.pending_acks.lock().clear();
+
+        let stranded: Vec<_> = self.pending_responses.lock().drain().map(|(_, p)| p).collect();
+        for pending in stranded {
+            let _ =
+                pending.tx.send(Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None)));
+        }
     }
 
     pub fn handle_incoming_rpc_ack(&self, request_id: String) {
         let mut pending = self.pending_acks.lock();
-        if let Some(tx) = pending.remove(&request_id) {
-            let _ = tx.send(());
+        if let Some(pending) = pending.remove(&request_id) {
+            let _ = pending.tx.send(());
         } else {
             log::error!("Ack received for unexpected RPC request: {}", request_id);
         }
@@ -269,8 +324,8 @@ impl RpcClientManager {
         error: Option<proto::RpcError>,
     ) {
         let mut pending = self.pending_responses.lock();
-        if let Some(tx) = pending.remove(&request_id) {
-            let _ = tx.send(match error {
+        if let Some(pending) = pending.remove(&request_id) {
+            let _ = pending.tx.send(match error {
                 Some(e) => Err(RpcError::from_proto(e)),
                 None => Ok(payload.unwrap_or_default()),
             });
@@ -299,8 +354,8 @@ impl RpcClientManager {
                 log::error!("Failed to read RPC v2 response stream: {:?}", e);
                 // Resolve with error so the caller doesn't hang
                 let mut pending = self.pending_responses.lock();
-                if let Some(tx) = pending.remove(&request_id) {
-                    let _ = tx.send(Err(RpcError::built_in(
+                if let Some(pending) = pending.remove(&request_id) {
+                    let _ = pending.tx.send(Err(RpcError::built_in(
                         RpcErrorCode::ApplicationError,
                         Some(format!("Failed to read response stream: {}", e)),
                     )));
@@ -310,8 +365,8 @@ impl RpcClientManager {
         };
 
         let mut pending = self.pending_responses.lock();
-        if let Some(tx) = pending.remove(&request_id) {
-            let _ = tx.send(Ok(payload));
+        if let Some(pending) = pending.remove(&request_id) {
+            let _ = pending.tx.send(Ok(payload));
         } else {
             log::error!("Response stream received for unexpected RPC request: {}", request_id);
         }
