@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg(feature = "__native")]
+#![cfg(feature = "native")]
 
 use livekit_net::{Header, HttpClientExt};
 

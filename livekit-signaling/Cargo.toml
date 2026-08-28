@@ -10,9 +10,11 @@ readme = "README.md"
 [features]
 default = []
 
+# livekit-net's bundled native backend. Without it the transport stays blind:
+# the host must register a livekit_net transport (set_ws_client /
+# set_http_client) before connecting.
+native = ["livekit-net/native"]
 
-# livekit-net's bundled native backend.
-native-tokio = ["livekit-net/native-tokio"]
 
 # TLS, forwarded to livekit-net (only meaningful with a native backend).
 native-tls              = ["livekit-net/native-tls"]

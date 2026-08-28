@@ -15,7 +15,7 @@
 mod transport;
 mod types;
 
-#[cfg(feature = "__native")]
+#[cfg(feature = "native")]
 mod native;
 
 pub use transport::{
@@ -110,11 +110,11 @@ pub fn ws_client() -> Option<Arc<dyn WsClient>> {
     if let Some(c) = WS.get() {
         return Some(Arc::clone(c));
     }
-    #[cfg(feature = "__native")]
+    #[cfg(feature = "native")]
     {
         Some(native::native_ws_client())
     }
-    #[cfg(not(feature = "__native"))]
+    #[cfg(not(feature = "native"))]
     {
         None
     }
@@ -128,17 +128,17 @@ pub fn http_client() -> Option<Arc<dyn HttpClient>> {
     if let Some(c) = HTTP.get() {
         return Some(Arc::clone(c));
     }
-    #[cfg(feature = "__native")]
+    #[cfg(feature = "native")]
     {
         Some(native::native_http_client())
     }
-    #[cfg(not(feature = "__native"))]
+    #[cfg(not(feature = "native"))]
     {
         None
     }
 }
 
-#[cfg(feature = "__native")]
+#[cfg(feature = "native")]
 pub mod testing {
     use crate::{HttpClient, WsClient};
     use std::sync::Arc;

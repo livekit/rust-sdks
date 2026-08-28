@@ -9,9 +9,12 @@ readme = "README.md"
 
 [features]
 # By default ws TLS is not enabled
-default = ["tokio"]
+default = ["native"]
 
-tokio = ["livekit-signaling/native-tokio"]
+native = ["livekit-signaling/native"]
+
+# Back-compat alias from when this also selected a runtime.
+tokio = ["native"]
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
 # GDBus requires a GLib event loop to be running. Enable this feature if you

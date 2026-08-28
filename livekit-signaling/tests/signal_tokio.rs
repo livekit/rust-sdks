@@ -27,7 +27,7 @@
 //!
 //! These are the Rust counterparts to cmd/test-server/signal_test.go, which
 //! exercises the same modes from the server side.
-#![cfg(feature = "native-tokio")]
+#![cfg(feature = "native")]
 //
 // Moved out of `src/signal_client/signal_test.rs`: as an in-crate `#[cfg(test)]` module it
 // shared a test binary with the unit tests that call `install_mock_transport()`, which

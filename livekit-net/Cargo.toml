@@ -15,9 +15,9 @@ default = []
 # transport that falls back to native.
 uniffi = ["dep:uniffi"]
 
-# Native backend bundle: the bundled tokio websocket/HTTP stack. Without it the
-# crate is transport-blind and the host must register a client.
-native-tokio = ["__native"]
+# Native backend bundle: the bundled websocket/HTTP stack. Without it the crate
+# is transport-blind and the host must register a client.
+native = ["dep:tokio-tungstenite", "dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:base64"]
 
 
 # ── TLS (only meaningful with a native backend) ───────────────────
@@ -41,9 +41,6 @@ rustls-tls-webpki-roots = [
     "reqwest?/rustls-tls-webpki-roots",
 ]
 __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
-
-# ── internal markers ──────────────────────────────────────────────
-__native = ["dep:tokio-tungstenite", "dep:reqwest", "dep:tokio", "dep:futures-util", "dep:bytes", "dep:base64"]
 
 [dependencies]
 async-trait = "0.1"

@@ -16,5 +16,5 @@
 // region/validate HTTP calls now live in livekit-net, so nothing here is gated
 // on the signal-client features.
 
-#[cfg(feature = "services-tokio")]
+#[cfg(feature = "services")]
 pub use reqwest::Client;
