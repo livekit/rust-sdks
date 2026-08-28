@@ -1179,6 +1179,7 @@ impl RoomSession {
 
         self.rtc_engine.close(reason).await;
         self.e2ee_manager.cleanup();
+        self.rpc_client.fail_all_pending();
 
         let _ = handle.close_tx.send(());
         let _ = handle.incoming_forward_task.await;
@@ -2274,6 +2275,10 @@ impl RoomSession {
         let _ = self
             .incoming_data_stream_input
             .send(ds::incoming::InputEvent::AbortStreamsFrom(remote_participant.identity()));
+
+        // Likewise fail any RPC calls still in flight to them; otherwise the caller waits out
+        // its full response timeout and reports ResponseTimeout instead of a disconnect.
+        self.rpc_client.handle_participant_disconnected(&remote_participant.identity());
 
         self.dispatcher.dispatch(&RoomEvent::ParticipantDisconnected(remote_participant));
     }

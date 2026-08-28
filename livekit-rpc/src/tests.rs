@@ -757,7 +757,7 @@ async fn test_v2_response_stream_resolves_caller() {
 
     // Manually register a pending response
     let (tx, rx) = tokio::sync::oneshot::channel();
-    client.insert_pending_response("req-stream".to_string(), tx);
+    client.insert_pending_response("req-stream".to_string(), "dest", tx);
 
     let reader =
         make_text_reader("stream-result", v2_response_attrs("req-stream"), RPC_RESPONSE_TOPIC);
@@ -794,6 +794,65 @@ async fn test_server_below_minimum_version_rejected() {
     assert_eq!(err.code, RpcErrorCode::UnsupportedServer as u32);
     assert!(transport.packets().is_empty());
     assert!(transport.texts().is_empty());
+}
+
+/// A participant leaving mid-call must fail the caller promptly with RECIPIENT_DISCONNECTED,
+/// rather than stranding it until the (much longer) response timeout expires.
+#[tokio::test]
+async fn test_participant_disconnect_fails_pending_call() {
+    let client = Arc::new(RpcClientManager::new());
+    let transport = Arc::new(
+        MockTransport::new()
+            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+            .with_server_version(Some("1.9.0")),
+    );
+
+    let handle = spawn_perform_rpc(
+        client.clone(),
+        transport.clone(),
+        PerformRpcData::new("dest", "greet")
+            .with_payload("hi")
+            // Long enough that a timeout could not explain a prompt result.
+            .with_response_timeout(Duration::from_secs(30))
+            .with_max_round_trip_latency(Duration::from_secs(30)),
+    )
+    .await;
+
+    // Ack the request so the call is parked on the response rather than on the ack.
+    transport.wait_for_text().await;
+    client.handle_incoming_rpc_ack(transport.extract_request_id());
+
+    client.handle_participant_disconnected(&ParticipantIdentity::from("dest"));
+
+    let err = handle.await.unwrap().unwrap_err();
+    assert_eq!(err.code, RpcErrorCode::RecipientDisconnected as u32);
+}
+
+/// A disconnect must only fail calls addressed to the participant that left.
+#[tokio::test]
+async fn test_participant_disconnect_leaves_other_calls_alone() {
+    let client = RpcClientManager::new();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    client.insert_pending_response("req-other".to_string(), "someone-else", tx);
+
+    client.handle_participant_disconnected(&ParticipantIdentity::from("dest"));
+
+    // Untouched: the entry is still there to be resolved normally.
+    client.handle_v1_response_packet("req-other".to_string(), Some("ok".into()), None);
+    assert_eq!(rx.await.expect("caller resolved").unwrap(), "ok");
+}
+
+/// Closing the room fails every in-flight call, whoever it was addressed to.
+#[tokio::test]
+async fn test_fail_all_pending_resolves_callers() {
+    let client = RpcClientManager::new();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    client.insert_pending_response("req-close".to_string(), "dest", tx);
+
+    client.fail_all_pending();
+
+    let err = rx.await.expect("caller resolved").unwrap_err();
+    assert_eq!(err.code, RpcErrorCode::RecipientDisconnected as u32);
 }
 
 /// A server version we cannot parse must not panic, and must not block the call: we fail open
