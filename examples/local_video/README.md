@@ -212,17 +212,42 @@ Subscriber flags (in addition to the common connection flags above):
 - `--log-end-frame-id <id>`: Flush the terminal GPU-completed frame to CSV, then stop the subscriber process. Requires `--log-csv`.
 - `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
 
-Generate a PDF report from the publisher log, subscriber log, or both:
+## Generate a PDF report from CSV logs
+
+The `generate_frame_report.py` script converts the CSV files written by
+`--log-csv` into a PDF. From the repository root, install its `reportlab`
+dependency:
+
 ```
  python3 -m pip install reportlab
+```
 
+Then pass the publisher log, subscriber log, or both. For a paired report:
+
+```
  python3 examples/local_video/scripts/generate_frame_report.py \
    --publisher publisher.csv \
    --subscriber subscriber.csv \
    --output frame-report.pdf
 ```
 
-Omit either `--publisher` or `--subscriber` to create a single-sided report. The report plots latency over the logged duration and marks frame-ID gaps and freezes. With paired logs, frame loss is the set of packetized publisher frame IDs that were not rendered by the subscriber. Subscriber freezes use WebRTC's reported freeze counters; publisher-only reports infer a freeze from an inter-frame gap greater than three times the median interval.
+For a report from only one side, provide just that CSV:
+
+```
+ python3 examples/local_video/scripts/generate_frame_report.py \
+   --publisher publisher.csv \
+   --output publisher-report.pdf
+
+ python3 examples/local_video/scripts/generate_frame_report.py \
+   --subscriber subscriber.csv \
+   --output subscriber-report.pdf
+```
+
+`--output` is optional; when omitted, the script writes a PDF next to the
+subscriber CSV, or next to the publisher CSV if no subscriber log was provided.
+Use `--title "My report"` to customize the report title.
+
+The report plots latency over the logged duration and marks frame-ID gaps and freezes. With paired logs, frame loss is the set of packetized publisher frame IDs that were not rendered by the subscriber. Subscriber freezes use WebRTC's reported freeze counters; publisher-only reports infer a freeze from an inter-frame gap greater than three times the median interval.
 
 The subscriber reports two render boundaries. `frame draw encoded` is the CPU time immediately after the WGPU draw command is recorded; it does not mean that the command has been submitted or executed. `frame GPU complete` is when the subscriber observes completion of the GPU submission containing that draw. This measurement does not include surface presentation, compositor queuing, display scanout, or physical pixel illumination, so use an OS presentation API or optical measurement when those later boundaries matter. Exposure-to-GPU measurements across different publisher and subscriber hosts also require synchronized system clocks (for example, NTP or PTP).
 
