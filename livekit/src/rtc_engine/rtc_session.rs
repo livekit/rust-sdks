@@ -91,7 +91,23 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// So we start a countdown instead of reacting immediately, and act only if the transport is
 /// still not connected when it elapses. Long enough to ride out a transient blip, far short
 /// of consent expiry.
+///
+/// This bounds *detection*, not repair: see [`PC_DISCONNECTED_GRACE_WINDOWS`] for the
+/// transport that is visibly repairing itself when the window ends, and
+/// [`SessionInner::arm_disconnected_grace`] for why a reconnect already in flight is left to
+/// finish on its own clock rather than being judged against this one.
 pub const PC_DISCONNECTED_GRACE: Duration = Duration::from_secs(5);
+
+/// How many [`PC_DISCONNECTED_GRACE`] windows a transport may spend *visibly repairing*
+/// before it is escalated anyway.
+///
+/// One window is the right bar for a transport sitting in `Disconnected` — nothing is being
+/// done about it, so more waiting buys nothing. It is the wrong bar for `Connecting`, where
+/// an ICE restart is genuinely in progress: gathering, connectivity checks and DTLS can
+/// exceed five seconds on a lossy or relayed path, which is exactly the network this whole
+/// mechanism is meant to help. So `Connecting` buys one more window rather than an unbounded
+/// reprieve — a repair that has not landed in two is not landing.
+const PC_DISCONNECTED_GRACE_WINDOWS: u32 = 2;
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
@@ -2032,6 +2048,18 @@ impl SessionInner {
     /// Escalation is left to the engine, which already knows how to interpret a transport
     /// failure in context: outside a reconnect it starts one, and during a reconnect it
     /// sticks a full-reconnect escalation onto the cycle rather than looping on resume.
+    ///
+    /// That second case is precisely the one this countdown must *not* judge. Its purpose is
+    /// to cover a transport nobody is watching. Once a reconnect is in flight, something is:
+    /// [`Self::wait_pc_reconnected_with_snapshot`] is judging the same transport against the
+    /// generation counters — transition history, not a single level read — and is bounded by
+    /// [`ICE_CONNECT_TIMEOUT`], on whose expiry the engine escalates to a full reconnect
+    /// anyway. Reporting a failure here as well does not add a second opinion, it adds a
+    /// worse-informed one on a shorter fuse: the engine treats any failure arriving mid-cycle
+    /// as proof the resume is not holding and latches a full reconnect onto it, so a resume
+    /// that was merely slow — the common case on the degraded networks this mechanism
+    /// targets — would be turned into a track-republishing rebuild it did not need. So when a
+    /// reconnect is already running, the countdown stands down and lets it finish.
     fn arm_disconnected_grace(self: &Arc<Self>, target: SignalTarget) {
         let Some(transport) = self.transport_for(target) else {
             return;
@@ -2042,31 +2070,74 @@ impl SessionInner {
 
         let session = self.clone();
         livekit_runtime::spawn(async move {
-            livekit_runtime::sleep(PC_DISCONNECTED_GRACE).await;
+            // The claim taken above is held across every window, so a transport that flaps
+            // while a countdown is running collapses onto it instead of spawning a rival.
+            let mut windows_left = PC_DISCONNECTED_GRACE_WINDOWS;
 
-            let Some(transport) = session.transport_for(target) else {
-                return;
-            };
-            transport.disarm_disconnect_grace();
+            loop {
+                livekit_runtime::sleep(PC_DISCONNECTED_GRACE).await;
+                windows_left -= 1;
 
-            if session.closed.load(Ordering::Acquire) {
-                return;
-            }
+                let Some(transport) = session.transport_for(target) else {
+                    return; // session lost its transport; nothing left to disarm
+                };
 
-            let state = transport.peer_connection().connection_state();
-            if should_escalate_after_grace(state) {
-                log::warn!(
-                    "{:?} pc stayed in {:?} for {:?}; treating as a failed transport",
-                    target,
-                    state,
-                    PC_DISCONNECTED_GRACE,
-                );
-                session.on_session_disconnected(
-                    "pc_state disconnected beyond grace period",
-                    DisconnectReason::UnknownReason,
-                    proto::leave_request::Action::Resume,
-                    false,
-                );
+                if session.closed.load(Ordering::Acquire) {
+                    transport.disarm_disconnect_grace();
+                    return;
+                }
+
+                let state = transport.peer_connection().connection_state();
+                let outcome = grace_outcome(state);
+
+                // A reconnect in flight owns the verdict — see the note above. Checked after
+                // `grace_outcome` so a transport that has already recovered still settles the
+                // countdown rather than leaving it to expire against a stale claim.
+                if outcome != GraceOutcome::Settle && session.signal_client.is_reconnecting() {
+                    log::debug!(
+                        "{:?} pc is {:?} after {:?}, but a reconnect is already in flight; \
+                         leaving the verdict to it",
+                        target,
+                        state,
+                        PC_DISCONNECTED_GRACE,
+                    );
+                    transport.disarm_disconnect_grace();
+                    return;
+                }
+
+                match outcome {
+                    GraceOutcome::Settle => {
+                        transport.disarm_disconnect_grace();
+                        return;
+                    }
+                    // Repair under way and windows to spare: let it run.
+                    GraceOutcome::Rearm if windows_left > 0 => {
+                        log::debug!(
+                            "{:?} pc is {:?} after {:?}; still repairing, allowing another window",
+                            target,
+                            state,
+                            PC_DISCONNECTED_GRACE,
+                        );
+                        continue;
+                    }
+                    // Out of windows, or down with nothing repairing it.
+                    GraceOutcome::Rearm | GraceOutcome::Escalate => {
+                        transport.disarm_disconnect_grace();
+                        log::warn!(
+                            "{:?} pc stayed in {:?} for {:?}; treating as a failed transport",
+                            target,
+                            state,
+                            PC_DISCONNECTED_GRACE * (PC_DISCONNECTED_GRACE_WINDOWS - windows_left),
+                        );
+                        session.on_session_disconnected(
+                            "pc_state disconnected beyond grace period",
+                            DisconnectReason::UnknownReason,
+                            proto::leave_request::Action::Resume,
+                            false,
+                        );
+                        return;
+                    }
+                }
             }
         });
     }
@@ -2743,22 +2814,43 @@ pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<S
     dc.on_message(on_message.into());
 }
 
-/// Whether a transport that has sat out [`PC_DISCONNECTED_GRACE`] should be escalated,
-/// judged from its state at the moment the countdown elapses.
+/// What to do with a transport that has sat out one [`PC_DISCONNECTED_GRACE`] window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GraceOutcome {
+    /// Nothing to do: the transport recovered, was torn down deliberately, or its failure
+    /// has already been reported by another path.
+    Settle,
+    /// A repair is under way but has not landed yet. Give it another window instead of
+    /// cutting it off — see [`PC_DISCONNECTED_GRACE_WINDOWS`].
+    Rearm,
+    /// Down, with no repair under way. Report it as a failed transport.
+    Escalate,
+}
+
+/// What a transport's state means once it has sat out a [`PC_DISCONNECTED_GRACE`] window.
 ///
 /// Split out from the timer so it can be exercised without waiting out a real countdown.
-fn should_escalate_after_grace(state: PeerConnectionState) -> bool {
+///
+/// `Connecting` is deliberately *not* treated as dead. It means an ICE restart is in
+/// flight — new candidates gathering, connectivity checks running, DTLS still to come. On a
+/// slow or lossy link (TURN allocation, a retransmitted STUN binding request) that routinely
+/// outlasts a single window, and escalating would abort a repair that was about to succeed.
+/// `Disconnected`, by contrast, is a transport that has stopped receiving with nothing
+/// visibly being done about it, which is what this countdown exists to catch.
+fn grace_outcome(state: PeerConnectionState) -> GraceOutcome {
     match state {
         // Recovered on its own — the transient disturbance this grace period absorbs.
-        PeerConnectionState::Connected => false,
+        PeerConnectionState::Connected => GraceOutcome::Settle,
         // Torn down deliberately (close, or a full reconnect replacing this session).
-        PeerConnectionState::Closed => false,
+        PeerConnectionState::Closed => GraceOutcome::Settle,
         // Already reported by the `Failed` branch in the connection-change handler; escalating
         // here too would report the same failure twice.
-        PeerConnectionState::Failed => false,
-        // Still `Disconnected`, or never got back past `Connecting`, after a window a healthy
-        // blip would have recovered inside. Treat it as dead.
-        _ => true,
+        PeerConnectionState::Failed => GraceOutcome::Settle,
+        // Actively re-establishing. Not evidence of death — give it more time.
+        PeerConnectionState::Connecting => GraceOutcome::Rearm,
+        // Still `Disconnected` after a window a healthy blip would have recovered inside,
+        // and nothing is visibly repairing it. Treat it as dead.
+        _ => GraceOutcome::Escalate,
     }
 }
 
@@ -2829,8 +2921,8 @@ mod tests {
     use libwebrtc::prelude::PeerConnectionState;
 
     use super::{
-        parse_sdp_max_message_size, recovery_decision, should_escalate_after_grace,
-        DEFAULT_MAX_MESSAGE_SIZE,
+        grace_outcome, parse_sdp_max_message_size, recovery_decision, GraceOutcome,
+        DEFAULT_MAX_MESSAGE_SIZE, PC_DISCONNECTED_GRACE_WINDOWS,
     };
 
     /// A transport still down when the grace period elapses is a dead transport, and must be
@@ -2838,9 +2930,32 @@ mod tests {
     /// consent expiry — which is tens of seconds of silently unusable media.
     #[test]
     fn transport_still_down_after_grace_is_escalated() {
-        assert!(should_escalate_after_grace(PeerConnectionState::Disconnected));
-        // Never made it back past Connecting within the window — equally dead.
-        assert!(should_escalate_after_grace(PeerConnectionState::Connecting));
+        assert_eq!(grace_outcome(PeerConnectionState::Disconnected), GraceOutcome::Escalate);
+    }
+
+    /// A transport that is *repairing* is not a transport that is dead. An ICE restart has to
+    /// gather, run connectivity checks and complete DTLS; on a relayed or lossy path that
+    /// routinely outlasts one window, and cutting it off there would convert a recovery that
+    /// was about to succeed into a full rebuild — on exactly the networks least able to
+    /// afford one.
+    #[test]
+    fn transport_still_repairing_after_grace_gets_another_window() {
+        assert_eq!(grace_outcome(PeerConnectionState::Connecting), GraceOutcome::Rearm);
+    }
+
+    /// The reprieve for a repairing transport is bounded, not open-ended: a repair that has
+    /// not landed within every allotted window is not landing, and must still be escalated
+    /// rather than waited on forever.
+    #[test]
+    fn repair_reprieve_is_bounded() {
+        assert!(
+            PC_DISCONNECTED_GRACE_WINDOWS >= 2,
+            "Rearm must buy at least one extra window or it is indistinguishable from Escalate"
+        );
+        assert!(
+            PC_DISCONNECTED_GRACE_WINDOWS < u32::MAX,
+            "the reprieve must terminate; see arm_disconnected_grace's window loop"
+        );
     }
 
     /// The reason this is a countdown and not an immediate reaction: a brief `Disconnected`
@@ -2848,21 +2963,21 @@ mod tests {
     /// session for one would be far worse than the disturbance.
     #[test]
     fn transport_that_recovered_during_grace_is_left_alone() {
-        assert!(!should_escalate_after_grace(PeerConnectionState::Connected));
+        assert_eq!(grace_outcome(PeerConnectionState::Connected), GraceOutcome::Settle);
     }
 
     /// `Failed` is reported the moment it happens, so escalating it here as well would
     /// report the same failure twice.
     #[test]
     fn failed_is_not_double_reported_after_grace() {
-        assert!(!should_escalate_after_grace(PeerConnectionState::Failed));
+        assert_eq!(grace_outcome(PeerConnectionState::Failed), GraceOutcome::Settle);
     }
 
     /// A closed transport is a deliberate teardown — session close, or a full reconnect that
     /// has replaced this session. Escalating would fight the shutdown it is observing.
     #[test]
     fn closed_transport_is_not_escalated_after_grace() {
-        assert!(!should_escalate_after_grace(PeerConnectionState::Closed));
+        assert_eq!(grace_outcome(PeerConnectionState::Closed), GraceOutcome::Settle);
     }
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.

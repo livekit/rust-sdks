@@ -77,6 +77,15 @@ pub(crate) type EngineResult<T> = Result<T, EngineError>;
 /// observed transition would time out every signal-only resume into a full reconnect.
 pub const PC_RECONNECT_SETTLE_DELAY: Duration = Duration::from_secs(3);
 
+/// How long resume step 2 waits for the room to send SyncState before failing the attempt.
+///
+/// The work being waited on is local (the room assembling its state) plus a single
+/// pass-through send on an already-reconnected socket, so this is a stuck-detector rather
+/// than a budget — generous enough never to fire on a slow-but-working room, short enough
+/// that a wedged one does not strand the whole resume. See
+/// [`RtcEngineInner::resume_sync_state`] for why an unbounded wait here is not acceptable.
+const RESUME_SYNC_STATE_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
     /// Closes the signal channel locally; the engine attempts a Resume.
@@ -1151,7 +1160,7 @@ impl EngineInner {
 
         // 2. Hand the ReconnectResponse to the room and wait until it has sent
         //    SyncState, which must precede the publisher re-offer.
-        self.resume_sync_state(reconnect_response).await;
+        self.resume_sync_state(reconnect_response).await?;
 
         // 3. Re-offer the publisher (strictly AFTER SyncState), then wait for the transports
         //    to have demonstrably reconnected rather than merely to report `Connected`.
@@ -1165,11 +1174,29 @@ impl EngineInner {
     /// Resume step 2: announce the resume to the room and block until it has
     /// sent SyncState. SyncState is a pass-through signal, so it reaches the
     /// server immediately even though the SignalClient is still gated.
-    async fn resume_sync_state(&self, reconnect_response: proto::ReconnectResponse) {
+    ///
+    /// Bounded, because every other part of the resume is. Steps 1 and 3 have their own
+    /// deadlines (`connect_timeout` and [`ICE_CONNECT_TIMEOUT`]), and callers rely on the
+    /// resume as a whole terminating: the disconnect-grace countdown stands down when a
+    /// reconnect is in flight (see [`RtcSession`]'s `arm_disconnected_grace`) precisely
+    /// because that reconnect is expected to reach a verdict on its own clock. An unbounded
+    /// wait here would let the room's reply — or its absence — strand the resume before it
+    /// ever reached step 3, with nothing left watching the transports.
+    async fn resume_sync_state(
+        &self,
+        reconnect_response: proto::ReconnectResponse,
+    ) -> EngineResult<()> {
         let (tx, rx) = oneshot::channel();
         let _ = self.engine_tx.send(EngineEvent::SignalResumed { reconnect_response, tx });
         // The room replies on `tx` once SyncState has gone out.
-        let _ = rx.await;
+        match livekit_runtime::timeout(RESUME_SYNC_STATE_TIMEOUT, rx).await {
+            // A dropped sender means the room is gone, which the rest of the resume will
+            // discover; only the timeout is worth failing the attempt over here.
+            Ok(_) => Ok(()),
+            Err(_) => Err(EngineError::Connection(
+                "timed out waiting for the room to send SyncState during resume".into(),
+            )),
+        }
     }
 
     /// Resume step 4: confirm the signalling link survived the PC-reconnect wait

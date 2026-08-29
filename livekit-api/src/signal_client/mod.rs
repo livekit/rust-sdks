@@ -385,6 +385,21 @@ impl SignalClient {
     pub async fn is_connected(&self) -> bool {
         self.inner.stream.read().await.is_some()
     }
+
+    /// Returns whether a reconnect is currently in flight on this client.
+    ///
+    /// Set by [`Self::restart`] before it touches the stream and cleared by
+    /// [`Self::set_reconnected`] once the resume has fully recovered, so it spans the
+    /// whole resume — not just the moment the socket is down. Callers use it to tell
+    /// "something is already driving recovery, with its own deadline" from "nothing is
+    /// watching this", which are the two cases that want opposite reactions to a
+    /// transport that has stopped reporting `Connected`.
+    ///
+    /// Unlike [`Self::is_connected`], this says nothing about the socket itself: during a
+    /// healthy resume it stays `true` well after the new stream is in place.
+    pub fn is_reconnecting(&self) -> bool {
+        self.inner.reconnecting.load(Ordering::Acquire)
+    }
 }
 
 impl SignalInner {

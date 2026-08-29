@@ -235,6 +235,12 @@ config {
     -- as failed (PC_DISCONNECTED_GRACE). Long enough to absorb a transient
     -- disturbance, far short of ICE consent expiry.
     pc_disconnected_grace: Duration = 5.seconds
+    -- How many grace windows a transport may spend *visibly repairing* before
+    -- it is escalated anyway (PC_DISCONNECTED_GRACE_WINDOWS). One window is the
+    -- right bar for `disconnected`, where nothing is being done; it is the wrong
+    -- bar for `connecting`, where an ICE restart is in progress and gathering,
+    -- checks and DTLS can exceed one window on a relayed or lossy path.
+    pc_disconnected_grace_windows: Integer = 2
 }
 
 ------------------------------------------------------------
@@ -428,6 +434,12 @@ rule ReconnectOnPeerConnectionFailure {
 rule PeerConnectionDisconnectedBeyondGrace {
     when: PeerConnectionDisconnected(engine, for: config.pc_disconnected_grace)
     requires: engine.reconnect_permission = permitted
+    -- A reconnect already in flight owns the verdict; see the guidance below.
+    requires: engine.reconnecting = false
+    -- `connecting` is a repair in progress, not a death. It buys another window
+    -- (up to config.pc_disconnected_grace_windows in total) rather than
+    -- escalating here.
+    requires: engine.peer_connection_state != connecting
     ensures: ReconnectNeeded(
         engine,
         full_reconnect: false,
@@ -442,6 +454,17 @@ rule PeerConnectionDisconnectedBeyondGrace {
         -- elapses, not on the transition that started it -- a connection that
         -- recovered needs no cancellation, it simply reads as connected.
         -- Concurrent transitions collapse onto the running countdown.
+        --
+        -- The countdown covers a transport NOBODY is watching. Once a reconnect
+        -- is in flight, ResumeAwaitsPeerConnections is watching the same
+        -- transport with better evidence (transition counts, not a level read)
+        -- and its own deadline, on whose expiry ResumeAttemptEscalates fires
+        -- anyway. Reporting a failure here too would not add a
+        -- second opinion but a worse-informed one on a shorter fuse: a failure
+        -- arriving mid-cycle latches a full reconnect (see ReconnectNeeded's
+        -- already-reconnecting branch), turning a merely slow resume into a
+        -- track-republishing rebuild -- on exactly the degraded networks this
+        -- rule exists to help.
 }
 
 rule ServerRequestsReconnect {
