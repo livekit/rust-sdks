@@ -37,8 +37,6 @@ pub enum InputEvent {
     /// to be recognized by the SFU. Each republished track will be assigned a new SID.
     ///
     RepublishTracks,
-    /// Shutdown the manager and all associated tracks.
-    Shutdown,
 }
 
 /// An event produced by [`Manager`](super::manager::Manager) requiring external action.

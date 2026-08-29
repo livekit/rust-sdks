@@ -40,8 +40,6 @@ pub enum InputEvent {
     /// tracks are subscribed to locally.
     ///
     ResendSubscriptionUpdates,
-    /// Shutdown the manager, ending any subscriptions.
-    Shutdown,
 }
 
 /// An event produced by [`Manager`](super::manager::Manager) requiring external action.

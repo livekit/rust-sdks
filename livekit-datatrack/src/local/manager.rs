@@ -34,6 +34,7 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::CancellationToken;
 
 /// Options for creating a [`Manager`].
 #[derive(Debug)]
@@ -51,6 +52,7 @@ pub struct Manager {
     event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
+    token: CancellationToken,
     handle_allocator: packet::HandleAllocator,
     descriptors: HashMap<Handle, Descriptor>,
 }
@@ -67,13 +69,15 @@ impl Manager {
     pub fn new(options: ManagerOptions) -> (Self, ManagerInput, ManagerOutput) {
         let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
+        let token = CancellationToken::new();
 
-        let event_in = ManagerInput::new(event_in_tx.clone());
+        let event_in = ManagerInput::new(event_in_tx.clone(), token.clone());
         let manager = Manager {
             encryption_provider: options.encryption_provider,
             event_in_tx,
             event_in_rx,
             event_out_tx,
+            token,
             handle_allocator: packet::HandleAllocator::default(),
             descriptors: HashMap::new(),
         };
@@ -84,27 +88,40 @@ impl Manager {
 
     /// Run the manager task, consuming self.
     ///
-    /// The manager will continue running until receiving [`InputEvent::Shutdown`].
+    /// The manager continues until [`ManagerInput::shutdown`] is called, the last
+    /// [`ManagerInput`] is dropped, or the input channel closes.
     ///
     pub async fn run(mut self) {
         log::debug!("Task started");
-        while let Some(event) = self.event_in_rx.recv().await {
-            log::debug!("Input event: {:?}", event);
-            match event {
-                InputEvent::PublishRequest(event) => self.on_publish_request(event).await,
-                InputEvent::PublishCancelled(event) => self.on_publish_cancelled(event).await,
-                InputEvent::QueryPublished(event) => self.on_query_published(event).await,
-                InputEvent::UnpublishRequest(event) => self.on_unpublish_request(event).await,
-                InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
-                InputEvent::SfuUnpublishResponse(event) => {
-                    self.on_sfu_unpublish_response(event).await
+        loop {
+            tokio::select! {
+                // Biased so shutdown ends event processing immediately.
+                biased;
+                _ = self.token.cancelled() => {
+                    break;
                 }
-                InputEvent::RepublishTracks => self.on_republish_tracks().await,
-                InputEvent::Shutdown => break,
+                event = self.event_in_rx.recv() => {
+                    let Some(event) = event else { break };
+                    self.handle_event(event).await;
+                }
             }
         }
         self.shutdown().await;
         log::debug!("Task ended");
+    }
+
+    /// Handles a single input event.
+    async fn handle_event(&mut self, event: InputEvent) {
+        log::debug!("Input event: {:?}", event);
+        match event {
+            InputEvent::PublishRequest(event) => self.on_publish_request(event).await,
+            InputEvent::PublishCancelled(event) => self.on_publish_cancelled(event).await,
+            InputEvent::QueryPublished(event) => self.on_query_published(event).await,
+            InputEvent::UnpublishRequest(event) => self.on_unpublish_request(event).await,
+            InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
+            InputEvent::SfuUnpublishResponse(event) => self.on_sfu_unpublish_response(event).await,
+            InputEvent::RepublishTracks => self.on_republish_tracks().await,
+        }
     }
 
     async fn on_publish_request(&mut self, event: PublishRequest) {
@@ -255,6 +272,7 @@ impl Manager {
             frame_rx,
             event_in_tx: self.event_in_tx.clone(),
             event_out_tx: self.event_out_tx.clone(),
+            token: self.token.child_token(),
         };
         let task_handle = livekit_runtime::spawn(track_task.run());
 
@@ -279,7 +297,9 @@ impl Manager {
             return;
         };
         if *state_tx.borrow() != PublishState::Unpublished {
-            _ = state_tx.send(PublishState::Unpublished);
+            // `send_replace` updates even if the track task already dropped its receiver
+            // after observing manager cancellation.
+            _ = state_tx.send_replace(PublishState::Unpublished);
         }
     }
 
@@ -308,17 +328,26 @@ impl Manager {
     }
 
     /// Performs cleanup before the task ends.
-    async fn shutdown(self) {
-        for (_, descriptor) in self.descriptors {
+    async fn shutdown(mut self) {
+        let mut task_handles = Vec::new();
+        for (_, descriptor) in std::mem::take(&mut self.descriptors) {
             match descriptor {
                 Descriptor::Pending(result_tx) => {
                     _ = result_tx.send(Err(PublishError::Disconnected))
                 }
                 Descriptor::Active { state_tx, task_handle, .. } => {
-                    _ = state_tx.send(PublishState::Unpublished);
-                    task_handle.await;
+                    // `send_replace` updates even if the track task already dropped its
+                    // receiver after observing manager cancellation.
+                    _ = state_tx.send_replace(PublishState::Unpublished);
+                    task_handles.push(task_handle);
                 }
             }
+        }
+
+        // Track tasks observe the parent cancellation token via child tokens and
+        // skip their final unpublish request, so joining alone is sufficient.
+        for task_handle in task_handles {
+            task_handle.await;
         }
     }
 
@@ -337,6 +366,7 @@ struct TrackTask {
     frame_rx: mpsc::Receiver<DataTrackFrame>,
     event_in_tx: mpsc::Sender<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
+    token: CancellationToken,
 }
 
 impl TrackTask {
@@ -347,6 +377,8 @@ impl TrackTask {
         let mut state = *self.state_rx.borrow();
         while state != PublishState::Unpublished {
             tokio::select! {
+                biased;
+                _ = self.token.cancelled() => break,
                 _ = self.state_rx.changed() => {
                     state = *self.state_rx.borrow();
                 }
@@ -360,8 +392,11 @@ impl TrackTask {
             }
         }
 
-        let event = UnpublishRequest { handle: self.info.pub_handle };
-        _ = self.event_in_tx.send(event.into()).await;
+        // Manager-wide shutdown already owns cleanup; only notify for per-track unpublish.
+        if !self.token.is_cancelled() {
+            let event = UnpublishRequest { handle: self.info.pub_handle };
+            _ = self.event_in_tx.send(event.into()).await;
+        }
 
         log::debug!("Track task ended: sid={}", sid);
     }
@@ -415,7 +450,9 @@ pub(crate) enum PublishState {
 #[derive(Debug, Clone)]
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
-    _drop_guard: Arc<DropGuard>,
+    token: CancellationToken,
+    /// Cancels the manager when the last [`ManagerInput`] is dropped.
+    _drop_guard: Arc<CancelOnDrop>,
 }
 
 /// Stream of [`OutputEvent`]s produced by [`Manager`].
@@ -430,21 +467,33 @@ impl Stream for ManagerOutput {
     }
 }
 
-/// Guard that sends shutdown event when the last reference is dropped.
+/// Cancels a [`CancellationToken`] when dropped.
 #[derive(Debug)]
-struct DropGuard {
-    event_in_tx: mpsc::Sender<InputEvent>,
-}
+struct CancelOnDrop(CancellationToken);
 
-impl Drop for DropGuard {
+impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        _ = self.event_in_tx.try_send(InputEvent::Shutdown);
+        self.0.cancel();
     }
 }
 
 impl ManagerInput {
-    fn new(event_in_tx: mpsc::Sender<InputEvent>) -> Self {
-        Self { event_in_tx: event_in_tx.clone(), _drop_guard: DropGuard { event_in_tx }.into() }
+    fn new(event_in_tx: mpsc::Sender<InputEvent>, token: CancellationToken) -> Self {
+        Self { event_in_tx, token: token.clone(), _drop_guard: Arc::new(CancelOnDrop(token)) }
+    }
+
+    /// Shuts down the manager, ending all event processing.
+    ///
+    /// Unlike [`Self::send`], this does not use the bounded event channel, so it
+    /// cannot be dropped when the channel is saturated.
+    ///
+    pub fn shutdown(&self) {
+        self.token.cancel();
+    }
+
+    /// Returns a clone of the manager's cancellation token.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.token.clone()
     }
 
     /// Sends an input event to the manager's task to be processed.
@@ -522,8 +571,25 @@ mod tests {
         let (manager, input, _) = Manager::new(options);
 
         let join_handle = livekit_runtime::spawn(manager.run());
-        _ = input.send(InputEvent::Shutdown);
+        input.shutdown();
 
+        timeout(Duration::from_secs(1), join_handle).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_task_shutdown_with_saturated_event_channel() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, _output) = Manager::new(options);
+
+        // Fill the event channel before the manager starts draining it so that
+        // shutdown cannot depend on any remaining capacity.
+        for _ in 0..Manager::EVENT_BUFFER_COUNT {
+            let (result_tx, _result_rx) = oneshot::channel();
+            input.send(QueryPublished { result_tx }.into()).unwrap();
+        }
+        input.shutdown();
+
+        let join_handle = livekit_runtime::spawn(manager.run());
         timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
 
@@ -819,7 +885,7 @@ mod tests {
         assert!(active_track.is_published());
 
         // Shutdown the manager
-        input.send(InputEvent::Shutdown).unwrap();
+        input.shutdown();
         sleep(Duration::from_millis(50)).await;
 
         // Pending publish receives disconnected error
