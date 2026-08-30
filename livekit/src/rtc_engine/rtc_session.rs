@@ -1677,7 +1677,7 @@ impl SessionInner {
                     );
                 }
             }
-            RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
+            RtcEvent::DataChannelBufferedAmountChange { sent, kind } => {
                 let ev = DataChannelEvent {
                     kind,
                     detail: DataChannelEventDetail::BufferedAmountChange(sent),
