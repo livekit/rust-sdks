@@ -130,7 +130,7 @@ impl LkRuntime {
     }
 
     /// Updates the FlexFEC protection parameters, effective for all current
-    /// and future video send streams of the process.
+    /// and future video send streams that negotiate FlexFEC in the process.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn set_flexfec_options(options: &crate::room::options::FlexFecOptions) {
         use libwebrtc::native::fec_controller;
@@ -138,8 +138,8 @@ impl LkRuntime {
         fec_controller::set_fec_controller_config(fec_controller::FecControllerConfig {
             enabled: true,
             fec_rate: options.fec_rate(),
-            max_fec_frames: options.max_fec_frames.clamp(1, 48),
-            bursty_mask: options.bursty_mask,
+            max_fec_frames: options.max_fec_frames().clamp(1, 48),
+            bursty_mask: options.bursty_mask(),
         });
     }
 

@@ -65,6 +65,14 @@ fn needs_video_sender_transformer(
     !options.frame_metadata_features.is_empty() || has_publish_timing_subscribers
 }
 
+fn should_enable_track_flexfec(
+    requested: bool,
+    is_video: bool,
+    room_flexfec_configured: bool,
+) -> bool {
+    requested && is_video && room_flexfec_configured
+}
+
 #[derive(Default)]
 struct LocalEvents {
     local_track_published: Mutex<Option<LocalTrackPublishedHandler>>,
@@ -377,9 +385,21 @@ impl LocalParticipant {
     async fn publish_track_with_video_send_encodings(
         &self,
         track: LocalTrack,
-        options: TrackPublishOptions,
+        mut options: TrackPublishOptions,
         video_send_encodings: Option<Vec<RtpEncodingParameters>>,
     ) -> RoomResult<LocalTrackPublication> {
+        let is_video = matches!(&track, LocalTrack::Video(_));
+        let flexfec_requested = options.flexfec;
+        let room_flexfec_configured = LkRuntime::is_flexfec_configured();
+        if is_video && flexfec_requested && !room_flexfec_configured {
+            log::warn!(
+                "FlexFEC was requested for track {}, but it is not configured in RoomOptions; publishing without FlexFEC",
+                track.name()
+            );
+        }
+        options.flexfec =
+            should_enable_track_flexfec(flexfec_requested, is_video, room_flexfec_configured);
+
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
@@ -1208,5 +1228,13 @@ mod tests {
         };
 
         assert!(!needs_video_sender_transformer(&options, false));
+    }
+
+    #[test]
+    fn track_flexfec_requires_video_and_room_configuration() {
+        assert!(should_enable_track_flexfec(true, true, true));
+        assert!(!should_enable_track_flexfec(true, true, false));
+        assert!(!should_enable_track_flexfec(true, false, true));
+        assert!(!should_enable_track_flexfec(false, true, true));
     }
 }

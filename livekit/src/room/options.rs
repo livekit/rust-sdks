@@ -113,13 +113,36 @@ impl AudioPreset {
     }
 }
 
-/// FlexFEC-03 forward error correction for published video.
+/// Preset FlexFEC protection levels for published video.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FlexFecProtection {
+    /// 20% protection for links with occasional packet loss.
+    #[default]
+    Low,
+    /// 30% protection for moderately lossy links.
+    Medium,
+    /// 40% protection for consistently lossy links.
+    High,
+}
+
+impl FlexFecProtection {
+    /// Percentage of the video bitrate allocated to FEC.
+    pub const fn percent(self) -> u8 {
+        match self {
+            Self::Low => 20,
+            Self::Medium => 30,
+            Self::High => 40,
+        }
+    }
+}
+
+/// FlexFEC-03 room-level configuration for published video.
 ///
 /// When set on [`RoomOptions::flexfec`](crate::RoomOptions), the SDK enables
-/// the `WebRTC-FlexFEC-03` field trials, negotiates the flexfec-03 codec and
-/// replaces libwebrtc's loss-reactive FEC controller with one that protects
-/// video at the configured rate proactively, so short loss bursts are
-/// repairable before any loss has ever been reported.
+/// the `WebRTC-FlexFEC-03` field trials and replaces libwebrtc's loss-reactive
+/// FEC controller with one that protects opted-in video tracks at the
+/// configured rate proactively. Individual tracks opt in through
+/// [`TrackPublishOptions::flexfec`].
 ///
 /// Notes:
 /// - The configuration is process wide (the underlying peer connection
@@ -127,32 +150,66 @@ impl AudioPreset {
 ///   connected by the process; later rooms inherit it. The protection
 ///   parameters can be adjusted at runtime via
 ///   [`Room::set_flexfec_options`](crate::Room::set_flexfec_options).
+/// - Setting this configuration makes FlexFEC available but does not enable it
+///   for every published track. Set [`TrackPublishOptions::flexfec`] for each
+///   video track that should be protected.
 /// - libwebrtc protects only the first simulcast layer with FlexFEC,
 ///   disabling simulcast for FEC protected tracks is recommended.
 /// - The `LK_WEBRTC_FIELD_TRIALS` environment variable can be used to set
 ///   additional field trials.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlexFecOptions {
-    /// Percentage of the video bitrate to spend on FEC, 0..=100.
-    pub protection_percent: u8,
-    /// Number of frames protected per FEC block, 1..=48. Smaller values
-    /// lower the repair latency, larger values resist longer bursts.
-    pub max_fec_frames: u8,
-    /// Optimize the protection masks for bursty rather than random loss.
-    pub bursty_mask: bool,
+    protection: FlexFecProtection,
+    max_fec_frames: u8,
+    bursty_mask: bool,
 }
 
 impl Default for FlexFecOptions {
     fn default() -> Self {
-        Self { protection_percent: 15, max_fec_frames: 6, bursty_mask: false }
+        Self::new(FlexFecProtection::default())
     }
 }
 
 impl FlexFecOptions {
+    const DEFAULT_MAX_FEC_FRAMES: u8 = 1;
+    const DEFAULT_BURSTY_MASK: bool = false;
+
+    /// Creates a low-latency FlexFEC configuration from a protection preset.
+    pub const fn new(protection: FlexFecProtection) -> Self {
+        Self {
+            protection,
+            max_fec_frames: Self::DEFAULT_MAX_FEC_FRAMES,
+            bursty_mask: Self::DEFAULT_BURSTY_MASK,
+        }
+    }
+
+    /// Returns the configured protection preset.
+    pub const fn protection(self) -> FlexFecProtection {
+        self.protection
+    }
+
+    #[cfg(feature = "__lk-internal")]
+    #[doc(hidden)]
+    pub const fn with_advanced_settings(
+        protection: FlexFecProtection,
+        max_fec_frames: u8,
+        bursty_mask: bool,
+    ) -> Self {
+        Self { protection, max_fec_frames, bursty_mask }
+    }
+
     /// libwebrtc protection factor (0..=255) for the configured percentage.
     pub(crate) fn fec_rate(&self) -> u8 {
-        let percent = self.protection_percent.min(100) as u32;
+        let percent = self.protection.percent() as u32;
         (percent * 255 / 100) as u8
+    }
+
+    pub(crate) const fn max_fec_frames(&self) -> u8 {
+        self.max_fec_frames
+    }
+
+    pub(crate) const fn bursty_mask(&self) -> bool {
+        self.bursty_mask
     }
 }
 
@@ -165,6 +222,12 @@ pub struct TrackPublishOptions {
     pub dtx: bool,
     pub red: bool,
     pub simulcast: bool,
+    /// Protect this video track with the FlexFEC configuration supplied in
+    /// [`RoomOptions::flexfec`](crate::RoomOptions). FlexFEC must be configured
+    /// before the first room connection in the process. If it is unavailable,
+    /// publishing continues without FEC and logs a warning. Only the first
+    /// simulcast encoding is protected, so disabling simulcast is recommended.
+    pub flexfec: bool,
     /// Custom simulcast layer presets (low, mid). When set, these override the
     /// SDK's built-in defaults which reduce fps on lower layers.
     pub simulcast_layers: Option<Vec<VideoPreset>>,
@@ -205,6 +268,7 @@ impl Default for TrackPublishOptions {
             dtx: true,
             red: true,
             simulcast: true,
+            flexfec: false,
             simulcast_layers: None,
             source: TrackSource::Unknown,
             stream: "".to_string(),
@@ -599,14 +663,35 @@ pub mod screenshare {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_default_degradation_preference, DegradationPreference, TrackPublishOptions,
-        VideoEncoderBackend,
+        get_default_degradation_preference, DegradationPreference, FlexFecOptions,
+        FlexFecProtection, TrackPublishOptions, VideoEncoderBackend,
     };
     use crate::prelude::TrackSource;
 
     #[test]
     fn track_publish_options_default_encoder_is_auto() {
         assert_eq!(TrackPublishOptions::default().video_encoder, VideoEncoderBackend::Auto);
+    }
+
+    #[test]
+    fn track_publish_options_default_flexfec_is_disabled() {
+        assert!(!TrackPublishOptions::default().flexfec);
+    }
+
+    #[test]
+    fn flexfec_protection_presets_use_expected_percentages() {
+        assert_eq!(FlexFecProtection::Low.percent(), 20);
+        assert_eq!(FlexFecProtection::Medium.percent(), 30);
+        assert_eq!(FlexFecProtection::High.percent(), 40);
+    }
+
+    #[test]
+    fn flexfec_options_hide_stable_internal_defaults() {
+        let options = FlexFecOptions::default();
+        assert_eq!(options.protection(), FlexFecProtection::Low);
+        assert_eq!(options.max_fec_frames(), 1);
+        assert!(!options.bursty_mask());
+        assert_eq!(options.fec_rate(), 51);
     }
 
     #[test]

@@ -72,6 +72,10 @@ pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
+fn should_retain_auxiliary_video_codec(mime_type: &str, track_flexfec: bool) -> bool {
+    mime_type == "video/rtx" || (track_flexfec && mime_type == "video/flexfec-03")
+}
+
 /// Default data-channel max message size (bytes), used when the remote SDP
 /// answer does not advertise an `a=max-message-size` attribute (RFC 8841).
 pub const DEFAULT_MAX_MESSAGE_SIZE: u64 = 64000;
@@ -1961,13 +1965,13 @@ impl SessionInner {
             matched.append(&mut partial_matched);
 
             // libwebrtc's codec preference matching drops any codec missing
-            // from the list and never re-adds flexfec. Retain rtx and
-            // flexfec-03 so retransmissions and FEC negotiate when FlexFEC
-            // is configured for the process.
+            // from the list and never re-adds FlexFEC. Retain RTX when the
+            // room made FlexFEC available, and retain flexfec-03 only when
+            // this track opted in.
             if LkRuntime::is_flexfec_configured() {
                 for codec in unmatched {
                     let mime_type = codec.mime_type.to_lowercase();
-                    if mime_type == "video/flexfec-03" || mime_type == "video/rtx" {
+                    if should_retain_auxiliary_video_codec(&mime_type, options.flexfec) {
                         matched.push(codec);
                     }
                 }
@@ -2602,7 +2606,21 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, DEFAULT_MAX_MESSAGE_SIZE};
+    use super::{
+        parse_sdp_max_message_size, should_retain_auxiliary_video_codec, DEFAULT_MAX_MESSAGE_SIZE,
+    };
+
+    #[test]
+    fn flexfec_codec_is_retained_only_for_opted_in_tracks() {
+        assert!(should_retain_auxiliary_video_codec("video/flexfec-03", true));
+        assert!(!should_retain_auxiliary_video_codec("video/flexfec-03", false));
+    }
+
+    #[test]
+    fn rtx_codec_is_retained_independently_of_track_flexfec() {
+        assert!(should_retain_auxiliary_video_codec("video/rtx", true));
+        assert!(should_retain_auxiliary_video_codec("video/rtx", false));
+    }
 
     #[test]
     fn parses_max_message_size_from_application_section() {

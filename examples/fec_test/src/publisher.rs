@@ -23,7 +23,10 @@ use std::{fs::File, io::Write as _, time::Duration};
 use anyhow::Result;
 use clap::Parser;
 use livekit::{
-    options::{FlexFecOptions, PacketTrailerFeatures, TrackPublishOptions, VideoCodec, VideoEncoding},
+    options::{
+        FlexFecOptions, FlexFecProtection, FrameMetadataFeatures, TrackPublishOptions, VideoCodec,
+        VideoEncoding,
+    },
     track::{LocalTrack, LocalVideoTrack, TrackSource},
     webrtc::{
         stats::RtcStats,
@@ -53,7 +56,7 @@ struct Args {
     #[arg(long, default_value_t = 20)]
     protection_percent: u8,
     /// frames per FEC protection block
-    #[arg(long, default_value_t = 6)]
+    #[arg(long, default_value_t = 1)]
     max_fec_frames: u8,
     #[arg(long, default_value_t = 640)]
     width: u32,
@@ -118,11 +121,16 @@ async fn main() -> Result<()> {
 
     let mut options = RoomOptions::default();
     if args.fec {
-        options.flexfec = Some(FlexFecOptions {
-            protection_percent: args.protection_percent,
-            max_fec_frames: args.max_fec_frames,
-            bursty_mask: false,
-        });
+        let protection = match args.protection_percent {
+            20 => FlexFecProtection::Low,
+            30 => FlexFecProtection::Medium,
+            40 => FlexFecProtection::High,
+            percent => anyhow::bail!(
+                "unsupported FEC protection percentage {percent}; expected 20, 30, or 40"
+            ),
+        };
+        options.flexfec =
+            Some(FlexFecOptions::with_advanced_settings(protection, args.max_fec_frames, false));
     }
 
     let (room, mut events) = Room::connect(&args.url, &token, options).await?;
@@ -134,11 +142,11 @@ async fn main() -> Result<()> {
         LocalVideoTrack::create_video_track(&args.identity, RtcVideoSource::Native(source.clone()));
 
     // embed a wall-clock capture timestamp + frame id in each frame so the
-    // subscriber can measure capture-to-decode latency (PacketTrailerFeatures
+    // subscriber can measure capture-to-decode latency (FrameMetadataFeatures
     // is #[non_exhaustive], build it via Default)
-    let mut packet_trailer_features = PacketTrailerFeatures::default();
-    packet_trailer_features.user_timestamp = true;
-    packet_trailer_features.frame_id = true;
+    let mut frame_metadata_features = FrameMetadataFeatures::default();
+    frame_metadata_features.user_timestamp = true;
+    frame_metadata_features.frame_id = true;
 
     room.local_participant()
         .publish_track(
@@ -147,11 +155,12 @@ async fn main() -> Result<()> {
                 source: TrackSource::Camera,
                 video_codec: VideoCodec::VP8,
                 simulcast: false,
+                flexfec: args.fec,
                 video_encoding: Some(VideoEncoding {
                     max_bitrate: args.bitrate * 1000,
                     max_framerate: args.fps as f64,
                 }),
-                packet_trailer_features,
+                frame_metadata_features,
                 ..Default::default()
             },
         )
@@ -184,6 +193,7 @@ async fn main() -> Result<()> {
             frame.frame_metadata = Some(FrameMetadata {
                 user_timestamp: Some(common::unix_time_micros()),
                 frame_id: Some(frame_index),
+                user_data: None,
             });
             source.capture_frame(&frame);
         }

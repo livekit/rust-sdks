@@ -454,9 +454,11 @@ pub struct RoomOptions {
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
     pub data_stream: RoomDataStreamOptions,
-    /// Proactive FlexFEC protection for published video, see
-    /// [`FlexFecOptions`]. Process wide, must be set on the first room the
-    /// process connects.
+    /// Makes proactive FlexFEC available and configures its shared protection
+    /// parameters, see [`FlexFecOptions`]. Process wide, must be set on the
+    /// first room the process connects. Each protected video track must also
+    /// opt in through
+    /// [`TrackPublishOptions::flexfec`](crate::options::TrackPublishOptions::flexfec).
     pub flexfec: Option<FlexFecOptions>,
 }
 
@@ -922,9 +924,8 @@ impl Room {
         self.inner.rtc_engine.get_stats().await
     }
 
-    /// Updates the FlexFEC protection parameters at runtime. Applies process
-    /// wide to all current and future video send streams, see
-    /// [`FlexFecOptions`].
+    /// Updates the FlexFEC protection parameters at runtime for every video
+    /// track that opted in. Applies process wide, see [`FlexFecOptions`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_flexfec_options(&self, options: FlexFecOptions) {
         LkRuntime::set_flexfec_options(&options);

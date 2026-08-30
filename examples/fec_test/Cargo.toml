@@ -15,7 +15,7 @@ path = "src/subscriber.rs"
 [dependencies]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 futures = { workspace = true }
-livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit = { workspace = true, features = ["rustls-tls-native-roots", "__lk-internal"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-protocol = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
