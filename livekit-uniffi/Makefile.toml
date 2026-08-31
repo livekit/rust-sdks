@@ -310,6 +310,12 @@ SWIFT_DSYMS_FLAG = { value = "--debug-symbols", condition = { profiles = ["relea
 # to each per-arch .dylib at target/<arch>/release/deps/lib<name>.dylib.dSYM.
 CARGO_PROFILE_RELEASE_DEBUG = { value = "limited", condition = { profiles = ["release"] } }
 CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO = { value = "packed", condition = { profiles = ["release"] } }
+# The workspace dev profile is `debug = "line-tables-only"` for build speed,
+# but the debug xcframework exists for lldb Rust-side debugging (variable
+# inspection needs full DWARF — see support/swift/DEBUGGING.md). Restore it
+# here so `swift-package-debug` keeps its promise regardless of the workspace
+# default.
+CARGO_PROFILE_DEV_DEBUG = { value = "full", condition = { profiles = ["development"] } }
 # Space-separated platform list, overridable for partial builds (e.g. the
 # macos-only debug flow below).
 SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { env_not_set = ["SPM_PLATFORMS"] } }

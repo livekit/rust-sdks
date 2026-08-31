@@ -103,6 +103,10 @@ winit = "0.30.13"
 hound = "3.5"
 cc = { version = "1.0", features = ["parallel"] }
 
+[profile.dev]
+debug = "line-tables-only"
+# Set to `true` instead for enhanced debugging at the cost of slower builds.
+
 [profile.release]
 opt-level = "z"
 lto = true
