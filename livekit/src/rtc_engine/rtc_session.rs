@@ -2336,12 +2336,16 @@ impl SessionInner {
                 );
 
                 // The subscriber transport exists exactly when this is not single-PC mode
-                // (see `RtcSession::connect`), so matching on the `Option` itself states the
-                // cases without a fail-open default for a combination that cannot occur:
-                // absent means single-PC mode, where the publisher is the only transport and
+                // (see `RtcSession::connect`), where the publisher is the only transport and
                 // there is nothing else to wait for.
                 let subscriber_ok = match self.subscriber_pc.as_ref() {
-                    None => true,
+                    None => {
+                        debug_assert!(
+                            self.single_pc_mode,
+                            "subscriber_pc absent outside single-PC mode"
+                        );
+                        self.single_pc_mode
+                    }
                     // Present, but a publisher-primary connection does not carry media on it,
                     // so it is not on the critical path for this wait.
                     Some(_) if !self.subscriber_primary => true,
