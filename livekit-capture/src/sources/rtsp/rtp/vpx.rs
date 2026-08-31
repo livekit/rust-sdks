@@ -166,9 +166,7 @@ fn parse_vp9_payload_descriptor(
     })
 }
 
-fn skip_vp9_scalability_structure(
-    reader: &mut ByteReader<'_>,
-) -> Result<(), RtpDepacketizerError> {
+fn skip_vp9_scalability_structure(reader: &mut ByteReader<'_>) -> Result<(), RtpDepacketizerError> {
     let malformed = || RtpDepacketizerError::UnsupportedPayload;
     let structure = reader.get_u8().ok_or_else(malformed)?;
 

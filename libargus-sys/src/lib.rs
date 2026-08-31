@@ -91,9 +91,7 @@ pub fn lk_argus_status_string(status: i32) -> &'static str {
     match status {
         LK_ARGUS_OK => "ok",
         LK_ARGUS_ERR_INVALID_ARG => "invalid argument",
-        LK_ARGUS_ERR_NO_PROVIDER => {
-            "failed to create camera provider (is nvargus-daemon running?)"
-        }
+        LK_ARGUS_ERR_NO_PROVIDER => "failed to create camera provider (is nvargus-daemon running?)",
         LK_ARGUS_ERR_NO_DEVICE => "camera device index out of range",
         LK_ARGUS_ERR_ARGUS => "Argus operation failed",
         LK_ARGUS_ERR_TIMEOUT => "frame acquire timed out",
