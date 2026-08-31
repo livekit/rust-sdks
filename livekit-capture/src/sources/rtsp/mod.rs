@@ -599,10 +599,7 @@ impl EncodedVideoSource for RtspVideoSource {
 }
 
 /// Applies the config's per-field credential overrides to the URL userinfo.
-fn merge_credentials(
-    config: &RtspVideoSourceConfig,
-    url: &RtspUrl,
-) -> Option<RtspCredentials> {
+fn merge_credentials(config: &RtspVideoSourceConfig, url: &RtspUrl) -> Option<RtspCredentials> {
     let (url_username, url_password) = match &url.credentials {
         Some(credentials) => {
             (Some(credentials.username.clone()), Some(credentials.password.clone()))
@@ -864,10 +861,9 @@ a=rtpmap:96 VP8/90000\r\n";
             stream.write_all(&interleaved(0, &packet)).unwrap();
         });
 
-        let mut source = RtspVideoSource::new_blocking(config(format!(
-            "rtsp://admin:secret@{addr}/camera"
-        )))
-        .unwrap();
+        let mut source =
+            RtspVideoSource::new_blocking(config(format!("rtsp://admin:secret@{addr}/camera")))
+                .unwrap();
 
         let stop = PumpStop::new();
         let access_unit = source.next_access_unit(&stop).unwrap().unwrap();
@@ -1102,10 +1098,7 @@ a=framesize:96 1280-720\r\n";
         })
         .unwrap_err();
 
-        assert!(
-            err.to_string().contains("DESCRIBE"),
-            "expected DESCRIBE timeout, got: {err}"
-        );
+        assert!(err.to_string().contains("DESCRIBE"), "expected DESCRIBE timeout, got: {err}");
         server.join().unwrap();
     }
 

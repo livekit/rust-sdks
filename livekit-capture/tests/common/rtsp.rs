@@ -111,20 +111,12 @@ impl RtspTestServer {
     }
 
     /// Starts a server that requires Basic authentication.
-    pub fn launch_with_basic_auth(
-        media_pipeline: &str,
-        username: &str,
-        password: &str,
-    ) -> Self {
+    pub fn launch_with_basic_auth(media_pipeline: &str, username: &str, password: &str) -> Self {
         Self::launch_inner(media_pipeline, TestAuth::Basic { username, password }, false)
     }
 
     /// Starts a server that requires Digest authentication.
-    pub fn launch_with_digest_auth(
-        media_pipeline: &str,
-        username: &str,
-        password: &str,
-    ) -> Self {
+    pub fn launch_with_digest_auth(media_pipeline: &str, username: &str, password: &str) -> Self {
         Self::launch_inner(media_pipeline, TestAuth::Digest { username, password }, false)
     }
 
@@ -237,11 +229,9 @@ impl RtspTestServer {
 
 /// Generates a fresh self-signed certificate for the test server.
 fn self_signed_certificate() -> gio::TlsCertificate {
-    let certified = rcgen::generate_simple_self_signed(vec![
-        "localhost".to_owned(),
-        "127.0.0.1".to_owned(),
-    ])
-    .expect("failed to generate a self-signed certificate");
+    let certified =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned(), "127.0.0.1".to_owned()])
+            .expect("failed to generate a self-signed certificate");
     let pem = format!("{}{}", certified.cert.pem(), certified.key_pair.serialize_pem());
     gio::TlsCertificate::from_pem(&pem).expect("failed to load the certificate into GIO")
 }
