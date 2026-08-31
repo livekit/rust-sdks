@@ -502,9 +502,6 @@ impl serde::Serialize for AgentSessionEvent {
                 agent_session_event::Event::ToolExecutionUpdated(v) => {
                     struct_ser.serialize_field("toolExecutionUpdated", v)?;
                 }
-                agent_session_event::Event::AgentFalseInterruption(v) => {
-                    struct_ser.serialize_field("agentFalseInterruption", v)?;
-                }
             }
         }
         struct_ser.end()
@@ -544,8 +541,6 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
             "debugMessage",
             "tool_execution_updated",
             "toolExecutionUpdated",
-            "agent_false_interruption",
-            "agentFalseInterruption",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -564,7 +559,6 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
             FunctionToolsStarted,
             DebugMessage,
             ToolExecutionUpdated,
-            AgentFalseInterruption,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -601,7 +595,6 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
                             "functionToolsStarted" | "function_tools_started" => Ok(GeneratedField::FunctionToolsStarted),
                             "debugMessage" | "debug_message" => Ok(GeneratedField::DebugMessage),
                             "toolExecutionUpdated" | "tool_execution_updated" => Ok(GeneratedField::ToolExecutionUpdated),
-                            "agentFalseInterruption" | "agent_false_interruption" => Ok(GeneratedField::AgentFalseInterruption),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -722,13 +715,6 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
                             event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::ToolExecutionUpdated)
 ;
                         }
-                        GeneratedField::AgentFalseInterruption => {
-                            if event__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("agentFalseInterruption"));
-                            }
-                            event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::AgentFalseInterruption)
-;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -741,101 +727,6 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
             }
         }
         deserializer.deserialize_struct("livekit.agent.AgentSessionEvent", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for agent_session_event::AgentFalseInterruption {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.resumed {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentSessionEvent.AgentFalseInterruption", len)?;
-        if self.resumed {
-            struct_ser.serialize_field("resumed", &self.resumed)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for agent_session_event::AgentFalseInterruption {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "resumed",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Resumed,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "resumed" => Ok(GeneratedField::Resumed),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = agent_session_event::AgentFalseInterruption;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.agent.AgentSessionEvent.AgentFalseInterruption")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_session_event::AgentFalseInterruption, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut resumed__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Resumed => {
-                            if resumed__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("resumed"));
-                            }
-                            resumed__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(agent_session_event::AgentFalseInterruption {
-                    resumed: resumed__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.AgentFalseInterruption", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_session_event::AgentStateChanged {
@@ -8476,12 +8367,6 @@ impl serde::Serialize for MetricsReport {
         if self.e2e_latency.is_some() {
             len += 1;
         }
-        if self.llm_node_tps.is_some() {
-            len += 1;
-        }
-        if self.llm_node_ttfs.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.MetricsReport", len)?;
         if let Some(v) = self.started_speaking_at.as_ref() {
             struct_ser.serialize_field("startedSpeakingAt", v)?;
@@ -8506,12 +8391,6 @@ impl serde::Serialize for MetricsReport {
         }
         if let Some(v) = self.e2e_latency.as_ref() {
             struct_ser.serialize_field("e2eLatency", v)?;
-        }
-        if let Some(v) = self.llm_node_tps.as_ref() {
-            struct_ser.serialize_field("llmNodeTps", v)?;
-        }
-        if let Some(v) = self.llm_node_ttfs.as_ref() {
-            struct_ser.serialize_field("llmNodeTtfs", v)?;
         }
         struct_ser.end()
     }
@@ -8539,10 +8418,6 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
             "ttsNodeTtfb",
             "e2e_latency",
             "e2eLatency",
-            "llm_node_tps",
-            "llmNodeTps",
-            "llm_node_ttfs",
-            "llmNodeTtfs",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -8555,8 +8430,6 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
             LlmNodeTtft,
             TtsNodeTtfb,
             E2eLatency,
-            LlmNodeTps,
-            LlmNodeTtfs,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -8587,8 +8460,6 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                             "llmNodeTtft" | "llm_node_ttft" => Ok(GeneratedField::LlmNodeTtft),
                             "ttsNodeTtfb" | "tts_node_ttfb" => Ok(GeneratedField::TtsNodeTtfb),
                             "e2eLatency" | "e2e_latency" => Ok(GeneratedField::E2eLatency),
-                            "llmNodeTps" | "llm_node_tps" => Ok(GeneratedField::LlmNodeTps),
-                            "llmNodeTtfs" | "llm_node_ttfs" => Ok(GeneratedField::LlmNodeTtfs),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -8616,8 +8487,6 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                 let mut llm_node_ttft__ = None;
                 let mut tts_node_ttfb__ = None;
                 let mut e2e_latency__ = None;
-                let mut llm_node_tps__ = None;
-                let mut llm_node_ttfs__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::StartedSpeakingAt => {
@@ -8680,22 +8549,6 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                                 map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
                             ;
                         }
-                        GeneratedField::LlmNodeTps => {
-                            if llm_node_tps__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("llmNodeTps"));
-                            }
-                            llm_node_tps__ = 
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
-                        GeneratedField::LlmNodeTtfs => {
-                            if llm_node_ttfs__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("llmNodeTtfs"));
-                            }
-                            llm_node_ttfs__ = 
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
-                            ;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8710,8 +8563,6 @@ impl<'de> serde::Deserialize<'de> for MetricsReport {
                     llm_node_ttft: llm_node_ttft__,
                     tts_node_ttfb: tts_node_ttfb__,
                     e2e_latency: e2e_latency__,
-                    llm_node_tps: llm_node_tps__,
-                    llm_node_ttfs: llm_node_ttfs__,
                 })
             }
         }

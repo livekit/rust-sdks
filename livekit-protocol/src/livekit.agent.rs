@@ -79,10 +79,6 @@ pub struct MetricsReport {
     pub tts_node_ttfb: ::core::option::Option<f64>,
     #[prost(double, optional, tag="8")]
     pub e2e_latency: ::core::option::Option<f64>,
-    #[prost(double, optional, tag="9")]
-    pub llm_node_tps: ::core::option::Option<f64>,
-    #[prost(double, optional, tag="10")]
-    pub llm_node_ttfs: ::core::option::Option<f64>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -350,7 +346,7 @@ pub struct DebugMessage {
 pub struct AgentSessionEvent {
     #[prost(message, optional, tag="1")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(oneof="agent_session_event::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof="agent_session_event::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
     pub event: ::core::option::Option<agent_session_event::Event>,
 }
 /// Nested message and enum types in `AgentSessionEvent`.
@@ -522,13 +518,6 @@ pub mod agent_session_event {
         }
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AgentFalseInterruption {
-        /// Agent paused its own speech for what turned out not to be a real interruption (a backchannel, brief noise, etc.).
-        #[prost(bool, tag="1")]
-        pub resumed: bool,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Event {
         #[prost(message, tag="10")]
@@ -557,8 +546,6 @@ pub mod agent_session_event {
         DebugMessage(super::DebugMessage),
         #[prost(message, tag="22")]
         ToolExecutionUpdated(ToolExecutionUpdated),
-        #[prost(message, tag="23")]
-        AgentFalseInterruption(AgentFalseInterruption),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
