@@ -24,6 +24,16 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Trusted publishing cannot create a new crate (see release.yml). This check
+  # runs on the release PR, which is the last gate before publication.
+  check-crates-published:
+    name: Check crates exist on crates.io
+    if: github.head_ref == 'knope/release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - run: .github/scripts/check_crates_published.sh
+
   check-changeset:
     name: Check for changeset
     runs-on: ubuntu-latest

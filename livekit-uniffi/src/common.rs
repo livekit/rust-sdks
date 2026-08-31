@@ -14,4 +14,8 @@
 
 use bytes::Bytes;
 
-uniffi::custom_type!(Bytes, Vec<u8>, { remote });
+// `Bytes` is registered once in livekit-common so every component that needs it borrows the
+// same converter; registering it here as well would emit a second `public typealias Bytes`
+// into this component's Swift file, and both files compile into one module.
+// Upstream: https://github.com/mozilla/uniffi-rs/issues/2933
+uniffi::use_remote_type!(livekit_common::Bytes);

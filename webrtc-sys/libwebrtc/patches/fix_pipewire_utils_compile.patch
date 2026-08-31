@@ -1,0 +1,27 @@
+diff --git a/modules/portal/pipewire_utils.cc b/modules/portal/pipewire_utils.cc
+index 850726cc58..cfa30307be 100644
+--- a/modules/portal/pipewire_utils.cc
++++ b/modules/portal/pipewire_utils.cc
+@@ -28,10 +28,6 @@
+ 
+ namespace webrtc {
+ 
+-constexpr PipeWireVersion kReentrantDeinitMinVersion = {.major = 0,
+-                                                        .minor = 3,
+-                                                        .micro = 49};
+-
+ PipeWireVersion PipeWireVersion::Parse(const std::string_view& version) {
+   std::vector<std::string_view> parsed_version = split(version, '.');
+ 
+@@ -104,6 +100,11 @@ PipeWireInitializer::PipeWireInitializer() {
+ 
+ RTC_NO_SANITIZE("cfi-icall")
+ PipeWireInitializer::~PipeWireInitializer() {
++  // Not constexpr/global: PipeWireVersion holds a std::string, so it is only a
++  // literal type with a C++20 standard library (libstdc++ >= 12), and a
++  // namespace-scope instance would need a static initializer.
++  const PipeWireVersion kReentrantDeinitMinVersion = {
++      .major = 0, .minor = 3, .micro = 49};
+   PipeWireVersion pw_client_version =
+       PipeWireVersion::Parse(pw_get_library_version());
+   if (pw_client_version >= kReentrantDeinitMinVersion) {

@@ -17,16 +17,21 @@
 #include "livekit/video_encoder_factory.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <optional>
 #include <string_view>
 #include <utility>
 
+#include "api/video/video_frame.h"
+#include "modules/video_coding/include/video_error_codes.h"
+
 #include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
+#include "livekit/encoded_video_frame_buffer.h"
 #include "livekit/objc_video_factory.h"
 #include "livekit/passthrough_video_encoder.h"
 #include "livekit/webrtc.h"
@@ -605,6 +610,80 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
   return internal_factory_->QueryCodecSupport(format, scalability_mode);
 }
 
+namespace {
+
+// Real encoders can never consume pre-encoded access units, but frames
+// carrying an EncodedVideoFrameBuffer can still reach one in the window
+// between stream startup and the sender's encoder selector switching onto
+// the pass-through backend. Some platform encoders blind-cast native
+// buffers (macOS ObjCVideoEncoder casts to ObjCFrameBuffer and retains a
+// garbage pointer), so forwarding such a frame is a crash, not a graceful
+// failure. Drop it instead: the selector switches shortly after, and the
+// pass-through encoder requests a fresh keyframe when it takes over.
+class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
+ public:
+  explicit EncodedFrameGuardEncoder(
+      std::unique_ptr<webrtc::VideoEncoder> encoder)
+      : encoder_(std::move(encoder)) {}
+
+  void SetFecControllerOverride(
+      webrtc::FecControllerOverride* fec_controller_override) override {
+    encoder_->SetFecControllerOverride(fec_controller_override);
+  }
+
+  int InitEncode(const webrtc::VideoCodec* codec_settings,
+                 const Settings& settings) override {
+    return encoder_->InitEncode(codec_settings, settings);
+  }
+
+  int32_t RegisterEncodeCompleteCallback(
+      webrtc::EncodedImageCallback* callback) override {
+    return encoder_->RegisterEncodeCompleteCallback(callback);
+  }
+
+  int32_t Release() override { return encoder_->Release(); }
+
+  int32_t Encode(
+      const webrtc::VideoFrame& frame,
+      const std::vector<webrtc::VideoFrameType>* frame_types) override {
+    if (livekit::EncodedVideoFrameBuffer::FromNative(
+            frame.video_frame_buffer().get())) {
+      static std::atomic<bool> logged{false};
+      if (!logged.exchange(true)) {
+        RTC_LOG(LS_WARNING)
+            << "Dropping pre-encoded access unit sent to a non pass-through "
+               "encoder; waiting for the sender to switch onto the "
+               "pass-through backend";
+      }
+      return WEBRTC_VIDEO_CODEC_OK;
+    }
+    return encoder_->Encode(frame, frame_types);
+  }
+
+  void SetRates(const RateControlParameters& parameters) override {
+    encoder_->SetRates(parameters);
+  }
+
+  void OnPacketLossRateUpdate(float packet_loss_rate) override {
+    encoder_->OnPacketLossRateUpdate(packet_loss_rate);
+  }
+
+  void OnRttUpdate(int64_t rtt_ms) override { encoder_->OnRttUpdate(rtt_ms); }
+
+  void OnLossNotification(const LossNotification& loss_notification) override {
+    encoder_->OnLossNotification(loss_notification);
+  }
+
+  EncoderInfo GetEncoderInfo() const override {
+    return encoder_->GetEncoderInfo();
+  }
+
+ private:
+  std::unique_ptr<webrtc::VideoEncoder> encoder_;
+};
+
+}  // namespace
+
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
@@ -612,6 +691,11 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
         env, internal_factory_.get(), nullptr, format);
+  }
+
+  if (encoder &&
+      BackendFromFormat(format) != VideoEncoderBackend::PreEncoded) {
+    encoder = std::make_unique<EncodedFrameGuardEncoder>(std::move(encoder));
   }
 
   return encoder;

@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use libwebrtc::prelude::*;
-use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
+use livekit_signaling::{SignalError, SignalOptions};
 use parking_lot::{RwLock, RwLockReadGuard};
 use std::{borrow::Cow, collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;

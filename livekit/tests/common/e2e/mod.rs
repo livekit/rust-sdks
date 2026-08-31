@@ -17,7 +17,7 @@ use chrono::Utc;
 use futures_util::future::try_join_all;
 use libwebrtc::native::create_random_uuid;
 use livekit::{Room, RoomEvent, RoomOptions};
-use livekit_api::access_token::{AccessToken, VideoGrants};
+use livekit_token::{AccessToken, VideoGrants};
 use std::{env, time::Duration};
 use tokio::{
     sync::mpsc::UnboundedReceiver,

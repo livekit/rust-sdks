@@ -1,0 +1,20 @@
+[package]
+name = "livekit-token"
+version = "0.1.1"
+license.workspace = true
+description = "Core logic for generating LiveKit tokens"
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+livekit-protocol = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+sha2 = "0.10"
+
+# access_token: HS256 only, via the in-crate HMAC CryptoProvider (jwt_provider.rs).
+# Dropping jsonwebtoken's rust_crypto bundle avoids linking RSA/EC/EdDSA.
+jsonwebtoken = { version = "10", default-features = false }
+hmac = "0.12"
+signature = "2"

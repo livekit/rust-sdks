@@ -17,15 +17,9 @@ use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
-    prelude::{
-        ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack,
-        RtcConfiguration,
-    },
+    prelude::{MediaStream, MediaStreamTrack, RtcConfiguration},
     rtp_transceiver::RtpTransceiver,
     RtcError,
-};
-use livekit_api::signal_client::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
 use livekit_data_stream::backend as ds;
 use livekit_datatrack::{
@@ -34,6 +28,9 @@ use livekit_datatrack::{
 };
 use livekit_protocol as proto;
 use livekit_runtime::JoinHandle;
+use livekit_signaling::{
+    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+};
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::SignalTarget;
@@ -383,11 +380,15 @@ pub struct RpcAck {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
+    /// Comma separated list of additional LiveKit SDKs layered on top of this one, with
+    /// versions, e.g. `"components-js:1.2.3,track-processors-js:1.2.3"`. Reported to the
+    /// server as `ClientInfo.other_sdks`. `None` when there are none.
+    pub other_sdks: Option<String>,
 }
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
+        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string(), other_sdks: None }
     }
 }
 
@@ -396,6 +397,7 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
         let mut sdk_options = SignalSdkOptions::default();
         sdk_options.sdk = options.sdk;
         sdk_options.sdk_version = Some(options.sdk_version);
+        sdk_options.other_sdks = options.other_sdks;
         sdk_options
     }
 }
@@ -462,13 +464,8 @@ impl Default for RoomOptions {
             e2ee: None,
             encryption: None,
 
-            // Explicitly set the default values
-            rtc_config: RtcConfiguration {
-                ice_servers: vec![], /* When empty, this will automatically be filled by the
-                                      * JoinResponse */
-                continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
-                ice_transport_type: IceTransportsType::All,
-            },
+            // Defaults; ice_servers is empty here and filled from the JoinResponse.
+            rtc_config: RtcConfiguration::default(),
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: true,
@@ -901,6 +898,14 @@ impl Room {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.inner.rtc_engine.drop_disconnected_updates(enabled);
+    }
+
+    /// Test-only: the publisher transport's current connection state. Lets a test assert
+    /// that teardown really closed the transport, rather than inferring it from room-level
+    /// state that can reach `Disconnected` while the transport is still open.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
+        self.inner.rtc_engine.session().publisher_connection_state()
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {

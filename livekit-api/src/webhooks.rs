@@ -17,7 +17,7 @@ use livekit_protocol as proto;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::access_token::{AccessTokenError, TokenVerifier};
+use livekit_token::{AccessTokenError, TokenVerifier};
 
 #[derive(Debug, Error)]
 pub enum WebhookError {

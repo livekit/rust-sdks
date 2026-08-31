@@ -35,7 +35,7 @@ use super::failover::FailoverConfig;
 use super::sip::CreateSIPParticipantOptions;
 use super::twirp_client::{ServerError, ServerResult, TwirpClient};
 use super::{LiveKitApi, ServiceError, SipCallError, LIVEKIT_PACKAGE};
-use crate::access_token::{AccessToken, VideoGrants};
+use livekit_token::{AccessToken, VideoGrants};
 
 fn base_url() -> String {
     std::env::var("LK_TEST_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:9999".to_owned())

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![doc = include_str!("../README.md")]
+
 use std::{
     borrow::Cow,
     fmt::Debug,
@@ -33,14 +35,16 @@ use prost::Message;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
-use crate::signal_client::signal_stream::SignalStream;
+use crate::signal_stream::SignalStream;
 use livekit_net::HttpClientExt;
 
 mod region_url_provider;
 mod signal_stream;
 
-#[cfg(test)]
-pub(crate) mod test_transport;
+// Shared mock WsClient/HttpClient for the unit tests below. Gated on the signal client alone,
+// since the tests that use it do not need access-token.
+#[cfg(all(test, feature = "tokio"))]
+mod test_transport;
 
 pub use region_url_provider::RegionUrlProvider;
 
@@ -147,11 +151,17 @@ pub enum SignalError {
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
+    /// Comma separated list of additional LiveKit SDKs layered on top of this one, with
+    /// versions, e.g. `"components-js:1.2.3,track-processors-js:1.2.3"`. Sent to the server
+    /// as `ClientInfo.other_sdks`. `None` when there are none — optional so callers that
+    /// predate the field keep working unchanged.
+    #[doc(hidden)]
+    pub other_sdks: Option<String>,
 }
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: None }
+        Self { sdk: "rust".to_string(), sdk_version: None, other_sdks: None }
     }
 }
 
@@ -816,6 +826,7 @@ fn create_join_request_param(
         device_model,
         capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
         client_protocol: advertised_client_protocol(options),
+        other_sdks: options.sdk_options.other_sdks.clone().unwrap_or_default(),
         ..Default::default()
     };
 
@@ -945,6 +956,12 @@ fn get_livekit_url(
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
         }
 
+        if let Some(other_sdks) =
+            options.sdk_options.other_sdks.as_deref().filter(|s| !s.is_empty())
+        {
+            lk_url.query_pairs_mut().append_pair("other_sdks", other_sdks);
+        }
+
         // parse client capabilities
         if !CLIENT_CAPABILITIES.is_empty() {
             let caps =
@@ -965,20 +982,20 @@ fn get_livekit_url(
 }
 
 /// Build the `Authorization: Bearer <token>` header vec used by HTTP/WS callers.
-pub(super) fn bearer_headers(token: &str) -> Vec<livekit_net::Header> {
+pub(crate) fn bearer_headers(token: &str) -> Vec<livekit_net::Header> {
     vec![livekit_net::Header { name: "Authorization".into(), value: format!("Bearer {token}") }]
 }
 
 /// Resolve the registered WebSocket client, or a permanent
 /// [`SignalError::TransportNotConfigured`] if none has been set. Centralises the
 /// lookup so callers share one error rather than each inventing a string.
-pub(super) fn require_ws_client() -> SignalResult<Arc<dyn livekit_net::WsClient>> {
+pub(crate) fn require_ws_client() -> SignalResult<Arc<dyn livekit_net::WsClient>> {
     livekit_net::ws_client().ok_or(SignalError::TransportNotConfigured)
 }
 
 /// Resolve the registered HTTP client, or a permanent
 /// [`SignalError::TransportNotConfigured`] if none has been set.
-pub(super) fn require_http_client() -> SignalResult<Arc<dyn livekit_net::HttpClient>> {
+pub(crate) fn require_http_client() -> SignalResult<Arc<dyn livekit_net::HttpClient>> {
     livekit_net::http_client().ok_or(SignalError::TransportNotConfigured)
 }
 
@@ -987,7 +1004,7 @@ pub(super) fn require_http_client() -> SignalResult<Arc<dyn livekit_net::HttpCli
 /// callers surface a clear, non-retryable [`SignalError::TokenFormat`] up front
 /// rather than a generic transport error deep in the connect path (which would
 /// otherwise drive the pointless v1→v0 + full-reconnect fallback).
-pub(super) fn check_token_format(token: &str) -> SignalResult<()> {
+pub(crate) fn check_token_format(token: &str) -> SignalResult<()> {
     http::HeaderValue::from_str(&format!("Bearer {token}"))
         .map(|_| ())
         .map_err(|_| SignalError::TokenFormat)
@@ -1042,7 +1059,10 @@ macro_rules! get_async_message {
                     }
                 }
 
-                Err(SignalError::Timeout("connection closed before message received".into()))
+                // The channel only ends when the read task does, i.e. the transport went away
+                // before the server answered. That is a close, not a timeout — nothing waited.
+                // Only the `livekit_runtime::timeout` wrapper below is a genuine timeout.
+                Err(SignalError::Closed)
             };
 
             livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
@@ -1075,7 +1095,10 @@ async fn get_reconnect_response(
             }
         }
 
-        Err(SignalError::Timeout("connection closed before message received".into()))
+        // The channel only ends when the read task does, i.e. the transport went away
+        // before the server answered. That is a close, not a timeout — nothing waited.
+        // Only the `livekit_runtime::timeout` wrapper below is a genuine timeout.
+        Err(SignalError::Closed)
     };
 
     livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
@@ -1120,7 +1143,14 @@ mod tests {
     /// in `send`. The stream slot is None so any actual write would be dropped,
     /// which is fine — these tests only assert which side of the queue each
     /// message lands on.
+    #[cfg(feature = "tokio")]
     fn make_stub_inner() -> Arc<SignalInner> {
+        make_stub_inner_with(proto::JoinResponse::default())
+    }
+
+    /// As `make_stub_inner`, with a join response — `restart` reads the participant sid from it.
+    #[cfg(feature = "tokio")]
+    fn make_stub_inner_with(join_response: proto::JoinResponse) -> Arc<SignalInner> {
         Arc::new(SignalInner {
             stream: AsyncRwLock::new(None),
             token: Mutex::new(String::new()),
@@ -1128,13 +1158,56 @@ mod tests {
             queue: Default::default(),
             url: "wss://localhost:7880".to_string(),
             options: SignalOptions::default(),
-            join_response: proto::JoinResponse::default(),
+            join_response,
             request_id: AtomicU32::new(1),
             single_pc_mode_active: false,
         })
     }
 
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
+    fn mute(sid: &str) -> proto::signal_request::Message {
+        proto::signal_request::Message::Mute(proto::MuteTrackRequest {
+            sid: sid.into(),
+            muted: true,
+        })
+    }
+
+    /// The sids of the queued mute requests, in queue order.
+    #[cfg(feature = "tokio")]
+    async fn queued_sids(inner: &Arc<SignalInner>) -> Vec<String> {
+        inner
+            .queue
+            .lock()
+            .await
+            .iter()
+            .filter_map(|signal| match signal {
+                proto::signal_request::Message::Mute(m) => Some(m.sid.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A live stream over the shared mock transport, for the tests that need the
+    /// difference between "held because we are reconnecting" and "held because
+    /// there is nowhere to send".
+    ///
+    /// Gated like its callers: `test_transport` only exists for the tokio flavour, so an
+    /// ungated helper would break the `async` build.
+    #[cfg(feature = "tokio")]
+    async fn mock_stream() -> SignalStream {
+        use crate::test_transport::install_mock_transport;
+        install_mock_transport();
+        SignalStream::connect(
+            url::Url::parse("wss://localhost:7880/rtc").unwrap(),
+            "",
+            Duration::from_secs(1),
+        )
+        .await
+        .expect("the mock transport always connects")
+        .0
+    }
+
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn send_queues_queueable_signals_during_reconnect() {
         let inner = make_stub_inner();
@@ -1164,7 +1237,7 @@ mod tests {
         assert_eq!(queue.len(), 3, "all three queueable signals should be buffered");
     }
 
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn send_does_not_queue_pass_through_signals_during_reconnect() {
         let inner = make_stub_inner();
@@ -1190,7 +1263,7 @@ mod tests {
         assert!(queue.is_empty(), "pass-through signals must not be queued, got {}", queue.len());
     }
 
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn set_reconnected_drains_queue_and_clears_flag() {
         let inner = make_stub_inner();
@@ -1213,6 +1286,77 @@ mod tests {
         // will trigger flush_queue at the top of the normal path.
         inner.set_reconnected().await;
         assert!(!inner.reconnecting.load(Ordering::Acquire), "flag must be cleared");
+    }
+
+    /// The queue is FIFO, and the release order is the send order. The existing
+    /// `send_queues_queueable_signals_during_reconnect` only counts what landed there.
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn queued_signals_keep_their_order() {
+        let inner = make_stub_inner();
+        inner.reconnecting.store(true, Ordering::Release);
+
+        inner.send(mute("first")).await;
+        inner.send(mute("second")).await;
+        inner.send(mute("third")).await;
+
+        assert_eq!(queued_sids(&inner).await, vec!["first", "second", "third"]);
+    }
+
+    /// A resume is not complete when the transport comes back — the engine calls
+    /// `set_reconnected` once the media path is back too, which is seconds later. A
+    /// session-scoped send in that window must queue behind what is already waiting rather
+    /// than overtake it.
+    ///
+    /// Distinct from `send_queues_queueable_signals_during_reconnect`: that one runs with no
+    /// stream at all, so its message could have been queued merely because there was nowhere
+    /// to send it. Here the stream is live and only the `reconnecting` flag holds the message.
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn send_still_queues_after_the_transport_returns() {
+        let inner = make_stub_inner();
+        inner.reconnecting.store(true, Ordering::Release);
+
+        // issued while the resume is in flight
+        inner.send(mute("held-during-resume")).await;
+
+        // the resume has answered and its transport is installed; `restart` deliberately
+        // leaves `reconnecting` set until the engine reports in
+        *inner.stream.write().await = Some(mock_stream().await);
+        assert!(inner.reconnecting.load(Ordering::Acquire), "restart leaves the flag set");
+
+        inner.send(mute("issued-while-catching-up")).await;
+
+        assert_eq!(
+            queued_sids(&inner).await,
+            vec!["held-during-resume", "issued-while-catching-up"],
+            "a live transport must not let a later send overtake a held one"
+        );
+    }
+
+    /// A failed resume has to leave the flag clear, or every later attempt would route its
+    /// sends to a queue that nothing drains.
+    #[cfg(feature = "tokio")]
+    #[tokio::test]
+    async fn restart_failure_resets_the_flag_so_a_retry_can_re_enter() {
+        let _ = mock_stream().await; // installs the shared mock transport
+        let inner = make_stub_inner_with(proto::JoinResponse {
+            participant: Some(proto::ParticipantInfo {
+                sid: "PA_test".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        // The mock yields one Pong and then ends the stream, so no ReconnectResponse ever
+        // arrives and the resume fails.
+        let err =
+            inner.restart().await.err().expect("restart must fail without a reconnect answer");
+        assert!(matches!(err, SignalError::Closed), "expected a close, got {err:?}");
+        assert!(
+            !inner.reconnecting.load(Ordering::Acquire),
+            "a failed restart must clear the flag so the next attempt can re-enter"
+        );
     }
 
     #[test]
@@ -1298,6 +1442,57 @@ mod tests {
             .find_map(|(key, value)| (key == "client_protocol").then(|| value.into_owned()))
             .unwrap();
         assert_eq!(client_protocol, CLIENT_PROTOCOL_DATA_STREAM_RPC.to_string());
+    }
+
+    #[test]
+    fn livekit_url_forwards_other_sdks_on_both_paths() {
+        let mut io = signal_options_for_cpp("9.9.9-test");
+        io.sdk_options.other_sdks = Some("ros_portal:1.2.3,another-sdk:2.0.0".to_string());
+
+        // v1 path: other_sdks travels inside the join_request param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let join_request = decode_join_request_param_for_test(&join_request_param);
+        let client_info = join_request.client_info.unwrap();
+        assert_eq!(client_info.other_sdks, "ros_portal:1.2.3,another-sdk:2.0.0");
+
+        // v0 path: other_sdks is a query param
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let other_sdks = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "other_sdks").then(|| value.into_owned()))
+            .unwrap();
+        assert_eq!(other_sdks, "ros_portal:1.2.3,another-sdk:2.0.0");
+    }
+
+    #[test]
+    fn livekit_url_omits_other_sdks_when_unset() {
+        assert!(SignalOptions::default().sdk_options.other_sdks.is_none());
+
+        // `None` (callers predating the field) and `Some("")` must both behave as
+        // "no additional SDKs" on either path.
+        for other_sdks in [None, Some(String::new())] {
+            let mut io = SignalOptions::default();
+            io.sdk_options.other_sdks = other_sdks;
+
+            let lk_url =
+                get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+            assert!(lk_url.query_pairs().all(|(key, _)| key != "other_sdks"));
+
+            let lk_url =
+                get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
+            let join_request_param = lk_url
+                .query_pairs()
+                .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+                .unwrap();
+            let join_request = decode_join_request_param_for_test(&join_request_param);
+            assert!(join_request.client_info.unwrap().other_sdks.is_empty());
+        }
     }
 
     #[test]
@@ -1398,10 +1593,10 @@ mod tests {
 
     // Region + validate + stream behaviour, driven by the shared mock transport.
 
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn region_fetch_via_mock_transport_parses_urls() {
-        use crate::signal_client::test_transport::install_mock_transport;
+        use crate::test_transport::install_mock_transport;
         install_mock_transport();
 
         // fetch_from_endpoint bypasses the is_cloud gate; the mock serves canned
@@ -1420,10 +1615,10 @@ mod tests {
     /// The mock returns HTTP 401 when the `Authorization: Bearer <token>` header
     /// is absent; `validate()` maps 401 to `SignalError::Client`, so `is_ok()`
     /// passes only when `validate()` forwarded a valid Bearer token.
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn validate_via_mock_transport_succeeds() {
-        use crate::signal_client::test_transport::install_mock_transport;
+        use crate::test_transport::install_mock_transport;
         install_mock_transport();
 
         let ws_url = url::Url::parse("ws://mock.livekit.cloud/rtc").unwrap();
@@ -1449,10 +1644,10 @@ mod tests {
     /// transport layer it must return `Ok(())` so the caller surfaces the original
     /// connection error, never masking it. The mock returns a `Connection` error
     /// for URLs marked `connrefused`.
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn validate_swallows_transport_error_to_avoid_masking() {
-        use crate::signal_client::test_transport::install_mock_transport;
+        use crate::test_transport::install_mock_transport;
         install_mock_transport();
 
         let ws_url = url::Url::parse("wss://connrefused.livekit.cloud/rtc").unwrap();
@@ -1467,10 +1662,10 @@ mod tests {
 
     /// SignalStream delivers the first protobuf frame from the transport to the
     /// events channel. The mock returns one canned Pong frame then closes.
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn stream_delivers_first_frame() {
-        use crate::signal_client::test_transport::install_mock_transport;
+        use crate::test_transport::install_mock_transport;
         install_mock_transport();
 
         let (_stream, mut events) = SignalStream::connect(
@@ -1488,10 +1683,10 @@ mod tests {
     /// `SignalError::RegionError`. The mock returns
     /// `TransportError::Connection(..connection refused..)` for URLs marked
     /// `connrefused`.
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn region_fetch_connection_refused_includes_error_chain() {
-        use crate::signal_client::test_transport::install_mock_transport;
+        use crate::test_transport::install_mock_transport;
         install_mock_transport();
 
         let endpoint = "http://mock.test/connrefused/settings/regions";
@@ -1510,10 +1705,10 @@ mod tests {
 
     /// A non-JSON region body yields a descriptive `RegionError`. The mock
     /// returns a 200 with a non-JSON body for URLs marked `badjson`.
-    #[cfg(feature = "signal-client-tokio")]
+    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn region_fetch_invalid_json_includes_error_chain() {
-        use crate::signal_client::test_transport::install_mock_transport;
+        use crate::test_transport::install_mock_transport;
         install_mock_transport();
 
         let endpoint = "http://mock.test/badjson";

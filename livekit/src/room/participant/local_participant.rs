@@ -47,9 +47,9 @@ use libwebrtc::{
     rtp_parameters::RtpEncodingParameters,
     video_source::RtcVideoSource,
 };
-use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
+use livekit_signaling::SignalError;
 use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
 

@@ -31,16 +31,25 @@ jobs:
           cache: false
           rustflags: ""
 
+      # The release PR check (release-pr-check.yml) is the primary gate. This
+      # step also covers a workflow_dispatch run, which has no release PR.
+      - name: Check crates exist on crates.io
+        run: .github/scripts/check_crates_published.sh
+
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@30b5ca8b54e1dcffd9548bc87ede1531310fdc67 # v1.20.0
 
       - name: Install cargo-release
         run: cargo binstall cargo-release@1.1.2 --no-confirm
 
+      - name: Authenticate with crates.io
+        id: crates-auth
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
       - name: Publish to crates.io
         run: cargo release publish --workspace --no-confirm --no-verify ${{ inputs.dry_run != true && '--execute' || '' }}
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
 
   call-node-ffi:
     name: Call Node FFI Builds

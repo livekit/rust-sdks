@@ -25,10 +25,10 @@ use std::{
 
 use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
+use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::SignalTarget;
@@ -501,6 +501,10 @@ impl RtcSession {
         let (emitter, session_events) = mpsc::unbounded_channel();
 
         let lk_runtime = LkRuntime::instance();
+
+        let mut options = options;
+        options.rtc_config.enable_sctp_snap = true;
+
         let use_single_pc = options.signal_options.single_peer_connection;
 
         let mut publisher_offer = None;
@@ -843,6 +847,13 @@ impl RtcSession {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.inner.drop_disconnected_updates.store(enabled, Ordering::Release);
+    }
+
+    /// Test-only: the publisher transport's current connection state, so tests can assert
+    /// that teardown actually closed it rather than inferring it from room-level state.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_connection_state(&self) -> PeerConnectionState {
+        self.inner.publisher_pc.peer_connection().connection_state()
     }
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
@@ -1984,6 +1995,15 @@ impl SessionInner {
         self.closed.store(true, Ordering::Release);
         self.pc_state_notify.notify_waiters();
 
+        // Both awaits below are unbounded, and `PeerTransport::close` is synchronous, so
+        // closing here — before the future can suspend — is what stops a cancelled
+        // `close()` leaving the ICE sockets bound for the process's lifetime. The
+        // signalling socket is unaffected, so the Leave below still goes out.
+        self.publisher_pc.close();
+        if let Some(ref sub_pc) = self.subscriber_pc {
+            sub_pc.close();
+        }
+
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
                 action: proto::leave_request::Action::Disconnect.into(),
@@ -1993,10 +2013,6 @@ impl SessionInner {
             .await;
 
         self.signal_client.close().await;
-        self.publisher_pc.close();
-        if let Some(ref sub_pc) = self.subscriber_pc {
-            sub_pc.close();
-        }
     }
 
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
