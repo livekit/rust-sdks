@@ -29,11 +29,14 @@ use base64::{engine::general_purpose::URL_SAFE as BASE64_URL_SAFE, Engine};
 use flate2::{write::GzEncoder, Compression};
 use http::StatusCode;
 use livekit_protocol as proto;
-use livekit_runtime::{interval, sleep, Instant, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use tokio::{
+    task::JoinHandle,
+    time::{interval, sleep, Instant},
+};
 
 use crate::signal_stream::SignalStream;
 use livekit_net::HttpClientExt;
@@ -43,7 +46,7 @@ mod signal_stream;
 
 // Shared mock WsClient/HttpClient for the unit tests below. Gated on the signal client alone,
 // since the tests that use it do not need access-token.
-#[cfg(all(test, feature = "tokio"))]
+#[cfg(test)]
 mod test_transport;
 
 pub use region_url_provider::RegionUrlProvider;
@@ -241,7 +244,7 @@ impl SignalClient {
         let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
             let (emitter, events) = mpsc::unbounded_channel();
             let signal_task =
-                livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
+                tokio::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
 
             (Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events)
         };
@@ -316,11 +319,8 @@ impl SignalClient {
         self.close().await;
 
         let (reconnect_response, stream_events) = self.inner.restart().await?;
-        let signal_task = livekit_runtime::spawn(signal_task(
-            self.inner.clone(),
-            self.emitter.clone(),
-            stream_events,
-        ));
+        let signal_task =
+            tokio::spawn(signal_task(self.inner.clone(), self.emitter.clone(), stream_events));
 
         *self.handle.lock() = Some(signal_task);
         Ok(reconnect_response)
@@ -532,7 +532,7 @@ impl SignalInner {
 
         // A validate timeout is likewise non-fatal: fall through to Ok(()) so the
         // caller's original error is what surfaces, not a validate-timeout.
-        livekit_runtime::timeout(VALIDATE_TIMEOUT, validate_fut).await.unwrap_or(Ok(()))
+        tokio::time::timeout(VALIDATE_TIMEOUT, validate_fut).await.unwrap_or(Ok(()))
     }
 
     /// Returns whether single peer connection mode is active
@@ -1061,11 +1061,11 @@ macro_rules! get_async_message {
 
                 // The channel only ends when the read task does, i.e. the transport went away
                 // before the server answered. That is a close, not a timeout — nothing waited.
-                // Only the `livekit_runtime::timeout` wrapper below is a genuine timeout.
+                // Only the `tokio::time::timeout` wrapper below is a genuine timeout.
                 Err(SignalError::Closed)
             };
 
-            livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
+            tokio::time::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
                 SignalError::Timeout(format!("failed to receive {}", std::any::type_name::<$ty>()))
             })?
         }
@@ -1097,11 +1097,11 @@ async fn get_reconnect_response(
 
         // The channel only ends when the read task does, i.e. the transport went away
         // before the server answered. That is a close, not a timeout — nothing waited.
-        // Only the `livekit_runtime::timeout` wrapper below is a genuine timeout.
+        // Only the `tokio::time::timeout` wrapper below is a genuine timeout.
         Err(SignalError::Closed)
     };
 
-    livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
+    tokio::time::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
         SignalError::Timeout(format!(
             "failed to receive {}",
             std::any::type_name::<proto::ReconnectResponse>()
@@ -1143,13 +1143,11 @@ mod tests {
     /// in `send`. The stream slot is None so any actual write would be dropped,
     /// which is fine — these tests only assert which side of the queue each
     /// message lands on.
-    #[cfg(feature = "tokio")]
     fn make_stub_inner() -> Arc<SignalInner> {
         make_stub_inner_with(proto::JoinResponse::default())
     }
 
     /// As `make_stub_inner`, with a join response — `restart` reads the participant sid from it.
-    #[cfg(feature = "tokio")]
     fn make_stub_inner_with(join_response: proto::JoinResponse) -> Arc<SignalInner> {
         Arc::new(SignalInner {
             stream: AsyncRwLock::new(None),
@@ -1164,7 +1162,6 @@ mod tests {
         })
     }
 
-    #[cfg(feature = "tokio")]
     fn mute(sid: &str) -> proto::signal_request::Message {
         proto::signal_request::Message::Mute(proto::MuteTrackRequest {
             sid: sid.into(),
@@ -1173,7 +1170,6 @@ mod tests {
     }
 
     /// The sids of the queued mute requests, in queue order.
-    #[cfg(feature = "tokio")]
     async fn queued_sids(inner: &Arc<SignalInner>) -> Vec<String> {
         inner
             .queue
@@ -1193,7 +1189,6 @@ mod tests {
     ///
     /// Gated like its callers: `test_transport` only exists for the tokio flavour, so an
     /// ungated helper would break the `async` build.
-    #[cfg(feature = "tokio")]
     async fn mock_stream() -> SignalStream {
         use crate::test_transport::install_mock_transport;
         install_mock_transport();
@@ -1207,7 +1202,6 @@ mod tests {
         .0
     }
 
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn send_queues_queueable_signals_during_reconnect() {
         let inner = make_stub_inner();
@@ -1237,7 +1231,6 @@ mod tests {
         assert_eq!(queue.len(), 3, "all three queueable signals should be buffered");
     }
 
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn send_does_not_queue_pass_through_signals_during_reconnect() {
         let inner = make_stub_inner();
@@ -1263,7 +1256,6 @@ mod tests {
         assert!(queue.is_empty(), "pass-through signals must not be queued, got {}", queue.len());
     }
 
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn set_reconnected_drains_queue_and_clears_flag() {
         let inner = make_stub_inner();
@@ -1290,7 +1282,6 @@ mod tests {
 
     /// The queue is FIFO, and the release order is the send order. The existing
     /// `send_queues_queueable_signals_during_reconnect` only counts what landed there.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn queued_signals_keep_their_order() {
         let inner = make_stub_inner();
@@ -1311,7 +1302,6 @@ mod tests {
     /// Distinct from `send_queues_queueable_signals_during_reconnect`: that one runs with no
     /// stream at all, so its message could have been queued merely because there was nowhere
     /// to send it. Here the stream is live and only the `reconnecting` flag holds the message.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn send_still_queues_after_the_transport_returns() {
         let inner = make_stub_inner();
@@ -1336,7 +1326,6 @@ mod tests {
 
     /// A failed resume has to leave the flag clear, or every later attempt would route its
     /// sends to a queue that nothing drains.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn restart_failure_resets_the_flag_so_a_retry_can_re_enter() {
         let _ = mock_stream().await; // installs the shared mock transport
@@ -1593,7 +1582,6 @@ mod tests {
 
     // Region + validate + stream behaviour, driven by the shared mock transport.
 
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn region_fetch_via_mock_transport_parses_urls() {
         use crate::test_transport::install_mock_transport;
@@ -1615,7 +1603,6 @@ mod tests {
     /// The mock returns HTTP 401 when the `Authorization: Bearer <token>` header
     /// is absent; `validate()` maps 401 to `SignalError::Client`, so `is_ok()`
     /// passes only when `validate()` forwarded a valid Bearer token.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn validate_via_mock_transport_succeeds() {
         use crate::test_transport::install_mock_transport;
@@ -1644,7 +1631,6 @@ mod tests {
     /// transport layer it must return `Ok(())` so the caller surfaces the original
     /// connection error, never masking it. The mock returns a `Connection` error
     /// for URLs marked `connrefused`.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn validate_swallows_transport_error_to_avoid_masking() {
         use crate::test_transport::install_mock_transport;
@@ -1662,7 +1648,6 @@ mod tests {
 
     /// SignalStream delivers the first protobuf frame from the transport to the
     /// events channel. The mock returns one canned Pong frame then closes.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn stream_delivers_first_frame() {
         use crate::test_transport::install_mock_transport;
@@ -1683,7 +1668,6 @@ mod tests {
     /// `SignalError::RegionError`. The mock returns
     /// `TransportError::Connection(..connection refused..)` for URLs marked
     /// `connrefused`.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn region_fetch_connection_refused_includes_error_chain() {
         use crate::test_transport::install_mock_transport;
@@ -1705,7 +1689,6 @@ mod tests {
 
     /// A non-JSON region body yields a descriptive `RegionError`. The mock
     /// returns a 200 with a non-JSON body for URLs marked `badjson`.
-    #[cfg(feature = "tokio")]
     #[tokio::test]
     async fn region_fetch_invalid_json_includes_error_chain() {
         use crate::test_transport::install_mock_transport;

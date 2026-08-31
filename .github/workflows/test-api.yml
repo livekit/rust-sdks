@@ -25,20 +25,19 @@ on:
     branches: [main]
 
 jobs:
-  # Exercise every runtime backend so a regression in one (e.g. the async/isahc
-  # server API silently failing to compile) is caught. Each leg pins a single
-  # runtime via --no-default-features.
+  # Each leg pins its feature set via --no-default-features so a regression in a
+  # narrower build (e.g. the transport-blind path silently failing to compile) is
+  # caught rather than masked by workspace feature unification.
   #
-  # The mock server below is load-bearing for all four legs, not just the
-  # services-* ones: services::api_test and services_async issue Twirp requests
-  # against it, and signal_tokio and signal_async connect to it and expect a
-  # JoinResponse. All of them reach it at LK_TEST_SERVER_URL, default
+  # The mock server below is load-bearing for both legs: services::api_test
+  # issues Twirp requests against it and signal_tokio connects to it and expects
+  # a JoinResponse. Both reach it at LK_TEST_SERVER_URL, default
   # http://127.0.0.1:9999.
   #
-  # Every one of those tests returns early when the server is unreachable, so
-  # removing the service does not fail the build — it quietly demotes these legs
-  # to a compile check. Only signal_unreachable is independent of it: that one
-  # dials a dead port on purpose.
+  # Both of those tests return early when the server is unreachable, so removing
+  # the service does not fail the build — it quietly demotes these legs to a
+  # compile check. Only signal_unreachable is independent of it: that one dials a
+  # dead port on purpose.
   #
   # The job name stays `livekit-api` even though it now also covers
   # livekit-signaling: it is a required status check, and renaming it would break
@@ -50,13 +49,9 @@ jobs:
       matrix:
         include:
           - name: services (tokio)
-            cmd: cargo test -p livekit-api --no-default-features --features services-tokio,access-token --lib services::api_test -- --nocapture
-          - name: services (async / isahc)
-            cmd: cargo test -p livekit-api --no-default-features --features services-async,access-token --test services_async -- --nocapture
+            cmd: cargo test -p livekit-api --no-default-features --features services,access-token --lib services::api_test -- --nocapture
           - name: livekit-signaling (tokio)
-            cmd: cargo test -p livekit-signaling --no-default-features --features native-tokio --lib --test signal_tokio --test signal_unreachable -- --nocapture
-          - name: livekit-signaling (async)
-            cmd: cargo test -p livekit-signaling --no-default-features --features native-async --lib --test signal_async -- --nocapture
+            cmd: cargo test -p livekit-signaling --no-default-features --features native --lib --test signal_tokio --test signal_unreachable -- --nocapture
     services:
       mock-server:
         image: livekit/test-server:latest

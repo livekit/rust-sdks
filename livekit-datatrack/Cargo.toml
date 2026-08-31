@@ -10,10 +10,9 @@ repository.workspace = true
 [dependencies]
 livekit-protocol = { workspace = true }
 livekit-common = { workspace = true, optional = true }
-livekit-runtime = { workspace = true, features = ["tokio"] }
 log = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["macros", "sync"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "sync", "time", "rt-multi-thread"] }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 futures-core = { workspace = true }
 bytes = { workspace = true }

@@ -131,7 +131,7 @@ impl Manager {
         let (result_tx, result_rx) = oneshot::channel();
         self.descriptors.insert(handle, Descriptor::Pending(result_tx));
 
-        livekit_runtime::spawn(Self::forward_publish_result(
+        tokio::spawn(Self::forward_publish_result(
             handle,
             result_rx,
             event.result_tx,
@@ -256,7 +256,7 @@ impl Manager {
             event_in_tx: self.event_in_tx.clone(),
             event_out_tx: self.event_out_tx.clone(),
         };
-        let task_handle = livekit_runtime::spawn(track_task.run());
+        let task_handle = tokio::spawn(track_task.run());
 
         self.descriptors.insert(
             info.pub_handle,
@@ -316,7 +316,7 @@ impl Manager {
                 }
                 Descriptor::Active { state_tx, task_handle, .. } => {
                     _ = state_tx.send(PublishState::Unpublished);
-                    task_handle.await;
+                    let _ = task_handle.await;
                 }
             }
         }
@@ -397,7 +397,7 @@ enum Descriptor {
     Active {
         info: Arc<DataTrackInfo>,
         state_tx: watch::Sender<PublishState>,
-        task_handle: livekit_runtime::JoinHandle<()>,
+        task_handle: tokio::task::JoinHandle<()>,
     },
 }
 
@@ -501,8 +501,8 @@ mod tests {
     use bytes::Bytes;
     use fake::{Fake, Faker};
     use futures_util::StreamExt;
-    use livekit_runtime::{sleep, timeout};
     use std::sync::RwLock;
+    use tokio::time::{sleep, timeout};
 
     #[derive(Debug)]
     struct PrefixingEncryptor;
@@ -521,10 +521,10 @@ mod tests {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, _) = Manager::new(options);
 
-        let join_handle = livekit_runtime::spawn(manager.run());
+        let join_handle = tokio::spawn(manager.run());
         _ = input.send(InputEvent::Shutdown);
 
-        timeout(Duration::from_secs(1), join_handle).await.unwrap();
+        timeout(Duration::from_secs(1), join_handle).await.unwrap().unwrap();
     }
 
     #[tokio::test]
@@ -538,7 +538,7 @@ mod tests {
 
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_name_clone = track_name.clone();
         let handle_events = async {
@@ -597,7 +597,7 @@ mod tests {
     async fn test_publish_sfu_error() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let (result_tx, result_rx) = oneshot::channel();
         let event = PublishRequest { options: DataTrackOptions::new("test"), result_tx };
@@ -616,7 +616,7 @@ mod tests {
     async fn test_publish_cancelled() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let (result_tx, result_rx) = oneshot::channel();
         let event = PublishRequest { options: DataTrackOptions::new("test"), result_tx };
@@ -651,7 +651,7 @@ mod tests {
     async fn test_publish_with_e2ee() {
         let options = ManagerOptions { encryption_provider: Some(Arc::new(PrefixingEncryptor)) };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let (result_tx, result_rx) = oneshot::channel();
         let event = PublishRequest { options: DataTrackOptions::new("secure"), result_tx };
@@ -691,7 +691,7 @@ mod tests {
     async fn test_republish_tracks() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Publish a track through the full flow
         let track_name: String = Faker.fake();
@@ -753,7 +753,7 @@ mod tests {
     async fn test_query_published() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Publish two tracks
         let mut tracks = Vec::new();
@@ -789,7 +789,7 @@ mod tests {
     async fn test_shutdown_with_pending_and_active() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Pending publication (no SFU response sent)
         let (result_tx, pending_rx) = oneshot::channel();

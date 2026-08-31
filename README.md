@@ -55,7 +55,7 @@ Also, please refer to the list of the [supported platform toolkits](https://gith
 
 ## Getting started
 
-Currently, Tokio is required to use this SDK, however we plan to make the async executor runtime agnostic.
+Tokio is required to use this SDK.
 
 ## Using Server API
 

@@ -456,7 +456,7 @@ pub(super) fn add_publication(
                 if !publication.is_remote() {
                     let rtc_engine = rtc_engine.clone();
                     let publication_cloned = publication.clone();
-                    livekit_runtime::spawn(async move {
+                    tokio::spawn(async move {
                         let engine_request = rtc_engine
                             .mute_track(proto::MuteTrackRequest {
                                 sid: publication_cloned.sid().to_string(),
@@ -482,7 +482,7 @@ pub(super) fn add_publication(
                 if !publication.is_remote() {
                     let rtc_engine = rtc_engine.clone();
                     let publication_cloned = publication.clone();
-                    livekit_runtime::spawn(async move {
+                    tokio::spawn(async move {
                         let engine_request = rtc_engine
                             .mute_track(proto::MuteTrackRequest {
                                 sid: publication_cloned.sid().to_string(),

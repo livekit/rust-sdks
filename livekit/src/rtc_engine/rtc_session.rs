@@ -27,7 +27,6 @@ use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
-use livekit_runtime::{sleep, JoinHandle};
 use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
 use parking_lot::Mutex;
 use prost::Message;
@@ -37,6 +36,7 @@ use tokio::sync::{
     mpsc::{self, WeakUnboundedSender},
     oneshot, watch, Notify,
 };
+use tokio::{task::JoinHandle, time::sleep};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
@@ -686,13 +686,10 @@ impl RtcSession {
         }
 
         // Start session tasks
-        let signal_task =
-            livekit_runtime::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
-        let rtc_task =
-            livekit_runtime::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
-        let dc_task =
-            livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
-        let dt_sender_task = livekit_runtime::spawn(dt_sender.run());
+        let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
+        let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
+        let dc_task = tokio::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
+        let dt_sender_task = tokio::spawn(dt_sender.run());
 
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
@@ -1068,7 +1065,7 @@ impl SessionInner {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = livekit_runtime::spawn(async move {
+                    let task = tokio::spawn(async move {
                         if let Err(err) = inner.on_rtc_event(event).await {
                             log::error!("failed to handle rtc event: {:?}", err);
                         }
@@ -1078,12 +1075,12 @@ impl SessionInner {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
                             log::error!("rtc_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await;
+                    task.await.expect("rtc event handler panicked");
                 },
                 _ = close_rx.changed() => {
                     break;
@@ -1107,7 +1104,7 @@ impl SessionInner {
                             let debug = format!("{:?}", signal);
                             let inner = self.clone();
                             let (tx, rx) = oneshot::channel();
-                            let task = livekit_runtime::spawn(async move {
+                            let task = tokio::spawn(async move {
                                 if let Err(err) = inner.on_signal_event(*signal).await {
                                     log::error!("failed to handle signal: {:?}", err);
                                 }
@@ -1117,12 +1114,12 @@ impl SessionInner {
                             // Monitor sync/async blockings
                             tokio::select! {
                                 _ = rx => {},
-                                _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
+                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
                                     log::error!("signal_event taking too much time: {}", debug);
                                 }
                             }
 
-                            task.await;
+                            task.await.expect("signal event handler panicked");
                         }
                         SignalEvent::Close(reason) => {
                             if !self.closed.load(Ordering::Acquire) {
@@ -2251,7 +2248,7 @@ impl SessionInner {
     async fn wait_pc_connection_with_delay(&self, settle_delay: Duration) -> EngineResult<()> {
         let wait_connected = async move {
             if !settle_delay.is_zero() {
-                livekit_runtime::sleep(settle_delay).await;
+                tokio::time::sleep(settle_delay).await;
             }
 
             loop {
@@ -2328,7 +2325,7 @@ impl SessionInner {
                 drop(state);
 
                 let session = self.clone();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     session.execute_negotiation_with_retry().await;
                     session.negotiation_queue.task_running.store(false, Ordering::Release);
                 });
@@ -2447,7 +2444,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                livekit_runtime::sleep(Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())
