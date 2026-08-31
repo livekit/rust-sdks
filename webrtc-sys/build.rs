@@ -176,6 +176,8 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
+            configure_hermetic_libcxx(&mut builder, &webrtc_include);
+
             // In order to avoid any ABI mismatches we use the sysroot's headers.
             add_gio_headers(&mut builder);
 
@@ -316,6 +318,8 @@ fn main() {
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
+            // rtc_base's platform certificate verifier calls SecTrust.
+            println!("cargo:rustc-link-lib=framework=Security");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
             println!("cargo:rustc-link-lib=framework=AudioToolbox");
             println!("cargo:rustc-link-lib=framework=Appkit");
@@ -344,6 +348,8 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
+            // rtc_base's platform certificate verifier calls SecTrust.
+            println!("cargo:rustc-link-lib=framework=Security");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
             println!("cargo:rustc-link-lib=framework=UIKit");
             println!("cargo:rustc-link-lib=framework=CoreVideo");
@@ -374,7 +380,12 @@ fn main() {
             println!("cargo:rustc-link-lib=c++abi");
 
             configure_android_sysroot(&mut builder);
-            builder.file("src/android.cpp").flag("-std=c++20");
+            builder
+                .file("src/android.cpp")
+                // Provides a weak stub for std::__ndk1::__hash_memory, which
+                // was removed from libc++_static.a exports in NDK r28.
+                .file("src/ndk_compat.cpp")
+                .flag("-std=c++20");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
@@ -489,6 +500,133 @@ fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>)
             + ".so.tramp.S";
         builder.file(implib_file_c_name).file(implib_file_asm_name);
     }
+}
+
+/// Compile against the same hermetic libc++ that is baked into libwebrtc.a.
+///
+/// The Linux libwebrtc build sets `use_custom_libcxx=true`, so every std type in
+/// its public API lives in the `std::__Cr` ABI namespace with libc++ layouts.
+/// Using the host's libstdc++ here instead is not merely a mangling mismatch that
+/// the linker would catch: `std::span` is layout-different between the two, so a
+/// span handed to libwebrtc silently arrives with its pointer and size swapped.
+///
+/// Mirrors the flags in the WebRTC checkout's `build/config/c++/BUILD.gn`. The
+/// matching `_LIBCPP_*` defines come from webrtc.ninja via `webrtc_defines()`.
+fn configure_hermetic_libcxx(builder: &mut cc::Build, webrtc_include: &path::Path) {
+    let libcxx = webrtc_include.join("third_party/libc++/src/include");
+    let libcxxabi = webrtc_include.join("third_party/libc++abi/src/include");
+    if !libcxx.join("span").exists() {
+        panic!(
+            "hermetic libc++ headers missing from {}.\n\
+             This libwebrtc artifact predates use_custom_libcxx=true; rebuild it with \
+             build_linux.sh or point LK_CUSTOM_WEBRTC at a newer one.",
+            libcxx.display()
+        );
+    }
+
+    // Chromium's libc++ is clang-only. At _LIBCPP_ABI_VERSION 2 it marks unique_ptr
+    // and shared_ptr __attribute__((trivial_abi)), which GCC accepts and silently
+    // ignores (a -Wattributes warning that cc's `-w` swallows). That attribute
+    // changes the calling convention, not just layout: libwebrtc.a returns
+    // std::unique_ptr in a register, while a GCC caller reads it back from an sret
+    // slot the callee never wrote, yielding a garbage pointer at the first use.
+    if env::var_os("CXX").is_none() {
+        if Command::new("clang++").arg("--version").output().is_err() {
+            panic!(
+                "clang++ is required to build webrtc-sys on Linux: libwebrtc.a is built \
+                 against Chromium's hermetic libc++, whose trivial_abi annotations GCC \
+                 ignores, which silently breaks the calling convention for std::unique_ptr \
+                 and std::shared_ptr. Install clang, or set CXX to a clang.",
+            );
+        }
+        builder.compiler("clang++");
+    }
+
+    check_clang_version(builder, &libcxx);
+
+    builder
+        .flag("-nostdinc++")
+        .flag(format!("-isystem{}", libcxx.display()))
+        .flag(format!("-isystem{}", libcxxabi.display()))
+        // Holds __config_site, which pins _LIBCPP_ABI_NAMESPACE=__Cr.
+        .include(webrtc_include.join("buildtools/third_party/libc++"));
+
+    // libc++/libc++abi are already archived into libwebrtc.a, so linking the
+    // host libstdc++ on top would only add a second, incompatible stdlib.
+    builder.cpp_link_stdlib(None);
+
+    // The cxx crate builds its own runtime (cxx.cc) with the host default stdlib,
+    // so the rust::String <-> std::string conversions it exports are mangled for
+    // libstdc++ and cannot satisfy the std::__Cr call sites in the generated
+    // bridges. Compile a second copy with the flags above to provide those.
+    // DEP_CXXBRIDGE1_HEADER is `cargo:HEADER` from the cxx crate: <root>/include/cxx.h.
+    let cxx_h = env::var("DEP_CXXBRIDGE1_HEADER")
+        .expect("cxx crate did not export HEADER; cannot locate its cxx.cc");
+    let cxx_root = path::Path::new(&cxx_h)
+        .parent()
+        .and_then(path::Path::parent)
+        .expect("unexpected DEP_CXXBRIDGE1_HEADER layout");
+    builder.file(cxx_root.join("src/cxx.cc"));
+}
+
+/// The hermetic libc++ tracks LLVM trunk, so it freely uses builtins that only
+/// exist in a recent clang (`__builtin_popcountg`, `__is_nothrow_convertible`,
+/// `__GCC_DESTRUCTIVE_SIZE`, ...). A compiler below its floor does not fail with
+/// "your clang is too old" — it fails deep inside <limits> and <span> with
+/// hundreds of lines about `dynamic_extent` not being a constant expression, in
+/// headers the user never wrote. Catch it up front instead.
+fn check_clang_version(builder: &cc::Build, libcxx: &path::Path) {
+    let min = libcxx_min_clang_major(libcxx);
+
+    let compiler = builder.get_compiler();
+    let defines = compiler
+        .to_command()
+        .args(["-dM", "-E", "-x", "c++", "/dev/null"])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run {}: {e}", compiler.path().display()));
+
+    let major = String::from_utf8_lossy(&defines.stdout).lines().find_map(|line| {
+        line.strip_prefix("#define __clang_major__ ").and_then(|v| v.trim().parse::<u32>().ok())
+    });
+
+    match major {
+        Some(major) if major >= min => {}
+        Some(major) => panic!(
+            "{} is clang {major}, but the hermetic libc++ shipped with this libwebrtc \
+             requires clang {min} or later. Install a newer clang and point CC/CXX at it, \
+             or use the exact toolchain libwebrtc was built with (see CR_CLANG_REVISION in \
+             the artifact's webrtc.ninja).",
+            compiler.path().display(),
+        ),
+        None => panic!(
+            "{} does not define __clang_major__, so it is not a clang. libwebrtc.a is built \
+             against Chromium's hermetic libc++, which requires clang {min} or later; GCC \
+             additionally ignores its trivial_abi annotations, silently breaking the calling \
+             convention for std::unique_ptr and std::shared_ptr.",
+            compiler.path().display(),
+        ),
+    }
+}
+
+/// libc++ states its own floor in `__configuration/compiler.h`, as
+/// `#if _LIBCPP_CLANG_VER < 2101` (major * 100 + minor). Read it from the
+/// artifact rather than hardcoding, so a libwebrtc bump moves the floor with it.
+fn libcxx_min_clang_major(libcxx: &path::Path) -> u32 {
+    const FALLBACK: u32 = 21;
+
+    let header = libcxx.join("__configuration/compiler.h");
+    let Ok(source) = std::fs::read_to_string(&header) else {
+        return FALLBACK;
+    };
+
+    source
+        .lines()
+        .find_map(|line| {
+            let (_, rest) = line.split_once("_LIBCPP_CLANG_VER < ")?;
+            let ver: u32 = rest.trim().parse().ok()?;
+            Some(ver / 100)
+        })
+        .unwrap_or(FALLBACK)
 }
 
 fn add_gio_headers(builder: &mut cc::Build) {

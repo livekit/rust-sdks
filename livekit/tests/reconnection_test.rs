@@ -41,7 +41,7 @@ use {
     common::test_rooms,
     libwebrtc::native::create_random_uuid,
     livekit::{ConnectionState, Room, RoomEvent, RoomOptions, SimulateScenario},
-    livekit_api::access_token::{AccessToken, VideoGrants},
+    livekit_token::{AccessToken, VideoGrants},
     std::{env, net::SocketAddr, time::Duration},
     tokio::{
         net::{TcpListener, TcpStream},

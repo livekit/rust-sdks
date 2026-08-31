@@ -1,7 +1,7 @@
 [package]
 name = "livekit-common"
 description = "Common foundational types shared across LiveKit crates"
-version = "0.1.1"
+version = "0.1.2"
 readme = "README.md"
 license.workspace = true
 edition.workspace = true
@@ -9,3 +9,10 @@ repository.workspace = true
 
 [dependencies]
 livekit-protocol = { workspace = true }
+bytes = { workspace = true, optional = true }
+uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
+
+[features]
+# Exposes this crate's shared FFI type registrations. Enabled transitively by
+# livekit-uniffi so every component borrows one converter per type.
+uniffi = ["dep:uniffi", "dep:bytes"]

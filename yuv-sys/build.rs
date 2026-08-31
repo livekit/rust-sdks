@@ -134,6 +134,13 @@ fn main() {
     let is_aarch64 = target_arch == "aarch64";
     let is_arm32 = target_arch == "arm";
 
+    // The vendored libyuv submodule must be initialized before we copy it.
+    if !Path::new("libyuv").join("include/libyuv.h").exists() {
+        panic!(
+            "yuv-sys/libyuv submodule is missing or empty. \
+             Run: git submodule update --init --recursive"
+        );
+    }
     let cloned = clone_if_needed(&output_dir, &libyuv_dir);
 
     let include_files = fs::read_dir(include_dir.join("libyuv"))

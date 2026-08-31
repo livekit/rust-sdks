@@ -1,5 +1,5 @@
 diff --git a/modules/video_coding/codecs/test/android_codec_factory_helper.cc b/modules/video_coding/codecs/test/android_codec_factory_helper.cc
-index f6a5046210..4ce5a79d25 100644
+index f6a5046210..103d979d2a 100644
 --- a/modules/video_coding/codecs/test/android_codec_factory_helper.cc
 +++ b/modules/video_coding/codecs/test/android_codec_factory_helper.cc
 @@ -54,9 +54,9 @@ void InitializeAndroidObjects() {
@@ -27,10 +27,10 @@ index f6a5046210..4ce5a79d25 100644
        ScopedJavaLocalRef<jobject>::Adopt(
            env, env->NewObject(factory_class.obj(), factory_constructor,
 diff --git a/sdk/android/BUILD.gn b/sdk/android/BUILD.gn
-index 8ce74e2c8c..2e88760d0a 100644
+index 06fcf84a9d..627e204582 100644
 --- a/sdk/android/BUILD.gn
 +++ b/sdk/android/BUILD.gn
-@@ -1446,11 +1446,13 @@ if (current_os == "linux" || is_android) {
+@@ -1493,11 +1493,13 @@ if (current_os == "linux" || is_android) {
    generate_jni("generated_environment_jni") {
      sources = [ "api/org/webrtc/Environment.java" ]
      namespace = "webrtc::jni"
@@ -44,7 +44,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    # Generated JNI for public JNI targets, matching order of targets
-@@ -1464,6 +1466,7 @@ if (current_os == "linux" || is_android) {
+@@ -1511,6 +1513,7 @@ if (current_os == "linux" || is_android) {
        "src/java/org/webrtc/JniCommon.java",
      ]
      namespace = "webrtc::jni"
@@ -52,7 +52,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    generate_jni("generated_video_jni") {
-@@ -1493,11 +1496,13 @@ if (current_os == "linux" || is_android) {
+@@ -1540,11 +1543,13 @@ if (current_os == "linux" || is_android) {
        "src/java/org/webrtc/WrappedNativeI420Buffer.java",
      ]
      namespace = "webrtc::jni"
@@ -66,7 +66,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    generate_jni("generated_libvpx_vp8_jni") {
-@@ -1507,6 +1512,7 @@ if (current_os == "linux" || is_android) {
+@@ -1554,6 +1559,7 @@ if (current_os == "linux" || is_android) {
      ]
  
      namespace = "webrtc::jni"
@@ -74,7 +74,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    generate_jni("generated_libvpx_vp9_jni") {
-@@ -1516,18 +1522,21 @@ if (current_os == "linux" || is_android) {
+@@ -1563,18 +1569,21 @@ if (current_os == "linux" || is_android) {
      ]
  
      namespace = "webrtc::jni"
@@ -96,7 +96,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    generate_jni("generated_swcodecs_jni") {
-@@ -1537,11 +1546,13 @@ if (current_os == "linux" || is_android) {
+@@ -1584,11 +1593,13 @@ if (current_os == "linux" || is_android) {
      ]
  
      namespace = "webrtc::jni"
@@ -110,8 +110,8 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    generate_jni("generated_peerconnection_jni") {
-@@ -1585,11 +1596,13 @@ if (current_os == "linux" || is_android) {
-       "api/org/webrtc/TurnCustomizer.java",
+@@ -1603,11 +1614,13 @@ if (current_os == "linux" || is_android) {
+       "src/java/org/webrtc/PlatformCertificateVerifier.java",
      ]
      namespace = "webrtc::jni"
 +    package_prefix = android_package_prefix
@@ -124,7 +124,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    generate_jni("generated_builtin_audio_codecs_jni") {
-@@ -1598,6 +1611,7 @@ if (current_os == "linux" || is_android) {
+@@ -1650,6 +1663,7 @@ if (current_os == "linux" || is_android) {
        "api/org/webrtc/BuiltinAudioEncoderFactoryFactory.java",
      ]
      namespace = "webrtc::jni"
@@ -132,7 +132,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    # Generated JNI for native API targets
-@@ -1609,17 +1623,20 @@ if (current_os == "linux" || is_android) {
+@@ -1661,17 +1675,20 @@ if (current_os == "linux" || is_android) {
        "src/java/org/webrtc/WebRtcClassLoader.java",
      ]
      namespace = "webrtc::jni"
@@ -153,7 +153,7 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  
    generate_jni("generated_java_audio_device_module_native_jni") {
-@@ -1628,6 +1645,7 @@ if (current_os == "linux" || is_android) {
+@@ -1680,6 +1697,7 @@ if (current_os == "linux" || is_android) {
        "src/java/org/webrtc/audio/WebRtcAudioTrack.java",
      ]
      namespace = "webrtc::jni"
@@ -161,11 +161,19 @@ index 8ce74e2c8c..2e88760d0a 100644
    }
  }
  
+@@ -1937,6 +1955,7 @@ if (is_android) {
+       "native_unittests/org/webrtc/PeerConnectionFactoryInitializationHelper.java",
+     ]
+     namespace = "webrtc::jni"
++    package_prefix = android_package_prefix
+   }
+ 
+   robolectric_binary("android_sdk_junit_tests") {
 diff --git a/sdk/android/api/org/webrtc/PeerConnectionFactory.java b/sdk/android/api/org/webrtc/PeerConnectionFactory.java
-index 01679ad12b..7b8545902d 100644
+index 8cfa52b033..e878b80f36 100644
 --- a/sdk/android/api/org/webrtc/PeerConnectionFactory.java
 +++ b/sdk/android/api/org/webrtc/PeerConnectionFactory.java
-@@ -88,7 +88,7 @@ public class PeerConnectionFactory {
+@@ -90,7 +90,7 @@ public class PeerConnectionFactory {
        private String fieldTrials = "";
        private boolean enableInternalTracer;
        private NativeLibraryLoader nativeLibraryLoader = new NativeLibrary.DefaultLoader();
@@ -175,7 +183,7 @@ index 01679ad12b..7b8545902d 100644
        @Nullable private Severity loggableSeverity;
  
 diff --git a/sdk/android/src/jni/jni_helpers.h b/sdk/android/src/jni/jni_helpers.h
-index d86c8fa4ad..30f307a2ca 100644
+index 950190ece0..7d7b3618c7 100644
 --- a/sdk/android/src/jni/jni_helpers.h
 +++ b/sdk/android/src/jni/jni_helpers.h
 @@ -29,10 +29,10 @@
@@ -225,10 +233,10 @@ index 2fbce97c60..130b3d5fa7 100755
  
  def main():
 diff --git a/webrtc.gni b/webrtc.gni
-index 468ba33b01..ca81ce298c 100644
+index 0d2db4d1d6..2468184608 100644
 --- a/webrtc.gni
 +++ b/webrtc.gni
-@@ -241,6 +241,10 @@ declare_args() {
+@@ -234,6 +234,10 @@ declare_args() {
    #          hasn't been registered.
    rtc_strict_field_trials = ""
  
@@ -240,7 +248,7 @@ index 468ba33b01..ca81ce298c 100644
    # with this string.
    # See the definition of RTC_OBJC_TYPE_PREFIX in the code.
 diff --git a/third_party/jni_zero/BUILD.gn b/third_party/jni_zero/BUILD.gn
-index 7056bdd033c1..2b97de476de7 100644
+index 58e0233e52..325b0e36c7 100644
 --- a/third_party/jni_zero/BUILD.gn
 +++ b/third_party/jni_zero/BUILD.gn
 @@ -17,6 +17,7 @@ generate_jni("generate_jni") {
@@ -250,12 +258,12 @@ index 7056bdd033c1..2b97de476de7 100644
 +  package_prefix = "livekit"
  }
  
- generate_jar_jni("system_jni") {
+ # Common classes to save projects from having to generate them.
 diff --git a/third_party/jni_zero/codegen/header_common.py b/third_party/jni_zero/codegen/header_common.py
-index 338cd748079f..be2577281a91 100644
+index 3967f94ed5..1f5cee6d81 100644
 --- a/third_party/jni_zero/codegen/header_common.py
 +++ b/third_party/jni_zero/codegen/header_common.py
-@@ -12,7 +12,8 @@ def class_accessors(sb, java_classes, module_name):
+@@ -11,7 +11,8 @@ def class_accessors(sb, java_classes):
    for java_class in java_classes:
      if java_class in (java_types.OBJECT_CLASS, java_types.STRING_CLASS):
        continue
@@ -265,7 +273,7 @@ index 338cd748079f..be2577281a91 100644
      # #ifdef needed when multple .h files are #included that common classes.
      sb(f"""\
  #ifndef {escaped_name}_clazz_defined
-@@ -44,7 +45,7 @@ def class_accessor_expression(java_class):
+@@ -42,7 +43,7 @@ def class_accessor_expression(java_class):
    if java_class == java_types.STRING_CLASS:
      return 'jni_zero::g_string_class'
  
@@ -274,17 +282,20 @@ index 338cd748079f..be2577281a91 100644
  
  
  def header_preamble(script_name,
-@@ -53,7 +54,7 @@ def header_preamble(script_name,
-                     user_includes=None,
-                     header_guard=None):
+@@ -53,9 +54,9 @@ def header_preamble(script_name,
+                     is_shared_header=False):
    if header_guard is None:
--    header_guard = f'{java_class.to_cpp()}_JNI'
-+    header_guard = f'{java_class.class_without_prefix.to_cpp()}_JNI'
+     if is_shared_header:
+-      header_guard = f'{java_class.to_cpp()}_SHARED_JNI'
++      header_guard = f'{java_class.class_without_prefix.to_cpp()}_SHARED_JNI'
+     else:
+-      header_guard = f'{java_class.to_cpp()}_JNI'
++      header_guard = f'{java_class.class_without_prefix.to_cpp()}_JNI'
    sb = []
    sb.append(f"""\
  // This file was generated by
 diff --git a/third_party/jni_zero/jni_zero.gni b/third_party/jni_zero/jni_zero.gni
-index 71826b906d10..22d8eaf6e232 100644
+index edc5364c59..40726f5cfb 100644
 --- a/third_party/jni_zero/jni_zero.gni
 +++ b/third_party/jni_zero/jni_zero.gni
 @@ -123,7 +123,7 @@ template("_invoke_jni_zero") {
@@ -296,7 +307,7 @@ index 71826b906d10..22d8eaf6e232 100644
  # Example
  #   generate_jni_registration("chrome_jni_registration") {
  #     java_targets = [ ":chrome_public_apk" ]
-@@ -327,6 +327,7 @@ template("generate_jni_impl") {
+@@ -345,6 +347,7 @@ template("generate_jni_impl") {
                                 "deps",
                                 "metadata",
                                 "public_deps",
@@ -304,14 +315,13 @@ index 71826b906d10..22d8eaf6e232 100644
                               ])
        if (!defined(public_deps)) {
          public_deps = []
-@@ -421,7 +422,9 @@ template("generate_jni_impl") {
-       if (defined(invoker.split_name)) {
-         args += [ "--split-name=${invoker.split_name}" ]
-       }
--
-+      if (defined(package_prefix)) {
-+        args += [ "--package-prefix=${package_prefix}" ]
-+      }
-       foreach(_name, _input_names) {
-         _name =
-             string_replace(get_path_info(_name, "name"), "\$", "__") + "_jni.h"
+@@ -396,6 +399,9 @@ template("generate_jni_impl") {
+         if (defined(invoker.namespace)) {
+           args += [ "--namespace=${invoker.namespace}" ]
+         }
++        if (defined(package_prefix)) {
++          args += [ "--package-prefix=${package_prefix}" ]
++        }
+         if (defined(invoker.module_name)) {
+           args += [ "--module-name=${invoker.module_name}" ]
+         }

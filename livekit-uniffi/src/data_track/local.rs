@@ -54,8 +54,9 @@ impl LocalDataTrack {
 
     /// Try pushing a frame to subscribers of the track.
     pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
-        // `PushFrameError` returns ownership of the unpublished frame to the caller;
-        // since this isn't applicable in an FFI context, just provide the reason.
+        // `PushFrameError` returns ownership of the unpublished frame to the caller because Rust's
+        // `try_push` moves it. Across the FFI boundary the frame is lowered by copy, so the caller
+        // still holds its own value and can retry with it directly; just provide the reason.
         self.0.try_push(frame.into()).map_err(|err| err.reason())
     }
 

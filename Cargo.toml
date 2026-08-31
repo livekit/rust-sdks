@@ -4,15 +4,20 @@ members = [
     "livekit",
     "livekit-api",
     "livekit-protocol",
+    "livekit-region",
     "livekit-common",
     "livekit-data-stream",
     "livekit-ffi",
     "livekit-uniffi",
     "livekit-datatrack",
+    "livekit-token",
+    "livekit-token-source",
     "livekit-ffi-node-bindings",
     "livekit-net",
     "livekit-runtime",
+    "livekit-signaling",
     "livekit-wakeword",
+    "tools/bindgens",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
@@ -35,7 +40,7 @@ members = [
     "examples/rpc",
     "examples/save_to_disk",
     "examples/screensharing",
-    "examples/send_bytes",
+    "examples/token_source",
     "examples/webhooks",
 ]
 
@@ -47,24 +52,31 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 device-info = { version = "0.1.1", path = "device-info" }
-imgproc = { version = "0.3.19", path = "imgproc" }
-libwebrtc = { version = "0.3.44", path = "libwebrtc" }
-livekit = { version = "0.8.2", path = "livekit" }
-livekit-api = { version = "0.6.2", path = "livekit-api" }
-livekit-ffi = { version = "0.12.74", path = "livekit-ffi" }
-livekit-datatrack = { version = "0.1.13", path = "livekit-datatrack" }
-livekit-common = { version = "0.1.1", path = "livekit-common" }
-livekit-data-stream = { version = "0.1.2", path = "livekit-data-stream" }
+imgproc = { version = "0.3.20", path = "imgproc" }
+libwebrtc = { version = "0.3.46", path = "libwebrtc" }
+livekit = { version = "0.8.4", path = "livekit" }
+livekit-api = { version = "0.6.4", path = "livekit-api" }
+livekit-ffi = { version = "0.12.76", path = "livekit-ffi" }
+livekit-datatrack = { version = "0.1.14", path = "livekit-datatrack" }
+# default-features off for the same reason as livekit-runtime below: the crate
+# defaults to the tokio flavour so its own test command works, and forcing that
+# on consumers would collide with `async`/`dispatcher` builds.
+livekit-signaling = { version = "0.1.0", path = "livekit-signaling", default-features = false }
+livekit-token = { version = "0.1.1", path = "livekit-token" }
+livekit-token-source = { version = "0.1.2", path = "livekit-token-source" }
+livekit-common = { version = "0.1.2", path = "livekit-common" }
+livekit-data-stream = { version = "0.1.3", path = "livekit-data-stream" }
 livekit-net = { version = "0.1.2", path = "livekit-net" }
 livekit-protocol = { version = "0.7.12", path = "livekit-protocol" }
+livekit-region = { version = "0.1.0", path = "livekit-region" }
 # default-features off so each consumer selects its runtime explicitly
 # (livekit-runtime/tokio | /async | /dispatcher); otherwise the default `tokio`
 # feature is forced on everywhere and collides with `async`/`dispatcher` builds.
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime", default-features = false }
 soxr-sys = { version = "0.1.3", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.41", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.18", path = "webrtc-sys/build" }
-yuv-sys = { version = "0.3.14", path = "yuv-sys" }
+webrtc-sys = { version = "0.3.43", path = "webrtc-sys" }
+webrtc-sys-build = { version = "0.3.19", path = "webrtc-sys/build" }
+yuv-sys = { version = "0.3.15", path = "yuv-sys" }
 
 anyhow = "1.0"
 bytes = "1.10"

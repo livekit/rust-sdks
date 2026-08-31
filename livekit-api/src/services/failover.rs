@@ -24,7 +24,7 @@ use std::{sync::OnceLock, time::Duration};
 use http::header::{HeaderMap, CONTENT_LENGTH, CONTENT_TYPE};
 use url::Url;
 
-use crate::region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
+use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
 /// Total attempts (the original request plus fallback regions) and the base
 /// retry backoff are fixed, not user-configurable, so retries can't be tuned to
@@ -119,7 +119,7 @@ pub(crate) async fn backoff_sleep(d: Duration) {
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Process-wide region cache for the API failover path. Owns the API instance of
-/// the shared [`RegionCache`] (which stores `http(s)` URLs; see [`crate::region`]).
+/// the shared [`RegionCache`] (which stores `http(s)` URLs; see [`livekit_region`]).
 fn region_cache() -> &'static RegionCache {
     static CACHE: OnceLock<RegionCache> = OnceLock::new();
     CACHE.get_or_init(|| RegionCache::new(RegionCache::DEFAULT_TTL))

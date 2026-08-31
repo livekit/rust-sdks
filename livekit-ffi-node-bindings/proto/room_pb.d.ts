@@ -2108,6 +2108,14 @@ export declare class RoomOptions extends Message<RoomOptions> {
    */
   dataStream?: RoomDataStreamOptions;
 
+  /**
+   * Comma separated list of additional LiveKit SDKs layered on top of this one, with versions,
+   * e.g. "components-js:1.2.3,track-processors-js:1.2.3". Forwarded to ClientInfo.other_sdks.
+   *
+   * @generated from field: optional string other_sdks = 11;
+   */
+  otherSdks?: string;
+
   constructor(data?: PartialMessage<RoomOptions>);
 
   static readonly runtime: typeof proto2;

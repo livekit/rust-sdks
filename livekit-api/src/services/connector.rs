@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use crate::services::dial_timeout::DEFAULT_RINGING_TIMEOUT;
-use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
+use crate::services::twirp_client::TwirpClient;
+use livekit_token::{get_env_keys, VideoGrants};
 
 const SVC: &str = "Connector";
 

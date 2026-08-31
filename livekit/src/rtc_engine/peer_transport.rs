@@ -586,11 +586,9 @@ mod tests {
         use livekit_protocol as proto;
 
         let factory = PeerConnectionFactory::default();
-        let config = RtcConfiguration {
-            ice_servers: vec![],
-            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
-            ice_transport_type: IceTransportsType::All,
-        };
+        let mut config = RtcConfiguration::default();
+        config.continual_gathering_policy = ContinualGatheringPolicy::GatherOnce;
+        config.enable_sctp_snap = true;
 
         let alice_pc = factory.create_peer_connection(config.clone()).unwrap();
         let bob_pc = factory.create_peer_connection(config).unwrap();

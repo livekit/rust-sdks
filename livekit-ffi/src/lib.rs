@@ -20,9 +20,12 @@ use thiserror::Error;
 
 mod conversion;
 
+pub mod build_info;
 pub mod cabi;
 pub mod proto;
 pub mod server;
+
+uniffi::setup_scaffolding!();
 
 #[derive(Error, Debug)]
 pub enum FfiError {

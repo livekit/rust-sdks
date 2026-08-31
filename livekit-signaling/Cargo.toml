@@ -1,0 +1,64 @@
+[package]
+name = "livekit-signaling"
+version = "0.1.0"
+license.workspace = true
+description = "Internal LiveKit signalling client, blind to the transport backend"
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+# Defaults to the tokio flavour so `cargo test -p livekit-signaling` works out
+# of the box: without a flavour livekit-runtime exports nothing and the crate
+# does not compile. Consumers never see this — the workspace dependency entry
+# sets default-features = false, so each one picks its own flavour, exactly as
+# livekit-runtime does.
+default = ["tokio"]
+
+# Runtime flavour only — transport stays blind; the host must register a
+# livekit_net transport (set_ws_client / set_http_client) before connecting.
+tokio      = ["livekit-net/tokio",      "livekit-runtime/tokio"]
+async      = ["livekit-net/async",      "livekit-runtime/async"]
+dispatcher = ["livekit-net/dispatcher", "livekit-runtime/dispatcher"]
+
+# Flavour plus livekit-net's bundled native backend.
+native-tokio      = ["tokio",      "livekit-net/native-tokio"]
+native-async      = ["async",      "livekit-net/native-async"]
+native-dispatcher = ["dispatcher", "livekit-net/native-dispatcher"]
+
+# TLS, forwarded to livekit-net (only meaningful with a native backend).
+native-tls              = ["livekit-net/native-tls"]
+native-tls-vendored     = ["livekit-net/native-tls-vendored"]
+rustls-tls-native-roots = ["livekit-net/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["livekit-net/rustls-tls-webpki-roots"]
+__rustls-tls            = ["livekit-net/__rustls-tls"]
+
+[dependencies]
+livekit-net = { workspace = true }
+livekit-protocol = { workspace = true }
+livekit-common = { workspace = true }
+livekit-region = { workspace = true }
+# Inherited so the workspace entry's default-features = false is honored, which
+# keeps livekit-runtime's one-runtime compile_error! guard satisfied.
+livekit-runtime = { workspace = true }
+device-info = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"] }
+base64 = { version = "0.21", features = ["std"] }
+flate2 = "1"
+http = "1.1"
+os_info = "3.14.0"
+prost = "0.12"
+url = "2.3"
+
+[dev-dependencies]
+# The signal_* integration tests mint an access token to connect with.
+livekit-token = { workspace = true }
+# Minimal executor to drive the runtime-agnostic `native-async` signal tests,
+# which cannot use #[tokio::test].
+futures = { workspace = true }
+async-trait = "0.1"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }

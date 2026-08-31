@@ -1,3 +1,9 @@
+## 0.1.3 (2026-08-25)
+
+### Fixes
+
+- fix(uniffi): register the Bytes custom type once, in livekit-common - #1343 (@pblazej)
+
 ## 0.1.2 (2026-08-03)
 
 ### Fixes

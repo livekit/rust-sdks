@@ -15,7 +15,8 @@
 use livekit_protocol as proto;
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
+use crate::services::twirp_client::TwirpClient;
+use livekit_token::{get_env_keys, VideoGrants};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub enum AudioMixing {

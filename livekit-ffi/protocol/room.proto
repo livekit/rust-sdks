@@ -400,6 +400,9 @@ message RoomOptions {
   optional bool single_peer_connection = 8; // use single peer connection for both publish/subscribe (default: false)
   optional uint64 connect_timeout_ms = 9; // timeout in milliseconds for each signal connection attempt (default: 5000)
   optional RoomDataStreamOptions data_stream = 10; // data stream behavior for this room
+  // Comma separated list of additional LiveKit SDKs layered on top of this one, with versions,
+  // e.g. "components-js:1.2.3,track-processors-js:1.2.3". Forwarded to ClientInfo.other_sdks.
+  optional string other_sdks = 11;
 }
 
 //

@@ -76,7 +76,7 @@ pub trait DecryptionProvider: Send + Sync + Debug {
 }
 
 #[cfg(feature = "uniffi")]
-uniffi::custom_type!(Bytes, Vec<u8>, { remote });
+uniffi::use_remote_type!(livekit_common::Bytes);
 
 #[cfg(feature = "uniffi")]
 uniffi::custom_type!(InitializationVector, Vec<u8>, {

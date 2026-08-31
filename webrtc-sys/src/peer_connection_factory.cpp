@@ -18,6 +18,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
@@ -64,12 +65,77 @@ class ZeroPlayoutDelayFieldTrials final : public webrtc::FieldTrialsView {
   }
 };
 
-webrtc::Environment CreateEnvironment(bool zero_playout_delay) {
-  if (zero_playout_delay) {
-    return webrtc::CreateEnvironment(
-        std::make_unique<ZeroPlayoutDelayFieldTrials>());
+// Enables SPED (DTLS-in-STUN) via the WebRTC-IceHandshakeDtls field trial.
+// SNAP (SCTP-INIT-in-SDP) is intentionally NOT set here: it maps to the
+// immutable enable_sctp_snap RTCConfiguration field, so it must be carried on
+// the RtcConfiguration (see RtcConfiguration.enable_sctp_snap) to stay
+// consistent across create + set_configuration. Enabling it via a field trial
+// makes set_configuration fail ("Modifying the configuration in an unsupported
+// way").
+class EnableWarpFieldTrials final : public webrtc::FieldTrialsView {
+ public:
+  std::string Lookup(absl::string_view key) const override {
+    if (key == "WebRTC-IceHandshakeDtls") {
+      return "Enabled";
+    }
+    return "";
   }
-  return webrtc::CreateEnvironment();
+
+  std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
+    return std::make_unique<EnableWarpFieldTrials>();
+  }
+};
+
+// An Environment accepts a single FieldTrialsView, so to enable several
+// independent trial groups (e.g. zero-playout-delay AND WARP) we combine their
+// views into one: Lookup delegates to each sub-view and returns the first
+// non-empty result. The groups' keys are disjoint, so ordering is irrelevant.
+class CompositeFieldTrials final : public webrtc::FieldTrialsView {
+ public:
+  explicit CompositeFieldTrials(
+      std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views)
+      : views_(std::move(views)) {}
+
+  std::string Lookup(absl::string_view key) const override {
+    for (const auto& view : views_) {
+      std::string value = view->Lookup(key);
+      if (!value.empty()) {
+        return value;
+      }
+    }
+    return "";
+  }
+
+  std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
+    std::vector<std::unique_ptr<webrtc::FieldTrialsView>> copies;
+    copies.reserve(views_.size());
+    for (const auto& view : views_) {
+      copies.push_back(view->CreateCopy());
+    }
+    return std::make_unique<CompositeFieldTrials>(std::move(copies));
+  }
+
+ private:
+  std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views_;
+};
+
+// zero_playout_delay and enable_warp are independent and may both be enabled;
+// their field-trial views are composed into one.
+webrtc::Environment CreateEnvironment(bool zero_playout_delay,
+                                      bool enable_warp) {
+  std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views;
+  if (zero_playout_delay) {
+    views.push_back(std::make_unique<ZeroPlayoutDelayFieldTrials>());
+  }
+  if (enable_warp) {
+    views.push_back(std::make_unique<EnableWarpFieldTrials>());
+  }
+
+  if (views.empty()) {
+    return webrtc::CreateEnvironment();
+  }
+  return webrtc::CreateEnvironment(
+      std::make_unique<CompositeFieldTrials>(std::move(views)));
 }
 
 }  // namespace
@@ -78,13 +144,19 @@ class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
-    : PeerConnectionFactory(std::move(rtc_runtime), false) {}
+    : PeerConnectionFactory(std::move(rtc_runtime), false, false) {}
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     bool zero_playout_delay)
+    : PeerConnectionFactory(std::move(rtc_runtime), zero_playout_delay, false) {}
+
+PeerConnectionFactory::PeerConnectionFactory(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
+    bool zero_playout_delay,
+    bool enable_warp)
     : rtc_runtime_(rtc_runtime),
-      env_(CreateEnvironment(zero_playout_delay)) {
+      env_(CreateEnvironment(zero_playout_delay, enable_warp)) {
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
@@ -96,6 +168,12 @@ PeerConnectionFactory::PeerConnectionFactory(
   if (zero_playout_delay) {
     RTC_LOG(LS_INFO) << "WebRTC zero playout delay enabled with field trial: "
                      << kForcePlayoutDelayFieldTrial;
+  }
+
+  if (enable_warp) {
+    RTC_LOG(LS_INFO) << "WebRTC WARP: SPED enabled via field trial "
+                        "WebRTC-IceHandshakeDtls/Enabled/ (SNAP via "
+                        "RtcConfiguration.enable_sctp_snap)";
   }
 
   // Create AdmProxy - it creates and initializes Platform ADM internally
@@ -213,6 +291,14 @@ std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
 std::shared_ptr<PeerConnectionFactory>
 create_peer_connection_factory_with_zero_playout_delay() {
   return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(), true);
+}
+
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_options(bool zero_playout_delay,
+                                            bool enable_warp) {
+  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(),
+                                                 zero_playout_delay,
+                                                 enable_warp);
 }
 
 }  // namespace livekit_ffi
