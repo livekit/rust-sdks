@@ -93,8 +93,8 @@ pub mod native {
             Self { handle: vs_imp::NativeVideoSource::new_encoded(resolution) }
         }
 
-        pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
-            self.handle.capture_frame(frame);
+        pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) -> bool {
+            self.handle.capture_frame(frame)
         }
 
         /// Captures a Jetson DMA-buffer backed video frame.
