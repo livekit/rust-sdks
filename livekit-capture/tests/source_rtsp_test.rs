@@ -198,7 +198,11 @@ fn rejects_untrusted_tls_certificate() {
 
 #[test]
 fn authenticates_with_digest_over_rtsps() {
-    let server = RtspTestServer::launch_tls_with_digest_auth(&default_pipeline(TestCodec::H264), "admin", "secret");
+    let server = RtspTestServer::launch_tls_with_digest_auth(
+        &default_pipeline(TestCodec::H264),
+        "admin",
+        "secret",
+    );
     let mut source = RtspVideoSource::new_blocking(RtspVideoSourceConfig {
         username: Some("admin".to_owned()),
         password: Some("secret".to_owned()),
@@ -215,7 +219,11 @@ fn authenticates_with_digest_over_rtsps() {
 
 #[test]
 fn authenticates_with_digest() {
-    let server = RtspTestServer::launch_with_digest_auth(&default_pipeline(TestCodec::H264), "admin", "secret");
+    let server = RtspTestServer::launch_with_digest_auth(
+        &default_pipeline(TestCodec::H264),
+        "admin",
+        "secret",
+    );
 
     // Without credentials the server's challenge cannot be answered.
     let err = RtspVideoSource::new_blocking(RtspVideoSourceConfig {
@@ -261,7 +269,8 @@ fn selects_video_track_among_audio() {
 fn discovers_cropped_h264_resolution() {
     // 1080p is coded as 1088 rows plus SPS frame cropping; discovery must
     // report the display resolution from a real encoder's SPS.
-    let server = RtspTestServer::launch(&pipeline(TestCodec::H264, VideoResolution::new(1920, 1080)));
+    let server =
+        RtspTestServer::launch(&pipeline(TestCodec::H264, VideoResolution::new(1920, 1080)));
     let source =
         RtspVideoSource::new_blocking(test_config(server.url())).expect("failed to connect");
 

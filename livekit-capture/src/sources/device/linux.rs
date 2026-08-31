@@ -228,10 +228,7 @@ mod tests {
         assert_eq!(route_selector(&DeviceSelector::Index(1), 2), Route::Argus(1));
         assert_eq!(route_selector(&DeviceSelector::Index(2), 2), Route::V4l2Tail(0));
         assert_eq!(route_selector(&DeviceSelector::Index(3), 2), Route::V4l2Tail(1));
-        assert_eq!(
-            route_selector(&DeviceSelector::Index(0), 0),
-            Route::V4l2Tail(0)
-        );
+        assert_eq!(route_selector(&DeviceSelector::Index(0), 0), Route::V4l2Tail(0));
     }
 
     #[test]
@@ -260,8 +257,7 @@ mod tests {
     #[test]
     fn merge_suppresses_csi_nodes_only_with_argus_present() {
         let argus_devices = vec![device("argus:0", Some("nvidia-argus"))];
-        let v4l2_devices =
-            vec![device("0", Some("tegra-video")), device("1", Some("uvcvideo"))];
+        let v4l2_devices = vec![device("0", Some("tegra-video")), device("1", Some("uvcvideo"))];
 
         let merged = merge_devices(argus_devices, v4l2_devices.clone());
         let ids: Vec<&str> = merged.iter().map(|device| device.id.as_str()).collect();

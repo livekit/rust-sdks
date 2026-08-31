@@ -21,27 +21,31 @@
 //!
 //! The shim (see the `libargus-sys` crate) blits each acquired frame into a
 //! slot of a fixed DMA-buffer ring and leases that slot out until the frame
-//! is released. The release hook on each published frame returns the slot
-//! once the WebRTC pipeline drops its last reference, so a frame stays valid
-//! however long the encoder holds it; a sustained encoder backlog surfaces
-//! as ring exhaustion (a retryable condition), not corruption.
+//! is released. Published frames carry no release hook, so the session
+//! retains the [`MAX_IN_FLIGHT_LEASES`] most recent leases and returns the
+//! oldest slot as newer frames are acquired, keeping a slot's contents
+//! stable until the encoder has moved past it.
 //!
 //! At runtime this backend requires a Jetson device with the Argus stack
 //! (`nvargus-daemon`) running. Everywhere else the shim reports itself
 //! unavailable and this backend degrades to "no devices".
 
 use std::{
+    collections::VecDeque,
     ffi::{c_char, c_void, CStr},
     ptr::NonNull,
-    sync::{Arc, Mutex, Once},
+    sync::{Arc, Once},
     thread,
     time::{Duration, Instant},
 };
 
 use libargus_sys as sys;
-use livekit::webrtc::video_frame::{
-    native::{remove_dmabuf_surface_cache_entry, DmaBufPixelFormat, NativeBuffer},
-    BoxVideoFrame, VideoFrame, VideoRotation,
+use livekit::webrtc::{
+    video_frame::{
+        native::{DmaBufPixelFormat, NativeBuffer},
+        BoxVideoFrame, VideoFrame, VideoRotation,
+    },
+    video_source::VideoResolution as RtcVideoResolution,
 };
 
 use super::timestamp::{
@@ -66,6 +70,14 @@ const ACQUIRE_TIMEOUT_NS: u64 = 100_000_000;
 /// ring exhaustion immediately, so retrying without a pause would spin).
 const RING_EXHAUSTED_BACKOFF: Duration = Duration::from_millis(5);
 
+/// How many ring-slot leases the session retains before returning the
+/// oldest slot to the shim. Published frames hand their fd to WebRTC
+/// without a consumption signal, so this window is what keeps a slot from
+/// being blitted over while the encoder may still be reading it. Must stay
+/// below the shim's ring depth (default 4) so acquire always has a free
+/// slot.
+const MAX_IN_FLIGHT_LEASES: usize = 2;
+
 /// Default format delivered for [`DeviceFormatRequest::Default`], when the
 /// sensor covers it.
 const DEFAULT_RESOLUTION: VideoResolution = VideoResolution::new(1280, 720);
@@ -86,20 +98,16 @@ fn is_supported_source_format(frame_format: DeviceFrameFormat) -> bool {
 
 /// Owner of the native shim session.
 ///
-/// Shared between the [`Session`] and the release hook of every in-flight
-/// frame, so the native session (and with it every leased DMA buffer fd)
-/// outlives the last published frame even if the [`Session`] is dropped
-/// first.
+/// Shared between the [`Session`] and its in-flight [`FrameLease`]s, so the
+/// native session (and with it every leased DMA buffer fd) is destroyed
+/// only after the last lease is released.
 struct ShimSession {
     handle: NonNull<sys::LkArgusSession>,
-    /// DMA buffer fds observed on acquired frames, for fd-to-surface cache
-    /// eviction once the buffers are destroyed.
-    seen_fds: Mutex<Vec<i32>>,
 }
 
 // SAFETY: The handle is only used from one consumer at a time for acquire
 // (guarded by `Session::next_frame(&mut self)`), and the only entry points
-// reachable through clones held by frame release hooks —
+// reachable through clones held by frame leases —
 // `lk_argus_frame_release` and `lk_argus_session_destroy` — are documented
 // as callable from any thread by the shim.
 unsafe impl Send for ShimSession {}
@@ -111,12 +119,23 @@ impl Drop for ShimSession {
         // SAFETY: The handle is valid until this drop, and every frame lease
         // has been released (each holds a clone of the owning Arc).
         unsafe { sys::lk_argus_session_destroy(self.handle.as_ptr()) };
+    }
+}
 
-        // The DMA buffers are gone; fd numbers will be recycled by the OS.
-        let seen_fds = self.seen_fds.get_mut().map(std::mem::take).unwrap_or_default();
-        for fd in seen_fds {
-            remove_dmabuf_surface_cache_entry(fd);
-        }
+/// Lease on one DMA-buffer ring slot, returned to the shim on drop.
+///
+/// Holds the owning [`Arc`] so the native session (and with it the slot's
+/// fd) outlives the lease even if the [`Session`] is dropped first.
+struct FrameLease {
+    shim: Arc<ShimSession>,
+    slot: i32,
+}
+
+impl Drop for FrameLease {
+    fn drop(&mut self) {
+        // SAFETY: The handle is valid (kept alive by the owning Arc) and
+        // `lk_argus_frame_release` is callable from any thread.
+        unsafe { sys::lk_argus_frame_release(self.shim.handle.as_ptr(), self.slot) };
     }
 }
 
@@ -128,6 +147,9 @@ pub(super) struct Session {
     started_at: Instant,
     // Frame pulled while opening the session, handed out first.
     pending_frame: Option<BoxVideoFrame>,
+    // Leases on recently published frames, oldest first; see
+    // `MAX_IN_FLIGHT_LEASES`.
+    in_flight: VecDeque<FrameLease>,
     // Rate-limits ring-exhaustion warnings to state transitions.
     ring_exhausted: bool,
 }
@@ -169,10 +191,11 @@ impl Session {
         })?;
 
         let mut session = Self {
-            shim: Arc::new(ShimSession { handle, seen_fds: Mutex::new(Vec::new()) }),
+            shim: Arc::new(ShimSession { handle }),
             format,
             started_at: Instant::now(),
             pending_frame: None,
+            in_flight: VecDeque::new(),
             ring_exhausted: false,
         };
 
@@ -248,10 +271,7 @@ impl Session {
             sys::LK_ARGUS_ERR_NO_FREE_BUFFER => {
                 if !self.ring_exhausted {
                     self.ring_exhausted = true;
-                    log::warn!(
-                        "Argus DMA buffer ring exhausted; the encoder is holding every \
-                         in-flight frame (backpressure)"
-                    );
+                    log::warn!("Argus DMA buffer ring exhausted; backing off before retrying");
                 }
                 thread::sleep(RING_EXHAUSTED_BACKOFF);
                 return Ok(None);
@@ -263,12 +283,6 @@ impl Session {
             log::info!("Argus DMA buffer ring recovered");
         }
 
-        if let Ok(mut seen_fds) = self.shim.seen_fds.lock() {
-            if !seen_fds.contains(&frame.dmabuf_fd) {
-                seen_fds.push(frame.dmabuf_fd);
-            }
-        }
-
         let read_wall_time_us = unix_time_us_now().unwrap_or(fallback_wall_time_us);
         let backend_capture_timestamp = sensor_timestamp_to_wallclock(frame.sensor_timestamp_ns);
         let capture_wall_time_us = select_capture_wall_time_us(
@@ -277,24 +291,20 @@ impl Session {
             read_wall_time_us,
         );
 
-        let shim = Arc::clone(&self.shim);
-        let slot = frame.buffer_index;
-        // SAFETY: The fd describes a leased NV12 ring slot the shim keeps
-        // valid until it is released; the release hook returns the lease and
-        // its captured Arc keeps the native session (and the fd) alive until
-        // then. `lk_argus_frame_release` is callable from any thread.
-        let buffer = unsafe {
-            NativeBuffer::from_dmabuf(
-                frame.dmabuf_fd,
-                frame.width,
-                frame.height,
-                DmaBufPixelFormat::Nv12,
-                move || {
-                    // SAFETY: See above.
-                    unsafe { sys::lk_argus_frame_release(shim.handle.as_ptr(), slot) };
-                },
-            )
-        };
+        // The fd describes a leased NV12 ring slot the shim keeps valid
+        // until the lease is released; the buffer itself carries no release
+        // hook, so the lease is retained below for the in-flight window.
+        let buffer = NativeBuffer::from_dmabuf(
+            frame.dmabuf_fd,
+            RtcVideoResolution { width: frame.width, height: frame.height },
+            DmaBufPixelFormat::NV12,
+        );
+
+        self.in_flight
+            .push_back(FrameLease { shim: Arc::clone(&self.shim), slot: frame.buffer_index });
+        while self.in_flight.len() > MAX_IN_FLIGHT_LEASES {
+            self.in_flight.pop_front();
+        }
 
         Ok(Some(VideoFrame {
             rotation: VideoRotation::VideoRotation0,
@@ -324,9 +334,7 @@ pub(super) fn devices() -> Result<Vec<DeviceInfo>, DeviceVideoSourceError> {
     for sensor_index in 0..sensor_count() {
         let mut info = sys::LkArgusDeviceInfo::default();
         // SAFETY: `info` is a valid out pointer.
-        let status = unsafe {
-            sys::lk_argus_device_info(sensor_index as i32, &mut info)
-        };
+        let status = unsafe { sys::lk_argus_device_info(sensor_index as i32, &mut info) };
         if status != sys::LK_ARGUS_OK {
             log::debug!(
                 "Skipping Argus sensor {sensor_index}: {}",
@@ -337,9 +345,8 @@ pub(super) fn devices() -> Result<Vec<DeviceInfo>, DeviceVideoSourceError> {
 
         let name = c_chars_to_string(&info.name);
         let uuid = c_chars_to_string(&info.uuid);
-        let formats = enumerate_modes(sensor_index)
-            .map(|modes| mode_formats(&modes))
-            .unwrap_or_default();
+        let formats =
+            enumerate_modes(sensor_index).map(|modes| mode_formats(&modes)).unwrap_or_default();
 
         devices.push(DeviceInfo {
             id: format!("argus:{sensor_index}"),
@@ -371,8 +378,7 @@ impl SensorMode {
         if self.min_frame_duration_ns == 0 {
             return 0;
         }
-        let fps =
-            (NANOS_PER_SECOND + self.min_frame_duration_ns / 2) / self.min_frame_duration_ns;
+        let fps = (NANOS_PER_SECOND + self.min_frame_duration_ns / 2) / self.min_frame_duration_ns;
         u32::try_from(fps).unwrap_or(u32::MAX)
     }
 
@@ -399,8 +405,8 @@ impl SensorMode {
 
 /// Reads a sensor's modes through the shim.
 fn enumerate_modes(sensor_index: u32) -> Result<Vec<SensorMode>, DeviceVideoSourceError> {
-    let sensor_index = i32::try_from(sensor_index)
-        .map_err(|_| DeviceVideoSourceError::DeviceNotFound)?;
+    let sensor_index =
+        i32::try_from(sensor_index).map_err(|_| DeviceVideoSourceError::DeviceNotFound)?;
 
     let mut info = sys::LkArgusDeviceInfo::default();
     // SAFETY: `info` is a valid out pointer.
@@ -442,8 +448,7 @@ fn mode_formats(modes: &[SensorMode]) -> Vec<DeviceFormat> {
     let mut formats = Vec::new();
     for mode in modes {
         let mut push = |framerate_fps: u32| {
-            let format =
-                DeviceFormat::new(mode.resolution, framerate_fps, DeviceFrameFormat::Nv12);
+            let format = DeviceFormat::new(mode.resolution, framerate_fps, DeviceFrameFormat::Nv12);
             if !formats.contains(&format) {
                 formats.push(format);
             }
@@ -790,10 +795,7 @@ mod tests {
         assert_eq!(mode.index, 0);
 
         let (format_out, mode) = negotiate_format(
-            &DeviceFormatRequest::HighestResolution {
-                framerate_fps: Some(60),
-                frame_format: None,
-            },
+            &DeviceFormatRequest::HighestResolution { framerate_fps: Some(60), frame_format: None },
             &imx219_modes(),
         )
         .unwrap();
