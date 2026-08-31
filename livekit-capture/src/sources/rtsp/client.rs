@@ -69,9 +69,7 @@ impl RtspUrl {
             "rtsp" => false,
             "rtsps" => true,
             _ => {
-                return Err(RtspVideoSourceError::InvalidUrl(
-                    "expected rtsp:// or rtsps:// scheme",
-                ))
+                return Err(RtspVideoSourceError::InvalidUrl("expected rtsp:// or rtsps:// scheme"))
             }
         };
 
@@ -261,9 +259,7 @@ pub(super) struct RtspClient {
 // context redacts its own credentials.
 impl fmt::Debug for RtspClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RtspClient")
-            .field("cseq", &self.cseq)
-            .finish_non_exhaustive()
+        f.debug_struct("RtspClient").field("cseq", &self.cseq).finish_non_exhaustive()
     }
 }
 
@@ -283,7 +279,9 @@ impl RtspClient {
         let mut last_error = None;
         let mut stream = None;
         for addr in addrs {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else {
+            let Some(remaining) =
+                deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
+            else {
                 break;
             };
             match TcpStream::connect_timeout(&addr, remaining) {
@@ -607,9 +605,7 @@ mod tls {
             let _ = roots.add(cert);
         }
         if roots.is_empty() {
-            return Err(RtspVideoSourceError::Tls(
-                "no usable system root certificates".to_owned(),
-            ));
+            return Err(RtspVideoSourceError::Tls("no usable system root certificates".to_owned()));
         }
         Ok(ClientConfig::builder().with_root_certificates(roots).with_no_client_auth())
     }
@@ -803,10 +799,7 @@ mod tests {
             RtspUrl::parse("http://camera.example/live"),
             Err(RtspVideoSourceError::InvalidUrl(_))
         ));
-        assert!(matches!(
-            RtspUrl::parse("rtsp:///live"),
-            Err(RtspVideoSourceError::InvalidUrl(_))
-        ));
+        assert!(matches!(RtspUrl::parse("rtsp:///live"), Err(RtspVideoSourceError::InvalidUrl(_))));
         assert!(matches!(
             RtspUrl::parse("rtsp://:secret@camera.example/live"),
             Err(RtspVideoSourceError::InvalidUrl(_))
