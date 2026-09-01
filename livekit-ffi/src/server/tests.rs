@@ -14,10 +14,10 @@
 
 /*
 use std::time::Duration;
-use livekit_api::access_token::{AccessToken, VideoGrants};
+use livekit_token::{AccessToken, VideoGrants};
 use crate::FfiHandleId;
 use crate::{proto, server};
-//use livekit_api::access_token::{AccessToken, VideoGrants};
+//use livekit_token::{AccessToken, VideoGrants};
 
 // Small FfiClient implementation used for testing
 // This can be used as an example for a real implementation

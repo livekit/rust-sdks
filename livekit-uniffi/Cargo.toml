@@ -3,7 +3,7 @@ crate-type = ["cdylib", "staticlib", "lib"]
 
 [package]
 name = "livekit-uniffi"
-version = "0.1.8"
+version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 description = "Experimental FFI interface using UniFFI"
@@ -13,8 +13,10 @@ publish = false
 
 [dependencies]
 livekit-protocol = { workspace = true }
-livekit-api = { workspace = true, default-features = false, features = ["access-token"] }
+livekit-common = { workspace = true, features = ["uniffi"] }
+livekit-token = { workspace = true }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
+livekit-net = { workspace = true, features = ["uniffi"] }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns", "tokio"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }

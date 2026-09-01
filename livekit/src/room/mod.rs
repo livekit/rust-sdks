@@ -17,15 +17,9 @@ use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
-    prelude::{
-        ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack,
-        RtcConfiguration,
-    },
+    prelude::{MediaStream, MediaStreamTrack, RtcConfiguration},
     rtp_transceiver::RtpTransceiver,
     RtcError,
-};
-use livekit_api::signal_client::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
 };
 use livekit_data_stream::backend as ds;
 use livekit_datatrack::{
@@ -33,7 +27,9 @@ use livekit_datatrack::{
     backend as dt,
 };
 use livekit_protocol as proto;
-use livekit_runtime::JoinHandle;
+use livekit_signaling::{
+    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+};
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::SignalTarget;
@@ -49,6 +45,7 @@ use tokio::sync::{
     mpsc::{self, UnboundedReceiver},
     oneshot, Mutex as AsyncMutex,
 };
+use tokio::task::JoinHandle;
 
 pub use self::{
     data_stream::api::*,
@@ -383,11 +380,15 @@ pub struct RpcAck {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
+    /// Comma separated list of additional LiveKit SDKs layered on top of this one, with
+    /// versions, e.g. `"components-js:1.2.3,track-processors-js:1.2.3"`. Reported to the
+    /// server as `ClientInfo.other_sdks`. `None` when there are none.
+    pub other_sdks: Option<String>,
 }
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
+        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string(), other_sdks: None }
     }
 }
 
@@ -396,6 +397,7 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
         let mut sdk_options = SignalSdkOptions::default();
         sdk_options.sdk = options.sdk;
         sdk_options.sdk_version = Some(options.sdk_version);
+        sdk_options.other_sdks = options.other_sdks;
         sdk_options
     }
 }
@@ -462,13 +464,8 @@ impl Default for RoomOptions {
             e2ee: None,
             encryption: None,
 
-            // Explicitly set the default values
-            rtc_config: RtcConfiguration {
-                ice_servers: vec![], /* When empty, this will automatically be filled by the
-                                      * JoinResponse */
-                continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
-                ice_transport_type: IceTransportsType::All,
-            },
+            // Defaults; ice_servers is empty here and filled from the JoinResponse.
+            rtc_config: RtcConfiguration::default(),
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: true,
@@ -826,30 +823,30 @@ impl Room {
 
         let (close_tx, close_rx) = broadcast::channel(1);
 
-        let incoming_stream_task = livekit_runtime::spawn(incoming_stream_manager.run());
-        let incoming_forward_task = livekit_runtime::spawn(incoming_data_stream_task(
+        let incoming_stream_task = tokio::spawn(incoming_stream_manager.run());
+        let incoming_forward_task = tokio::spawn(incoming_data_stream_task(
             incoming_output,
             dispatcher.clone(),
             close_rx.resubscribe(),
             inner.clone(),
         ));
-        let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
+        let outgoing_stream_handle = tokio::spawn(outgoing_data_stream_task(
             packet_rx,
             rtc_engine.clone(),
             close_rx.resubscribe(),
         ));
 
-        let local_dt_task = livekit_runtime::spawn(local_dt_manager.run());
-        let local_dt_forward_task = livekit_runtime::spawn(
+        let local_dt_task = tokio::spawn(local_dt_manager.run());
+        let local_dt_forward_task = tokio::spawn(
             inner.clone().local_dt_forward_task(local_dt_output, close_rx.resubscribe()),
         );
 
-        let remote_dt_task = livekit_runtime::spawn(remote_dt_manager.run());
-        let remote_dt_forward_task = livekit_runtime::spawn(
+        let remote_dt_task = tokio::spawn(remote_dt_manager.run());
+        let remote_dt_forward_task = tokio::spawn(
             inner.clone().remote_dt_forward_task(remote_dt_output, close_rx.resubscribe()),
         );
 
-        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+        let room_handle = tokio::spawn(inner.clone().room_task(engine_events, close_rx));
 
         let handle = Handle {
             room_handle,
@@ -901,6 +898,14 @@ impl Room {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.inner.rtc_engine.drop_disconnected_updates(enabled);
+    }
+
+    /// Test-only: the publisher transport's current connection state. Lets a test assert
+    /// that teardown really closed the transport, rather than inferring it from room-level
+    /// state that can reach `Disconnected` while the transport is still open.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
+        self.inner.rtc_engine.session().publisher_connection_state()
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
@@ -1008,7 +1013,7 @@ impl RoomSession {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = livekit_runtime::spawn(async move {
+                    let task = tokio::spawn(async move {
                         if let Err(err) = inner.on_engine_event(event).await {
                             log::error!("failed to handle engine event: {:?}", err);
                         }
@@ -1018,12 +1023,12 @@ impl RoomSession {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
                             log::error!("engine_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await;
+                    task.await.expect("engine event handler panicked");
                 },
                 _ = close_rx.recv() => {
                     break;
@@ -1096,7 +1101,7 @@ impl RoomSession {
                 }
                 let session = self.clone();
                 let caller = caller_identity.unwrap();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     let transport = rpc::SessionTransport(session.clone());
                     session
                         .rpc_server
@@ -1384,7 +1389,7 @@ impl RoomSession {
             .cloned();
 
         if let Some(remote_participant) = remote_participant {
-            livekit_runtime::spawn(async move {
+            tokio::spawn(async move {
                 remote_participant.add_subscribed_media_track(track_id, track, transceiver).await;
             });
         } else {
@@ -1660,7 +1665,7 @@ impl RoomSession {
         let _ = tx.send(());
 
         let local_participant = self.local_participant.clone();
-        livekit_runtime::spawn(async move {
+        tokio::spawn(async move {
             local_participant.update_track_subscription_permissions().await;
         });
     }
@@ -1670,7 +1675,7 @@ impl RoomSession {
         _reconnect_repsonse: proto::ReconnectResponse,
         tx: oneshot::Sender<()>,
     ) {
-        livekit_runtime::spawn({
+        tokio::spawn({
             let session = self.clone();
             async move {
                 session.send_sync_state().await;
@@ -1714,7 +1719,7 @@ impl RoomSession {
 
         // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
         // lock.
-        livekit_runtime::spawn({
+        tokio::spawn({
             let session = self.clone();
             async move {
                 let mut set = tokio::task::JoinSet::new();
@@ -1794,7 +1799,7 @@ impl RoomSession {
             reason
         );
         if reason != DisconnectReason::ClientInitiated {
-            livekit_runtime::spawn({
+            tokio::spawn({
                 let inner = self.clone();
                 async move {
                     let _ = inner.close(reason).await;
@@ -2402,7 +2407,7 @@ async fn incoming_data_stream_task(
                         match topic.as_str() {
                             rpc::RPC_REQUEST_TOPIC => {
                                 let session = session.clone();
-                                livekit_runtime::spawn(async move {
+                                tokio::spawn(async move {
                                     let transport = rpc::SessionTransport(session.clone());
                                     session.rpc_server.handle_v2_request_stream(
                                         reader,
@@ -2413,7 +2418,7 @@ async fn incoming_data_stream_task(
                             }
                             rpc::RPC_RESPONSE_TOPIC => {
                                 let session = session.clone();
-                                livekit_runtime::spawn(async move {
+                                tokio::spawn(async move {
                                     session.rpc_client.handle_v2_response_stream(reader).await;
                                 });
                             }

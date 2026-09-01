@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_api::access_token::{
-    self, AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants,
-};
 use livekit_protocol::{self as proto, RoomAgentDispatch};
+use livekit_token::{self, AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants};
 use std::{collections::HashMap, time::Duration};
 
 /// An error that can occur during token generation or verification.
@@ -123,8 +121,8 @@ pub struct Claims {
     pub room_configuration: Option<RoomConfiguration>,
 }
 
-impl From<livekit_api::access_token::Claims> for Claims {
-    fn from(claims: livekit_api::access_token::Claims) -> Self {
+impl From<livekit_token::Claims> for Claims {
+    fn from(claims: livekit_token::Claims) -> Self {
         Self {
             exp: claims.exp as u64,
             iss: claims.iss,
@@ -261,6 +259,6 @@ pub fn token_verify(
 ///
 #[uniffi::export]
 pub fn token_claims_from_unverified(token: &str) -> Result<Claims, AccessTokenError> {
-    let claims = access_token::Claims::from_unverified(token)?;
+    let claims = livekit_token::Claims::from_unverified(token)?;
     Ok(claims.into())
 }

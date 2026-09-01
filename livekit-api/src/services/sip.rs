@@ -16,11 +16,10 @@ use livekit_protocol as proto;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::access_token::{SIPGrants, VideoGrants};
-use crate::get_env_keys;
 use crate::services::dial_timeout::{dial_timeout, DEFAULT_RINGING_TIMEOUT};
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use livekit_token::{get_env_keys, SIPGrants, VideoGrants};
 use pbjson_types::Duration as ProtoDuration;
 
 const SVC: &str = "SIP";

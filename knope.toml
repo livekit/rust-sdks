@@ -85,6 +85,33 @@ versioned_files = [
 changelog = "livekit-net/CHANGELOG.md"
 scopes = ["livekit-net"]
 
+[packages.livekit-token]
+versioned_files = [
+  "livekit-token/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-token" },
+]
+changelog = "livekit-token/CHANGELOG.md"
+scopes = ["livekit-token"]
+
+[packages.livekit-region]
+versioned_files = [
+  "livekit-region/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-region" },
+]
+changelog = "livekit-region/CHANGELOG.md"
+scopes = ["livekit-region"]
+
+[packages.livekit-signaling]
+versioned_files = [
+  "livekit-signaling/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-signaling" },
+]
+changelog = "livekit-signaling/CHANGELOG.md"
+scopes = ["livekit-signaling"]
+
 [packages.libwebrtc]
 versioned_files = [
   "libwebrtc/Cargo.toml",
@@ -175,10 +202,10 @@ versioned_files = [
 ]
 changelog = "device-info/CHANGELOG.md"
 
-[packages.livekit-runtime]
+[packages.livekit-token-source]
 versioned_files = [
-  "livekit-runtime/Cargo.toml",
+  "livekit-token-source/Cargo.toml",
   "Cargo.lock",
-  { path = "Cargo.toml", dependency = "livekit-runtime" },
+  { path = "Cargo.toml", dependency = "livekit-token-source" },
 ]
-changelog = "livekit-runtime/CHANGELOG.md"
+changelog = "livekit-token-source/CHANGELOG.md"

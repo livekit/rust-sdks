@@ -18,7 +18,7 @@ use std::fmt::{Debug, Display};
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use thiserror::Error;
 
-use crate::access_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
+use livekit_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
 
 pub use livekit_api::LiveKitApi;
 pub use twirp_client::{
@@ -43,7 +43,7 @@ mod failover;
 mod livekit_api;
 mod twirp_client;
 
-#[cfg(all(test, feature = "services-tokio"))]
+#[cfg(all(test, feature = "services"))]
 mod api_test;
 
 pub const LIVEKIT_PACKAGE: &str = "livekit";

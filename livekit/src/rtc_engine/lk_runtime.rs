@@ -80,12 +80,13 @@ impl LkRuntime {
         } else {
             log::debug!("LkRuntime::new()");
             let zero_playout_delay = state.zero_playout_delay;
+            // WARP (SPED + SNAP) is always enabled. SPED is the factory field
+            // trial enabled here; SNAP is carried on the RtcConfiguration (set
+            // in RtcSession). zero_playout_delay is independent and composed
+            // alongside WARP. Whether WARP actually engages is negotiated with
+            // the server — it degrades to plain DTLS/SCTP if the peer opts out.
             #[cfg(not(target_arch = "wasm32"))]
-            let pc_factory = if zero_playout_delay {
-                PeerConnectionFactory::with_zero_playout_delay()
-            } else {
-                PeerConnectionFactory::default()
-            };
+            let pc_factory = PeerConnectionFactory::with_options(zero_playout_delay, true);
             #[cfg(target_arch = "wasm32")]
             let pc_factory = PeerConnectionFactory::default();
             let new_runtime = Arc::new(Self { pc_factory, zero_playout_delay });

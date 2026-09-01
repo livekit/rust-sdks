@@ -21,8 +21,8 @@ use super::ingress::IngressClient;
 use super::room::RoomClient;
 use super::sip::SIPClient;
 use super::{ServiceBase, ServiceResult};
-use crate::get_env_keys;
 use crate::http_client;
+use livekit_token::get_env_keys;
 
 /// A single entry point to every LiveKit server API, exposing each service
 /// through an accessor (`room()`, `egress()`, `ingress()`, `sip()`,

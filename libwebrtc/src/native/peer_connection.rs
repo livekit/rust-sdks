@@ -166,6 +166,7 @@ impl From<RtcConfiguration> for sys_pc::ffi::RtcConfiguration {
             ice_servers: value.ice_servers.into_iter().map(Into::into).collect(),
             continual_gathering_policy: value.continual_gathering_policy.into(),
             ice_transport_type: value.ice_transport_type.into(),
+            enable_sctp_snap: value.enable_sctp_snap,
         }
     }
 }

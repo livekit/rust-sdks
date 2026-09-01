@@ -22,7 +22,7 @@ use {
         prelude::*,
         SimulateScenario,
     },
-    livekit_api::access_token::VideoGrants,
+    livekit_token::VideoGrants,
     std::time::{Duration, Instant},
     test_case::test_case,
     tokio::{

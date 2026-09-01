@@ -1,0 +1,48 @@
+[package]
+name = "livekit-signaling"
+version = "0.1.0"
+license.workspace = true
+description = "Internal LiveKit signalling client, blind to the transport backend"
+edition.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[features]
+default = []
+
+# livekit-net's bundled native backend. Without it the transport stays blind:
+# the host must register a livekit_net transport (set_ws_client /
+# set_http_client) before connecting.
+native = ["livekit-net/native"]
+
+
+# TLS, forwarded to livekit-net (only meaningful with a native backend).
+native-tls              = ["livekit-net/native-tls"]
+native-tls-vendored     = ["livekit-net/native-tls-vendored"]
+rustls-tls-native-roots = ["livekit-net/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["livekit-net/rustls-tls-webpki-roots"]
+__rustls-tls            = ["livekit-net/__rustls-tls"]
+
+[dependencies]
+livekit-net = { workspace = true }
+livekit-protocol = { workspace = true }
+livekit-common = { workspace = true }
+livekit-region = { workspace = true }
+device-info = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net", "time", "rt-multi-thread"] }
+base64 = { version = "0.21", features = ["std"] }
+flate2 = "1"
+http = "1.1"
+os_info = "3.14.0"
+prost = "0.12"
+url = "2.3"
+
+[dev-dependencies]
+# The signal_* integration tests mint an access token to connect with.
+livekit-token = { workspace = true }
+async-trait = "0.1"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }

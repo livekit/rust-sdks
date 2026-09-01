@@ -85,7 +85,7 @@ jobs:
 
       - name: Publish to hosting repo
         if: ${{ !inputs.dry_run }}
-        uses: livekit/publish-xcframework-action@200ee4984ef1b68068c0b3c4e87e798988730c90 # main @ fix: abort on missing source files (#3)
+        uses: livekit/publish-xcframework-action@a1bc3de909f9c0a2b7f92172a95d6dd35cb20b1a # main @ feat: allow path patterns as file sources (#5)
         with:
           xcframework-zip: ${{ env.OUTPUT_DIR }}/Rust${{ env.SPM_NAME }}.xcframework.zip
           version: ${{ inputs.version }}
@@ -96,8 +96,9 @@ jobs:
             ${{ env.OUTPUT_DIR }}/${{ env.SPM_NAME }}.podspec:${{ env.SPM_NAME }}.podspec
             ${{ env.OUTPUT_DIR }}/LICENSE:LICENSE
             ${{ env.OUTPUT_DIR }}/PrivacyInfo.xcprivacy:PrivacyInfo.xcprivacy
-            ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift:Sources/${{ env.SPM_NAME }}/livekit_uniffi.swift
-            ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/livekit_datatrack.swift:Sources/${{ env.SPM_NAME }}/livekit_datatrack.swift
+            # UniFFI emits one source per component, so match rather than list them:
+            # adding a component must not require a workflow change.
+            ${{ env.OUTPUT_DIR }}/Sources/${{ env.SPM_NAME }}/*.swift:Sources/${{ env.SPM_NAME }}/
           token: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
           pr-body: |
             Source tag: `${{ inputs.tag_name }}`
