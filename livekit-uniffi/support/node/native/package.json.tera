@@ -1,0 +1,13 @@
+{
+  "name": "{{ NPM_NAME }}-{{ NODE_TRIPLE }}",
+  "version": "{{ CARGO_MAKE_CRATE_VERSION }}",
+  "license": "Apache-2.0",
+  "os": ["{{ NODE_TRIPLE | split(pat='-') | first }}"],
+  "cpu": ["{{ NODE_TRIPLE | split(pat='-') | nth(n=1) }}"],
+  "files": ["{{ LIB_FILENAME }}", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/rust-sdks.git",
+    "directory": "livekit-uniffi"
+  }
+}
