@@ -1,6 +1,8 @@
 ---
 livekit: minor
 webrtc-sys: minor
+libwebrtc: patch
+livekit-ffi: patch
 ---
 
 Use the Apple AudioEngine ADM for PlatformAudio on iOS and macOS.
