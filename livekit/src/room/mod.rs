@@ -1138,8 +1138,8 @@ impl RoomSession {
             EngineEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
                 self.handle_data_stream_chunk(chunk, participant_identity, encryption_type);
             }
-            EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
-                self.handle_data_stream_trailer(trailer, participant_identity);
+            EngineEvent::DataStreamTrailer { trailer, participant_identity, encryption_type } => {
+                self.handle_data_stream_trailer(trailer, participant_identity, encryption_type);
             }
             EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 self.handle_data_channel_buffered_low_threshold_change(kind, threshold);
@@ -1959,10 +1959,14 @@ impl RoomSession {
         &self,
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     ) {
         let _ = self.incoming_data_stream_input.send(
             ds::incoming::PacketReceived::new(
-                ds::Packet::Trailer(trailer.into()),
+                ds::Packet::Trailer {
+                    trailer: trailer.into(),
+                    encryption_type: encryption_type.into(),
+                },
                 participant_identity.into(),
             )
             .into(),
@@ -2446,6 +2450,9 @@ async fn incoming_data_stream_task(
                         dispatcher.dispatch(&RoomEvent::StreamTrailerReceived { trailer: trailer.into(), participant_identity: participant_identity.into() });
                     }
                 }
+                // The Rust SDK observes completion through the reader itself; the explicit
+                // closed signal exists for FFI hosts sequencing handlers on ordered topics.
+                ds::incoming::OutputEvent::StreamClosed(_) => {}
             },
             _ = close_rx.recv() => {
                 _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);
@@ -2463,25 +2470,33 @@ fn is_internal_topic(topic: &str) -> bool {
     INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
 }
 
-/// Receives packets from the outgoing stream manager and send them.
+/// Receives packet batches from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
-    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>,
+    mut packet_rx: UnboundedRequestReceiver<Vec<proto::DataPacket>, Result<(), SendError>>,
     engine: Arc<RtcEngine>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
     loop {
         tokio::select! {
-            Ok((packet, responder)) = packet_rx.recv() => {
-                // A packet stamped with an explicit sender identity (impersonation, e.g. an
-                // agent attributing a stream to another participant) must be sent raw so the
-                // session doesn't overwrite the identity with the local participant's.
-                let is_raw_packet = !packet.participant_identity.is_empty();
-                // Bridge the engine error into the data-stream crate's opaque `SendError`
-                // (the crate only needs to know whether the send failed).
-                let result = engine
-                    .publish_data(packet, DataPacketKind::Reliable, is_raw_packet)
-                    .await
-                    .map_err(|_| SendError);
+            Ok((packets, responder)) = packet_rx.recv() => {
+                // The batch is acknowledged as a whole; the first failure fails the request.
+                let mut result = Ok(());
+                for packet in packets {
+                    // A packet stamped with an explicit sender identity (impersonation, e.g. an
+                    // agent attributing a stream to another participant) must be sent raw so the
+                    // session doesn't overwrite the identity with the local participant's.
+                    let is_raw_packet = !packet.participant_identity.is_empty();
+                    // Bridge the engine error into the data-stream crate's opaque `SendError`
+                    // (the crate only needs to know whether the send failed).
+                    if engine
+                        .publish_data(packet, DataPacketKind::Reliable, is_raw_packet)
+                        .await
+                        .is_err()
+                    {
+                        result = Err(SendError);
+                        break;
+                    }
+                }
                 let _ = responder.respond(result);
             },
             _ = close_rx.recv() => {

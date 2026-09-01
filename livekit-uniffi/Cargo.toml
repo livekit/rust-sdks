@@ -17,6 +17,7 @@ livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-token = { workspace = true }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
 livekit-net = { workspace = true, features = ["uniffi"] }
+livekit-data-stream = { workspace = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns", "tokio"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
@@ -26,10 +27,19 @@ futures-util = { workspace = true, default-features = false, features = ["sink"]
 bytes = { workspace = true }
 once_cell = "1.21.3"
 thiserror = { workspace = true }
+async-trait = "0.1"
 # Dart binding generator. Not published to crates.io, so pinned by git rev. The
 # rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
 # above, or it cannot read this crate's compiled metadata.
-uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "90f2c6f29cbf88c8bc2cf515e6a0c2314a48844c", optional = true }
+#
+# Pinned to upstream main rather than a release: the newest release
+# (v0.2.1+v0.31.2) predates the three fixes this crate needs -- custom types
+# leaking into FFI signatures (#154), object converter statics colliding with
+# Rust methods named `write` (#156), and each crate re-declaring the runtime
+# scaffolding, which kept livekit-datatrack's types from crossing into
+# livekit-uniffi (#150). Move to a version requirement once a release carries
+# them.
+uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "67547701d849c9ef6302f79bb2189bb6075f69fa", optional = true }
 camino = { version = "1", optional = true }
 
 [features]
