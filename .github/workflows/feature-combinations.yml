@@ -1,0 +1,180 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Checks that every combination of up to 2 simultaneous cargo features builds,
+# across the client SDK and everything below it. Feature bugs (a `dep:` that is
+# only pulled in by one feature but used unconditionally, a `?/` that silently
+# no-ops) do not show up in the default-feature build, so nothing else in CI
+# catches them.
+#
+# `--depth 2` is a deliberate ceiling: `livekit` alone goes from 67 combinations
+# at depth 2 to 232 at depth 3. Depth 2 catches pairwise interactions, which is
+# where nearly all feature bugs live.
+#
+# Runs on one platform only (linux arm64). Feature resolution is
+# platform-independent; the point is to exercise the feature graph, not the
+# target matrix.
+name: Feature Combinations
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 07:00 UTC. This job is too slow to gate every PR on, and
+    # feature graphs change rarely, so a nightly signal is the right cadence.
+    - cron: "0 7 * * *"
+  pull_request:
+    branches: ["main"]
+    # Only re-run when something could actually change feature resolution.
+    paths:
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/feature-combinations.yml"
+  push:
+    branches:
+      - "main"
+      # TEMPORARY: added so this job runs on the branch that introduces it,
+      # to measure how long it actually takes on a hosted runner. Remove this
+      # line before merging.
+      - "add-all-features-complication"
+
+env:
+  CARGO_TERM_COLOR: always
+  # The crates under test: `livekit` and `livekit-api` plus every workspace
+  # crate they depend on that has features of its own. cargo-hack only varies
+  # the features of the packages named with -p, so dependencies have to be
+  # listed explicitly to get their own powersets.
+  HACK_PACKAGES: >-
+    -p livekit
+    -p livekit-api
+    -p livekit-signaling
+    -p livekit-net
+    -p livekit-region
+    -p livekit-protocol
+    -p livekit-datatrack
+    -p livekit-data-stream
+    -p livekit-common
+    -p libwebrtc
+    -p webrtc-sys
+    -p livekit-token
+
+jobs:
+  feature-powerset:
+    name: Feature powerset (aarch64-unknown-linux-gnu)
+    runs-on: ubuntu-24.04-arm
+    # Measured at ~7 min on a 14-core Apple Silicon laptop. Hosted runners are
+    # far smaller, so this is set well above the expected runtime to leave room
+    # rather than to express a target.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install linux dependencies
+        run: |
+          sudo apt update -y
+          # lld is needed on aarch64 because GNU ld cannot link libwebrtc.a.
+          sudo apt install -y \
+            lld \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev
+
+      # Ubuntu 24 ships clang 18; webrtc-sys needs 21+ for libwebrtc's hermetic
+      # libc++. Sets CC/CXX for the steps below.
+      - name: Install clang for webrtc-sys
+        run: .github/scripts/install-clang.sh
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          target: aarch64-unknown-linux-gnu
+          cache: false
+          rustflags: ""
+
+      - name: Install cargo-hack
+        # Pinned rather than floating: cargo-hack decides which combinations
+        # exist, so an unpinned bump would silently change what this job tests.
+        run: cargo install cargo-hack --locked --version 0.6.45
+
+      # Only crates.io sources are cached, deliberately not `target/`. This job
+      # exists to report the cost of checking the feature powerset from cold; a
+      # warm target dir would make the number look better than a real first run.
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-arm-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-arm-cargo-registry-
+
+      # Baseline for comparison: one plain check of the same crates at their
+      # default features. This is what the powerset step should be measured
+      # against — it absorbs the one-time costs (libwebrtc download, the
+      # webrtc-sys C++ bridge) that the powerset step then does not repeat.
+      - name: Baseline check (default features)
+        run: |
+          start=$(date +%s)
+          cargo check ${{ env.HACK_PACKAGES }}
+          echo "BASELINE_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Check feature powerset (depth 2)
+        run: |
+          start=$(date +%s)
+          # --keep-going reports every broken combination in one run instead of
+          # aborting at the first, so a red build is one round of fixes.
+          cargo hack ${{ env.HACK_PACKAGES }} \
+            --feature-powerset \
+            --depth 2 \
+            --keep-going \
+            check
+          echo "POWERSET_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Report timings
+        # Runs even when the powerset fails so the timing is still reported;
+        # POWERSET_SECS is then unset and shown as n/a.
+        if: always()
+        run: |
+          secs() { if [ -n "${1:-}" ]; then echo "${1}s"; else echo "n/a"; fi; }
+          {
+            echo "### Feature powerset timing"
+            echo ""
+            echo "| Measurement | Value |"
+            echo "| --- | --- |"
+            echo "| Baseline \`cargo check\` (default features) | $(secs "${BASELINE_SECS:-}") |"
+            echo "| Feature powerset, depth 2 | $(secs "${POWERSET_SECS:-}") |"
+            if [ -n "${BASELINE_SECS:-}" ] && [ -n "${POWERSET_SECS:-}" ] && [ "$BASELINE_SECS" -gt 0 ]; then
+              awk -v p="$POWERSET_SECS" -v b="$BASELINE_SECS" \
+                'BEGIN { printf "| Powerset as a multiple of baseline | %.1fx |\n", p/b
+                         printf "| Powerset wall time | %.1f min |\n", p/60 }'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
