@@ -32,12 +32,14 @@ async-trait = "0.1"
 # rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
 # above, or it cannot read this crate's compiled metadata.
 #
-# Temporarily a fork: upstream cannot generate compiling bindings for this crate
-# -- custom types leak into FFI signatures, object converter statics collide
-# with Rust methods named `write`, and each crate re-declares the runtime
-# scaffolding, so livekit-datatrack's types will not cross into livekit-uniffi.
-# Point back at Uniffi-Dart/uniffi-dart once those fixes are upstreamed.
-uniffi-dart = { git = "https://github.com/1egoman/uniffi-dart", rev = "4633a7d3c93186ac6a96007b5f109268b4746190", optional = true }
+# Pinned to upstream main rather than a release: the newest release
+# (v0.2.1+v0.31.2) predates the three fixes this crate needs -- custom types
+# leaking into FFI signatures (#154), object converter statics colliding with
+# Rust methods named `write` (#156), and each crate re-declaring the runtime
+# scaffolding, which kept livekit-datatrack's types from crossing into
+# livekit-uniffi (#150). Move to a version requirement once a release carries
+# them.
+uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "67547701d849c9ef6302f79bb2189bb6075f69fa", optional = true }
 camino = { version = "1", optional = true }
 
 [features]
