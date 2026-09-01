@@ -152,10 +152,12 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   /// 2 = InputMixer (input mixer volume set to 0)
   ///
   /// Mute mode is configuration like device selection, so it can be set at
-  /// any time, including before platform audio is acquired.
+  /// any time, including before platform audio is acquired. A mode set
+  /// before the platform ADM exists is cached and applied when the ADM is
+  /// created on first acquire.
   ///
-  /// Returns 0 on success, -1 on non-Apple platforms or when no platform
-  /// ADM exists.
+  /// Returns 0 on success, -1 on non-Apple platforms or for out-of-range
+  /// modes.
   int32_t SetMuteMode(int32_t mode);
   int32_t GetMuteMode(int32_t* mode) const;
 
@@ -352,6 +354,10 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   std::optional<bool> selected_stereo_playout_ RTC_GUARDED_BY(worker_thread_);
   std::optional<bool> selected_stereo_recording_
       RTC_GUARDED_BY(worker_thread_);
+
+  // Mute mode set before the Platform ADM exists (Apple AudioEngine only),
+  // stored for the same replay-on-creation reason as the device indices.
+  std::optional<int32_t> selected_mute_mode_ RTC_GUARDED_BY(worker_thread_);
 };
 
 }  // namespace livekit_ffi

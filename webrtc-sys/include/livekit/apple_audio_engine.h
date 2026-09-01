@@ -34,6 +34,11 @@ namespace livekit_ffi {
 // CreateAudioEngineDeviceModule). Calls must happen on the thread that
 // created the ADM (the worker thread).
 
+// Returns true if `mode` is a valid webrtc::AudioEngineDevice::MuteMode
+// value. Usable without an ADM instance, e.g. to validate a mode that is
+// cached before the ADM is created.
+bool AudioEngineIsValidMuteMode(int32_t mode);
+
 // Sets the mute mode of the AudioEngine ADM. `mode` uses
 // webrtc::AudioEngineDevice::MuteMode values:
 // 0 = VoiceProcessing (VPIO mute, engine keeps running, default)

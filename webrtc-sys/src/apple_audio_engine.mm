@@ -32,12 +32,13 @@ webrtc::AudioEngineDevice* AsAudioEngineDevice(webrtc::AudioDeviceModule* adm) {
 
 }  // namespace
 
+bool AudioEngineIsValidMuteMode(int32_t mode) {
+  return mode >= webrtc::AudioEngineDevice::MuteMode::VoiceProcessing &&
+         mode <= webrtc::AudioEngineDevice::MuteMode::InputMixer;
+}
+
 int32_t AudioEngineSetMuteMode(webrtc::AudioDeviceModule* adm, int32_t mode) {
-  if (!adm) {
-    return -1;
-  }
-  if (mode < webrtc::AudioEngineDevice::MuteMode::VoiceProcessing ||
-      mode > webrtc::AudioEngineDevice::MuteMode::InputMixer) {
+  if (!adm || !AudioEngineIsValidMuteMode(mode)) {
     return -1;
   }
   return AsAudioEngineDevice(adm)->SetMuteMode(

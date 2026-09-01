@@ -168,6 +168,13 @@ bool AdmProxy::EnsurePlatformAdmCreated() {
     platform_adm_->SetStereoRecording(*selected_stereo_recording_);
   }
 
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+  // Re-apply a mute mode set before the ADM existed
+  if (selected_mute_mode_.has_value()) {
+    AudioEngineSetMuteMode(platform_adm_.get(), *selected_mute_mode_);
+  }
+#endif
+
   return true;
 }
 
@@ -769,10 +776,20 @@ int32_t AdmProxy::SetMuteMode(int32_t mode) {
   return RunOnWorker([this, mode]() -> int32_t {
     RTC_DCHECK_RUN_ON(worker_thread_);
 #if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
-    if (!platform_adm_) {
+    if (!AudioEngineIsValidMuteMode(mode)) {
       return -1;
     }
-    return AudioEngineSetMuteMode(platform_adm_.get(), mode);
+    if (!platform_adm_) {
+      // Mute mode is configuration like device selection, cache it and
+      // apply it once the ADM is created on first acquire
+      selected_mute_mode_ = mode;
+      return 0;
+    }
+    int32_t result = AudioEngineSetMuteMode(platform_adm_.get(), mode);
+    if (result == 0) {
+      selected_mute_mode_ = mode;
+    }
+    return result;
 #else
     (void)mode;
     return -1;
@@ -784,8 +801,13 @@ int32_t AdmProxy::GetMuteMode(int32_t* mode) const {
   return RunOnWorker([this, mode]() -> int32_t {
     RTC_DCHECK_RUN_ON(worker_thread_);
 #if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
-    if (!platform_adm_) {
+    if (!mode) {
       return -1;
+    }
+    if (!platform_adm_) {
+      // Report the cached mode, or the AudioEngine default (VoiceProcessing)
+      *mode = selected_mute_mode_.value_or(0);
+      return 0;
     }
     return AudioEngineGetMuteMode(platform_adm_.get(), mode);
 #else
