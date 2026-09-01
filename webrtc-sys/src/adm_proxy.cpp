@@ -34,8 +34,8 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
     : env_(env),
       worker_thread_(worker_thread) {
   RTC_DCHECK(worker_thread_);
-  // The proxy must be constructed on the worker thread so the platform ADM
-  // created below binds its sequence checker to it.
+  // The proxy must be constructed on the worker thread so the synthetic ADM
+  // created below binds to it.
   RTC_DCHECK_RUN_ON(worker_thread_);
 
   // Create the synthetic ADM for synthetic mode. SyntheticAudioDevice pumps
@@ -46,31 +46,15 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
     RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize synthetic ADM";
   }
 
-  // Create the Platform ADM for real audio I/O.
-  // This is created immediately (not lazily) for iOS compatibility.
-  // iOS audio session requires early setup to avoid KVO race conditions.
-  // On Android, we defer Platform ADM creation to AcquirePlatformAdm().
-  // This is because:
-  // 1. CreateAudioDeviceModule requires JNI to be fully initialized
-  // 2. The JNI initialization (via JNI_OnLoad or manual init) may not have
-  //    completed by the time the AdmProxy constructor runs
-  // 3. Deferring creation ensures JNI is ready when we actually need the ADM
-#if defined(__ANDROID__)
-  // platform_adm_ stays nullptr, will be created in EnsurePlatformAdmCreated()
-#else
-  platform_adm_ = webrtc::CreateAudioDeviceModule(
-      env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
-
-  if (!platform_adm_) {
-    RTC_LOG(LS_ERROR) << "AdmProxy: CreateAudioDeviceModule returned nullptr";
-  } else {
-    int32_t init_result = platform_adm_->Init();
-    if (init_result != 0) {
-      RTC_LOG(LS_ERROR) << "AdmProxy: Platform ADM Init() failed with error=" << init_result;
-      platform_adm_ = nullptr;
-    }
-  }
-#endif
+  // The Platform ADM is created lazily in EnsurePlatformAdmCreated() on the
+  // first AcquirePlatformAdm() call. Applications that never use PlatformAudio
+  // never construct the platform ADM at all, so factory creation has no audio
+  // side effects beyond the synthetic ADM. On Android laziness is also a hard
+  // requirement: CreateAndroidAudioDeviceModule needs JNI (the application
+  // context) which may not be initialized when this constructor runs.
+  // State that WebRTC or the application configures before the first acquire
+  // (audio transport, device selection, channel config) is cached below and
+  // replayed onto the fresh ADM.
 }
 
 AdmProxy::~AdmProxy() {
@@ -114,12 +98,15 @@ webrtc::AudioDeviceModule* AdmProxy::RecordingAdm() const {
 // Platform ADM Lifecycle Management
 // =============================================================================
 
-#if defined(__ANDROID__)
 bool AdmProxy::EnsurePlatformAdmCreated() {
   if (platform_adm_) {
     return true;  // Already created
   }
 
+  // This runs on the worker thread (see the RTC_RUN_ON annotation), so the
+  // fresh ADM binds its sequence checker to the worker thread, exactly as an
+  // eagerly constructed one would.
+#if defined(__ANDROID__)
   // Use CreateAndroidAudioDeviceModule which properly uses GetAppContext()
   // to get the application context set via ContextUtils.initialize().
   platform_adm_ = webrtc::CreateAndroidAudioDeviceModule(
@@ -130,6 +117,15 @@ bool AdmProxy::EnsurePlatformAdmCreated() {
                       << "Ensure ContextUtils.initialize() was called.";
     return false;
   }
+#else
+  platform_adm_ = webrtc::CreateAudioDeviceModule(
+      env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
+
+  if (!platform_adm_) {
+    RTC_LOG(LS_ERROR) << "AdmProxy: CreateAudioDeviceModule returned nullptr";
+    return false;
+  }
+#endif
 
   int32_t init_result = platform_adm_->Init();
   if (init_result != 0) {
@@ -152,27 +148,28 @@ bool AdmProxy::EnsurePlatformAdmCreated() {
     platform_adm_->SetRecordingDevice(selected_recording_device_);
   }
 
+  // Re-apply the channel configuration the voice engine requested at factory
+  // init, before the ADM existed
+  if (selected_stereo_playout_.has_value()) {
+    platform_adm_->SetStereoPlayout(*selected_stereo_playout_);
+  }
+  if (selected_stereo_recording_.has_value()) {
+    platform_adm_->SetStereoRecording(*selected_stereo_recording_);
+  }
+
   return true;
 }
-#endif
 
 bool AdmProxy::AcquirePlatformAdm() {
   return RunOnWorker([this] {
     RTC_DCHECK_RUN_ON(worker_thread_);
 
-#if defined(__ANDROID__)
-    // On Android, lazily create the Platform ADM on first acquire.
-    // This ensures JNI is fully initialized before we try to create the ADM.
+    // Lazily create the Platform ADM on first acquire. Apps that never use
+    // PlatformAudio never construct it.
     if (!EnsurePlatformAdmCreated()) {
       RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Failed to create Platform ADM";
       return false;
     }
-#else
-    if (!platform_adm_) {
-      RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Platform ADM not available";
-      return false;
-    }
-#endif
 
     int old_ref_count = platform_adm_ref_count_;
     platform_adm_ref_count_++;
@@ -742,8 +739,15 @@ int32_t AdmProxy::StereoPlayoutIsAvailable(bool* available) const {
 }
 
 int32_t AdmProxy::SetStereoPlayout(bool enable) {
-  return WithPlatformAdm<int32_t>(0, [enable](webrtc::AudioDeviceModule& adm) {
-    return adm.SetStereoPlayout(enable);
+  return RunOnWorker([this, enable] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    // Stored so a selection made before the Platform ADM exists can be
+    // re-applied once it is created
+    selected_stereo_playout_ = enable;
+    if (platform_adm_) {
+      return platform_adm_->SetStereoPlayout(enable);
+    }
+    return 0;
   });
 }
 
@@ -770,8 +774,15 @@ int32_t AdmProxy::StereoRecordingIsAvailable(bool* available) const {
 }
 
 int32_t AdmProxy::SetStereoRecording(bool enable) {
-  return WithPlatformAdm<int32_t>(0, [enable](webrtc::AudioDeviceModule& adm) {
-    return adm.SetStereoRecording(enable);
+  return RunOnWorker([this, enable] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    // Stored so a selection made before the Platform ADM exists can be
+    // re-applied once it is created
+    selected_stereo_recording_ = enable;
+    if (platform_adm_) {
+      return platform_adm_->SetStereoRecording(enable);
+    }
+    return 0;
   });
 }
 
