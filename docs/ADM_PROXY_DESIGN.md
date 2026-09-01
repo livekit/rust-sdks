@@ -101,8 +101,8 @@ These two methods must coexist without interference.
                                  ▼                         ▼
                   ┌────────────────────────────────────────────┐
                   │              Platform ADM                  │
-                  │  Created: eagerly at proxy construction    │
-                  │  (lazily on first acquire on Android)      │
+                  │  Created: lazily on the first acquire      │
+                  │  (AcquirePlatformAdm, all platforms)       │
                   │  Active when: ref_count > 0                │
                   │  Destroyed: with the proxy                 │
                   └──────────────────┬─────────────────────────┘
@@ -216,12 +216,14 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
 | Method | Effect |
 |--------|--------|
-| `AcquirePlatformAdm()` | Increments ref_count. Switches to platform mode on 0 → 1 (and creates the ADM on Android). |
+| `AcquirePlatformAdm()` | Increments ref_count. Creates the Platform ADM if it does not exist yet, and switches to platform mode on 0 → 1. |
 | `ReleasePlatformAdm()` | Decrements ref_count. Switches back to synthetic mode on 1 → 0. The Platform ADM instance stays alive until the proxy is destroyed. |
 
 **Creation timing:**
 
-On most platforms the Platform ADM is created eagerly in the proxy constructor. iOS requires early AVAudioSession setup to avoid KVO race conditions, and keeping a single instance for the proxy's lifetime avoids the races that re-creation caused. Whether the platform hardware is actually used is controlled purely by the ref count and the gates below, so eager creation does not interfere with synthetic mode. Android is the exception, its ADM is created lazily on first acquire because JNI may not be initialized when the proxy is constructed.
+The Platform ADM is created lazily, on the first `AcquirePlatformAdm()` call, on every platform. Applications that never use `PlatformAudio` never construct the platform ADM at all, so creating a `PeerConnectionFactory` has no platform audio footprint (no audio session delegates, no CoreAudio listeners, no JNI requirement on Android, where JNI may not even be initialized at factory construction time). Creation happens inside the worker-marshaled acquire path, so the fresh ADM binds its sequence checker to the worker thread exactly as an eagerly constructed one would. State configured before the first acquire (the audio transport WebRTC registers at factory init, device selection, channel configuration) is cached by the proxy and replayed onto the fresh ADM in `EnsurePlatformAdmCreated()`.
+
+Once created, the instance is kept for the proxy's lifetime, release does not destroy it. Repeatedly destroying and re-creating the ADM caused iOS KVO race conditions, so laziness applies only to the first creation.
 
 ### Threading Model
 
@@ -236,9 +238,10 @@ ADM is created and driven on the worker thread:
   There are no mutexes, and mode transitions are plain sequential worker code,
   so transitions cannot interleave.
 - Platform ADM implementations bind a sequence checker to their construction
-  thread. The proxy is constructed on the worker thread so the eagerly created
-  Platform ADM binds to it. Destruction may happen on any thread and hops to
-  the worker for teardown.
+  thread. The Platform ADM is created lazily inside the worker-marshaled
+  acquire path, and the proxy itself is constructed on the worker thread, so
+  both sub ADMs bind to the worker. Destruction may happen on any thread and
+  hops to the worker for teardown.
 - No realtime audio path goes through the proxy. The registered
   `AudioTransport` is invoked directly by the sub ADMs from their own audio
   threads.
@@ -646,23 +649,27 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
     └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Why the ADM Stays Idle Instead of Lazily Created
+### Lazy Creation, Then Idle Until Acquired
 
-Creating the Platform ADM does not start audio I/O. The instance registers
-its observers (iOS audio session KVO, macOS device listeners) at
-construction, but the microphone and speakers are only touched once
-platform mode is entered (ref_count > 0 with the gates enabled). So in
-synthetic mode application audio (e.g. Unity AudioSource) is not
-interfered with even though the ADM object exists.
+The Platform ADM does not exist until the first `AcquirePlatformAdm()`
+call, on every platform. An application that only ever uses synthetic mode
+(e.g. a Unity app playing its own audio through AVAudioSession) never
+constructs the platform ADM, so WebRTC installs no audio session
+delegates, CoreAudio listeners, or other platform audio plumbing on its
+behalf. On Android this is also a correctness requirement: the ADM needs
+JNI (application context) which may not be initialized when the
+PeerConnectionFactory is constructed.
 
-The instance is also kept alive when the last `PlatformAudio` is dropped:
+Creation is also decoupled from actual audio I/O. Even once created, the
+ADM stays idle: the audio session, microphone, and speakers are only
+touched in `InitPlayout()`/`InitRecording()`, which the proxy calls only
+while platform mode is entered (ref_count > 0 with the gates enabled).
+
+The instance is kept alive when the last `PlatformAudio` is dropped:
 release only stops playout/recording and switches back to synthetic mode.
 Repeatedly destroying and re-creating the ADM caused iOS KVO race
-conditions, so a single instance persists for the proxy's lifetime.
-
-Android is the one platform where creation is deferred to the first
-acquire, because the ADM needs JNI (application context) which may not be
-initialized when the PeerConnectionFactory is constructed.
+conditions, so a single instance persists for the proxy's lifetime and
+laziness applies only to the first creation.
 
 ```
   App Startup
@@ -672,14 +679,17 @@ initialized when the PeerConnectionFactory is constructed.
   ┌─────────────────────────────────────────────────────────────────┐
   │ PeerConnectionFactory created                                    │
   │ └─▶ AdmProxy created (on the worker thread)                      │
-  │     └─▶ Platform ADM created + Init, but NOT started             │
-  │         └─▶ no mic/speaker I/O, app audio works normally         │
+  │     └─▶ synthetic ADM only, NO Platform ADM                      │
+  │         └─▶ no session config, no mic/speaker I/O,               │
+  │             app audio works normally                             │
   └─────────────────────────────────────────────────────────────────┘
        │
        ▼ (Later, if needed)
   ┌─────────────────────────────────────────────────────────────────┐
   │ PlatformAudio::new() called for VoIP                             │
   │ └─▶ acquire_platform_adm() + enable gates                        │
+  │     └─▶ Platform ADM created + Init on the worker thread,        │
+  │         cached transport/device/channel state replayed           │
   │     └─▶ playout/recording switch to the Platform ADM             │
   │                                                                  │
   │ drop(PlatformAudio)                                              │
@@ -1382,10 +1392,11 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
 ### Lifecycle Implementation
 
-Both sub ADMs are created and initialized in the constructor, which runs on
-the worker thread (Android creates the platform ADM lazily on first acquire
-instead, since JNI may not be ready at construction time). Acquire and
-release just move the ref count and switch modes:
+The synthetic ADM is created and initialized in the constructor, which runs
+on the worker thread. The platform ADM is created lazily on the first
+acquire (see `EnsurePlatformAdmCreated()`), which also runs on the worker
+thread via the acquire path's marshaling. Acquire and release move the ref
+count and switch modes:
 
 ```cpp
 // webrtc-sys/src/adm_proxy.cpp
@@ -1393,7 +1404,7 @@ release just move the ref count and switch modes:
 bool AdmProxy::AcquirePlatformAdm() {
   return RunOnWorker([this] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    if (!platform_adm_) {
+    if (!EnsurePlatformAdmCreated()) {
       return false;
     }
     int old_ref_count = platform_adm_ref_count_;

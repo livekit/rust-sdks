@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <optional>
 #include <utility>
 
 #include "api/environment/environment.h"
@@ -50,8 +51,11 @@ namespace livekit_ffi {
 ///
 /// This also satisfies the platform ADM threading contract: platform
 /// implementations bind a sequence checker to their construction thread and
-/// expect every control call on it. The proxy must therefore be constructed
-/// on the worker thread, so the eagerly created platform ADM binds to it.
+/// expect every control call on it. The platform ADM is created lazily on
+/// first acquire, inside the worker-marshaled acquire path, so it binds to
+/// the worker thread just like an eagerly constructed one would. The proxy
+/// itself must be constructed on the worker thread so the synthetic ADM
+/// binds to it as well.
 /// Destruction may happen on any thread, teardown hops to the worker.
 ///
 /// Note for future extensions: platform ADM observer callbacks must not call
@@ -67,8 +71,10 @@ namespace livekit_ffi {
 ///
 /// ## Lifecycle Management
 ///
-/// Platform ADM is created eagerly at construction (for iOS compatibility).
-/// Reference counting controls which mode is active:
+/// Platform ADM is created lazily on the first `AcquirePlatformAdm()` call,
+/// so apps that never use PlatformAudio never construct it. Once created it
+/// stays alive until the proxy is destroyed (re-creation caused iOS KVO
+/// races). Reference counting controls which mode is active:
 /// - `AcquirePlatformAdm()`: Increments ref count
 /// - `ReleasePlatformAdm()`: Decrements ref count
 /// - When ref_count is 0, playout uses synthetic mode
@@ -297,11 +303,11 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // If recording is active, stops the old ADM and starts the new one.
   void SwitchRecordingAdm() RTC_RUN_ON(worker_thread_);
 
-#if defined(__ANDROID__)
-  // Lazily creates and initializes the Platform ADM on Android.
-  // Returns true if ADM is available after the call.
+  // Lazily creates and initializes the Platform ADM on first acquire, then
+  // replays cached state (audio transport, device selection, channel config)
+  // onto it. Runs on the worker thread so the fresh ADM binds its sequence
+  // checker there. Returns true if the ADM is available after the call.
   bool EnsurePlatformAdmCreated() RTC_RUN_ON(worker_thread_);
-#endif
 
   const webrtc::Environment env_;
   webrtc::Thread* const worker_thread_;
@@ -335,10 +341,17 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   bool playout_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 
   // Selected device indices, stored so a selection made before the Platform
-  // ADM exists (Android lazy creation) can be re-applied once it is created.
+  // ADM exists (it is created lazily on first acquire) can be re-applied once
+  // it is created.
   // Index 0 (the default device) is treated as never explicitly selected.
   uint16_t selected_playout_device_ RTC_GUARDED_BY(worker_thread_) = 0;
   uint16_t selected_recording_device_ RTC_GUARDED_BY(worker_thread_) = 0;
+
+  // Channel configuration requested by the voice engine at factory init,
+  // stored for the same replay-on-creation reason as the device indices.
+  std::optional<bool> selected_stereo_playout_ RTC_GUARDED_BY(worker_thread_);
+  std::optional<bool> selected_stereo_recording_
+      RTC_GUARDED_BY(worker_thread_);
 };
 
 }  // namespace livekit_ffi
