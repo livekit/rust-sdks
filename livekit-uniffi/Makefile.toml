@@ -189,6 +189,7 @@ dependencies = [
 
 [tasks.cpp-smoke.env]
 CPP_BINDGEN_REPOSITORY = "https://github.com/alan-george-lk/uniffi-bindgen-cpp.git"
+# Keep the generator aligned with the workspace's UniFFI 0.31 metadata format.
 CPP_BINDGEN_REVISION = "abd001d064d87973f6bb2ee5fd70e30e686a72ae"
 CPP_LIB_EXT = { source = "${CARGO_MAKE_RUST_TARGET_OS}", mapping = { linux = "so", macos = "dylib", windows = "dll" } }
 

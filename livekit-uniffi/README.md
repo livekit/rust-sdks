@@ -58,5 +58,5 @@ cargo make cpp-smoke
 ```
 
 The task installs the pinned generator revision under the Cargo target directory.
-The target is currently a local macOS/Linux integration harness. Generated sources and build
+The target runs locally on macOS/Linux and in CI on Ubuntu/macOS. Generated sources and build
 artifacts stay under the Cargo target directory and are not checked in.
