@@ -167,6 +167,10 @@ jobs:
           path: cdylibs
 
       - name: Upload to release
+        # TAG_NAME is bound through env rather than template-expanded into the
+        # script: tag names may contain shell metacharacters (Actions script
+        # injection). GITHUB_REPOSITORY is provided by the runner already.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.tag_name }}" cdylibs/* --repo "${{ github.repository }}" --clobber
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: gh release upload "$TAG_NAME" cdylibs/* --repo "$GITHUB_REPOSITORY" --clobber

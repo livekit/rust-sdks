@@ -1,0 +1,203 @@
+name: UniFFI Dart package
+
+# Publishes the generated livekit_uniffi Dart package to pub.dev on a
+# livekit-uniffi release.
+#
+# This is a separate workflow from uniffi-packages.yml because pub.dev's
+# automated publishing only accepts workflows triggered by a tag push matching
+# the tag pattern configured on the package (livekit-uniffi/v{{version}});
+# a release-event-triggered workflow is rejected. knope-bot creates the tag via
+# the API, and App-created events do trigger workflows here (see the note in
+# uniffi-packages.yml / #1256).
+#
+# The package's hook/build.dart downloads build-<triple>.zip assets from the
+# GitHub release at consumer build time. Those assets are attached by the
+# cdylib job in uniffi-packages.yml, which runs from the same release, so this
+# workflow waits for them before publishing: a pub.dev version whose assets
+# are missing would be broken on arrival, and pub.dev versions cannot be
+# unpublished.
+#
+# PUBLISHING IS NOT ENABLED YET. Until the steps below are done, every run
+# stops after `dart pub publish --dry-run`. Things the first live tag
+# confirms: that knope-bot's API-created tag fires this push trigger at all
+# (expected for App events, never exercised here; workflow_dispatch is the
+# fallback), and that the asset wait sees the cdylib job's uploads.
+# Enablement steps:
+#   1. The temporary uniffi-dart pin on ryangaus's personal fork (see
+#      livekit-uniffi/Cargo.toml) has moved to upstream or a livekit fork,
+#      so releases don't depend on a personal repo.
+#   2. A first manual `dart pub publish` by a livekit.io publisher admin has
+#      created the package on pub.dev (pub.dev only automates existing packages).
+#   3. Automated publishing from GitHub Actions is enabled in the package's
+#      pub.dev admin settings for livekit/rust-sdks with tag pattern
+#      `livekit-uniffi/v{{version}}`, and PUBLISH_ENABLED below is flipped.
+
+on:
+  push:
+    tags: ["livekit-uniffi/v*"]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. livekit-uniffi/v0.1.9)"
+        required: true
+        type: string
+
+env:
+  # Flip to "true" once the enablement steps in the header are done. Real
+  # publishing additionally requires a tag-push trigger; workflow_dispatch
+  # runs always stop at the dry run (pub.dev rejects their OIDC tokens).
+  PUBLISH_ENABLED: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    name: Build & publish Dart package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Exchanged for a temporary pub.dev token by dart-lang/setup-dart.
+      id-token: write
+    steps:
+      - name: Resolve tag
+        id: tag
+        # Bound through env, never template-expanded into the script: tag names
+        # and dispatch inputs may contain shell metacharacters (Actions script
+        # injection), and this job can mint the pub.dev publish token.
+        env:
+          PUSHED_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag_name }}
+        run: |
+          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          case "$TAG" in
+            livekit-uniffi/v*) ;;
+            *) echo "Unexpected tag: $TAG"; exit 1 ;;
+          esac
+          echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#livekit-uniffi/v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Build the tagged source, not the dispatch ref (which defaults to main).
+          ref: ${{ steps.tag.outputs.tag_name }}
+          submodules: true
+
+      # Fast fail on a mis-pointed tag before spending runner time: the tag
+      # version must match the crate version the checkout carries (it is also
+      # what the pubspec, and pub.dev's tag-pattern check, will see).
+      - name: Check tag matches crate version
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          crate_version=$(grep -m1 '^version = ' livekit-uniffi/Cargo.toml | cut -d'"' -f2)
+          if [ "$crate_version" != "$VERSION" ]; then
+            echo "Tag version $VERSION does not match livekit-uniffi crate version $crate_version." >&2
+            exit 1
+          fi
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          cache: false
+          rustflags: ""
+
+      # Same keys as uniffi-dart-test.yml, so pushes to main keep them warm.
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo target
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: target/
+          key: ${{ runner.os }}-cargo-target-dart-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-dart-
+
+      - name: Install Common Deps for UniFFI Tasks
+        uses: ./.github/actions/uniffi-deps
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1.7.2
+        with:
+          sdk: stable
+
+      - name: Build Dart package (release)
+        working-directory: livekit-uniffi
+        run: cargo make --profile release dart-package
+
+      # pub builds the publish archive from git's file listing, and the
+      # generated packages/ tree is gitignored, so publishing from inside the
+      # work tree produces an empty archive. Stage a copy outside it.
+      #
+      # The guard is a backstop for the dart-clean task: a package that ships
+      # a local native library would shadow the hook's download mode for every
+      # consumer, and pub.dev versions cannot be unpublished.
+      - name: Stage package outside the work tree
+        run: |
+          rm -rf "$RUNNER_TEMP/livekit_uniffi"
+          cp -R livekit-uniffi/packages/dart "$RUNNER_TEMP/livekit_uniffi"
+          if find "$RUNNER_TEMP/livekit_uniffi" \( -name 'liblivekit_uniffi.*' -o -name 'livekit_uniffi.dll' \) | grep -q .; then
+            echo "Staged package contains a local native library; refusing to publish." >&2
+            exit 1
+          fi
+
+      # The cdylib job in uniffi-packages.yml attaches the per-target archives
+      # to the release after knope publishes it, so they can land up to an
+      # hour after this workflow starts; the build above does not need them,
+      # only the validate/publish steps do. The hook needs a
+      # build-<triple>.zip AND its .zip.sha256 sidecar per target, so gate on
+      # both. 12 targets; keep the count in sync with the matrix in
+      # uniffi-cdylib.yml.
+      #
+      # Fails fast when the release itself is missing (mis-tag, or knope never
+      # published). Recovery from a failed cdylib build: fix it, dispatch
+      # uniffi-packages.yml with this tag to attach the assets, then re-run
+      # this workflow's failed run (or dispatch it with the tag).
+      - name: Wait for cdylib release assets
+        timeout-minutes: 90
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag_name }}
+        run: |
+          expected=12
+          missing=0
+          while true; do
+            if ! assets=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name]'); then
+              missing=$((missing + 1))
+              echo "release $TAG not found ($missing/10)"
+              if [ "$missing" -ge 10 ]; then
+                echo "Release $TAG does not exist; is the tag mis-pointed or the release unpublished?" >&2
+                exit 1
+              fi
+              sleep 60
+              continue
+            fi
+            missing=0
+            zips=$(echo "$assets" | jq '[.[] | select(test("^build-.*\\.zip$"))] | length')
+            sums=$(echo "$assets" | jq '[.[] | select(test("^build-.*\\.zip\\.sha256$"))] | length')
+            echo "cdylib assets on $TAG: $zips/$expected zips, $sums/$expected sha256 sidecars"
+            if [ "$zips" -ge "$expected" ] && [ "$sums" -ge "$zips" ]; then
+              break
+            fi
+            sleep 120
+          done
+
+      - name: Validate package
+        working-directory: ${{ runner.temp }}/livekit_uniffi
+        run: |
+          dart pub get
+          dart pub publish --dry-run
+
+      - name: Publish to pub.dev
+        if: ${{ env.PUBLISH_ENABLED == 'true' && github.event_name == 'push' }}
+        working-directory: ${{ runner.temp }}/livekit_uniffi
+        run: dart pub publish --force
