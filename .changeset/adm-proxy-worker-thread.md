@@ -1,6 +1,8 @@
 ---
 livekit: patch
 webrtc-sys: patch
+libwebrtc: patch
+livekit-ffi: patch
 ---
 
 Make AdmProxy worker-thread-affine: all platform ADM access now happens on the WebRTC worker thread, matching the ADM threading contract.
