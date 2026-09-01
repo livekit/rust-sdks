@@ -29,11 +29,11 @@ thiserror = { workspace = true }
 # Dart binding generator. Not published to crates.io, so pinned by git rev. The
 # rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
 # above, or it cannot read this crate's compiled metadata.
-# TEMPORARY: pinned to the multi-crate codegen fixes on ryangaus's fork
-# (upstream is dormant; PR Uniffi-Dart/uniffi-dart#150 is one of them). Move
-# the pin back to upstream once merged, or to a livekit-maintained fork if a
-# release needs cutting before that (CLT-2872).
-uniffi-dart = { git = "https://github.com/1egoman/uniffi-dart", rev = "ee04fd038659a9bd1438cbd297707861a55fd2f7", optional = true }
+# Pinned to upstream main from 2026-08-31, which carries the multi-crate
+# codegen fixes (Uniffi-Dart/uniffi-dart#150/#154/#156) this crate needs,
+# previously consumed from a contributor fork. Upstream has published no
+# release tag since v0.2.1, hence a rev pin rather than a tag.
+uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "67547701d849c9ef6302f79bb2189bb6075f69fa", optional = true }
 camino = { version = "1", optional = true }
 
 [features]
