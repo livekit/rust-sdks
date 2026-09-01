@@ -44,3 +44,19 @@ cargo make android-package-local                        # + publish to Maven Loc
 ```
 
 See [support/android/README.md](./support/android/README.md) for prerequisites (Android SDK/NDK).
+
+### C++ (experimental)
+
+The C++17 smoke target generates every component from the host `livekit-uniffi` dynamic library,
+compiles the generated sources, and exercises a C++ HTTP transport callback through Rust. It covers
+successful record return, typed failure, cancellation, and dispatcher shutdown.
+
+Run from this directory:
+
+```bash
+cargo make cpp-smoke
+```
+
+The task installs the pinned generator revision under the Cargo target directory.
+The target is currently a local macOS/Linux integration harness. Generated sources and build
+artifacts stay under the Cargo target directory and are not checked in.

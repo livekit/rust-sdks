@@ -185,6 +185,39 @@ dependencies = [
     "bindgen-dart",
 ]
 
+# MARK: - Experimental C++ smoke test
+
+[tasks.cpp-smoke.env]
+CPP_BINDGEN_REPOSITORY = "https://github.com/alan-george-lk/uniffi-bindgen-cpp.git"
+CPP_BINDGEN_REVISION = "abd001d064d87973f6bb2ee5fd70e30e686a72ae"
+CPP_LIB_EXT = { source = "${CARGO_MAKE_RUST_TARGET_OS}", mapping = { linux = "so", macos = "dylib", windows = "dll" } }
+
+[tasks.cpp-smoke]
+description = "Generate, compile, and run the experimental C++17 bindings smoke test"
+script_runner = "@shell"
+script = """
+generator_root="${TARGET_DIR}/uniffi-bindgen-cpp/${CPP_BINDGEN_REVISION}"
+generator="${generator_root}/bin/uniffi-bindgen-cpp"
+if [ ! -x "${generator}" ]; then
+  cargo install --locked \
+    --git "${CPP_BINDGEN_REPOSITORY}" \
+    --rev "${CPP_BINDGEN_REVISION}" \
+    --root "${generator_root}" \
+    uniffi-bindgen-cpp
+fi
+
+cargo build -p livekit-uniffi
+
+library_path="${TARGET_DIR}/debug/${LIB_NAME}.${CPP_LIB_EXT}"
+build_dir="${TARGET_DIR}/livekit-uniffi-cpp-smoke"
+
+cmake -S "${SUPPORT_DIR}/cpp" -B "${build_dir}" \
+  -DUNIFFI_BINDGEN_CPP="${generator}" \
+  -DLIVEKIT_UNIFFI_LIBRARY="${library_path}"
+cmake --build "${build_dir}"
+ctest --test-dir "${build_dir}" --output-on-failure
+"""
+
 # MARK: - Kotlin
 
 [tasks.bindgen-kotlin]
