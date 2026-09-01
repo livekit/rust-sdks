@@ -92,21 +92,20 @@ jobs:
         shell: bash
         run: cargo build --release --target ${{ matrix.target }} -p livekit-uniffi
 
-      # Linux: native build for x64; cross toolchain for aarch64.
+      - name: Install cargo-zigbuild
+        if: ${{ matrix.platform == 'linux' }}
+        uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2.82.4
+        with:
+          tool: cargo-zigbuild
+
+      # `.2.28` pins the glibc the cdylib links against, so it loads on Debian
+      # 12, Ubuntu 22.04, Amazon Linux 2023 and node:*-slim rather than only on
+      # whatever the runner ships. zig is also the cross-linker, so aarch64
+      # builds here too. .cargo/config.toml's -fuse-ld=lld for aarch64 reaches
+      # `zig cc`, which accepts it.
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
-        run: |
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            sudo apt-get update
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-            # .cargo/config.toml forces -fuse-ld=lld for this target to link
-            # libwebrtc; livekit-uniffi doesn't use libwebrtc. A non-empty global
-            # RUSTFLAGS overrides that per-target config, selecting the GNU bfd
-            # linker the cross binutils provides.
-            export RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
-          fi
-          cargo build --release --target ${{ matrix.target }} -p livekit-uniffi
+        run: cargo zigbuild --release --target ${{ matrix.target }}.2.28 -p livekit-uniffi
 
       # Android: build with cargo-ndk.
       - name: Build (Android)
