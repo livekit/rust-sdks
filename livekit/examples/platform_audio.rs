@@ -60,7 +60,7 @@ impl log::Log for StdoutLogger {
 static LOGGER: StdoutLogger = StdoutLogger;
 
 fn main() {
-    log::set_logger(&LOGGER).unwrap();
+    log::set_logger(&LOGGER).expect("logger already set");
     log::set_max_level(LevelFilter::Debug);
 
     println!("=== Phase 1: basic lifecycle ===");

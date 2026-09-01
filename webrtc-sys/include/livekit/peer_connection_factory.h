@@ -72,6 +72,10 @@ class PeerConnectionFactory {
   std::shared_ptr<AudioDeviceController> audio_device() const;
 
  private:
+  // Declaration order matters: rtc_runtime_ must be declared before
+  // adm_proxy_/audio_device_ so it is destroyed last. Releasing the proxy
+  // does a BlockingCall onto the runtime's worker thread, which must still
+  // be running at that point.
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
   std::shared_ptr<AudioDeviceController> audio_device_;
