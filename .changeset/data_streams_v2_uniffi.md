@@ -1,6 +1,7 @@
 ---
 livekit: patch
 livekit-data-stream: patch
+livekit-signaling: patch
 livekit-ffi: patch
 livekit-uniffi: patch
 livekit-datatrack: patch
