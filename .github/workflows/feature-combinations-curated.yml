@@ -31,9 +31,13 @@
 #
 # The tradeoff is real and worth stating: this trades exhaustiveness on the top
 # two crates for speed, so a feature pair that only breaks in one of the
-# dropped combinations will not be caught here. feature-combinations.yml still
-# runs the full 209 plus livekit-ffi/livekit-uniffi nightly, which is the
-# backstop for exactly that.
+# dropped combinations is not caught anywhere. There is no exhaustive backstop
+# — the nightly full-powerset workflow was removed once this proved to be the
+# better cost/benefit. To get the full 209 back for a one-off investigation,
+# run it by hand:
+#
+#   cargo hack -p livekit -p livekit-api $LEAF_PACKAGES \
+#     --feature-powerset --depth 2 --keep-going check
 name: Feature Combinations (per-commit)
 
 on:
@@ -95,8 +99,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-          # See feature-combinations.yml: `native-tls` means openssl-sys, which
-          # has no OpenSSL to link against when cross-compiling to Android.
+          # `native-tls` means openssl-sys on Android, and there is no Android
+          # OpenSSL to link against — its build script fails outright. Not a
+          # feature-wiring bug: ffi-builds.yml ships all three Android targets
+          # as `rustls-tls-webpki-roots`. `native-tls-vendored`, which builds
+          # OpenSSL from source, still works and stays covered.
           - os: ubuntu-latest
             target: aarch64-linux-android
             exclude_features: native-tls
@@ -180,8 +187,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
 
-      # Same baseline as feature-combinations.yml so the two are comparable.
-      # Covers the four curated crates as well, since they are checked below.
+      # A plain default-feature check of the same crates, so the feature steps
+      # below have something to be measured against in the run summary.
       - name: Baseline check (default features)
         shell: bash
         run: |
@@ -238,8 +245,10 @@ jobs:
           # configurations are still covered: builds.yml builds the whole
           # workspace (livekit-ffi at default features) on every PR, and
           # ffi-builds.yml builds every shipped per-platform TLS variant on
-          # push to main. The residual gap is livekit-ffi's non-default TLS
-          # variants on PRs, which the nightly full powerset covers.
+          # push to main. The residual gap — livekit-ffi's non-default TLS
+          # variants on PRs — is knowingly accepted: covering it cost 103s of a
+          # 345s budget, for two crates whose shipped configurations are
+          # already built on every PR and on every push to main.
           EOF
           )
 
