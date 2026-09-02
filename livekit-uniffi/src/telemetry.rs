@@ -1,30 +1,35 @@
-// Copyright 2026 LiveKit, Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 //! Client telemetry core from the [`livekit-telemetry`] crate.
 //!
-//! FFI clients construct one [`Telemetry`] per pipeline with a host-implemented
-//! `TelemetryTransport` (e.g. a URLSession/OkHttp POST), then `emit` from any thread and push
-//! `DeviceState` changes as the OS reports them. The exporter runs on the global runtime;
-//! `shutdown` flushes within `export_timeout_ms`.
+//! FFI clients construct one [`Telemetry`] per pipeline, then `emit` from any thread, push
+//! `getStats()` readings with `record_stats` and `DeviceState` changes as the OS reports them.
+//! The exporter runs on the global runtime; `shutdown` flushes within `export_timeout_ms`.
+//!
+//! Transport: pass a host-implemented `TelemetryTransport` (a URLSession/OkHttp/dart:io POST,
+//! or a data channel), or pass `None` to ride the HTTP client the host registered with
+//! `livekit-net` (`set_http_client`) for signaling — one registration serves both.
 
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+};
 
 use livekit_telemetry::{
-    AttributeValue, DeviceState, RtcStatsSample, TelemetryConfig, TelemetryEvent, TelemetryStats,
-    TelemetryTransport,
+    AttributeValue, DeviceState, ExportError, ExportRequest, NetTransport, RtcStatsSample,
+    TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport,
 };
+use tokio::sync::{mpsc, oneshot};
+
+/// Why a [`Telemetry`] pipeline could not be created.
+#[derive(uniffi::Error, thiserror::Error, Debug)]
+#[uniffi(flat_error)]
+pub enum TelemetryError {
+    /// No transport was passed and no HTTP client is registered with `livekit-net`.
+    #[error("no telemetry transport: pass one, or register an HTTP client with livekit-net first")]
+    NoTransport,
+}
 
 /// Telemetry pipeline: buffer, batch, cache and export events as OTLP.
 #[derive(uniffi::Object)]
@@ -32,9 +37,27 @@ pub struct Telemetry(livekit_telemetry::Telemetry);
 
 #[uniffi::export(async_runtime = "tokio")]
 impl Telemetry {
+    /// `transport = None` uses the HTTP client registered with `livekit-net`, if any.
     #[uniffi::constructor]
-    pub fn new(config: TelemetryConfig, transport: Arc<dyn TelemetryTransport>) -> Arc<Self> {
+    pub fn new(
+        config: TelemetryConfig,
+        transport: Option<Arc<dyn TelemetryTransport>>,
+    ) -> Result<Arc<Self>, TelemetryError> {
+        let transport: Arc<dyn TelemetryTransport> = match transport {
+            Some(transport) => transport,
+            None => Arc::new(NetTransport::from_registry().ok_or(TelemetryError::NoTransport)?),
+        };
         let (telemetry, exporter) = livekit_telemetry::Telemetry::new(config, transport);
+        crate::runtime::runtime().spawn(exporter.run());
+        Ok(Arc::new(Self(telemetry)))
+    }
+
+    /// Like [`Telemetry::new`], but exports through a [`TelemetryExportQueue`] the host drains
+    /// from its own thread. For bindings whose callbacks cannot be invoked from Rust threads
+    /// (uniffi-dart today).
+    #[uniffi::constructor]
+    pub fn new_pulled(config: TelemetryConfig, queue: Arc<TelemetryExportQueue>) -> Arc<Self> {
+        let (telemetry, exporter) = livekit_telemetry::Telemetry::new(config, queue);
         crate::runtime::runtime().spawn(exporter.run());
         Arc::new(Self(telemetry))
     }
@@ -74,5 +97,84 @@ impl Telemetry {
     /// Pipeline health: drops by reason, uploads, cached batches.
     pub fn stats(&self) -> TelemetryStats {
         self.0.stats()
+    }
+}
+
+/// One export the host has to perform on behalf of a pulled pipeline.
+#[derive(uniffi::Record)]
+pub struct PendingExport {
+    pub id: u64,
+    pub request: ExportRequest,
+}
+
+struct Pending {
+    export: PendingExport,
+    done: oneshot::Sender<Result<(), ExportError>>,
+}
+
+/// Pull-side transport: Rust never calls into the host. The exporter queues each request; the
+/// host awaits [`next`](Self::next) (a Rust future — those cross every binding), performs the
+/// HTTP call on its own thread, and reports the outcome with [`complete`](Self::complete),
+/// which unblocks the exporter's retry/drop/go-silent logic exactly as a direct transport would.
+///
+/// Exists because uniffi-dart's foreign-trait callbacks are isolate-bound (`Pointer.fromFunction`)
+/// and abort the VM when invoked from a tokio thread; Swift and Kotlin callbacks are thread-agnostic
+/// and use [`TelemetryTransport`] directly.
+#[derive(uniffi::Object)]
+pub struct TelemetryExportQueue {
+    tx: mpsc::UnboundedSender<Pending>,
+    rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<Pending>>,
+    inflight: Mutex<HashMap<u64, oneshot::Sender<Result<(), ExportError>>>>,
+    seq: AtomicU64,
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl TelemetryExportQueue {
+    #[uniffi::constructor]
+    pub fn new() -> Arc<Self> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        Arc::new(Self {
+            tx,
+            rx: tokio::sync::Mutex::new(rx),
+            inflight: Mutex::new(HashMap::new()),
+            seq: AtomicU64::new(0),
+        })
+    }
+
+    /// The next request to perform. Resolves when one is queued; `None` once the pipeline is gone.
+    pub async fn next(&self) -> Option<PendingExport> {
+        let pending = self.rx.lock().await.recv().await?;
+        self.inflight
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(pending.export.id, pending.done);
+        Some(pending.export)
+    }
+
+    /// Report how the request with `id` went: `None` = accepted by the collector.
+    pub fn complete(&self, id: u64, error: Option<ExportError>) {
+        let done = self.inflight.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+        if let Some(done) = done {
+            let _ = done.send(error.map_or(Ok(()), Err));
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl TelemetryTransport for TelemetryExportQueue {
+    async fn send(&self, request: ExportRequest) -> Result<(), ExportError> {
+        let id = self.seq.fetch_add(1, Ordering::Relaxed);
+        let (done, wait) = oneshot::channel();
+        let pending = Pending { export: PendingExport { id, request }, done };
+        if self.tx.send(pending).is_err() {
+            return Err(ExportError::Retryable {
+                message: "export queue closed".into(),
+                retry_after_ms: None,
+            });
+        }
+        wait.await.unwrap_or(Err(ExportError::Retryable {
+            message: "host dropped the export".into(),
+            retry_after_ms: None,
+        }))
     }
 }
