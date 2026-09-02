@@ -17,7 +17,9 @@
 #ifndef JETSON_RUNTIME_LOADER_H_
 #define JETSON_RUNTIME_LOADER_H_
 
+#ifdef __cplusplus
 extern "C" {
+#endif
 
 // dlopen callback used by the implib-generated lazy-loading stubs in
 // src/lazy_load_deps_for/jetson (see --dlopen-callback in
@@ -32,6 +34,8 @@ void* lk_jetson_dlopen(const char* lib_name);
 // libraries are absent.
 int lk_jetson_runtime_libs_available(void);
 
+#ifdef __cplusplus
 }  // extern "C"
+#endif
 
 #endif  // JETSON_RUNTIME_LOADER_H_
