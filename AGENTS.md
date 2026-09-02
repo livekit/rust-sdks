@@ -75,6 +75,23 @@ Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `live
 - A new crate that exports UniFFI items needs its own `uniffi.toml`, including `omit_checksums = true` under `[bindings.kotlin]`
   - The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; the full explanation lives in `livekit-uniffi/uniffi.toml` and the root `Cargo.toml`
 
+## Feature combinations
+
+`.github/workflows/feature-combinations-curated.yml` is the only job in CI that exercises features in *combination*. A `dep:` that one feature pulls in but the code uses unconditionally, or a `?/` forward that silently no-ops, compiles fine under default features and breaks only for the caller who picks a particular set — nothing else catches that. It has two halves, maintained differently, and both need updating by hand.
+
+- **When adding a feature to `livekit` or `livekit-api`**, add the configurations a user would plausibly select to the `COMBOS` list in the "Top-level crates" step
+  - These two crates get a hand-picked list rather than a powerset, so a new feature is invisible to this job until it is listed there
+  - One line per configuration, `crate|cargo feature flags`; an empty flags field means default features
+  - Pair the feature with what it realistically ships alongside (a TLS backend together with `native`, say) rather than listing it on its own
+  - Do not add combinations nobody can select — internal `__lk-*` flags and two-TLS-backends-at-once are deliberately absent, and were most of what made the full powerset expensive
+- **When adding a workspace crate below `livekit`/`livekit-api`**, add `-p <crate>` to `LEAF_PACKAGES`
+  - Leaf crates get the full `cargo hack --feature-powerset --depth 2`, so listing the crate is all that is needed; its features are then picked up automatically as they are added
+  - cargo-hack only varies the features of packages named with `-p`. An unlisted crate still gets built as a dependency, which makes it easy to assume it is covered when it is not
+- Keep `--depth 2`. `livekit` alone goes from 67 combinations to 232 at depth 3, and pairwise interactions are where these bugs actually live
+- A feature that pulls in `openssl-sys` cannot build for the three Android targets — there is no Android OpenSSL to link against. Add it to their `exclude_features` rather than trying to make it work; Android ships rustls (see `ffi-builds.yml`)
+- `livekit-ffi` and `livekit-uniffi` are excluded on purpose: their combinations cost more than everything else in the job combined, because each TLS change rebuilds `livekit` underneath them. Their shipped configurations are covered by `builds.yml` and `ffi-builds.yml` instead
+- Check a change to either list without building anything by appending `--print-command-list`, which enumerates the combinations cargo-hack would run
+
 ## Documenting changes
 
 - Changes are documented using [_knope_](https://knope.tech)
