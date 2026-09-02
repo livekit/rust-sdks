@@ -151,6 +151,7 @@ ninja -C "$OUTPUT_DIR" :default \
 # archive and their methods are missing at runtime ("unrecognized selector")
 # unless every consumer links with -ObjC. Merged into one member, they are
 # loaded whenever any sdk symbol is referenced.
+rm -f "$ARTIFACTS_DIR/lib/libwebrtc.a"
 ld -r -keep_private_externs -o "$OUTPUT_DIR/sdk.o" `find "$OUTPUT_DIR/obj/sdk" -name '*.o'`
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" "$OUTPUT_DIR/sdk.o" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*" -not -path "*/obj/sdk/*"`
 
