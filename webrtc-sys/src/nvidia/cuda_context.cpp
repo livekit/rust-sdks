@@ -10,6 +10,7 @@
 #endif
 
 #include <iostream>
+#include <mutex>
 
 #if defined(WIN32)
 static const char CUDA_DYNAMIC_LIBRARY[] = "nvcuda.dll";
@@ -35,6 +36,13 @@ namespace livekit_ffi {
 
 static void* s_module_ptr = nullptr;
 static const int kRequiredDriverVersion = 11000;
+
+// Serializes access to the singleton context, its reference count, and the
+// dynamically loaded CUDA module.
+static std::mutex& cudaMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
 
 static bool load_cuda_modules() {
   if (s_module_ptr)
@@ -90,7 +98,7 @@ static bool check_cuda_device() {
     return false;
   }
 
-  return  true;
+  return true;
 }
 
 CudaContext* CudaContext::GetInstance() {
@@ -99,11 +107,19 @@ CudaContext* CudaContext::GetInstance() {
 }
 
 bool CudaContext::IsAvailable() {
+  std::lock_guard<std::mutex> lock(cudaMutex());
   return load_cuda_modules() && check_cuda_device();
 }
 
 bool CudaContext::Initialize() {
-  // Initialize CUDA context
+  std::lock_guard<std::mutex> lock(cudaMutex());
+  if (cu_context_ != nullptr) {
+    ++ref_count_;
+    RTC_LOG(LS_INFO) << "CUDA context already initialized; reusing existing "
+                        "context (refs="
+                     << ref_count_ << ").";
+    return true;
+  }
 
   bool success = load_cuda_modules();
   if (!success) {
@@ -162,11 +178,13 @@ bool CudaContext::Initialize() {
 
   cu_device_ = cu_device;
   cu_context_ = context;
+  ref_count_ = 1;
 
   return true;
 }
 
 CUcontext CudaContext::GetContext() const {
+  std::lock_guard<std::mutex> lock(cudaMutex());
   RTC_DCHECK(cu_context_ != nullptr);
   // Ensure the context is current
   CUcontext current;
@@ -183,7 +201,16 @@ CUcontext CudaContext::GetContext() const {
 }
 
 void CudaContext::Shutdown() {
-  // Shutdown CUDA context
+  std::lock_guard<std::mutex> lock(cudaMutex());
+  if (ref_count_ == 0) {
+    return;
+  }
+  --ref_count_;
+  if (ref_count_ > 0) {
+    RTC_LOG(LS_INFO) << "CUDA context released (refs=" << ref_count_ << ").";
+    return;
+  }
+
   if (cu_context_) {
     cuCtxDestroy(cu_context_);
     cu_context_ = nullptr;
