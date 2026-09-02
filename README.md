@@ -203,14 +203,6 @@ cargo build
   
 ```
 
-### MacOS
-
-When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implementation make use of ObjectiveC libraries on the Mac. You may get the following error if the app isn't linked with ObjC:
-
-```
-*** Terminating app due to uncaught exception 'NSInvalidArgumentException', reason: '-[RTCVideoCodecInfo nativeSdpVideoFormat]: unrecognized selector sent to instance 0x600003bc6660'
-```
-
 ## Motivation and Design Goals
 
 LiveKit aims to provide an open source, end-to-end WebRTC stack that works everywhere. We have two goals in mind with this SDK:
