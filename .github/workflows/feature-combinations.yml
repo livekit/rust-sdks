@@ -97,12 +97,23 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+          # `native-tls` means openssl-sys on Android, and there is no Android
+          # OpenSSL to link against — the build script fails with "Could not
+          # find directory of OpenSSL installation" for every combination that
+          # enables it. This is not a feature-wiring bug: Android is a
+          # rustls-only platform here, and ffi-builds.yml already ships all
+          # three Android targets as `rustls-tls-webpki-roots`. Excluding the
+          # feature drops 209 combinations to 172 and keeps
+          # `native-tls-vendored` (which builds OpenSSL from source) covered.
           - os: ubuntu-latest
             target: aarch64-linux-android
+            exclude_features: native-tls
           - os: ubuntu-latest
             target: armv7-linux-androideabi
+            exclude_features: native-tls
           - os: ubuntu-latest
             target: x86_64-linux-android
+            exclude_features: native-tls
 
     name: Feature powerset (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -212,6 +223,7 @@ jobs:
             --feature-powerset \
             --depth 2 \
             --keep-going \
+            ${{ matrix.exclude_features && format('--exclude-features {0}', matrix.exclude_features) || '' }} \
             check
           echo "POWERSET_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
