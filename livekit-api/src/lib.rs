@@ -21,20 +21,26 @@
 #[doc(inline)]
 pub use livekit_token as access_token;
 
-#[cfg(any(feature = "services-tokio", feature = "services-async"))]
+#[cfg(feature = "services")]
 pub mod services;
 
+// The signalling client lives in the livekit-signaling crate. Unlike
+// `access_token`, this path is NOT supported API: nothing in the workspace uses
+// it any more and it exists only so existing dependents keep compiling.
+//
+// The deprecation fires on `use livekit_api::signal_client;` but not on
+// `use livekit_api::signal_client::{Item}` — rustc only lints a deprecated
+// module when it is the final path segment. `#[doc(hidden)]` keeps it out of the
+// published docs so it stops reading as blessed API.
 #[cfg(feature = "signal-client")]
-pub mod signal_client;
+#[deprecated(note = "internal SDK API; depend on livekit-signaling directly")]
+#[doc(hidden)]
+pub mod signal_client {
+    pub use livekit_signaling::*;
+}
 
-#[cfg(any(feature = "services-tokio", feature = "services-async"))]
+#[cfg(feature = "services")]
 mod http_client;
-
-// Region-discovery helpers shared by the signaling region provider
-// (signal_client::region_url_provider) and the API failover region cache
-// (services::failover).
-#[cfg(any(feature = "signal-client", feature = "services-tokio", feature = "services-async"))]
-mod region;
 
 #[cfg(feature = "webhooks")]
 pub mod webhooks;

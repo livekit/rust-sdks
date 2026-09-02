@@ -9,11 +9,12 @@ readme = "README.md"
 
 [features]
 # By default ws TLS is not enabled
-default = ["tokio"]
+default = ["native"]
 
-async = ["livekit-api/signal-client-async", "livekit-runtime/async"]
-tokio = ["livekit-api/signal-client-tokio", "livekit-runtime/tokio"]
-dispatcher = ["livekit-api/signal-client-dispatcher", "livekit-runtime/dispatcher"]
+native = ["livekit-signaling/native"]
+
+# Back-compat alias from when this also selected a runtime.
+tokio = ["native"]
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
 # GDBus requires a GLib event loop to be running. Enable this feature if you
@@ -23,17 +24,16 @@ glib-main-loop = [ "libwebrtc/glib-main-loop" ]
 
 # Note that the following features only change the behavior of tokio-tungstenite.
 # It doesn't change the behavior of libwebrtc/webrtc-sys
-native-tls = ["livekit-api/native-tls"]
-native-tls-vendored = ["livekit-api/native-tls-vendored"]
-rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
-rustls-tls-webpki-roots = ["livekit-api/rustls-tls-webpki-roots"]
-__rustls-tls = ["livekit-api/__rustls-tls"]
+native-tls = ["livekit-signaling/native-tls"]
+native-tls-vendored = ["livekit-signaling/native-tls-vendored"]
+rustls-tls-native-roots = ["livekit-signaling/rustls-tls-native-roots"]
+rustls-tls-webpki-roots = ["livekit-signaling/rustls-tls-webpki-roots"]
+__rustls-tls = ["livekit-signaling/__rustls-tls"]
 __lk-internal = [] # internal features (used by livekit-ffi)
 __lk-e2e-test = ["livekit-data-stream/test-utils"] # end-to-end testing with a LiveKit server
 
 [dependencies]
-livekit-runtime = { workspace = true }
-livekit-api = { workspace = true }
+livekit-signaling = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
 livekit-common = { workspace = true }
@@ -42,7 +42,7 @@ livekit-datatrack = { workspace = true }
 prost = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", default-features = false, features = ["sync", "macros", "fs"] }
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "fs", "time", "rt-multi-thread"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 parking_lot = { version = "0.12" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }

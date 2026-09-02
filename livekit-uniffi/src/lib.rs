@@ -15,6 +15,9 @@
 /// Data tracks core from [`livekit-datatrack`].
 pub mod data_track;
 
+/// Data streams v2 core from [`livekit-data-stream`].
+pub mod data_stream;
+
 /// Access token generation and verification from [`livekit-api::access_token`].
 pub mod access_token;
 
@@ -32,5 +35,7 @@ pub mod common;
 
 /// Global async runtime.
 pub mod runtime;
+
+extern crate livekit_net;
 
 uniffi::setup_scaffolding!();

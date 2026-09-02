@@ -568,8 +568,27 @@ pub mod native {
     use std::fmt::Debug;
 
     use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
+    #[cfg(target_os = "linux")]
+    use crate::video_source::VideoResolution;
 
     new_buffer_type!(NativeBuffer, Native, as_native);
+
+    /// A borrowed DMA-BUF file descriptor.
+    ///
+    /// This is a plain [`RawFd`](std::os::fd::RawFd) (a C `int`, hence `i32`):
+    /// APIs taking this type borrow the descriptor rather than own it, so the
+    /// caller remains responsible for keeping it valid and closing it.
+    #[cfg(target_os = "linux")]
+    pub type DmaBufFileDescriptor = std::os::fd::RawFd;
+
+    /// Pixel format of a DMA-BUF backed video buffer.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum DmaBufPixelFormat {
+        NV12 = 0,
+        YUV420M = 1,
+    }
 
     impl NativeBuffer {
         /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
@@ -589,6 +608,31 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+
+        /// Creates a `NativeBuffer` backed by a DMA-BUF file descriptor
+        /// (Jetson `NvBufSurface`), for zero-copy hand-off to the hardware
+        /// encoder.
+        ///
+        /// This function does not take ownership of the fd: the caller must
+        /// keep it valid until every frame captured from it has been consumed
+        /// by the encoder.
+        #[cfg(target_os = "linux")]
+        pub fn from_dmabuf(
+            dmabuf_fd: DmaBufFileDescriptor,
+            resolution: VideoResolution,
+            pixel_format: DmaBufPixelFormat,
+        ) -> Self {
+            vf_imp::NativeBuffer::from_dmabuf(dmabuf_fd, resolution, pixel_format)
+        }
+
+        /// Returns the DMA-BUF fd that backs this buffer, or `None` if this
+        /// buffer is not DMA-BUF backed.
+        ///
+        /// This function does not transfer ownership of the fd.
+        #[cfg(target_os = "linux")]
+        pub fn get_dmabuf_fd(&self) -> Option<DmaBufFileDescriptor> {
+            self.handle.get_dmabuf_fd()
         }
     }
 

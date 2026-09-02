@@ -21,16 +21,15 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
-};
 use livekit_data_stream::backend as ds;
 use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
     backend as dt,
 };
 use livekit_protocol as proto;
-use livekit_runtime::JoinHandle;
+use livekit_signaling::{
+    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+};
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::SignalTarget;
@@ -46,6 +45,7 @@ use tokio::sync::{
     mpsc::{self, UnboundedReceiver},
     oneshot, Mutex as AsyncMutex,
 };
+use tokio::task::JoinHandle;
 
 pub use self::{
     data_stream::api::*,
@@ -823,30 +823,30 @@ impl Room {
 
         let (close_tx, close_rx) = broadcast::channel(1);
 
-        let incoming_stream_task = livekit_runtime::spawn(incoming_stream_manager.run());
-        let incoming_forward_task = livekit_runtime::spawn(incoming_data_stream_task(
+        let incoming_stream_task = tokio::spawn(incoming_stream_manager.run());
+        let incoming_forward_task = tokio::spawn(incoming_data_stream_task(
             incoming_output,
             dispatcher.clone(),
             close_rx.resubscribe(),
             inner.clone(),
         ));
-        let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
+        let outgoing_stream_handle = tokio::spawn(outgoing_data_stream_task(
             packet_rx,
             rtc_engine.clone(),
             close_rx.resubscribe(),
         ));
 
-        let local_dt_task = livekit_runtime::spawn(local_dt_manager.run());
-        let local_dt_forward_task = livekit_runtime::spawn(
+        let local_dt_task = tokio::spawn(local_dt_manager.run());
+        let local_dt_forward_task = tokio::spawn(
             inner.clone().local_dt_forward_task(local_dt_output, close_rx.resubscribe()),
         );
 
-        let remote_dt_task = livekit_runtime::spawn(remote_dt_manager.run());
-        let remote_dt_forward_task = livekit_runtime::spawn(
+        let remote_dt_task = tokio::spawn(remote_dt_manager.run());
+        let remote_dt_forward_task = tokio::spawn(
             inner.clone().remote_dt_forward_task(remote_dt_output, close_rx.resubscribe()),
         );
 
-        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+        let room_handle = tokio::spawn(inner.clone().room_task(engine_events, close_rx));
 
         let handle = Handle {
             room_handle,
@@ -898,6 +898,14 @@ impl Room {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.inner.rtc_engine.drop_disconnected_updates(enabled);
+    }
+
+    /// Test-only: the publisher transport's current connection state. Lets a test assert
+    /// that teardown really closed the transport, rather than inferring it from room-level
+    /// state that can reach `Disconnected` while the transport is still open.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
+        self.inner.rtc_engine.session().publisher_connection_state()
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
@@ -1005,7 +1013,7 @@ impl RoomSession {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = livekit_runtime::spawn(async move {
+                    let task = tokio::spawn(async move {
                         if let Err(err) = inner.on_engine_event(event).await {
                             log::error!("failed to handle engine event: {:?}", err);
                         }
@@ -1015,12 +1023,12 @@ impl RoomSession {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
                             log::error!("engine_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await;
+                    task.await.expect("engine event handler panicked");
                 },
                 _ = close_rx.recv() => {
                     break;
@@ -1093,7 +1101,7 @@ impl RoomSession {
                 }
                 let session = self.clone();
                 let caller = caller_identity.unwrap();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     let transport = rpc::SessionTransport(session.clone());
                     session
                         .rpc_server
@@ -1130,8 +1138,8 @@ impl RoomSession {
             EngineEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
                 self.handle_data_stream_chunk(chunk, participant_identity, encryption_type);
             }
-            EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
-                self.handle_data_stream_trailer(trailer, participant_identity);
+            EngineEvent::DataStreamTrailer { trailer, participant_identity, encryption_type } => {
+                self.handle_data_stream_trailer(trailer, participant_identity, encryption_type);
             }
             EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 self.handle_data_channel_buffered_low_threshold_change(kind, threshold);
@@ -1381,7 +1389,7 @@ impl RoomSession {
             .cloned();
 
         if let Some(remote_participant) = remote_participant {
-            livekit_runtime::spawn(async move {
+            tokio::spawn(async move {
                 remote_participant.add_subscribed_media_track(track_id, track, transceiver).await;
             });
         } else {
@@ -1657,7 +1665,7 @@ impl RoomSession {
         let _ = tx.send(());
 
         let local_participant = self.local_participant.clone();
-        livekit_runtime::spawn(async move {
+        tokio::spawn(async move {
             local_participant.update_track_subscription_permissions().await;
         });
     }
@@ -1667,7 +1675,7 @@ impl RoomSession {
         _reconnect_repsonse: proto::ReconnectResponse,
         tx: oneshot::Sender<()>,
     ) {
-        livekit_runtime::spawn({
+        tokio::spawn({
             let session = self.clone();
             async move {
                 session.send_sync_state().await;
@@ -1711,7 +1719,7 @@ impl RoomSession {
 
         // Spawining a new task because we need to wait for the RtcEngine to close the reconnection
         // lock.
-        livekit_runtime::spawn({
+        tokio::spawn({
             let session = self.clone();
             async move {
                 let mut set = tokio::task::JoinSet::new();
@@ -1791,7 +1799,7 @@ impl RoomSession {
             reason
         );
         if reason != DisconnectReason::ClientInitiated {
-            livekit_runtime::spawn({
+            tokio::spawn({
                 let inner = self.clone();
                 async move {
                     let _ = inner.close(reason).await;
@@ -1951,10 +1959,14 @@ impl RoomSession {
         &self,
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     ) {
         let _ = self.incoming_data_stream_input.send(
             ds::incoming::PacketReceived::new(
-                ds::Packet::Trailer(trailer.into()),
+                ds::Packet::Trailer {
+                    trailer: trailer.into(),
+                    encryption_type: encryption_type.into(),
+                },
                 participant_identity.into(),
             )
             .into(),
@@ -2399,7 +2411,7 @@ async fn incoming_data_stream_task(
                         match topic.as_str() {
                             rpc::RPC_REQUEST_TOPIC => {
                                 let session = session.clone();
-                                livekit_runtime::spawn(async move {
+                                tokio::spawn(async move {
                                     let transport = rpc::SessionTransport(session.clone());
                                     session.rpc_server.handle_v2_request_stream(
                                         reader,
@@ -2410,7 +2422,7 @@ async fn incoming_data_stream_task(
                             }
                             rpc::RPC_RESPONSE_TOPIC => {
                                 let session = session.clone();
-                                livekit_runtime::spawn(async move {
+                                tokio::spawn(async move {
                                     session.rpc_client.handle_v2_response_stream(reader).await;
                                 });
                             }
@@ -2438,6 +2450,9 @@ async fn incoming_data_stream_task(
                         dispatcher.dispatch(&RoomEvent::StreamTrailerReceived { trailer: trailer.into(), participant_identity: participant_identity.into() });
                     }
                 }
+                // The Rust SDK observes completion through the reader itself; the explicit
+                // closed signal exists for FFI hosts sequencing handlers on ordered topics.
+                ds::incoming::OutputEvent::StreamClosed(_) => {}
             },
             _ = close_rx.recv() => {
                 _ = session.incoming_data_stream_input.send(ds::incoming::InputEvent::Shutdown);
@@ -2455,25 +2470,33 @@ fn is_internal_topic(topic: &str) -> bool {
     INTERNAL_DATA_STREAM_TOPICS.contains(&topic)
 }
 
-/// Receives packets from the outgoing stream manager and send them.
+/// Receives packet batches from the outgoing stream manager and send them.
 async fn outgoing_data_stream_task(
-    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>,
+    mut packet_rx: UnboundedRequestReceiver<Vec<proto::DataPacket>, Result<(), SendError>>,
     engine: Arc<RtcEngine>,
     mut close_rx: broadcast::Receiver<()>,
 ) {
     loop {
         tokio::select! {
-            Ok((packet, responder)) = packet_rx.recv() => {
-                // A packet stamped with an explicit sender identity (impersonation, e.g. an
-                // agent attributing a stream to another participant) must be sent raw so the
-                // session doesn't overwrite the identity with the local participant's.
-                let is_raw_packet = !packet.participant_identity.is_empty();
-                // Bridge the engine error into the data-stream crate's opaque `SendError`
-                // (the crate only needs to know whether the send failed).
-                let result = engine
-                    .publish_data(packet, DataPacketKind::Reliable, is_raw_packet)
-                    .await
-                    .map_err(|_| SendError);
+            Ok((packets, responder)) = packet_rx.recv() => {
+                // The batch is acknowledged as a whole; the first failure fails the request.
+                let mut result = Ok(());
+                for packet in packets {
+                    // A packet stamped with an explicit sender identity (impersonation, e.g. an
+                    // agent attributing a stream to another participant) must be sent raw so the
+                    // session doesn't overwrite the identity with the local participant's.
+                    let is_raw_packet = !packet.participant_identity.is_empty();
+                    // Bridge the engine error into the data-stream crate's opaque `SendError`
+                    // (the crate only needs to know whether the send failed).
+                    if engine
+                        .publish_data(packet, DataPacketKind::Reliable, is_raw_packet)
+                        .await
+                        .is_err()
+                    {
+                        result = Err(SendError);
+                        break;
+                    }
+                }
                 let _ = responder.respond(result);
             },
             _ = close_rx.recv() => {

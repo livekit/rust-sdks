@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use livekit_runtime::{interval, sleep, timeout, Instant, MissedTickBehavior};
+use tokio::time::{interval, sleep, timeout, Instant, MissedTickBehavior};
 use tokio::{
     sync::{mpsc, oneshot},
     time::Interval,

@@ -20,8 +20,8 @@ use super::{
 use crate::data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
 use libwebrtc::native::create_random_uuid;
-use livekit_api::signal_client::CLIENT_PROTOCOL_DATA_STREAM_RPC;
 use livekit_protocol as proto;
+use livekit_signaling::CLIENT_PROTOCOL_DATA_STREAM_RPC;
 use parking_lot::Mutex;
 use semver::Version;
 use std::collections::HashMap;

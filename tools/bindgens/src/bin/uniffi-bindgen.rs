@@ -12,24 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(any(
-    all(feature = "tokio", feature = "async"),
-    all(feature = "tokio", feature = "dispatcher"),
-    all(feature = "dispatcher", feature = "async")
-))]
-compile_error!("Cannot compile livekit with multiple runtimes");
-
-#[cfg(feature = "tokio")]
-mod tokio;
-#[cfg(feature = "tokio")]
-pub use tokio::*;
-
-#[cfg(feature = "async")]
-mod async_std;
-#[cfg(feature = "async")]
-pub use async_std::*;
-
-#[cfg(feature = "dispatcher")]
-mod dispatcher;
-#[cfg(feature = "dispatcher")]
-pub use dispatcher::*;
+//! The UniFFI bindgen CLI, shared across the workspace.
+//!
+//! Generate bindings from any compiled uniffi cdylib, e.g.:
+//! `cargo run -p bindgens --bin uniffi-bindgen -- generate \
+//!     --library target/debug/liblivekit_ffi.dylib --language python --out-dir <dir>`
+fn main() {
+    uniffi::uniffi_bindgen_main()
+}

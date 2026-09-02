@@ -27,7 +27,7 @@
 //!
 //! These are the Rust counterparts to cmd/test-server/signal_test.go, which
 //! exercises the same modes from the server side.
-#![cfg(all(feature = "signal-client-tokio", feature = "access-token"))]
+#![cfg(feature = "native")]
 //
 // Moved out of `src/signal_client/signal_test.rs`: as an in-crate `#[cfg(test)]` module it
 // shared a test binary with the unit tests that call `install_mock_transport()`, which
@@ -42,10 +42,10 @@ use std::time::Duration;
 use livekit_protocol as proto;
 use tokio::time::{timeout, timeout_at, Instant};
 
-use livekit_api::access_token::{AccessToken, VideoGrants};
-use livekit_api::signal_client::{
+use livekit_signaling::{
     SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions, SignalResult,
 };
+use livekit_token::{AccessToken, VideoGrants};
 
 /// The mock verifies tokens against this secret by default (matches
 /// `livekit-server --dev` and the test-server's `--api-secret` default).

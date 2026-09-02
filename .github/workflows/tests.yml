@@ -177,8 +177,14 @@ jobs:
             --nocapture \
             --test-threads=1
 
-      - name: Test transport seam (livekit-net / signal-client)
+      - name: Test transport seam (livekit-net / livekit-signaling)
         shell: bash
         run: |
-          cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native-tokio
-          cargo test --verbose --target ${{ matrix.target }} -p livekit-api --features signal-client-tokio
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-signaling --features native
+
+      - name: Build livekit-net uniffi feature (foreign transport bindings)
+        shell: bash
+        run: |
+          cargo build --verbose --target ${{ matrix.target }} -p livekit-net --features uniffi
+          cargo build --verbose --target ${{ matrix.target }} -p livekit-net --features uniffi,native

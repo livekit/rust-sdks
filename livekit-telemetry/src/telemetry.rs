@@ -18,8 +18,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use livekit_runtime::timeout;
 use tokio::sync::{mpsc, oneshot};
+use tokio::time::timeout;
 
 use crate::{
     event::now_unix_nanos, exporter::Command, rtc::StatsWindows, stats::Counters, store::Store,

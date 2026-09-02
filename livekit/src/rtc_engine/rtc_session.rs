@@ -25,10 +25,9 @@ use std::{
 
 use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
-use livekit_runtime::{sleep, JoinHandle};
+use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
 use parking_lot::Mutex;
 use prost::Message;
 use proto::SignalTarget;
@@ -37,6 +36,7 @@ use tokio::sync::{
     mpsc::{self, WeakUnboundedSender},
     oneshot, watch, Notify,
 };
+use tokio::{task::JoinHandle, time::sleep};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
@@ -202,6 +202,7 @@ pub enum SessionEvent {
     DataStreamTrailer {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataChannelBufferedAmountLowThresholdChanged {
         kind: DataPacketKind,
@@ -686,13 +687,10 @@ impl RtcSession {
         }
 
         // Start session tasks
-        let signal_task =
-            livekit_runtime::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
-        let rtc_task =
-            livekit_runtime::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
-        let dc_task =
-            livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
-        let dt_sender_task = livekit_runtime::spawn(dt_sender.run());
+        let signal_task = tokio::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
+        let rtc_task = tokio::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
+        let dc_task = tokio::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
+        let dt_sender_task = tokio::spawn(dt_sender.run());
 
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
@@ -847,6 +845,13 @@ impl RtcSession {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn drop_disconnected_updates(&self, enabled: bool) {
         self.inner.drop_disconnected_updates.store(enabled, Ordering::Release);
+    }
+
+    /// Test-only: the publisher transport's current connection state, so tests can assert
+    /// that teardown actually closed it rather than inferring it from room-level state.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn publisher_connection_state(&self) -> PeerConnectionState {
+        self.inner.publisher_pc.peer_connection().connection_state()
     }
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
@@ -1061,7 +1066,7 @@ impl SessionInner {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = livekit_runtime::spawn(async move {
+                    let task = tokio::spawn(async move {
                         if let Err(err) = inner.on_rtc_event(event).await {
                             log::error!("failed to handle rtc event: {:?}", err);
                         }
@@ -1071,12 +1076,12 @@ impl SessionInner {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
                             log::error!("rtc_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await;
+                    task.await.expect("rtc event handler panicked");
                 },
                 _ = close_rx.changed() => {
                     break;
@@ -1100,7 +1105,7 @@ impl SessionInner {
                             let debug = format!("{:?}", signal);
                             let inner = self.clone();
                             let (tx, rx) = oneshot::channel();
-                            let task = livekit_runtime::spawn(async move {
+                            let task = tokio::spawn(async move {
                                 if let Err(err) = inner.on_signal_event(*signal).await {
                                     log::error!("failed to handle signal: {:?}", err);
                                 }
@@ -1110,12 +1115,12 @@ impl SessionInner {
                             // Monitor sync/async blockings
                             tokio::select! {
                                 _ = rx => {},
-                                _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
+                                _ = tokio::time::sleep(Duration::from_secs(10)) => {
                                     log::error!("signal_event taking too much time: {}", debug);
                                 }
                             }
 
-                            task.await;
+                            task.await.expect("signal event handler panicked");
                         }
                         SignalEvent::Close(reason) => {
                             if !self.closed.load(Ordering::Acquire) {
@@ -1791,7 +1796,11 @@ impl SessionInner {
             proto::data_packet::Value::StreamTrailer(trailer) => {
                 let participant_identity =
                     participant_identity.map_or("".into(), |identity| identity.0);
-                self.emitter.send(SessionEvent::DataStreamTrailer { trailer, participant_identity })
+                self.emitter.send(SessionEvent::DataStreamTrailer {
+                    trailer,
+                    participant_identity,
+                    encryption_type,
+                })
             }
             proto::data_packet::Value::EncryptedPacket(encrypted_packet) => {
                 // Handle encrypted data packets
@@ -1985,6 +1994,15 @@ impl SessionInner {
         self.closed.store(true, Ordering::Release);
         self.pc_state_notify.notify_waiters();
 
+        // Both awaits below are unbounded, and `PeerTransport::close` is synchronous, so
+        // closing here — before the future can suspend — is what stops a cancelled
+        // `close()` leaving the ICE sockets bound for the process's lifetime. The
+        // signalling socket is unaffected, so the Leave below still goes out.
+        self.publisher_pc.close();
+        if let Some(ref sub_pc) = self.subscriber_pc {
+            sub_pc.close();
+        }
+
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
                 action: proto::leave_request::Action::Disconnect.into(),
@@ -1994,10 +2012,6 @@ impl SessionInner {
             .await;
 
         self.signal_client.close().await;
-        self.publisher_pc.close();
-        if let Some(ref sub_pc) = self.subscriber_pc {
-            sub_pc.close();
-        }
     }
 
     async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
@@ -2239,7 +2253,7 @@ impl SessionInner {
     async fn wait_pc_connection_with_delay(&self, settle_delay: Duration) -> EngineResult<()> {
         let wait_connected = async move {
             if !settle_delay.is_zero() {
-                livekit_runtime::sleep(settle_delay).await;
+                tokio::time::sleep(settle_delay).await;
             }
 
             loop {
@@ -2316,7 +2330,7 @@ impl SessionInner {
                 drop(state);
 
                 let session = self.clone();
-                livekit_runtime::spawn(async move {
+                tokio::spawn(async move {
                     session.execute_negotiation_with_retry().await;
                     session.negotiation_queue.task_running.store(false, Ordering::Release);
                 });
@@ -2435,7 +2449,7 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                livekit_runtime::sleep(Duration::from_millis(50)).await;
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
 
             Ok(())

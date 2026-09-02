@@ -43,12 +43,15 @@ fn create_random_uuid() -> String {
 
 #[derive(Clone)]
 pub struct Manager {
-    /// Request channel for sending packets.
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
+    /// Request channel for sending packet batches. Each request is an ordered batch the
+    /// transport acknowledges as a whole: one-shot sends (`send_text`/`send_bytes`) emit their
+    /// entire stream as a single request, while every other call site sends one packet at a time.
+    packet_tx: UnboundedRequestSender<Vec<proto::DataPacket>, Result<(), SendError>>,
 }
 
 impl Manager {
-    pub fn new() -> (Self, UnboundedRequestReceiver<proto::DataPacket, Result<(), SendError>>) {
+    pub fn new() -> (Self, UnboundedRequestReceiver<Vec<proto::DataPacket>, Result<(), SendError>>)
+    {
         let (packet_tx, packet_rx) = bmrng::unbounded_channel();
         let manager = Self { packet_tx };
         (manager, packet_rx)
@@ -159,27 +162,30 @@ impl Manager {
             return Ok(TextStreamInfo::from_headers(header, text_header));
         }
 
-        // 2/3. Chunked, compressed when eligible else uncompressed.
+        // 2/3. Chunked, compressed when eligible else uncompressed. The entire stream — header,
+        // chunks, trailer — goes out as one transport request.
         header.inline_content = None;
         enforce_header_size(&header, &options.destination_identities)?;
 
-        let open_options = RawStreamOpenOptions {
-            header: header.clone(),
-            destination_identities: options.destination_identities,
-            sender_identity: options.sender_identity,
-            packet_tx: self.packet_tx.clone(),
-        };
-        let info = TextStreamInfo::from_headers(header, text_header);
-        let mut stream = RawStream::open(open_options).await?;
+        let info = TextStreamInfo::from_headers(header.clone(), text_header);
         if use_compression {
             let compressed_bytes = maybe_compressed.as_bytes().await?;
-            stream.write_raw_chunks(compressed_bytes).await?;
+            self.send_one_shot_stream(
+                header,
+                compressed_bytes.chunks(constants::STREAM_CHUNK_SIZE_BYTES),
+                options.destination_identities,
+                options.sender_identity,
+            )
+            .await?;
         } else {
-            for chunk in text_bytes.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES) {
-                stream.write_chunk(chunk).await?;
-            }
+            self.send_one_shot_stream(
+                header,
+                text_bytes.utf8_aware_chunks(constants::STREAM_CHUNK_SIZE_BYTES),
+                options.destination_identities,
+                options.sender_identity,
+            )
+            .await?;
         }
-        stream.close(None, None).await?;
         Ok(info)
     }
 
@@ -253,25 +259,20 @@ impl Manager {
             return Ok(ByteStreamInfo::from_headers(header, byte_header));
         }
 
-        // 2/3. Chunked, compressed when eligible else uncompressed.
+        // 2/3. Chunked, compressed when eligible else uncompressed. The entire stream — header,
+        // chunks, trailer — goes out as one transport request.
         header.inline_content = None;
         enforce_header_size(&header, &options.destination_identities)?;
 
-        let open_options = RawStreamOpenOptions {
-            header: header.clone(),
-            destination_identities: options.destination_identities,
-            sender_identity: options.sender_identity,
-            packet_tx: self.packet_tx.clone(),
-        };
-        let info = ByteStreamInfo::from_headers(header, byte_header);
-        let mut stream = RawStream::open(open_options).await?;
-        if use_compression {
-            let compressed_bytes = maybe_compressed.as_bytes().await?;
-            stream.write_raw_chunks(compressed_bytes).await?;
-        } else {
-            stream.write_raw_chunks(bytes).await?;
-        }
-        stream.close(None, None).await?;
+        let info = ByteStreamInfo::from_headers(header.clone(), byte_header);
+        let content = if use_compression { maybe_compressed.as_bytes().await? } else { bytes };
+        self.send_one_shot_stream(
+            header,
+            content.chunks(constants::STREAM_CHUNK_SIZE_BYTES),
+            options.destination_identities,
+            options.sender_identity,
+        )
+        .await?;
         Ok(info)
     }
 
@@ -317,6 +318,36 @@ impl Manager {
         stream.write_file(path, should_compress).await?;
         stream.close(None, None).await?;
         Ok(info)
+    }
+
+    /// Sends a complete one-shot stream — header, pre-split content chunks, trailer — as a
+    /// single transport request acknowledged as a whole, rather than one request per packet.
+    ///
+    /// Only for sends whose full content is already in memory (`send_text`/`send_bytes`);
+    /// incremental writers and `send_file` stream packet-by-packet instead.
+    async fn send_one_shot_stream<'a>(
+        &self,
+        header: Header,
+        chunks: impl IntoIterator<Item = &'a [u8]>,
+        destination_identities: Vec<ParticipantIdentity>,
+        sender_identity: Option<ParticipantIdentity>,
+    ) -> StreamResult<()> {
+        let stream_id = header.stream_id.to_string();
+        let mut packets =
+            vec![RawStream::create_header_packet(header.into(), destination_identities)];
+        packets.extend(
+            chunks.into_iter().enumerate().map(|(index, chunk)| {
+                RawStream::create_chunk_packet(&stream_id, index as u64, chunk)
+            }),
+        );
+        packets.push(RawStream::create_trailer_packet(&stream_id, None, None));
+        if let Some(sender_identity) = sender_identity {
+            let identity: String = sender_identity.into();
+            for packet in &mut packets {
+                packet.participant_identity = identity.clone();
+            }
+        }
+        RawStream::send_packets(&self.packet_tx, packets).await
     }
 }
 
@@ -537,14 +568,29 @@ mod tests {
     // --- Capture harness -----------------------------------------------------------------
 
     type Sent = Arc<StdMutex<Vec<proto::DataPacket>>>;
+    type SentBatches = Arc<StdMutex<Vec<Vec<proto::DataPacket>>>>;
 
     fn setup() -> (Manager, Sent) {
         let (manager, mut packet_rx) = Manager::new();
         let sent: Sent = Arc::new(StdMutex::new(Vec::new()));
         let sink = sent.clone();
         tokio::spawn(async move {
-            while let Ok((packet, responder)) = packet_rx.recv().await {
-                sink.lock().unwrap().push(packet);
+            while let Ok((packets, responder)) = packet_rx.recv().await {
+                sink.lock().unwrap().extend(packets);
+                let _ = responder.respond(Ok(()));
+            }
+        });
+        (manager, sent)
+    }
+
+    /// Like [`setup`], but records the batch boundaries of each transport request.
+    fn setup_batched() -> (Manager, SentBatches) {
+        let (manager, mut packet_rx) = Manager::new();
+        let sent: SentBatches = Arc::new(StdMutex::new(Vec::new()));
+        let sink = sent.clone();
+        tokio::spawn(async move {
+            while let Ok((packets, responder)) = packet_rx.recv().await {
+                sink.lock().unwrap().push(packets);
                 let _ = responder.respond(Ok(()));
             }
         });
@@ -1263,7 +1309,7 @@ mod tests {
 
         let raw_stream = rt.block_on(async {
             let (packet_tx, mut packet_rx) =
-                bmrng::unbounded_channel::<proto::DataPacket, Result<(), SendError>>();
+                bmrng::unbounded_channel::<Vec<proto::DataPacket>, Result<(), SendError>>();
 
             tokio::spawn(async move {
                 while let Ok((_packet, responder)) = packet_rx.recv().await {
@@ -1297,6 +1343,78 @@ mod tests {
         let drop_thread = std::thread::spawn(move || drop(raw_stream));
 
         drop_thread.join().expect("Dropping RawStream on a non-Tokio thread must not panic");
+    }
+
+    // --- Batching ---------------------------------------------------------------------------
+
+    mod packet_batching {
+        use super::*;
+
+        #[tokio::test]
+        async fn one_shot_send_text_is_a_single_transport_request() {
+            let (m, sent) = setup_batched();
+            // 40 KB uncompressed to a pre-v2 room: header + 3 chunks (15k/15k/10k) + trailer,
+            // delivered as ONE transport request rather than one per packet.
+            let text = "A".repeat(40_000);
+            m.send_text(&text, text_opts("chat", &[]), &pre_v2_room()).await.unwrap();
+            let batches = sent.lock().unwrap().clone();
+            assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![5]);
+            let batch = &batches[0];
+            assert!(matches!(batch[0].value, Some(proto::data_packet::Value::StreamHeader(_))));
+            for (i, packet) in batch[1..4].iter().enumerate() {
+                assert_eq!(chunk(packet).chunk_index, i as u64);
+            }
+            assert_trailer(&batch[4]);
+        }
+
+        #[tokio::test]
+        async fn one_shot_send_bytes_is_a_single_transport_request() {
+            let (m, sent) = setup_batched();
+            let payload = vec![0x07u8; 40_000];
+            let opts = byte_opts("blob", &["alice", "bob"]).with_compress(false);
+            m.send_bytes(&payload, opts, &all_v2_room()).await.unwrap();
+            let batches = sent.lock().unwrap().clone();
+            assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![5]);
+        }
+
+        #[tokio::test]
+        async fn one_shot_send_with_sender_identity_stamps_every_packet() {
+            let (m, sent) = setup_batched();
+            let opts = text_opts("chat", &[]).with_sender_identity("impostor");
+            m.send_text(&"A".repeat(20_000), opts, &pre_v2_room()).await.unwrap();
+            let batches = sent.lock().unwrap().clone();
+            assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![4]);
+            assert!(batches[0].iter().all(|pkt| pkt.participant_identity == "impostor"));
+        }
+
+        #[tokio::test]
+        async fn incremental_writer_sends_per_write() {
+            let (m, sent) = setup_batched();
+            let writer = m.stream_text(text_opts("chat", &[])).await.unwrap();
+            writer.write("hello").await.unwrap();
+            writer.write("world").await.unwrap();
+            writer.close().await.unwrap();
+            // Incremental writes are flushed as they happen — never coalesced across writes.
+            let batches = sent.lock().unwrap().clone();
+            assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![1, 1, 1, 1]);
+        }
+
+        #[tokio::test]
+        async fn send_file_streams_one_packet_per_request() {
+            // send_file deliberately never buffers the whole file, so it keeps per-packet
+            // requests instead of the one-shot batch.
+            let (m, sent) = setup_batched();
+            let path =
+                std::env::temp_dir().join(format!("lk_ds_batch_{}.bin", create_random_uuid()));
+            tokio::fs::write(&path, vec![0x07u8; 20_000]).await.unwrap();
+            m.send_file(&path, byte_opts("file", &[]).with_compress(false), &all_v2_room())
+                .await
+                .unwrap();
+            let _ = tokio::fs::remove_file(&path).await;
+            let batches = sent.lock().unwrap().clone();
+            // Header + 15k chunk + 5k chunk + trailer, each its own request.
+            assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![1, 1, 1, 1]);
+        }
     }
 
     // --- Additional spec-conformance cases ------------------------------------------------

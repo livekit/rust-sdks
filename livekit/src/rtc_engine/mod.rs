@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use libwebrtc::prelude::*;
-use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
-use livekit_runtime::JoinHandle;
+use livekit_signaling::{SignalError, SignalOptions};
 use parking_lot::{RwLock, RwLockReadGuard};
 use std::{borrow::Cow, collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
 };
+use tokio::task::JoinHandle;
 
 pub use self::rtc_session::{SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
 use crate::prelude::ParticipantIdentity;
@@ -209,6 +209,7 @@ pub enum EngineEvent {
     DataStreamTrailer {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataChannelBufferedAmountLowThresholdChanged {
         kind: DataPacketKind,
@@ -397,7 +398,7 @@ impl RtcEngine {
 
     pub fn publisher_negotiation_needed(&self) {
         let inner = self.inner.clone();
-        livekit_runtime::spawn(async move {
+        tokio::spawn(async move {
             if let Ok((handle, _)) = inner.wait_reconnection().await {
                 handle.session.publisher_negotiation_needed()
             }
@@ -499,11 +500,8 @@ impl EngineInner {
 
                     // Start initial tasks
                     let (close_tx, close_rx) = oneshot::channel();
-                    let session_task = livekit_runtime::spawn(Self::engine_task(
-                        inner.clone(),
-                        session_events,
-                        close_rx,
-                    ));
+                    let session_task =
+                        tokio::spawn(Self::engine_task(inner.clone(), session_events, close_rx));
                     inner.running_handle.write().engine_task = Some((session_task, close_tx));
 
                     Ok((inner, join_response, engine_rx))
@@ -552,7 +550,7 @@ impl EngineInner {
                     let debug = format!("{:?}", event);
                     let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
-                    let task = livekit_runtime::spawn(async move {
+                    let task = tokio::spawn(async move {
                         if let Err(err) = inner.on_session_event(event).await {
                             log::error!("failed to handle session event: {:?}", err);
                         }
@@ -562,12 +560,12 @@ impl EngineInner {
                     // Monitor sync/async blockings
                     tokio::select! {
                         _ = rx => {},
-                        _ = livekit_runtime::sleep(Duration::from_secs(10)) => {
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {
                             log::error!("session_event is taking too much time: {}", debug);
                         }
                     }
 
-                    task.await;
+                    task.await.expect("session event handler panicked");
                 },
                  _ = &mut close_rx => {
                     break;
@@ -614,7 +612,7 @@ impl EngineInner {
 
                         // Spawning a new task because the close function wait for the engine_task to
                         // finish. (So it doesn't make sense to await it here)
-                        livekit_runtime::spawn({
+                        tokio::spawn({
                             let inner = self.clone();
                             async move {
                                 inner.close(reason).await;
@@ -718,10 +716,12 @@ impl EngineInner {
                     encryption_type,
                 });
             }
-            SessionEvent::DataStreamTrailer { trailer, participant_identity } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::DataStreamTrailer { trailer, participant_identity });
+            SessionEvent::DataStreamTrailer { trailer, participant_identity, encryption_type } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamTrailer {
+                    trailer,
+                    participant_identity,
+                    encryption_type,
+                });
             }
             SessionEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 let _ = self.engine_tx.send(
@@ -842,7 +842,7 @@ impl EngineInner {
         // a generic UnknownReason.
         running_handle.reconnect_reason = reason;
 
-        livekit_runtime::spawn({
+        tokio::spawn({
             let inner = self.clone();
             async move {
                 // Hold the reconnection lock for the whole reconnection time
@@ -1026,7 +1026,7 @@ impl EngineInner {
             // `is_closed` check then returns) instead of waiting out the backoff.
             let backoff = reconnect_strategy::delay(i);
             tokio::select! {
-                _ = livekit_runtime::sleep(backoff) => {}
+                _ = tokio::time::sleep(backoff) => {}
                 _ = self.retry_now_notify.notified() => {
                     log::debug!("retry_now signalled, skipping reconnect backoff");
                 }
@@ -1086,7 +1086,7 @@ impl EngineInner {
         handle.full_reconnect = false;
 
         let (close_tx, close_rx) = oneshot::channel();
-        let task = livekit_runtime::spawn(self.clone().engine_task(session_events, close_rx));
+        let task = tokio::spawn(self.clone().engine_task(session_events, close_rx));
         handle.engine_task = Some((task, close_tx));
 
         Ok(())

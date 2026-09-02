@@ -310,6 +310,12 @@ SWIFT_DSYMS_FLAG = { value = "--debug-symbols", condition = { profiles = ["relea
 # to each per-arch .dylib at target/<arch>/release/deps/lib<name>.dylib.dSYM.
 CARGO_PROFILE_RELEASE_DEBUG = { value = "limited", condition = { profiles = ["release"] } }
 CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO = { value = "packed", condition = { profiles = ["release"] } }
+# The workspace dev profile is `debug = "line-tables-only"` for build speed,
+# but the debug xcframework exists for lldb Rust-side debugging (variable
+# inspection needs full DWARF — see support/swift/DEBUGGING.md). Restore it
+# here so `swift-package-debug` keeps its promise regardless of the workspace
+# default.
+CARGO_PROFILE_DEV_DEBUG = { value = "full", condition = { profiles = ["development"] } }
 # Space-separated platform list, overridable for partial builds (e.g. the
 # macos-only debug flow below).
 SPM_PLATFORMS = { value = "macos ios maccatalyst visionos tvos", condition = { env_not_set = ["SPM_PLATFORMS"] } }
@@ -529,8 +535,13 @@ run_task = "swift-package-flow"
 # Measured on the stripped .so inside the release AAR (AGP strips debug symbols
 # during assemble; the raw target/ artifact is larger and not what ships).
 # Override the limit per release with ANDROID_SIZE_LIMIT_BYTES.
+#
+# 1536 KiB as of data streams v2: the async foreign-trait machinery, the stream-closed and
+# open-stream-count surface, and trailer encryption checks put the arm64-v8a slice at 1490 KiB
+# (measured 2026-08; cargo's `strip = "symbols"` is already applied, so AGP's strip pass has
+# nothing further to remove).
 [tasks.android-check-size.env]
-ANDROID_SIZE_LIMIT_BYTES = { value = "1310720", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
+ANDROID_SIZE_LIMIT_BYTES = { value = "1572864", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
 
 [tasks.android-check-size]
 extend = "android-shared"

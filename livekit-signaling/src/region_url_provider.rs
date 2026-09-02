@@ -22,7 +22,7 @@ use std::{
 use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 
-use crate::region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
+use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
 
 use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 use livekit_net::HttpClientExt;
@@ -198,7 +198,7 @@ pub(crate) async fn fetch_from_endpoint(
         Ok((parsed.regions.into_iter().map(|i| i.url).collect(), max_age))
     };
 
-    livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
+    tokio::time::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
         .await
         .map_err(|_| SignalError::RegionError("region fetch timed out".into()))?
 }
@@ -374,7 +374,7 @@ mod tests {
     fn fetch_lock_is_shared_per_host() {
         // Same host hands back the same lock, so concurrent callers contend on a
         // single fetch; distinct hosts get independent locks. (RegionCache's own
-        // caching behavior is unit-tested in crate::region.)
+        // caching behavior is unit-tested in the livekit-region crate.)
         let a1 = fetch_lock("a.livekit.cloud");
         let a2 = fetch_lock("a.livekit.cloud");
         let b = fetch_lock("b.livekit.cloud");
