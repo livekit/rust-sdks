@@ -1,4 +1,7 @@
 ---
+libwebrtc: patch
+livekit: patch
+livekit-ffi: patch
 webrtc-sys: patch
 ---
 
