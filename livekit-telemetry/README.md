@@ -84,6 +84,12 @@ start it again and run once more to watch the cached batch replay.
   direction per `stats_window_ms` (15 s, stretched with the cadence) — cumulative counters as
   the last value (monotonic, W3C webrtc-stats model), gauges as min/max/avg. Windows close early
   on background and shutdown.
+- **Spans are handles, the session is the trace.** `begin_span(name, kind, parent) → u64`,
+  `add_span_event`, `end_span(outcome, error_type, attrs)`; the core stamps wall-clock time,
+  encodes OTLP traces, and ships them on the traces signal through the same cache (batch ids
+  carry the signal; the traces URL is derived from the logs URL or set explicitly). Status
+  follows OTel (`Unset`/`Error`); `lk.outcome` carries `ok|error|cancelled`. Every log record
+  carries the session `trace_id`, and `span_id` when emitted inside a span.
 - **Self-telemetry rides along.** Counters for every way data can be lost (`queue_full`,
   `cache_error`, `rejected`, `throttled`, `disabled`) and for uploads (`sent`, `failures`) are
   readable via [`Telemetry::stats`] and shipped as an `lk.telemetry.report` event appended to

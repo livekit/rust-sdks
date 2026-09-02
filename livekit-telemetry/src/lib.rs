@@ -29,6 +29,9 @@ mod device;
 /// RTC stats samples and their on-device windowing.
 mod rtc;
 
+/// Spans: one attempt at an operation, with explicit handles across the FFI.
+mod span;
+
 /// Batch exporter actor: timer, OTLP encoding, retry policy.
 mod exporter;
 
@@ -52,6 +55,7 @@ pub use device::*;
 pub use event::*;
 pub use exporter::Exporter;
 pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
+pub use span::{SpanKind, SpanOutcome};
 pub use stats::TelemetryStats;
 pub use telemetry::*;
 pub use transport::*;

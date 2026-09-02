@@ -21,6 +21,6 @@
 
 pub mod opentelemetry {
     pub mod proto {
-        pub use opentelemetry_proto::tonic::{collector, common, logs, resource};
+        pub use opentelemetry_proto::tonic::{collector, common, logs, resource, trace};
     }
 }

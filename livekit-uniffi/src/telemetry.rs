@@ -17,8 +17,9 @@ use std::{
 };
 
 use livekit_telemetry::{
-    AttributeValue, DeviceState, ExportError, ExportRequest, NetTransport, RtcStatsSample,
-    TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport,
+    Attribute, AttributeValue, DeviceState, ExportError, ExportRequest, NetTransport,
+    RtcStatsSample, SpanKind, SpanOutcome, TelemetryConfig, TelemetryEvent, TelemetryStats,
+    TelemetryTransport,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -77,6 +78,32 @@ impl Telemetry {
     /// on: `lk.room.sid`, `lk.participant.identity`, or the app's own correlation ids.
     pub fn set_attribute(&self, key: String, value: Option<AttributeValue>) {
         self.0.set_attribute(&key, value);
+    }
+
+    /// The session's trace id (32 hex chars) — on every span and record of this pipeline.
+    pub fn trace_id(&self) -> String {
+        self.0.trace_id()
+    }
+
+    /// Open a span (one attempt at `lk.connect`, `lk.publish`, …); returns its handle.
+    pub fn begin_span(&self, name: String, kind: SpanKind, parent: Option<u64>) -> u64 {
+        self.0.begin_span(&name, kind, parent)
+    }
+
+    /// Record a checkpoint inside an open span, stamped now.
+    pub fn add_span_event(&self, span: u64, name: String, attributes: Vec<Attribute>) {
+        self.0.add_span_event(span, &name, attributes);
+    }
+
+    /// End a span with its outcome; exported with the next batch.
+    pub fn end_span(
+        &self,
+        span: u64,
+        outcome: SpanOutcome,
+        error_type: Option<String>,
+        attributes: Vec<Attribute>,
+    ) {
+        self.0.end_span(span, outcome, error_type, attributes);
     }
 
     /// Push one `getStats()` reading for a track; windowed on device into `lk.rtc.stats.sample`.

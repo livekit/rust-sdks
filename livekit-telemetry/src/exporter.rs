@@ -27,10 +27,11 @@ use crate::{
     event::now_unix_nanos,
     otlp,
     rtc::StatsWindows,
+    span::Spans,
     stats::{Counters, Snapshot},
     store::Store,
     AppState, Attribute, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
-    TelemetryEvent, TelemetryTransport,
+    TelemetryTransport,
 };
 
 /// Retries per upload attempt after the first, for failures without `Retry-After`.
@@ -39,6 +40,30 @@ const RETRY_BACKOFF: Duration = Duration::from_secs(1);
 /// Pause before the cache is tried again after a failed upload (Sentry: stop consuming the
 /// cache until `Retry-After` elapses; here also for plain connectivity failures).
 const UPLOAD_BACKOFF: Duration = Duration::from_secs(60);
+
+/// Which OTLP signal a cached batch is; picks the endpoint at upload time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Signal {
+    Logs,
+    Traces,
+}
+
+impl Signal {
+    fn tag(self) -> char {
+        match self {
+            Signal::Logs => 'l',
+            Signal::Traces => 't',
+        }
+    }
+
+    /// From a batch id's last component; ids from before signals existed are logs.
+    fn of(id: &str) -> Signal {
+        match id.rsplit('-').next() {
+            Some("t") => Signal::Traces,
+            _ => Signal::Logs,
+        }
+    }
+}
 
 pub(crate) enum Command {
     Flush(oneshot::Sender<()>),
@@ -86,6 +111,8 @@ pub struct Exporter {
     windows: Arc<Mutex<StatsWindows>>,
     /// Session-wide attributes merged into every record at encode time.
     attributes: Arc<Mutex<Vec<Attribute>>>,
+    spans: Arc<Mutex<Spans>>,
+    trace_id: [u8; 16],
     commands: mpsc::UnboundedReceiver<Command>,
     silenced: bool,
     /// Leave the cache alone until then: the last upload failed or we were throttled.
@@ -111,6 +138,8 @@ impl Exporter {
         counters: Arc<Counters>,
         windows: Arc<Mutex<StatsWindows>>,
         attributes: Arc<Mutex<Vec<Attribute>>>,
+        spans: Arc<Mutex<Spans>>,
+        trace_id: [u8; 16],
         commands: mpsc::UnboundedReceiver<Command>,
     ) -> Self {
         Self {
@@ -121,6 +150,8 @@ impl Exporter {
             counters,
             windows,
             attributes,
+            spans,
+            trace_id,
             commands,
             silenced: false,
             paused_until: None,
@@ -214,8 +245,9 @@ impl Exporter {
         self.upload().await;
     }
 
-    /// Encode everything queued into the cache — no network involved.
+    /// Encode everything queued — log records and finished spans — into the cache. No network.
     fn enqueue(&mut self) {
+        self.enqueue_spans();
         loop {
             let mut batch = self.store.drain(self.config.max_batch_size.max(1) as usize);
             if batch.is_empty() {
@@ -237,37 +269,60 @@ impl Exporter {
                 batch.push(delta.report(self.cache.pending().len() as u64));
                 self.last_report = now;
             }
-            self.attach_session_attributes(&mut batch);
-            let count = batch.len() as u64;
-            let body = otlp::encode_logs(&self.config.resource, batch);
-            self.seq += 1;
-            let id = format!("{:020}-{:06}-{count}", now_unix_nanos(), self.seq);
-            if let Err(err) = self.cache.push(&id, &body) {
-                // A full disk is a steady state, not an event: warn once, then stay quiet.
-                if self.cache_failures == 0 {
-                    log::warn!(
-                        "telemetry: cannot cache batches ({err}); dropping until it recovers"
-                    );
-                } else {
-                    log::debug!("telemetry: could not cache {count} events: {err}");
-                }
-                self.cache_failures += 1;
-                Counters::add(&self.counters.cache_error, count);
+            for event in &mut batch {
+                self.attach_session_attributes(&mut event.attributes);
             }
+            let count = batch.len() as u64;
+            let body = otlp::encode_logs(&self.config.resource, &self.trace_id, batch);
+            self.push_batch(Signal::Logs, count, &body);
         }
     }
 
-    /// Merge the session-wide attributes into each record, without overriding explicit ones.
-    fn attach_session_attributes(&self, batch: &mut [TelemetryEvent]) {
-        let session = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
-        if session.is_empty() {
+    /// Finished spans travel as their own batch on the traces signal.
+    fn enqueue_spans(&mut self) {
+        let (mut spans, dropped) = {
+            let mut registry = self.spans.lock().unwrap_or_else(|e| e.into_inner());
+            (registry.drain(self.config.max_batch_size.max(1) as usize), registry.take_dropped())
+        };
+        Counters::add(&self.counters.queue_full, dropped);
+        if spans.is_empty() {
             return;
         }
-        for event in batch {
-            for attribute in session.iter() {
-                if !event.attributes.iter().any(|a| a.key == attribute.key) {
-                    event.attributes.push(attribute.clone());
-                }
+        if self.silenced || self.throttled_until.is_some_and(|t| Instant::now() < t) {
+            let counter =
+                if self.silenced { &self.counters.disabled } else { &self.counters.throttled };
+            Counters::add(counter, spans.len() as u64);
+            return;
+        }
+        for span in &mut spans {
+            self.attach_session_attributes(&mut span.attributes);
+        }
+        let count = spans.len() as u64;
+        let body = otlp::encode_spans(&self.config.resource, &self.trace_id, spans);
+        self.push_batch(Signal::Traces, count, &body);
+    }
+
+    fn push_batch(&mut self, signal: Signal, count: u64, body: &[u8]) {
+        self.seq += 1;
+        let id = format!("{:020}-{:06}-{count}-{}", now_unix_nanos(), self.seq, signal.tag());
+        if let Err(err) = self.cache.push(&id, body) {
+            // A full disk is a steady state, not an event: warn once, then stay quiet.
+            if self.cache_failures == 0 {
+                log::warn!("telemetry: cannot cache batches ({err}); dropping until it recovers");
+            } else {
+                log::debug!("telemetry: could not cache {count} items: {err}");
+            }
+            self.cache_failures += 1;
+            Counters::add(&self.counters.cache_error, count);
+        }
+    }
+
+    /// Merge the session-wide attributes into a record's own, without overriding explicit ones.
+    fn attach_session_attributes(&self, attributes: &mut Vec<Attribute>) {
+        let session = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
+        for attribute in session.iter() {
+            if !attributes.iter().any(|a| a.key == attribute.key) {
+                attributes.push(attribute.clone());
             }
         }
     }
@@ -282,7 +337,7 @@ impl Exporter {
                 self.cache.remove(&id);
                 continue;
             };
-            match self.deliver(&body).await {
+            match self.deliver(&body, Signal::of(&id)).await {
                 Delivery::Sent => {
                     self.cache.remove(&id);
                     Counters::add(&self.counters.uploads_sent, 1);
@@ -319,11 +374,16 @@ impl Exporter {
     }
 
     /// Upload one encoded batch with bounded retries and classify the outcome.
-    async fn deliver(&self, body: &[u8]) -> Delivery {
+    async fn deliver(&self, body: &[u8], signal: Signal) -> Delivery {
         let mut headers = self.config.headers.clone();
         headers.insert("Content-Type".to_owned(), otlp::CONTENT_TYPE.to_owned());
-        let request =
-            ExportRequest { url: self.config.endpoint.clone(), headers, body: body.to_vec() };
+        let url = match signal {
+            Signal::Logs => self.config.endpoint.clone(),
+            Signal::Traces => {
+                self.config.traces_endpoint.clone().unwrap_or_else(|| self.config.endpoint.clone())
+            }
+        };
+        let request = ExportRequest { url, headers, body: body.to_vec() };
         let attempt_timeout = Duration::from_millis(self.config.export_timeout_ms.max(1));
 
         // ponytail: linear backoff, 2 retries, blocks the tick loop while sleeping (≤ 3 s).
@@ -359,5 +419,5 @@ impl Exporter {
 
 /// The event count the exporter encodes as the last component of a batch id.
 fn events_in(id: &str) -> u64 {
-    id.rsplit('-').next().and_then(|n| n.parse().ok()).unwrap_or(0)
+    id.split('-').nth(2).and_then(|n| n.parse().ok()).unwrap_or(0)
 }

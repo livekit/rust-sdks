@@ -17,32 +17,47 @@ use prost::Message;
 use crate::{
     event::now_unix_nanos,
     proto::opentelemetry::proto::{
-        collector::logs::v1::ExportLogsServiceRequest,
+        collector::{logs::v1::ExportLogsServiceRequest, trace::v1::ExportTraceServiceRequest},
         common::v1::{any_value, AnyValue, InstrumentationScope, KeyValue},
         logs::v1::{LogRecord, ResourceLogs, ScopeLogs, SeverityNumber},
         resource::v1::Resource,
+        trace::v1::{span, status, ResourceSpans, ScopeSpans, Span, Status},
     },
-    Attribute, AttributeValue, Severity, TelemetryEvent,
+    span::SpanRecord,
+    Attribute, AttributeValue, Severity, SpanKind, SpanOutcome, TelemetryEvent,
 };
 
 pub(crate) const CONTENT_TYPE: &str = "application/x-protobuf";
 
+fn resource(attributes: &[Attribute]) -> Option<Resource> {
+    Some(Resource {
+        attributes: attributes.iter().map(KeyValue::from).collect(),
+        ..Default::default()
+    })
+}
+
+fn scope() -> Option<InstrumentationScope> {
+    Some(InstrumentationScope {
+        name: env!("CARGO_PKG_NAME").to_owned(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        ..Default::default()
+    })
+}
+
 /// Encode one batch as an OTLP `ExportLogsServiceRequest`: one resource, one instrumentation
-/// scope (this crate), one log record per event.
-pub(crate) fn encode_logs(resource: &[Attribute], events: Vec<TelemetryEvent>) -> Vec<u8> {
+/// scope (this crate), one log record per event. Every record carries the session's trace id;
+/// records emitted inside a span carry its span id too.
+pub(crate) fn encode_logs(
+    resource_attributes: &[Attribute],
+    trace_id: &[u8; 16],
+    events: Vec<TelemetryEvent>,
+) -> Vec<u8> {
     ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
-            resource: Some(Resource {
-                attributes: resource.iter().map(KeyValue::from).collect(),
-                ..Default::default()
-            }),
+            resource: resource(resource_attributes),
             scope_logs: vec![ScopeLogs {
-                scope: Some(InstrumentationScope {
-                    name: env!("CARGO_PKG_NAME").to_owned(),
-                    version: env!("CARGO_PKG_VERSION").to_owned(),
-                    ..Default::default()
-                }),
-                log_records: events.into_iter().map(LogRecord::from).collect(),
+                scope: scope(),
+                log_records: events.into_iter().map(|e| log_record(e, trace_id)).collect(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -51,21 +66,77 @@ pub(crate) fn encode_logs(resource: &[Attribute], events: Vec<TelemetryEvent>) -
     .encode_to_vec()
 }
 
-impl From<TelemetryEvent> for LogRecord {
-    fn from(event: TelemetryEvent) -> Self {
-        let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
-        LogRecord {
-            time_unix_nano,
-            observed_time_unix_nano: time_unix_nano,
-            severity_number: SeverityNumber::from(event.severity) as i32,
-            severity_text: severity_text(event.severity).to_owned(),
-            body: event
-                .body
-                .map(|text| AnyValue { value: Some(any_value::Value::StringValue(text)) }),
-            attributes: event.attributes.iter().map(KeyValue::from).collect(),
-            event_name: event.name,
+/// Encode finished spans as an OTLP `ExportTraceServiceRequest` under the session's trace id.
+pub(crate) fn encode_spans(
+    resource_attributes: &[Attribute],
+    trace_id: &[u8; 16],
+    spans: Vec<SpanRecord>,
+) -> Vec<u8> {
+    ExportTraceServiceRequest {
+        resource_spans: vec![ResourceSpans {
+            resource: resource(resource_attributes),
+            scope_spans: vec![ScopeSpans {
+                scope: scope(),
+                spans: spans.into_iter().map(|s| otlp_span(s, trace_id)).collect(),
+                ..Default::default()
+            }],
             ..Default::default()
-        }
+        }],
+    }
+    .encode_to_vec()
+}
+
+fn log_record(event: TelemetryEvent, trace_id: &[u8; 16]) -> LogRecord {
+    let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
+    LogRecord {
+        time_unix_nano,
+        observed_time_unix_nano: time_unix_nano,
+        severity_number: SeverityNumber::from(event.severity) as i32,
+        severity_text: severity_text(event.severity).to_owned(),
+        body: event.body.map(|text| AnyValue { value: Some(any_value::Value::StringValue(text)) }),
+        attributes: event.attributes.iter().map(KeyValue::from).collect(),
+        event_name: event.name,
+        trace_id: trace_id.to_vec(),
+        span_id: event.span_id.map(|id| id.to_be_bytes().to_vec()).unwrap_or_default(),
+        ..Default::default()
+    }
+}
+
+fn otlp_span(record: SpanRecord, trace_id: &[u8; 16]) -> Span {
+    let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
+    attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
+    Span {
+        trace_id: trace_id.to_vec(),
+        span_id: record.span_id.to_be_bytes().to_vec(),
+        parent_span_id: record.parent_span_id.map(|p| p.to_be_bytes().to_vec()).unwrap_or_default(),
+        name: record.name,
+        kind: match record.kind {
+            SpanKind::Internal => span::SpanKind::Internal,
+            SpanKind::Client => span::SpanKind::Client,
+        } as i32,
+        start_time_unix_nano: record.start_ns,
+        end_time_unix_nano: record.end_ns,
+        attributes,
+        events: record
+            .events
+            .into_iter()
+            .map(|e| span::Event {
+                time_unix_nano: e.time_ns,
+                name: e.name,
+                attributes: e.attributes.iter().map(KeyValue::from).collect(),
+                ..Default::default()
+            })
+            .collect(),
+        // OTel: instrumentation should not set `Ok`; success and cancellation stay `Unset` and
+        // are told apart by `lk.outcome`.
+        status: Some(Status {
+            code: match record.outcome {
+                SpanOutcome::Error => status::StatusCode::Error,
+                SpanOutcome::Ok | SpanOutcome::Cancelled => status::StatusCode::Unset,
+            } as i32,
+            message: record.error_type.unwrap_or_default(),
+        }),
+        ..Default::default()
     }
 }
 
@@ -118,7 +189,7 @@ mod tests {
             .with_severity(Severity::Warn)
             .with_body("hi")
             .with_attribute("lk.ping.seq", 7i64);
-        let bytes = encode_logs(&resource, vec![event]);
+        let bytes = encode_logs(&resource, &[7u8; 16], vec![event]);
 
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let resource_logs = &decoded.resource_logs[0];
@@ -128,6 +199,8 @@ mod tests {
         assert_eq!(scope_logs.scope.as_ref().expect("scope").name, "livekit-telemetry");
         let record = &scope_logs.log_records[0];
         assert_eq!(record.event_name, "lk.ping");
+        assert_eq!(record.trace_id, vec![7u8; 16]);
+        assert!(record.span_id.is_empty());
         assert_eq!(record.severity_number, SeverityNumber::Warn as i32);
         assert_eq!(record.severity_text, "WARN");
         assert!(record.time_unix_nano > 0);

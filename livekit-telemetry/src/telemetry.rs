@@ -22,9 +22,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use crate::{
-    event::now_unix_nanos, exporter::Command, rtc::StatsWindows, stats::Counters, store::Store,
-    Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache, MemoryCache,
-    RtcStatsSample, Severity, TelemetryEvent, TelemetryStats, TelemetryTransport,
+    event::now_unix_nanos, exporter::Command, rtc::StatsWindows, span::Spans, stats::Counters,
+    store::Store, Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache,
+    MemoryCache, RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
+    TelemetryTransport,
 };
 
 /// Pipeline configuration.
@@ -37,6 +38,10 @@ pub struct TelemetryConfig {
     /// Full OTLP/HTTP logs URL: `http://localhost:4318/v1/logs` locally,
     /// `https://<domain>/observability/logs/otlp/v0` for LiveKit Cloud.
     pub endpoint: String,
+    /// OTLP/HTTP traces URL. `None` derives it from `endpoint` by replacing the last `logs`
+    /// path segment with `traces` (works for both layouts above).
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub traces_endpoint: Option<String>,
     /// Extra request headers, e.g. `Authorization: Bearer <token>`.
     pub headers: HashMap<String, String>,
     /// Resource attributes describing the emitter (`service.name`, `os.name`,
@@ -76,6 +81,7 @@ impl TelemetryConfig {
     pub fn new(endpoint: impl Into<String>) -> Self {
         Self {
             endpoint: endpoint.into(),
+            traces_endpoint: None,
             headers: HashMap::new(),
             resource: Vec::new(),
             storage_dir: None,
@@ -123,6 +129,8 @@ pub struct Telemetry {
     windows: Arc<Mutex<StatsWindows>>,
     guard: Arc<Mutex<FloodGuard>>,
     attributes: Arc<Mutex<Vec<Attribute>>>,
+    spans: Arc<Mutex<Spans>>,
+    trace_id: [u8; 16],
     commands: mpsc::UnboundedSender<Command>,
 }
 
@@ -185,13 +193,20 @@ impl Telemetry {
         cache: Arc<dyn BatchCache>,
     ) -> (Self, Exporter) {
         add_sdk_resource(&mut config.resource);
+        if config.traces_endpoint.is_none() {
+            config.traces_endpoint = Some(derive_traces_endpoint(&config.endpoint));
+        }
         let config = Arc::new(config);
+        // The session is the trace: one id per pipeline, client-generated so pre-connect
+        // failures and reconnects share it.
+        let trace_id = rand::random::<u128>().max(1).to_be_bytes();
         let counters = Arc::new(Counters::default());
         let store = Arc::new(Store::new(config.max_queue_size.max(1) as usize, counters.clone()));
         let (commands, receiver) = mpsc::unbounded_channel();
         let windows = Arc::new(Mutex::new(StatsWindows::default()));
         let guard = Arc::new(Mutex::new(FloodGuard::new(config.max_events_per_10min)));
         let attributes = Arc::new(Mutex::new(Vec::new()));
+        let spans = Arc::new(Mutex::new(Spans::new(config.max_queue_size.max(1) as usize)));
         let exporter = Exporter::new(
             store.clone(),
             transport,
@@ -200,6 +215,8 @@ impl Telemetry {
             counters.clone(),
             windows.clone(),
             attributes.clone(),
+            spans.clone(),
+            trace_id,
             receiver,
         );
         let telemetry = Self {
@@ -211,6 +228,8 @@ impl Telemetry {
             windows,
             guard,
             attributes,
+            spans,
+            trace_id,
             commands,
         };
         (telemetry, exporter)
@@ -247,6 +266,38 @@ impl Telemetry {
         if let Some(value) = value {
             attributes.push(Attribute::new(key, value));
         }
+    }
+
+    /// The session's trace id as 32 hex characters — what every span and log record of this
+    /// pipeline carries. Print it (`lkt_…`) so support can find the session.
+    pub fn trace_id(&self) -> String {
+        format!("{:032x}", u128::from_be_bytes(self.trace_id))
+    }
+
+    /// Open a span: one attempt at an operation (`lk.connect`, `lk.publish`, …). Returns the
+    /// handle to record checkpoints and to end it with; `parent` nests it under another open span.
+    pub fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
+        self.spans.lock().unwrap_or_else(|e| e.into_inner()).begin(name, kind, parent)
+    }
+
+    /// Record a checkpoint inside an open span (`ws_open`, `join_recv`, …), stamped now.
+    pub fn add_span_event(&self, span: u64, name: &str, attributes: Vec<Attribute>) {
+        self.spans.lock().unwrap_or_else(|e| e.into_inner()).add_event(span, name, attributes);
+    }
+
+    /// End a span with its outcome; `error_type` becomes `error.type` and the status message.
+    /// The span is exported with the next batch. Ending twice, or an unknown handle, is a no-op.
+    pub fn end_span(
+        &self,
+        span: u64,
+        outcome: SpanOutcome,
+        error_type: Option<String>,
+        attributes: Vec<Attribute>,
+    ) {
+        self.spans
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .end(span, outcome, error_type, attributes);
     }
 
     /// Push one `getStats()` reading. Readings are windowed on device into `lk.rtc.stats.sample`
@@ -295,6 +346,14 @@ impl Telemetry {
     }
 }
 
+/// `…/logs…` → `…/traces…`: covers `/v1/logs` and `/observability/logs/otlp/v0` alike.
+fn derive_traces_endpoint(logs_endpoint: &str) -> String {
+    match logs_endpoint.rsplit_once("logs") {
+        Some((before, after)) => format!("{before}traces{after}"),
+        None => logs_endpoint.to_owned(),
+    }
+}
+
 /// Fill in the `telemetry.sdk.*` resource attributes and a fallback `service.name`.
 fn add_sdk_resource(resource: &mut Vec<Attribute>) {
     let defaults = [
@@ -320,10 +379,13 @@ mod tests {
     use crate::{
         cache::temp_dir,
         proto::opentelemetry::proto::{
-            collector::logs::v1::ExportLogsServiceRequest, common::v1::any_value::Value,
+            collector::{logs::v1::ExportLogsServiceRequest, trace::v1::ExportTraceServiceRequest},
+            common::v1::any_value::Value,
             logs::v1::LogRecord,
+            trace::v1::{span, status},
         },
-        AppState, ExportError, ExportRequest, StreamDirection, ThermalState, TrackKind,
+        AppState, ExportError, ExportRequest, SpanKind, SpanOutcome, StreamDirection, ThermalState,
+        TrackKind,
     };
 
     #[derive(Default)]
@@ -569,7 +631,7 @@ mod tests {
         telemetry.flush().await;
         let pending = cache.pending();
         assert_eq!(pending.len(), 1);
-        assert!(pending[0].ends_with("-1"), "id carries the event count: {}", pending[0]);
+        assert!(pending[0].ends_with("-1-l"), "id carries count and signal: {}", pending[0]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -713,6 +775,97 @@ mod tests {
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
         assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room.sid"), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn spans_export_as_traces_under_the_session_trace_id() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry =
+            start(TelemetryConfig::new("http://c/observability/logs/otlp/v0"), transport.clone());
+        let connect = telemetry.begin_span("lk.connect", SpanKind::Client, None);
+        telemetry.add_span_event(connect, "ws_open", vec![]);
+        telemetry.emit(
+            TelemetryEvent::new("")
+                .with_severity(Severity::Error)
+                .with_body("boom")
+                .in_span(connect),
+        );
+        telemetry.end_span(
+            connect,
+            SpanOutcome::Error,
+            Some("timeout".into()),
+            vec![Attribute::new("lk.connect.attempt", 1i64)],
+        );
+        telemetry.flush().await;
+
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 2, "one logs batch, one traces batch");
+        let traces =
+            sent.iter().find(|r| r.url.ends_with("/traces/otlp/v0")).expect("traces request");
+        assert_eq!(
+            traces.url, "http://c/observability/traces/otlp/v0",
+            "derived from logs endpoint"
+        );
+        let decoded = ExportTraceServiceRequest::decode(&traces.body[..]).expect("valid OTLP");
+        let otlp_span = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(otlp_span.name, "lk.connect");
+        assert_eq!(otlp_span.kind, span::SpanKind::Client as i32);
+        assert_eq!(hex(&otlp_span.trace_id), telemetry.trace_id());
+        assert_eq!(otlp_span.span_id, connect.to_be_bytes().to_vec());
+        assert!(otlp_span.parent_span_id.is_empty());
+        assert!(otlp_span.end_time_unix_nano >= otlp_span.start_time_unix_nano);
+        assert_eq!(otlp_span.events[0].name, "ws_open");
+        assert_eq!(
+            otlp_span.status.as_ref().map(|s| s.code),
+            Some(status::StatusCode::Error as i32)
+        );
+        assert_eq!(otlp_span.status.as_ref().map(|s| s.message.as_str()), Some("timeout"));
+        let attr = |key: &str| {
+            otlp_span
+                .attributes
+                .iter()
+                .find(|kv| kv.key == key)
+                .and_then(|kv| kv.value.as_ref()?.value.clone())
+        };
+        assert_eq!(attr("lk.outcome"), Some(Value::StringValue("error".into())));
+        assert_eq!(attr("error.type"), Some(Value::StringValue("timeout".into())));
+        assert_eq!(attr("lk.connect.attempt"), Some(Value::IntValue(1)));
+
+        let logs = sent.iter().find(|r| r.url.ends_with("/logs/otlp/v0")).expect("logs request");
+        let record = &records(logs)[0];
+        assert_eq!(hex(&record.trace_id), telemetry.trace_id(), "every record carries the trace");
+        assert_eq!(
+            record.span_id,
+            connect.to_be_bytes().to_vec(),
+            "and the span it was emitted in"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_spans_keep_status_unset() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let publish = telemetry.begin_span("lk.publish", SpanKind::Internal, None);
+        telemetry.end_span(publish, SpanOutcome::Cancelled, None, vec![]);
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent[0].url, "http://collector/v1/traces");
+        let decoded = ExportTraceServiceRequest::decode(&sent[0].body[..]).expect("valid OTLP");
+        let otlp_span = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(
+            otlp_span.status.as_ref().map(|s| s.code),
+            Some(status::StatusCode::Unset as i32)
+        );
+        let outcome = otlp_span
+            .attributes
+            .iter()
+            .find(|kv| kv.key == "lk.outcome")
+            .and_then(|kv| kv.value.as_ref()?.value.clone());
+        assert_eq!(outcome, Some(Value::StringValue("cancelled".into())));
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 
     #[tokio::test(start_paused = true)]

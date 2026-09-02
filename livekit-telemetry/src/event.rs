@@ -31,6 +31,10 @@ pub struct TelemetryEvent {
     /// Wall-clock time in nanoseconds since the Unix epoch. `None` stamps the event at emit time.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub timestamp_ns: Option<u64>,
+    /// The in-flight span this record belongs to (a handle from `begin_span`), if any. The trace
+    /// id is always the session's and is attached by the core.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub span_id: Option<u64>,
 }
 
 impl TelemetryEvent {
@@ -42,7 +46,14 @@ impl TelemetryEvent {
             body: None,
             attributes: Vec::new(),
             timestamp_ns: None,
+            span_id: None,
         }
+    }
+
+    /// Link this record to an in-flight span.
+    pub fn in_span(mut self, span: u64) -> Self {
+        self.span_id = Some(span);
+        self
     }
 
     pub fn with_severity(mut self, severity: Severity) -> Self {

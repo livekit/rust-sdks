@@ -3787,6 +3787,7 @@ dependencies = [
  "log",
  "opentelemetry-proto",
  "prost 0.14.4",
+ "rand 0.9.5",
  "thiserror 2.0.19",
  "tokio",
  "uniffi",
@@ -5023,7 +5024,11 @@ version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0142c63252a9e054e68a4c61a5778f7b14f576274d593f8ce883d191a099682"
 dependencies = [
+ "futures-core",
+ "futures-sink",
  "js-sys",
+ "pin-project-lite",
+ "thiserror 2.0.19",
 ]
 
 [[package]]
@@ -5047,7 +5052,9 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "opentelemetry",
+ "percent-encoding",
  "portable-atomic",
+ "rand 0.9.5",
  "thiserror 2.0.19",
 ]
 

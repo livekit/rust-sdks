@@ -13,9 +13,10 @@ log = { workspace = true }
 thiserror = { workspace = true }
 async-trait = "0.1"
 prost = { workspace = true }
+rand = { workspace = true }
 # OTLP message types only (`gen-tonic-messages` = prost structs, no tonic). Same prost as
 # livekit-protocol so a single prost is linked.
-opentelemetry-proto = { version = "0.32", default-features = false, features = ["logs", "gen-tonic-messages"] }
+opentelemetry-proto = { version = "0.32", default-features = false, features = ["logs", "trace", "gen-tonic-messages"] }
 livekit-net = { workspace = true, optional = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
 
