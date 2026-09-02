@@ -22,38 +22,43 @@
 # at depth 2 to 232 at depth 3. Depth 2 catches pairwise interactions, which is
 # where nearly all feature bugs live.
 #
-# Runs on one platform only (linux arm64). Feature resolution is
-# platform-independent; the point is to exercise the feature graph, not the
-# target matrix.
+# The target matrix mirrors builds.yml. Feature *resolution* is
+# platform-independent, but what the resolved features then compile is not:
+# cfg-gated code, the webrtc-sys C++ bridge, and the per-platform TLS backends
+# all differ, so a combination can be fine on linux and broken on android.
+# Jobs run in parallel, so the cost is the slowest target rather than the sum.
 name: Feature Combinations
 
 on:
   workflow_dispatch:
-  schedule:
-    # Nightly at 07:00 UTC. This job is too slow to gate every PR on, and
-    # feature graphs change rarely, so a nightly signal is the right cadence.
-    - cron: "0 7 * * *"
   pull_request:
     branches: ["main"]
-    # Only re-run when something could actually change feature resolution.
-    paths:
-      - "**/Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/feature-combinations.yml"
+    paths-ignore:
+      - "**/*.md"
+      - ".changeset/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "renovate.json"
+      - ".vscode/**"
   push:
     branches:
       - "main"
-      # TEMPORARY: added so this job runs on the branch that introduces it,
-      # to measure how long it actually takes on a hosted runner. Remove this
-      # line before merging.
+      # TEMPORARY: added so this job runs on the branch that introduces it, to
+      # measure how long the full matrix takes. Remove before merging.
       - "add-all-features-complication"
+
+# One in-flight run per ref. This job is cheap per platform but there are
+# eleven of them, so superseded pushes should not keep burning runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   # The crates under test: `livekit` and `livekit-api` plus every workspace
   # crate they depend on that has features of its own. cargo-hack only varies
   # the features of the packages named with -p, so dependencies have to be
-  # listed explicitly to get their own powersets.
+  # listed explicitly to get their own powersets. 209 combinations in total.
   HACK_PACKAGES: >-
     -p livekit
     -p livekit-api
@@ -70,11 +75,39 @@ env:
 
 jobs:
   feature-powerset:
-    name: Feature powerset (aarch64-unknown-linux-gnu)
-    runs-on: ubuntu-24.04-arm
-    # Measured at ~7 min on a 14-core Apple Silicon laptop. Hosted runners are
-    # far smaller, so this is set well above the expected runtime to leave room
-    # rather than to express a target.
+    strategy:
+      # Every target reports independently; one broken platform should not hide
+      # the state of the other ten.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-ios
+          - os: macos-latest
+            target: aarch64-apple-ios-sim
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+
+    name: Feature powerset (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    # Measured at ~14 min end to end for aarch64-unknown-linux-gnu. Set well
+    # above that to leave room, not as a target.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -88,6 +121,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install linux dependencies
+        if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
           sudo apt update -y
           # lld is needed on aarch64 because GNU ld cannot link libwebrtc.a.
@@ -107,14 +141,15 @@ jobs:
             libglib2.0-dev
 
       # Ubuntu 24 ships clang 18; webrtc-sys needs 21+ for libwebrtc's hermetic
-      # libc++. Sets CC/CXX for the steps below.
+      # libc++. Android is excluded: cargo-ndk supplies its own NDK clang.
       - name: Install clang for webrtc-sys
+        if: ${{ contains(matrix.target, 'unknown-linux-gnu') }}
         run: .github/scripts/install-clang.sh
 
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:
-          target: aarch64-unknown-linux-gnu
+          target: ${{ matrix.target }}
           cache: false
           rustflags: ""
 
@@ -122,6 +157,25 @@ jobs:
         # Pinned rather than floating: cargo-hack decides which combinations
         # exist, so an unpinned bump would silently change what this job tests.
         run: cargo install cargo-hack --locked --version 0.6.45
+
+      - name: Install cargo-ndk
+        if: ${{ contains(matrix.target, 'android') }}
+        run: cargo install cargo-ndk --locked
+
+      # Android needs the NDK's clang to compile the webrtc-sys C++ bridge, and
+      # cargo-ndk is what puts it (and the right sysroot) in the environment.
+      # It execs `cargo <args>`, so it wraps `hack` the same way it wraps
+      # `build`, and supplies --target itself.
+      - name: Resolve cargo driver for this target
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == *android* ]]; then
+            echo "CHECK_CMD=cargo ndk --target ${{ matrix.target }} check" >> "$GITHUB_ENV"
+            echo "HACK_CMD=cargo ndk --target ${{ matrix.target }} hack"   >> "$GITHUB_ENV"
+          else
+            echo "CHECK_CMD=cargo check --target ${{ matrix.target }}" >> "$GITHUB_ENV"
+            echo "HACK_CMD=cargo hack --target ${{ matrix.target }}"   >> "$GITHUB_ENV"
+          fi
 
       # Only crates.io sources are cached, deliberately not `target/`. This job
       # exists to report the cost of checking the feature powerset from cold; a
@@ -133,26 +187,28 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-          key: ${{ runner.os }}-arm-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-arm-cargo-registry-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
 
       # Baseline for comparison: one plain check of the same crates at their
       # default features. This is what the powerset step should be measured
       # against — it absorbs the one-time costs (libwebrtc download, the
       # webrtc-sys C++ bridge) that the powerset step then does not repeat.
       - name: Baseline check (default features)
+        shell: bash
         run: |
           start=$(date +%s)
-          cargo check ${{ env.HACK_PACKAGES }}
+          $CHECK_CMD $HACK_PACKAGES
           echo "BASELINE_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
       - name: Check feature powerset (depth 2)
+        shell: bash
         run: |
           start=$(date +%s)
           # --keep-going reports every broken combination in one run instead of
           # aborting at the first, so a red build is one round of fixes.
-          cargo hack ${{ env.HACK_PACKAGES }} \
+          $HACK_CMD $HACK_PACKAGES \
             --feature-powerset \
             --depth 2 \
             --keep-going \
@@ -163,10 +219,11 @@ jobs:
         # Runs even when the powerset fails so the timing is still reported;
         # POWERSET_SECS is then unset and shown as n/a.
         if: always()
+        shell: bash
         run: |
           secs() { if [ -n "${1:-}" ]; then echo "${1}s"; else echo "n/a"; fi; }
           {
-            echo "### Feature powerset timing"
+            echo "### Feature powerset timing — \`${{ matrix.target }}\`"
             echo ""
             echo "| Measurement | Value |"
             echo "| --- | --- |"
