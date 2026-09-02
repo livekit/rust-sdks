@@ -273,6 +273,8 @@ impl Debug for PeerConnection {
 
 #[cfg(test)]
 mod tests {
+    use std::{future::Future, pin::Pin, task};
+
     use log::trace;
     use tokio::sync::mpsc;
 
@@ -342,5 +344,147 @@ mod tests {
 
         alice.close();
         bob.close();
+    }
+
+    fn test_config() -> RtcConfiguration {
+        RtcConfiguration {
+            ice_servers: vec![],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+            enable_sctp_snap: false,
+        }
+    }
+
+    /// Polls `fut` once so the native operation it starts is queued, without
+    /// waiting for it to complete. Returns whether it already finished.
+    fn poll_once<F: Future>(fut: &mut Pin<Box<F>>) -> bool {
+        let waker = task::Waker::noop();
+        let mut cx = task::Context::from_waker(waker);
+        fut.as_mut().poll(&mut cx).is_ready()
+    }
+
+    /// An offerer that has gathered at least one local ICE candidate, ready to
+    /// be handed to a remote peer.
+    struct Offerer {
+        pc: PeerConnection,
+        offer: SessionDescription,
+        candidate: IceCandidate,
+        _dc: DataChannel,
+    }
+
+    async fn offerer(factory: &PeerConnectionFactory) -> Offerer {
+        let pc = factory.create_peer_connection(test_config()).unwrap();
+
+        let (ice_tx, mut ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
+        pc.on_ice_candidate(Some(Box::new(move |candidate| {
+            let _ = ice_tx.send(candidate);
+        })));
+
+        let dc = pc.create_data_channel("test_dc", DataChannelInit::default()).unwrap();
+        let offer = pc.create_offer(OfferOptions::default()).await.unwrap();
+        pc.set_local_description(offer.clone()).await.unwrap();
+        let candidate = ice_rx.recv().await.unwrap();
+
+        Offerer { pc, offer, candidate, _dc: dc }
+    }
+
+    /// Puts `pc` in a state where its remote description is being applied and
+    /// libwebrtc's operations chain is still busy, so that the completion of
+    /// any operation chained afterwards is deferred past the return of the
+    /// native call. Returns the two futures that must be kept alive.
+    ///
+    /// A freshly created peer connection is still generating its DTLS
+    /// certificate, which keeps `CreateOffer` — and therefore everything queued
+    /// behind it — on the chain.
+    #[allow(clippy::type_complexity)]
+    fn occupy_operations_chain<'a>(
+        pc: &'a PeerConnection,
+        offer: SessionDescription,
+    ) -> (
+        Pin<Box<impl Future<Output = Result<SessionDescription, RtcError>> + 'a>>,
+        Pin<Box<impl Future<Output = Result<(), RtcError>> + 'a>>,
+    ) {
+        let mut create_offer = Box::pin(pc.create_offer(OfferOptions::default()));
+        assert!(
+            !poll_once(&mut create_offer),
+            "CreateOffer completed too early to occupy the chain"
+        );
+
+        let mut set_remote = Box::pin(pc.set_remote_description(offer));
+        assert!(!poll_once(&mut set_remote), "SetRemoteDescription completed too early");
+
+        (create_offer, set_remote)
+    }
+
+    /// Regression test: the completion state of `add_ice_candidate` used to live
+    /// on the stack of the native shim, so a completion deferred by libwebrtc's
+    /// operations chain destroyed the pending `oneshot::Sender` (surfacing as
+    /// `add_ice_candidate cancelled`) and later read freed memory.
+    #[tokio::test]
+    async fn add_ice_candidate_resolves_when_completion_is_deferred() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+        let bob = offerer(&factory).await;
+        let alice = factory.create_peer_connection(test_config()).unwrap();
+
+        let (create_offer, set_remote) = occupy_operations_chain(&alice, bob.offer);
+
+        alice.add_ice_candidate(bob.candidate).await.unwrap();
+
+        create_offer.await.unwrap();
+        set_remote.await.unwrap();
+
+        alice.close();
+        bob.pc.close();
+    }
+
+    /// Closing a peer connection while an ICE-candidate completion is still
+    /// queued must not read the completion state after it was released.
+    #[tokio::test]
+    async fn close_during_deferred_add_ice_candidate_completion() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+        let bob = offerer(&factory).await;
+        let alice = factory.create_peer_connection(test_config()).unwrap();
+
+        let (create_offer, set_remote) = occupy_operations_chain(&alice, bob.offer);
+
+        let mut add_ice = Box::pin(alice.add_ice_candidate(bob.candidate));
+        assert!(!poll_once(&mut add_ice), "AddIceCandidate completed too early");
+        alice.close();
+
+        // Whether the candidate lands before the close is a race; either
+        // outcome is fine as long as the future resolves without a crash.
+        let _ = add_ice.await;
+        let _ = create_offer.await;
+        let _ = set_remote.await;
+
+        bob.pc.close();
+    }
+
+    /// Repeats the deferred-completion path enough times to surface a
+    /// use-after-free or double free of the completion state.
+    #[tokio::test]
+    async fn repeated_deferred_add_ice_candidate_completions() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+
+        for _ in 0..25 {
+            let bob = offerer(&factory).await;
+            let alice = factory.create_peer_connection(test_config()).unwrap();
+
+            let (create_offer, set_remote) = occupy_operations_chain(&alice, bob.offer);
+
+            alice.add_ice_candidate(bob.candidate).await.unwrap();
+
+            create_offer.await.unwrap();
+            set_remote.await.unwrap();
+
+            alice.close();
+            bob.pc.close();
+        }
     }
 }
