@@ -187,10 +187,14 @@ impl FfiServer {
         self.logger.set_capture_logs(false);
 
         // Closing rooms does not release resources owned by FFI handles.
-        // Cancel handle watchers before dropping all stored native resources.
+        // Cancel handle watchers first, then drop handles one by one so Drop
+        // impls can call drop_handle without re-entering DashMap::clear().
         *self.config.lock() = None;
         self.handle_dropped_txs.clear();
-        self.ffi_handles.clear();
+        let leftover: Vec<_> = self.ffi_handles.iter().map(|entry| *entry.key()).collect();
+        for id in leftover {
+            let _ = self.ffi_handles.remove(&id);
+        }
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
