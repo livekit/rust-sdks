@@ -166,4 +166,29 @@ checkpoints: "attempt <n> <mode>" per attempt
 outcome: ok | error | cancelled     # cancelled when disconnect() or a newer reconnect wins
 ```
 
-`lk.publish` / `lk.subscribe`: not yet emitted by any SDK (see design page, round 7).
+```yaml
+span: lk.publish
+kind: internal
+parent: the ambient span, when any (the connect span for a pre-connect microphone)
+attributes:
+  lk.track.kind: enum(audio | video)
+  lk.track.source: enum(camera | microphone | screenShare | screenShareAudio | unknown)
+  lk.track.sid: string            # on success
+outcome: ok | error (error.type) | cancelled
+```
+
+```yaml
+span: lk.subscribe
+kind: internal
+starts: when the intent to subscribe exists — a remote publish under autoSubscribe, or the
+        manual subscribe call
+ends:   at first media (the first stats reading with bytes received; 1 s granularity) → ok;
+        unsubscribe / unpublish before media → cancelled;
+        subscription failure → error; no media within 30 s → error (error.type = LiveKitError.timedOut)
+attributes:
+  lk.track.sid: string
+  lk.track.kind: enum(audio | video)
+  lk.track.source: string
+  lk.participant.remote_identity: string
+checkpoints: subscribed, first_media
+```
