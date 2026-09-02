@@ -17,7 +17,11 @@
 #
 #   1. Leaf crates get the full `--feature-powerset --depth 2`. Their feature
 #      sets are small, so exhaustive coverage is cheap, and they are where the
-#      `dep:`/`?/` plumbing bugs actually live.
+#      `dep:`/`?/` plumbing bugs actually live. The set is every publishable
+#      workspace crate that has features and is not one of the two below — note
+#      that is *not* the same as "everything livekit depends on":
+#      livekit-token-source is a sibling crate, not a dependency, and belongs
+#      here all the same.
 #
 #   2. livekit and livekit-api get a hand-picked list of 17 combinations
 #      instead of their 125-combination powerset. Most of those 125 are
@@ -76,6 +80,7 @@ env:
     -p libwebrtc
     -p webrtc-sys
     -p livekit-token
+    -p livekit-token-source
 
 jobs:
   curated:
@@ -233,6 +238,7 @@ jobs:
           livekit-api|--no-default-features --features access-token
           livekit-api|--no-default-features --features webhooks
           livekit-api|--no-default-features --features services,native-tls
+          livekit-api|--no-default-features --features services,native-tls-vendored
           livekit-api|--no-default-features --features services,rustls-tls-webpki-roots
           livekit-api|--no-default-features --features services,rustls-tls-native-roots
           livekit-api|--no-default-features --features signal-client-native,rustls-tls-webpki-roots
