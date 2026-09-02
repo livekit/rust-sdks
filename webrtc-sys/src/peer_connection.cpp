@@ -170,9 +170,19 @@ void PeerConnection::add_ice_candidate(
     std::shared_ptr<IceCandidate> candidate,
     rust::Box<PeerContext> ctx,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const {
+  // AddIceCandidate's completion runs asynchronously on the signaling thread
+  // (deferred behind the operations chain when it is busy, e.g. while a
+  // SetRemoteDescription is in flight). Capturing by reference left the lambda
+  // holding dangling references to this frame's `ctx` and `on_complete`, so the
+  // deferred call executed freed stack memory (SIGSEGV on the signaling thread).
+  // Capture by value so the callback owns its state.
+  auto state = std::make_shared<
+      std::pair<rust::Box<PeerContext>,
+                rust::Fn<void(rust::Box<PeerContext>, RtcError)>>>(
+      std::move(ctx), on_complete);
   peer_connection_->AddIceCandidate(
-      candidate->release(), [&](const webrtc::RTCError& err) {
-        on_complete(std::move(ctx), to_error(err));
+      candidate->release(), [state](const webrtc::RTCError& err) {
+        state->second(std::move(state->first), to_error(err));
       });
 }
 
