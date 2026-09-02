@@ -19,20 +19,22 @@
 #      sets are small, so exhaustive coverage is cheap, and they are where the
 #      `dep:`/`?/` plumbing bugs actually live.
 #
-#   2. The four user-facing crates (livekit, livekit-api, livekit-ffi,
-#      livekit-uniffi) get a hand-picked list of combinations instead. The
-#      powerset over these is where nearly all the time went — `livekit` alone
-#      is 65 of 209 combinations and ~40% of the wall time — and most of those
-#      65 are combinations nobody can actually select, e.g. two TLS backends at
-#      once, or an internal `__lk-*` feature paired with an unrelated one. The
-#      list below is drawn from what the manifests document and what
-#      ffi-builds.yml actually ships.
+#   2. livekit and livekit-api get a hand-picked list of 17 combinations
+#      instead of their 125-combination powerset. Most of those 125 are
+#      configurations nobody can actually select — two TLS backends at once, or
+#      an internal `__lk-*` feature paired with something unrelated. Every
+#      entry in the list is drawn from what the manifests document.
+#
+# Measured cold on a 14-core machine: the full 209-combination powerset takes
+# 359s; this split takes 242s, a 33% saving. That is what brings the job in
+# line with the existing per-commit builds.
 #
 # The tradeoff is real and worth stating: this trades exhaustiveness on the top
-# crates for speed. A feature pair that only breaks in one of the combinations
-# dropped here will not be caught. Compare against feature-combinations.yml,
-# which runs the full 209, before deciding which to keep.
-name: Feature Combinations (curated)
+# two crates for speed, so a feature pair that only breaks in one of the
+# dropped combinations will not be caught here. feature-combinations.yml still
+# runs the full 209 plus livekit-ffi/livekit-uniffi nightly, which is the
+# backstop for exactly that.
+name: Feature Combinations (per-commit)
 
 on:
   workflow_dispatch:
@@ -105,7 +107,7 @@ jobs:
             target: x86_64-linux-android
             exclude_features: native-tls
 
-    name: Curated features (${{ matrix.target }})
+    name: Features per-commit (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -184,7 +186,7 @@ jobs:
         shell: bash
         run: |
           start=$(date +%s)
-          $CHECK_CMD $LEAF_PACKAGES -p livekit -p livekit-api -p livekit-ffi -p livekit-uniffi
+          $CHECK_CMD $LEAF_PACKAGES -p livekit -p livekit-api
           echo "BASELINE_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
       - name: Leaf crates — full feature powerset (depth 2)
@@ -228,18 +230,16 @@ jobs:
           livekit-api|--no-default-features --features services,rustls-tls-native-roots
           livekit-api|--no-default-features --features signal-client-native,rustls-tls-webpki-roots
           livekit-api|--features rustls-tls-webpki-roots
-          # --- livekit-ffi ---------------------------------------------------
-          livekit-ffi|
-          livekit-ffi|--no-default-features --features native-tls
-          livekit-ffi|--no-default-features --features native-tls-vendored
-          livekit-ffi|--no-default-features --features rustls-tls-webpki-roots
-          livekit-ffi|--no-default-features --features rustls-tls-native-roots
-          livekit-ffi|--features tracing
-          # --- livekit-uniffi ------------------------------------------------
-          # dart-bindgen is deliberately omitted: it is tooling-only and pulls a
-          # third-party bindgen that has no business gating an SDK commit.
-          livekit-uniffi|
-          livekit-uniffi|--features cli
+          # livekit-ffi and livekit-uniffi are deliberately NOT here. Measured
+          # cold, their 8 combinations cost 103s of a 345s total — 30% of the
+          # budget for two crates, because each TLS change rebuilds livekit
+          # underneath livekit-ffi. Dropping them takes the job from 345s to
+          # 242s, which is what makes per-commit affordable. Their shipped
+          # configurations are still covered: builds.yml builds the whole
+          # workspace (livekit-ffi at default features) on every PR, and
+          # ffi-builds.yml builds every shipped per-platform TLS variant on
+          # push to main. The residual gap is livekit-ffi's non-default TLS
+          # variants on PRs, which the nightly full powerset covers.
           EOF
           )
 
@@ -283,7 +283,7 @@ jobs:
         run: |
           secs() { if [ -n "${1:-}" ]; then echo "${1}s"; else echo "n/a"; fi; }
           {
-            echo "### Curated feature checking — \`${{ matrix.target }}\`"
+            echo "### Per-commit feature checking — \`${{ matrix.target }}\`"
             echo ""
             echo "| Measurement | Value |"
             echo "| --- | --- |"

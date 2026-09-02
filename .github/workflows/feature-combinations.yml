@@ -27,25 +27,15 @@
 # cfg-gated code, the webrtc-sys C++ bridge, and the per-platform TLS backends
 # all differ, so a combination can be fine on linux and broken on android.
 # Jobs run in parallel, so the cost is the slowest target rather than the sum.
-name: Feature Combinations
+name: Feature Combinations (nightly, exhaustive)
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - ".changeset/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "renovate.json"
-      - ".vscode/**"
-  push:
-    branches:
-      - "main"
-      # TEMPORARY: added so this job runs on the branch that introduces it, to
-      # measure how long the full matrix takes. Remove before merging.
-      - "add-all-features-complication"
+  schedule:
+    # 07:00 UTC daily. This is the exhaustive backstop: the per-commit job in
+    # feature-combinations-curated.yml checks a curated subset of livekit and
+    # livekit-api, so the combinations it skips are caught here within a day.
+    - cron: "0 7 * * *"
 
 # One in-flight run per ref. This job is cheap per platform but there are
 # eleven of them, so superseded pushes should not keep burning runners.
@@ -115,7 +105,7 @@ jobs:
             target: x86_64-linux-android
             exclude_features: native-tls
 
-    name: Feature powerset (${{ matrix.target }})
+    name: Feature powerset nightly (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     # Measured at ~14 min end to end for aarch64-unknown-linux-gnu. Set well
     # above that to leave room, not as a target.
@@ -226,6 +216,41 @@ jobs:
             ${{ matrix.exclude_features && format('--exclude-features {0}', matrix.exclude_features) || '' }} \
             check
           echo "POWERSET_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      # livekit-ffi and livekit-uniffi are checked here rather than per-commit:
+      # their combinations cost 103s of a 345s budget (each TLS change rebuilds
+      # livekit underneath livekit-ffi), which is what pushed the per-commit job
+      # over the line. Nightly is the right place for them.
+      - name: livekit-ffi / livekit-uniffi feature combinations
+        shell: bash
+        run: |
+          set -uo pipefail
+          COMBOS=$(cat <<'EOF'
+          livekit-ffi|
+          livekit-ffi|--no-default-features --features native-tls
+          livekit-ffi|--no-default-features --features native-tls-vendored
+          livekit-ffi|--no-default-features --features rustls-tls-webpki-roots
+          livekit-ffi|--no-default-features --features rustls-tls-native-roots
+          livekit-ffi|--features tracing
+          livekit-uniffi|
+          livekit-uniffi|--features cli
+          EOF
+          )
+          failed=0
+          while IFS='|' read -r crate flags; do
+            [[ -z "${crate// /}" || "$crate" =~ ^[[:space:]]*# ]] && continue
+            crate="${crate// /}"
+            # Android has no OpenSSL to link: skip bare `native-tls`.
+            if [ -n "${{ matrix.exclude_features || '' }}" ] \
+               && printf '%s' "$flags" | grep -qE '(^|[ ,])native-tls($|[ ,])'; then
+              echo "::notice::skipping (no Android OpenSSL): $crate $flags"
+              continue
+            fi
+            echo "::group::$crate $flags"
+            $CHECK_CMD -p "$crate" $flags || { failed=$((failed+1)); echo "::error::failed: $crate $flags"; }
+            echo "::endgroup::"
+          done <<< "$COMBOS"
+          [ "$failed" -eq 0 ]
 
       - name: Report timings
         # Runs even when the powerset fails so the timing is still reported;
