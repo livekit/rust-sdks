@@ -155,9 +155,9 @@ fn main() {
             .expect("configure_audio_processing");
     }
     // The convenience toggles must keep the reported processing state in sync
-    audio.set_echo_cancellation(false, false).expect("set_echo_cancellation");
+    audio.set_echo_cancellation(false).expect("set_echo_cancellation");
     assert_eq!(audio.active_aec_type(), AudioProcessingType::None, "AEC should report disabled");
-    audio.set_echo_cancellation(true, true).expect("set_echo_cancellation");
+    audio.set_echo_cancellation(true).expect("set_echo_cancellation");
     assert_ne!(audio.active_aec_type(), AudioProcessingType::None, "AEC should report enabled");
 
     println!("=== Phase 5: concurrent hammering (16 threads x 50 iterations) ===");

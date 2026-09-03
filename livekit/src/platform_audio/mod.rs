@@ -375,10 +375,37 @@ lazy_static! {
 /// When the last PlatformAudio is dropped, the Platform ADM is released.
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
-    // Device level processing configuration last applied via
-    // configure_audio_processing, used by the active_*_type getters.
-    // RwLock because the getters read far more often than settings change.
-    processing_options: RwLock<AudioProcessingOptions>,
+    // Audio processing state last applied via configure_audio_processing:
+    // the requested options plus, per effect, whether the hardware path
+    // actually took effect. Used by the active_*_type getters. RwLock
+    // because the getters read far more often than settings change, and
+    // configuration holds the write guard across the whole apply-and-store
+    // sequence so concurrent reconfigurations cannot lose updates.
+    processing_state: RwLock<ProcessingState>,
+}
+
+/// Snapshot of the applied audio processing configuration.
+#[derive(Clone, Copy)]
+struct ProcessingState {
+    options: AudioProcessingOptions,
+    hw_aec_active: bool,
+    hw_agc_active: bool,
+    hw_ns_active: bool,
+}
+
+impl ProcessingState {
+    /// State before any explicit configuration: the default options, with
+    /// the hardware flags reflecting what the platform would use for them.
+    fn initial(runtime: &LkRuntime) -> Self {
+        let options = AudioProcessingOptions::default();
+        let hw = options.prefer_hardware_processing;
+        Self {
+            hw_aec_active: hw && runtime.builtin_aec_is_available(),
+            hw_agc_active: hw && runtime.builtin_agc_is_available(),
+            hw_ns_active: hw && runtime.builtin_ns_is_available(),
+            options,
+        }
+    }
 }
 
 impl Drop for PlatformAdmHandle {
@@ -559,8 +586,8 @@ impl PlatformAudio {
         );
 
         let handle = Arc::new(PlatformAdmHandle {
+            processing_state: RwLock::new(ProcessingState::initial(&runtime)),
             runtime,
-            processing_options: RwLock::new(AudioProcessingOptions::default()),
         });
         *handle_ref = Arc::downgrade(&handle);
 
@@ -1182,10 +1209,10 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn active_aec_type(&self) -> AudioProcessingType {
-        let options = *self.handle.processing_options.read();
-        if !options.echo_cancellation {
+        let state = *self.handle.processing_state.read();
+        if !state.options.echo_cancellation {
             AudioProcessingType::None
-        } else if options.prefer_hardware_processing && self.is_hardware_aec_available() {
+        } else if state.hw_aec_active {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1194,10 +1221,10 @@ impl PlatformAudio {
 
     /// Gets the type of automatic gain control currently active.
     pub fn active_agc_type(&self) -> AudioProcessingType {
-        let options = *self.handle.processing_options.read();
-        if !options.auto_gain_control {
+        let state = *self.handle.processing_state.read();
+        if !state.options.auto_gain_control {
             AudioProcessingType::None
-        } else if options.prefer_hardware_processing && self.is_hardware_agc_available() {
+        } else if state.hw_agc_active {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1206,10 +1233,10 @@ impl PlatformAudio {
 
     /// Gets the type of noise suppression currently active.
     pub fn active_ns_type(&self) -> AudioProcessingType {
-        let options = *self.handle.processing_options.read();
-        if !options.noise_suppression {
+        let state = *self.handle.processing_state.read();
+        if !state.options.noise_suppression {
             AudioProcessingType::None
-        } else if options.prefer_hardware_processing && self.is_hardware_ns_available() {
+        } else if state.hw_ns_active {
             AudioProcessingType::Hardware
         } else {
             AudioProcessingType::Software
@@ -1246,6 +1273,20 @@ impl PlatformAudio {
     /// })?;
     /// ```
     pub fn configure_audio_processing(&self, options: AudioProcessingOptions) -> AudioResult<()> {
+        // Hold the write guard across the whole apply-and-store sequence so
+        // concurrent reconfigurations cannot interleave and lose updates
+        let mut state = self.handle.processing_state.write();
+        self.apply_processing_locked(options, &mut state)
+    }
+
+    /// Applies `options` to the hardware effects and stores the resulting
+    /// state. The caller holds the write guard, making the read-modify-apply
+    /// sequence atomic against concurrent reconfiguration.
+    fn apply_processing_locked(
+        &self,
+        options: AudioProcessingOptions,
+        state: &mut ProcessingState,
+    ) -> AudioResult<()> {
         let runtime = &self.handle.runtime;
 
         // Configure hardware vs software processing preference
@@ -1253,32 +1294,48 @@ impl PlatformAudio {
         // to force WebRTC to use its software APM instead
         let use_hardware = options.prefer_hardware_processing;
 
-        // Enable/disable hardware AEC
+        // Enable/disable each hardware effect, tracking whether the hardware
+        // path actually took effect so the active_*_type getters report the
+        // applied state. A failed toggle keeps the previous flag, since the
+        // hardware stays in whatever state it was in.
         // Note: When hardware is disabled, WebRTC automatically falls back to software
+        let mut hw_aec_active = state.hw_aec_active;
         if runtime.builtin_aec_is_available() {
             let enable_hw = use_hardware && options.echo_cancellation;
-            if !runtime.enable_builtin_aec(enable_hw) {
+            if runtime.enable_builtin_aec(enable_hw) {
+                hw_aec_active = enable_hw;
+            } else {
                 log::warn!("enable_builtin_aec({}) failed", enable_hw);
             }
+        } else {
+            hw_aec_active = false;
         }
 
-        // Enable/disable hardware AGC
+        let mut hw_agc_active = state.hw_agc_active;
         if runtime.builtin_agc_is_available() {
             let enable_hw = use_hardware && options.auto_gain_control;
-            if !runtime.enable_builtin_agc(enable_hw) {
+            if runtime.enable_builtin_agc(enable_hw) {
+                hw_agc_active = enable_hw;
+            } else {
                 log::warn!("enable_builtin_agc({}) failed", enable_hw);
             }
+        } else {
+            hw_agc_active = false;
         }
 
-        // Enable/disable hardware NS
+        let mut hw_ns_active = state.hw_ns_active;
         if runtime.builtin_ns_is_available() {
             let enable_hw = use_hardware && options.noise_suppression;
-            if !runtime.enable_builtin_ns(enable_hw) {
+            if runtime.enable_builtin_ns(enable_hw) {
+                hw_ns_active = enable_hw;
+            } else {
                 log::warn!("enable_builtin_ns({}) failed", enable_hw);
             }
+        } else {
+            hw_ns_active = false;
         }
 
-        *self.handle.processing_options.write() = options;
+        *state = ProcessingState { options, hw_aec_active, hw_agc_active, hw_ns_active };
 
         log::info!(
             "Audio processing configured: AEC={}, AGC={}, NS={}, prefer_hw={}",
@@ -1294,64 +1351,61 @@ impl PlatformAudio {
     /// Enables or disables echo cancellation.
     ///
     /// This is a convenience method equivalent to calling `configure_audio_processing`
-    /// with the `echo_cancellation` and `prefer_hardware_processing` fields changed,
-    /// so the state reported by [`active_aec_type`] stays in sync.
+    /// with only the `echo_cancellation` field changed, so the state reported
+    /// by [`active_aec_type`] stays in sync. The hardware vs software
+    /// preference is shared by all effects and is left untouched, change it
+    /// via [`configure_audio_processing`].
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable AEC, `false` to disable
-    /// * `prefer_hardware` - `true` to prefer hardware AEC on supported devices
     ///
     /// [`active_aec_type`]: Self::active_aec_type
-    pub fn set_echo_cancellation(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        let options = AudioProcessingOptions {
-            echo_cancellation: enable,
-            prefer_hardware_processing: prefer_hardware,
-            ..*self.handle.processing_options.read()
-        };
-        self.configure_audio_processing(options)
+    /// [`configure_audio_processing`]: Self::configure_audio_processing
+    pub fn set_echo_cancellation(&self, enable: bool) -> AudioResult<()> {
+        let mut state = self.handle.processing_state.write();
+        let options = AudioProcessingOptions { echo_cancellation: enable, ..state.options };
+        self.apply_processing_locked(options, &mut state)
     }
 
     /// Enables or disables automatic gain control.
     ///
     /// This is a convenience method equivalent to calling `configure_audio_processing`
-    /// with the `auto_gain_control` and `prefer_hardware_processing` fields changed,
-    /// so the state reported by [`active_agc_type`] stays in sync.
+    /// with only the `auto_gain_control` field changed, so the state reported
+    /// by [`active_agc_type`] stays in sync. The hardware vs software
+    /// preference is shared by all effects and is left untouched, change it
+    /// via [`configure_audio_processing`].
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable AGC, `false` to disable
-    /// * `prefer_hardware` - `true` to prefer hardware AGC on supported devices
     ///
     /// [`active_agc_type`]: Self::active_agc_type
-    pub fn set_auto_gain_control(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        let options = AudioProcessingOptions {
-            auto_gain_control: enable,
-            prefer_hardware_processing: prefer_hardware,
-            ..*self.handle.processing_options.read()
-        };
-        self.configure_audio_processing(options)
+    /// [`configure_audio_processing`]: Self::configure_audio_processing
+    pub fn set_auto_gain_control(&self, enable: bool) -> AudioResult<()> {
+        let mut state = self.handle.processing_state.write();
+        let options = AudioProcessingOptions { auto_gain_control: enable, ..state.options };
+        self.apply_processing_locked(options, &mut state)
     }
 
     /// Enables or disables noise suppression.
     ///
     /// This is a convenience method equivalent to calling `configure_audio_processing`
-    /// with the `noise_suppression` and `prefer_hardware_processing` fields changed,
-    /// so the state reported by [`active_ns_type`] stays in sync.
+    /// with only the `noise_suppression` field changed, so the state reported
+    /// by [`active_ns_type`] stays in sync. The hardware vs software
+    /// preference is shared by all effects and is left untouched, change it
+    /// via [`configure_audio_processing`].
     ///
     /// # Arguments
     ///
     /// * `enable` - `true` to enable NS, `false` to disable
-    /// * `prefer_hardware` - `true` to prefer hardware NS on supported devices
     ///
     /// [`active_ns_type`]: Self::active_ns_type
-    pub fn set_noise_suppression(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
-        let options = AudioProcessingOptions {
-            noise_suppression: enable,
-            prefer_hardware_processing: prefer_hardware,
-            ..*self.handle.processing_options.read()
-        };
-        self.configure_audio_processing(options)
+    /// [`configure_audio_processing`]: Self::configure_audio_processing
+    pub fn set_noise_suppression(&self, enable: bool) -> AudioResult<()> {
+        let mut state = self.handle.processing_state.write();
+        let options = AudioProcessingOptions { noise_suppression: enable, ..state.options };
+        self.apply_processing_locked(options, &mut state)
     }
 }
 

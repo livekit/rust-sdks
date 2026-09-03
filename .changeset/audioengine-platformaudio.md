@@ -1,7 +1,7 @@
 ---
 livekit: minor
 webrtc-sys: minor
-libwebrtc: patch
+libwebrtc: minor
 livekit-ffi: patch
 ---
 
