@@ -29,14 +29,12 @@ impl AudioProcessingModule {
         noise_suppression_enabled: bool,
     ) -> Self {
         Self {
-            sys_handle: unsafe {
-                sys_apm::create_apm(
-                    echo_canceller_enabled,
-                    gain_controller_enabled,
-                    high_pass_filter_enabled,
-                    noise_suppression_enabled,
-                )
-            },
+            sys_handle: sys_apm::create_apm(
+                echo_canceller_enabled,
+                gain_controller_enabled,
+                high_pass_filter_enabled,
+                noise_suppression_enabled,
+            ),
         }
     }
 

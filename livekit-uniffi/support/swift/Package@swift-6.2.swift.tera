@@ -37,5 +37,10 @@ let package = Package(
 {%- else %}
         {{ throw(message="Unsupported CARGO_MAKE_PROFILE") }}
 {%- endif %}
-    ]
+    ],
+    // Workaround for cargo-swift pinning uniffi_bindgen 0.31.1: its generated
+    // callback `vtablePtr` isn't `nonisolated(unsafe)`, so the bindings fail the
+    // Swift 6 language mode. Remove once cargo-swift ships uniffi 0.31.2
+    // (antoniusnaumann/cargo-swift#102).
+    swiftLanguageModes: [.v5]
 )

@@ -1,0 +1,13 @@
+diff --git a/abseil-cpp/absl/container/internal/raw_hash_set.h b/abseil-cpp/absl/container/internal/raw_hash_set.h
+index 191b1c9bb8..ebf884e908 100644
+--- a/abseil-cpp/absl/container/internal/raw_hash_set.h
++++ b/abseil-cpp/absl/container/internal/raw_hash_set.h
+@@ -226,7 +226,7 @@
+ #endif
+ 
+ #ifdef __BMI2__
+-#include <bmi2intrin.h>
++#include <immintrin.h>
+ #endif  // __BMI2__
+ 
+ namespace absl {

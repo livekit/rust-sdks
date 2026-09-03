@@ -95,6 +95,7 @@ impl From<VideoEncoderBackend> for sys_webrtc::ffi::VideoEncoderBackend {
             VideoEncoderBackend::Nvenc => Self::Nvenc,
             VideoEncoderBackend::Vaapi => Self::Vaapi,
             VideoEncoderBackend::VideoToolbox => Self::VideoToolbox,
+            VideoEncoderBackend::PreEncoded => Self::PreEncoded,
         }
     }
 }
@@ -108,6 +109,7 @@ impl From<sys_webrtc::ffi::VideoEncoderBackend> for VideoEncoderBackend {
             sys_webrtc::ffi::VideoEncoderBackend::Nvenc => Self::Nvenc,
             sys_webrtc::ffi::VideoEncoderBackend::Vaapi => Self::Vaapi,
             sys_webrtc::ffi::VideoEncoderBackend::VideoToolbox => Self::VideoToolbox,
+            sys_webrtc::ffi::VideoEncoderBackend::PreEncoded => Self::PreEncoded,
             _ => panic!("unknown VideoEncoderBackend"),
         }
     }
@@ -130,6 +132,7 @@ mod tests {
             (VideoEncoderBackend::Nvenc, sys_webrtc::ffi::VideoEncoderBackend::Nvenc),
             (VideoEncoderBackend::Vaapi, sys_webrtc::ffi::VideoEncoderBackend::Vaapi),
             (VideoEncoderBackend::VideoToolbox, sys_webrtc::ffi::VideoEncoderBackend::VideoToolbox),
+            (VideoEncoderBackend::PreEncoded, sys_webrtc::ffi::VideoEncoderBackend::PreEncoded),
         ];
 
         for (backend, expected) in cases {

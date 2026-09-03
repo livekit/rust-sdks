@@ -104,11 +104,23 @@ impl ffi::RtcError {
     /// Backwards-compatible wrapper for callers that already trust the input
     /// is well-formed.
     ///
+    /// In practice C++ can hand us a string that doesn't match the format,
+    /// for example an empty `cxx::Exception` "what" on participant
+    /// disconnect (see #944). Falling through to `expect` panicked the
+    /// caller's task. Now we fall back to a generic error and stash the raw
+    /// string in `message` so the caller can still see what came through.
+    ///
     /// # Safety
     /// Marked `unsafe` purely for source-compat with prior callers; the body
     /// no longer relies on caller-upheld invariants.
     pub unsafe fn from(value: &str) -> Self {
-        Self::parse(value).expect("malformed serialized RtcError")
+        Self::parse(value).unwrap_or_else(|| Self {
+            error_type: ffi::RtcErrorType::None,
+            error_detail: ffi::RtcErrorDetailType::None,
+            has_sctp_cause_code: false,
+            sctp_cause_code: 0,
+            message: value.into(),
+        })
     }
 
     pub fn ok(&self) -> bool {
@@ -181,5 +193,18 @@ mod tests {
         assert!(error.has_sctp_cause_code);
         assert_eq!(error.sctp_cause_code, 24);
         assert_eq!(error.message, "this is not a test, I repeat, this is not a test");
+    }
+
+    /// On participant disconnect the C++ side sometimes hands us a string
+    /// that doesn't fit the serialized format; we used to panic here (#944).
+    #[test]
+    fn malformed_input_does_not_panic() {
+        let error = unsafe { RtcError::from("") };
+        assert_eq!(error.error_type, RtcErrorType::None);
+        assert!(error.message.is_empty());
+
+        let error = unsafe { RtcError::from("not hex at all, just words") };
+        assert_eq!(error.error_type, RtcErrorType::None);
+        assert_eq!(error.message, "not hex at all, just words");
     }
 }

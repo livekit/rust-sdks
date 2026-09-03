@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{enum_dispatch, imp::audio_source as imp_as};
-
 /// Default sample rate used by WebRTC audio pipelines (48kHz).
 pub const DEFAULT_SAMPLE_RATE: u32 = 48000;
 
@@ -165,11 +163,12 @@ pub mod native {
     use std::fmt::{Debug, Formatter};
 
     use super::*;
+    use crate::imp::audio_source::NativeAudioSource as ImpAudioSource;
     use crate::{audio_frame::AudioFrame, RtcError};
 
     #[derive(Clone)]
     pub struct NativeAudioSource {
-        pub(crate) handle: imp_as::NativeAudioSource,
+        pub(crate) handle: ImpAudioSource,
     }
 
     impl Debug for NativeAudioSource {
@@ -185,14 +184,7 @@ pub mod native {
             num_channels: u32,
             queue_size_ms: u32,
         ) -> NativeAudioSource {
-            Self {
-                handle: imp_as::NativeAudioSource::new(
-                    options,
-                    sample_rate,
-                    num_channels,
-                    queue_size_ms,
-                ),
-            }
+            Self { handle: ImpAudioSource::new(options, sample_rate, num_channels, queue_size_ms) }
         }
 
         pub fn clear_buffer(&self) {

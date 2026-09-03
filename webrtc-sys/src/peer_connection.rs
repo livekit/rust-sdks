@@ -92,6 +92,9 @@ pub mod ffi {
         pub ice_servers: Vec<IceServer>,
         pub continual_gathering_policy: ContinualGatheringPolicy,
         pub ice_transport_type: IceTransportsType,
+        // WARP/SNAP: enable SCTP-INIT-in-SDP. Must be carried consistently across
+        // create + set_configuration (it is an immutable RTCConfiguration field).
+        pub enable_sctp_snap: bool,
     }
 
     extern "C++" {

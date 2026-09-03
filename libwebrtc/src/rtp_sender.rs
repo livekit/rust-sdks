@@ -36,6 +36,8 @@ pub enum VideoEncoderBackend {
     Vaapi,
     /// Prefer VideoToolbox on Apple platforms when available.
     VideoToolbox,
+    /// Pass pre-encoded frames through without encoding raw video frames.
+    PreEncoded,
 }
 
 impl VideoEncoderBackend {

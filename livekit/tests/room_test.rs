@@ -17,6 +17,7 @@ use {
     anyhow::{Ok, Result},
     chrono::{TimeDelta, TimeZone, Utc},
     common::test_rooms,
+    libwebrtc::prelude::PeerConnectionState,
     livekit::{ConnectionState, ParticipantKind, RoomEvent},
     std::time::Duration,
     tokio::time::{self, timeout},
@@ -87,5 +88,37 @@ async fn test_participant_disconnect() -> Result<()> {
         Ok(())
     };
     timeout(Duration::from_secs(15), wait_for_disconnected).await??;
+    Ok(())
+}
+
+/// A cancelled `close()` must still have closed the peer connections.
+///
+/// `SessionInner::close` ends with two unbounded awaits, so a caller bounding it with a
+/// timeout used to drop the future before the transports were closed — and nothing else
+/// closes them, so their ICE sockets stayed bound for the process's lifetime. Cancelling at
+/// the first `.await` makes this deterministic: the assertion holds only if the close ran
+/// before the future suspended.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_cancelled_close_still_closes_peer_connections() -> Result<()> {
+    let (room, _) = test_rooms(1).await?.pop().unwrap();
+    assert_eq!(
+        room.publisher_connection_state(),
+        PeerConnectionState::Connected,
+        "publisher should be connected before teardown, or the assertion below proves nothing"
+    );
+
+    // Poll the close exactly once, then drop it. `Duration::ZERO` elapses on the first poll,
+    // so `timeout` yields `Err` the moment the inner future suspends — cancelling it at the
+    // earliest possible point rather than at some arbitrary later one.
+    let cancelled = timeout(Duration::ZERO, room.close()).await;
+    assert!(cancelled.is_err(), "close should have been cancelled at its first suspension point");
+
+    assert_eq!(
+        room.publisher_connection_state(),
+        PeerConnectionState::Closed,
+        "a cancelled close must not leave the publisher transport open: its ICE sockets are \
+         only released by PeerConnection::close, so anything else leaks them permanently"
+    );
     Ok(())
 }

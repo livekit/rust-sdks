@@ -21,6 +21,19 @@ pub mod rtc_engine;
 
 pub mod webrtc {
     pub use libwebrtc::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::rtc_engine::lk_runtime::WebRtcRuntimeInitializedError;
+
+    /// Enables zero playout delay for native video receivers created by the shared WebRTC runtime.
+    ///
+    /// Call this before [`crate::Room::connect`]. Repeated calls are allowed, but enabling the
+    /// mode after the default WebRTC runtime is active returns
+    /// [`WebRtcRuntimeInitializedError`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_zero_playout_delay() -> Result<(), WebRtcRuntimeInitializedError> {
+        crate::rtc_engine::lk_runtime::LkRuntime::enable_zero_playout_delay()
+    }
 }
 
 pub use room::*;
@@ -33,13 +46,6 @@ pub mod prelude;
 mod platform_audio;
 #[cfg(not(target_arch = "wasm32"))]
 pub use platform_audio::*;
-
-#[cfg(feature = "dispatcher")]
-pub mod dispatcher {
-    pub use livekit_runtime::set_dispatcher;
-    pub use livekit_runtime::Dispatcher;
-    pub use livekit_runtime::Runnable;
-}
 
 pub use plugin::*;
 

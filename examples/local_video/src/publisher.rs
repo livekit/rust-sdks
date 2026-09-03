@@ -6,6 +6,8 @@ use livekit::options::{
     VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+use livekit::webrtc::video_frame::native::{DmaBufPixelFormat, NativeBuffer};
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -1713,8 +1715,8 @@ async fn run_capture_loop(
 ///
 /// Argus blocks inside `acquireFrame`, pacing capture itself, so this loop runs in a
 /// dedicated OS thread and pushes NV12 DMA-buffer fds straight into `NativeVideoSource`
-/// via [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
-/// to the Jetson hardware encoder.
+/// as [`NativeBuffer::from_dmabuf`] frames for zero-copy hand-off to the Jetson
+/// hardware encoder.
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 async fn run_argus_capture_loop(
     config: CaptureConfig,
@@ -1848,14 +1850,16 @@ async fn run_argus_capture_loop(
                     None
                 };
 
-                rtc_source.capture_dmabuf_frame_with_metadata(
-                    argus_frame.dmabuf_fd,
-                    width,
-                    height,
-                    0, // NV12
-                    start_ts.elapsed().as_micros() as i64,
+                rtc_source.capture_frame(&VideoFrame {
+                    rotation: VideoRotation::VideoRotation0,
+                    timestamp_us: start_ts.elapsed().as_micros() as i64,
                     frame_metadata,
-                );
+                    buffer: NativeBuffer::from_dmabuf(
+                        argus_frame.dmabuf_fd,
+                        VideoResolution { width, height },
+                        DmaBufPixelFormat::NV12,
+                    ),
+                });
                 let capture_finished_at = Instant::now();
 
                 frames += 1;

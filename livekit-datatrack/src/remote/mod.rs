@@ -14,7 +14,6 @@
 
 use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
 use events::{InputEvent, SetPipelineOptions, SubscribeRequest};
-use livekit_runtime::timeout;
 use std::{
     marker::PhantomData,
     pin::Pin,
@@ -24,6 +23,7 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time::timeout;
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 
 pub(crate) mod events;
@@ -171,6 +171,8 @@ impl RemoteTrackInner {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum DataTrackSubscribeError {
     #[error("The track has been unpublished and is no longer available")]
     Unpublished,

@@ -6,6 +6,7 @@ const DEFAULT_ASPECT: f32 = 16.0 / 9.0;
 const DEFAULT_INITIAL_LONG_EDGE: f32 = 960.0;
 const MIN_LONG_EDGE: f32 = 320.0;
 /// Repaint cadence used while a local video window is visible.
+#[allow(dead_code)] // This shared module is compiled separately by binaries with different pacing.
 pub(crate) const VIDEO_REPAINT_INTERVAL: Duration = Duration::from_millis(8);
 const ASPECT_EPSILON: f32 = 0.001;
 

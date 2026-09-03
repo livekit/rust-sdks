@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use crate::imp::video_frame as vf_imp;
+use crate::{imp::video_frame as vf_imp, video_source::VideoResolution};
 
 #[derive(Debug, Error)]
 pub enum SinkError {
@@ -69,6 +69,71 @@ pub struct FrameMetadata {
     /// features are also active); oversize payloads are dropped on the send
     /// side rather than truncated.
     pub user_data: Option<Vec<u8>>,
+}
+
+/// Codec carried by a pre-encoded video access unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EncodedVideoCodec {
+    /// H.264/AVC video.
+    H264,
+    /// H.265/HEVC video.
+    H265,
+    /// VP8 video.
+    VP8,
+    /// VP9 video.
+    VP9,
+    /// AV1 video.
+    AV1,
+}
+
+/// Frame type of a pre-encoded video access unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncodedFrameType {
+    /// A key frame.
+    Key,
+    /// A delta frame.
+    Delta,
+}
+
+/// A pre-encoded video access unit ready for passthrough publishing.
+#[derive(Debug, Clone)]
+pub struct EncodedVideoFrame<'a> {
+    /// Encoded video codec.
+    pub codec: EncodedVideoCodec,
+    /// Encoded access-unit payload.
+    pub payload: &'a [u8],
+    /// Capture timestamp in microseconds.
+    pub timestamp_us: i64,
+    /// Encoded frame type.
+    pub frame_type: EncodedFrameType,
+    /// Encoded frame resolution in pixels.
+    pub resolution: VideoResolution,
+    /// Optional metadata to attach through packet trailers.
+    pub frame_metadata: Option<FrameMetadata>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<EncodedVideoCodec> for webrtc_sys::video_track::ffi::EncodedVideoCodec {
+    fn from(value: EncodedVideoCodec) -> Self {
+        match value {
+            EncodedVideoCodec::H264 => Self::H264,
+            EncodedVideoCodec::H265 => Self::H265,
+            EncodedVideoCodec::VP8 => Self::VP8,
+            EncodedVideoCodec::VP9 => Self::VP9,
+            EncodedVideoCodec::AV1 => Self::AV1,
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<EncodedFrameType> for webrtc_sys::video_track::ffi::EncodedFrameType {
+    fn from(value: EncodedFrameType) -> Self {
+        match value {
+            EncodedFrameType::Key => Self::Key,
+            EncodedFrameType::Delta => Self::Delta,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -234,6 +299,12 @@ impl I420Buffer {
 
     pub fn new(width: u32, height: u32) -> I420Buffer {
         Self::with_strides(width, height, width, (width + 1) / 2, (width + 1) / 2)
+    }
+
+    /// Like [`I420Buffer::new`], but with the pixel data initialized to black
+    /// (Y=0, U=V=128) instead of left uninitialized.
+    pub fn new_black(width: u32, height: u32) -> I420Buffer {
+        vf_imp::I420Buffer::new_black(width, height, width, (width + 1) / 2, (width + 1) / 2)
     }
 
     pub fn chroma_width(&self) -> u32 {
@@ -497,8 +568,27 @@ pub mod native {
     use std::fmt::Debug;
 
     use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
+    #[cfg(target_os = "linux")]
+    use crate::video_source::VideoResolution;
 
     new_buffer_type!(NativeBuffer, Native, as_native);
+
+    /// A borrowed DMA-BUF file descriptor.
+    ///
+    /// This is a plain [`RawFd`](std::os::fd::RawFd) (a C `int`, hence `i32`):
+    /// APIs taking this type borrow the descriptor rather than own it, so the
+    /// caller remains responsible for keeping it valid and closing it.
+    #[cfg(target_os = "linux")]
+    pub type DmaBufFileDescriptor = std::os::fd::RawFd;
+
+    /// Pixel format of a DMA-BUF backed video buffer.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum DmaBufPixelFormat {
+        NV12 = 0,
+        YUV420M = 1,
+    }
 
     impl NativeBuffer {
         /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
@@ -518,6 +608,31 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+
+        /// Creates a `NativeBuffer` backed by a DMA-BUF file descriptor
+        /// (Jetson `NvBufSurface`), for zero-copy hand-off to the hardware
+        /// encoder.
+        ///
+        /// This function does not take ownership of the fd: the caller must
+        /// keep it valid until every frame captured from it has been consumed
+        /// by the encoder.
+        #[cfg(target_os = "linux")]
+        pub fn from_dmabuf(
+            dmabuf_fd: DmaBufFileDescriptor,
+            resolution: VideoResolution,
+            pixel_format: DmaBufPixelFormat,
+        ) -> Self {
+            vf_imp::NativeBuffer::from_dmabuf(dmabuf_fd, resolution, pixel_format)
+        }
+
+        /// Returns the DMA-BUF fd that backs this buffer, or `None` if this
+        /// buffer is not DMA-BUF backed.
+        ///
+        /// This function does not transfer ownership of the fd.
+        #[cfg(target_os = "linux")]
+        pub fn get_dmabuf_fd(&self) -> Option<DmaBufFileDescriptor> {
+            self.handle.get_dmabuf_fd()
         }
     }
 
@@ -559,4 +674,18 @@ pub mod web {
     pub struct WebGlBuffer {}
 
     impl VideoFrameBuffer for WebGlBuffer {}
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::I420Buffer;
+
+    #[test]
+    fn new_black_initializes_every_plane() {
+        let buffer = I420Buffer::new_black(64, 32);
+        let (data_y, data_u, data_v) = buffer.data();
+        assert!(data_y.iter().all(|&px| px == 0));
+        assert!(data_u.iter().all(|&px| px == 128));
+        assert!(data_v.iter().all(|&px| px == 128));
+    }
 }

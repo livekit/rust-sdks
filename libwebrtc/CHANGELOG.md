@@ -139,6 +139,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.46 (2026-08-25)
+
+### Features
+
+#### feat: enable WARP (SPED + SNAP) by default, gated by the server
+
+WARP is now always enabled on the client and negotiated with the SFU: SPED
+(DTLS-in-STUN) via the `WebRTC-IceHandshakeDtls` field trial, and SNAP
+(SCTP-INIT-in-SDP) via the `RtcConfiguration.enable_sctp_snap` field. When the
+server does not enable WARP it is not advertised and the connection falls back to
+plain DTLS/SCTP, so there is no client-side toggle.
+
+BREAKING CHANGE: `libwebrtc::RtcConfiguration` is now `#[non_exhaustive]` and has a
+new `enable_sctp_snap` field. Construct it from `RtcConfiguration::default()` and set
+the fields you need instead of a struct literal.
+
+### Fixes
+
+- Automatically retry webrtc build downloads
+- feat: upgrade libwebrtc to m150. - #1284 (@cloudwebrtc)
+
+#### fix: bump libwebrtc to webrtc-b9233c3-2 so TURN/TLS can use the OS trust store
+
+WebRTC validates TURN/TLS against a small set of anchors compiled into
+`rtc_base/ssl_roots.h`, generated in 2023 from Google's own PKI list. It has no
+Amazon, Starfield Services or ISRG roots, so a relay-only connection to a TURN
+server fronted by AWS ACM or Let's Encrypt times out with `unknown_ca` even
+though the host OS trusts the chain.
+
+This build picks up webrtc-sdk/webrtc#277, which falls back to the operating
+system's trust store when the built-in anchors yield no path. It sits in
+`rtc_base` below every SDK, so the C++ API that webrtc-sys binds is covered
+without any Rust-side change.
+
+## 0.3.45 (2026-08-10)
+
+### Fixes
+
+- Only advertise internal H264 decode formats if the decoder works - #1313 (@MaxHeimbrock)
+
+## 0.3.44 (2026-08-03)
+
+### Fixes
+
+#### Fix H.264, H.265, and AV1 NVENC sessions so live bitrate and frame rate updates
+
+reconfigure the hardware without restarting the encoder.
+
+## 0.3.43 (2026-07-27)
+
+### Fixes
+
+- Emit black keepalive frames from NativeVideoSource instead of uninitialized memory. webrtc::I420Buffer::Create leaves the pixel planes uninitialized, so the pre-capture keepalive frames could leak recycled heap contents (often fragments of earlier frames from the same process) to subscribers as the first keyframes - #1271 (@eh-steve)
+- Add NVIDIA NVENC AV1 encoding when the GPU reports AV1 encode support.
+
+## 0.3.42 (2026-07-17)
+
+### Features
+
+- fix compiler warnings in libwebrtc
+- Add a pre-encoded video publish path: a passthrough video encoder and encoded video frame buffer in webrtc-sys, and `EncodedVideoFrame`/`EncodedVideoCodec`/`EncodedFrameType` publish APIs with a `VideoEncoderBackend::PreEncoded` backend in libwebrtc. WebRTC rate-control targets and keyframe requests are forwarded to encoded sources, and pre-encoded AV1 and H265 access units are validated on ingest.
+
+## 0.3.41 (2026-07-14)
+
+### Fixes
+
+- Add an opt-in zero-playout-delay mode for native video subscribers, expose it through the `local_video` subscriber's `--low-latency` flag, and isolate subscriber diagnostics from frame-driven video rendering.
+
+## 0.3.40 (2026-07-09)
+
+### Fixes
+
+- Fix malformed RTC error handling
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+
 ## 0.3.39 (2026-06-30)
 
 ### Features
