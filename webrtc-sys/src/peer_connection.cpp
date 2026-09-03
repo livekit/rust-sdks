@@ -18,8 +18,6 @@
 #include "livekit/peer_connection_factory.h"
 
 #include <memory>
-#include <optional>
-#include <utility>
 
 #include "api/data_channel_interface.h"
 #include "api/peer_connection_interface.h"
@@ -172,12 +170,10 @@ void PeerConnection::add_ice_candidate(
     std::shared_ptr<IceCandidate> candidate,
     rust::Box<PeerContext> ctx,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const {
-  auto owned_ctx = std::make_shared<std::optional<rust::Box<PeerContext>>>(
-      std::move(ctx));
+  auto owned_ctx = std::make_shared<rust::Box<PeerContext>>(std::move(ctx));
   peer_connection_->AddIceCandidate(
       candidate->release(), [owned_ctx, on_complete](const webrtc::RTCError& err) {
-        if (auto ctx = std::exchange(*owned_ctx, std::nullopt))
-          on_complete(std::move(*ctx), to_error(err));
+        on_complete(std::move(*owned_ctx), to_error(err));
       });
 }
 
