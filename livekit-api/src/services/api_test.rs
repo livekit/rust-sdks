@@ -708,7 +708,7 @@ async fn sip_busy() {
     skip_if_offline!(base);
     let err = sip_error(r#"{"code":486,"status":"Busy Here"}"#).await;
     let e = SipCallError::from_error(&err).expect("should decode a SipCallError");
-    assert_eq!(e.code(), "resource_exhausted");
+    assert_eq!(e.code(), "failed_precondition");
     assert_eq!(e.sip_status_code(), Some(486));
     assert_eq!(e.sip_status(), Some("Busy Here"));
     let s = e.to_string();
