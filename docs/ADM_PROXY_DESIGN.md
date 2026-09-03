@@ -1485,10 +1485,12 @@ impl PlatformAudio {
     pub fn new() -> AudioResult<Self> {
         let mut handle_ref = PLATFORM_ADM_HANDLE.lock();
 
-        // Reuse existing handle if available
+        // Reuse existing handle if available. The Platform ADM was already
+        // acquired when the handle was created, the Arc strong count tracks
+        // the additional PlatformAudio instances, so the C++ ref count is
+        // effectively 0 or 1 and release_platform_adm() runs exactly once,
+        // from the single PlatformAdmHandle::drop.
         if let Some(handle) = handle_ref.upgrade() {
-            // Still acquire Platform ADM for this instance
-            handle.runtime.acquire_platform_adm();
             return Ok(Self { handle });
         }
 

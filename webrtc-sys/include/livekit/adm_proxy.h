@@ -18,6 +18,7 @@
 
 #include <optional>
 #include <utility>
+#include <variant>
 
 #include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
@@ -342,12 +343,21 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // When false (default), playout uses synthetic mode (internal task pumps audio)
   bool playout_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 
-  // Selected device indices, stored so a selection made before the Platform
-  // ADM exists (it is created lazily on first acquire) can be re-applied once
-  // it is created.
-  // Index 0 (the default device) is treated as never explicitly selected.
-  uint16_t selected_playout_device_ RTC_GUARDED_BY(worker_thread_) = 0;
-  uint16_t selected_recording_device_ RTC_GUARDED_BY(worker_thread_) = 0;
+  // Device selection made before the Platform ADM exists (it is created
+  // lazily on first acquire), re-applied once it is created. Holds either a
+  // numeric index or a Windows default device type, matching the two
+  // SetPlayoutDevice/SetRecordingDevice overloads, so an explicit index 0
+  // and a Windows default device type both survive the replay.
+  using DeviceSelection = std::variant<uint16_t, WindowsDeviceType>;
+  std::optional<DeviceSelection> selected_playout_device_
+      RTC_GUARDED_BY(worker_thread_);
+  std::optional<DeviceSelection> selected_recording_device_
+      RTC_GUARDED_BY(worker_thread_);
+
+  // Observer registered before the Platform ADM exists, stored for the same
+  // replay-on-creation reason as the device selection.
+  webrtc::AudioDeviceObserver* audio_observer_ RTC_GUARDED_BY(worker_thread_) =
+      nullptr;
 
   // Channel configuration requested by the voice engine at factory init,
   // stored for the same replay-on-creation reason as the device indices.

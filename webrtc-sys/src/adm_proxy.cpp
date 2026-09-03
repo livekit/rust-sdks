@@ -152,11 +152,26 @@ bool AdmProxy::EnsurePlatformAdmCreated() {
   }
 
   // Re-apply any device selection made before the ADM existed
-  if (selected_playout_device_ != 0) {
-    platform_adm_->SetPlayoutDevice(selected_playout_device_);
+  if (selected_playout_device_.has_value()) {
+    if (auto* index = std::get_if<uint16_t>(&*selected_playout_device_)) {
+      platform_adm_->SetPlayoutDevice(*index);
+    } else {
+      platform_adm_->SetPlayoutDevice(
+          std::get<WindowsDeviceType>(*selected_playout_device_));
+    }
   }
-  if (selected_recording_device_ != 0) {
-    platform_adm_->SetRecordingDevice(selected_recording_device_);
+  if (selected_recording_device_.has_value()) {
+    if (auto* index = std::get_if<uint16_t>(&*selected_recording_device_)) {
+      platform_adm_->SetRecordingDevice(*index);
+    } else {
+      platform_adm_->SetRecordingDevice(
+          std::get<WindowsDeviceType>(*selected_recording_device_));
+    }
+  }
+
+  // Re-register an observer set before the ADM existed
+  if (audio_observer_) {
+    platform_adm_->SetObserver(audio_observer_);
   }
 
   // Re-apply the channel configuration the voice engine requested at factory
@@ -416,7 +431,7 @@ int32_t AdmProxy::RecordingDeviceName(uint16_t index,
 int32_t AdmProxy::SetPlayoutDevice(uint16_t index) {
   return RunOnWorker([this, index] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    selected_playout_device_ = index;
+    selected_playout_device_ = DeviceSelection(index);
     if (platform_adm_) {
       return platform_adm_->SetPlayoutDevice(index);
     }
@@ -427,6 +442,7 @@ int32_t AdmProxy::SetPlayoutDevice(uint16_t index) {
 int32_t AdmProxy::SetPlayoutDevice(WindowsDeviceType device) {
   return RunOnWorker([this, device] {
     RTC_DCHECK_RUN_ON(worker_thread_);
+    selected_playout_device_ = DeviceSelection(device);
     if (platform_adm_) {
       return platform_adm_->SetPlayoutDevice(device);
     }
@@ -437,7 +453,7 @@ int32_t AdmProxy::SetPlayoutDevice(WindowsDeviceType device) {
 int32_t AdmProxy::SetRecordingDevice(uint16_t index) {
   return RunOnWorker([this, index] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    selected_recording_device_ = index;
+    selected_recording_device_ = DeviceSelection(index);
     if (platform_adm_) {
       return platform_adm_->SetRecordingDevice(index);
     }
@@ -448,6 +464,7 @@ int32_t AdmProxy::SetRecordingDevice(uint16_t index) {
 int32_t AdmProxy::SetRecordingDevice(WindowsDeviceType device) {
   return RunOnWorker([this, device] {
     RTC_DCHECK_RUN_ON(worker_thread_);
+    selected_recording_device_ = DeviceSelection(device);
     if (platform_adm_) {
       return platform_adm_->SetRecordingDevice(device);
     }
@@ -847,7 +864,8 @@ int32_t AdmProxy::StereoPlayout(bool* enabled) const {
     if (platform_adm_) {
       return platform_adm_->StereoPlayout(enabled);
     }
-    *enabled = true;
+    // Report a pending pre-acquire configuration, or the default
+    *enabled = selected_stereo_playout_.value_or(true);
     return 0;
   });
 }
@@ -882,7 +900,8 @@ int32_t AdmProxy::StereoRecording(bool* enabled) const {
     if (platform_adm_) {
       return platform_adm_->StereoRecording(enabled);
     }
-    *enabled = false;
+    // Report a pending pre-acquire configuration, or the default
+    *enabled = selected_stereo_recording_.value_or(false);
     return 0;
   });
 }
@@ -984,8 +1003,15 @@ int AdmProxy::GetRecordAudioParameters(webrtc::AudioParameters* params) const {
 #endif
 
 int32_t AdmProxy::SetObserver(webrtc::AudioDeviceObserver* observer) {
-  return WithPlatformAdm<int32_t>(0, [observer](webrtc::AudioDeviceModule& adm) {
-    return adm.SetObserver(observer);
+  return RunOnWorker([this, observer] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    // Stored (including nullptr to clear) so a registration made before the
+    // Platform ADM exists is re-applied once it is created
+    audio_observer_ = observer;
+    if (platform_adm_) {
+      return platform_adm_->SetObserver(observer);
+    }
+    return 0;
   });
 }
 

@@ -87,7 +87,10 @@ class AudioDeviceController {
 
  private:
   // The AdmProxy marshals its calls onto the runtime's worker thread, keep
-  // the runtime (and its threads) alive as long as Rust can reach the proxy
+  // the runtime (and its threads) alive as long as Rust can reach the proxy.
+  // Declaration order matters: rtc_runtime_ must be declared before
+  // adm_proxy_ so it is destroyed last. ~AdmProxy does a BlockingCall onto
+  // the worker thread, which must still be running at that point.
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
 };
