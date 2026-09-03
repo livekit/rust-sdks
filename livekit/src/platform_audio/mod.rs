@@ -1256,6 +1256,16 @@ impl PlatformAudio {
     ///   effects are disabled and WebRTC's software APM is used instead
     /// - **Windows/Linux**: `prefer_hardware_processing` is ignored (hardware not available)
     ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::OperationFailed`] when a requested hardware
+    /// effect could not be enabled (for example on the iOS Simulator, or
+    /// when the platform voice processing path is unavailable). The other
+    /// effects are still applied, WebRTC falls back to software processing
+    /// for the failed ones, and the `active_*_type` getters report the
+    /// state that was actually applied. Failures while disabling an effect
+    /// are logged but do not surface as errors.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -1297,15 +1307,21 @@ impl PlatformAudio {
         // Enable/disable each hardware effect, tracking whether the hardware
         // path actually took effect so the active_*_type getters report the
         // applied state. A failed toggle keeps the previous flag, since the
-        // hardware stays in whatever state it was in.
+        // hardware stays in whatever state it was in. All three effects are
+        // attempted before reporting, so a single failure does not block the
+        // others from being applied.
         // Note: When hardware is disabled, WebRTC automatically falls back to software
+        let mut failed_enables: Vec<&str> = Vec::new();
+
         let mut hw_aec_active = state.hw_aec_active;
         if runtime.builtin_aec_is_available() {
             let enable_hw = use_hardware && options.echo_cancellation;
             if runtime.enable_builtin_aec(enable_hw) {
                 hw_aec_active = enable_hw;
+            } else if enable_hw {
+                failed_enables.push("AEC");
             } else {
-                log::warn!("enable_builtin_aec({}) failed", enable_hw);
+                log::warn!("enable_builtin_aec(false) failed");
             }
         } else {
             hw_aec_active = false;
@@ -1316,8 +1332,10 @@ impl PlatformAudio {
             let enable_hw = use_hardware && options.auto_gain_control;
             if runtime.enable_builtin_agc(enable_hw) {
                 hw_agc_active = enable_hw;
+            } else if enable_hw {
+                failed_enables.push("AGC");
             } else {
-                log::warn!("enable_builtin_agc({}) failed", enable_hw);
+                log::warn!("enable_builtin_agc(false) failed");
             }
         } else {
             hw_agc_active = false;
@@ -1328,8 +1346,10 @@ impl PlatformAudio {
             let enable_hw = use_hardware && options.noise_suppression;
             if runtime.enable_builtin_ns(enable_hw) {
                 hw_ns_active = enable_hw;
+            } else if enable_hw {
+                failed_enables.push("NS");
             } else {
-                log::warn!("enable_builtin_ns({}) failed", enable_hw);
+                log::warn!("enable_builtin_ns(false) failed");
             }
         } else {
             hw_ns_active = false;
@@ -1344,6 +1364,16 @@ impl PlatformAudio {
             options.noise_suppression,
             options.prefer_hardware_processing
         );
+
+        // Requested hardware effects that could not be enabled surface as an
+        // error. The stored state above already reflects what was applied, so
+        // active_*_type reports the real (software fallback) processing.
+        if !failed_enables.is_empty() {
+            return Err(AudioError::OperationFailed(format!(
+                "enabling hardware {} failed",
+                failed_enables.join("/")
+            )));
+        }
 
         Ok(())
     }
