@@ -335,7 +335,13 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
   // State tracking
   bool playing_ RTC_GUARDED_BY(worker_thread_) = false;
-  bool recording_ RTC_GUARDED_BY(worker_thread_) = false;
+  // WebRTC's standing recording request: set by StartRecording (also while
+  // platform recording is unavailable), cleared only by StopRecording.
+  // WebRTC issues these calls at discrete lifecycle events (send stream
+  // added/removed, unmute) and never re-issues them spontaneously, so the
+  // request must survive platform release/reacquire cycles for capture to
+  // restart on the next acquire.
+  bool recording_requested_ RTC_GUARDED_BY(worker_thread_) = false;
 
   // Control flags
   // When false (default), recording operations are no-ops (NativeAudioSource mode)

@@ -322,12 +322,14 @@ void AdmProxy::SwitchPlayoutMode() {
 }
 
 void AdmProxy::SwitchRecordingAdm() {
-  if (!recording_) return;
+  if (!recording_requested_) return;
 
   // Stop platform ADM recording (only one that supports recording)
   if (platform_adm_) platform_adm_->StopRecording();
 
-  // Start if new ADM supports recording
+  // Start if new ADM supports recording. When none is active the request
+  // stays latched: WebRTC will not re-issue StartRecording for an already
+  // published track, so capture must restart here on the next acquire.
   auto* adm = RecordingAdm();
   if (adm) {
     adm->InitRecording();
@@ -337,8 +339,6 @@ void AdmProxy::SwitchRecordingAdm() {
     if (microphone_mute_.has_value()) {
       adm->SetMicrophoneMute(*microphone_mute_);
     }
-  } else {
-    recording_ = false;
   }
 }
 
@@ -593,12 +593,14 @@ bool AdmProxy::Playing() const {
 int32_t AdmProxy::StartRecording() {
   return RunOnWorker([this] {
     RTC_DCHECK_RUN_ON(worker_thread_);
+    // Latch the request before checking availability so capture can start
+    // once platform recording becomes active (see recording_requested_)
+    recording_requested_ = true;
     auto* adm = RecordingAdm();
     if (!adm) {
       // Recording not available - return success to avoid breaking WebRTC
       return 0;
     }
-    recording_ = true;
     int32_t result = adm->StartRecording();
     // Recording starts reset the platform mute state, re-apply the last
     // requested value so a track muted before recording started stays muted
@@ -612,7 +614,7 @@ int32_t AdmProxy::StartRecording() {
 int32_t AdmProxy::StopRecording() {
   return RunOnWorker([this] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    recording_ = false;
+    recording_requested_ = false;
 
     auto* adm = RecordingAdm();
     if (adm) {
@@ -636,14 +638,20 @@ bool AdmProxy::Recording() const {
 bool AdmProxy::IsStopOnMuteModeEnabled() const {
   return RunOnWorker([this] {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    auto* adm = RecordingAdm();
-    if (adm) {
-      return adm->IsStopOnMuteModeEnabled();
+    // The answer must not depend on whether platform recording is currently
+    // active: the voice engine picks its mute strategy from this at each
+    // mute change, and a strategy flip across acquire/release would lose
+    // mute state (a SetMicrophoneMute issued while inactive could never be
+    // cached, and a stop/start issued while active could not be replayed).
+    if (platform_adm_) {
+      return platform_adm_->IsStopOnMuteModeEnabled();
     }
-    // When platform recording is inactive (synthetic mode or native push
-    // sources), report true so the voice engine takes the Stop/StartRecording
-    // path, which is already gated to a no-op here.
+#if defined(WEBRTC_IOS) || defined(WEBRTC_MAC)
+    // Matches the AudioEngine ADM, which handles mute via SetMicrophoneMute
+    return false;
+#else
     return true;
+#endif
   });
 }
 

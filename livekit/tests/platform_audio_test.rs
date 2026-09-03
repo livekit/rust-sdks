@@ -1177,6 +1177,72 @@ async fn test_platform_audio_processing_with_room() -> Result<()> {
     Ok(())
 }
 
+/// Test that platform capture resumes for an already published track after
+/// the last PlatformAudio is dropped and a new one is created.
+///
+/// WebRTC issues StartRecording once when the track is published and never
+/// re-issues it for a quiescent track, so the proxy must remember the
+/// standing request across the release/reacquire cycle and restart capture
+/// itself on acquire.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_platform_audio_capture_resumes_after_reacquire() -> Result<()> {
+    use livekit::reset_platform_audio;
+
+    reset_platform_audio();
+
+    let Some(audio) = try_create_platform_audio("test_platform_audio_capture_resumes") else {
+        return Ok(());
+    };
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    if recording_devices.is_empty() {
+        log::info!("Skipping test - no microphone available");
+        drop(audio);
+        return Ok(());
+    }
+
+    // The room keeps the runtime (and the ADM proxy) alive across the
+    // PlatformAudio drop below, matching the real-world scenario
+    let mut rooms = test_rooms(1).await?;
+    let (room, _events) = rooms.pop().unwrap();
+
+    let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
+    room.local_participant()
+        .publish_track(
+            LocalTrack::Audio(track),
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
+        )
+        .await?;
+
+    // Let the voice engine issue StartRecording for the published track
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        audio.is_recording_initialized(),
+        "platform capture should be running while the track is published"
+    );
+
+    // Drop the last PlatformAudio while the track stays published. This
+    // releases the platform ADM and stops capture.
+    drop(audio);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Reacquire. The proxy must restart capture on its own: WebRTC will not
+    // re-issue StartRecording for the still-published track.
+    let audio = PlatformAudio::new()?;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        audio.is_recording_initialized(),
+        "platform capture should resume on reacquire for the published track"
+    );
+
+    room.close().await?;
+    drop(audio);
+
+    log::info!("Capture resume after reacquire test completed");
+    Ok(())
+}
+
 // =============================================================================
 // ADM Lifecycle and Mode Switching Tests
 // =============================================================================
