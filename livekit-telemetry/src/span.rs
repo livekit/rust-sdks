@@ -133,6 +133,12 @@ impl Spans {
         id
     }
 
+    /// Whether a span with one of these names is still open (the exporter holds uploads while
+    /// `lk.connect` / `lk.reconnect` are).
+    pub fn any_open(&self, names: &[&str]) -> bool {
+        self.open.values().any(|span| names.contains(&span.name.as_str()))
+    }
+
     pub fn add_event(&mut self, id: u64, name: &str, attributes: Vec<Attribute>) {
         let Some(span) = self.open.get_mut(&id) else { return };
         if span.events.len() >= MAX_EVENTS_PER_SPAN {

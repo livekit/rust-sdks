@@ -3783,6 +3783,7 @@ name = "livekit-telemetry"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "flate2",
  "livekit-net",
  "log",
  "opentelemetry-proto",

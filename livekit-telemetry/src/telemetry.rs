@@ -74,6 +74,11 @@ pub struct TelemetryConfig {
     /// dropped and counted as `rate_limited`. RTC windows and self-telemetry are exempt; 0 = off.
     #[cfg_attr(feature = "uniffi", uniffi(default = 300))]
     pub max_events_per_10min: u32,
+    /// Cached batches uploaded per tick while a session may be live — bounds how fast a backlog
+    /// (offline period, previous launch) replays next to a call: 4 × ~20 KB gzipped per 15 s is
+    /// ~40 kbps. `shutdown` drains without the budget.
+    #[cfg_attr(feature = "uniffi", uniffi(default = 4))]
+    pub max_batches_per_upload: u32,
 }
 
 impl TelemetryConfig {
@@ -92,6 +97,7 @@ impl TelemetryConfig {
             export_timeout_ms: 10_000,
             stats_window_ms: 15_000,
             max_events_per_10min: 300,
+            max_batches_per_upload: 4,
         }
     }
 }
@@ -196,10 +202,15 @@ impl Telemetry {
         if config.traces_endpoint.is_none() {
             config.traces_endpoint = Some(derive_traces_endpoint(&config.endpoint));
         }
-        let config = Arc::new(config);
         // The session is the trace: one id per pipeline, client-generated so pre-connect
-        // failures and reconnects share it.
+        // failures and reconnects share it — and, as `session.id` (OTel semconv), the resource
+        // attribute every record carries.
         let trace_id = rand::random::<u128>().max(1).to_be_bytes();
+        if !config.resource.iter().any(|a| a.key == "session.id") {
+            let hex = format!("{:032x}", u128::from_be_bytes(trace_id));
+            config.resource.push(Attribute::new("session.id", hex));
+        }
+        let config = Arc::new(config);
         let counters = Arc::new(Counters::default());
         let store = Arc::new(Store::new(config.max_queue_size.max(1) as usize, counters.clone()));
         let (commands, receiver) = mpsc::unbounded_channel();
@@ -207,6 +218,7 @@ impl Telemetry {
         let guard = Arc::new(Mutex::new(FloodGuard::new(config.max_events_per_10min)));
         let attributes = Arc::new(Mutex::new(Vec::new()));
         let spans = Arc::new(Mutex::new(Spans::new(config.max_queue_size.max(1) as usize)));
+        let device = Arc::new(Mutex::new(None));
         let exporter = Exporter::new(
             store.clone(),
             transport,
@@ -218,13 +230,14 @@ impl Telemetry {
             spans.clone(),
             trace_id,
             receiver,
+            device.clone(),
         );
         let telemetry = Self {
             store,
             config,
             cache,
             counters,
-            device: Arc::default(),
+            device,
             windows,
             guard,
             attributes,
@@ -307,9 +320,10 @@ impl Telemetry {
     }
 
     /// Tell the pipeline what the device looks like. Emits the `lk.device.*.changed` events for
-    /// whatever differs from the last state (everything, the first time) and re-tunes the export
-    /// cadence: thermal pressure, low-power mode and the background stretch it up to 4×; entering
-    /// the background also flushes once right away.
+    /// whatever differs from the last state (everything, the first time) and re-tunes the
+    /// pipeline: pressure stretches the cadence up to 4× ([`DeviceState::cadence_factor`]), a
+    /// constrained network or a nearly empty battery holds uploads
+    /// ([`DeviceState::holds_uploads`]), and entering the background flushes once right away.
     pub fn set_device_state(&self, state: DeviceState) {
         let mut previous = self.device.lock().unwrap_or_else(|e| e.into_inner());
         for event in state.change_events(previous.as_ref()) {
@@ -414,6 +428,13 @@ mod tests {
         }
     }
 
+    fn gunzip(body: &[u8]) -> Vec<u8> {
+        use std::io::Read;
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(body).read_to_end(&mut out).expect("gzip body");
+        out
+    }
+
     fn offline() -> Result<(), ExportError> {
         Err(ExportError::Retryable { message: "offline".into(), retry_after_ms: None })
     }
@@ -443,7 +464,8 @@ mod tests {
     }
 
     fn records(request: &ExportRequest) -> Vec<LogRecord> {
-        let decoded = ExportLogsServiceRequest::decode(&request.body[..]).expect("valid OTLP");
+        let decoded =
+            ExportLogsServiceRequest::decode(&gunzip(&request.body)[..]).expect("valid OTLP");
         decoded.resource_logs[0].scope_logs[0].log_records.clone()
     }
 
@@ -469,7 +491,8 @@ mod tests {
         assert_eq!(sent[0].url, "http://collector/v1/logs");
         assert_eq!(sent[0].headers["Content-Type"], "application/x-protobuf");
         assert_eq!(event_names(&sent[0]), ["lk.ping"; 3]);
-        let decoded = ExportLogsServiceRequest::decode(&sent[0].body[..]).expect("valid OTLP");
+        let decoded =
+            ExportLogsServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("valid OTLP");
         let resource = decoded.resource_logs[0].resource.as_ref().expect("resource");
         assert!(resource.attributes.iter().any(|kv| kv.key == "telemetry.sdk.name"));
         assert_eq!(telemetry.stats().dropped, 0);
@@ -647,7 +670,7 @@ mod tests {
         assert_eq!(sent.len(), 1);
         let names = event_names(&sent[0]);
         assert!(names.contains(&"lk.device.thermal.changed".to_owned()), "{names:?}");
-        assert_eq!(names.len(), 3, "initial value for every field");
+        assert_eq!(names.len(), 5, "initial value for every known field (battery unknown)");
         let thermal = records(&sent[0])
             .into_iter()
             .find(|r| r.event_name == "lk.device.thermal.changed")
@@ -663,6 +686,81 @@ mod tests {
         assert_eq!(transport.sent().len(), 1, "not yet: cadence stretched to 4 s");
         tokio::time::sleep(Duration::from_millis(2_500)).await;
         assert_eq!(transport.sent().len(), 2, "exported on the stretched tick");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn requests_are_gzipped_and_low_priority() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent[0].headers["Content-Encoding"], "gzip");
+        assert_eq!(sent[0].headers["Priority"], "u=7");
+        assert_eq!(event_names(&sent[0]), ["lk.ping"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn uploads_hold_while_connecting_but_never_beyond_the_cap() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let connect = telemetry.begin_span("lk.connect", SpanKind::Client, None);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert!(transport.sent().is_empty(), "the uplink belongs to signaling and ICE");
+        assert_eq!(telemetry.stats().cached_batches, 1, "…but the batch is safely cached");
+
+        tokio::time::sleep(Duration::from_secs(61)).await;
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "held 60 s: one batch goes out regardless");
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.end_span(connect, SpanOutcome::Ok, None, Vec::new());
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 3, "connected: the ping and the connect span ship");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn uploads_hold_while_media_is_bandwidth_limited() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let limited = |ms| RtcStatsSample {
+            quality_limitation_bandwidth_ms: Some(ms),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        };
+        telemetry.record_stats(limited(0));
+        telemetry.record_stats(limited(800));
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert!(transport.sent().is_empty(), "the congestion controller is already throttling");
+
+        tokio::time::sleep(Duration::from_secs(11)).await;
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "10 s without new limitation: resume");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn device_holds_uploads_and_a_backlog_replays_within_the_budget() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.max_batches_per_upload = 2;
+        let telemetry = start(config, transport.clone());
+        telemetry.set_device_state(DeviceState { network_constrained: true, ..Default::default() });
+        for _ in 0..5 {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+            telemetry.flush().await;
+        }
+        assert!(transport.sent().is_empty(), "Low Data Mode: record, do not upload");
+        assert_eq!(telemetry.stats().cached_batches, 5);
+
+        // Back to normal (the change event itself makes a sixth batch).
+        telemetry.set_device_state(DeviceState::default());
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 2, "two batches per tick next to a live call");
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 4);
+        telemetry.shutdown().await;
+        assert_eq!(transport.sent().len(), 6, "shutdown drains without the budget");
     }
 
     #[tokio::test(start_paused = true)]
@@ -806,7 +904,8 @@ mod tests {
             traces.url, "http://c/observability/traces/otlp/v0",
             "derived from logs endpoint"
         );
-        let decoded = ExportTraceServiceRequest::decode(&traces.body[..]).expect("valid OTLP");
+        let decoded =
+            ExportTraceServiceRequest::decode(&gunzip(&traces.body)[..]).expect("valid OTLP");
         let otlp_span = &decoded.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(otlp_span.name, "lk.connect");
         assert_eq!(otlp_span.kind, span::SpanKind::Client as i32);
@@ -850,7 +949,8 @@ mod tests {
         telemetry.flush().await;
         let sent = transport.sent();
         assert_eq!(sent[0].url, "http://collector/v1/traces");
-        let decoded = ExportTraceServiceRequest::decode(&sent[0].body[..]).expect("valid OTLP");
+        let decoded =
+            ExportTraceServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("valid OTLP");
         let otlp_span = &decoded.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(
             otlp_span.status.as_ref().map(|s| s.code),

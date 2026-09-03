@@ -15,6 +15,7 @@ Set once per pipeline (`TelemetryConfig.resource`):
 | `os.name`, `os.version` | platform SDK | `iOS`, `18.5` |
 | `device.model.identifier` | platform SDK | `iPhone16,1` |
 | `telemetry.sdk.name/language/version` | core | `livekit-telemetry`, `rust`, `0.1.0` |
+| `session.id` | core | the session's trace id as 32 hex chars — every log record and span of the pipeline carries it |
 
 ## Events
 
@@ -73,16 +74,108 @@ cadence: on change (+ initial value); entering background also forces a flush
 platforms: all
 ```
 
+```yaml
+event: lk.device.memory.changed
+area: device
+attributes:
+  lk.device.memory.pressure: enum(normal | warning | critical)
+    # Apple: DispatchSource memory-pressure levels; Android onTrimMemory: RUNNING_LOW /
+    # BACKGROUND → warning, RUNNING_CRITICAL / COMPLETE → critical
+cadence: on change (+ initial value)
+platforms: ios, macos, android — optional elsewhere
+```
+
+```yaml
+event: lk.device.network.changed
+area: device
+attributes:
+  network.connection.type: enum(wifi | cell | wired | unavailable | unknown)   # OTel semconv
+  lk.device.network.expensive: bool     # cellular / hotspot (NWPath.isExpensive, metered)
+  lk.device.network.constrained: bool   # Low Data Mode / Data Saver / navigator.connection.saveData
+cadence: on change of any attribute (+ initial value)
+platforms: ios, macos, android — web: Chromium only
+```
+
+```yaml
+event: lk.device.battery.changed
+area: device
+attributes:
+  hw.battery.charge: double                        # 0.0–1.0 (OTel hardware semconv)
+  hw.battery.state: enum(charging | discharging)   # OTel hardware semconv
+cadence: on charging change and when the level crosses 20 % or 10 % unplugged — never per
+         percent; silent where the level is unknown (desktops, tvOS)
+platforms: ios, android — optional elsewhere
+```
+
+```yaml
+event: lk.device.audio_route.changed
+area: device
+attributes:
+  lk.device.audio_route.reason: string   # AVAudioSession route-change reason name
+  lk.device.audio_route.outputs: string  # comma-separated output port types (speaker, bluetooth_a2dp, …)
+cadence: on change
+platforms: ios — android: audio device callbacks; optional elsewhere
+```
+
+```yaml
+event: lk.device.audio.interruption
+area: device
+attributes:
+  lk.device.audio.interruption: enum(began | ended)
+cadence: on change
+platforms: ios — android: audio focus loss/gain; optional elsewhere
+```
+
 ## Cadence policy
 
-`flush_interval × factor`, capped at 4× (15 s → 60 s at the production cadence):
+`flush_interval × factor` and `stats_window × factor`, capped at 4× (15 s → 60 s at the
+production cadence). Factors multiply; a change applies at the next tick, and a *shorter* period
+applies at once (pressure relieved → no waiting out a stretched period).
 
-| Condition | factor |
-|---|---|
-| thermal `serious` | 2 |
-| thermal `critical` | 4 |
-| low-power mode | 2 |
-| background | 2 |
+| Condition | factor | source |
+|---|---|---|
+| thermal `serious` | 2 | host, `DeviceState.thermal` |
+| thermal `critical` | 4 | host |
+| memory pressure `warning` | 2 | host, `DeviceState.memory` |
+| memory pressure `critical` | 4 | host |
+| low-power mode | 2 | host |
+| background | 2 | host |
+| battery ≤ 20 % and unplugged | 2 | host, `DeviceState.battery_*` |
+| constrained network (Low Data Mode / Data Saver) | 2 | host, `DeviceState.network_constrained` |
+| encoder CPU-limited: an outbound track's `qualityLimitationDurations.cpu` grew within the last 60 s | 2 | core, from `record_stats` |
+
+CPU is never measured by the pipeline itself (measuring CPU costs CPU): thermal state is the OS's
+judgement and `qualityLimitationReason` is WebRTC's. `getStats()` polling stays on the SDK's
+existing ~1 s timer; the *window* stretches, not the reading.
+
+## Upload policy — telemetry never wins over media
+
+Uploads are shaped, not just batched:
+
+- **One request in flight**, oldest batch first; a failure pauses the cache for 60 s (throttling:
+  see `lk.telemetry.report`).
+- **Budget:** at most `max_batches_per_upload` (default 4) cached batches per tick while a session
+  may be live, so a backlog (offline period, previous launch) replays at ~4 × 20 KB per 15 s
+  ≈ 40 kbps next to a call. `shutdown` drains without the budget.
+- **Holds** — nothing is sent, everything keeps flowing into the write-ahead cache — while:
+  - an `lk.connect` or `lk.reconnect` span is open (signaling and ICE/DTLS own the uplink),
+  - WebRTC reported an outbound track bandwidth-limited within the last 10 s
+    (`qualityLimitationDurations.bandwidth` grew — the congestion controller is already
+    holding the encoder back),
+  - the device asks for quiet: constrained network, or battery ≤ 10 % unplugged (the Datadog
+    rule). Device holds survive `shutdown`; the other two end with the call.
+  A hold lasts at most 60 s, then one batch goes out and the hold starts over — the hard cap
+  that bounds the policy when its signals lie.
+- **Bytes:** bodies are gzipped (level 1, `Content-Encoding: gzip`) when cached, so a batch is
+  5–10× smaller on disk and on the wire and a replay costs no CPU.
+- **Priority hints:** every request carries `Priority: u=7` (RFC 9218, lowest urgency) for
+  HTTP/2+ hops that implement it, and the host transport marks the local traffic class as
+  background — Apple `URLSessionConfiguration.networkServiceType = .background`
+  (`NET_SERVICE_TYPE_BK`, below best effort in the local stack and Wi-Fi AC_BK), browsers
+  `fetch(…, { priority: "low" })`, Android has no per-request class (WorkManager for deferred
+  work; `socket.trafficClass` is best-effort).
+- **Threads:** pipeline work runs on the SDK's runtime; none of it is on a media or UI thread and
+  `emit`/`record_stats` never block on it.
 
 ## Log records
 

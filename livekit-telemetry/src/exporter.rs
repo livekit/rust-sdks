@@ -13,15 +13,14 @@
 // limitations under the License.
 
 use std::{
+    io::Write,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use tokio::time::{interval, sleep, timeout, Instant, MissedTickBehavior};
-use tokio::{
-    sync::{mpsc, oneshot},
-    time::Interval,
-};
+use flate2::{write::GzEncoder, Compression};
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::{sleep, sleep_until, timeout, Instant};
 
 use crate::{
     event::now_unix_nanos,
@@ -40,6 +39,15 @@ const RETRY_BACKOFF: Duration = Duration::from_secs(1);
 /// Pause before the cache is tried again after a failed upload (Sentry: stop consuming the
 /// cache until `Retry-After` elapses; here also for plain connectivity failures).
 const UPLOAD_BACKOFF: Duration = Duration::from_secs(60);
+/// Uploads wait while the call is at its most sensitive (see [`Exporter::hold_reason`]) — but
+/// never longer than this before one batch goes out anyway: the hard cap that bounds the policy
+/// when its signals lie.
+const MAX_HOLD: Duration = Duration::from_secs(60);
+/// While one of these is open the uplink belongs to signaling and ICE/DTLS.
+const SENSITIVE_SPANS: &[&str] = &["lk.connect", "lk.reconnect"];
+/// RFC 9218 request priority: lowest urgency, not incremental. A hint for HTTP/2+ hops that
+/// implement it; the host transport marks the local traffic class (see `TelemetryTransport`).
+const PRIORITY: &str = "u=7";
 
 /// Which OTLP signal a cached batch is; picks the endpoint at upload time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,16 +96,22 @@ enum Delivery {
 ///
 /// The role of OTel's `BatchLogRecordProcessor` + OTLP exporter in one place. Every tick it
 /// [`enqueue`](Self::enqueue)s: drains up to `max_batch_size` events, appends an
-/// `lk.telemetry.report` when something was dropped or failed since the last one, encodes the
-/// batch and writes it to the [`BatchCache`] *before* any network is involved; then it
+/// `lk.telemetry.report` when something was dropped or failed since the last one, encodes and
+/// gzips the batch and writes it to the [`BatchCache`] *before* any network is involved; then it
 /// [`upload`](Self::upload)s the cache oldest-first through the [`TelemetryTransport`],
 /// removing what the collector accepted or rejected. A failed upload pauses the cache for a
 /// minute; a `Retry-After` additionally drops new batches for its duration (throttling must not
 /// become a disk-backed queue); `Disabled` empties the cache and silences the exporter for good.
 ///
-/// The tick period is `flush_interval_ms × DeviceState::cadence_factor`: thermal pressure,
-/// low-power mode and the background stretch it up to 4×, and entering the background flushes
-/// once immediately (the app may be suspended any moment).
+/// Telemetry must never win over media, so uploads are shaped as well as batched: at most
+/// `max_batches_per_upload` per tick while a session may be live, and none at all while the room
+/// is connecting or reconnecting, while WebRTC reports the encoder bandwidth-limited, or while the
+/// device asks for quiet ([`DeviceState::holds_uploads`]) — bounded by [`MAX_HOLD`]. Every request
+/// carries `Priority: u=7` (RFC 9218) and a gzipped body.
+///
+/// The tick period is `flush_interval_ms × cadence factor`: device pressure and a CPU-limited
+/// encoder stretch it up to 4×, and entering the background flushes once immediately (the app
+/// may be suspended any moment).
 ///
 /// Drive it with `spawn(exporter.run())` on the consumer's runtime. It stops after
 /// [`Telemetry::shutdown`](crate::Telemetry::shutdown) or when the last
@@ -124,7 +138,13 @@ pub struct Exporter {
     cache_failures: u64,
     /// Counter values at the last `lk.telemetry.report`.
     last_report: Snapshot,
-    cadence_factor: u32,
+    /// Shared with `Telemetry`: read synchronously, so a state pushed right before `emit` already
+    /// governs the flush that follows.
+    device: Arc<Mutex<Option<DeviceState>>>,
+    /// When the current upload hold began, for the [`MAX_HOLD`] cap.
+    held_since: Option<Instant>,
+    /// Shutting down: the call is over, so only the device's own holds still apply.
+    draining: bool,
 }
 
 impl Exporter {
@@ -141,6 +161,7 @@ impl Exporter {
         spans: Arc<Mutex<Spans>>,
         trace_id: [u8; 16],
         commands: mpsc::UnboundedReceiver<Command>,
+        device: Arc<Mutex<Option<DeviceState>>>,
     ) -> Self {
         Self {
             store,
@@ -159,7 +180,9 @@ impl Exporter {
             seq: 0,
             cache_failures: 0,
             last_report: Snapshot::default(),
-            cadence_factor: 1,
+            device,
+            held_since: None,
+            draining: false,
         }
     }
 
@@ -167,24 +190,30 @@ impl Exporter {
     /// demand.
     pub async fn run(mut self) {
         self.upload().await;
-        let mut ticker = self.ticker(self.config.flush_interval_ms);
-        let mut stats_ticker = self.window_ticker();
+        // Deadlines rather than tickers: `next = last + period`, re-derived every loop, so a
+        // cadence change applies to the pending tick in both directions (pressure postpones it,
+        // relief brings it forward) and a missed tick never bursts. The first flush is immediate,
+        // the first window closes a full period after it opens.
+        let mut last_flush = Instant::now() - self.period(self.config.flush_interval_ms);
+        let mut last_window = Instant::now();
         loop {
+            let next_flush = last_flush + self.period(self.config.flush_interval_ms);
+            let next_window = last_window + self.period(self.config.stats_window_ms);
             tokio::select! {
-                _ = ticker.tick() => self.export_pending().await,
-                _ = stats_ticker.tick() => self.close_windows(),
+                _ = sleep_until(next_flush) => {
+                    self.export_pending().await;
+                    last_flush = Instant::now();
+                }
+                _ = sleep_until(next_window) => {
+                    self.close_windows();
+                    last_window = Instant::now();
+                }
                 command = self.commands.recv() => match command {
                     Some(Command::Flush(done)) => {
                         self.export_pending().await;
                         let _ = done.send(());
                     }
                     Some(Command::DeviceState(state)) => {
-                        let factor = state.cadence_factor();
-                        if factor != self.cadence_factor {
-                            self.cadence_factor = factor;
-                            ticker = self.ticker(self.config.flush_interval_ms);
-                            stats_ticker = self.window_ticker();
-                        }
                         if state.app_state == AppState::Background {
                             // The app may be suspended any moment: close the RTC windows and
                             // get everything into the cache (and out, if the network allows).
@@ -193,18 +222,13 @@ impl Exporter {
                         }
                     }
                     Some(Command::Shutdown(done)) => {
-                        // Last chance: ignore the upload backoff, but respect throttling.
-                        self.paused_until = self.throttled_until;
-                        self.close_windows();
-                        self.export_pending().await;
+                        self.drain().await;
                         let _ = done.send(());
                         return;
                     }
                     // Every `Telemetry` handle is gone.
                     None => {
-                        self.paused_until = self.throttled_until;
-                        self.close_windows();
-                        self.export_pending().await;
+                        self.drain().await;
                         return;
                     }
                 },
@@ -212,23 +236,30 @@ impl Exporter {
         }
     }
 
-    /// A ticker at `base_ms × cadence_factor`.
-    fn ticker(&self, base_ms: u64) -> Interval {
-        let period = Duration::from_millis(base_ms.max(1)) * self.cadence_factor;
-        let mut ticker = interval(period);
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        ticker
+    /// `base_ms × cadence factor`.
+    fn period(&self, base_ms: u64) -> Duration {
+        Duration::from_millis(base_ms.max(1)) * self.cadence_factor()
     }
 
-    /// The stats-window ticker. Unlike `interval`, whose first tick is immediate, the first window
-    /// closes a full period after it opens — otherwise readings taken before the first tick
-    /// would ship as a zero-length window.
-    fn window_ticker(&self) -> Interval {
-        let period =
-            Duration::from_millis(self.config.stats_window_ms.max(1)) * self.cadence_factor;
-        let mut ticker = tokio::time::interval_at(Instant::now() + period, period);
-        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        ticker
+    fn device(&self) -> DeviceState {
+        self.device.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or_default()
+    }
+
+    /// Device pressure, doubled again while WebRTC reports the encoder CPU-limited; capped at 4×.
+    fn cadence_factor(&self) -> u32 {
+        let cpu_limited =
+            self.windows.lock().unwrap_or_else(|e| e.into_inner()).media_pressure().cpu_limited;
+        (self.device().cadence_factor() * if cpu_limited { 2 } else { 1 }).min(4)
+    }
+
+    /// Last chance: everything queued into the cache and out. Ignores the upload backoff, the
+    /// batch budget and the session holds (the call is over), respects throttling and the
+    /// device's own holds.
+    async fn drain(&mut self) {
+        self.draining = true;
+        self.paused_until = self.throttled_until;
+        self.close_windows();
+        self.export_pending().await;
     }
 
     /// Turn every open RTC stats window into its `lk.rtc.stats.sample` event. Windows bypass the
@@ -302,10 +333,13 @@ impl Exporter {
         self.push_batch(Signal::Traces, count, &body);
     }
 
+    /// Gzip the encoded batch and cache it. Compressed at rest as well as on the wire: the cache
+    /// holds 5–10× more, the disk write shrinks, and a replay costs no CPU.
     fn push_batch(&mut self, signal: Signal, count: u64, body: &[u8]) {
+        let body = gzip(body);
         self.seq += 1;
         let id = format!("{:020}-{:06}-{count}-{}", now_unix_nanos(), self.seq, signal.tag());
-        if let Err(err) = self.cache.push(&id, body) {
+        if let Err(err) = self.cache.push(&id, &body) {
             // A full disk is a steady state, not an event: warn once, then stay quiet.
             if self.cache_failures == 0 {
                 log::warn!("telemetry: cannot cache batches ({err}); dropping until it recovers");
@@ -327,12 +361,57 @@ impl Exporter {
         }
     }
 
-    /// Send cached batches oldest-first until one fails; then back off.
+    /// Why uploads should wait right now, if they should. Data keeps flowing into the cache
+    /// meanwhile — write-ahead caching is what makes holding free.
+    fn hold_reason(&self) -> Option<&'static str> {
+        if self.device().holds_uploads() {
+            return Some("device asks for quiet");
+        }
+        if self.draining {
+            return None;
+        }
+        if self.spans.lock().unwrap_or_else(|e| e.into_inner()).any_open(SENSITIVE_SPANS) {
+            return Some("connecting");
+        }
+        let media = self.windows.lock().unwrap_or_else(|e| e.into_inner()).media_pressure();
+        if media.bandwidth_limited {
+            return Some("media is bandwidth-limited");
+        }
+        None
+    }
+
+    /// Send cached batches oldest-first, within this tick's budget, until one fails; then back
+    /// off.
     async fn upload(&mut self) {
         if self.silenced || self.paused_until.is_some_and(|t| Instant::now() < t) {
             return;
         }
-        for id in self.cache.pending() {
+        let pending = self.cache.pending();
+        if pending.is_empty() {
+            self.held_since = None;
+            return;
+        }
+        let budget = match self.hold_reason() {
+            Some(reason) => {
+                let since = *self.held_since.get_or_insert_with(Instant::now);
+                if since.elapsed() < MAX_HOLD {
+                    log::trace!("telemetry: holding {} batches: {reason}", pending.len());
+                    return;
+                }
+                // Held long enough: one batch goes out, then the hold starts over.
+                self.held_since = Some(Instant::now());
+                1
+            }
+            None => {
+                self.held_since = None;
+                if self.draining {
+                    usize::MAX
+                } else {
+                    self.config.max_batches_per_upload.max(1) as usize
+                }
+            }
+        };
+        for id in pending.into_iter().take(budget) {
             let Some(body) = self.cache.read(&id) else {
                 self.cache.remove(&id);
                 continue;
@@ -373,10 +452,12 @@ impl Exporter {
         self.cache.clear();
     }
 
-    /// Upload one encoded batch with bounded retries and classify the outcome.
+    /// Upload one cached (gzipped) batch with bounded retries and classify the outcome.
     async fn deliver(&self, body: &[u8], signal: Signal) -> Delivery {
         let mut headers = self.config.headers.clone();
         headers.insert("Content-Type".to_owned(), otlp::CONTENT_TYPE.to_owned());
+        headers.insert("Content-Encoding".to_owned(), "gzip".to_owned());
+        headers.insert("Priority".to_owned(), PRIORITY.to_owned());
         let url = match signal {
             Signal::Logs => self.config.endpoint.clone(),
             Signal::Traces => {
@@ -415,6 +496,15 @@ impl Exporter {
         }
         Delivery::Failed
     }
+}
+
+/// Level 1: protobuf with repeated attribute keys shrinks 5–10× already; higher levels buy little
+/// for more CPU.
+fn gzip(body: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::with_capacity(body.len() / 4), Compression::fast());
+    // Writing into a Vec cannot fail.
+    let _ = encoder.write_all(body);
+    encoder.finish().unwrap_or_default()
 }
 
 /// The event count the exporter encodes as the last component of a batch id.
