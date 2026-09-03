@@ -9,7 +9,6 @@
 #include <dlfcn.h>
 #endif
 
-#include <iostream>
 #include <mutex>
 
 #if defined(WIN32)
@@ -39,6 +38,8 @@ static const int kRequiredDriverVersion = 11000;
 
 // Serializes access to the singleton context, its reference count, and the
 // dynamically loaded CUDA module.
+// Note: Wrapping this defers initialization until the mutex is first used vs.
+// static initialization at namespace scope.
 static std::mutex& cudaMutex() {
   static std::mutex mutex;
   return mutex;
@@ -179,6 +180,7 @@ bool CudaContext::Initialize() {
   cu_device_ = cu_device;
   cu_context_ = context;
   ref_count_ = 1;
+  RTC_LOG(LS_INFO) << "CUDA context initialized (refs=1).";
 
   return true;
 }
@@ -211,6 +213,7 @@ void CudaContext::Shutdown() {
     return;
   }
 
+  RTC_LOG(LS_INFO) << "CUDA context released (refs=0); destroying context.";
   if (cu_context_) {
     cuCtxDestroy(cu_context_);
     cu_context_ = nullptr;
