@@ -51,12 +51,12 @@ impl SessionState {
         }
     }
 
-    /// Merge the session's attributes into a record's own without overriding explicit ones, and
-    /// add `session.id` (OTel semconv) — the trace id, so a record can be joined to its session
-    /// even where a backend drops trace ids from logs.
-    pub fn decorate(&self, own: &mut Vec<Attribute>) {
+    /// Merge the session's attributes, then the pipeline-wide ones (`global`), into a record's
+    /// own without overriding explicit ones, and add `session.id` (OTel semconv) — the trace id,
+    /// so a record can be joined to its session even where a backend drops trace ids from logs.
+    pub fn decorate(&self, own: &mut Vec<Attribute>, global: &[Attribute]) {
         let session = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
-        for attribute in session.iter() {
+        for attribute in session.iter().chain(global) {
             if !own.iter().any(|a| a.key == attribute.key) {
                 own.push(attribute.clone());
             }

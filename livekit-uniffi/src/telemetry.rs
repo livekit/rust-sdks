@@ -90,8 +90,8 @@ impl Telemetry {
         self.0.set_device_state(state);
     }
 
-    /// Set (or, with `None`, remove) a session-wide attribute attached to every record from now
-    /// on: `lk.room.sid`, `lk.participant.identity`, or the app's own correlation ids.
+    /// A pipeline-wide attribute (`enduser.id`, `acme.tenant`), attached to every record of every
+    /// session unless the record or its session already carries the key; `None` removes it.
     pub fn set_attribute(&self, key: String, value: Option<AttributeValue>) {
         self.0.set_attribute(&key, value);
     }

@@ -48,13 +48,17 @@ fn scope() -> Option<InstrumentationScope> {
 /// Encode one batch as an OTLP `ExportLogsServiceRequest`: one resource, one instrumentation
 /// scope (this crate), one log record per event. Every record carries its session's trace id and
 /// attributes; records emitted inside a span carry its span id too.
-pub(crate) fn encode_logs(resource_attributes: &[Attribute], events: Vec<Queued>) -> Vec<u8> {
+pub(crate) fn encode_logs(
+    resource_attributes: &[Attribute],
+    global: &[Attribute],
+    events: Vec<Queued>,
+) -> Vec<u8> {
     ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
             resource: resource(resource_attributes),
             scope_logs: vec![ScopeLogs {
                 scope: scope(),
-                log_records: events.into_iter().map(log_record).collect(),
+                log_records: events.into_iter().map(|e| log_record(e, global)).collect(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -64,13 +68,17 @@ pub(crate) fn encode_logs(resource_attributes: &[Attribute], events: Vec<Queued>
 }
 
 /// Encode finished spans as an OTLP `ExportTraceServiceRequest`, each under its session's trace id.
-pub(crate) fn encode_spans(resource_attributes: &[Attribute], spans: Vec<SpanRecord>) -> Vec<u8> {
+pub(crate) fn encode_spans(
+    resource_attributes: &[Attribute],
+    global: &[Attribute],
+    spans: Vec<SpanRecord>,
+) -> Vec<u8> {
     ExportTraceServiceRequest {
         resource_spans: vec![ResourceSpans {
             resource: resource(resource_attributes),
             scope_spans: vec![ScopeSpans {
                 scope: scope(),
-                spans: spans.into_iter().map(otlp_span).collect(),
+                spans: spans.into_iter().map(|s| otlp_span(s, global)).collect(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -79,8 +87,8 @@ pub(crate) fn encode_spans(resource_attributes: &[Attribute], spans: Vec<SpanRec
     .encode_to_vec()
 }
 
-fn log_record(Queued { mut event, session }: Queued) -> LogRecord {
-    session.decorate(&mut event.attributes);
+fn log_record(Queued { mut event, session }: Queued, global: &[Attribute]) -> LogRecord {
+    session.decorate(&mut event.attributes, global);
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
     LogRecord {
         time_unix_nano,
@@ -96,9 +104,9 @@ fn log_record(Queued { mut event, session }: Queued) -> LogRecord {
     }
 }
 
-fn otlp_span(mut record: SpanRecord) -> Span {
+fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
     let session = record.session.clone();
-    session.decorate(&mut record.attributes);
+    session.decorate(&mut record.attributes, global);
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
     attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
     Span {
@@ -187,7 +195,7 @@ mod tests {
             .with_body("hi")
             .with_attribute("lk.ping.seq", 7i64);
         let session = crate::session::SessionState::with_trace_id([7u8; 16]);
-        let bytes = encode_logs(&resource, vec![Queued { event, session }]);
+        let bytes = encode_logs(&resource, &[], vec![Queued { event, session }]);
 
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let resource_logs = &decoded.resource_logs[0];

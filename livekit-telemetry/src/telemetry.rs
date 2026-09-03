@@ -156,6 +156,8 @@ pub struct Telemetry {
     spans: Arc<Mutex<Spans>>,
     /// The pipeline's own session: whatever is emitted outside a room session.
     process: Arc<SessionState>,
+    /// Attributes attached to every record of every session.
+    global: Arc<Mutex<Vec<Attribute>>>,
     destination: Arc<Mutex<Option<Destination>>>,
     commands: mpsc::UnboundedSender<Command>,
 }
@@ -244,6 +246,7 @@ impl Telemetry {
         // One pipeline per process; sessions (rooms) carry their own trace ids. This is the
         // pipeline's own session, for everything emitted outside a room.
         let process = SessionState::new();
+        let global = Arc::new(Mutex::new(Vec::new()));
         let counters = Arc::new(Counters::default());
         let store = Arc::new(Store::new(
             config.max_queue_size.max(1) as usize,
@@ -264,6 +267,7 @@ impl Telemetry {
             windows.clone(),
             spans.clone(),
             process.clone(),
+            global.clone(),
             destination.clone(),
             receiver,
             device.clone(),
@@ -278,6 +282,7 @@ impl Telemetry {
             guard,
             spans,
             process,
+            global,
             destination,
             commands,
         };
@@ -340,11 +345,16 @@ impl Telemetry {
         self.emit(TelemetryEvent::custom(name, attributes));
     }
 
-    /// Set a session-wide attribute (`lk.room.sid`, `lk.participant.identity`, or a consumer's
-    /// own `acme.call_id`), attached to every record exported from now on unless the record
-    /// already carries the key. `None` removes it.
+    /// Set a pipeline-wide attribute (a consumer's `enduser.id`, an `acme.tenant`), attached to
+    /// every record of every session from now on unless the record — or its session — already
+    /// carries the key. `None` removes it. Session-level identity goes through
+    /// [`Session::set_attribute`].
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
-        self.process.set_attribute(key, value);
+        let mut global = self.global.lock().unwrap_or_else(|e| e.into_inner());
+        global.retain(|a| a.key != key);
+        if let Some(value) = value {
+            global.push(Attribute::new(key, value));
+        }
     }
 
     /// The session's trace id as 32 hex characters — what every span and log record of this
@@ -963,6 +973,7 @@ mod tests {
     async fn sessions_have_their_own_trace_and_attributes() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
+        telemetry.set_attribute("acme.tenant", Some("t1".into()));
         let a = telemetry.begin_session();
         let b = telemetry.begin_session();
         assert_ne!(a.trace_id(), b.trace_id());
@@ -992,6 +1003,11 @@ mod tests {
         assert_eq!(hex(&logs[2].trace_id), a.trace_id(), "resolved through the span");
         assert_eq!(hex(&logs[3].trace_id), telemetry.trace_id(), "device state: process session");
         assert_eq!(attribute(&logs[3], "lk.room.sid"), None);
+        assert!(
+            logs.iter()
+                .all(|r| attribute(r, "acme.tenant") == Some(Value::StringValue("t1".into()))),
+            "a pipeline-wide attribute reaches every session"
+        );
         let traces = ExportTraceServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("otlp");
         let otlp_span = &traces.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(hex(&otlp_span.trace_id), a.trace_id());

@@ -31,7 +31,7 @@ use crate::{
     stats::{Counters, Snapshot},
     store::{Queued, Store},
     telemetry::Destination,
-    AppState, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
+    AppState, Attribute, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
     TelemetryTransport,
 };
 
@@ -130,6 +130,8 @@ pub struct Exporter {
     spans: Arc<Mutex<Spans>>,
     /// The pipeline's own session: self-telemetry is filed under it.
     process: Arc<SessionState>,
+    /// Attributes attached to every record of every session (`Telemetry::set_attribute`).
+    global: Arc<Mutex<Vec<Attribute>>>,
     /// Where batches go; `None` until `set_destination` — batches wait in the cache meanwhile.
     destination: Arc<Mutex<Option<Destination>>>,
     commands: mpsc::UnboundedReceiver<Command>,
@@ -167,6 +169,7 @@ impl Exporter {
         windows: Arc<Mutex<StatsWindows>>,
         spans: Arc<Mutex<Spans>>,
         process: Arc<SessionState>,
+        global: Arc<Mutex<Vec<Attribute>>>,
         destination: Arc<Mutex<Option<Destination>>>,
         commands: mpsc::UnboundedReceiver<Command>,
         device: Arc<Mutex<Option<DeviceState>>>,
@@ -180,6 +183,7 @@ impl Exporter {
             windows,
             spans,
             process,
+            global,
             destination,
             commands,
             silenced: false,
@@ -324,7 +328,8 @@ impl Exporter {
                 self.force_report = false;
             }
             let count = batch.len() as u64;
-            let body = otlp::encode_logs(&self.config.resource, batch);
+            let global = self.global.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let body = otlp::encode_logs(&self.config.resource, &global, batch);
             self.push_batch(Signal::Logs, count, &body);
         }
     }
@@ -346,7 +351,8 @@ impl Exporter {
             return;
         }
         let count = spans.len() as u64;
-        let body = otlp::encode_spans(&self.config.resource, spans);
+        let global = self.global.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let body = otlp::encode_spans(&self.config.resource, &global, spans);
         self.push_batch(Signal::Traces, count, &body);
     }
 
