@@ -15,7 +15,7 @@
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Weak,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -48,6 +48,12 @@ pub struct NativeVideoSource {
     captured_frames: Arc<AtomicUsize>,
 }
 
+fn keepalive_should_continue(captured_frames: &Weak<AtomicUsize>) -> bool {
+    captured_frames
+        .upgrade()
+        .is_some_and(|captured_frames| captured_frames.load(Ordering::Relaxed) == 0)
+}
+
 impl NativeVideoSource {
     pub fn new(resolution: VideoResolution, is_screencast: bool) -> NativeVideoSource {
         Self::new_inner(resolution, is_screencast, true)
@@ -77,8 +83,9 @@ impl NativeVideoSource {
         };
 
         if raw_keepalive {
+            let captured_frames = Arc::downgrade(&source.captured_frames);
+            let sys_handle = source.sys_handle.clone();
             tokio::spawn({
-                let source = source.clone();
                 // This buffer reaches the encoder without any plane ever being
                 // written, so it must be black-initialized: `I420Buffer::new`
                 // leaves the pixel data uninitialized and would leak recycled
@@ -90,7 +97,7 @@ impl NativeVideoSource {
                     loop {
                         interval.tick().await;
 
-                        if source.captured_frames.load(Ordering::Relaxed) > 0 {
+                        if !keepalive_should_continue(&captured_frames) {
                             break;
                         }
 
@@ -101,7 +108,7 @@ impl NativeVideoSource {
                         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                         builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
 
-                        source.sys_handle.on_captured_frame(
+                        sys_handle.on_captured_frame(
                             &builder.pin_mut().build(),
                             &vt_sys::ffi::FrameMetadata {
                                 has_packet_trailer: false,
@@ -227,5 +234,41 @@ impl NativeVideoSource {
 
     pub fn video_resolution(&self) -> VideoResolution {
         self.sys_handle.video_resolution().into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use super::keepalive_should_continue;
+
+    #[test]
+    fn keepalive_continues_before_first_capture() {
+        let captured_frames = Arc::new(AtomicUsize::new(0));
+
+        assert!(keepalive_should_continue(&Arc::downgrade(&captured_frames)));
+    }
+
+    #[test]
+    fn keepalive_stops_after_first_capture() {
+        let captured_frames = Arc::new(AtomicUsize::new(0));
+        let weak_captured_frames = Arc::downgrade(&captured_frames);
+        captured_frames.fetch_add(1, Ordering::Relaxed);
+
+        assert!(!keepalive_should_continue(&weak_captured_frames));
+    }
+
+    #[test]
+    fn keepalive_stops_when_source_is_dropped() {
+        let weak_captured_frames = {
+            let captured_frames = Arc::new(AtomicUsize::new(0));
+            Arc::downgrade(&captured_frames)
+        };
+
+        assert!(!keepalive_should_continue(&weak_captured_frames));
     }
 }

@@ -9,7 +9,6 @@
 #include <dlfcn.h>
 #endif
 
-#include <iostream>
 #include <mutex>
 
 #if defined(WIN32)
@@ -39,6 +38,8 @@ static const int kRequiredDriverVersion = 11000;
 
 // Serializes access to the singleton context, its reference count, and the
 // dynamically loaded CUDA module.
+// Note: Wrapping this defers initialization until the mutex is first used vs.
+// static initialization at namespace scope.
 static std::mutex& cudaMutex() {
   static std::mutex mutex;
   return mutex;
@@ -217,6 +218,7 @@ void CudaContext::Shutdown() {
     return;
   }
 
+  RTC_LOG(LS_INFO) << "CUDA context released (refs=0); destroying context.";
   if (cu_context_) {
     const CUresult result = cuCtxDestroy(cu_context_);
     // NVIDIA documents that cuCtxDestroy() may report an error from an earlier
