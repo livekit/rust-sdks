@@ -73,6 +73,17 @@ impl Telemetry {
         self.0.emit_custom(&name, attributes);
     }
 
+    /// Where to send, once known (first connect: server URL → endpoint, token → headers). Until
+    /// then everything waits in the cache; afterwards it uploads.
+    pub fn set_destination(&self, endpoint: String, headers: HashMap<String, String>) {
+        self.0.set_destination(&endpoint, headers);
+    }
+
+    /// A session — one room, one call — with its own trace id and attributes on this pipeline.
+    pub fn begin_session(&self) -> Arc<TelemetrySession> {
+        Arc::new(TelemetrySession(self.0.begin_session()))
+    }
+
     /// Report the device state (thermal, low power, foreground/background). Emits the matching
     /// `lk.device.*.changed` events and adapts the export cadence.
     pub fn set_device_state(&self, state: DeviceState) {
@@ -129,6 +140,54 @@ impl Telemetry {
     /// Pipeline health: drops by reason, uploads, cached batches.
     pub fn stats(&self) -> TelemetryStats {
         self.0.stats()
+    }
+}
+
+/// One room's session on the process pipeline: what its spans, stats and events are filed
+/// under. Obtained from [`Telemetry::begin_session`].
+#[derive(uniffi::Object)]
+pub struct TelemetrySession(livekit_telemetry::Session);
+
+#[uniffi::export]
+impl TelemetrySession {
+    /// The session's trace id as 32 hex characters.
+    pub fn trace_id(&self) -> String {
+        self.0.trace_id()
+    }
+
+    pub fn emit(&self, event: TelemetryEvent) {
+        self.0.emit(event);
+    }
+
+    pub fn emit_custom(&self, name: String, attributes: Vec<Attribute>) {
+        self.0.emit_custom(&name, attributes);
+    }
+
+    /// Attach an attribute to every record of this session from now on; `None` removes it.
+    pub fn set_attribute(&self, key: String, value: Option<AttributeValue>) {
+        self.0.set_attribute(&key, value);
+    }
+
+    pub fn record_stats(&self, sample: RtcStatsSample) {
+        self.0.record_stats(sample);
+    }
+
+    pub fn begin_span(&self, name: String, kind: SpanKind, parent: Option<u64>) -> u64 {
+        self.0.begin_span(&name, kind, parent)
+    }
+
+    pub fn add_span_event(&self, span: u64, name: String, attributes: Vec<Attribute>) {
+        self.0.add_span_event(span, &name, attributes);
+    }
+
+    pub fn end_span(
+        &self,
+        span: u64,
+        outcome: SpanOutcome,
+        error_type: Option<String>,
+        attributes: Vec<Attribute>,
+    ) {
+        self.0.end_span(span, outcome, error_type, attributes);
     }
 }
 

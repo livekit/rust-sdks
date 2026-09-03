@@ -15,7 +15,24 @@ Set once per pipeline (`TelemetryConfig.resource`):
 | `os.name`, `os.version` | platform SDK | `iOS`, `18.5` |
 | `device.model.identifier` | platform SDK | `iPhone16,1` |
 | `telemetry.sdk.name/language/version` | core | `livekit-telemetry`, `rust`, `0.1.0` |
-| `session.id` | core | the session's trace id as 32 hex chars — every log record and span of the pipeline carries it |
+
+## Pipeline, sessions and destination
+
+One pipeline per process — started at SDK init, so audio pre-initialization, permission failures
+and connect attempts that never reach a server are captured — and one **session** per room (one
+call). A session is a trace id plus the attributes attached to its records (`lk.room.sid`,
+`lk.participant.identity`, …); spans, RTC windows and events are filed under the session that
+produced them, and `session.id` (OTel semconv) is written on every record as an attribute. A log
+record emitted inside a room's span is filed under that room's session; anything emitted outside
+a session — device state, pre-room errors, self-telemetry — belongs to the pipeline's own process
+session. Sessions are not ended: a room's last record is simply its last.
+
+The pipeline may start **without a destination** (`endpoint: None`): it buffers and caches, and
+uploads nothing until `set_destination(endpoint, headers)` — at the first connect, when the
+server URL yields the endpoint (`https://<host>/observability/logs/otlp/v0`) and the token the
+`Authorization` header. Calling it again (new token, new server) replaces the destination for
+the batches that follow. Waiting for a destination is not an upload hold: it is uncapped, bounded
+only by the cache.
 
 ## Events
 

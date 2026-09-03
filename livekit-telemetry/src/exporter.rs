@@ -26,10 +26,12 @@ use crate::{
     event::now_unix_nanos,
     otlp,
     rtc::StatsWindows,
+    session::SessionState,
     span::Spans,
     stats::{Counters, Snapshot},
-    store::Store,
-    AppState, Attribute, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
+    store::{Queued, Store},
+    telemetry::Destination,
+    AppState, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
     TelemetryTransport,
 };
 
@@ -125,10 +127,11 @@ pub struct Exporter {
     cache: Arc<dyn BatchCache>,
     counters: Arc<Counters>,
     windows: Arc<Mutex<StatsWindows>>,
-    /// Session-wide attributes merged into every record at encode time.
-    attributes: Arc<Mutex<Vec<Attribute>>>,
     spans: Arc<Mutex<Spans>>,
-    trace_id: [u8; 16],
+    /// The pipeline's own session: self-telemetry is filed under it.
+    process: Arc<SessionState>,
+    /// Where batches go; `None` until `set_destination` — batches wait in the cache meanwhile.
+    destination: Arc<Mutex<Option<Destination>>>,
     commands: mpsc::UnboundedReceiver<Command>,
     silenced: bool,
     /// Leave the cache alone until then: the last upload failed or we were throttled.
@@ -162,9 +165,9 @@ impl Exporter {
         cache: Arc<dyn BatchCache>,
         counters: Arc<Counters>,
         windows: Arc<Mutex<StatsWindows>>,
-        attributes: Arc<Mutex<Vec<Attribute>>>,
         spans: Arc<Mutex<Spans>>,
-        trace_id: [u8; 16],
+        process: Arc<SessionState>,
+        destination: Arc<Mutex<Option<Destination>>>,
         commands: mpsc::UnboundedReceiver<Command>,
         device: Arc<Mutex<Option<DeviceState>>>,
     ) -> Self {
@@ -175,9 +178,9 @@ impl Exporter {
             cache,
             counters,
             windows,
-            attributes,
             spans,
-            trace_id,
+            process,
+            destination,
             commands,
             silenced: false,
             paused_until: None,
@@ -315,22 +318,20 @@ impl Exporter {
             let now = self.counters.snapshot();
             let delta = now.since(&self.last_report);
             if delta.has_problems() || report_due {
-                batch.push(delta.report(self.cache.pending().len() as u64));
+                let report = delta.report(self.cache.pending().len() as u64);
+                batch.push(Queued { event: report, session: self.process.clone() });
                 self.last_report = now;
                 self.force_report = false;
             }
-            for event in &mut batch {
-                self.attach_session_attributes(&mut event.attributes);
-            }
             let count = batch.len() as u64;
-            let body = otlp::encode_logs(&self.config.resource, &self.trace_id, batch);
+            let body = otlp::encode_logs(&self.config.resource, batch);
             self.push_batch(Signal::Logs, count, &body);
         }
     }
 
     /// Finished spans travel as their own batch on the traces signal.
     fn enqueue_spans(&mut self) {
-        let (mut spans, dropped) = {
+        let (spans, dropped) = {
             let mut registry = self.spans.lock().unwrap_or_else(|e| e.into_inner());
             (registry.drain(self.config.max_batch_size.max(1) as usize), registry.take_dropped())
         };
@@ -344,11 +345,8 @@ impl Exporter {
             Counters::add(counter, spans.len() as u64);
             return;
         }
-        for span in &mut spans {
-            self.attach_session_attributes(&mut span.attributes);
-        }
         let count = spans.len() as u64;
-        let body = otlp::encode_spans(&self.config.resource, &self.trace_id, spans);
+        let body = otlp::encode_spans(&self.config.resource, spans);
         self.push_batch(Signal::Traces, count, &body);
     }
 
@@ -379,16 +377,6 @@ impl Exporter {
         }
     }
 
-    /// Merge the session-wide attributes into a record's own, without overriding explicit ones.
-    fn attach_session_attributes(&self, attributes: &mut Vec<Attribute>) {
-        let session = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
-        for attribute in session.iter() {
-            if !attributes.iter().any(|a| a.key == attribute.key) {
-                attributes.push(attribute.clone());
-            }
-        }
-    }
-
     /// Why uploads should wait right now, if they should. Data keeps flowing into the cache
     /// meanwhile — write-ahead caching is what makes holding free.
     fn hold_reason(&self) -> Option<&'static str> {
@@ -412,6 +400,10 @@ impl Exporter {
     /// off.
     async fn upload(&mut self) {
         if self.silenced || self.paused_until.is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        // No destination yet (SDK started, no room connected): everything waits in the cache.
+        if self.destination.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
             return;
         }
         let pending = self.cache.pending();
@@ -484,15 +476,17 @@ impl Exporter {
 
     /// Upload one cached (gzipped) batch with bounded retries and classify the outcome.
     async fn deliver(&self, body: &[u8], signal: Signal) -> Delivery {
-        let mut headers = self.config.headers.clone();
+        let Some(destination) = self.destination.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        else {
+            return Delivery::Failed;
+        };
+        let mut headers = destination.headers;
         headers.insert("Content-Type".to_owned(), otlp::CONTENT_TYPE.to_owned());
         headers.insert("Content-Encoding".to_owned(), "gzip".to_owned());
         headers.insert("Priority".to_owned(), PRIORITY.to_owned());
         let url = match signal {
-            Signal::Logs => self.config.endpoint.clone(),
-            Signal::Traces => {
-                self.config.traces_endpoint.clone().unwrap_or_else(|| self.config.endpoint.clone())
-            }
+            Signal::Logs => destination.logs,
+            Signal::Traces => destination.traces,
         };
         let request = ExportRequest { url, headers, body: body.to_vec() };
         let attempt_timeout = Duration::from_millis(self.config.export_timeout_ms.max(1));

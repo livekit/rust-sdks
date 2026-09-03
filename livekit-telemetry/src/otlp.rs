@@ -24,7 +24,8 @@ use crate::{
         trace::v1::{span, status, ResourceSpans, ScopeSpans, Span, Status},
     },
     span::SpanRecord,
-    Attribute, AttributeValue, Severity, SpanKind, SpanOutcome, TelemetryEvent,
+    store::Queued,
+    Attribute, AttributeValue, Severity, SpanKind, SpanOutcome,
 };
 
 pub(crate) const CONTENT_TYPE: &str = "application/x-protobuf";
@@ -45,19 +46,15 @@ fn scope() -> Option<InstrumentationScope> {
 }
 
 /// Encode one batch as an OTLP `ExportLogsServiceRequest`: one resource, one instrumentation
-/// scope (this crate), one log record per event. Every record carries the session's trace id;
-/// records emitted inside a span carry its span id too.
-pub(crate) fn encode_logs(
-    resource_attributes: &[Attribute],
-    trace_id: &[u8; 16],
-    events: Vec<TelemetryEvent>,
-) -> Vec<u8> {
+/// scope (this crate), one log record per event. Every record carries its session's trace id and
+/// attributes; records emitted inside a span carry its span id too.
+pub(crate) fn encode_logs(resource_attributes: &[Attribute], events: Vec<Queued>) -> Vec<u8> {
     ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
             resource: resource(resource_attributes),
             scope_logs: vec![ScopeLogs {
                 scope: scope(),
-                log_records: events.into_iter().map(|e| log_record(e, trace_id)).collect(),
+                log_records: events.into_iter().map(log_record).collect(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -66,18 +63,14 @@ pub(crate) fn encode_logs(
     .encode_to_vec()
 }
 
-/// Encode finished spans as an OTLP `ExportTraceServiceRequest` under the session's trace id.
-pub(crate) fn encode_spans(
-    resource_attributes: &[Attribute],
-    trace_id: &[u8; 16],
-    spans: Vec<SpanRecord>,
-) -> Vec<u8> {
+/// Encode finished spans as an OTLP `ExportTraceServiceRequest`, each under its session's trace id.
+pub(crate) fn encode_spans(resource_attributes: &[Attribute], spans: Vec<SpanRecord>) -> Vec<u8> {
     ExportTraceServiceRequest {
         resource_spans: vec![ResourceSpans {
             resource: resource(resource_attributes),
             scope_spans: vec![ScopeSpans {
                 scope: scope(),
-                spans: spans.into_iter().map(|s| otlp_span(s, trace_id)).collect(),
+                spans: spans.into_iter().map(otlp_span).collect(),
                 ..Default::default()
             }],
             ..Default::default()
@@ -86,7 +79,8 @@ pub(crate) fn encode_spans(
     .encode_to_vec()
 }
 
-fn log_record(event: TelemetryEvent, trace_id: &[u8; 16]) -> LogRecord {
+fn log_record(Queued { mut event, session }: Queued) -> LogRecord {
+    session.decorate(&mut event.attributes);
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
     LogRecord {
         time_unix_nano,
@@ -96,17 +90,19 @@ fn log_record(event: TelemetryEvent, trace_id: &[u8; 16]) -> LogRecord {
         body: event.body.map(|text| AnyValue { value: Some(any_value::Value::StringValue(text)) }),
         attributes: event.attributes.iter().map(KeyValue::from).collect(),
         event_name: event.name,
-        trace_id: trace_id.to_vec(),
+        trace_id: session.trace_id.to_vec(),
         span_id: event.span_id.map(|id| id.to_be_bytes().to_vec()).unwrap_or_default(),
         ..Default::default()
     }
 }
 
-fn otlp_span(record: SpanRecord, trace_id: &[u8; 16]) -> Span {
+fn otlp_span(mut record: SpanRecord) -> Span {
+    let session = record.session.clone();
+    session.decorate(&mut record.attributes);
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
     attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
     Span {
-        trace_id: trace_id.to_vec(),
+        trace_id: session.trace_id.to_vec(),
         span_id: record.span_id.to_be_bytes().to_vec(),
         parent_span_id: record.parent_span_id.map(|p| p.to_be_bytes().to_vec()).unwrap_or_default(),
         name: record.name,
@@ -181,6 +177,7 @@ impl From<&Attribute> for KeyValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TelemetryEvent;
 
     #[test]
     fn encodes_events_as_otlp_log_records() {
@@ -189,7 +186,8 @@ mod tests {
             .with_severity(Severity::Warn)
             .with_body("hi")
             .with_attribute("lk.ping.seq", 7i64);
-        let bytes = encode_logs(&resource, &[7u8; 16], vec![event]);
+        let session = crate::session::SessionState::with_trace_id([7u8; 16]);
+        let bytes = encode_logs(&resource, vec![Queued { event, session }]);
 
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let resource_logs = &decoded.resource_logs[0];

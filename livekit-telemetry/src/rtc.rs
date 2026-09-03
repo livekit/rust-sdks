@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use tokio::time::Instant;
 
-use crate::{event::now_unix_nanos, TelemetryEvent};
+use crate::{event::now_unix_nanos, session::SessionState, store::Queued, TelemetryEvent};
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -148,6 +148,7 @@ impl Gauge {
 
 /// Samples of one track in one direction accumulated since the window opened.
 struct Window {
+    session: Arc<SessionState>,
     start_ns: u64,
     samples: u32,
     last: RtcStatsSample,
@@ -158,8 +159,9 @@ struct Window {
 }
 
 impl Window {
-    fn open(start_ns: u64, first: RtcStatsSample) -> Self {
+    fn open(start_ns: u64, first: RtcStatsSample, session: Arc<SessionState>) -> Self {
         let mut window = Self {
+            session,
             start_ns,
             samples: 0,
             last: first.clone(),
@@ -256,22 +258,38 @@ const BANDWIDTH_LIMITED_HOLD: Duration = Duration::from_secs(10);
 const CPU_LIMITED_HOLD: Duration = Duration::from_secs(60);
 
 impl StatsWindows {
-    pub fn record(&mut self, mut sample: RtcStatsSample) {
+    pub fn record_in(&mut self, mut sample: RtcStatsSample, session: &Arc<SessionState>) {
         self.track_limitation(&sample);
         let timestamp = *sample.timestamp_ns.get_or_insert_with(now_unix_nanos);
         let key = (sample.track_sid.clone(), sample.direction);
         match self.windows.get_mut(&key) {
             Some(window) => window.add(sample),
             None => {
-                self.windows.insert(key, Window::open(timestamp, sample));
+                self.windows.insert(key, Window::open(timestamp, sample, session.clone()));
             }
         }
     }
 
-    /// Close every open window into its event and start fresh.
-    pub fn close(&mut self) -> Vec<TelemetryEvent> {
+    /// Close every open window into its event, filed under the window's session, and start fresh.
+    pub fn close(&mut self) -> Vec<Queued> {
         let end = now_unix_nanos();
-        self.windows.drain().map(|(_, window)| window.into_event(end)).collect()
+        self.windows
+            .drain()
+            .map(|(_, window)| {
+                let session = window.session.clone();
+                Queued { event: window.into_event(end), session }
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn record(&mut self, sample: RtcStatsSample) {
+        self.record_in(sample, &SessionState::new());
+    }
+
+    #[cfg(test)]
+    pub fn close_events(&mut self) -> Vec<TelemetryEvent> {
+        self.close().into_iter().map(|q| q.event).collect()
     }
 
     pub fn media_pressure(&self) -> MediaPressure {
@@ -371,8 +389,8 @@ mod tests {
         other.packets = Some(7);
         windows.record(other);
 
-        let mut events = windows.close();
-        assert!(windows.close().is_empty(), "closing again yields nothing");
+        let mut events = windows.close_events();
+        assert!(windows.close_events().is_empty(), "closing again yields nothing");
         events.sort_by_key(|e| attr(e, "lk.track.direction").map(|v| format!("{v:?}")));
         assert_eq!(events.len(), 2, "one event per track and direction");
         let inbound = &events[0];

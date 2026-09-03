@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
-use crate::{event::now_unix_nanos, Attribute, AttributeValue};
+use crate::{event::now_unix_nanos, session::SessionState, Attribute, AttributeValue};
 
 /// OTel span kind, restricted to what client operations need.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
@@ -70,6 +71,8 @@ pub(crate) struct SpanRecord {
     pub error_type: Option<String>,
     pub attributes: Vec<Attribute>,
     pub events: Vec<SpanEvent>,
+    /// The session (trace) the span belongs to.
+    pub session: Arc<SessionState>,
 }
 
 /// OTel default span limits.
@@ -107,7 +110,14 @@ impl Spans {
         }
     }
 
-    pub fn begin(&mut self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
+    /// Open a span in `session`'s trace.
+    pub fn begin_in(
+        &mut self,
+        name: &str,
+        kind: SpanKind,
+        parent: Option<u64>,
+        session: Arc<SessionState>,
+    ) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
         if self.open.len() >= MAX_OPEN_SPANS {
@@ -127,6 +137,7 @@ impl Spans {
             error_type: None,
             attributes: Vec::new(),
             events: Vec::new(),
+            session,
         };
         self.open.insert(id, record);
         self.open_order.push_back(id);
@@ -135,6 +146,16 @@ impl Spans {
 
     /// Whether a span with one of these names is still open (the exporter holds uploads while
     /// `lk.connect` / `lk.reconnect` are).
+    /// The session an open span belongs to (log records emitted inside a span are filed there).
+    pub fn session_of(&self, id: u64) -> Option<Arc<SessionState>> {
+        self.open.get(&id).map(|span| span.session.clone())
+    }
+
+    #[cfg(test)]
+    pub fn begin(&mut self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
+        self.begin_in(name, kind, parent, SessionState::new())
+    }
+
     pub fn any_open(&self, names: &[&str]) -> bool {
         self.open.values().any(|span| names.contains(&span.name.as_str()))
     }

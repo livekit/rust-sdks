@@ -17,7 +17,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{stats::Counters, TelemetryEvent};
+use crate::{session::SessionState, stats::Counters, TelemetryEvent};
+
+/// An event waiting for export, filed under the session whose trace id and attributes it
+/// will carry.
+pub(crate) struct Queued {
+    pub event: TelemetryEvent,
+    pub session: Arc<SessionState>,
+}
 
 /// Bounded FIFO of events waiting for export.
 ///
@@ -36,7 +43,7 @@ pub(crate) struct Store {
 
 #[derive(Default)]
 struct Queue {
-    events: VecDeque<TelemetryEvent>,
+    events: VecDeque<Queued>,
     bytes: usize,
 }
 
@@ -47,29 +54,29 @@ impl Store {
 
     /// Queue an event. Returns `true` when this push carried the queue across
     /// `flush_threshold` bytes — the caller should wake the exporter.
-    pub fn push(&self, event: TelemetryEvent) -> bool {
+    pub fn push(&self, queued: Queued) -> bool {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         if queue.events.len() >= self.capacity {
             if let Some(oldest) = queue.events.pop_front() {
-                queue.bytes = queue.bytes.saturating_sub(oldest.size_hint());
+                queue.bytes = queue.bytes.saturating_sub(oldest.event.size_hint());
             }
             Counters::add(&self.counters.queue_full, 1);
         }
         let before = queue.bytes;
-        queue.bytes += event.size_hint();
-        queue.events.push_back(event);
+        queue.bytes += queued.event.size_hint();
+        queue.events.push_back(queued);
         before < self.flush_threshold && queue.bytes >= self.flush_threshold
     }
 
     /// Remove and return the oldest events: at most `max` of them and about `max_bytes` in total
     /// (always at least one, so an oversized event still ships).
-    pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<TelemetryEvent> {
+    pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<Queued> {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         let mut out = Vec::new();
         let mut bytes = 0;
         while out.len() < max {
             let Some(next) = queue.events.front() else { break };
-            let size = next.size_hint();
+            let size = next.event.size_hint();
             if !out.is_empty() && bytes + size > max_bytes {
                 break;
             }
@@ -85,14 +92,18 @@ impl Store {
 mod tests {
     use super::*;
 
+    fn queued(event: TelemetryEvent) -> Queued {
+        Queued { event, session: SessionState::new() }
+    }
+
     #[test]
     fn drops_oldest_when_full() {
         let counters = Arc::new(Counters::default());
         let store = Store::new(2, usize::MAX, counters.clone());
         for name in ["a", "b", "c"] {
-            store.push(TelemetryEvent::new(name));
+            store.push(queued(TelemetryEvent::new(name)));
         }
-        let names: Vec<_> = store.drain(10, usize::MAX).into_iter().map(|e| e.name).collect();
+        let names: Vec<_> = store.drain(10, usize::MAX).into_iter().map(|q| q.event.name).collect();
         assert_eq!(names, ["b", "c"]);
         assert_eq!(counters.snapshot().queue_full, 1);
         assert!(store.drain(10, usize::MAX).is_empty());
@@ -101,7 +112,7 @@ mod tests {
     #[test]
     fn reports_the_threshold_crossing_once_and_drains_by_bytes() {
         let store = Store::new(100, 100, Arc::default());
-        let event = || TelemetryEvent::new("e").with_body("x".repeat(30)); // 63 bytes
+        let event = || queued(TelemetryEvent::new("e").with_body("x".repeat(30))); // 63 bytes
         assert!(!store.push(event()), "63 < 100");
         assert!(store.push(event()), "126 crosses 100");
         assert!(!store.push(event()), "already above: no second wake-up");

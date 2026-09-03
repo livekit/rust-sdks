@@ -22,9 +22,15 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use crate::{
-    event::now_unix_nanos, exporter::Command, rtc::StatsWindows, span::Spans, stats::Counters,
-    store::Store, Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache,
-    MemoryCache, RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
+    event::now_unix_nanos,
+    exporter::Command,
+    rtc::StatsWindows,
+    session::{Session, SessionState},
+    span::Spans,
+    stats::Counters,
+    store::{Queued, Store},
+    Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache, MemoryCache,
+    RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
     TelemetryTransport,
 };
 
@@ -36,8 +42,12 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct TelemetryConfig {
     /// Full OTLP/HTTP logs URL: `http://localhost:4318/v1/logs` locally,
-    /// `https://<domain>/observability/logs/otlp/v0` for LiveKit Cloud.
-    pub endpoint: String,
+    /// `https://<domain>/observability/logs/otlp/v0` for LiveKit Cloud. `None` starts the
+    /// pipeline without a destination — it buffers (and caches) until
+    /// [`Telemetry::set_destination`], typically at the first connect, when the server URL and
+    /// the token are known.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub endpoint: Option<String>,
     /// OTLP/HTTP traces URL. `None` derives it from `endpoint` by replacing the last `logs`
     /// path segment with `traces` (works for both layouts above).
     #[cfg_attr(feature = "uniffi", uniffi(default))]
@@ -92,7 +102,7 @@ impl TelemetryConfig {
     /// Defaults for the given endpoint; in-memory cache.
     pub fn new(endpoint: impl Into<String>) -> Self {
         Self {
-            endpoint: endpoint.into(),
+            endpoint: Some(endpoint.into()),
             traces_endpoint: None,
             headers: HashMap::new(),
             resource: Vec::new(),
@@ -143,10 +153,29 @@ pub struct Telemetry {
     device: Arc<Mutex<Option<DeviceState>>>,
     windows: Arc<Mutex<StatsWindows>>,
     guard: Arc<Mutex<FloodGuard>>,
-    attributes: Arc<Mutex<Vec<Attribute>>>,
     spans: Arc<Mutex<Spans>>,
-    trace_id: [u8; 16],
+    /// The pipeline's own session: whatever is emitted outside a room session.
+    process: Arc<SessionState>,
+    destination: Arc<Mutex<Option<Destination>>>,
     commands: mpsc::UnboundedSender<Command>,
+}
+
+/// Where batches are sent: the OTLP endpoints and the request headers (auth).
+#[derive(Debug, Clone)]
+pub(crate) struct Destination {
+    pub logs: String,
+    pub traces: String,
+    pub headers: HashMap<String, String>,
+}
+
+impl Destination {
+    fn new(logs: &str, traces: Option<String>, headers: HashMap<String, String>) -> Self {
+        Self {
+            logs: logs.to_owned(),
+            traces: traces.unwrap_or_else(|| derive_traces_endpoint(logs)),
+            headers,
+        }
+    }
 }
 
 /// Fixed-window cap on discrete events (the design doc's ~300 per 10 min).
@@ -208,18 +237,13 @@ impl Telemetry {
         cache: Arc<dyn BatchCache>,
     ) -> (Self, Exporter) {
         add_sdk_resource(&mut config.resource);
-        if config.traces_endpoint.is_none() {
-            config.traces_endpoint = Some(derive_traces_endpoint(&config.endpoint));
-        }
-        // The session is the trace: one id per pipeline, client-generated so pre-connect
-        // failures and reconnects share it — and, as `session.id` (OTel semconv), the resource
-        // attribute every record carries.
-        let trace_id = rand::random::<u128>().max(1).to_be_bytes();
-        if !config.resource.iter().any(|a| a.key == "session.id") {
-            let hex = format!("{:032x}", u128::from_be_bytes(trace_id));
-            config.resource.push(Attribute::new("session.id", hex));
-        }
+        let destination = Arc::new(Mutex::new(config.endpoint.as_deref().map(|endpoint| {
+            Destination::new(endpoint, config.traces_endpoint.clone(), config.headers.clone())
+        })));
         let config = Arc::new(config);
+        // One pipeline per process; sessions (rooms) carry their own trace ids. This is the
+        // pipeline's own session, for everything emitted outside a room.
+        let process = SessionState::new();
         let counters = Arc::new(Counters::default());
         let store = Arc::new(Store::new(
             config.max_queue_size.max(1) as usize,
@@ -229,7 +253,6 @@ impl Telemetry {
         let (commands, receiver) = mpsc::unbounded_channel();
         let windows = Arc::new(Mutex::new(StatsWindows::default()));
         let guard = Arc::new(Mutex::new(FloodGuard::new(config.max_events_per_10min)));
-        let attributes = Arc::new(Mutex::new(Vec::new()));
         let spans = Arc::new(Mutex::new(Spans::new(config.max_queue_size.max(1) as usize)));
         let device = Arc::new(Mutex::new(None));
         let exporter = Exporter::new(
@@ -239,9 +262,9 @@ impl Telemetry {
             cache.clone(),
             counters.clone(),
             windows.clone(),
-            attributes.clone(),
             spans.clone(),
-            trace_id,
+            process.clone(),
+            destination.clone(),
             receiver,
             device.clone(),
         );
@@ -253,12 +276,27 @@ impl Telemetry {
             device,
             windows,
             guard,
-            attributes,
             spans,
-            trace_id,
+            process,
+            destination,
             commands,
         };
         (telemetry, exporter)
+    }
+
+    /// Where to send, once known (the first connect: server URL → endpoint, token → headers).
+    /// Everything cached so far starts uploading. Calling it again (new token, new server)
+    /// replaces the destination for the batches that follow.
+    pub fn set_destination(&self, endpoint: &str, headers: HashMap<String, String>) {
+        *self.destination.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(Destination::new(endpoint, None, headers));
+        let _ = self.commands.send(Command::Overflow);
+    }
+
+    /// Start a session — one room, one call — with its own trace id and attributes on this
+    /// pipeline. Sessions do not need ending: a room's last record is simply its last.
+    pub fn begin_session(&self) -> Session {
+        Session { telemetry: self.clone(), state: SessionState::new() }
     }
 
     /// Queue an event or log record for export. Stamps it with the current time unless it
@@ -267,7 +305,17 @@ impl Telemetry {
     /// A record with an empty `name` is a plain log line: only `Warn` and `Error` ones leave the
     /// device (design doc: debug/info logs never do). Discrete events are subject to the flood
     /// guard (`max_events_per_10min`); what it drops is counted as `rate_limited`.
-    pub fn emit(&self, mut event: TelemetryEvent) {
+    pub fn emit(&self, event: TelemetryEvent) {
+        // A record emitted inside a room's span belongs to that room's session; anything else
+        // is the process's own.
+        let session = event
+            .span_id
+            .and_then(|id| self.spans.lock().unwrap_or_else(|e| e.into_inner()).session_of(id))
+            .unwrap_or_else(|| self.process.clone());
+        self.emit_in(event, &session);
+    }
+
+    pub(crate) fn emit_in(&self, mut event: TelemetryEvent, session: &Arc<SessionState>) {
         if event.name.is_empty()
             && matches!(event.severity, Severity::Trace | Severity::Debug | Severity::Info)
         {
@@ -280,7 +328,7 @@ impl Telemetry {
         if event.timestamp_ns.is_none() {
             event.timestamp_ns = Some(now_unix_nanos());
         }
-        if self.store.push(event) {
+        if self.store.push(Queued { event, session: session.clone() }) {
             let _ = self.commands.send(Command::Overflow);
         }
     }
@@ -296,23 +344,34 @@ impl Telemetry {
     /// own `acme.call_id`), attached to every record exported from now on unless the record
     /// already carries the key. `None` removes it.
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
-        let mut attributes = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
-        attributes.retain(|a| a.key != key);
-        if let Some(value) = value {
-            attributes.push(Attribute::new(key, value));
-        }
+        self.process.set_attribute(key, value);
     }
 
     /// The session's trace id as 32 hex characters — what every span and log record of this
     /// pipeline carries. Print it (`lkt_…`) so support can find the session.
     pub fn trace_id(&self) -> String {
-        format!("{:032x}", u128::from_be_bytes(self.trace_id))
+        self.process.hex()
     }
 
     /// Open a span: one attempt at an operation (`lk.connect`, `lk.publish`, …). Returns the
     /// handle to record checkpoints and to end it with; `parent` nests it under another open span.
     pub fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
-        self.spans.lock().unwrap_or_else(|e| e.into_inner()).begin(name, kind, parent)
+        self.begin_span_in(name, kind, parent, &self.process)
+    }
+
+    pub(crate) fn begin_span_in(
+        &self,
+        name: &str,
+        kind: SpanKind,
+        parent: Option<u64>,
+        session: &Arc<SessionState>,
+    ) -> u64 {
+        self.spans.lock().unwrap_or_else(|e| e.into_inner()).begin_in(
+            name,
+            kind,
+            parent,
+            session.clone(),
+        )
     }
 
     /// Record a checkpoint inside an open span (`ws_open`, `join_recv`, …), stamped now.
@@ -338,7 +397,11 @@ impl Telemetry {
     /// Push one `getStats()` reading. Readings are windowed on device into `lk.rtc.stats.sample`
     /// events (see `stats_window_ms`); they never count against the flood guard.
     pub fn record_stats(&self, sample: RtcStatsSample) {
-        self.windows.lock().unwrap_or_else(|e| e.into_inner()).record(sample);
+        self.record_stats_in(sample, &self.process);
+    }
+
+    pub(crate) fn record_stats_in(&self, sample: RtcStatsSample, session: &Arc<SessionState>) {
+        self.windows.lock().unwrap_or_else(|e| e.into_inner()).record_in(sample, session);
     }
 
     /// Tell the pipeline what the device looks like. Emits the `lk.device.*.changed` events for
@@ -894,6 +957,72 @@ mod tests {
         assert_eq!(stats.upload_timeouts, 3);
         assert_eq!(stats.upload_failures, 0);
         assert_eq!(stats.cached_batches, 1, "kept for the next attempt");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sessions_have_their_own_trace_and_attributes() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let a = telemetry.begin_session();
+        let b = telemetry.begin_session();
+        assert_ne!(a.trace_id(), b.trace_id());
+        assert_ne!(a.trace_id(), telemetry.trace_id(), "the process has its own session");
+        a.set_attribute("lk.room.sid", Some("RM_a".into()));
+        b.set_attribute("lk.room.sid", Some("RM_b".into()));
+        let span = a.begin_span("lk.connect", SpanKind::Client, None);
+        a.emit(TelemetryEvent::new("lk.ping"));
+        b.emit(TelemetryEvent::new("lk.ping"));
+        // A warn record from the SDK logger, inside room A's connect: no session handle, just
+        // the ambient span id — the core files it under A.
+        telemetry.emit(
+            TelemetryEvent::new("").with_severity(Severity::Warn).with_body("hmm").in_span(span),
+        );
+        telemetry.emit(TelemetryEvent::new("lk.device.thermal.changed"));
+        a.end_span(span, SpanOutcome::Ok, None, Vec::new());
+        telemetry.flush().await;
+
+        let sent = transport.sent();
+        let logs = records(&sent[1]);
+        assert_eq!(logs.len(), 4);
+        assert_eq!(hex(&logs[0].trace_id), a.trace_id());
+        assert_eq!(attribute(&logs[0], "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+        assert_eq!(attribute(&logs[0], "session.id"), Some(Value::StringValue(a.trace_id())));
+        assert_eq!(hex(&logs[1].trace_id), b.trace_id());
+        assert_eq!(attribute(&logs[1], "lk.room.sid"), Some(Value::StringValue("RM_b".into())));
+        assert_eq!(hex(&logs[2].trace_id), a.trace_id(), "resolved through the span");
+        assert_eq!(hex(&logs[3].trace_id), telemetry.trace_id(), "device state: process session");
+        assert_eq!(attribute(&logs[3], "lk.room.sid"), None);
+        let traces = ExportTraceServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("otlp");
+        let otlp_span = &traces.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(hex(&otlp_span.trace_id), a.trace_id());
+        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room.sid"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn uploads_wait_for_a_destination() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = TelemetryConfig::new("unused");
+        config.endpoint = None;
+        let telemetry = start(config, transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        tokio::time::sleep(Duration::from_secs(120)).await;
+        assert!(transport.sent().is_empty(), "no destination: nothing leaves, no hold cap either");
+        assert_eq!(telemetry.stats().cached_batches, 1);
+
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_owned(), "Bearer t".to_owned());
+        telemetry.set_destination("https://x.livekit.cloud/observability/logs/otlp/v0", headers);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1, "cached batches ship as soon as the destination is known");
+        assert_eq!(sent[0].url, "https://x.livekit.cloud/observability/logs/otlp/v0");
+        assert_eq!(sent[0].headers["Authorization"], "Bearer t");
+        telemetry.begin_session().begin_span("lk.publish", SpanKind::Internal, None);
+        let span = telemetry.begin_span("lk.publish", SpanKind::Internal, None);
+        telemetry.end_span(span, SpanOutcome::Ok, None, Vec::new());
+        telemetry.flush().await;
+        assert_eq!(transport.sent()[1].url, "https://x.livekit.cloud/observability/traces/otlp/v0");
     }
 
     #[tokio::test(start_paused = true)]
