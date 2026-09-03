@@ -49,8 +49,8 @@ mod utils;
 pub mod video_source;
 pub mod video_stream;
 
-//#[cfg(test)]
-//mod tests;
+#[cfg(test)]
+mod tests;
 
 #[cfg(test)]
 mod audio_filter_tests;
