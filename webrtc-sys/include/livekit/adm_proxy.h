@@ -368,6 +368,12 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Mute mode set before the Platform ADM exists (Apple AudioEngine only),
   // stored for the same replay-on-creation reason as the device indices.
   std::optional<int32_t> selected_mute_mode_ RTC_GUARDED_BY(worker_thread_);
+
+  // Last requested microphone mute state. The voice engine only issues
+  // SetMicrophoneMute when the track mute state changes, and the platform
+  // ADM resets its mute state when recording restarts, so this is re-applied
+  // whenever platform recording starts.
+  std::optional<bool> microphone_mute_ RTC_GUARDED_BY(worker_thread_);
 };
 
 }  // namespace livekit_ffi

@@ -332,6 +332,11 @@ void AdmProxy::SwitchRecordingAdm() {
   if (adm) {
     adm->InitRecording();
     adm->StartRecording();
+    // Recording restarts reset the platform mute state, re-apply the last
+    // requested value so a track muted across the transition stays muted
+    if (microphone_mute_.has_value()) {
+      adm->SetMicrophoneMute(*microphone_mute_);
+    }
   } else {
     recording_ = false;
   }
@@ -594,7 +599,13 @@ int32_t AdmProxy::StartRecording() {
       return 0;
     }
     recording_ = true;
-    return adm->StartRecording();
+    int32_t result = adm->StartRecording();
+    // Recording starts reset the platform mute state, re-apply the last
+    // requested value so a track muted before recording started stays muted
+    if (result == 0 && microphone_mute_.has_value()) {
+      adm->SetMicrophoneMute(*microphone_mute_);
+    }
+    return result;
   });
 }
 
@@ -767,25 +778,33 @@ int32_t AdmProxy::MicrophoneMuteIsAvailable(bool* available) {
 int32_t AdmProxy::SetMicrophoneMute(bool enable) {
   return RunOnWorker([this, enable]() -> int32_t {
     RTC_DCHECK_RUN_ON(worker_thread_);
-    // Gate through RecordingAdm so mute state is only applied while platform
-    // recording is active. This keeps mute a property of active recording
-    // instead of leaking state into the idle ADM.
+    // Always remember the requested state. The voice engine only issues this
+    // call when the track mute state changes, never again when recording
+    // later starts or restarts, so the cached value is re-applied whenever
+    // platform recording starts. Gate the hardware call through RecordingAdm
+    // so mute is only applied while platform recording is active.
+    microphone_mute_ = enable;
     auto* adm = RecordingAdm();
     if (adm) {
       return adm->SetMicrophoneMute(enable);
     }
-    return -1;
+    return 0;
   });
 }
 
 int32_t AdmProxy::MicrophoneMute(bool* enabled) const {
   return RunOnWorker([this, enabled]() -> int32_t {
     RTC_DCHECK_RUN_ON(worker_thread_);
+    if (!enabled) {
+      return -1;
+    }
     auto* adm = RecordingAdm();
     if (adm) {
       return adm->MicrophoneMute(enabled);
     }
-    return -1;
+    // Report the requested state while platform recording is inactive
+    *enabled = microphone_mute_.value_or(false);
+    return 0;
   });
 }
 
