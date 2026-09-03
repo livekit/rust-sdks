@@ -68,6 +68,11 @@ impl Telemetry {
         self.0.emit(event);
     }
 
+    /// A consumer-defined event, exported as `custom.<name>`; attributes keep their own namespace.
+    pub fn emit_custom(&self, name: String, attributes: Vec<Attribute>) {
+        self.0.emit_custom(&name, attributes);
+    }
+
     /// Report the device state (thermal, low power, foreground/background). Emits the matching
     /// `lk.device.*.changed` events and adapts the export cadence.
     pub fn set_device_state(&self, state: DeviceState) {

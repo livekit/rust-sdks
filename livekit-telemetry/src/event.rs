@@ -74,6 +74,26 @@ impl TelemetryEvent {
         self.attributes.push(Attribute::new(key, value));
         self
     }
+
+    /// A consumer's own event. Always namespaced under `custom.` so it can never be mistaken for
+    /// a LiveKit-defined `lk.*` event, and the backend can filter or quota it separately;
+    /// attributes keep the caller's namespace (`acme.checkout.step`).
+    pub fn custom(name: &str, attributes: Vec<Attribute>) -> Self {
+        let name = format!("custom.{}", name.trim_start_matches("custom."));
+        Self { attributes, ..Self::new(name) }
+    }
+
+    /// Rough encoded size — strings plus a fixed overhead per field. Drives the byte bounds on
+    /// queue flushing and request size; cheaper than encoding and close enough for both.
+    pub fn size_hint(&self) -> usize {
+        let value = |v: &AttributeValue| match v {
+            AttributeValue::Str(s) => s.len(),
+            _ => 8,
+        };
+        32 + self.name.len()
+            + self.body.as_ref().map_or(0, String::len)
+            + self.attributes.iter().map(|a| 4 + a.key.len() + value(&a.value)).sum::<usize>()
+    }
 }
 
 /// Event severity, mapped onto the OTel severity numbers (`TRACE`=1 … `ERROR`=17).

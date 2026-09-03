@@ -77,6 +77,8 @@ pub(crate) enum Command {
     Flush(oneshot::Sender<()>),
     Shutdown(oneshot::Sender<()>),
     DeviceState(DeviceState),
+    /// The queue crossed `flush_threshold_bytes`: export now rather than at the next tick.
+    Overflow,
 }
 
 /// Outcome of uploading one encoded batch.
@@ -145,6 +147,9 @@ pub struct Exporter {
     held_since: Option<Instant>,
     /// Shutting down: the call is over, so only the device's own holds still apply.
     draining: bool,
+    /// Append an `lk.telemetry.report` to the next batch even if nothing went wrong (the
+    /// shutdown summary).
+    force_report: bool,
 }
 
 impl Exporter {
@@ -183,6 +188,7 @@ impl Exporter {
             device,
             held_since: None,
             draining: false,
+            force_report: false,
         }
     }
 
@@ -213,6 +219,7 @@ impl Exporter {
                         self.export_pending().await;
                         let _ = done.send(());
                     }
+                    Some(Command::Overflow) => self.export_pending().await,
                     Some(Command::DeviceState(state)) => {
                         if state.app_state == AppState::Background {
                             // The app may be suspended any moment: close the RTC windows and
@@ -257,9 +264,14 @@ impl Exporter {
     /// device's own holds.
     async fn drain(&mut self) {
         self.draining = true;
+        self.force_report = true;
         self.paused_until = self.throttled_until;
         self.close_windows();
         self.export_pending().await;
+        let left = self.cache.pending().len();
+        if left > 0 {
+            log::debug!("telemetry: {left} batches still cached at shutdown (replayed next start)");
+        }
     }
 
     /// Turn every open RTC stats window into its `lk.rtc.stats.sample` event. Windows bypass the
@@ -280,25 +292,32 @@ impl Exporter {
     fn enqueue(&mut self) {
         self.enqueue_spans();
         loop {
-            let mut batch = self.store.drain(self.config.max_batch_size.max(1) as usize);
-            if batch.is_empty() {
+            let mut batch = self.store.drain(
+                self.config.max_batch_size.max(1) as usize,
+                usize::try_from(self.config.max_batch_bytes.max(1)).unwrap_or(usize::MAX),
+            );
+            let throttled = self.throttled_until.is_some_and(|t| Instant::now() < t);
+            // The shutdown summary goes out even with nothing else queued.
+            let report_due = self.force_report && !self.silenced && !throttled;
+            if batch.is_empty() && !report_due {
                 return;
             }
             if self.silenced {
                 Counters::add(&self.counters.disabled, batch.len() as u64);
                 continue;
             }
-            if self.throttled_until.is_some_and(|t| Instant::now() < t) {
+            if throttled {
                 Counters::add(&self.counters.throttled, batch.len() as u64);
                 continue;
             }
             // Self-telemetry rides along with real data: never its own request, never its own
-            // cadence, and only when there is something to report.
+            // cadence, and only when there is something to report — plus once at shutdown.
             let now = self.counters.snapshot();
             let delta = now.since(&self.last_report);
-            if delta.has_problems() {
+            if delta.has_problems() || report_due {
                 batch.push(delta.report(self.cache.pending().len() as u64));
                 self.last_report = now;
+                self.force_report = false;
             }
             for event in &mut batch {
                 self.attach_session_attributes(&mut event.attributes);
@@ -339,15 +358,24 @@ impl Exporter {
         let body = gzip(body);
         self.seq += 1;
         let id = format!("{:020}-{:06}-{count}-{}", now_unix_nanos(), self.seq, signal.tag());
-        if let Err(err) = self.cache.push(&id, &body) {
-            // A full disk is a steady state, not an event: warn once, then stay quiet.
-            if self.cache_failures == 0 {
-                log::warn!("telemetry: cannot cache batches ({err}); dropping until it recovers");
-            } else {
-                log::debug!("telemetry: could not cache {count} items: {err}");
+        match self.cache.push(&id, &body) {
+            Ok(evicted) => {
+                // Older batches pushed out by `max_cache_bytes`: lost, but counted.
+                let lost: u64 = evicted.iter().map(|id| events_in(id)).sum();
+                Counters::add(&self.counters.cache_full, lost);
             }
-            self.cache_failures += 1;
-            Counters::add(&self.counters.cache_error, count);
+            Err(err) => {
+                // A full disk is a steady state, not an event: warn once, then stay quiet.
+                if self.cache_failures == 0 {
+                    log::warn!(
+                        "telemetry: cannot cache batches ({err}); dropping until it recovers"
+                    );
+                } else {
+                    log::debug!("telemetry: could not cache {count} items: {err}");
+                }
+                self.cache_failures += 1;
+                Counters::add(&self.counters.cache_error, count);
+            }
         }
     }
 
@@ -400,6 +428,7 @@ impl Exporter {
                 }
                 // Held long enough: one batch goes out, then the hold starts over.
                 self.held_since = Some(Instant::now());
+                Counters::add(&self.counters.hold_cap_hits, 1);
                 1
             }
             None => {
@@ -420,6 +449,7 @@ impl Exporter {
                 Delivery::Sent => {
                     self.cache.remove(&id);
                     Counters::add(&self.counters.uploads_sent, 1);
+                    Counters::add(&self.counters.upload_bytes, body.len() as u64);
                 }
                 Delivery::Rejected => {
                     self.cache.remove(&id);
@@ -487,7 +517,7 @@ impl Exporter {
                 }
                 Err(_) => {
                     log::debug!("telemetry upload timed out (attempt {})", attempt + 1);
-                    Counters::add(&self.counters.upload_failures, 1);
+                    Counters::add(&self.counters.upload_timeouts, 1);
                 }
             }
             if attempt < MAX_RETRIES {

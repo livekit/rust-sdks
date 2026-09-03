@@ -31,8 +31,9 @@ use std::{
 /// implementation can expire old batches without touching file timestamps. Implementations
 /// bound their own footprint by evicting the oldest batches; the exporter never sees eviction.
 pub trait BatchCache: Send + Sync {
-    /// Store one encoded batch under `id`.
-    fn push(&self, id: &str, body: &[u8]) -> io::Result<()>;
+    /// Store one encoded batch under `id`. Returns the ids of older batches evicted to make
+    /// room (the exporter counts their events as dropped).
+    fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>>;
     /// Ids of stored batches, oldest first.
     fn pending(&self) -> Vec<String>;
     /// The body stored under `id`, if it is still there.
@@ -65,14 +66,17 @@ impl MemoryCache {
 }
 
 impl BatchCache for MemoryCache {
-    fn push(&self, id: &str, body: &[u8]) -> io::Result<()> {
+    fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
         let mut batches = self.lock();
         batches.push((id.to_owned(), body.to_vec()));
         let mut total: usize = batches.iter().map(|(_, b)| b.len()).sum();
+        let mut evicted = Vec::new();
         while total > self.max_bytes && batches.len() > 1 {
-            total -= batches.remove(0).1.len();
+            let (id, body) = batches.remove(0);
+            total -= body.len();
+            evicted.push(id);
         }
-        Ok(())
+        Ok(evicted)
     }
 
     fn pending(&self) -> Vec<String> {
@@ -145,14 +149,18 @@ impl FileCache {
     }
 
     /// Delete stray `.tmp` files and batches older than the max age, then the oldest batches
-    /// until the total fits `max_bytes`.
-    fn prune(&self) -> io::Result<()> {
+    /// until the total fits `max_bytes`. Returns the ids of the batches removed.
+    fn prune(&self) -> io::Result<Vec<String>> {
         let now = crate::event::now_unix_nanos();
+        let mut removed = Vec::new();
         for entry in fs::read_dir(&self.dir)?.flatten() {
             let path = entry.path();
             let expired = stamp(&path).is_some_and(|t| now.saturating_sub(t) > MAX_AGE_NANOS);
             if !is_batch(&path) || expired {
                 let _ = fs::remove_file(&path);
+                if expired {
+                    removed.extend(path.file_stem().and_then(|s| s.to_str()).map(str::to_owned));
+                }
             }
         }
         let kept = self.pending();
@@ -167,15 +175,16 @@ impl FileCache {
             }
             self.remove(id);
             total -= len;
+            removed.push(id.clone());
         }
-        Ok(())
+        Ok(removed)
     }
 }
 
 impl BatchCache for FileCache {
     /// Fail-open: a full disk or a purged directory yields an error the exporter counts as a
     /// drop; it never leaves a partial `.tmp` behind.
-    fn push(&self, id: &str, body: &[u8]) -> io::Result<()> {
+    fn push(&self, id: &str, body: &[u8]) -> io::Result<Vec<String>> {
         let tmp = self.path(id, "tmp");
         let written = self.write_then_rename(&tmp, &self.path(id, EXT), body);
         if written.is_err() {

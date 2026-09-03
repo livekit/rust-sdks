@@ -34,16 +34,23 @@ event: lk.telemetry.report
 area: sdk (self-telemetry)
 severity: info
 attributes:
-  lk.telemetry.uploads.failed: int      # failed upload attempts since the previous report
   lk.telemetry.uploads.sent: int        # batches accepted since the previous report
+  lk.telemetry.uploads.bytes: int       # compressed bytes accepted — what telemetry cost the uplink
+  lk.telemetry.uploads.failed: int      # attempts that failed transiently (network error, 5xx)
+  lk.telemetry.uploads.timeouts: int    # attempts that hit export_timeout_ms (omitted when 0)
   lk.telemetry.cache.batches: int       # batches waiting in the cache right now
+  lk.telemetry.holds.capped: int        # upload holds that reached the 60 s cap (data ≥ 1 min late)
   lk.telemetry.dropped.queue_full: int  # events evicted from the in-memory queue (omitted when 0)
-  lk.telemetry.dropped.cache_error: int # events lost because the cache could not store them
+  lk.telemetry.dropped.cache_error: int # events lost because the cache could not store them (disk full)
+  lk.telemetry.dropped.cache_full: int  # events evicted from the cache by max_cache_bytes / max age
   lk.telemetry.dropped.rejected: int    # events the collector rejected (4xx)
   lk.telemetry.dropped.throttled: int   # events dropped inside a Retry-After window
-cadence: appended to the next batch whenever a drop or upload failure happened since the
-         previous report — never its own request, never persisted on its own (Sentry client
-         report shape; reasons follow the OTel SDK self-metrics `error.type` values)
+  lk.telemetry.dropped.rate_limited: int # discrete events dropped by the flood guard
+cadence: appended to the next batch whenever a drop, an upload failure or a capped hold happened
+         since the previous report — never its own request, never persisted on its own (Sentry
+         client report shape; reasons follow the OTel SDK self-metrics `error.type` values) —
+         and once at shutdown as the session summary, so fleet-wide success rates have
+         denominators. Never emitted after the collector disabled telemetry.
 platforms: all
 ```
 
@@ -167,7 +174,10 @@ Uploads are shaped, not just batched:
   A hold lasts at most 60 s, then one batch goes out and the hold starts over — the hard cap
   that bounds the policy when its signals lie.
 - **Bytes:** bodies are gzipped (level 1, `Content-Encoding: gzip`) when cached, so a batch is
-  5–10× smaller on disk and on the wire and a replay costs no CPU.
+  5–10× smaller on disk and on the wire and a replay costs no CPU. A request never carries more
+  than `max_batch_bytes` (1 MiB, estimated before compression) or `max_batch_size` (512) records;
+  when the queue reaches `flush_threshold_bytes` (256 KiB) it is exported at once instead of at
+  the next tick — "every 15 s or at 256 KB".
 - **Priority hints:** every request carries `Priority: u=7` (RFC 9218, lowest urgency) for
   HTTP/2+ hops that implement it, and the host transport marks the local traffic class as
   background — Apple `URLSessionConfiguration.networkServiceType = .background`
@@ -183,6 +193,15 @@ A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without 
 `severity` + `body` (the message) + attributes such as `code.function`, `code.file.path`,
 `code.line.number`, `lk.log.type` (the SDK logger's category). Only `warn` and `error` records
 leave the device; `trace`/`debug`/`info` are dropped in `emit`.
+
+## Custom events
+
+Consumers — apps, or an SDK's platform-specific extras — emit their own events with
+`emit_custom(name, attributes)` (Swift: `room.emitTelemetryEvent(_:attributes:)`). The core
+prefixes the name with `custom.` (`acme.checkout` → `custom.acme.checkout`), so a custom event
+can never collide with, or spoof, an `lk.*` event and the backend can filter or quota the
+namespace as a whole. Attributes keep the caller's namespace. Severity is `info`; custom events
+count against the flood guard like any discrete event.
 
 ## Flood guard
 

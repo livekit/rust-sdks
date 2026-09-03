@@ -79,6 +79,13 @@ pub struct TelemetryConfig {
     /// ~40 kbps. `shutdown` drains without the budget.
     #[cfg_attr(feature = "uniffi", uniffi(default = 4))]
     pub max_batches_per_upload: u32,
+    /// Export as soon as the queue holds about this many bytes, without waiting for the tick
+    /// (design doc: "flush every 15 s or at 256 KB").
+    #[cfg_attr(feature = "uniffi", uniffi(default = 262144))]
+    pub flush_threshold_bytes: u64,
+    /// Cap on one request's payload before compression (design doc: "single POST ≤ 1 MB").
+    #[cfg_attr(feature = "uniffi", uniffi(default = 1048576))]
+    pub max_batch_bytes: u64,
 }
 
 impl TelemetryConfig {
@@ -98,6 +105,8 @@ impl TelemetryConfig {
             stats_window_ms: 15_000,
             max_events_per_10min: 300,
             max_batches_per_upload: 4,
+            flush_threshold_bytes: 256 * 1024,
+            max_batch_bytes: 1024 * 1024,
         }
     }
 }
@@ -212,7 +221,11 @@ impl Telemetry {
         }
         let config = Arc::new(config);
         let counters = Arc::new(Counters::default());
-        let store = Arc::new(Store::new(config.max_queue_size.max(1) as usize, counters.clone()));
+        let store = Arc::new(Store::new(
+            config.max_queue_size.max(1) as usize,
+            usize::try_from(config.flush_threshold_bytes.max(1)).unwrap_or(usize::MAX),
+            counters.clone(),
+        ));
         let (commands, receiver) = mpsc::unbounded_channel();
         let windows = Arc::new(Mutex::new(StatsWindows::default()));
         let guard = Arc::new(Mutex::new(FloodGuard::new(config.max_events_per_10min)));
@@ -267,7 +280,16 @@ impl Telemetry {
         if event.timestamp_ns.is_none() {
             event.timestamp_ns = Some(now_unix_nanos());
         }
-        self.store.push(event);
+        if self.store.push(event) {
+            let _ = self.commands.send(Command::Overflow);
+        }
+    }
+
+    /// Queue a consumer-defined event, exported as `custom.<name>` (see
+    /// [`TelemetryEvent::custom`]): the stringly-typed escape hatch next to the `lk.*`
+    /// catalogue. Same flood guard, same pipeline.
+    pub fn emit_custom(&self, name: &str, attributes: Vec<Attribute>) {
+        self.emit(TelemetryEvent::custom(name, attributes));
     }
 
     /// Set a session-wide attribute (`lk.room.sid`, `lk.participant.identity`, or a consumer's
@@ -635,7 +657,12 @@ mod tests {
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.shutdown().await;
 
-        assert_eq!(files_in(&dir), 1, "cached before the network was tried, kept after it failed");
+        // One file, or two when the first tick shipped the ping before shutdown added the summary.
+        let files = files_in(&dir);
+        assert!(
+            (1..=2).contains(&files),
+            "cached before the network was tried, kept after: {files}"
+        );
         assert_eq!(telemetry.stats().dropped, 0);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -713,6 +740,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(61)).await;
         telemetry.flush().await;
         assert_eq!(transport.sent().len(), 1, "held 60 s: one batch goes out regardless");
+        assert_eq!(telemetry.stats().holds_capped, 1, "…and the starvation is counted");
 
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.end_span(connect, SpanOutcome::Ok, None, Vec::new());
@@ -760,7 +788,112 @@ mod tests {
         telemetry.flush().await;
         assert_eq!(transport.sent().len(), 4);
         telemetry.shutdown().await;
-        assert_eq!(transport.sent().len(), 6, "shutdown drains without the budget");
+        assert_eq!(transport.sent().len(), 7, "shutdown drains without the budget (+ the summary)");
+    }
+
+    struct Hanging;
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Hanging {
+        async fn send(&self, _: ExportRequest) -> Result<(), ExportError> {
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_queue_flushes_before_the_tick() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.flush_interval_ms = 60_000;
+        config.flush_threshold_bytes = 10_000;
+        let telemetry = start(config, transport.clone());
+        tokio::time::sleep(Duration::from_millis(1)).await; // the immediate first tick passes
+        for _ in 0..3 {
+            telemetry.emit(TelemetryEvent::new("big").with_body("x".repeat(4_000)));
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await; // the wake-up is processed
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1, "exported on crossing the byte threshold, a minute early");
+        assert_eq!(records(&sent[0]).len(), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn requests_stay_under_the_byte_cap() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.max_batch_bytes = 10_000;
+        config.max_batches_per_upload = 10;
+        let telemetry = start(config, transport.clone());
+        for _ in 0..5 {
+            telemetry.emit(TelemetryEvent::new("big").with_body("x".repeat(4_000)));
+        }
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 3, "5 × ~4 KB under a 10 KB cap: 2 + 2 + 1");
+        assert!(sent.iter().all(|request| records(request).len() <= 2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn custom_events_are_namespaced() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit_custom("acme.checkout", vec![Attribute::new("acme.step", 3i64)]);
+        telemetry.emit_custom("custom.already", Vec::new());
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(event_names(&sent[0]), ["custom.acme.checkout", "custom.already"]);
+        let record = records(&sent[0]).remove(0);
+        assert_eq!(attribute(&record, "acme.step"), Some(Value::IntValue(3)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_leaves_a_session_summary() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        telemetry.shutdown().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 2, "the summary is its own batch when nothing else is queued");
+        let report = records(&sent[1]).remove(0);
+        assert_eq!(report.event_name, "lk.telemetry.report");
+        assert_eq!(attribute(&report, "lk.telemetry.uploads.sent"), Some(Value::IntValue(1)));
+        assert!(
+            matches!(attribute(&report, "lk.telemetry.uploads.bytes"), Some(Value::IntValue(n)) if n > 0),
+            "bytes on the wire are reported"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cache_eviction_is_counted_as_a_drop() {
+        let transport = FakeTransport::scripted([offline(), offline(), offline()]);
+        // Room for exactly one batch: a second push evicts the first.
+        let (telemetry, exporter) = Telemetry::with_cache(
+            TelemetryConfig::new("http://collector/v1/logs"),
+            transport.clone(),
+            Arc::new(MemoryCache::new(1)),
+        );
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await; // fails: cached, upload paused
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let stats = telemetry.stats();
+        assert_eq!(stats.cached_batches, 1);
+        assert_eq!(stats.dropped_cache_full, 1, "the evicted ping is counted, not silently lost");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn timeouts_are_counted_apart_from_failures() {
+        let (telemetry, exporter) =
+            Telemetry::new(TelemetryConfig::new("http://collector/v1/logs"), Arc::new(Hanging));
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await; // 3 attempts × export_timeout, under paused time
+        let stats = telemetry.stats();
+        assert_eq!(stats.upload_timeouts, 3);
+        assert_eq!(stats.upload_failures, 0);
+        assert_eq!(stats.cached_batches, 1, "kept for the next attempt");
     }
 
     #[tokio::test(start_paused = true)]
@@ -851,7 +984,11 @@ mod tests {
         ));
         telemetry.shutdown().await;
         let names: Vec<String> = transport.sent().iter().flat_map(event_names).collect();
-        assert_eq!(names, ["lk.rtc.stats.sample"]);
+        assert_eq!(
+            names,
+            ["lk.rtc.stats.sample", "lk.telemetry.report"],
+            "window + shutdown summary"
+        );
     }
 
     #[tokio::test(start_paused = true)]
