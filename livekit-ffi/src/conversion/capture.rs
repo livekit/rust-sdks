@@ -17,12 +17,21 @@ use livekit_capture::{encoded::EncodedVideoCodec, primitive::VideoResolution};
 
 #[cfg(feature = "capture-pattern")]
 use crate::{FfiError, FfiResult};
+#[cfg(feature = "capture-clock")]
+use livekit_capture::sources::clock::ClockVideoSourceConfig;
 #[cfg(feature = "capture-pattern")]
 use livekit_capture::sources::pattern::{Pattern, PatternVideoSourceConfig};
 
 impl From<proto::VideoSourceResolution> for VideoResolution {
     fn from(resolution: proto::VideoSourceResolution) -> Self {
         Self::new(resolution.width, resolution.height)
+    }
+}
+
+#[cfg(feature = "capture-clock")]
+impl From<proto::ClockVideoSourceConfig> for ClockVideoSourceConfig {
+    fn from(config: proto::ClockVideoSourceConfig) -> Self {
+        Self { resolution: config.resolution.into(), framerate_fps: config.framerate_fps }
     }
 }
 
