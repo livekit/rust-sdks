@@ -18,11 +18,8 @@ permissions:
   contents: read
 
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
 
 jobs:
   # Each leg pins its feature set via --no-default-features so a regression in a
