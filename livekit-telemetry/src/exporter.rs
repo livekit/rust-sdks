@@ -87,7 +87,9 @@ pub(crate) enum Command {
 enum Delivery {
     Sent,
     /// Transient failure (network, timeout, 5xx) after retries — keep the batch.
-    Failed,
+    Failed {
+        reason: String,
+    },
     /// The collector asked us to back off; keep the batch, drop new ones meanwhile.
     Throttled {
         retry_after: Option<Duration>,
@@ -144,6 +146,8 @@ pub struct Exporter {
     cadence_logged: u32,
     /// Shared with `Telemetry::stats`.
     status: Arc<Mutex<TelemetryStatus>>,
+    /// Consecutive failed uploads: the first logs at warn, recovery at info.
+    failing: u32,
     /// Drop new batches until then (`Retry-After` window).
     throttled_until: Option<Instant>,
     seq: u64,
@@ -198,6 +202,7 @@ impl Exporter {
             hold_logged: None,
             cadence_logged: 1,
             status,
+            failing: 0,
             throttled_until: None,
             seq: 0,
             cache_failures: 0,
@@ -524,7 +529,7 @@ impl Exporter {
                     log::trace!("holding {} batches: {reason}", pending.len());
                     return;
                 }
-                log::debug!("held {}s ({reason}): sending one batch", MAX_HOLD.as_secs());
+                log::warn!("held {}s ({reason}): sending one batch anyway", MAX_HOLD.as_secs());
                 // Held long enough: one batch goes out, then the hold starts over.
                 self.held_since = Some(Instant::now());
                 Counters::add(&self.counters.hold_cap_hits, 1);
@@ -549,6 +554,14 @@ impl Exporter {
                     self.cache.remove(&id);
                     Counters::add(&self.counters.uploads_sent, 1);
                     Counters::add(&self.counters.upload_bytes, body.len() as u64);
+                    if self.failing > 0 {
+                        log::info!(
+                            "uploads recovered after {} failures, backlog {}",
+                            self.failing,
+                            self.cache.pending().len()
+                        );
+                        self.failing = 0;
+                    }
                     let snapshot = self.counters.snapshot();
                     log::debug!(
                         "{}, sent {} B, backlog {}, failed {}, lost {}",
@@ -563,20 +576,25 @@ impl Exporter {
                     self.cache.remove(&id);
                     Counters::add(&self.counters.rejected, events_in(&id));
                 }
-                Delivery::Failed => {
+                Delivery::Failed { reason } => {
                     self.paused_until = Some(Instant::now() + UPLOAD_BACKOFF);
-                    log::debug!(
-                        "paused {}s after a failure, backlog {}",
-                        UPLOAD_BACKOFF.as_secs(),
-                        self.cache.pending().len()
-                    );
+                    self.failing += 1;
+                    let backlog = self.cache.pending().len();
+                    let wait = UPLOAD_BACKOFF.as_secs();
+                    if self.failing == 1 {
+                        log::warn!(
+                            "upload failed: {reason}; retrying in {wait}s, backlog {backlog}"
+                        );
+                    } else {
+                        log::debug!("upload failed ({} in a row): {reason}; retrying in {wait}s, backlog {backlog}", self.failing);
+                    }
                     return;
                 }
                 Delivery::Throttled { retry_after } => {
                     let wait = retry_after.unwrap_or(UPLOAD_BACKOFF);
                     let until = Instant::now() + wait;
-                    log::debug!(
-                        "throttled {}s by the collector, backlog {}",
+                    log::warn!(
+                        "collector throttles uploads: pausing {}s, backlog {}",
                         wait.as_secs(),
                         self.cache.pending().len()
                     );
@@ -605,7 +623,7 @@ impl Exporter {
     async fn deliver(&self, body: &[u8], signal: Signal) -> Delivery {
         let Some(destination) = self.destination.lock().unwrap_or_else(|e| e.into_inner()).clone()
         else {
-            return Delivery::Failed;
+            return Delivery::Failed { reason: "no destination".to_owned() };
         };
         let mut headers = destination.headers;
         headers.insert("Content-Type".to_owned(), otlp::CONTENT_TYPE.to_owned());
@@ -620,12 +638,13 @@ impl Exporter {
 
         // ponytail: linear backoff, 2 retries, blocks the tick loop while sleeping (≤ 3 s).
         // Exponential + jitter once real fleets exercise this.
+        let mut last = String::new();
         for attempt in 0..=MAX_RETRIES {
             match timeout(attempt_timeout, self.transport.send(request.clone())).await {
                 Ok(Ok(())) => return Delivery::Sent,
                 Ok(Err(ExportError::Disabled)) => return Delivery::Disabled,
                 Ok(Err(ExportError::Rejected { message })) => {
-                    log::warn!("batch rejected: {message}");
+                    log::error!("batch rejected by the collector, data lost: {message}");
                     return Delivery::Rejected;
                 }
                 Ok(Err(ExportError::Retryable { message, retry_after_ms: Some(ms) })) => {
@@ -634,10 +653,12 @@ impl Exporter {
                 }
                 Ok(Err(ExportError::Retryable { message, retry_after_ms: None })) => {
                     log::debug!("upload failed (attempt {}): {message}", attempt + 1);
+                    last = message;
                     Counters::add(&self.counters.upload_failures, 1);
                 }
                 Err(_) => {
                     log::debug!("upload timed out (attempt {})", attempt + 1);
+                    last = "timed out".to_owned();
                     Counters::add(&self.counters.upload_timeouts, 1);
                 }
             }
@@ -645,7 +666,7 @@ impl Exporter {
                 sleep(RETRY_BACKOFF * (attempt + 1)).await;
             }
         }
-        Delivery::Failed
+        Delivery::Failed { reason: last }
     }
 }
 

@@ -45,6 +45,8 @@ pub(crate) struct Store {
 struct Queue {
     events: VecDeque<Queued>,
     bytes: usize,
+    /// The first eviction of an episode logs; the rest are counted.
+    full_warned: bool,
 }
 
 impl Store {
@@ -61,6 +63,13 @@ impl Store {
                 queue.bytes = queue.bytes.saturating_sub(oldest.event.size_hint());
             }
             Counters::add(&self.counters.queue_full, 1);
+            if !queue.full_warned {
+                queue.full_warned = true;
+                log::warn!(
+                    "queue full ({} records): dropping oldest until the exporter drains",
+                    self.capacity
+                );
+            }
         }
         let before = queue.bytes;
         queue.bytes += queued.event.size_hint();
@@ -72,6 +81,7 @@ impl Store {
     /// (always at least one, so an oversized event still ships).
     pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<Queued> {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        queue.full_warned = false;
         let mut out = Vec::new();
         let mut bytes = 0;
         while out.len() < max {

@@ -191,13 +191,15 @@ struct FloodGuard {
     max: u32,
     window_start: Instant,
     count: u32,
+    /// The first drop of a window logs; the rest are counted.
+    warned: bool,
 }
 
 impl FloodGuard {
     const WINDOW: Duration = Duration::from_secs(10 * 60);
 
     fn new(max: u32) -> Self {
-        Self { max, window_start: Instant::now(), count: 0 }
+        Self { max, window_start: Instant::now(), count: 0, warned: false }
     }
 
     fn admit(&mut self) -> bool {
@@ -208,8 +210,16 @@ impl FloodGuard {
         if now.duration_since(self.window_start) >= Self::WINDOW {
             self.window_start = now;
             self.count = 0;
+            self.warned = false;
         }
         if self.count >= self.max {
+            if !self.warned {
+                self.warned = true;
+                log::warn!(
+                    "flood: {} records in 10 min; dropping until the window moves",
+                    self.max
+                );
+            }
             return false;
         }
         self.count += 1;
