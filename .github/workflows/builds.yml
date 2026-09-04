@@ -15,18 +15,7 @@
 name: Builds
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
-    paths-ignore:
-      - "**/*.md"
-      - ".changeset/**"
-      - "LICENSE"
-      - "NOTICE"
-      - "renovate.json"
-      - ".vscode/**"
-  workflow_dispatch:
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
