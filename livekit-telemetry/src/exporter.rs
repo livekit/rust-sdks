@@ -405,11 +405,22 @@ impl Exporter {
     /// Send cached batches oldest-first, within this tick's budget, until one fails; then back
     /// off.
     async fn upload(&mut self) {
-        if self.silenced || self.paused_until.is_some_and(|t| Instant::now() < t) {
+        if self.silenced {
+            return;
+        }
+        if let Some(until) = self.paused_until.filter(|t| Instant::now() < *t) {
+            log::debug!(
+                "telemetry: upload paused for {}s more after a failure",
+                (until - Instant::now()).as_secs()
+            );
             return;
         }
         // No destination yet (SDK started, no room connected): everything waits in the cache.
         if self.destination.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            log::debug!(
+                "telemetry: no destination yet; {} batches wait",
+                self.cache.pending().len()
+            );
             return;
         }
         let pending = self.cache.pending();
@@ -421,9 +432,13 @@ impl Exporter {
             Some(reason) => {
                 let since = *self.held_since.get_or_insert_with(Instant::now);
                 if since.elapsed() < MAX_HOLD {
-                    log::trace!("telemetry: holding {} batches: {reason}", pending.len());
+                    log::debug!("telemetry: holding {} batches: {reason}", pending.len());
                     return;
                 }
+                log::debug!(
+                    "telemetry: hold capped after {}s ({reason}); sending one batch",
+                    MAX_HOLD.as_secs()
+                );
                 // Held long enough: one batch goes out, then the hold starts over.
                 self.held_since = Some(Instant::now());
                 Counters::add(&self.counters.hold_cap_hits, 1);
@@ -445,6 +460,12 @@ impl Exporter {
             };
             match self.deliver(&body, Signal::of(&id)).await {
                 Delivery::Sent => {
+                    log::debug!(
+                        "telemetry: sent {} ({} B, {} left)",
+                        id,
+                        body.len(),
+                        self.cache.pending().len()
+                    );
                     self.cache.remove(&id);
                     Counters::add(&self.counters.uploads_sent, 1);
                     Counters::add(&self.counters.upload_bytes, body.len() as u64);
