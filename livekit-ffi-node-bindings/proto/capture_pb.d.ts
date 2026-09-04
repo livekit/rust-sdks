@@ -202,6 +202,91 @@ export declare class GstreamerVideoSourceConfig extends Message<GstreamerVideoSo
 }
 
 /**
+ * Encoded ingest from an RTSP server over TCP-interleaved RTP.
+ *
+ * @generated from message livekit.proto.RtspVideoSourceConfig
+ */
+export declare class RtspVideoSourceConfig extends Message<RtspVideoSourceConfig> {
+  /**
+   * RTSP URL (rtsp://host[:port]/path, or rtsps:// when the server is built
+   * with TLS support). URL userinfo is accepted and stripped from requests;
+   * `username`/`password` take precedence over it.
+   *
+   * @generated from field: required string url = 1;
+   */
+  url?: string;
+
+  /**
+   * Username for RTSP authentication, overriding URL userinfo.
+   *
+   * @generated from field: optional string username = 2;
+   */
+  username?: string;
+
+  /**
+   * Password for RTSP authentication, overriding URL userinfo.
+   *
+   * @generated from field: optional string password = 3;
+   */
+  password?: string;
+
+  /**
+   * Codec required from the stream; the first supported video track offered
+   * by the SDP is used when omitted.
+   *
+   * @generated from field: optional livekit.proto.VideoCodec codec = 4;
+   */
+  codec?: VideoCodec;
+
+  /**
+   * Encoded frame resolution. When omitted, it is discovered from the SDP
+   * when declared there, and from the stream's first keyframe otherwise;
+   * when set, the first keyframe is verified against it.
+   *
+   * @generated from field: optional livekit.proto.VideoSourceResolution resolution = 5;
+   */
+  resolution?: VideoSourceResolution;
+
+  /**
+   * TCP connect and RTSP handshake timeout in milliseconds (default 10000).
+   *
+   * @generated from field: optional uint32 connect_timeout_ms = 6;
+   */
+  connectTimeoutMs?: number;
+
+  /**
+   * Maximum tolerated stream silence in milliseconds (default 30000).
+   *
+   * @generated from field: optional uint32 idle_timeout_ms = 7;
+   */
+  idleTimeoutMs?: number;
+
+  /**
+   * Disables TLS certificate verification for rtsps:// URLs. Most cameras
+   * present self-signed certificates, which fail verification against the
+   * system roots. The connection stays encrypted but is not authenticated:
+   * a network attacker could impersonate the camera.
+   *
+   * @generated from field: optional bool accept_invalid_tls_certs = 8;
+   */
+  acceptInvalidTlsCerts?: boolean;
+
+  constructor(data?: PartialMessage<RtspVideoSourceConfig>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.RtspVideoSourceConfig";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RtspVideoSourceConfig;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RtspVideoSourceConfig;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RtspVideoSourceConfig;
+
+  static equals(a: RtspVideoSourceConfig | PlainMessage<RtspVideoSourceConfig> | undefined, b: RtspVideoSourceConfig | PlainMessage<RtspVideoSourceConfig> | undefined): boolean;
+}
+
+/**
  * Test pattern rendered on the GPU.
  *
  * @generated from message livekit.proto.PatternVideoSourceConfig
@@ -394,6 +479,12 @@ export declare class NewCaptureSourceRequest extends Message<NewCaptureSourceReq
      */
     value: ClockVideoSourceConfig;
     case: "clock";
+  } | {
+    /**
+     * @generated from field: livekit.proto.RtspVideoSourceConfig rtsp = 6;
+     */
+    value: RtspVideoSourceConfig;
+    case: "rtsp";
   } | { case: undefined; value?: undefined };
 
   /**

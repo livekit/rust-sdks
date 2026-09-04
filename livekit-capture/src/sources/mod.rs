@@ -23,3 +23,6 @@ pub mod gstreamer;
 
 #[cfg(feature = "source-pattern")]
 pub mod pattern;
+
+#[cfg(feature = "source-rtsp")]
+pub mod rtsp;

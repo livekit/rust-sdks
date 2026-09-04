@@ -60,5 +60,10 @@ named `source-<module>`. Each module documents its source.
 | Feature            | Source                 | Kind    |
 | ------------------ | ---------------------- | ------- |
 | `source-gstreamer` | `GStreamerVideoSource` | encoded |
+| `source-rtsp`      | `RtspVideoSource`      | encoded |
 | `source-pattern`   | `PatternVideoSource`   | pixel   |
 | `source-clock`     | `ClockVideoSource`     | pixel   |
+
+`source-rtsp-tls` extends `RtspVideoSource` with `rtsps://` support (RTSP
+over TLS 1.2+). Certificates are verified against the system roots by
+default; cameras with self-signed certificates can opt out per source.
