@@ -1172,6 +1172,13 @@ impl RoomSession {
             let _ = self.local_participant.unpublish_track(sid).await;
         }
 
+        // remove published remote tracks as well
+        for (_, participant) in self.remote_participants.read().clone() {
+            for (sid, _) in participant.track_publications() {
+                participant.unpublish_track(&sid);
+            }
+        }
+
         self.rtc_engine.close(reason).await;
         self.e2ee_manager.cleanup();
 
