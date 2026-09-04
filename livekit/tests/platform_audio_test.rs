@@ -131,7 +131,12 @@ fn test_audio_processing_options_default() {
     assert!(opts.echo_cancellation);
     assert!(opts.noise_suppression);
     assert!(opts.auto_gain_control);
-    assert!(!opts.prefer_hardware_processing); // Default to software (more reliable)
+    // Apple platforms default to hardware voice processing, everywhere else
+    // defaults to software (more reliable)
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    assert!(opts.prefer_hardware_processing);
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    assert!(!opts.prefer_hardware_processing);
 }
 
 #[test]
@@ -389,8 +394,11 @@ async fn test_platform_audio_standalone_processing_config() -> Result<()> {
     let ns_type = audio.active_ns_type();
     log::info!("Active processing: AEC={:?}, AGC={:?}, NS={:?}", aec_type, agc_type, ns_type);
 
-    // Verify consistency
-    if hw_aec {
+    // Verify consistency with the defaults applied at creation: the hardware
+    // path is active only when the platform default prefers it and the
+    // hardware effect is available
+    let prefer_hw = AudioProcessingOptions::default().prefer_hardware_processing;
+    if hw_aec && prefer_hw {
         assert_eq!(aec_type, AudioProcessingType::Hardware);
     } else {
         assert_eq!(aec_type, AudioProcessingType::Software);
@@ -409,15 +417,17 @@ async fn test_platform_audio_standalone_processing_config() -> Result<()> {
     })?;
     log::info!("Configured with custom options");
 
-    // Test individual controls
-    audio.set_echo_cancellation(true, false)?;
-    log::info!("Set AEC: enabled, prefer software");
+    // Test individual controls. The hardware vs software preference is
+    // shared by all effects and only changes via configure_audio_processing,
+    // the previous call left it at software.
+    audio.set_echo_cancellation(true)?;
+    log::info!("Set AEC: enabled");
 
-    audio.set_auto_gain_control(true, false)?;
-    log::info!("Set AGC: enabled, prefer software");
+    audio.set_auto_gain_control(true)?;
+    log::info!("Set AGC: enabled");
 
-    audio.set_noise_suppression(true, false)?;
-    log::info!("Set NS: enabled, prefer software");
+    audio.set_noise_suppression(true)?;
+    log::info!("Set NS: enabled");
 
     drop(audio);
     Ok(())
@@ -949,6 +959,7 @@ async fn test_reset_platform_audio() -> Result<()> {
 #[serial]
 async fn test_platform_audio_hardware_availability() -> Result<()> {
     use livekit::reset_platform_audio;
+    use livekit::AudioProcessingOptions;
     use livekit::AudioProcessingType;
 
     reset_platform_audio();
@@ -980,8 +991,11 @@ async fn test_platform_audio_hardware_availability() -> Result<()> {
 
     log::info!("Active audio processing: AEC={:?}, AGC={:?}, NS={:?}", aec_type, agc_type, ns_type);
 
-    // Verify consistency: if hardware is available, active type should be Hardware
-    if hw_aec {
+    // Verify consistency with the defaults applied at creation: the hardware
+    // path is active only when the platform default prefers it and the
+    // hardware effect is available
+    let prefer_hw = AudioProcessingOptions::default().prefer_hardware_processing;
+    if hw_aec && prefer_hw {
         assert_eq!(aec_type, AudioProcessingType::Hardware);
     } else {
         assert_eq!(aec_type, AudioProcessingType::Software);
@@ -1049,6 +1063,7 @@ async fn test_platform_audio_configure_processing() -> Result<()> {
 #[serial]
 async fn test_platform_audio_individual_controls() -> Result<()> {
     use livekit::reset_platform_audio;
+    use livekit::AudioProcessingOptions;
 
     reset_platform_audio();
 
@@ -1057,27 +1072,33 @@ async fn test_platform_audio_individual_controls() -> Result<()> {
     };
 
     // Test echo cancellation control
-    audio.set_echo_cancellation(true, false)?;
-    log::info!("AEC enabled (software)");
+    audio.set_echo_cancellation(true)?;
+    log::info!("AEC enabled");
 
-    audio.set_echo_cancellation(true, true)?;
-    log::info!("AEC enabled (hardware preferred)");
-
-    audio.set_echo_cancellation(false, false)?;
+    audio.set_echo_cancellation(false)?;
     log::info!("AEC disabled");
 
-    // Test auto gain control
-    audio.set_auto_gain_control(true, false)?;
-    log::info!("AGC enabled (software)");
+    // The hardware vs software preference is shared by all effects and
+    // changes via configure_audio_processing, not the individual toggles
+    audio.configure_audio_processing(AudioProcessingOptions {
+        echo_cancellation: true,
+        prefer_hardware_processing: true,
+        ..Default::default()
+    })?;
+    log::info!("AEC enabled (hardware preferred)");
 
-    audio.set_auto_gain_control(false, false)?;
+    // Test auto gain control
+    audio.set_auto_gain_control(true)?;
+    log::info!("AGC enabled");
+
+    audio.set_auto_gain_control(false)?;
     log::info!("AGC disabled");
 
     // Test noise suppression
-    audio.set_noise_suppression(true, false)?;
-    log::info!("NS enabled (software)");
+    audio.set_noise_suppression(true)?;
+    log::info!("NS enabled");
 
-    audio.set_noise_suppression(false, false)?;
+    audio.set_noise_suppression(false)?;
     log::info!("NS disabled");
 
     drop(audio);
@@ -1153,6 +1174,72 @@ async fn test_platform_audio_processing_with_room() -> Result<()> {
     drop(audio);
 
     log::info!("Audio processing with room test completed");
+    Ok(())
+}
+
+/// Test that platform capture resumes for an already published track after
+/// the last PlatformAudio is dropped and a new one is created.
+///
+/// WebRTC issues StartRecording once when the track is published and never
+/// re-issues it for a quiescent track, so the proxy must remember the
+/// standing request across the release/reacquire cycle and restart capture
+/// itself on acquire.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_platform_audio_capture_resumes_after_reacquire() -> Result<()> {
+    use livekit::reset_platform_audio;
+
+    reset_platform_audio();
+
+    let Some(audio) = try_create_platform_audio("test_platform_audio_capture_resumes") else {
+        return Ok(());
+    };
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    if recording_devices.is_empty() {
+        log::info!("Skipping test - no microphone available");
+        drop(audio);
+        return Ok(());
+    }
+
+    // The room keeps the runtime (and the ADM proxy) alive across the
+    // PlatformAudio drop below, matching the real-world scenario
+    let mut rooms = test_rooms(1).await?;
+    let (room, _events) = rooms.pop().unwrap();
+
+    let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
+    room.local_participant()
+        .publish_track(
+            LocalTrack::Audio(track),
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
+        )
+        .await?;
+
+    // Let the voice engine issue StartRecording for the published track
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(
+        audio.is_recording_initialized(),
+        "platform capture should be running while the track is published"
+    );
+
+    // Drop the last PlatformAudio while the track stays published. This
+    // releases the platform ADM and stops capture.
+    drop(audio);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // Reacquire. The proxy must restart capture on its own: WebRTC will not
+    // re-issue StartRecording for the still-published track.
+    let audio = PlatformAudio::new()?;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        audio.is_recording_initialized(),
+        "platform capture should resume on reacquire for the published track"
+    );
+
+    room.close().await?;
+    drop(audio);
+
+    log::info!("Capture resume after reacquire test completed");
     Ok(())
 }
 

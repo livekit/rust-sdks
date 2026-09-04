@@ -340,6 +340,7 @@ fn main() {
             builder
                 .file("src/objc_video_factory.mm")
                 .file("src/objc_video_frame_buffer.mm")
+                .file("src/apple_audio_engine.mm")
                 .flag("-stdlib=libc++")
                 .flag("-std=c++20")
                 .flag("-Wno-nullability-completeness");
@@ -369,6 +370,7 @@ fn main() {
             builder
                 .file("src/objc_video_factory.mm")
                 .file("src/objc_video_frame_buffer.mm")
+                .file("src/apple_audio_engine.mm")
                 .flag("-std=c++20");
         }
         "android" => {
