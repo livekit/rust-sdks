@@ -1,3 +1,14 @@
+## 0.1.3 (2026-09-04)
+
+### Features
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add `self_test_http_get` / `self_test_ws_echo` / `has_http_client` / `has_ws_client` UniFFI exports so foreign hosts can exercise the transport seam end-to-end.
+
 ## 0.1.2 (2026-07-29)
 
 ### Fixes

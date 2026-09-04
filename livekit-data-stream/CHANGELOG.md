@@ -1,3 +1,10 @@
+## 0.1.4 (2026-09-04)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+
 ## 0.1.3 (2026-08-25)
 
 ### Fixes

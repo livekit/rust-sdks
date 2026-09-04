@@ -1,6 +1,6 @@
 [package]
 name = "livekit-signaling"
-version = "0.1.0"
+version = "0.1.1"
 license.workspace = true
 description = "Internal LiveKit signalling client, blind to the transport backend"
 edition.workspace = true

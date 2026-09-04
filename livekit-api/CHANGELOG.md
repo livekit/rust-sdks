@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.6.5 (2026-09-04)
+
+### Features
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+- Add `self_test_http_get` / `self_test_ws_echo` / `has_http_client` / `has_ws_client` UniFFI exports so foreign hosts can exercise the transport seam end-to-end.
+- Update sip_busy test GRPc code: failed_precondition -> failed_precondition
+
+#### Moves the internal region-discovery cache into a new `livekit-region` crate. No
+
+public API or behaviour change.
+
+#### Moves the signalling client into a new `livekit-signaling` crate. livekit-api
+
+re-exports it under the historical `livekit_api::signal_client` path, now marked
+deprecated: it is internal SDK API, and dependents should use livekit-signaling
+directly. livekit-api no longer depends on livekit-net.
+
+Also drops two dependencies that were declared but never used: `scopeguard` and
+`bytes`.
+
 ## 0.6.4 (2026-08-25)
 
 ### Fixes

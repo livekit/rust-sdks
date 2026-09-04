@@ -1,4 +1,15 @@
 # Changelog
+## 0.1.15 (2026-09-04)
+
+### Features
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+
 ## 0.1.14 (2026-08-25)
 
 ### Fixes

@@ -257,6 +257,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.8.5 (2026-09-04)
+
+### Features
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+- Fix pre-encoded frame segfault on macOS
+- Handle capture of dmabuf using existing capture path
+- Add `self_test_http_get` / `self_test_ws_echo` / `has_http_client` / `has_ws_client` UniFFI exports so foreign hosts can exercise the transport seam end-to-end.
+
+#### Make AdmProxy worker-thread-affine: all platform ADM access now happens on the WebRTC worker thread, matching the ADM threading contract.
+
+- The platform ADM is now created lazily on the first PlatformAudio acquire on all platforms, so apps that never use platform audio never construct it.
+- Fixes Android platform recording delivering no audio: the audio transport was never registered on the lazily created ADM.
+- Fixes a shutdown race by keeping the runtime threads alive as long as Rust can reach the audio device controller.
+- Adds a `platform_audio` example exercising the PlatformAudio API and the worker-thread marshaling.
+
+#### Close peer connections before awaiting signal teardown
+
+`SessionInner::close` released the peer connections only after two awaits that can block
+indefinitely, so cancelling `close()` — for example by wrapping it in a timeout — left the
+transports open and their ICE UDP sockets bound for the lifetime of the process. Long-lived
+clients eventually exhausted their file descriptors. The transports are now closed before
+the first await, which makes the teardown safe to cancel.
+
+#### Moves the internal region-discovery cache into a new `livekit-region` crate. No
+
+public API or behaviour change.
+
+#### Moves the signalling client into a new `livekit-signaling` crate. livekit-api
+
+re-exports it under the historical `livekit_api::signal_client` path, now marked
+deprecated: it is internal SDK API, and dependents should use livekit-signaling
+directly. livekit-api no longer depends on livekit-net.
+
+Also drops two dependencies that were declared but never used: `scopeguard` and
+`bytes`.
+
+#### Expose network_type on IceCandidateStats
+
+Chromium's local `RTCIceCandidateStats` carries a non-standard `networkType` field (WiFi,
+cellular, ethernet, etc.), but `IceCandidateStats` had no place to put it, so it was silently
+dropped during `get_stats()` deserialization. Adds `network_type: Option<String>` to the struct;
+non-breaking since it already derives `#[serde(default)]`.
+
 ## 0.8.4 (2026-08-25)
 
 ### Features
