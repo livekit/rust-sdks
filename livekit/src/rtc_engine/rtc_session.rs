@@ -1998,6 +1998,10 @@ impl SessionInner {
         // closing here — before the future can suspend — is what stops a cancelled
         // `close()` leaving the ICE sockets bound for the process's lifetime. The
         // signalling socket is unaffected, so the Leave below still goes out.
+        self.lossy_dc.on_message(None);
+        self.lossy_dc.on_buffered_amount_change(None);
+        self.reliable_dc.on_message(None);
+        self.reliable_dc.on_buffered_amount_change(None);
         self.publisher_pc.close();
         if let Some(ref sub_pc) = self.subscriber_pc {
             sub_pc.close();
