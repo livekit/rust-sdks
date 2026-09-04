@@ -1,0 +1,32 @@
+[package]
+name = "livekit-telemetry"
+description = "Client telemetry core for LiveKit: buffers events on-device and exports them as OTLP"
+version = "0.1.0"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[dependencies]
+tokio = { workspace = true, default-features = false, features = ["macros", "sync", "time"] }
+log = { workspace = true }
+thiserror = { workspace = true }
+async-trait = "0.1"
+prost = { workspace = true }
+rand = { workspace = true }
+# gzip for request bodies; the deflate backend (miniz_oxide) is already linked by data streams.
+flate2 = "1"
+# OTLP message types only (`gen-tonic-messages` = prost structs, no tonic). Same prost as
+# livekit-protocol so a single prost is linked.
+opentelemetry-proto = { version = "0.32", default-features = false, features = ["logs", "trace", "gen-tonic-messages"] }
+livekit-net = { workspace = true, optional = true }
+uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
+
+[features]
+# Default HTTP transport over the pluggable `livekit-net` client (native backend, or one
+# the host registered with `livekit_net::set_http_client`).
+net = ["dep:livekit-net"]
+uniffi = ["dep:uniffi"]
+
+[dev-dependencies]
+tokio = { workspace = true, default-features = false, features = ["rt", "rt-multi-thread", "macros", "sync", "time", "test-util"] }

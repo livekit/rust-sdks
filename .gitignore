@@ -6,3 +6,4 @@ soxr-sys/test-output.wav
 .env
 .cursor
 __pycache__
+/target-*/

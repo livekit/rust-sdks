@@ -177,6 +177,14 @@ versioned_files = [
 ]
 changelog = "livekit-datatrack/CHANGELOG.md"
 
+[packages.livekit-telemetry]
+versioned_files = [
+  "livekit-telemetry/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-telemetry" },
+]
+changelog = "livekit-telemetry/CHANGELOG.md"
+
 [packages.livekit-common]
 versioned_files = [
   "livekit-common/Cargo.toml",
