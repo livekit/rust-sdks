@@ -141,6 +141,11 @@ impl Telemetry {
     pub fn stats(&self) -> TelemetryStats {
         self.0.stats()
     }
+
+    /// The stats as one line for a debug console.
+    pub fn diagnostics(&self) -> String {
+        self.0.stats().to_string()
+    }
 }
 
 /// One room's session on the process pipeline: what its spans, stats and events are filed

@@ -196,6 +196,31 @@ pub struct TelemetryStats {
     pub cached_batches: u64,
 }
 
+/// One line for a debug console.
+impl std::fmt::Display for TelemetryStats {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "telemetry: sent {} ({} B), cached {}, failed {}, timeouts {}, holds capped {}, dropped {} \
+             (queue {}, cache {}/{}, rejected {}, throttled {}, rate-limited {}, disabled {})",
+            self.uploads_sent,
+            self.upload_bytes,
+            self.cached_batches,
+            self.upload_failures,
+            self.upload_timeouts,
+            self.holds_capped,
+            self.dropped,
+            self.dropped_queue_full,
+            self.dropped_cache_full,
+            self.dropped_cache_error,
+            self.dropped_rejected,
+            self.dropped_throttled,
+            self.dropped_rate_limited,
+            self.dropped_disabled,
+        )
+    }
+}
+
 impl TelemetryStats {
     pub(crate) fn new(snapshot: Snapshot, cached_batches: u64) -> Self {
         Self {
