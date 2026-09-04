@@ -37,6 +37,24 @@ import "video_frame.proto";
 // 3. The capture runs until StopCaptureRequest, end of stream, or an error;
 //    a CaptureSourceEvent is delivered exactly once when it ends.
 
+// Test patterns built into livekit-capture.
+enum Pattern {
+  // Animated color gradient.
+  PATTERN_GRADIENT = 0;
+  // Bouncing LiveKit logo.
+  PATTERN_LOGO = 1;
+}
+
+// Test pattern rendered on the GPU.
+message PatternVideoSourceConfig {
+  // Output resolution.
+  required VideoSourceResolution resolution = 1;
+  // Output frame rate in frames per second.
+  required uint32 framerate_fps = 2;
+  // Pattern to render.
+  required Pattern pattern = 3;
+}
+
 // Kind of media a capture source produces.
 enum CaptureSourceKind {
   // Pixel frames, published through the WebRTC encoder.
@@ -63,6 +81,26 @@ message CaptureSourceInfo {
 message OwnedCaptureSource {
   required FfiOwnedHandle handle = 1;
   required CaptureSourceInfo info = 2;
+}
+
+// Create a new capture source from configuration.
+//
+// Completes asynchronously with a NewCaptureSourceCallback: construction
+// starts the producer and may wait for its first output to discover stream
+// settings.
+message NewCaptureSourceRequest {
+  oneof config {
+    PatternVideoSourceConfig pattern = 2;
+  }
+  optional uint64 request_async_id = 3;
+}
+message NewCaptureSourceResponse { required uint64 async_id = 1; }
+message NewCaptureSourceCallback {
+  required uint64 async_id = 1;
+  oneof message {
+    string error = 2;
+    OwnedCaptureSource source = 3;
+  }
 }
 
 // Start pumping frames from a capture source into its RTC video source.

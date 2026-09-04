@@ -10,10 +10,14 @@ repository.workspace = true
 [dependencies]
 bytes = { workspace = true }
 livekit = { workspace = true }
+log = { workspace = true }
+pollster = { version = "0.4", optional = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
+wgpu = { workspace = true, optional = true }
+yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
@@ -26,3 +30,6 @@ schemars = ["dep:schemars", "serde"]
 # Async convenience wrappers for blocking source construction when using
 # a tokio runtime.
 tokio = ["tokio/rt"]
+
+# Pixel sources
+source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]

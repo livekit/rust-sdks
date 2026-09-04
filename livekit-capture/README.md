@@ -5,17 +5,17 @@
 > There may be bugs, and APIs and configuration options are subject to change during this period.
 
 This crate provides video capture sources and the pumps that publish them
-with the LiveKit [Rust SDK](../livekit/README.md). Implement one small trait
-to add a source. The application runs and supervises every source the same
-way.
+with the LiveKit [Rust SDK](../livekit/README.md). Pick a ready-made source,
+or implement one small trait to add your own. The application runs and
+supervises every source the same way.
 
 ## Source and pump
 
 Two concepts make up the crate. Video reaches a LiveKit track in one of two
 forms, so the source and the pump each have two variants.
 
-**A source** produces video, one blocking call at a time. Implement one of
-these two traits:
+**A source** produces video, one blocking call at a time. Use a ready-made
+source (see [Sources](#sources)), or implement the trait to add your own:
 
 - A `pixel::PixelVideoSource` produces raw `VideoFrame`s — from a camera, for
   example. The WebRTC encoder encodes them.
@@ -40,9 +40,9 @@ A pump supplies the RTC source and the publish options, so publication is the
 same for either path.
 
 ```rust
-let pump = PixelVideoPump::new(MyVideoSource::new(config).await?);
+let pump = PixelVideoPump::new(PatternVideoSource::new(config).await?);
 
-let track = LocalVideoTrack::create_video_track("my-source", pump.rtc_source());
+let track = LocalVideoTrack::create_video_track("pattern", pump.rtc_source());
 let options = pump.publish_options();
 room.local_participant().publish_track(LocalTrack::Video(track), options).await?;
 
@@ -52,9 +52,11 @@ let running = pump.spawn()?;
 let stats = running.stop_and_join_async().await?;
 ```
 
-## Adding a source
+## Sources
 
-Implement `pixel::PixelVideoSource` for raw frames or
-`encoded::EncodedVideoSource` for pre-encoded access units. A source is
-constructed from its own config struct and is driven by the matching pump —
-no other integration is needed.
+Each source lives in its own module under `sources`, behind a Cargo feature
+named `source-<module>`. Each module documents its source.
+
+| Feature            | Source                 | Kind    |
+| ------------------ | ---------------------- | ------- |
+| `source-pattern`   | `PatternVideoSource`   | pixel   |

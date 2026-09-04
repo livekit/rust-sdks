@@ -3655,10 +3655,14 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "livekit",
+ "log",
+ "pollster",
  "schemars",
  "serde",
  "thiserror 2.0.19",
  "tokio",
+ "wgpu",
+ "yuv-sys",
 ]
 
 [[package]]
