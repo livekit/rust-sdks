@@ -147,8 +147,12 @@ mod tests {
     use cxx::SharedPtr;
     use std::sync::Arc;
 
+    // Room event forwarding stores a callback that captures a DataChannel clone. Because the
+    // DataChannel owns the observer storing that callback, teardown must clear the handler to
+    // break the resulting reference cycle.
     #[test]
     fn clearing_buffered_amount_handler_breaks_data_channel_cycle() {
+        // Keep a weak observer reference so the test can verify its eventual destruction.
         let observer = Arc::new(DataChannelObserver::default());
         let observer_weak = Arc::downgrade(&observer);
         let dc = DataChannel {
@@ -156,11 +160,13 @@ mod tests {
             sys_handle: SharedPtr::<sys_dc::ffi::DataChannel>::null(),
         };
 
+        // Reproduce the production cycle: observer -> callback -> DataChannel -> observer.
         let captured_dc = dc.clone();
         dc.on_buffered_amount_change(Some(Box::new(move |_| {
             let _ = captured_dc.buffered_amount();
         })));
 
+        // Clearing the callback removes the cycle, allowing the final strong references to drop.
         dc.on_buffered_amount_change(None);
         drop(dc);
         drop(observer);
