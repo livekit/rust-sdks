@@ -1,45 +1,48 @@
-{%- if CARGO_MAKE_PROFILE == "development" -%}
-  {%- set postinstall = "" -%}
-  {%- set tsup_args = " --onSuccess 'cp -P src/" ~ LIB_NAME ~ "." ~ LIB_EXT ~ " dist/'" -%}
-{%- elif CARGO_MAKE_PROFILE == "release" -%}
-  {%- set postinstall = "tsx download-lib.ts --skip" -%}
-  {%- set tsup_args = "" -%}
-{%- endif -%}
-
 {
   "name": "{{ NPM_NAME }}",
   "version": "{{ CARGO_MAKE_CRATE_VERSION }}",
-  "main": "dist/index.mjs",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    "import": "./dist/index.mjs",
-    "require": "./dist/index.js"
+    "import": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "require": {
+      "types": "./dist/index.d.cts",
+      "default": "./dist/index.cjs"
+    }
   },
   "files": ["dist"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/rust-sdks.git",
+    "directory": "livekit-uniffi"
+  },
   "scripts": {
-    "prepublishOnly": "npm run build",
-    "build": "tsup{{tsup_args}}",
-    "dev": "tsup --watch{{tsup_args}}",
+    "prepublishOnly": "pnpm run build",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "ts:check": "tsc --noEmit"
-    {%- if postinstall -%},
-    "postinstall": "{{postinstall}}"
-    {%- endif -%}
   },
   "engines": {
     "node": ">= 18"
   },
-
-  {#- Include dependencies specified by the bindgen -#}
-  "dependencies": {{ dependencies | json_encode | safe }},
+  "dependencies": {
+    "@ubjs/core": "{{ UBRN_VERSION }}",
+    "@ubjs/node": "{{ UBRN_VERSION }}"
+  },
   "devDependencies": {
-    {% for package_name, package_version in devDependencies %}
-      "{{package_name | addslashes}}": "{{package_version | addslashes}}",
-    {%- endfor %}
     "tsup": "^8.4.0",
-    "typescript": "5.9.3",
-    "node-fetch": "3.3.2",
-    "unzipper": "0.10.11",
-    "@types/unzipper": "0.10.11",
-    "tsx": "4.21.0"
+    "typescript": "5.9.3"
+  },
+  "optionalDependencies": {
+    "{{ NPM_NAME }}-darwin-arm64": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-darwin-x64": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-linux-x64-gnu": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-linux-arm64-gnu": "{{ CARGO_MAKE_CRATE_VERSION }}",
+    "{{ NPM_NAME }}-win32-x64-msvc": "{{ CARGO_MAKE_CRATE_VERSION }}"
   }
 }

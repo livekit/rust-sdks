@@ -1,0 +1,11 @@
+{
+  "//": "DEV ONLY. Resolves the shared lib/ against the active channel's built bindings (packages/<channel>/generated) so an editor can type-check it without an assembled package. Rendered by `cargo make <channel>-package`; gitignored. Point your editor's TypeScript at this file. test/ and full resolution are covered by the assembled package's own `pnpm ts:check`; the published per-channel package uses its self-contained tsconfig.json (#generated -> ./generated).",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "#generated": ["../../packages/node/generated/index.ts"]
+    }
+  },
+  "include": ["lib"]
+}

@@ -1,0 +1,318 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Node tasks for livekit-uniffi, extended into ../../Makefile.toml.
+#
+# cargo-make runs from the crate root regardless of where a task is defined, so
+# relative paths here are relative to livekit-uniffi/, not to this file. The
+# shared plumbing these tasks build on — build, locate-lib, tera — stays in the
+# crate Makefile.
+
+# ubrn reads uniffi metadata out of the library's symbols, so the library it
+# generates from must keep them. `build-stripped` is what ships, matching the
+# profile uniffi-cdylib.yml builds with. Both are wrappers because a task's own
+# env is not in scope while its dependencies run, and because cargo-make env
+# persists process-wide — one `cargo make` run doing both needs each setting
+# re-asserted at its own step.
+[tasks.build-for-bindgen]
+private = true
+env = { CARGO_PROFILE_RELEASE_STRIP = "false" }
+run_task = "build"
+
+[tasks.build-stripped]
+private = true
+env = { CARGO_PROFILE_RELEASE_STRIP = "symbols" }
+run_task = "build"
+
+# `pre-package` branches on a node concept (`node-native`), so both live here
+# rather than in the crate Makefile.
+[tasks.pre-package]
+private = true
+script_runner = "@duckscript"
+script = """
+if eq ${LANG} "node-native"
+  package_dir = join_path ${PACKAGES_DIR} ${LANG} ${TARGET}
+else
+  package_dir = join_path ${PACKAGES_DIR} ${LANG}
+end
+mkdir ${package_dir}
+set_env PACKAGE_DIR "${package_dir}"
+if ${GITHUB_OUTPUT}
+    echo "::group::Package (${LANG})"
+end
+"""
+
+[tasks.post-package]
+private = true
+script_runner = "@duckscript"
+script = """
+echo "Created package (${LANG}, ${CARGO_MAKE_PROFILE}): ${PACKAGE_DIR}"
+if ${GITHUB_OUTPUT}
+    appendfile ${GITHUB_OUTPUT} "packages_dir=${PACKAGES_DIR}\\n"
+    appendfile ${GITHUB_OUTPUT} "package_dir=${PACKAGE_DIR}\\n"
+    echo "::endgroup::"
+end
+"""
+
+[env]
+NPM_NAME = "@livekit/uniffi"
+
+# The @ubjs/core and @ubjs/node runtime the generated TypeScript imports. The
+# generator itself is pinned by Cargo.lock via tools/bindgens, so this value
+# covers only the npm half; uniffi-node-test.yml asserts the two agree.
+[env.UBRN_VERSION]
+value = "0.31.0-5"
+condition = { env_not_set = ["UBRN_VERSION"] }
+
+# MARK: - Node
+
+[tasks.node-bindgen]
+private = true
+description = "Generate NAPI bindings into ${PACKAGE_DIR}/src/generated"
+dependencies = ["build-for-bindgen", "locate-lib"]
+script_runner = "@shell"
+script = """
+rm -rf ${PACKAGE_DIR}/src/generated
+cargo run -p bindgens --bin uniffi-bindgen-react-native -- generate napi bindings \
+    --library \
+    --lib-package-base ${NPM_NAME} \
+    --lib-node-triple \
+    --no-format \
+    --crate ${CARGO_MAKE_CRATE_FS_NAME} \
+    --ts-dir ${PACKAGE_DIR}/src/generated \
+    ${LIB_PATH}
+"""
+# `-p bindgens` is required: this task's cwd is the livekit-uniffi crate, which
+# defines its own `uniffi-bindgen` bin, and `cargo run --bin` resolves against the
+# current package only.
+# --lib-package-base appends a `-` because @livekit/uniffi ends alphanumeric, so
+# the bindings resolve `@livekit/uniffi-<node-triple>`. --no-format: the output is
+# @ts-nocheck'd machine code that tsup bundles, so formatting it buys nothing and
+# ubrn otherwise warns about the prettier it can't find.
+
+# livekit_uniffi's cdylib bundles multiple uniffi namespaces (livekit_common,
+# livekit_datatrack, livekit_net, livekit_uniffi) into one physical library. ubrn
+# emits one `*-ffi.ts` per namespace, each resolving its native library by its own
+# `crateName` — so each would look for a dylib that doesn't exist. Point them all
+# at the umbrella crate instead. The grep is the guard: a silent no-op here means
+# ubrn's output shape moved and the bindings would resolve nowhere.
+[tasks.node-fixup-crate-name]
+private = true
+description = "Rewrite generated crateName values so every uniffi namespace resolves the umbrella cdylib"
+dependencies = ["node-bindgen"]
+script_runner = "@shell"
+script = '''
+set -e
+cd ${PACKAGE_DIR}/src/generated
+ls *-ffi.ts > /dev/null   # set -e: fails loudly if ubrn emitted none
+LC_ALL=C perl -pi -e 's/crateName: "[^"]*"/crateName: "$ENV{CARGO_MAKE_CRATE_FS_NAME}"/g' *-ffi.ts
+# Per file, not overall: one namespace silently missing its rewrite is one that
+# fails at import in a consumer, and a total count would be satisfied by its
+# siblings.
+missing=$(grep -L "crateName: \"$CARGO_MAKE_CRATE_FS_NAME\"" *-ffi.ts || true)
+if [ -n "$missing" ]; then
+  echo "node-fixup-crate-name: no crateName in $missing — ubrn output format may have changed" >&2
+  exit 1
+fi
+'''
+
+[tasks.node-generate-manifest]
+private = true
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/node/package.json.tera", "-o", "${PACKAGE_DIR}/package.json"]
+
+[tasks.node-copy-support-files]
+private = true
+script_runner = "@shell"
+script = """
+cp ${SUPPORT_DIR}/node/tsconfig.json ${PACKAGE_DIR}/tsconfig.json
+cp ${SUPPORT_DIR}/node/tsup.config.ts ${PACKAGE_DIR}/tsup.config.ts
+cp ${SUPPORT_DIR}/node/index.ts ${PACKAGE_DIR}/src/index.ts
+"""
+
+[tasks.node-package-flow]
+private = true
+dependencies = [
+    "pre-package",
+    "node-bindgen",
+    "node-fixup-crate-name",
+    "node-generate-manifest",
+    "node-copy-support-files",
+    "post-package",
+]
+
+[tasks.node-package]
+description = "Build the main @livekit/uniffi npm package"
+env = { LANG = "node" }
+run_task = "node-package-flow"
+
+# --- Per-arch native packages
+
+[tasks.node-native-package-copy-lib]
+private = true
+dependencies = ["locate-lib"]
+script_runner = "@duckscript"
+script = """
+dst = join_path ${PACKAGE_DIR} ${LIB_FILENAME}
+cp ${LIB_PATH} ${dst}
+"""
+
+[tasks.node-native-package-generate-manifest]
+private = true
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/node/native/package.json.tera", "-o", "${PACKAGE_DIR}/package.json"]
+
+[tasks.node-native-package-generate-readme]
+private = true
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/node/native/README.md.tera", "-o", "${PACKAGE_DIR}/README.md"]
+
+# The dependency chain lives on a private task so the env below is in scope by
+# the time it runs. Note `LANG`: unset, pre-package sees the ambient POSIX locale
+# and packages into ${PACKAGES_DIR}/en_GB.UTF-8, which is why every packaging
+# flow here sets it on a wrapper.
+[tasks.node-native-package-flow-run]
+private = true
+dependencies = [
+    "pre-package",
+    "node-native-package-copy-lib",
+    "node-native-package-generate-manifest",
+    "node-native-package-generate-readme",
+    "post-package",
+]
+
+# Public, and carries its own env, so CI can package a cdylib it already
+# downloaded without `build` recompiling it.
+[tasks.node-native-package-flow]
+description = "Package an already-built cdylib as a per-arch npm package; TARGET selects the triple"
+run_task = "node-native-package-flow-run"
+
+[tasks.node-native-package-flow.env]
+LANG = "node-native"
+
+# The one table. npm's os/cpu fields are the triple's first two segments, so the
+# manifest template splits this rather than repeating it — @ubjs/node computes
+# the same names at load time, and one source here is one thing to keep in step.
+[tasks.node-native-package-flow.env.NODE_TRIPLE]
+source = "${TARGET}"
+[tasks.node-native-package-flow.env.NODE_TRIPLE.mapping]
+"aarch64-apple-darwin"      = "darwin-arm64"
+"x86_64-apple-darwin"       = "darwin-x64"
+"aarch64-unknown-linux-gnu" = "linux-arm64-gnu"
+"x86_64-unknown-linux-gnu"  = "linux-x64-gnu"
+"x86_64-pc-windows-msvc"    = "win32-x64-msvc"
+
+# build-stripped, not build: this is the package that ships, so it carries the
+# same stripped cdylib uniffi-cdylib.yml produces.
+[tasks.node-native-package]
+description = "Scaffold a per-arch native npm package (cdylib next to package.json)"
+dependencies = ["build-stripped"]
+run_task = "node-native-package-flow"
+
+# --- Workspace assembly and end-to-end tests
+
+[tasks.node-setup-workspace]
+description = "Write target/packages/pnpm-workspace.yaml so main + per-arch packages share a workspace"
+script_runner = "@shell"
+script = """
+{
+cat ${SUPPORT_DIR}/node/pnpm-workspace.common.yaml
+cat <<'EOF'
+
+packages:
+  - "node"
+  - "node-native/*"
+
+# Resolve the plain-version sibling optionalDependencies from the workspace, not
+# npm. Without `deep`, pnpm fetches a published copy whose shape may differ.
+linkWorkspacePackages: deep
+EOF
+} > ${PACKAGES_DIR}/pnpm-workspace.yaml
+"""
+
+# --no-frozen-lockfile, which CI would otherwise default to: the main package
+# declares one optionalDependency per platform, and only the host's exists as a
+# workspace member, so pnpm drops the other four from the lockfile every time.
+# package.json says five, the lockfile says one, and a frozen install can never
+# reconcile them. The lockfile here is a build output under target/ anyway.
+[tasks.node-package-build]
+private = true
+cwd = "${PACKAGES_DIR}"
+script_runner = "@shell"
+script = """
+pnpm install --no-frozen-lockfile
+pnpm --filter ${NPM_NAME} run build
+"""
+
+[tasks.node-package-test]
+description = "Build the node packages and run the smoke test against them"
+dependencies = ["node-package", "node-native-package", "node-setup-workspace", "node-package-build"]
+cwd = "./support/node/test"
+script_runner = "@shell"
+script = "./run.sh"
+
+# The publish-shape check. node-package-test above runs against a workspace link,
+# which bypasses `files`, `exports`, and @ubjs/node's platform-package lookup;
+# installing the packed tarballs exercises all three, since a tarball is byte-for
+# -byte what `npm publish` uploads. Also covers the ESM half of the exports map —
+# support/node/test is CJS.
+[tasks.node-pack-test]
+description = "Pack both packages and smoke-test a tarball install, as a published consumer gets it"
+dependencies = ["node-package", "node-native-package", "node-setup-workspace", "node-package-build"]
+script_runner = "@shell"
+script = '''
+set -e
+main=${PACKAGES_DIR}/node
+native=${PACKAGES_DIR}/node-native/${TARGET}
+out=${PACKAGES_DIR}/pack
+rm -rf "$out"
+mkdir -p "$out/consumer"
+common=$(cd ${SUPPORT_DIR}/node && pwd)/pnpm-workspace.common.yaml
+
+# dist/ is already built by node-package-build; `pnpm pack` runs prepack/prepare,
+# neither of which this package defines, so the tree is captured as-is.
+main_tgz=$(pnpm --dir "$main" pack --pack-destination "$out" | tail -1)
+native_tgz=$(pnpm --dir "$native" pack --pack-destination "$out" | tail -1)
+[ -f "$main_tgz" ] && [ -f "$native_tgz" ] || { echo "pnpm pack produced no tarball" >&2; exit 1; }
+
+# Override the per-arch optionalDependency to its tarball. The dependency *name*
+# is untouched, so resolveLibPath's lookup is the real one — only the source of
+# the bytes changes, which is what keeps this off the network.
+native_name=$(node -p "require('$native/package.json').name")
+cd "$out/consumer"
+cat > package.json <<EOF
+{
+  "name": "pack-test",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": { "${NPM_NAME}": "file:$main_tgz" }
+}
+EOF
+{ cat "$common"; printf '\noverrides:\n  "%s": "file:%s"\n' "$native_name" "$native_tgz"; } > pnpm-workspace.yaml
+pnpm install --ignore-scripts --no-frozen-lockfile
+
+# Both halves of the exports map, since a wrong `require` condition breaks every
+# CJS consumer and a wrong `import` breaks every ESM one.
+node --input-type=module -e "
+import { buildVersion } from '${NPM_NAME}';
+if (!buildVersion()) throw new Error('esm: buildVersion() returned an empty value');
+console.log('esm  import: v' + buildVersion());
+"
+node --input-type=commonjs -e "
+const { buildVersion } = require('${NPM_NAME}');
+if (!buildVersion()) throw new Error('cjs: buildVersion() returned an empty value');
+console.log('cjs require: v' + buildVersion());
+"
+'''
