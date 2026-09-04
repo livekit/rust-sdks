@@ -90,12 +90,15 @@ pub(crate) fn encode_spans(
 fn log_record(Queued { mut event, session }: Queued, global: &[Attribute]) -> LogRecord {
     session.decorate(&mut event.attributes, global);
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
+    // An event without a body still needs a line: backends that key the UI on the body (Loki,
+    // most log viewers) would show it empty, and `event_name` is not surfaced everywhere yet.
+    let body = event.body.or_else(|| (!event.name.is_empty()).then(|| event.name.clone()));
     LogRecord {
         time_unix_nano,
         observed_time_unix_nano: time_unix_nano,
         severity_number: SeverityNumber::from(event.severity) as i32,
         severity_text: severity_text(event.severity).to_owned(),
-        body: event.body.map(|text| AnyValue { value: Some(any_value::Value::StringValue(text)) }),
+        body: body.map(|text| AnyValue { value: Some(any_value::Value::StringValue(text)) }),
         attributes: event.attributes.iter().map(KeyValue::from).collect(),
         event_name: event.name,
         trace_id: session.trace_id.to_vec(),
@@ -214,6 +217,20 @@ mod tests {
         assert_eq!(
             record.attributes[0].value.as_ref().and_then(|v| v.value.clone()),
             Some(any_value::Value::IntValue(7))
+        );
+    }
+
+    #[test]
+    fn events_without_a_body_carry_their_name_as_body() {
+        let session = crate::session::SessionState::with_trace_id([7u8; 16]);
+        let event = TelemetryEvent::new("lk.rtc.stats.sample");
+        let bytes = encode_logs(&[], &[], vec![Queued { event, session }]);
+        let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let record = &decoded.resource_logs[0].scope_logs[0].log_records[0];
+        assert_eq!(record.event_name, "lk.rtc.stats.sample");
+        assert_eq!(
+            record.body.as_ref().and_then(|b| b.value.clone()),
+            Some(any_value::Value::StringValue("lk.rtc.stats.sample".into()))
         );
     }
 }

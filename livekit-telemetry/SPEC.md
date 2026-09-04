@@ -36,6 +36,9 @@ only by the cache.
 
 ## Events
 
+An event with no `body` is exported with its name as the body as well as in `event_name`: log
+viewers key their line on the body, and not every backend surfaces `event_name` yet.
+
 ```yaml
 event: lk.ping
 area: sdk
