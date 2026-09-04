@@ -326,6 +326,9 @@ message TrackPublishOptions {
   // Controls how the encoder trades off between resolution and framerate
   // when bandwidth is constrained. Default is MAINTAIN_RESOLUTION.
   optional DegradationPreference degradation_preference = 13;
+  // Publish an audio track as stereo. Required for the server to signal
+  // stereo=1 to the publisher and sprop-stereo=1 to subscribers.
+  optional bool stereo = 14;
 }
 
 enum VideoEncoderBackend {
