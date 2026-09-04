@@ -213,7 +213,7 @@ Uploads are shaped, not just batched:
 
 A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without `event_name`):
 `severity` + `body` (the message) + `code.function.name`, `code.file.path`, `code.line.number`
-(semconv), `lk.log.source` (`sdk` | `core` | `webrtc`) and `lk.log.logger` (type, module or file). The
+(semconv), `lk.log.source` (`sdk` | `ffi` | `webrtc`) and `lk.log.logger` (type, module or file). The
 platform hands the core a typed `LogRecord` via `log(record)`; the core applies the floor: WebRTC only
 at `error`, the SDK and the core at the configured `log_severity`, the core's own telemetry module
 never. Only `warn` and `error` records

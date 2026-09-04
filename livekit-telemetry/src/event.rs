@@ -113,7 +113,7 @@ pub enum Severity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogSource {
     Sdk,
-    Core,
+    Ffi,
     WebRtc,
 }
 
@@ -121,7 +121,7 @@ impl LogSource {
     fn as_str(self) -> &'static str {
         match self {
             Self::Sdk => "sdk",
-            Self::Core => "core",
+            Self::Ffi => "ffi",
             Self::WebRtc => "webrtc",
         }
     }

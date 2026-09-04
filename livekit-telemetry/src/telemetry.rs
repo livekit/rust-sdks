@@ -357,7 +357,7 @@ impl Telemetry {
         if record.severity < floor {
             return;
         }
-        if record.source == LogSource::Core
+        if record.source == LogSource::Ffi
             && record.logger.as_deref().is_some_and(|l| l.starts_with("livekit_telemetry"))
         {
             return;
@@ -592,7 +592,7 @@ mod tests {
         };
         telemetry.log(line(LogSource::WebRtc, Severity::Warn, "sctp.cc"));
         telemetry.log(line(LogSource::Sdk, Severity::Info, "Room"));
-        telemetry.log(line(LogSource::Core, Severity::Error, "livekit_telemetry::exporter"));
+        telemetry.log(line(LogSource::Ffi, Severity::Error, "livekit_telemetry::exporter"));
         telemetry.log(line(LogSource::Sdk, Severity::Warn, "Room"));
         telemetry.log(line(LogSource::WebRtc, Severity::Error, "sctp.cc"));
         telemetry.flush().await;
