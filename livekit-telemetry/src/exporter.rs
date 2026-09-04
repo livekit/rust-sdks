@@ -31,8 +31,8 @@ use crate::{
     stats::{Counters, Snapshot},
     store::{Queued, Store},
     telemetry::Destination,
-    AppState, Attribute, BatchCache, DeviceState, ExportError, ExportRequest, TelemetryConfig,
-    TelemetryTransport,
+    AppState, Attribute, BatchCache, DeviceState, ExportError, ExportRequest, MemoryPressure,
+    TelemetryConfig, TelemetryTransport, ThermalState,
 };
 
 /// Retries per upload attempt after the first, for failures without `Retry-After`.
@@ -138,6 +138,10 @@ pub struct Exporter {
     silenced: bool,
     /// Leave the cache alone until then: the last upload failed or we were throttled.
     paused_until: Option<Instant>,
+    /// Policy transitions are logged once, not per tick: the hold reason last logged and the
+    /// cadence factor last logged.
+    hold_logged: Option<&'static str>,
+    cadence_logged: u32,
     /// Drop new batches until then (`Retry-After` window).
     throttled_until: Option<Instant>,
     seq: u64,
@@ -188,6 +192,8 @@ impl Exporter {
             commands,
             silenced: false,
             paused_until: None,
+            hold_logged: None,
+            cadence_logged: 1,
             throttled_until: None,
             seq: 0,
             cache_failures: 0,
@@ -210,6 +216,7 @@ impl Exporter {
         let mut last_flush = Instant::now() - self.period(self.config.flush_interval_ms);
         let mut last_window = Instant::now();
         loop {
+            self.log_cadence();
             let next_flush = last_flush + self.period(self.config.flush_interval_ms);
             let next_window = last_window + self.period(self.config.stats_window_ms);
             tokio::select! {
@@ -261,8 +268,42 @@ impl Exporter {
 
     /// Device pressure, doubled again while WebRTC reports the encoder CPU-limited; capped at 4×.
     fn cadence_factor(&self) -> u32 {
-        let cpu_limited = self.windows.lock().unwrap_or_else(|e| e.into_inner()).cpu_limited();
-        (self.device().cadence_factor() * if cpu_limited { 2 } else { 1 }).min(4)
+        (self.device().cadence_factor() * if self.cpu_limited() { 2 } else { 1 }).min(4)
+    }
+
+    fn cpu_limited(&self) -> bool {
+        self.windows.lock().unwrap_or_else(|e| e.into_inner()).cpu_limited()
+    }
+
+    /// One debug line per cadence change, naming what stretched it.
+    fn log_cadence(&mut self) {
+        let factor = self.cadence_factor();
+        if factor == self.cadence_logged {
+            return;
+        }
+        self.cadence_logged = factor;
+        let device = self.device();
+        let mut why = Vec::new();
+        if device.thermal != ThermalState::Nominal {
+            why.push(format!("thermal {:?}", device.thermal).to_lowercase());
+        }
+        if device.memory != MemoryPressure::Normal {
+            why.push(format!("memory {:?}", device.memory).to_lowercase());
+        }
+        if device.low_power_mode {
+            why.push("low power mode".to_string());
+        }
+        if device.app_state == AppState::Background {
+            why.push("background".to_string());
+        }
+        if self.cpu_limited() {
+            why.push("encoder cpu-limited".to_string());
+        }
+        log::debug!(
+            "telemetry: cadence ×{factor}, flush every {}s ({})",
+            self.period(self.config.flush_interval_ms).as_secs(),
+            if why.is_empty() { "pressure over".to_string() } else { why.join(", ") }
+        );
     }
 
     /// Last chance: everything queued into the cache and out. Ignores the upload backoff, the
@@ -409,16 +450,17 @@ impl Exporter {
         if self.silenced {
             return;
         }
-        if let Some(until) = self.paused_until.filter(|t| Instant::now() < *t) {
-            log::debug!(
-                "telemetry: upload paused for {}s more after a failure",
-                (until - Instant::now()).as_secs()
-            );
-            return;
+        if let Some(until) = self.paused_until {
+            if Instant::now() < until {
+                log::trace!("telemetry: paused for {}s more", (until - Instant::now()).as_secs());
+                return;
+            }
+            self.paused_until = None;
+            log::debug!("telemetry: uploads resume after the pause");
         }
         // No destination yet (SDK started, no room connected): everything waits in the cache.
         if self.destination.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
-            log::debug!(
+            log::trace!(
                 "telemetry: no destination yet; {} batches wait",
                 self.cache.pending().len()
             );
@@ -429,11 +471,27 @@ impl Exporter {
             self.held_since = None;
             return;
         }
-        let budget = match self.hold_reason() {
+        let reason = self.hold_reason();
+        match (self.hold_logged, reason) {
+            (None, Some(now)) => log::debug!("telemetry: uploads held: {now}"),
+            (Some(was), Some(now)) if was != now => {
+                log::debug!("telemetry: uploads held: {now} (was: {was})")
+            }
+            (Some(was), None) => match self.held_since {
+                Some(since) => log::debug!(
+                    "telemetry: uploads resume after {}s ({was})",
+                    since.elapsed().as_secs()
+                ),
+                None => log::debug!("telemetry: uploads resume ({was})"),
+            },
+            _ => {}
+        }
+        self.hold_logged = reason;
+        let budget = match reason {
             Some(reason) => {
                 let since = *self.held_since.get_or_insert_with(Instant::now);
                 if since.elapsed() < MAX_HOLD {
-                    log::debug!("telemetry: holding {} batches: {reason}", pending.len());
+                    log::trace!("telemetry: holding {} batches: {reason}", pending.len());
                     return;
                 }
                 log::debug!(
@@ -476,10 +534,16 @@ impl Exporter {
                 }
                 Delivery::Failed => {
                     self.paused_until = Some(Instant::now() + UPLOAD_BACKOFF);
+                    log::debug!(
+                        "telemetry: uploads paused {}s after a failure",
+                        UPLOAD_BACKOFF.as_secs()
+                    );
                     return;
                 }
                 Delivery::Throttled { retry_after } => {
-                    let until = Instant::now() + retry_after.unwrap_or(UPLOAD_BACKOFF);
+                    let wait = retry_after.unwrap_or(UPLOAD_BACKOFF);
+                    let until = Instant::now() + wait;
+                    log::debug!("telemetry: uploads paused {}s (collector asked)", wait.as_secs());
                     self.paused_until = Some(until);
                     self.throttled_until = Some(until);
                     return;
