@@ -17,8 +17,7 @@ use std::sync::Arc;
 
 use crate::{event::now_unix_nanos, scope::ScopeState, Attribute, AttributeValue};
 
-/// OTel span kind, restricted to what client operations need.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+/// OTel span kind, restricted to what client operations need; implied by [`crate::SpanName`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanKind {
     /// An operation inside the SDK (publish, subscribe).

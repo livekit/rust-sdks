@@ -17,8 +17,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::span::SpanKind;
 use crate::{
-    Attribute, AttributeValue, RtcStatsSample, Span, SpanKind, SpanName, SpanOutcome, Telemetry,
+    Attribute, AttributeValue, RtcStatsSample, Span, SpanName, SpanOutcome, Telemetry,
     TelemetryEvent,
 };
 
@@ -153,15 +154,18 @@ impl Scope {
         }
     }
 
-    pub fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
+    #[cfg(test)]
+    pub(crate) fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
         self.telemetry.begin_span_in(name, kind, parent, &self.state)
     }
 
-    pub fn add_span_event(&self, span: u64, name: &str, attributes: Vec<Attribute>) {
+    #[cfg(test)]
+    pub(crate) fn add_span_event(&self, span: u64, name: &str, attributes: Vec<Attribute>) {
         self.telemetry.add_span_event(span, name, attributes);
     }
 
-    pub fn end_span(
+    #[cfg(test)]
+    pub(crate) fn end_span(
         &self,
         span: u64,
         outcome: SpanOutcome,

@@ -89,11 +89,6 @@ impl Telemetry {
         self.0.set_server(&url, &token);
     }
 
-    /// A span in the process trace (no room), stamped now; `parent` nests it.
-    pub fn start(&self, name: SpanName, parent: Option<Arc<TelemetrySpan>>) -> Arc<TelemetrySpan> {
-        Arc::new(TelemetrySpan(self.0.start(name, parent.map(|p| p.0.clone()))))
-    }
-
     /// Where to send, once known (first connect: server URL → endpoint, token → headers). Until
     /// then everything waits in the cache; afterwards it uploads.
     pub fn set_destination(&self, endpoint: String, headers: HashMap<String, String>) {
@@ -216,16 +211,6 @@ pub struct TelemetrySpan(Arc<livekit_telemetry::Span>);
 
 #[uniffi::export]
 impl TelemetrySpan {
-    /// Timings and a description only; nothing is exported.
-    #[uniffi::constructor]
-    pub fn detached(name: SpanName) -> Arc<Self> {
-        Arc::new(Self(livekit_telemetry::Span::detached(name)))
-    }
-
-    pub fn label(&self) -> String {
-        self.0.label()
-    }
-
     /// A checkpoint, stamped now.
     pub fn step(&self, step: SpanStep) {
         self.0.step(step);
@@ -257,10 +242,6 @@ impl TelemetrySpan {
         self.0.is_ended()
     }
 
-    pub fn outcome(&self) -> Option<SpanOutcome> {
-        self.0.outcome()
-    }
-
     /// `None` for a detached span.
     pub fn context(&self) -> Option<TraceContext> {
         self.0.context()
@@ -275,12 +256,6 @@ impl TelemetrySpan {
     pub fn describe(&self) -> String {
         self.0.describe()
     }
-}
-
-/// A span's wire name (`lk.connect`, …, or the custom name), for the platform's own logging.
-#[uniffi::export]
-pub fn span_label(name: SpanName) -> String {
-    name.label().to_owned()
 }
 
 #[derive(uniffi::Object)]

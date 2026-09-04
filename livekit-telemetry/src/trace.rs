@@ -10,9 +10,8 @@ use std::{
 
 use tokio::time::Instant;
 
-use crate::{
-    scope::ScopeState, Attribute, AttributeValue, SpanKind, SpanOutcome, Telemetry, TrackKind,
-};
+use crate::span::SpanKind;
+use crate::{scope::ScopeState, Attribute, AttributeValue, SpanOutcome, Telemetry, TrackKind};
 
 /// What an SDK operation is. The kind follows from the name: connects talk to the server
 /// (`client`), the rest is internal work.

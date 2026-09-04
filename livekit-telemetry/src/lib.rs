@@ -58,7 +58,7 @@ pub use event::*;
 pub use exporter::Exporter;
 pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
 pub use scope::{RoomIdentity, Scope};
-pub use span::{SpanKind, SpanOutcome};
+pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
 pub use telemetry::*;
 pub use trace::*;

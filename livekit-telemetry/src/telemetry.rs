@@ -21,6 +21,7 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
+use crate::span::SpanKind;
 use crate::{
     event::now_unix_nanos,
     exporter::Command,
@@ -30,7 +31,7 @@ use crate::{
     stats::{Counters, TelemetryStatus},
     store::{Queued, Store},
     Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache, LogRecord, LogSource,
-    MemoryCache, RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
+    MemoryCache, RtcStatsSample, Severity, SpanOutcome, TelemetryEvent, TelemetryStats,
     TelemetryTransport,
 };
 use crate::{DeviceEvent, Span, SpanName};
@@ -436,7 +437,8 @@ impl Telemetry {
 
     /// Open a span: one attempt at an operation (`lk.connect`, `lk.publish`, …). Returns the
     /// handle to record checkpoints and to end it with; `parent` nests it under another open span.
-    pub fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
+    #[cfg(test)]
+    pub(crate) fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
         self.begin_span_in(name, kind, parent, &self.process)
     }
 
@@ -456,13 +458,13 @@ impl Telemetry {
     }
 
     /// Record a checkpoint inside an open span (`ws_open`, `join_recv`, …), stamped now.
-    pub fn add_span_event(&self, span: u64, name: &str, attributes: Vec<Attribute>) {
+    pub(crate) fn add_span_event(&self, span: u64, name: &str, attributes: Vec<Attribute>) {
         self.spans.lock().unwrap_or_else(|e| e.into_inner()).add_event(span, name, attributes);
     }
 
     /// End a span with its outcome; `error_type` becomes `error.type` and the status message.
     /// The span is exported with the next batch. Ending twice, or an unknown handle, is a no-op.
-    pub fn end_span(
+    pub(crate) fn end_span(
         &self,
         span: u64,
         outcome: SpanOutcome,
@@ -630,6 +632,7 @@ pub(crate) fn observability_endpoint(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::span::SpanKind;
     use crate::{RoomIdentity, SpanName, SpanStep};
     use std::{collections::VecDeque, fs, path::Path, sync::Mutex};
 
@@ -764,7 +767,7 @@ mod tests {
             logs::v1::LogRecord,
             trace::v1::{span, status},
         },
-        AppState, ExportError, ExportRequest, SpanKind, SpanOutcome, StreamDirection, ThermalState,
+        AppState, ExportError, ExportRequest, SpanOutcome, StreamDirection, ThermalState,
         TrackKind,
     };
 

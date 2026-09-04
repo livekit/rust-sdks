@@ -14,6 +14,7 @@
 
 use prost::Message;
 
+use crate::span::SpanKind;
 use crate::{
     event::now_unix_nanos,
     proto::opentelemetry::proto::{
@@ -25,7 +26,7 @@ use crate::{
     },
     span::SpanRecord,
     store::Queued,
-    Attribute, AttributeValue, Severity, SpanKind, SpanOutcome,
+    Attribute, AttributeValue, Severity, SpanOutcome,
 };
 
 pub(crate) const CONTENT_TYPE: &str = "application/x-protobuf";
