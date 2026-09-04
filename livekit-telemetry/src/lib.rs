@@ -30,7 +30,7 @@ mod device;
 mod rtc;
 
 /// Spans: one attempt at an operation, with explicit handles across the FFI.
-mod session;
+mod scope;
 mod span;
 
 /// Batch exporter actor: timer, OTLP encoding, retry policy.
@@ -57,7 +57,7 @@ pub use device::*;
 pub use event::*;
 pub use exporter::Exporter;
 pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
-pub use session::{RoomIdentity, Session};
+pub use scope::{RoomIdentity, Scope};
 pub use span::{SpanKind, SpanOutcome};
 pub use stats::{TelemetryStats, TelemetryStatus};
 pub use telemetry::*;

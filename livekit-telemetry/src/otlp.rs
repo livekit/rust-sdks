@@ -201,7 +201,7 @@ mod tests {
             .with_severity(Severity::Warn)
             .with_body("hi")
             .with_attribute("lk.ping.seq", 7i64);
-        let session = crate::session::SessionState::with_trace_id([7u8; 16]);
+        let session = crate::scope::ScopeState::with_trace_id([7u8; 16]);
         let bytes = encode_logs(&resource, &[], vec![Queued { event, session }]);
 
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn events_without_a_body_carry_their_name_as_body() {
-        let session = crate::session::SessionState::with_trace_id([7u8; 16]);
+        let session = crate::scope::ScopeState::with_trace_id([7u8; 16]);
         let event = TelemetryEvent::new("lk.rtc.stats.sample");
         let bytes = encode_logs(&[], &[], vec![Queued { event, session }]);
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");

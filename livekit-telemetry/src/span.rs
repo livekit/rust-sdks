@@ -15,7 +15,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use crate::{event::now_unix_nanos, session::SessionState, Attribute, AttributeValue};
+use crate::{event::now_unix_nanos, scope::ScopeState, Attribute, AttributeValue};
 
 /// OTel span kind, restricted to what client operations need.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
@@ -72,7 +72,7 @@ pub(crate) struct SpanRecord {
     pub attributes: Vec<Attribute>,
     pub events: Vec<SpanEvent>,
     /// The session (trace) the span belongs to.
-    pub session: Arc<SessionState>,
+    pub session: Arc<ScopeState>,
 }
 
 /// OTel default span limits.
@@ -95,7 +95,7 @@ pub(crate) struct Spans {
     /// Which session every recent span belongs to — open, finished or already exported — so a
     /// log record that arrives after its span ended (a warning logged right before a failing
     /// publish ends, delivered a hop later) is still filed under the right session.
-    sessions: HashMap<u64, Arc<SessionState>>,
+    sessions: HashMap<u64, Arc<ScopeState>>,
     session_order: VecDeque<u64>,
     next_id: u64,
     pub dropped: u64,
@@ -128,7 +128,7 @@ impl Spans {
         name: &str,
         kind: SpanKind,
         parent: Option<u64>,
-        session: Arc<SessionState>,
+        session: Arc<ScopeState>,
     ) -> u64 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
@@ -167,13 +167,13 @@ impl Spans {
     /// `lk.connect` / `lk.reconnect` are).
     /// The session a recent span belongs to — open, ended or exported (log records emitted inside
     /// a span are filed there, and they may arrive after the span ended).
-    pub fn session_of(&self, id: u64) -> Option<Arc<SessionState>> {
+    pub fn scope_of(&self, id: u64) -> Option<Arc<ScopeState>> {
         self.sessions.get(&id).cloned()
     }
 
     #[cfg(test)]
     pub fn begin(&mut self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
-        self.begin_in(name, kind, parent, SessionState::new())
+        self.begin_in(name, kind, parent, ScopeState::new())
     }
 
     pub fn any_open(&self, names: &[&str]) -> bool {

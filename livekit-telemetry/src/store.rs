@@ -17,13 +17,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{session::SessionState, stats::Counters, TelemetryEvent};
+use crate::{scope::ScopeState, stats::Counters, TelemetryEvent};
 
 /// An event waiting for export, filed under the session whose trace id and attributes it
 /// will carry.
 pub(crate) struct Queued {
     pub event: TelemetryEvent,
-    pub session: Arc<SessionState>,
+    pub session: Arc<ScopeState>,
 }
 
 /// Bounded FIFO of events waiting for export.
@@ -103,7 +103,7 @@ mod tests {
     use super::*;
 
     fn queued(event: TelemetryEvent) -> Queued {
-        Queued { event, session: SessionState::new() }
+        Queued { event, session: ScopeState::new() }
     }
 
     #[test]

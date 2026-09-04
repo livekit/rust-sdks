@@ -16,7 +16,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use tokio::time::Instant;
 
-use crate::{event::now_unix_nanos, session::SessionState, store::Queued, TelemetryEvent};
+use crate::{event::now_unix_nanos, scope::ScopeState, store::Queued, TelemetryEvent};
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,7 +154,7 @@ impl Gauge {
 
 /// Samples of one track in one direction accumulated since the window opened.
 struct Window {
-    session: Arc<SessionState>,
+    session: Arc<ScopeState>,
     start_ns: u64,
     samples: u32,
     /// Cumulative counters at the window's first reading, for the display body's deltas.
@@ -167,7 +167,7 @@ struct Window {
 }
 
 impl Window {
-    fn open(start_ns: u64, first: RtcStatsSample, session: Arc<SessionState>) -> Self {
+    fn open(start_ns: u64, first: RtcStatsSample, session: Arc<ScopeState>) -> Self {
         let mut window = Self {
             session,
             start_ns,
@@ -312,7 +312,7 @@ fn max_u64(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
 const CPU_LIMITED_HOLD: Duration = Duration::from_secs(60);
 
 impl StatsWindows {
-    pub fn record_in(&mut self, mut sample: RtcStatsSample, session: &Arc<SessionState>) {
+    pub fn record_in(&mut self, mut sample: RtcStatsSample, session: &Arc<ScopeState>) {
         self.fold_layers(&mut sample);
         self.track_limitation(&sample);
         let timestamp = *sample.timestamp_ns.get_or_insert_with(now_unix_nanos);
@@ -366,7 +366,7 @@ impl StatsWindows {
 
     #[cfg(test)]
     pub fn record(&mut self, sample: RtcStatsSample) {
-        self.record_in(sample, &SessionState::new());
+        self.record_in(sample, &ScopeState::new());
     }
 
     #[cfg(test)]

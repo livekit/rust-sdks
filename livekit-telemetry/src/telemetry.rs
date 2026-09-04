@@ -25,7 +25,7 @@ use crate::{
     event::now_unix_nanos,
     exporter::Command,
     rtc::StatsWindows,
-    session::{Session, SessionState},
+    scope::{Scope, ScopeState},
     span::Spans,
     stats::{Counters, TelemetryStatus},
     store::{Queued, Store},
@@ -165,7 +165,7 @@ pub struct Telemetry {
     guard: Arc<Mutex<FloodGuard>>,
     spans: Arc<Mutex<Spans>>,
     /// The pipeline's own session: whatever is emitted outside a room session.
-    process: Arc<SessionState>,
+    process: Arc<ScopeState>,
     /// Attributes attached to every record of every session.
     global: Arc<Mutex<Vec<Attribute>>>,
     destination: Arc<Mutex<Option<Destination>>>,
@@ -266,7 +266,7 @@ impl Telemetry {
         let config = Arc::new(config);
         // One pipeline per process; sessions (rooms) carry their own trace ids. This is the
         // pipeline's own session, for everything emitted outside a room.
-        let process = SessionState::new();
+        let process = ScopeState::new();
         let global = Arc::new(Mutex::new(Vec::new()));
         let counters = Arc::new(Counters::default());
         let status = Arc::new(Mutex::new(TelemetryStatus::Ok));
@@ -341,8 +341,8 @@ impl Telemetry {
 
     /// Start a session — one room, one call — with its own trace id and attributes on this
     /// pipeline. Sessions do not need ending: a room's last record is simply its last.
-    pub fn begin_session(&self) -> Session {
-        Session { telemetry: self.clone(), state: SessionState::new() }
+    pub fn begin_scope(&self) -> Scope {
+        Scope { telemetry: self.clone(), state: ScopeState::new() }
     }
 
     /// A span in the pipeline's own trace: app-defined work outside any room, or the SDK before a
@@ -388,12 +388,12 @@ impl Telemetry {
         // is the process's own.
         let session = event
             .span_id
-            .and_then(|id| self.spans.lock().unwrap_or_else(|e| e.into_inner()).session_of(id))
+            .and_then(|id| self.spans.lock().unwrap_or_else(|e| e.into_inner()).scope_of(id))
             .unwrap_or_else(|| self.process.clone());
         self.emit_in(event, &session);
     }
 
-    pub(crate) fn emit_in(&self, mut event: TelemetryEvent, session: &Arc<SessionState>) {
+    pub(crate) fn emit_in(&self, mut event: TelemetryEvent, session: &Arc<ScopeState>) {
         if event.name.is_empty() && event.severity < self.config.log_severity {
             return;
         }
@@ -418,8 +418,8 @@ impl Telemetry {
 
     /// Set a pipeline-wide attribute (a consumer's `enduser.id`, an `acme.tenant`), attached to
     /// every record of every session from now on unless the record — or its session — already
-    /// carries the key. `None` removes it. Session-level identity goes through
-    /// [`Session::set_attribute`].
+    /// carries the key. `None` removes it. Scope-level identity goes through
+    /// [`Scope::set_attribute`].
     pub fn set_attribute(&self, key: &str, value: Option<AttributeValue>) {
         let mut global = self.global.lock().unwrap_or_else(|e| e.into_inner());
         global.retain(|a| a.key != key);
@@ -445,7 +445,7 @@ impl Telemetry {
         name: &str,
         kind: SpanKind,
         parent: Option<u64>,
-        session: &Arc<SessionState>,
+        session: &Arc<ScopeState>,
     ) -> u64 {
         self.spans.lock().unwrap_or_else(|e| e.into_inner()).begin_in(
             name,
@@ -481,7 +481,7 @@ impl Telemetry {
         self.record_stats_in(sample, &self.process);
     }
 
-    pub(crate) fn record_stats_in(&self, sample: RtcStatsSample, session: &Arc<SessionState>) {
+    pub(crate) fn record_stats_in(&self, sample: RtcStatsSample, session: &Arc<ScopeState>) {
         self.windows.lock().unwrap_or_else(|e| e.into_inner()).record_in(sample, session);
     }
 
@@ -657,7 +657,7 @@ mod tests {
     async fn typed_spans_hold_uploads_while_connecting_and_export_when_ended() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
-        let session = telemetry.begin_session();
+        let session = telemetry.begin_scope();
         let span = session.start(SpanName::Reconnect { reason: "ws closed".into() }, None);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
@@ -681,7 +681,7 @@ mod tests {
             device_model: Some("iPhone17,1".into()),
         });
         let telemetry = start(config, transport.clone());
-        let session = telemetry.begin_session();
+        let session = telemetry.begin_scope();
         session.set_room(RoomIdentity {
             sid: Some("RM_a".into()),
             name: Some("telemetry".into()),
@@ -1243,8 +1243,8 @@ mod tests {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
         telemetry.set_attribute("acme.tenant", Some("t1".into()));
-        let a = telemetry.begin_session();
-        let b = telemetry.begin_session();
+        let a = telemetry.begin_scope();
+        let b = telemetry.begin_scope();
         assert_ne!(a.trace_id(), b.trace_id());
         assert_ne!(a.trace_id(), telemetry.trace_id(), "the process has its own session");
         a.set_attribute("lk.room.sid", Some("RM_a".into()));
@@ -1313,7 +1313,7 @@ mod tests {
         assert_eq!(sent.len(), 1, "cached batches ship as soon as the destination is known");
         assert_eq!(sent[0].url, "https://x.livekit.cloud/observability/logs/otlp/v0");
         assert_eq!(sent[0].headers["Authorization"], "Bearer t");
-        telemetry.begin_session().begin_span("lk.publish", SpanKind::Internal, None);
+        telemetry.begin_scope().begin_span("lk.publish", SpanKind::Internal, None);
         let span = telemetry.begin_span("lk.publish", SpanKind::Internal, None);
         telemetry.end_span(span, SpanOutcome::Ok, None, Vec::new());
         telemetry.flush().await;

@@ -101,8 +101,8 @@ impl Telemetry {
     }
 
     /// A session — one room, one call — with its own trace id and attributes on this pipeline.
-    pub fn begin_session(&self) -> Arc<TelemetrySession> {
-        Arc::new(TelemetrySession(self.0.begin_session()))
+    pub fn begin_scope(&self) -> Arc<TelemetryScope> {
+        Arc::new(TelemetryScope(self.0.begin_scope()))
     }
 
     /// Report the device state (thermal, low power, foreground/background). Emits the matching
@@ -149,12 +149,12 @@ impl Telemetry {
 }
 
 /// One room's session on the process pipeline: what its spans, stats and events are filed
-/// under. Obtained from [`Telemetry::begin_session`].
+/// under. Obtained from [`Telemetry::begin_scope`].
 #[derive(uniffi::Object)]
-pub struct TelemetrySession(livekit_telemetry::Session);
+pub struct TelemetryScope(livekit_telemetry::Scope);
 
 #[uniffi::export]
-impl TelemetrySession {
+impl TelemetryScope {
     /// The session's trace id as 32 hex characters.
     pub fn trace_id(&self) -> String {
         self.0.trace_id()

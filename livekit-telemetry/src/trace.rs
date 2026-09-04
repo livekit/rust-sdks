@@ -11,7 +11,7 @@ use std::{
 use tokio::time::Instant;
 
 use crate::{
-    session::SessionState, Attribute, AttributeValue, SpanKind, SpanOutcome, Telemetry, TrackKind,
+    scope::ScopeState, Attribute, AttributeValue, SpanKind, SpanOutcome, Telemetry, TrackKind,
 };
 
 /// What an SDK operation is. The kind follows from the name: connects talk to the server
@@ -195,7 +195,7 @@ impl Span {
         name: SpanName,
         parent: Option<u64>,
         telemetry: Telemetry,
-        session: &Arc<SessionState>,
+        session: &Arc<ScopeState>,
     ) -> Arc<Self> {
         let id = telemetry.begin_span_in(name.label(), name.kind(), parent, session);
         Arc::new(Self::new(name, Some(Bound { telemetry, trace_id: session.hex(), id })))

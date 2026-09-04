@@ -26,7 +26,7 @@ use crate::{
     event::now_unix_nanos,
     otlp,
     rtc::StatsWindows,
-    session::SessionState,
+    scope::ScopeState,
     span::Spans,
     stats::{Counters, Snapshot, TelemetryStatus},
     store::{Queued, Store},
@@ -131,7 +131,7 @@ pub struct Exporter {
     windows: Arc<Mutex<StatsWindows>>,
     spans: Arc<Mutex<Spans>>,
     /// The pipeline's own session: self-telemetry is filed under it.
-    process: Arc<SessionState>,
+    process: Arc<ScopeState>,
     /// Attributes attached to every record of every session (`Telemetry::set_attribute`).
     global: Arc<Mutex<Vec<Attribute>>>,
     /// Where batches go; `None` until `set_destination` — batches wait in the cache meanwhile.
@@ -178,7 +178,7 @@ impl Exporter {
         counters: Arc<Counters>,
         windows: Arc<Mutex<StatsWindows>>,
         spans: Arc<Mutex<Spans>>,
-        process: Arc<SessionState>,
+        process: Arc<ScopeState>,
         global: Arc<Mutex<Vec<Attribute>>>,
         destination: Arc<Mutex<Option<Destination>>>,
         commands: mpsc::UnboundedReceiver<Command>,

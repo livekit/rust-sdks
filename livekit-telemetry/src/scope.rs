@@ -24,12 +24,12 @@ use crate::{
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
 /// attached to them at export time (`lk.room.sid`, `lk.participant.identity`, …).
-pub(crate) struct SessionState {
+pub(crate) struct ScopeState {
     pub trace_id: [u8; 16],
     attributes: Mutex<Vec<Attribute>>,
 }
 
-impl SessionState {
+impl ScopeState {
     /// A fresh session: random, non-zero trace id (OTLP treats all-zero as absent).
     pub fn new() -> Arc<Self> {
         Self::with_trace_id(rand::random::<u128>().max(1).to_be_bytes())
@@ -68,15 +68,15 @@ impl SessionState {
     }
 }
 
-impl PartialEq for SessionState {
+impl PartialEq for ScopeState {
     fn eq(&self, other: &Self) -> bool {
         self.trace_id == other.trace_id
     }
 }
 
-impl fmt::Debug for SessionState {
+impl fmt::Debug for ScopeState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Session({})", self.hex())
+        write!(f, "Scope({})", self.hex())
     }
 }
 
@@ -84,7 +84,7 @@ impl fmt::Debug for SessionState {
 /// cadence and exporter as every other session in the process.
 ///
 /// The pipeline starts once, at SDK init, so nothing that happens before the first room is
-/// lost; a `Session` is what a room — one call — gets from it, and what its spans, RTC windows
+/// lost; a `Scope` is what a room — one call — gets from it, and what its spans, RTC windows
 /// and events are filed under. Everything emitted outside a session (device state, pre-room
 /// errors, self-telemetry) belongs to the pipeline's own process session. Cheap to clone.
 /// Who this session is: attached to every record once the room is joined. `None` clears.
@@ -102,12 +102,12 @@ pub struct RoomIdentity {
 }
 
 #[derive(Clone)]
-pub struct Session {
+pub struct Scope {
     pub(crate) telemetry: Telemetry,
-    pub(crate) state: Arc<SessionState>,
+    pub(crate) state: Arc<ScopeState>,
 }
 
-impl Session {
+impl Scope {
     /// The session's trace id as 32 hex characters — print it (`lkt_…`) so support can find
     /// the call.
     pub fn trace_id(&self) -> String {
