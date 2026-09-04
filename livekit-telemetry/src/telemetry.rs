@@ -1015,6 +1015,16 @@ mod tests {
         let otlp_span = &traces.resource_spans[0].scope_spans[0].spans[0];
         assert_eq!(hex(&otlp_span.trace_id), a.trace_id());
         assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room.sid"));
+
+        // A record that names a span which has already ended — and been exported — is still that
+        // session's: the SDK's log path hops threads, the span does not wait for it.
+        telemetry.emit(
+            TelemetryEvent::new("").with_severity(Severity::Error).with_body("late").in_span(span),
+        );
+        telemetry.flush().await;
+        let late = &records(&transport.sent()[2])[0];
+        assert_eq!(hex(&late.trace_id), a.trace_id(), "filed under the ended span's session");
+        assert_eq!(late.span_id, span.to_be_bytes().to_vec());
     }
 
     #[tokio::test(start_paused = true)]

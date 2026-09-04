@@ -92,9 +92,19 @@ pub(crate) struct Spans {
     open_order: VecDeque<u64>,
     finished: Vec<SpanRecord>,
     finished_capacity: usize,
+    /// Which session every recent span belongs to — open, finished or already exported — so a
+    /// log record that arrives after its span ended (a warning logged right before a failing
+    /// publish ends, delivered a hop later) is still filed under the right session.
+    sessions: HashMap<u64, Arc<SessionState>>,
+    session_order: VecDeque<u64>,
     next_id: u64,
     pub dropped: u64,
 }
+
+/// Spans whose session stays resolvable after they ended.
+// ponytail: a fixed ring; a time-based expiry if a long session ever opens more spans than this
+// between a log and its export.
+const REMEMBERED_SPANS: usize = 1024;
 
 impl Spans {
     pub fn new(finished_capacity: usize) -> Self {
@@ -103,6 +113,8 @@ impl Spans {
             open_order: VecDeque::new(),
             finished: Vec::new(),
             finished_capacity,
+            sessions: HashMap::new(),
+            session_order: VecDeque::new(),
             // Span ids must be non-zero (OTLP treats all-zero as absent); start at 1 and mix in
             // randomness so ids from two pipelines in one process never collide.
             next_id: rand::random::<u64>() | 1,
@@ -126,6 +138,13 @@ impl Spans {
                 self.dropped += 1;
             }
         }
+        self.sessions.insert(id, session.clone());
+        self.session_order.push_back(id);
+        if self.session_order.len() > REMEMBERED_SPANS {
+            if let Some(old) = self.session_order.pop_front() {
+                self.sessions.remove(&old);
+            }
+        }
         let record = SpanRecord {
             span_id: id,
             parent_span_id: parent.filter(|p| *p != 0),
@@ -146,9 +165,10 @@ impl Spans {
 
     /// Whether a span with one of these names is still open (the exporter holds uploads while
     /// `lk.connect` / `lk.reconnect` are).
-    /// The session an open span belongs to (log records emitted inside a span are filed there).
+    /// The session a recent span belongs to — open, ended or exported (log records emitted inside
+    /// a span are filed there, and they may arrive after the span ended).
     pub fn session_of(&self, id: u64) -> Option<Arc<SessionState>> {
-        self.open.get(&id).map(|span| span.session.clone())
+        self.sessions.get(&id).cloned()
     }
 
     #[cfg(test)]
