@@ -1,5 +1,5 @@
-This directory can contain a checkout of WebRTC. The build scripts
-here will install dependencies, checkout the version that LiveKit
+This directory can contain a checkout of WebRTC from https://github.com/webrtc-sdk/webrtc. 
+The build scripts here will install dependencies, checkout the version that LiveKit
 currently uses, apply some patches to it, and build it. For example to
 do a Linux debug build on x64:
 
