@@ -1234,7 +1234,9 @@ impl SessionInner {
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                                     self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
-                                    retry_queue.trim(sent as usize);
+                                    // Keep a retry window for resume replay: the bytes flushed
+                                    // by this event plus a floor of 1.25x the low threshold.
+                                    retry_queue.trim((sent + threshold + threshold / 4) as usize);
                                 }
                             }
                         }
