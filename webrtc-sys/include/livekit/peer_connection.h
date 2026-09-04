@@ -16,7 +16,10 @@
 
 #pragma once
 
+#include <atomic>
+#include <functional>
 #include <memory>
+#include <optional>
 
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
@@ -43,6 +46,52 @@ webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
     RtcConfiguration config);
 
 class PeerConnectionObserverWrapper;
+
+// Owns the Rust completion state of an asynchronous `AddIceCandidate` call.
+//
+// `PeerConnectionInterface::AddIceCandidate` takes a copyable
+// `std::function<void(RTCError)>` and invokes it from libwebrtc's operations
+// chain, which may run long after `PeerConnection::add_ice_candidate` has
+// returned. The state therefore cannot be captured by reference from that
+// frame, and the move-only `rust::Box<PeerContext>` cannot be captured by value
+// into a copyable `std::function`. Instances are held behind a `shared_ptr` so
+// that every copy libwebrtc makes of the callback refers to the same state, and
+// `Complete` hands the context back to Rust exactly once no matter how many
+// copies are invoked.
+class AddIceCandidateCompletion {
+ public:
+  AddIceCandidateCompletion(
+      rust::Box<PeerContext> ctx,
+      rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete)
+      : ctx_(std::move(ctx)), on_complete_(on_complete) {}
+
+  AddIceCandidateCompletion(const AddIceCandidateCompletion&) = delete;
+  AddIceCandidateCompletion& operator=(const AddIceCandidateCompletion&) =
+      delete;
+
+  // Reports `error` to Rust. Subsequent calls are ignored: the context can only
+  // be moved back to Rust once.
+  void Complete(const webrtc::RTCError& error) {
+    if (completed_.exchange(true, std::memory_order_acq_rel))
+      return;
+
+    on_complete_(std::move(*ctx_), to_error(error));
+    ctx_.reset();
+  }
+
+ private:
+  std::optional<rust::Box<PeerContext>> ctx_;
+  rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete_;
+  std::atomic<bool> completed_{false};
+};
+
+// Builds the callback handed to `PeerConnectionInterface::AddIceCandidate`.
+// The returned function keeps `ctx` and `on_complete` alive until libwebrtc
+// invokes it (or drops every copy of it, which drops the context and cancels
+// the pending Rust future).
+std::function<void(const webrtc::RTCError&)> make_add_ice_candidate_callback(
+    rust::Box<PeerContext> ctx,
+    rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete);
 
 class PeerConnection : webrtc::PeerConnectionObserver {
  public:
@@ -203,5 +252,18 @@ class PeerConnection : webrtc::PeerConnectionObserver {
 static std::shared_ptr<PeerConnection> _shared_peer_connection() {
   return nullptr;  // Ignore
 }
+
+#ifdef LIVEKIT_TEST
+// Test-only seam reproducing how libwebrtc drives an `AddIceCandidate`
+// completion: the callback outlives the frame that built it, is copied into the
+// operations chain, and is then invoked `invocations` times (zero models a
+// pending operation that is abandoned). Reports back to Rust at most once; an
+// empty `error_message` reports success.
+void complete_add_ice_candidate_for_test(
+    rust::Box<PeerContext> ctx,
+    rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete,
+    rust::String error_message,
+    size_t invocations);
+#endif
 
 }  // namespace livekit_ffi

@@ -205,6 +205,15 @@ pub mod ffi {
         fn close(self: &PeerConnection);
 
         fn _shared_peer_connection() -> SharedPtr<PeerConnection>; // Ignore
+
+        /// Test-only seam that drives an `add_ice_candidate` completion the way
+        /// libwebrtc does; see the declaration in `livekit/peer_connection.h`.
+        fn complete_add_ice_candidate_for_test(
+            ctx: Box<PeerContext>,
+            on_complete: fn(ctx: Box<PeerContext>, error: RtcError),
+            error_message: String,
+            invocations: usize,
+        );
     }
 
     extern "Rust" {
@@ -234,5 +243,69 @@ impl Default for ffi::RtcOfferAnswerOptions {
             num_simulcast_layers: 1,
             use_obsolete_sctp_sdp: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::{ffi, PeerContext};
+
+    type Completion = mpsc::Sender<Result<(), String>>;
+
+    /// Mirrors the completion handler `libwebrtc` installs: it takes the
+    /// context back from C++ and reports the result exactly once.
+    // The box is dictated by the FFI signature, not by this function.
+    #[allow(clippy::boxed_local)]
+    fn on_complete(ctx: Box<PeerContext>, error: ffi::RtcError) {
+        let tx = ctx.0.downcast::<Completion>().expect("unexpected peer context payload");
+        let result = if error.message.is_empty() { Ok(()) } else { Err(error.message) };
+        let _ = tx.send(result);
+    }
+
+    fn complete(error_message: &str, invocations: usize) -> mpsc::Receiver<Result<(), String>> {
+        let (tx, rx) = mpsc::channel();
+        let ctx = Box::new(PeerContext(Box::new(tx as Completion)));
+        ffi::complete_add_ice_candidate_for_test(
+            ctx,
+            on_complete,
+            error_message.to_owned(),
+            invocations,
+        );
+        rx
+    }
+
+    /// The callback state must outlive the frame that built it: libwebrtc runs
+    /// it from its operations chain, potentially long after
+    /// `add_ice_candidate` returned.
+    #[test]
+    fn completion_survives_the_frame_that_built_it() {
+        assert_eq!(complete("", 1).try_recv(), Ok(Ok(())));
+    }
+
+    #[test]
+    fn completion_forwards_the_error() {
+        assert_eq!(
+            complete("candidate rejected", 1).try_recv(),
+            Ok(Err("candidate rejected".to_owned()))
+        );
+    }
+
+    /// libwebrtc holds the callback in a copyable `std::function`, so several
+    /// copies may be invoked. The context can only be moved back to Rust once.
+    #[test]
+    fn completion_reports_once_when_invoked_repeatedly() {
+        let rx = complete("", 4);
+
+        assert_eq!(rx.try_recv(), Ok(Ok(())));
+        assert_eq!(rx.try_recv(), Err(mpsc::TryRecvError::Disconnected));
+    }
+
+    /// An abandoned operation drops every copy of the callback without
+    /// invoking it, which releases the context exactly once.
+    #[test]
+    fn dropping_the_callback_releases_the_context() {
+        assert_eq!(complete("", 0).try_recv(), Err(mpsc::TryRecvError::Disconnected));
     }
 }
