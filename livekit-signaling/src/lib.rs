@@ -19,7 +19,7 @@ use std::{
     fmt::Debug,
     io::Write,
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicU32, Ordering},
         Arc,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -32,7 +32,7 @@ use livekit_protocol as proto;
 use parking_lot::Mutex;
 use prost::Message;
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use tokio::sync::{mpsc, RwLock as AsyncRwLock};
 use tokio::{
     task::JoinHandle,
     time::{interval, sleep, Instant},
@@ -114,6 +114,11 @@ pub enum SignalError {
     Connection(String),
     #[error("transport closed")]
     Closed,
+    /// The lifecycle does not accept the requested step from its current state, for example a
+    /// resume while a close is still in flight. The crate-private `SignalState` transition
+    /// table lists what each state accepts.
+    #[error("cannot {0}")]
+    InvalidState(String),
     /// No network transport is registered. On foreign/host builds the host must
     /// call `livekit_net::set_ws_client` / `set_http_client` before connecting.
     /// This is a permanent configuration error, not a transient failure — callers
@@ -205,11 +210,95 @@ pub enum SignalEvent {
     Close(Cow<'static, str>),
 }
 
+/// Lifecycle of the signal connection. The state owns the transport, so "which state" and "is
+/// there a socket" cannot disagree.
+///
+/// - `ReconnectComplete` keeps the client `Reconnecting` until the engine sends `Reconnected`,
+///   so session-scoped sends stay held until the media path is confirmed.
+/// - A stale transport cannot report in: `SignalClient::restart` closes and awaits the previous
+///   transport's task before it starts the next attempt.
+/// - `ReconnectFailed` always lands in `Offline`. Whether the failure is terminal is the
+///   engine's call, made from the error `restart` returns.
+#[derive(Debug)]
+enum SignalState {
+    /// Transport up and the session confirmed. Sends go straight through.
+    Connected(SignalStream),
+    /// Resume in flight (`None`), or transport back and engine not yet confirmed (`Some`).
+    /// Session-scoped sends queue throughout.
+    Reconnecting(Option<SignalStream>),
+    /// The transport was lost without a close being asked for. No attempt is in flight, and
+    /// the session is still resumable.
+    Offline,
+    /// A close was asked for and the transport is shutting down.
+    Disconnecting,
+    /// Closed on request. Still resumable.
+    Closed,
+}
+
+/// Inputs that move a [`SignalState`].
+#[derive(Debug)]
+enum SignalInput {
+    /// Start resuming the session on a new transport.
+    Reconnect,
+    /// The resume's transport is up and the server answered with a `ReconnectResponse`.
+    ReconnectComplete(SignalStream),
+    ReconnectFailed,
+    /// The engine confirms the resume is complete, which releases held session requests.
+    Reconnected,
+    /// The transport died on its own: remote close or keepalive lapse.
+    TransportFailed,
+    Close,
+    /// The close handshake settled.
+    CloseComplete,
+}
+
+impl SignalState {
+    /// The transition table. `Ok`: the transport the old state owned and the new one does not;
+    /// close it. `Err`: refused, logged, nothing moved.
+    fn transition(&mut self, input: SignalInput) -> Result<Option<SignalStream>, SignalInput> {
+        use SignalInput as In;
+        use SignalState::*;
+        // `Closed` is a placeholder while the old state is moved out
+        let (next, released) = match (std::mem::replace(self, Closed), input) {
+            (Connected(stream), In::Reconnect) => (Reconnecting(None), Some(stream)),
+            (Offline | Closed, In::Reconnect) => (Reconnecting(None), None),
+            (Reconnecting(None), In::ReconnectComplete(stream)) => {
+                (Reconnecting(Some(stream)), None)
+            }
+            (Reconnecting(stream), In::ReconnectFailed) => (Offline, stream),
+            (Reconnecting(Some(stream)), In::Reconnected) => (Connected(stream), None),
+            (Connected(stream) | Reconnecting(Some(stream)), In::TransportFailed) => {
+                (Offline, Some(stream))
+            }
+            (Connected(stream) | Reconnecting(Some(stream)), In::Close) => {
+                (Disconnecting, Some(stream))
+            }
+            (Reconnecting(None) | Offline, In::Close) => (Disconnecting, None),
+            (Disconnecting, In::CloseComplete) => (Closed, None),
+            (state, input) => {
+                log::debug!("ignoring signal lifecycle input {input:?} in state {state:?}");
+                *self = state;
+                return Err(input);
+            }
+        };
+        *self = next;
+        Ok(released)
+    }
+
+    fn stream(&self) -> Option<&SignalStream> {
+        match self {
+            Self::Connected(stream) | Self::Reconnecting(Some(stream)) => Some(stream),
+            Self::Reconnecting(None) | Self::Offline | Self::Disconnecting | Self::Closed => None,
+        }
+    }
+}
+
 struct SignalInner {
-    stream: AsyncRwLock<Option<SignalStream>>,
+    state: AsyncRwLock<SignalState>,
     token: Mutex<String>, // Token can be refreshed
-    reconnecting: AtomicBool,
-    queue: AsyncMutex<Vec<proto::signal_request::Message>>,
+    /// Session-scoped signals held while no confirmed transport can carry them. A sync lock that
+    /// is never held across an await, so it cannot deadlock against `state`.
+    queue: Mutex<Vec<proto::signal_request::Message>>,
     url: String,
     options: SignalOptions,
     join_response: proto::JoinResponse,
@@ -310,12 +399,14 @@ impl SignalClient {
 
     /// Restart the connection to the server.
     ///
-    /// Leaves the client in a "reconnecting" state with pass-through-only sends
-    /// queueable signals (e.g. `AddTrack`, `Mute`, `UpdateSubscription`) accumulate
-    /// in the queue. Caller MUST invoke [`Self::set_reconnected`] once the resume
-    /// has fully recovered (PC connected, SyncState sent) to drain the queue and
-    /// re-enable normal sends.
+    /// Leaves the client `Reconnecting` with its transport installed: pass-through signals go
+    /// out on it, while queueable signals (e.g. `AddTrack`, `Mute`, `UpdateSubscription`)
+    /// accumulate in the queue. Caller MUST invoke [`Self::set_reconnected`] once the resume
+    /// has fully recovered (PC connected, SyncState sent) to drain the queue and re-enable
+    /// normal sends.
     pub async fn restart(&self) -> SignalResult<proto::ReconnectResponse> {
+        // Close first and await the old `signal_task`, so its `TransportFailed` lands before
+        // the new attempt starts.
         self.close().await;
 
         let (reconnect_response, stream_events) = self.inner.restart().await?;
@@ -326,8 +417,8 @@ impl SignalClient {
         Ok(reconnect_response)
     }
 
-    /// Mark the signal as fully reconnected: drains the queue and clears the
-    /// `reconnecting` flag so subsequent sends bypass the queue path.
+    /// Mark the signal as fully reconnected: moves `Reconnecting` to `Connected` and drains
+    /// the queue, so subsequent sends go straight through.
     ///
     /// MUST be called by the engine after `wait_pc_reconnected` succeeds.
     /// Without this, the queued mutations (subscription updates, mutes, etc.)
@@ -386,14 +477,13 @@ impl SignalClient {
 
     /// Returns whether the underlying WebSocket is currently in place.
     ///
-    /// The inner `signal_task` clears the stream slot when the WebSocket dies
+    /// The inner `signal_task` moves the client to `Offline` when the WebSocket dies
     /// (ping timeout or remote close), so callers in the resume path can use
     /// this to detect "signal died again while we were waiting for the PC."
-    /// Note: this does NOT inspect the `reconnecting` flag — during a normal
-    /// resume the flag is true even after the new stream has been installed,
-    /// and we want this check to return `true` in that case.
+    /// Note: `Reconnecting` with its transport installed counts as connected. The engine has
+    /// not confirmed the resume yet, and that window is exactly what this check serves.
     pub async fn is_connected(&self) -> bool {
-        self.inner.stream.read().await.is_some()
+        self.inner.state.read().await.stream().is_some()
     }
 }
 
@@ -474,9 +564,8 @@ impl SignalInner {
 
         // Successfully connected to the SignalClient
         let inner = Arc::new(SignalInner {
-            stream: AsyncRwLock::new(Some(stream)),
+            state: AsyncRwLock::new(SignalState::Connected(stream)),
             token: Mutex::new(token.to_owned()),
-            reconnecting: AtomicBool::new(false),
             queue: Default::default(),
             options,
             url: url.to_string(),
@@ -542,25 +631,19 @@ impl SignalInner {
 
     /// Restart is called when trying to resume the room (RtcSession resume).
     ///
-    /// Leaves `reconnecting=true` on success — the engine is expected to call
-    /// [`Self::set_reconnected`] once the full resume has succeeded. On failure
-    /// resets `reconnecting=false` so subsequent retries can re-enter cleanly.
-    /// The stream slot is held under a write lock for the entire close + new
-    /// connect, so concurrent senders block on the read side until the new
-    /// stream is in place.
+    /// The write lock is held for the entire close + connect, so concurrent senders wait on
+    /// the read side and land on the new transport instead of in a transport-less gap.
     pub async fn restart(
         self: &Arc<Self>,
     ) -> SignalResult<(
         proto::ReconnectResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        // Set reconnecting BEFORE we touch the stream, so concurrent `send` calls
-        // see the right state and route queueable messages to the queue (rather
-        // than racing on a brief stream=None / reconnecting=false window).
-        self.reconnecting.store(true, Ordering::Release);
-
-        let mut stream_guard = self.stream.write().await;
-        if let Some(old_stream) = stream_guard.take() {
+        let mut state = self.state.write().await;
+        let old_stream = state.transition(SignalInput::Reconnect).map_err(|_| {
+            SignalError::InvalidState(format!("resume the signal session from {state:?}"))
+        })?;
+        if let Some(old_stream) = old_stream {
             old_stream.close(false).await;
         }
 
@@ -577,27 +660,21 @@ impl SignalInner {
         )
         .unwrap();
 
-        let result = async {
+        let attempt = async {
             let (new_stream, mut events) =
                 SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
             let reconnect_response = get_reconnect_response(&mut events).await?;
             SignalResult::Ok((new_stream, reconnect_response, events))
-        }
-        .await;
-
-        match result {
+        };
+        match attempt.await {
             Ok((new_stream, reconnect_response, events)) => {
-                *stream_guard = Some(new_stream);
-                drop(stream_guard);
-                // Note: NOT clearing `reconnecting` here. Caller must invoke
-                // `set_reconnected()` after the resume has fully recovered.
+                state
+                    .transition(SignalInput::ReconnectComplete(new_stream))
+                    .expect("the write lock is held, so the state is still Reconnecting");
                 Ok((reconnect_response, events))
             }
             Err(err) => {
-                // Connect / get_reconnect_response failed. Stream slot stays None.
-                // Reset the flag so the next reconnect attempt can re-enter.
-                drop(stream_guard);
-                self.reconnecting.store(false, Ordering::Release);
+                let _ = state.transition(SignalInput::ReconnectFailed);
                 Err(err)
             }
         }
@@ -605,77 +682,77 @@ impl SignalInner {
 
     /// See [`SignalClient::set_reconnected`].
     pub async fn set_reconnected(&self) {
-        // Order: clear the flag FIRST, then flush. This way any sends that race
-        // with the flush see `reconnecting=false` and go through the normal path
-        // (which itself flushes the queue), and we don't have queueable sends
-        // sneaking back into the queue while we're trying to drain it.
-        self.reconnecting.store(false, Ordering::Release);
-        self.flush_queue().await;
+        let mut state = self.state.write().await;
+        let _ = state.transition(SignalInput::Reconnected);
+        // Drain while still holding the write lock, so no concurrent send can overtake what
+        // was held during the resume.
+        if let SignalState::Connected(stream) = &*state {
+            self.flush_queue(stream).await;
+        }
     }
 
-    /// Close the connection
+    /// Close the connection on request.
     pub async fn close(&self, notify_close: bool) {
-        if let Some(stream) = self.stream.write().await.take() {
+        // Already closing or closed: whoever owns that close finishes it.
+        let Ok(stream) = self.state.write().await.transition(SignalInput::Close) else {
+            return;
+        };
+        if let Some(stream) = stream {
             stream.close(notify_close).await;
+        }
+        let _ = self.state.write().await.transition(SignalInput::CloseComplete);
+    }
+
+    /// The transport died on its own (remote close or ping timeout): release it and go `Offline`.
+    async fn transport_failed(&self) {
+        let released = self.state.write().await.transition(SignalInput::TransportFailed);
+        if let Ok(Some(stream)) = released {
+            stream.close(true).await;
         }
     }
 
     /// Send a signal to the server.
     ///
-    /// During reconnect:
-    /// - Pass-through signals (`Trickle`/`Offer`/`Answer`/`SyncState`/`Simulate`/`Leave`)
-    ///   block on the stream lock and write through the new stream once it's in place.
-    /// - Queueable signals are accumulated in the queue and drained by
-    ///   [`Self::set_reconnected`] after the resume has fully recovered.
+    /// Pass-through signals go out on any transport; session-scoped signals wait in the queue
+    /// until `Connected`.
     pub async fn send(&self, signal: proto::signal_request::Message) {
-        let pass_through = is_pass_through(&signal);
-        let reconnecting = self.reconnecting.load(Ordering::Acquire);
+        let state = self.state.read().await;
+        let stream = match &*state {
+            SignalState::Connected(stream) => {
+                self.flush_queue(stream).await;
+                Some(stream)
+            }
+            SignalState::Reconnecting(Some(stream)) if is_pass_through(&signal) => Some(stream),
+            SignalState::Reconnecting(_)
+            | SignalState::Offline
+            | SignalState::Disconnecting
+            | SignalState::Closed => None,
+        };
 
-        if reconnecting && !pass_through {
-            // Queueable signal during reconnect — buffer for the post-resume flush.
-            self.queue.lock().await.push(signal);
-            return;
-        }
-
-        if !reconnecting {
-            // Normal path: drain anything that was queued before the previous
-            // reconnect, preserving the original send order.
-            self.flush_queue().await;
-        }
-
-        // Pass-through during reconnect: the stream read lock is held by `restart`
-        // until the new stream is installed, so this awaits and then writes via
-        // the new stream. Same code path for the steady-state send — the lock is
-        // free and we send immediately.
-        if let Some(stream) = self.stream.read().await.as_ref() {
-            if let Err(SignalError::SendError) = stream.send(signal.clone()).await {
-                if !pass_through {
-                    self.queue.lock().await.push(signal);
-                } else {
-                    log::warn!("dropping pass-through signal — send failed");
+        match stream {
+            Some(stream) => {
+                if stream.send(signal.clone()).await.is_err() {
+                    self.hold_or_drop(signal, "send failed");
                 }
             }
-        } else if !pass_through {
-            // Stream not in place AND signal is queueable — hold it.
-            self.queue.lock().await.push(signal);
-        } else {
-            log::warn!("dropping pass-through signal — no stream available");
+            None => self.hold_or_drop(signal, "no confirmed transport"),
         }
     }
 
-    pub async fn flush_queue(&self) {
-        let mut queue = self.queue.lock().await;
-        if queue.is_empty() {
-            return;
+    fn hold_or_drop(&self, signal: proto::signal_request::Message, why: &str) {
+        if is_pass_through(&signal) {
+            log::warn!("dropping pass-through signal: {why}");
+        } else {
+            self.queue.lock().push(signal);
         }
+    }
 
-        if let Some(stream) = self.stream.read().await.as_ref() {
-            for signal in queue.drain(..) {
-                // log::warn!("sending queued signal: {:?}", signal);
-
-                if let Err(err) = stream.send(signal).await {
-                    log::error!("failed to send queued signal: {}", err); // Lost message
-                }
+    /// Send every held signal over `stream`, in the order it was held.
+    async fn flush_queue(&self, stream: &SignalStream) {
+        let queued = std::mem::take(&mut *self.queue.lock());
+        for signal in queued {
+            if let Err(err) = stream.send(signal).await {
+                log::error!("failed to send queued signal: {}", err); // Lost message
             }
         }
     }
@@ -753,7 +830,9 @@ async fn signal_task(
         }
     }
 
-    inner.close(true).await; // Make sure to always close the ws connection when the loop is terminated
+    // The loop only ends when the transport is gone or unresponsive. Refused, and so a no-op,
+    // when the transport was closed on request.
+    inner.transport_failed().await;
 }
 
 /// Returns true for signals that must NOT be queued during a reconnect — they
@@ -1139,10 +1218,9 @@ mod tests {
         assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
     }
 
-    /// Build a stream-less SignalInner suitable for exercising the queue routing
-    /// in `send`. The stream slot is None so any actual write would be dropped,
-    /// which is fine — these tests only assert which side of the queue each
-    /// message lands on.
+    /// Build an `Offline` SignalInner suitable for exercising the queue routing in
+    /// `send`. Any actual write would be dropped, which is fine — these tests only assert
+    /// which side of the queue each message lands on.
     fn make_stub_inner() -> Arc<SignalInner> {
         make_stub_inner_with(proto::JoinResponse::default())
     }
@@ -1150,9 +1228,8 @@ mod tests {
     /// As `make_stub_inner`, with a join response — `restart` reads the participant sid from it.
     fn make_stub_inner_with(join_response: proto::JoinResponse) -> Arc<SignalInner> {
         Arc::new(SignalInner {
-            stream: AsyncRwLock::new(None),
+            state: AsyncRwLock::new(SignalState::Offline),
             token: Mutex::new(String::new()),
-            reconnecting: AtomicBool::new(false),
             queue: Default::default(),
             url: "wss://localhost:7880".to_string(),
             options: SignalOptions::default(),
@@ -1170,11 +1247,10 @@ mod tests {
     }
 
     /// The sids of the queued mute requests, in queue order.
-    async fn queued_sids(inner: &Arc<SignalInner>) -> Vec<String> {
+    fn queued_sids(inner: &Arc<SignalInner>) -> Vec<String> {
         inner
             .queue
             .lock()
-            .await
             .iter()
             .filter_map(|signal| match signal {
                 proto::signal_request::Message::Mute(m) => Some(m.sid.clone()),
@@ -1203,9 +1279,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn send_queues_queueable_signals_during_reconnect() {
+    async fn send_queues_queueable_signals_while_offline() {
         let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
 
         // Queueable: AddTrack, Mute, UpdateSubscription
         inner
@@ -1227,18 +1302,16 @@ mod tests {
             }))
             .await;
 
-        let queue = inner.queue.lock().await;
-        assert_eq!(queue.len(), 3, "all three queueable signals should be buffered");
+        assert_eq!(inner.queue.lock().len(), 3, "all three queueable signals should be buffered");
     }
 
     #[tokio::test]
-    async fn send_does_not_queue_pass_through_signals_during_reconnect() {
+    async fn send_does_not_queue_pass_through_signals_while_offline() {
         let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
 
         // Pass-through: Trickle, Offer, Answer, SyncState, Simulate, Leave.
-        // These all attempt to write to the (None) stream and get logged as
-        // "no stream available" — but critically they do NOT land in the queue.
+        // With no transport these are logged and dropped — but critically they do NOT land
+        // in the queue.
         inner.send(proto::signal_request::Message::Trickle(proto::TrickleRequest::default())).await;
         inner
             .send(proto::signal_request::Message::Offer(proto::SessionDescription::default()))
@@ -1252,32 +1325,24 @@ mod tests {
             .await;
         inner.send(proto::signal_request::Message::Leave(proto::LeaveRequest::default())).await;
 
-        let queue = inner.queue.lock().await;
-        assert!(queue.is_empty(), "pass-through signals must not be queued, got {}", queue.len());
+        let queued = inner.queue.lock().len();
+        assert_eq!(queued, 0, "pass-through signals must not be queued, got {queued}");
     }
 
+    /// The engine's confirmation is what turns a resumed transport into a connected one, and
+    /// everything held during the resume goes out at that moment, not on the next send.
     #[tokio::test]
-    async fn set_reconnected_drains_queue_and_clears_flag() {
+    async fn set_reconnected_confirms_the_transport_and_drains_the_queue() {
         let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
+        *inner.state.write().await = SignalState::Reconnecting(Some(mock_stream().await));
 
-        // Queue something while reconnecting
-        inner
-            .send(proto::signal_request::Message::Mute(proto::MuteTrackRequest {
-                sid: "sid1".into(),
-                muted: true,
-            }))
-            .await;
-        assert_eq!(inner.queue.lock().await.len(), 1);
+        inner.send(mute("held-during-resume")).await;
+        assert_eq!(queued_sids(&inner), vec!["held-during-resume"]);
 
-        // set_reconnected clears the flag and tries to flush. Since stream is
-        // None, the flush attempt does nothing — but the flag MUST clear and the
-        // queue MUST drain. The current implementation drains via flush_queue
-        // which only drains if the stream is available; with stream=None the
-        // queue stays. This is acceptable: a future send with a real stream
-        // will trigger flush_queue at the top of the normal path.
         inner.set_reconnected().await;
-        assert!(!inner.reconnecting.load(Ordering::Acquire), "flag must be cleared");
+
+        assert!(matches!(*inner.state.read().await, SignalState::Connected(_)));
+        assert!(inner.queue.lock().is_empty(), "the queue must drain on confirmation");
     }
 
     /// The queue is FIFO, and the release order is the send order. The existing
@@ -1285,49 +1350,42 @@ mod tests {
     #[tokio::test]
     async fn queued_signals_keep_their_order() {
         let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
 
         inner.send(mute("first")).await;
         inner.send(mute("second")).await;
         inner.send(mute("third")).await;
 
-        assert_eq!(queued_sids(&inner).await, vec!["first", "second", "third"]);
+        assert_eq!(queued_sids(&inner), vec!["first", "second", "third"]);
     }
 
     /// A resume is not complete when the transport comes back — the engine calls
     /// `set_reconnected` once the media path is back too, which is seconds later. A
     /// session-scoped send in that window must queue behind what is already waiting rather
     /// than overtake it.
-    ///
-    /// Distinct from `send_queues_queueable_signals_during_reconnect`: that one runs with no
-    /// stream at all, so its message could have been queued merely because there was nowhere
-    /// to send it. Here the stream is live and only the `reconnecting` flag holds the message.
     #[tokio::test]
     async fn send_still_queues_after_the_transport_returns() {
         let inner = make_stub_inner();
-        inner.reconnecting.store(true, Ordering::Release);
 
         // issued while the resume is in flight
         inner.send(mute("held-during-resume")).await;
 
         // the resume has answered and its transport is installed; `restart` deliberately
-        // leaves `reconnecting` set until the engine reports in
-        *inner.stream.write().await = Some(mock_stream().await);
-        assert!(inner.reconnecting.load(Ordering::Acquire), "restart leaves the flag set");
+        // stays `Reconnecting` until the engine reports in
+        *inner.state.write().await = SignalState::Reconnecting(Some(mock_stream().await));
 
         inner.send(mute("issued-while-catching-up")).await;
 
         assert_eq!(
-            queued_sids(&inner).await,
+            queued_sids(&inner),
             vec!["held-during-resume", "issued-while-catching-up"],
             "a live transport must not let a later send overtake a held one"
         );
     }
 
-    /// A failed resume has to leave the flag clear, or every later attempt would route its
-    /// sends to a queue that nothing drains.
+    /// A failed resume has to land in `Offline`, so the next attempt starts clean and
+    /// `is_connected` tells the engine the truth.
     #[tokio::test]
-    async fn restart_failure_resets_the_flag_so_a_retry_can_re_enter() {
+    async fn restart_failure_leaves_the_state_offline() {
         let _ = mock_stream().await; // installs the shared mock transport
         let inner = make_stub_inner_with(proto::JoinResponse {
             participant: Some(proto::ParticipantInfo {
@@ -1343,9 +1401,102 @@ mod tests {
             inner.restart().await.err().expect("restart must fail without a reconnect answer");
         assert!(matches!(err, SignalError::Closed), "expected a close, got {err:?}");
         assert!(
-            !inner.reconnecting.load(Ordering::Acquire),
-            "a failed restart must clear the flag so the next attempt can re-enter"
+            matches!(*inner.state.read().await, SignalState::Offline),
+            "a failed restart must leave the state offline"
         );
+    }
+
+    async fn state_named(name: &str) -> SignalState {
+        match name {
+            "Connected(SignalStream)" => SignalState::Connected(mock_stream().await),
+            "Reconnecting(None)" => SignalState::Reconnecting(None),
+            "Reconnecting(Some(SignalStream))" => {
+                SignalState::Reconnecting(Some(mock_stream().await))
+            }
+            "Offline" => SignalState::Offline,
+            "Disconnecting" => SignalState::Disconnecting,
+            "Closed" => SignalState::Closed,
+            other => panic!("unknown state {other}"),
+        }
+    }
+
+    async fn input_named(name: &str) -> SignalInput {
+        match name {
+            "Reconnect" => SignalInput::Reconnect,
+            "ReconnectComplete" => SignalInput::ReconnectComplete(mock_stream().await),
+            "ReconnectFailed" => SignalInput::ReconnectFailed,
+            "Reconnected" => SignalInput::Reconnected,
+            "TransportFailed" => SignalInput::TransportFailed,
+            "Close" => SignalInput::Close,
+            "CloseComplete" => SignalInput::CloseComplete,
+            other => panic!("unknown input {other}"),
+        }
+    }
+
+    /// The whole table: `None` means the state refuses the input and must not move.
+    fn expected(from: &str, input: &str) -> Option<&'static str> {
+        match (from, input) {
+            ("Connected(SignalStream)", "Reconnect") => Some("Reconnecting(None)"),
+            ("Connected(SignalStream)", "TransportFailed") => Some("Offline"),
+            ("Connected(SignalStream)", "Close") => Some("Disconnecting"),
+            ("Reconnecting(None)", "ReconnectComplete") => Some("Reconnecting(Some(SignalStream))"),
+            ("Reconnecting(None)", "ReconnectFailed") => Some("Offline"),
+            ("Reconnecting(None)", "Close") => Some("Disconnecting"),
+            ("Reconnecting(Some(SignalStream))", "ReconnectFailed") => Some("Offline"),
+            ("Reconnecting(Some(SignalStream))", "Reconnected") => Some("Connected(SignalStream)"),
+            ("Reconnecting(Some(SignalStream))", "TransportFailed") => Some("Offline"),
+            ("Reconnecting(Some(SignalStream))", "Close") => Some("Disconnecting"),
+            ("Offline", "Reconnect") => Some("Reconnecting(None)"),
+            ("Offline", "Close") => Some("Disconnecting"),
+            ("Disconnecting", "CloseComplete") => Some("Closed"),
+            ("Closed", "Reconnect") => Some("Reconnecting(None)"),
+            _ => None,
+        }
+    }
+
+    #[tokio::test]
+    async fn every_state_and_input_matches_the_transition_table() {
+        const STATES: &[&str] = &[
+            "Connected(SignalStream)",
+            "Reconnecting(None)",
+            "Reconnecting(Some(SignalStream))",
+            "Offline",
+            "Disconnecting",
+            "Closed",
+        ];
+        const INPUTS: &[&str] = &[
+            "Reconnect",
+            "ReconnectComplete",
+            "ReconnectFailed",
+            "Reconnected",
+            "TransportFailed",
+            "Close",
+            "CloseComplete",
+        ];
+        for from in STATES {
+            for input in INPUTS {
+                let mut state = state_named(from).await;
+                let result = state.transition(input_named(input).await);
+                let landed = format!("{state:?}");
+                match expected(from, input) {
+                    Some(to) => {
+                        assert_eq!(landed, to, "{from} + {input} should reach {to}");
+                        // a transport the new state does not own must be handed back to be closed
+                        let releases =
+                            from.contains("SignalStream") && !to.contains("SignalStream");
+                        assert_eq!(
+                            result.as_ref().ok().map(|s| s.is_some()),
+                            Some(releases),
+                            "{from} + {input} released the wrong transport"
+                        );
+                    }
+                    None => {
+                        assert!(result.is_err(), "{from} refuses {input}");
+                        assert_eq!(landed, *from, "{from} refuses {input}, so it must not move");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
