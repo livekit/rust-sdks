@@ -140,3 +140,30 @@ impl sys_dc::DataChannelObserver for DataChannelObserver {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{sys_dc, DataChannel, DataChannelObserver};
+    use cxx::SharedPtr;
+    use std::sync::Arc;
+
+    #[test]
+    fn clearing_buffered_amount_handler_breaks_data_channel_cycle() {
+        let observer = Arc::new(DataChannelObserver::default());
+        let observer_weak = Arc::downgrade(&observer);
+        let dc = DataChannel {
+            observer: observer.clone(),
+            sys_handle: SharedPtr::<sys_dc::ffi::DataChannel>::null(),
+        };
+
+        let captured_dc = dc.clone();
+        dc.on_buffered_amount_change(Some(Box::new(move |_| {
+            let _ = captured_dc.buffered_amount();
+        })));
+
+        dc.on_buffered_amount_change(None);
+        drop(dc);
+        drop(observer);
+        assert!(observer_weak.upgrade().is_none());
+    }
+}
