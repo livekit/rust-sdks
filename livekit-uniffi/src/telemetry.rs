@@ -17,7 +17,7 @@ use std::{
 };
 
 use livekit_telemetry::{
-    Attribute, AttributeValue, DeviceState, ExportError, ExportRequest, NetTransport,
+    Attribute, AttributeValue, DeviceState, ExportError, ExportRequest, LogRecord, NetTransport,
     RtcStatsSample, SpanKind, SpanOutcome, TelemetryConfig, TelemetryEvent, TelemetryStats,
     TelemetryTransport,
 };
@@ -71,6 +71,17 @@ impl Telemetry {
     /// A consumer-defined event, exported as `custom.<name>`; attributes keep their own namespace.
     pub fn emit_custom(&self, name: String, attributes: Vec<Attribute>) {
         self.0.emit_custom(&name, attributes);
+    }
+
+    /// A captured log line; the core applies the per-source floor and builds the record.
+    pub fn log(&self, record: LogRecord) {
+        self.0.log(record);
+    }
+
+    /// Cloud rule: server URL → observability endpoint, room token → bearer header. No-op when
+    /// the config names an explicit endpoint.
+    pub fn set_server(&self, url: String, token: String) {
+        self.0.set_server(&url, &token);
     }
 
     /// Where to send, once known (first connect: server URL → endpoint, token → headers). Until

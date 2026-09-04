@@ -107,6 +107,75 @@ pub enum Severity {
     Error,
 }
 
+/// Where a log line came from. WebRTC is chatty at warn, so only its errors become records;
+/// the SDK and the core use the configured floor.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogSource {
+    Sdk,
+    Core,
+    WebRtc,
+}
+
+impl LogSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Sdk => "sdk",
+            Self::Core => "core",
+            Self::WebRtc => "webrtc",
+        }
+    }
+}
+
+/// A log line as the platform captured it, where it happened. The core turns it into a record:
+/// semconv `code.*` attributes, `lk.log.source`, `lk.log.logger`, filed under the span's session.
+/// Stamp `timestamp_ns` at capture; the record may cross an executor hop before it gets here.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct LogRecord {
+    pub severity: Severity,
+    pub source: LogSource,
+    pub message: String,
+    /// The logger: a type, module or file name (`Room`, `livekit::rtc_engine`, `sctp.cc`).
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub logger: Option<String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub function: Option<String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub file: Option<String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub line: Option<u32>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub timestamp_ns: Option<u64>,
+    /// The in-flight span this line was logged under, if any.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub span_id: Option<u64>,
+}
+
+impl From<LogRecord> for TelemetryEvent {
+    fn from(record: LogRecord) -> Self {
+        let mut event = TelemetryEvent::new("")
+            .with_severity(record.severity)
+            .with_body(record.message)
+            .with_attribute("lk.log.source", record.source.as_str());
+        if let Some(logger) = record.logger.filter(|s| !s.is_empty()) {
+            event = event.with_attribute("lk.log.logger", logger);
+        }
+        if let Some(function) = record.function.filter(|s| !s.is_empty()) {
+            event = event.with_attribute("code.function.name", function);
+        }
+        if let Some(file) = record.file.filter(|s| !s.is_empty()) {
+            event = event.with_attribute("code.file.path", file);
+        }
+        if let Some(line) = record.line.filter(|l| *l > 0) {
+            event = event.with_attribute("code.line.number", line as i64);
+        }
+        event.timestamp_ns = record.timestamp_ns;
+        event.span_id = record.span_id;
+        event
+    }
+}
+
 /// A key/value attribute on an event or on the resource.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]

@@ -28,7 +28,8 @@ a session — device state, pre-room errors, self-telemetry — belongs to the p
 session. Sessions are not ended: a room's last record is simply its last.
 
 The pipeline may start **without a destination** (`endpoint: None`): it buffers and caches, and
-uploads nothing until `set_destination(endpoint, headers)` — at the first connect, when the
+uploads nothing until `set_server(url, token)` (Cloud: `https://<host>/observability/logs/otlp/v0`,
+`Authorization: Bearer <token>`) or `set_destination(endpoint, headers)` — at the first connect, when the
 server URL yields the endpoint (`https://<host>/observability/logs/otlp/v0`) and the token the
 `Authorization` header. Calling it again (new token, new server) replaces the destination for
 the batches that follow. Waiting for a destination is not an upload hold: it is uncapped, bounded
@@ -211,8 +212,11 @@ Uploads are shaped, not just batched:
 ## Log records
 
 A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without `event_name`):
-`severity` + `body` (the message) + attributes such as `code.function`, `code.file.path`,
-`code.line.number`, `lk.log.type` (the SDK logger's category). Only `warn` and `error` records
+`severity` + `body` (the message) + `code.function.name`, `code.file.path`, `code.line.number`
+(semconv), `lk.log.source` (`sdk` | `core` | `webrtc`) and `lk.log.logger` (type, module or file). The
+platform hands the core a typed `LogRecord` via `log(record)`; the core applies the floor: WebRTC only
+at `error`, the SDK and the core at the configured `log_severity`, the core's own telemetry module
+never. Only `warn` and `error` records
 leave the device; `trace`/`debug`/`info` are dropped in `emit`.
 
 ## Custom events

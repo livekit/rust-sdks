@@ -29,8 +29,8 @@ use crate::{
     span::Spans,
     stats::{Counters, TelemetryStatus},
     store::{Queued, Store},
-    Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache, MemoryCache,
-    RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
+    Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache, LogRecord, LogSource,
+    MemoryCache, RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
     TelemetryTransport,
 };
 
@@ -308,6 +308,23 @@ impl Telemetry {
         (telemetry, exporter)
     }
 
+    /// The Cloud rule, in one place for every SDK: the room's server URL names the observability
+    /// endpoint and the room token authorizes it. An explicit `TelemetryConfig::endpoint` (a
+    /// collector of your own) wins and makes this a no-op.
+    pub fn set_server(&self, url: &str, token: &str) {
+        if self.config.endpoint.is_some() {
+            return;
+        }
+        match observability_endpoint(url) {
+            Some(endpoint) => {
+                let mut headers = HashMap::new();
+                headers.insert("Authorization".to_owned(), format!("Bearer {token}"));
+                self.set_destination(&endpoint, headers);
+            }
+            None => log::warn!("server url has no host; uploads stay cached"),
+        }
+    }
+
     /// Where to send, once known (the first connect: server URL → endpoint, token → headers).
     /// Everything cached so far starts uploading. Calling it again (new token, new server)
     /// replaces the destination for the batches that follow.
@@ -329,6 +346,25 @@ impl Telemetry {
     /// A record with an empty `name` is a plain log line: only `Warn` and `Error` ones leave the
     /// device (design doc: debug/info logs never do). Discrete events are subject to the flood
     /// guard (`max_events_per_10min`); what it drops is counted as `rate_limited`.
+    /// A captured log line. WebRTC only counts at error; the SDK and the core at the configured
+    /// floor; the core's own telemetry module never (a rejected batch that produced a record that
+    /// produced a batch would never end).
+    pub fn log(&self, record: LogRecord) {
+        let floor = match record.source {
+            LogSource::WebRtc => self.config.log_severity.max(Severity::Error),
+            _ => self.config.log_severity,
+        };
+        if record.severity < floor {
+            return;
+        }
+        if record.source == LogSource::Core
+            && record.logger.as_deref().is_some_and(|l| l.starts_with("livekit_telemetry"))
+        {
+            return;
+        }
+        self.emit(record.into());
+    }
+
     pub fn emit(&self, event: TelemetryEvent) {
         // A record emitted inside a room's span belongs to that room's session; anything else
         // is the process's own.
@@ -499,9 +535,85 @@ fn add_sdk_resource(resource: &mut Vec<Attribute>) {
     }
 }
 
+/// `wss://x.livekit.cloud/rtc?…` → `https://x.livekit.cloud/observability/logs/otlp/v0`;
+/// `ws://`/`http://` stay plain http (dev servers). Host and port only; no path, query or userinfo.
+pub(crate) fn observability_endpoint(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    if host.is_empty() {
+        return None;
+    }
+    let scheme = match scheme {
+        "ws" | "http" => "http",
+        _ => "https",
+    };
+    Some(format!("{scheme}://{host}/observability/logs/otlp/v0"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{collections::VecDeque, fs, path::Path, sync::Mutex};
+
+    #[test]
+    fn server_url_names_the_observability_endpoint() {
+        let ep = observability_endpoint;
+        assert_eq!(
+            ep("wss://x.livekit.cloud").unwrap(),
+            "https://x.livekit.cloud/observability/logs/otlp/v0"
+        );
+        assert_eq!(
+            ep("wss://x.livekit.cloud/rtc?access_token=t#f").unwrap(),
+            "https://x.livekit.cloud/observability/logs/otlp/v0"
+        );
+        assert_eq!(
+            ep("ws://192.168.99.24:7880").unwrap(),
+            "http://192.168.99.24:7880/observability/logs/otlp/v0"
+        );
+        assert_eq!(ep("https://u:p@host").unwrap(), "https://host/observability/logs/otlp/v0");
+        assert_eq!(ep("nonsense"), None);
+        assert_eq!(ep("wss:///rtc"), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn log_records_apply_the_source_floor_and_carry_code_attributes() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let line = |source, severity, logger: &str| crate::LogRecord {
+            severity,
+            source,
+            message: "boom".into(),
+            logger: Some(logger.into()),
+            function: Some("connect()".into()),
+            file: Some("Room.swift".into()),
+            line: Some(42),
+            timestamp_ns: None,
+            span_id: None,
+        };
+        telemetry.log(line(LogSource::WebRtc, Severity::Warn, "sctp.cc"));
+        telemetry.log(line(LogSource::Sdk, Severity::Info, "Room"));
+        telemetry.log(line(LogSource::Core, Severity::Error, "livekit_telemetry::exporter"));
+        telemetry.log(line(LogSource::Sdk, Severity::Warn, "Room"));
+        telemetry.log(line(LogSource::WebRtc, Severity::Error, "sctp.cc"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        let logs = records(&sent[0]);
+        assert_eq!(logs.len(), 2, "sdk warn + webrtc error; not webrtc warn, sdk info, own module");
+        let sdk = &logs[0];
+        assert_eq!(attribute(sdk, "lk.log.source"), Some(Value::StringValue("sdk".into())));
+        assert_eq!(attribute(sdk, "lk.log.logger"), Some(Value::StringValue("Room".into())));
+        assert_eq!(
+            attribute(sdk, "code.function.name"),
+            Some(Value::StringValue("connect()".into()))
+        );
+        assert_eq!(attribute(sdk, "code.line.number"), Some(Value::IntValue(42)));
+        assert_eq!(
+            sdk.body.as_ref().and_then(|b| b.value.clone()),
+            Some(Value::StringValue("boom".into()))
+        );
+        assert_eq!(attribute(&logs[1], "lk.log.source"), Some(Value::StringValue("webrtc".into())));
+    }
 
     use prost::Message;
 
