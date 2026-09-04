@@ -1,0 +1,314 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Feature checking, split by where combinatorial coverage is actually worth
+# paying for. Two halves:
+#
+#   1. Leaf crates get the full `--feature-powerset --depth 2`. Their feature
+#      sets are small, so exhaustive coverage is cheap, and they are where the
+#      `dep:`/`?/` plumbing bugs actually live. The set is every publishable
+#      workspace crate that has features and is not one of the two below — note
+#      that is *not* the same as "everything livekit depends on":
+#      livekit-token-source is a sibling crate, not a dependency, and belongs
+#      here all the same.
+#
+#   2. livekit and livekit-api get a hand-picked list of 17 combinations
+#      instead of their 125-combination powerset. Most of those 125 are
+#      configurations nobody can actually select — two TLS backends at once, or
+#      an internal `__lk-*` feature paired with something unrelated. Every
+#      entry in the list is drawn from what the manifests document.
+#
+# Measured cold on a 14-core machine: the full 209-combination powerset takes
+# 359s; this split takes 242s, a 33% saving. That is what brings the job in
+# line with the existing per-commit builds.
+#
+# The tradeoff is real and worth stating: this trades exhaustiveness on the top
+# two crates for speed, so a feature pair that only breaks in one of the
+# dropped combinations is not caught anywhere. There is no exhaustive backstop
+# — the nightly full-powerset workflow was removed once this proved to be the
+# better cost/benefit. To get the full 209 back for a one-off investigation,
+# run it by hand:
+#
+#   cargo hack -p livekit -p livekit-api $LEAF_PACKAGES \
+#     --feature-powerset --depth 2 --keep-going check
+name: Feature Combinations (per-commit)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - ".changeset/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "renovate.json"
+      - ".vscode/**"
+  push:
+    branches:
+      - "main"
+      # TEMPORARY: so this runs on the branch that introduces it. Remove before
+      # merging.
+      - "add-all-features-complication"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Leaf/internal crates: full powerset. 83 combinations across the ten.
+  LEAF_PACKAGES: >-
+    -p livekit-signaling
+    -p livekit-net
+    -p livekit-region
+    -p livekit-protocol
+    -p livekit-datatrack
+    -p livekit-data-stream
+    -p livekit-common
+    -p libwebrtc
+    -p webrtc-sys
+    -p livekit-token
+    -p livekit-token-source
+
+jobs:
+  curated:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-ios
+          - os: macos-latest
+            target: aarch64-apple-ios-sim
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          # `native-tls` means openssl-sys on Android, and there is no Android
+          # OpenSSL to link against — its build script fails outright. Not a
+          # feature-wiring bug: ffi-builds.yml ships all three Android targets
+          # as `rustls-tls-webpki-roots`. `native-tls-vendored`, which builds
+          # OpenSSL from source, still works and stays covered.
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            exclude_features: native-tls
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+            exclude_features: native-tls
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+            exclude_features: native-tls
+
+    name: Features per-commit (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install linux dependencies
+        if: ${{ startsWith(matrix.os, 'ubuntu') }}
+        run: |
+          sudo apt update -y
+          sudo apt install -y \
+            lld \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev
+
+      - name: Install clang for webrtc-sys
+        if: ${{ contains(matrix.target, 'unknown-linux-gnu') }}
+        run: .github/scripts/install-clang.sh
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+          rustflags: ""
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked --version 0.6.45
+
+      - name: Install cargo-ndk
+        if: ${{ contains(matrix.target, 'android') }}
+        run: cargo install cargo-ndk --locked
+
+      - name: Resolve cargo driver for this target
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == *android* ]]; then
+            echo "CHECK_CMD=cargo ndk --target ${{ matrix.target }} check" >> "$GITHUB_ENV"
+            echo "HACK_CMD=cargo ndk --target ${{ matrix.target }} hack"   >> "$GITHUB_ENV"
+          else
+            echo "CHECK_CMD=cargo check --target ${{ matrix.target }}" >> "$GITHUB_ENV"
+            echo "HACK_CMD=cargo hack --target ${{ matrix.target }}"   >> "$GITHUB_ENV"
+          fi
+
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
+
+      # A plain default-feature check of the same crates, so the feature steps
+      # below have something to be measured against in the run summary.
+      - name: Baseline check (default features)
+        shell: bash
+        run: |
+          start=$(date +%s)
+          $CHECK_CMD $LEAF_PACKAGES -p livekit -p livekit-api
+          echo "BASELINE_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Leaf crates — full feature powerset (depth 2)
+        shell: bash
+        run: |
+          start=$(date +%s)
+          $HACK_CMD $LEAF_PACKAGES \
+            --feature-powerset \
+            --depth 2 \
+            --keep-going \
+            ${{ matrix.exclude_features && format('--exclude-features {0}', matrix.exclude_features) || '' }} \
+            check
+          echo "LEAF_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      # Curated combinations for the user-facing crates. Each line is
+      # `crate|cargo feature flags`; an empty flags field means default
+      # features. Every entry is a configuration someone can actually select
+      # and that the manifests or ffi-builds.yml document.
+      - name: Top-level crates — curated feature combinations
+        shell: bash
+        run: |
+          set -uo pipefail
+          COMBOS=$(cat <<'EOF'
+          # --- livekit -------------------------------------------------------
+          livekit|
+          livekit|--no-default-features
+          livekit|--no-default-features --features native
+          livekit|--no-default-features --features native,native-tls
+          livekit|--no-default-features --features native,native-tls-vendored
+          livekit|--no-default-features --features native,rustls-tls-native-roots
+          livekit|--no-default-features --features native,rustls-tls-webpki-roots
+          livekit|--no-default-features --features native,rustls-tls-webpki-roots,glib-main-loop
+          livekit|--no-default-features --features native,__lk-internal
+          # --- livekit-api ---------------------------------------------------
+          livekit-api|
+          livekit-api|--no-default-features
+          livekit-api|--no-default-features --features access-token
+          livekit-api|--no-default-features --features webhooks
+          livekit-api|--no-default-features --features services,native-tls
+          livekit-api|--no-default-features --features services,native-tls-vendored
+          livekit-api|--no-default-features --features services,rustls-tls-webpki-roots
+          livekit-api|--no-default-features --features services,rustls-tls-native-roots
+          livekit-api|--no-default-features --features signal-client-native,rustls-tls-webpki-roots
+          livekit-api|--features rustls-tls-webpki-roots
+          # livekit-ffi and livekit-uniffi are deliberately NOT here. Measured
+          # cold, their 8 combinations cost 103s of a 345s total — 30% of the
+          # budget for two crates, because each TLS change rebuilds livekit
+          # underneath livekit-ffi. Dropping them takes the job from 345s to
+          # 242s, which is what makes per-commit affordable. Their shipped
+          # configurations are still covered: builds.yml builds the whole
+          # workspace (livekit-ffi at default features) on every PR, and
+          # ffi-builds.yml builds every shipped per-platform TLS variant on
+          # push to main. The residual gap — livekit-ffi's non-default TLS
+          # variants on PRs — is knowingly accepted: covering it cost 103s of a
+          # 345s budget, for two crates whose shipped configurations are
+          # already built on every PR and on every push to main.
+          EOF
+          )
+
+          start=$(date +%s)
+          total=0; failed=0
+          FAILURES=""
+          while IFS='|' read -r crate flags; do
+            # Skip comments and blanks.
+            [[ -z "${crate// /}" || "$crate" =~ ^[[:space:]]*# ]] && continue
+            crate="${crate// /}"
+
+            # Android has no OpenSSL to link: drop bare `native-tls` (but keep
+            # `native-tls-vendored`, which builds it from source).
+            if [ -n "${{ matrix.exclude_features || '' }}" ] \
+               && printf '%s' "$flags" | grep -qE '(^|[ ,])native-tls($|[ ,])'; then
+              echo "::notice::skipping (no Android OpenSSL): $crate $flags"
+              continue
+            fi
+
+            total=$((total + 1))
+            echo "::group::$crate $flags"
+            if ! $CHECK_CMD -p "$crate" $flags; then
+              failed=$((failed + 1))
+              FAILURES="${FAILURES}\n  $crate $flags"
+            fi
+            echo "::endgroup::"
+          done <<< "$COMBOS"
+
+          echo "CURATED_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          echo "CURATED_TOTAL=$total" >> "$GITHUB_ENV"
+          echo "CURATED_FAILED=$failed" >> "$GITHUB_ENV"
+          echo "Ran $total curated combinations, $failed failed."
+          if [ "$failed" -gt 0 ]; then
+            echo -e "::error::failed curated combinations:$FAILURES"
+            exit 1
+          fi
+
+      - name: Report timings
+        if: always()
+        shell: bash
+        run: |
+          secs() { if [ -n "${1:-}" ]; then echo "${1}s"; else echo "n/a"; fi; }
+          {
+            echo "### Per-commit feature checking — \`${{ matrix.target }}\`"
+            echo ""
+            echo "| Measurement | Value |"
+            echo "| --- | --- |"
+            echo "| Baseline \`cargo check\` (default features) | $(secs "${BASELINE_SECS:-}") |"
+            echo "| Leaf crates, full powerset (83 combos) | $(secs "${LEAF_SECS:-}") |"
+            echo "| Top-level crates, curated (${CURATED_TOTAL:-?} combos) | $(secs "${CURATED_SECS:-}") |"
+            if [ -n "${LEAF_SECS:-}" ] && [ -n "${CURATED_SECS:-}" ]; then
+              awk -v l="$LEAF_SECS" -v c="$CURATED_SECS" -v b="${BASELINE_SECS:-0}" \
+                'BEGIN { printf "| **Feature checking total** | **%.1f min** |\n", (l+c)/60
+                         if (b > 0) printf "| Total as a multiple of baseline | %.1fx |\n", (l+c)/b }'
+            fi
+            echo "| Curated failures | ${CURATED_FAILED:-n/a} |"
+          } >> "$GITHUB_STEP_SUMMARY"
