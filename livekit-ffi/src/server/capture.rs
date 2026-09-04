@@ -28,10 +28,14 @@ use parking_lot::Mutex;
 
 #[cfg(feature = "capture-clock")]
 use livekit_capture::sources::clock::ClockVideoSource;
+#[cfg(feature = "capture-gstreamer")]
+use livekit_capture::sources::gstreamer::GStreamerVideoSource;
 #[cfg(feature = "capture-pattern")]
 use livekit_capture::sources::pattern::PatternVideoSource;
 
 use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
+#[cfg(feature = "capture-gstreamer")]
+use crate::conversion::capture::gstreamer_config_from_proto;
 #[cfg(feature = "capture-pattern")]
 use crate::conversion::capture::pattern_config_from_proto;
 use crate::{conversion::capture::video_codec_to_proto, proto, FfiError, FfiHandleId, FfiResult};
@@ -108,6 +112,14 @@ async fn create_capture_source(
         request.config.ok_or(FfiError::InvalidRequest("missing capture source config".into()))?;
 
     let pump = match config {
+        #[cfg(feature = "capture-gstreamer")]
+        proto::new_capture_source_request::Config::Gstreamer(config) => {
+            let source = GStreamerVideoSource::new(gstreamer_config_from_proto(config)?)
+                .await
+                .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source: Box<dyn EncodedVideoSource> = Box::new(source);
+            CapturePump::Encoded(EncodedVideoPump::new(source))
+        }
         #[cfg(feature = "capture-pattern")]
         proto::new_capture_source_request::Config::Pattern(config) => {
             let source = PatternVideoSource::new(pattern_config_from_proto(config)?)
