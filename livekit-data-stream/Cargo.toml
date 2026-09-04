@@ -21,7 +21,7 @@ tokio = { workspace = true, default-features = false, features = ["sync", "fs", 
 tokio-stream = { workspace = true, features = ["sync"] }
 futures-util = { workspace = true, default-features = false, features = ["sink", "io"] }
 prost = "0.12"
-chrono = "0.4.38"
+chrono = { workspace = true }
 bmrng = "0.5.2"
 uuid = { version = "1", features = ["v4"] }
 async-compression = { version = "0.4.42", features = ["deflate", "futures-io"] }

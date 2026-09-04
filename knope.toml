@@ -193,6 +193,14 @@ versioned_files = [
 ]
 changelog = "livekit-data-stream/CHANGELOG.md"
 
+[packages.livekit-rpc]
+versioned_files = [
+  "livekit-rpc/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-rpc" },
+]
+changelog = "livekit-rpc/CHANGELOG.md"
+
 [packages.device-info]
 versioned_files = [
   "device-info/Cargo.toml",

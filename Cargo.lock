@@ -3609,13 +3609,13 @@ dependencies = [
  "livekit-data-stream",
  "livekit-datatrack",
  "livekit-protocol",
+ "livekit-rpc",
  "livekit-signaling",
  "livekit-token",
  "log",
  "parking_lot",
  "prost 0.12.6",
  "rand 0.9.5",
- "semver",
  "serde",
  "serde_json",
  "serial_test",
@@ -3767,6 +3767,23 @@ name = "livekit-region"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "livekit-rpc"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "chrono",
+ "livekit-common",
+ "livekit-data-stream",
+ "livekit-protocol",
+ "log",
+ "parking_lot",
+ "semver",
+ "thiserror 2.0.19",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

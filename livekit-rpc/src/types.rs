@@ -12,106 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod client;
-mod server;
+//! Pure domain types for RPC: call parameters, invocation data, and errors.
 
-#[cfg(test)]
-mod tests;
-
-pub use client::RpcClientManager;
-pub use server::{HandleRequestOptions, RpcServerManager};
-
-use crate::data_stream::api::{StreamResult, StreamTextOptions, TextStreamInfo};
-use crate::room::id::ParticipantIdentity;
-use crate::room::participant::ClientCapability;
-use livekit_common::RemoteParticipantRegistry;
-use livekit_protocol::RpcError as RpcError_Proto;
-use std::{error::Error, fmt::Display, future::Future, time::Duration};
-
-// RPC protocol version constants (distinct from client_protocol; this is the
-// version field on RpcRequest / v2 stream attributes).
-pub(crate) const RPC_VERSION_V1: u32 = 1;
-pub(crate) const RPC_VERSION_V2: u32 = 2;
-
-// Data stream topic constants for RPC v2
-pub(crate) const RPC_REQUEST_TOPIC: &str = "lk.rpc_request";
-pub(crate) const RPC_RESPONSE_TOPIC: &str = "lk.rpc_response";
-
-// Stream attribute keys for RPC v2
-pub(crate) const ATTR_REQUEST_ID: &str = "lk.rpc_request_id";
-pub(crate) const ATTR_METHOD: &str = "lk.rpc_request_method";
-pub(crate) const ATTR_RESPONSE_TIMEOUT_MS: &str = "lk.rpc_request_response_timeout_ms";
-pub(crate) const ATTR_VERSION: &str = "lk.rpc_request_version";
-
-/// Transport abstraction for RPC operations.
-///
-/// Decouples the RPC managers from concrete engine/session types,
-/// enabling in-memory unit testing with a mock transport.
-pub(crate) trait RpcTransport: RemoteParticipantRegistry {
-    /// Send a data packet (used for v1 RPC packets and ACKs).
-    fn publish_data(
-        &self,
-        data: livekit_protocol::DataPacket,
-    ) -> impl Future<Output = Result<(), crate::room::RoomError>> + Send;
-
-    /// Send text as a data stream (used for v2 RPC requests and responses).
-    fn send_text(
-        &self,
-        text: &str,
-        options: StreamTextOptions,
-    ) -> impl Future<Output = StreamResult<TextStreamInfo>> + Send;
-
-    /// Get the server version string, if available.
-    fn server_version(&self) -> Option<String>;
-}
-
-/// Production implementation of `RpcTransport` backed by a `RoomSession`.
-pub(crate) struct SessionTransport(pub(crate) std::sync::Arc<super::RoomSession>);
-
-impl RemoteParticipantRegistry for SessionTransport {
-    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
-        self.0.remote_client_protocol(identity)
-    }
-
-    fn remote_capabilities(&self, identity: &ParticipantIdentity) -> Vec<ClientCapability> {
-        self.0.remote_capabilities(identity)
-    }
-
-    fn remote_identities(&self) -> Vec<ParticipantIdentity> {
-        self.0.remote_identities()
-    }
-}
-
-impl RpcTransport for SessionTransport {
-    async fn publish_data(
-        &self,
-        data: livekit_protocol::DataPacket,
-    ) -> Result<(), crate::room::RoomError> {
-        self.0
-            .rtc_engine
-            .publish_data(data, crate::DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn send_text(
-        &self,
-        text: &str,
-        options: StreamTextOptions,
-    ) -> StreamResult<TextStreamInfo> {
-        self.0.outgoing_stream_manager.send_text(text, options, self.0.as_ref()).await
-    }
-
-    fn server_version(&self) -> Option<String> {
-        self.0
-            .rtc_engine
-            .session()
-            .signal_client()
-            .join_response()
-            .server_info
-            .and_then(|info| (!info.version.is_empty()).then(|| info.version))
-    }
-}
+use livekit_common::ParticipantIdentity;
+use livekit_protocol as proto;
+use std::{error::Error, fmt::Display, time::Duration};
 
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]
@@ -223,12 +128,12 @@ impl RpcError {
         }
     }
 
-    pub fn from_proto(proto: RpcError_Proto) -> Self {
-        Self::new(proto.code, proto.message, Some(proto.data))
+    pub fn from_proto(error: proto::RpcError) -> Self {
+        Self::new(error.code, error.message, Some(error.data))
     }
 
-    pub fn to_proto(&self) -> RpcError_Proto {
-        RpcError_Proto {
+    pub fn to_proto(&self) -> proto::RpcError {
+        proto::RpcError {
             code: self.code,
             message: self.message.clone(),
             data: self.data.clone().unwrap_or_default(),
@@ -280,7 +185,7 @@ impl RpcErrorCode {
 
 impl RpcError {
     /// Creates an error object from the code, with an auto-populated message.
-    pub(crate) fn built_in(code: RpcErrorCode, data: Option<String>) -> Self {
+    pub fn built_in(code: RpcErrorCode, data: Option<String>) -> Self {
         Self::new(code as u32, code.message().to_string(), data)
     }
 }
@@ -289,12 +194,12 @@ impl RpcError {
 pub const MAX_V1_PAYLOAD_BYTES: usize = 15360; // 15 KB
 
 /// Calculate the byte length of a string
-pub(crate) fn byte_length(s: &str) -> usize {
+fn byte_length(s: &str) -> usize {
     s.as_bytes().len()
 }
 
 /// Truncate a string to a maximum number of bytes
-pub(crate) fn truncate_bytes(s: &str, max_bytes: usize) -> String {
+fn truncate_bytes(s: &str, max_bytes: usize) -> String {
     if byte_length(s) <= max_bytes {
         return s.to_string();
     }

@@ -27,6 +27,7 @@ use bytes::Bytes;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_datatrack::backend as dt;
 use livekit_protocol::{self as proto};
+use livekit_rpc::api::{RpcError, RpcErrorCode};
 use livekit_signaling::{SignalClient, SignalEvent, SignalEvents};
 use parking_lot::Mutex;
 use prost::Message;
@@ -1753,11 +1754,32 @@ impl SessionInner {
                 })
             }
             proto::data_packet::Value::RpcResponse(rpc_response) => {
+                // Anything we cannot turn into a payload has to become an error. Reporting
+                // neither resolves the caller with an empty string, so a response we failed
+                // to understand would look like a successful empty one.
                 let (payload, error) = match rpc_response.value {
-                    None => (None, None),
                     Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
                     Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
-                    Some(proto::rpc_response::Value::CompressedPayload(_)) => (None, None),
+                    Some(proto::rpc_response::Value::CompressedPayload(_)) => (
+                        None,
+                        Some(
+                            RpcError::built_in(
+                                RpcErrorCode::ApplicationError,
+                                Some("Compressed RPC responses are not supported".to_string()),
+                            )
+                            .to_proto(),
+                        ),
+                    ),
+                    None => (
+                        None,
+                        Some(
+                            RpcError::built_in(
+                                RpcErrorCode::ApplicationError,
+                                Some("RPC response carried no value".to_string()),
+                            )
+                            .to_proto(),
+                        ),
+                    ),
                 };
                 self.emitter.send(SessionEvent::RpcResponse {
                     request_id: rpc_response.request_id,
