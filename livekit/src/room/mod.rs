@@ -75,7 +75,6 @@ pub mod id;
 pub mod options;
 pub mod participant;
 pub mod publication;
-pub mod rpc;
 mod rpc_transport;
 use rpc_transport::SessionTransport;
 pub mod track;
@@ -351,7 +350,7 @@ pub struct ChatMessage {
     pub generated: Option<bool>,
 }
 
-#[deprecated(note = "RPC requests are now handled internally; see the `rpc` module.")]
+#[deprecated(note = "RPC requests are now handled internally by the `livekit-rpc` crate.")]
 #[derive(Debug, Clone)]
 pub struct RpcRequest {
     pub destination_identity: String,
@@ -362,7 +361,7 @@ pub struct RpcRequest {
     pub version: u32,
 }
 
-#[deprecated(note = "RPC responses are now handled internally; see the `rpc` module.")]
+#[deprecated(note = "RPC responses are now handled internally by the `livekit-rpc` crate.")]
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RpcResponse {
@@ -372,7 +371,7 @@ pub struct RpcResponse {
     error: Option<proto::RpcError>,
 }
 
-#[deprecated(note = "RPC acks are now handled internally; see the `rpc` module.")]
+#[deprecated(note = "RPC acks are now handled internally by the `livekit-rpc` crate.")]
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct RpcAck {

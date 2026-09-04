@@ -1,19 +1,22 @@
 ---
 livekit-rpc: patch
-livekit: patch
+livekit: minor
 livekit-ffi: patch
 ---
 
 Moves the RPC implementation into a new `livekit-rpc` crate, alongside the existing
 `livekit-data-stream` and `livekit-datatrack` crates.
 
-This is fully backwards compatible: `livekit` re-exports the crate at the historical
-`livekit::rpc` and `livekit::participant` paths, and the prelude still provides
-`PerformRpcData`, `RpcError`, `RpcErrorCode` and `RpcInvocationData`. Within the `livekit`
-crate itself, RPC types are now imported from `livekit-rpc` directly rather than through
-those re-exports. `RpcClientManager`, `RpcServerManager` and `HandleRequestOptions` remain
-reachable but are now `#[doc(hidden)]`: they are internal SDK API and were never usable
-without the (private) transport trait.
+**Breaking:** the `livekit::rpc` module is gone. The RPC types it held are unchanged and
+still re-exported from `livekit::participant` and the prelude, so most code needs no edit;
+code that spelled the module out (`use livekit::rpc::RpcError;`) should import from
+`livekit::participant` or the prelude instead. `RpcClientManager`, `RpcServerManager` and
+`HandleRequestOptions` remain reachable under `livekit::participant` but are now
+`#[doc(hidden)]`: they are internal SDK API and were never usable without the (private)
+transport trait.
+
+Within the `livekit` crate itself, RPC types are now imported from `livekit-rpc` directly
+rather than through those re-exports.
 
 The new crate does not depend on `libwebrtc`, so its unit tests run without building WebRTC.
 The transport seam that made this possible was already in place; the only change to it is
