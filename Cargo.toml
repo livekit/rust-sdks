@@ -74,6 +74,7 @@ yuv-sys = { version = "0.3.15", path = "yuv-sys" }
 
 anyhow = "1.0"
 bytes = "1.10"
+chrono = "0.4.38"
 clap = "4.5"
 console-subscriber = "0.1"
 env_logger = "0.11"

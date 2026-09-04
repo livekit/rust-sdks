@@ -23,4 +23,4 @@ uuid = { version = "1", features = ["v4"] }
 livekit-data-stream = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }
 bytes = { workspace = true }
-chrono = "0.4.38"
+chrono = { workspace = true }
