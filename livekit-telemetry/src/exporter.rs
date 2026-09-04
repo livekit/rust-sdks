@@ -321,7 +321,13 @@ impl Exporter {
             let now = self.counters.snapshot();
             let delta = now.since(&self.last_report);
             if delta.has_problems() || report_due {
-                let report = delta.report(self.cache.pending().len() as u64);
+                let cached = self.cache.pending().len() as u64;
+                // The host's console gets the cumulative line through the FFI log path.
+                log::debug!(
+                    "{}",
+                    crate::stats::TelemetryStats::new(self.counters.snapshot(), cached)
+                );
+                let report = delta.report(cached);
                 batch.push(Queued { event: report, session: self.process.clone() });
                 self.last_report = now;
                 self.force_report = false;
