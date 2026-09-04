@@ -15,7 +15,7 @@
 //! Pure domain types for RPC: call parameters, invocation data, and errors.
 
 use livekit_common::ParticipantIdentity;
-use livekit_protocol::RpcError as RpcError_Proto;
+use livekit_protocol as proto;
 use std::{error::Error, fmt::Display, time::Duration};
 
 /// Parameters for performing an RPC call
@@ -128,12 +128,12 @@ impl RpcError {
         }
     }
 
-    pub fn from_proto(proto: RpcError_Proto) -> Self {
-        Self::new(proto.code, proto.message, Some(proto.data))
+    pub fn from_proto(error: proto::RpcError) -> Self {
+        Self::new(error.code, error.message, Some(error.data))
     }
 
-    pub fn to_proto(&self) -> RpcError_Proto {
-        RpcError_Proto {
+    pub fn to_proto(&self) -> proto::RpcError {
+        proto::RpcError {
             code: self.code,
             message: self.message.clone(),
             data: self.data.clone().unwrap_or_default(),
