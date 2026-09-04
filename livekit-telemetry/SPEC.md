@@ -329,3 +329,29 @@ attributes:
   lk.participant.remote_identity: string
 checkpoints: subscribed, first_media
 ```
+
+## Typed surface
+
+Everything the SDKs have in common enters the core typed; the core owns the keys, the bodies and
+the policy. `Attribute { key, value }` survives only as the open bag: `emit_custom`, pipeline and
+session `set_attribute`, and `Span::set_attribute` for app-defined spans.
+
+| Platform calls | The core produces |
+|---|---|
+| `set_server(url, token)` | `https://<host>/observability/logs/otlp/v0`, `Authorization: Bearer <token>`; no-op with an explicit `endpoint` |
+| `TelemetryConfig.sdk: TelemetryResource { sdk: Sdk, sdk_version, os_name, os_version, device_model }` | `service.name = livekit-client-<sdk>`, `service.version`, `os.*`, `device.model.identifier`, plus `telemetry.sdk.*` |
+| `log(LogRecord { severity, source: LogSource, message, logger, function, file, line, timestamp_ns, span_id })` | a record with `code.function.name`, `code.file.path`, `code.line.number`, `lk.log.source`, `lk.log.logger`; the per-source floor (WebRTC at `error`, own module never) |
+| `Session::set_room(RoomIdentity { sid, name, participant_sid, participant_identity })` | `lk.room.*`, `lk.participant.*` on every record of the session |
+| `Session::start(SpanName, parent) -> Span`; `Span::detached(name)` | an OTLP span (`lk.connect` / `lk.reconnect` are `client`, the rest `internal`); `Reconnect { reason }` sets `lk.reconnect.reason` |
+| `Span::step(SpanStep)` | a span event named `ws_open` … `room_connected`, `subscribed`, `first_media`, `attempt N quick|full` (which also sets `lk.reconnect.attempts` / `.mode`) |
+| `Span::set_track(SpanTrack { sid, kind, source, remote_identity })` | `lk.track.sid`, `lk.track.kind`, `lk.track.source`, `lk.participant.remote_identity` |
+| `Span::end(outcome, error)` / `fail(error)` / `cancel()` | status, `error.type`, `lk.outcome`; ending twice is a no-op |
+| `Span::describe()` | `lk.connect: ws_open +1.49s, signal +0.03s, total 1.83s, ok` — the console line, identical on every platform |
+| `Span::context()` | `TraceContext { trace_id, span_id }` for log correlation; `None` when detached |
+| `device_event(DeviceEvent::{AudioRouteChanged, AudioInterruption, PermissionDenied})` | `lk.device.audio_route.changed`, `lk.device.audio.interruption`, `lk.device.permission.denied` with display bodies |
+| `RtcStatsSample.layer` (rid, ssrc or stats id) | simulcast layers folded into one monotonic series per track before windowing |
+
+Timing rule: span calls are synchronous and stamp the clock inside the core, so the only skew is
+the FFI call. Anything that may cross an executor hop before reaching the core (a log record) carries
+its own `timestamp_ns` from capture. Context propagation — the "current" span — stays with the
+platform runtime (task-local, coroutine context, zone); that is the one piece a core cannot own.
