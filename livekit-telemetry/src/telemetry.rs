@@ -21,7 +21,6 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
-use crate::DeviceEvent;
 use crate::{
     event::now_unix_nanos,
     exporter::Command,
@@ -34,6 +33,7 @@ use crate::{
     MemoryCache, RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
     TelemetryTransport,
 };
+use crate::{DeviceEvent, Span, SpanName};
 
 /// Pipeline configuration.
 ///
@@ -343,6 +343,13 @@ impl Telemetry {
     /// pipeline. Sessions do not need ending: a room's last record is simply its last.
     pub fn begin_session(&self) -> Session {
         Session { telemetry: self.clone(), state: SessionState::new() }
+    }
+
+    /// A span in the pipeline's own trace: app-defined work outside any room, or the SDK before a
+    /// room exists. Stamped now; `parent` nests it.
+    pub fn start(&self, name: SpanName, parent: Option<Arc<Span>>) -> Arc<Span> {
+        let parent = parent.and_then(|p| p.context()).map(|c| c.span_id);
+        Span::bound(name, parent, self.clone(), &self.process)
     }
 
     /// Queue an event or log record for export. Stamps it with the current time unless it

@@ -89,6 +89,11 @@ impl Telemetry {
         self.0.set_server(&url, &token);
     }
 
+    /// A span in the process trace (no room), stamped now; `parent` nests it.
+    pub fn start(&self, name: SpanName, parent: Option<Arc<TelemetrySpan>>) -> Arc<TelemetrySpan> {
+        Arc::new(TelemetrySpan(self.0.start(name, parent.map(|p| p.0.clone()))))
+    }
+
     /// Where to send, once known (first connect: server URL → endpoint, token → headers). Until
     /// then everything waits in the cache; afterwards it uploads.
     pub fn set_destination(&self, endpoint: String, headers: HashMap<String, String>) {
