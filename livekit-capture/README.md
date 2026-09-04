@@ -65,6 +65,10 @@ named `source-<module>`. Each module documents its source.
 | `source-pattern`   | `PatternVideoSource`   | pixel   |
 | `source-clock`     | `ClockVideoSource`     | pixel   |
 
+`source-device-argus` extends `DeviceVideoSource` with an NVIDIA Jetson CSI
+backend (libargus, zero-copy NV12 DMA buffers) on Linux; it is inert on
+other platforms and on machines without the Jetson stack.
+
 `source-rtsp-tls` extends `RtspVideoSource` with `rtsps://` support (RTSP
 over TLS 1.2+). Certificates are verified against the system roots by
 default; cameras with self-signed certificates can opt out per source.
