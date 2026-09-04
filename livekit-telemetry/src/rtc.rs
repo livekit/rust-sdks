@@ -273,27 +273,16 @@ impl Window {
 #[derive(Default)]
 pub(crate) struct StatsWindows {
     windows: HashMap<(String, StreamDirection), Window>,
-    /// Last cumulative `qualityLimitationDurations` per outbound track: (bandwidth_ms, cpu_ms).
+    /// Last cumulative `qualityLimitationDurations.cpu` per outbound track.
     // ponytail: grows with the tracks published in a session (a few dozen at most).
-    limitation: HashMap<String, (u64, u64)>,
-    bandwidth_limited_until: Option<Instant>,
+    limitation: HashMap<String, u64>,
     cpu_limited_until: Option<Instant>,
 }
 
-/// What WebRTC's own adaptation says about the call, derived from the
-/// `qualityLimitationDurations` counters of outbound tracks — no extra measurement, and exactly
-/// the cpu-vs-bandwidth split the design doc asks for.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct MediaPressure {
-    /// The congestion controller is holding the encoder back: uploads must not add to the uplink.
-    pub bandwidth_limited: bool,
-    /// The encoder is CPU-starved: stretch the cadence, like thermal pressure.
-    pub cpu_limited: bool,
-}
-
-/// Congestion is bursty: hold uploads for a short while after the last sign of it.
-const BANDWIDTH_LIMITED_HOLD: Duration = Duration::from_secs(10);
 /// CPU starvation is sticky: stretch the cadence for a while after the last sign of it.
+/// `qualityLimitationDurations.bandwidth` is deliberately not a signal: WebRTC reports it for
+/// minutes during a normal ramp-up and for as long as an encoder stalls (an iPhone camera at
+/// 0 kbps held uploads for 8 minutes); the congestion controller does not need our help.
 const CPU_LIMITED_HOLD: Duration = Duration::from_secs(60);
 
 impl StatsWindows {
@@ -331,31 +320,22 @@ impl StatsWindows {
         self.close().into_iter().map(|q| q.event).collect()
     }
 
-    pub fn media_pressure(&self) -> MediaPressure {
-        let now = Instant::now();
-        MediaPressure {
-            bandwidth_limited: self.bandwidth_limited_until.is_some_and(|t| now < t),
-            cpu_limited: self.cpu_limited_until.is_some_and(|t| now < t),
-        }
+    /// The encoder was CPU-starved within the last minute: stretch the cadence, like thermal
+    /// pressure.
+    pub fn cpu_limited(&self) -> bool {
+        self.cpu_limited_until.is_some_and(|t| Instant::now() < t)
     }
 
-    /// A limitation counter that grew since the previous reading means the encoder was held
-    /// back in between.
+    /// A cpu limitation counter that grew since the previous reading means the encoder was
+    /// starved in between.
     fn track_limitation(&mut self, sample: &RtcStatsSample) {
         if sample.direction != StreamDirection::Outbound {
             return;
         }
-        let current = (
-            sample.quality_limitation_bandwidth_ms.unwrap_or(0),
-            sample.quality_limitation_cpu_ms.unwrap_or(0),
-        );
+        let current = sample.quality_limitation_cpu_ms.unwrap_or(0);
         if let Some(previous) = self.limitation.insert(sample.track_sid.clone(), current) {
-            let now = Instant::now();
-            if current.0 > previous.0 {
-                self.bandwidth_limited_until = Some(now + BANDWIDTH_LIMITED_HOLD);
-            }
-            if current.1 > previous.1 {
-                self.cpu_limited_until = Some(now + CPU_LIMITED_HOLD);
+            if current > previous {
+                self.cpu_limited_until = Some(Instant::now() + CPU_LIMITED_HOLD);
             }
         }
     }
@@ -384,7 +364,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(start_paused = true)]
-    async fn limitation_counters_drive_media_pressure() {
+    async fn cpu_limitation_counter_drives_cadence_pressure() {
         let mut windows = StatsWindows::default();
         let reading = |bandwidth_ms, cpu_ms| RtcStatsSample {
             quality_limitation_bandwidth_ms: Some(bandwidth_ms),
@@ -392,21 +372,20 @@ mod tests {
             ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
         };
         windows.record(reading(0, 0));
-        assert_eq!(windows.media_pressure(), MediaPressure::default(), "first reading: no delta");
-        windows.record(reading(500, 0));
-        assert!(windows.media_pressure().bandwidth_limited);
-        assert!(!windows.media_pressure().cpu_limited);
-        tokio::time::advance(Duration::from_secs(11)).await;
-        assert!(!windows.media_pressure().bandwidth_limited, "congestion hold expires");
-        windows.record(reading(500, 250));
-        assert!(windows.media_pressure().cpu_limited);
+        assert!(!windows.cpu_limited(), "first reading: no delta");
+        windows.record(reading(5_000, 0));
+        assert!(!windows.cpu_limited(), "bandwidth limitation is not pressure");
+        windows.record(reading(5_000, 250));
+        assert!(windows.cpu_limited());
         tokio::time::advance(Duration::from_secs(59)).await;
-        assert!(windows.media_pressure().cpu_limited, "cpu hold is sticky");
+        assert!(windows.cpu_limited(), "cpu hold is sticky");
+        tokio::time::advance(Duration::from_secs(2)).await;
+        assert!(!windows.cpu_limited(), "and expires");
         let mut inbound = RtcStatsSample::new("TR_2", TrackKind::Audio, StreamDirection::Inbound);
-        inbound.quality_limitation_bandwidth_ms = Some(9_999);
+        inbound.quality_limitation_cpu_ms = Some(9_999);
         windows.record(inbound.clone());
         windows.record(inbound);
-        assert!(!windows.media_pressure().bandwidth_limited, "inbound counters are ignored");
+        assert!(!windows.cpu_limited(), "inbound counters are ignored");
     }
     use crate::AttributeValue;
 

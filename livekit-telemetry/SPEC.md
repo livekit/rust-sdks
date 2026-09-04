@@ -186,13 +186,14 @@ Uploads are shaped, not just batched:
   ≈ 40 kbps next to a call. `shutdown` drains without the budget.
 - **Holds** — nothing is sent, everything keeps flowing into the write-ahead cache — while:
   - an `lk.connect` or `lk.reconnect` span is open (signaling and ICE/DTLS own the uplink),
-  - WebRTC reported an outbound track bandwidth-limited within the last 10 s
-    (`qualityLimitationDurations.bandwidth` grew — the congestion controller is already
-    holding the encoder back),
   - the device asks for quiet: constrained network, or battery ≤ 10 % unplugged (the Datadog
-    rule). Device holds survive `shutdown`; the other two end with the call.
+    rule). Device holds survive `shutdown`; the connect hold ends with the call.
   A hold lasts at most 60 s, then one batch goes out and the hold starts over — the hard cap
-  that bounds the policy when its signals lie.
+  that bounds the policy when its signals lie. `qualityLimitationDurations.bandwidth` is
+  deliberately *not* a hold: WebRTC reports it for minutes during a normal ramp-up and for as
+  long as an encoder stalls (an iPhone camera at 0 kbps held uploads for 8 minutes, one batch
+  per minute through the cap). Yielding to media on the wire is the transport's job
+  (`Priority: u=7`, Apple's background service class).
 - **Bytes:** bodies are gzipped (level 1, `Content-Encoding: gzip`) when cached, so a batch is
   5–10× smaller on disk and on the wire and a replay costs no CPU. A request never carries more
   than `max_batch_bytes` (1 MiB, estimated before compression) or `max_batch_size` (512) records;

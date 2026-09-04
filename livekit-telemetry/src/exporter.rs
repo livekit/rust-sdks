@@ -109,9 +109,9 @@ enum Delivery {
 ///
 /// Telemetry must never win over media, so uploads are shaped as well as batched: at most
 /// `max_batches_per_upload` per tick while a session may be live, and none at all while the room
-/// is connecting or reconnecting, while WebRTC reports the encoder bandwidth-limited, or while the
-/// device asks for quiet ([`DeviceState::holds_uploads`]) — bounded by [`MAX_HOLD`]. Every request
-/// carries `Priority: u=7` (RFC 9218) and a gzipped body.
+/// is connecting or reconnecting or while the device asks for quiet ([`DeviceState::holds_uploads`])
+/// — bounded by [`MAX_HOLD`]. Yielding to media on the wire is the transport's job: every request
+/// carries `Priority: u=7` (RFC 9218), a gzipped body, and (on Apple) the background service class.
 ///
 /// The tick period is `flush_interval_ms × cadence factor`: device pressure and a CPU-limited
 /// encoder stretch it up to 4×, and entering the background flushes once immediately (the app
@@ -261,8 +261,7 @@ impl Exporter {
 
     /// Device pressure, doubled again while WebRTC reports the encoder CPU-limited; capped at 4×.
     fn cadence_factor(&self) -> u32 {
-        let cpu_limited =
-            self.windows.lock().unwrap_or_else(|e| e.into_inner()).media_pressure().cpu_limited;
+        let cpu_limited = self.windows.lock().unwrap_or_else(|e| e.into_inner()).cpu_limited();
         (self.device().cadence_factor() * if cpu_limited { 2 } else { 1 }).min(4)
     }
 
@@ -394,10 +393,6 @@ impl Exporter {
         }
         if self.spans.lock().unwrap_or_else(|e| e.into_inner()).any_open(SENSITIVE_SPANS) {
             return Some("connecting");
-        }
-        let media = self.windows.lock().unwrap_or_else(|e| e.into_inner()).media_pressure();
-        if media.bandwidth_limited {
-            return Some("media is bandwidth-limited");
         }
         None
     }

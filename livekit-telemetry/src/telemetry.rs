@@ -825,7 +825,9 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn uploads_hold_while_media_is_bandwidth_limited() {
+    async fn bandwidth_limitation_does_not_hold_uploads() {
+        // WebRTC reports `bandwidth` for minutes during ramp-up and for as long as an encoder
+        // stalls; holding on it starved a real device of uploads for 8 minutes.
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
         let limited = |ms| RtcStatsSample {
@@ -836,11 +838,7 @@ mod tests {
         telemetry.record_stats(limited(800));
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
-        assert!(transport.sent().is_empty(), "the congestion controller is already throttling");
-
-        tokio::time::sleep(Duration::from_secs(11)).await;
-        telemetry.flush().await;
-        assert_eq!(transport.sent().len(), 1, "10 s without new limitation: resume");
+        assert_eq!(transport.sent().len(), 1, "yielding to media is the transport's job");
     }
 
     #[tokio::test(start_paused = true)]
