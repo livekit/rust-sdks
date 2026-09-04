@@ -332,3 +332,104 @@ mod tests {
         assert_eq!(charging.change_events(Some(&at(10))).len(), 1, "plugged in");
     }
 }
+
+/// Why the audio route changed, in platform-neutral terms (AVAudioSession reasons; Android's
+/// device added/removed callbacks map to `NewDevice` / `OldDeviceUnavailable`).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioRouteReason {
+    NewDevice,
+    OldDeviceUnavailable,
+    CategoryChange,
+    Override,
+    WakeFromSleep,
+    NoSuitableRoute,
+    RouteConfigurationChange,
+    Unknown,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DevicePermission {
+    Camera,
+    Microphone,
+    ScreenShare,
+}
+
+/// Things that happen to the device mid-call and explain what the media did next. Not state
+/// (see [`DeviceState`]): each one is a record with a display body.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceEvent {
+    /// `outputs` as the platform names them (`Speaker`, `BluetoothA2DPOutput`, …).
+    AudioRouteChanged {
+        outputs: Vec<String>,
+        reason: AudioRouteReason,
+    },
+    AudioInterruption {
+        began: bool,
+    },
+    /// The user (or MDM) said no: the most common pre-connect failure on mobile.
+    PermissionDenied {
+        permission: DevicePermission,
+    },
+}
+
+fn snake(debug: impl std::fmt::Debug) -> String {
+    let mut out = String::new();
+    for (i, c) in format!("{debug:?}").chars().enumerate() {
+        if c.is_uppercase() && i > 0 {
+            out.push('_');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
+impl DeviceEvent {
+    pub(crate) fn into_event(self) -> crate::TelemetryEvent {
+        use crate::{Severity, TelemetryEvent};
+        match self {
+            Self::AudioRouteChanged { outputs, reason } => {
+                let outputs = outputs.join(",");
+                let reason = snake(reason);
+                TelemetryEvent::new("lk.device.audio_route.changed")
+                    .with_body(format!("audio route: {outputs} ({reason})"))
+                    .with_attribute("lk.device.audio_route.outputs", outputs)
+                    .with_attribute("lk.device.audio_route.reason", reason)
+            }
+            Self::AudioInterruption { began } => {
+                let phase = if began { "began" } else { "ended" };
+                TelemetryEvent::new("lk.device.audio.interruption")
+                    .with_body(format!("audio interruption {phase}"))
+                    .with_attribute("lk.device.audio.interruption", phase)
+            }
+            Self::PermissionDenied { permission } => {
+                let permission = snake(permission);
+                TelemetryEvent::new("lk.device.permission.denied")
+                    .with_severity(Severity::Warn)
+                    .with_body(format!("permission denied: {permission}"))
+                    .with_attribute("lk.device.permission", permission)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::*;
+
+    #[test]
+    fn device_events_have_bodies_and_snake_case_values() {
+        let event = DeviceEvent::AudioRouteChanged {
+            outputs: vec!["Speaker".into()],
+            reason: AudioRouteReason::OldDeviceUnavailable,
+        }
+        .into_event();
+        assert_eq!(event.body.as_deref(), Some("audio route: Speaker (old_device_unavailable)"));
+        let denied = DeviceEvent::PermissionDenied { permission: DevicePermission::ScreenShare }
+            .into_event();
+        assert_eq!(denied.body.as_deref(), Some("permission denied: screen_share"));
+        assert_eq!(denied.severity, crate::Severity::Warn);
+    }
+}

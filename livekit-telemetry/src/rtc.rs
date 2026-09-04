@@ -82,6 +82,11 @@ pub struct RtcStatsSample {
     /// When the reading was taken; `None` = now.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub timestamp_ns: Option<u64>,
+    /// The RTP stream this sample describes when a track has several (simulcast layers): any
+    /// stable id (`rid`, ssrc, the stats id). The core folds layers into the track; a platform
+    /// never sums them itself.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub layer: Option<String>,
 }
 
 impl RtcStatsSample {
@@ -108,6 +113,7 @@ impl RtcStatsSample {
             frames_per_second: None,
             audio_level: None,
             timestamp_ns: None,
+            layer: None,
         }
     }
 }
@@ -277,6 +283,26 @@ pub(crate) struct StatsWindows {
     // ponytail: grows with the tracks published in a session (a few dozen at most).
     limitation: HashMap<String, u64>,
     cpu_limited_until: Option<Instant>,
+    /// Last cumulative counters per simulcast layer, per outbound track: the track's counters
+    /// are their sum, so a suspended top layer cannot freeze them.
+    layers: HashMap<(String, StreamDirection), HashMap<String, LayerCounters>>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct LayerCounters {
+    bytes: Option<u64>,
+    packets: Option<u64>,
+    fps: Option<f64>,
+    limitation_bandwidth_ms: Option<u64>,
+    limitation_cpu_ms: Option<u64>,
+}
+
+fn sum(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+    values.flatten().reduce(|a, b| a + b)
+}
+
+fn max_u64(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+    values.flatten().max()
 }
 
 /// CPU starvation is sticky: stretch the cadence for a while after the last sign of it.
@@ -287,6 +313,7 @@ const CPU_LIMITED_HOLD: Duration = Duration::from_secs(60);
 
 impl StatsWindows {
     pub fn record_in(&mut self, mut sample: RtcStatsSample, session: &Arc<SessionState>) {
+        self.fold_layers(&mut sample);
         self.track_limitation(&sample);
         let timestamp = *sample.timestamp_ns.get_or_insert_with(now_unix_nanos);
         let key = (sample.track_sid.clone(), sample.direction);
@@ -296,6 +323,33 @@ impl StatsWindows {
                 self.windows.insert(key, Window::open(timestamp, sample, session.clone()));
             }
         }
+    }
+
+    /// Simulcast publishes one RTP stream per layer under one track sid. Remember each layer's
+    /// latest cumulative counters and rewrite the sample as the track's total, so the window
+    /// sees one monotonic series per track.
+    fn fold_layers(&mut self, sample: &mut RtcStatsSample) {
+        let Some(layer) = sample.layer.clone() else { return };
+        let layers = self.layers.entry((sample.track_sid.clone(), sample.direction)).or_default();
+        layers.insert(
+            layer,
+            LayerCounters {
+                bytes: sample.bytes,
+                packets: sample.packets,
+                fps: sample.frames_per_second,
+                limitation_bandwidth_ms: sample.quality_limitation_bandwidth_ms,
+                limitation_cpu_ms: sample.quality_limitation_cpu_ms,
+            },
+        );
+        sample.bytes = sum(layers.values().map(|l| l.bytes));
+        sample.packets = sum(layers.values().map(|l| l.packets));
+        sample.frames_per_second = layers
+            .values()
+            .filter_map(|l| l.fps)
+            .fold(None, |m, v| Some(m.map_or(v, |m: f64| m.max(v))));
+        sample.quality_limitation_bandwidth_ms =
+            max_u64(layers.values().map(|l| l.limitation_bandwidth_ms));
+        sample.quality_limitation_cpu_ms = max_u64(layers.values().map(|l| l.limitation_cpu_ms));
     }
 
     /// Close every open window into its event, filed under the window's session, and start fresh.
@@ -362,6 +416,29 @@ impl StreamDirection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn simulcast_layers_fold_into_one_track_series() {
+        let mut windows = StatsWindows::default();
+        let layer = |id: &str, bytes: u64, fps: f64| RtcStatsSample {
+            bytes: Some(bytes),
+            frames_per_second: Some(fps),
+            layer: Some(id.into()),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        };
+        windows.record(layer("h", 1_000, 30.0));
+        windows.record(layer("f", 4_000, 30.0));
+        // The top layer stalls; the half layer keeps sending.
+        windows.record(layer("h", 3_000, 30.0));
+        windows.record(layer("f", 4_000, 0.0));
+        let events = windows.close_events();
+        assert_eq!(events.len(), 1, "one window per track, not per layer");
+        let bytes =
+            events[0].attributes.iter().find(|a| a.key == "lk.rtc.bytes").map(|a| a.value.clone());
+        assert_eq!(bytes, Some(AttributeValue::Int(7_000)), "last folded total");
+        let body = events[0].body.clone().unwrap_or_default();
+        assert!(!body.contains(" 0 kbps"), "a stalled layer is not a stalled track: {body}");
+    }
 
     #[tokio::test(start_paused = true)]
     async fn cpu_limitation_counter_drives_cadence_pressure() {

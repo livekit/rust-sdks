@@ -17,9 +17,9 @@ use std::{
 };
 
 use livekit_telemetry::{
-    Attribute, AttributeValue, DeviceState, ExportError, ExportRequest, LogRecord, NetTransport,
-    RtcStatsSample, SpanKind, SpanOutcome, TelemetryConfig, TelemetryEvent, TelemetryStats,
-    TelemetryTransport,
+    Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest, LogRecord,
+    NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome, SpanStep, SpanTrack,
+    TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport, TraceContext,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -78,6 +78,11 @@ impl Telemetry {
         self.0.log(record);
     }
 
+    /// Audio route, interruption, denied permission: a process-level record built by the core.
+    pub fn device_event(&self, event: DeviceEvent) {
+        self.0.device_event(event);
+    }
+
     /// Cloud rule: server URL → observability endpoint, room token → bearer header. No-op when
     /// the config names an explicit endpoint.
     pub fn set_server(&self, url: String, token: String) {
@@ -110,27 +115,6 @@ impl Telemetry {
     /// The session's trace id (32 hex chars) — on every span and record of this pipeline.
     pub fn trace_id(&self) -> String {
         self.0.trace_id()
-    }
-
-    /// Open a span (one attempt at `lk.connect`, `lk.publish`, …); returns its handle.
-    pub fn begin_span(&self, name: String, kind: SpanKind, parent: Option<u64>) -> u64 {
-        self.0.begin_span(&name, kind, parent)
-    }
-
-    /// Record a checkpoint inside an open span, stamped now.
-    pub fn add_span_event(&self, span: u64, name: String, attributes: Vec<Attribute>) {
-        self.0.add_span_event(span, &name, attributes);
-    }
-
-    /// End a span with its outcome; exported with the next batch.
-    pub fn end_span(
-        &self,
-        span: u64,
-        outcome: SpanOutcome,
-        error_type: Option<String>,
-        attributes: Vec<Attribute>,
-    ) {
-        self.0.end_span(span, outcome, error_type, attributes);
     }
 
     /// Push one `getStats()` reading for a track; windowed on device into `lk.rtc.stats.sample`.
@@ -188,22 +172,14 @@ impl TelemetrySession {
         self.0.record_stats(sample);
     }
 
-    pub fn begin_span(&self, name: String, kind: SpanKind, parent: Option<u64>) -> u64 {
-        self.0.begin_span(&name, kind, parent)
+    /// Start a typed span in this session's trace, stamped now; `parent` nests it.
+    pub fn start(&self, name: SpanName, parent: Option<Arc<TelemetrySpan>>) -> Arc<TelemetrySpan> {
+        Arc::new(TelemetrySpan(self.0.start(name, parent.map(|p| p.0.clone()))))
     }
 
-    pub fn add_span_event(&self, span: u64, name: String, attributes: Vec<Attribute>) {
-        self.0.add_span_event(span, &name, attributes);
-    }
-
-    pub fn end_span(
-        &self,
-        span: u64,
-        outcome: SpanOutcome,
-        error_type: Option<String>,
-        attributes: Vec<Attribute>,
-    ) {
-        self.0.end_span(span, outcome, error_type, attributes);
+    /// The room and local participant, on every record of this session from now on.
+    pub fn set_room(&self, room: RoomIdentity) {
+        self.0.set_room(room);
     }
 }
 
@@ -227,6 +203,75 @@ struct Pending {
 /// Exists because uniffi-dart's foreign-trait callbacks are isolate-bound (`Pointer.fromFunction`)
 /// and abort the VM when invoked from a tokio thread; Swift and Kotlin callbacks are thread-agnostic
 /// and use [`TelemetryTransport`] directly.
+/// One attempt at an SDK operation, owned by the core. Every call is synchronous and stamps the
+/// clock inside, so the only skew is the FFI call; `describe()` is the console line on every
+/// platform. Detached (no session) it still times and describes itself.
+#[derive(uniffi::Object)]
+pub struct TelemetrySpan(Arc<livekit_telemetry::Span>);
+
+#[uniffi::export]
+impl TelemetrySpan {
+    /// Timings and a description only; nothing is exported.
+    #[uniffi::constructor]
+    pub fn detached(name: SpanName) -> Arc<Self> {
+        Arc::new(Self(livekit_telemetry::Span::detached(name)))
+    }
+
+    pub fn label(&self) -> String {
+        self.0.label()
+    }
+
+    /// A checkpoint, stamped now.
+    pub fn step(&self, step: SpanStep) {
+        self.0.step(step);
+    }
+
+    /// The open bag; replaces an existing key.
+    pub fn set_attribute(&self, key: String, value: AttributeValue) {
+        self.0.set_attribute(key, value);
+    }
+
+    pub fn set_track(&self, track: SpanTrack) {
+        self.0.set_track(track);
+    }
+
+    /// End once; `error` becomes `error.type` and the status message.
+    pub fn end(&self, outcome: SpanOutcome, error: Option<String>) {
+        self.0.end(outcome, error);
+    }
+
+    pub fn fail(&self, error: String) {
+        self.0.fail(error);
+    }
+
+    pub fn cancel(&self) {
+        self.0.cancel();
+    }
+
+    pub fn is_ended(&self) -> bool {
+        self.0.is_ended()
+    }
+
+    pub fn outcome(&self) -> Option<SpanOutcome> {
+        self.0.outcome()
+    }
+
+    /// `None` for a detached span.
+    pub fn context(&self) -> Option<TraceContext> {
+        self.0.context()
+    }
+
+    /// Seconds to the end, or to the last step while running.
+    pub fn total_secs(&self) -> f64 {
+        self.0.total_secs()
+    }
+
+    /// `lk.connect: ws_open +1.49s, …, total 1.83s, ok`
+    pub fn describe(&self) -> String {
+        self.0.describe()
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct TelemetryExportQueue {
     tx: mpsc::UnboundedSender<Pending>,

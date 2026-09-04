@@ -21,6 +21,7 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
+use crate::DeviceEvent;
 use crate::{
     event::now_unix_nanos,
     exporter::Command,
@@ -57,6 +58,9 @@ pub struct TelemetryConfig {
     /// Resource attributes describing the emitter (`service.name`, `os.name`,
     /// `device.model.identifier`, `session.id`, …). `telemetry.sdk.*` are filled in by the core.
     pub resource: Vec<Attribute>,
+    /// Who is reporting, typed; the core owns the semconv keys. Extra attributes go in `resource`.
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub sdk: Option<TelemetryResource>,
     /// Directory for the on-disk batch cache (created if missing; its parent must exist).
     /// `None` keeps batches in memory only: they survive failed uploads, not the process.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
@@ -110,6 +114,7 @@ impl TelemetryConfig {
             traces_endpoint: None,
             headers: HashMap::new(),
             resource: Vec::new(),
+            sdk: None,
             storage_dir: None,
             max_cache_bytes: 4 * 1024 * 1024,
             flush_interval_ms: 1000,
@@ -254,7 +259,7 @@ impl Telemetry {
         transport: Arc<dyn TelemetryTransport>,
         cache: Arc<dyn BatchCache>,
     ) -> (Self, Exporter) {
-        add_sdk_resource(&mut config.resource);
+        add_sdk_resource(&mut config.resource, config.sdk.as_ref());
         let destination = Arc::new(Mutex::new(config.endpoint.as_deref().map(|endpoint| {
             Destination::new(endpoint, config.traces_endpoint.clone(), config.headers.clone())
         })));
@@ -346,6 +351,12 @@ impl Telemetry {
     /// A record with an empty `name` is a plain log line: only `Warn` and `Error` ones leave the
     /// device (design doc: debug/info logs never do). Discrete events are subject to the flood
     /// guard (`max_events_per_10min`); what it drops is counted as `rate_limited`.
+    /// Something happened to the device mid-call (audio route, interruption, a denied permission):
+    /// a process-level record with a display body, built here so every platform files it alike.
+    pub fn device_event(&self, event: DeviceEvent) {
+        self.emit_in(event.into_event(), &self.process);
+    }
+
     /// A captured log line. WebRTC only counts at error; the SDK and the core at the configured
     /// floor; the core's own telemetry module never (a rejected batch that produced a record that
     /// produced a batch would never end).
@@ -520,8 +531,67 @@ fn derive_traces_endpoint(logs_endpoint: &str) -> String {
     }
 }
 
-/// Fill in the `telemetry.sdk.*` resource attributes and a fallback `service.name`.
-fn add_sdk_resource(resource: &mut Vec<Attribute>) {
+/// Which LiveKit client SDK is reporting: `service.name` becomes `livekit-client-<sdk>`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sdk {
+    Swift,
+    Android,
+    Flutter,
+    ReactNative,
+    Unity,
+    Rust,
+}
+
+impl Sdk {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Swift => "swift",
+            Self::Android => "android",
+            Self::Flutter => "flutter",
+            Self::ReactNative => "react-native",
+            Self::Unity => "unity",
+            Self::Rust => "rust",
+        }
+    }
+}
+
+/// The reporting SDK and the device it runs on. Lowered to semconv: `service.name`,
+/// `service.version`, `os.name`, `os.version`, `device.model.identifier`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TelemetryResource {
+    pub sdk: Sdk,
+    pub sdk_version: String,
+    pub os_name: String,
+    pub os_version: String,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub device_model: Option<String>,
+}
+
+impl TelemetryResource {
+    fn attributes(&self) -> Vec<Attribute> {
+        let mut out = vec![
+            Attribute::new("service.name", format!("livekit-client-{}", self.sdk.as_str())),
+            Attribute::new("service.version", self.sdk_version.as_str()),
+            Attribute::new("os.name", self.os_name.as_str()),
+            Attribute::new("os.version", self.os_version.as_str()),
+        ];
+        if let Some(model) = &self.device_model {
+            out.push(Attribute::new("device.model.identifier", model.as_str()));
+        }
+        out
+    }
+}
+
+/// Lower the typed resource, then fill in the `telemetry.sdk.*` attributes and a fallback
+/// `service.name`. Attributes already present (the open bag) win.
+fn add_sdk_resource(resource: &mut Vec<Attribute>, sdk: Option<&TelemetryResource>) {
+    for attribute in sdk.map(TelemetryResource::attributes).unwrap_or_default() {
+        if !resource.iter().any(|a| a.key == attribute.key) {
+            resource.push(attribute);
+        }
+    }
     let defaults = [
         ("service.name", "livekit-client"),
         ("telemetry.sdk.name", env!("CARGO_PKG_NAME")),
@@ -553,6 +623,7 @@ pub(crate) fn observability_endpoint(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::{RoomIdentity, SpanName, SpanStep};
     use std::{collections::VecDeque, fs, path::Path, sync::Mutex};
 
     #[test]
@@ -573,6 +644,66 @@ mod tests {
         assert_eq!(ep("https://u:p@host").unwrap(), "https://host/observability/logs/otlp/v0");
         assert_eq!(ep("nonsense"), None);
         assert_eq!(ep("wss:///rtc"), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn typed_spans_hold_uploads_while_connecting_and_export_when_ended() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let session = telemetry.begin_session();
+        let span = session.start(SpanName::Reconnect { reason: "ws closed".into() }, None);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert!(transport.sent().is_empty(), "an open reconnect holds uploads");
+        span.step(SpanStep::Attempt { number: 1, full: false });
+        span.end(SpanOutcome::Ok, None);
+        assert!(span.context().is_some_and(|c| c.trace_id == session.trace_id()));
+        telemetry.flush().await;
+        assert!(transport.sent().iter().any(|r| r.url.contains("traces")), "the span is exported");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn room_identity_and_resource_are_typed() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.sdk = Some(TelemetryResource {
+            sdk: Sdk::Swift,
+            sdk_version: "2.16.0".into(),
+            os_name: "iOS".into(),
+            os_version: "19.0".into(),
+            device_model: Some("iPhone17,1".into()),
+        });
+        let telemetry = start(config, transport.clone());
+        let session = telemetry.begin_session();
+        session.set_room(RoomIdentity {
+            sid: Some("RM_a".into()),
+            name: Some("telemetry".into()),
+            ..Default::default()
+        });
+        session.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.device_event(DeviceEvent::AudioInterruption { began: true });
+        telemetry.flush().await;
+        let sent = transport.sent();
+        let logs = records(&sent[0]);
+        let with_room =
+            logs.iter().find(|r| attribute(r, "lk.room.sid").is_some()).expect("room record");
+        assert_eq!(attribute(with_room, "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+        assert!(logs.iter().any(|r| r.body.as_ref().and_then(|b| b.value.clone())
+            == Some(Value::StringValue("audio interruption began".into()))));
+        let decoded =
+            ExportLogsServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("valid OTLP");
+        let resource = decoded.resource_logs[0].resource.as_ref().expect("resource");
+        let value = |key: &str| {
+            resource
+                .attributes
+                .iter()
+                .find(|kv| kv.key == key)
+                .and_then(|kv| kv.value.as_ref())
+                .and_then(|v| v.value.clone())
+        };
+        assert_eq!(value("service.name"), Some(Value::StringValue("livekit-client-swift".into())));
+        assert_eq!(value("device.model.identifier"), Some(Value::StringValue("iPhone17,1".into())));
+        assert!(value("telemetry.sdk.name").is_some());
     }
 
     #[tokio::test(start_paused = true)]

@@ -18,7 +18,8 @@ use std::{
 };
 
 use crate::{
-    Attribute, AttributeValue, RtcStatsSample, SpanKind, SpanOutcome, Telemetry, TelemetryEvent,
+    Attribute, AttributeValue, RtcStatsSample, Span, SpanKind, SpanName, SpanOutcome, Telemetry,
+    TelemetryEvent,
 };
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
@@ -86,6 +87,20 @@ impl fmt::Debug for SessionState {
 /// lost; a `Session` is what a room — one call — gets from it, and what its spans, RTC windows
 /// and events are filed under. Everything emitted outside a session (device state, pre-room
 /// errors, self-telemetry) belongs to the pipeline's own process session. Cheap to clone.
+/// Who this session is: attached to every record once the room is joined. `None` clears.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RoomIdentity {
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub sid: Option<String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub name: Option<String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub participant_sid: Option<String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub participant_identity: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Session {
     pub(crate) telemetry: Telemetry,
@@ -120,6 +135,24 @@ impl Session {
     }
 
     /// Open a span in this session's trace.
+    /// Start a typed span in this session's trace, stamped now. `parent` nests it.
+    pub fn start(&self, name: SpanName, parent: Option<Arc<Span>>) -> Arc<Span> {
+        let parent = parent.and_then(|p| p.context()).map(|c| c.span_id);
+        Span::bound(name, parent, self.telemetry.clone(), &self.state)
+    }
+
+    /// The room and local participant, as `lk.room.*` / `lk.participant.*` on every record.
+    pub fn set_room(&self, room: RoomIdentity) {
+        for (key, value) in [
+            ("lk.room.sid", room.sid),
+            ("lk.room.name", room.name),
+            ("lk.participant.sid", room.participant_sid),
+            ("lk.participant.identity", room.participant_identity),
+        ] {
+            self.set_attribute(key, value.map(AttributeValue::Str));
+        }
+    }
+
     pub fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
         self.telemetry.begin_span_in(name, kind, parent, &self.state)
     }

@@ -50,16 +50,18 @@ mod transport;
 
 /// Entry point and configuration.
 mod telemetry;
+mod trace;
 
 pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use device::*;
 pub use event::*;
 pub use exporter::Exporter;
 pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
-pub use session::Session;
+pub use session::{RoomIdentity, Session};
 pub use span::{SpanKind, SpanOutcome};
 pub use stats::{TelemetryStats, TelemetryStatus};
 pub use telemetry::*;
+pub use trace::*;
 pub use transport::*;
 
 #[cfg(feature = "uniffi")]
