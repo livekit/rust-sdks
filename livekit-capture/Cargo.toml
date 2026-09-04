@@ -88,6 +88,10 @@ source-device = [
     "objc2-foundation/NSValue",
     "objc2-foundation/NSString",
     "objc2-foundation/objc2-core-foundation",
+    # Linux backend
+    "dep:image",
+    "dep:libc",
+    "dep:v4l",
 ]
 source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]
 
@@ -118,3 +122,8 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, optional = 
 objc2-core-media = { version = "0.3.2", default-features = false, optional = true }
 objc2-core-video = { version = "0.3.2", default-features = false, optional = true }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+image = { workspace = true, optional = true }
+libc = { version = "0.2", optional = true }
+v4l = { version = "0.14", default-features = false, features = ["v4l2"], optional = true }
