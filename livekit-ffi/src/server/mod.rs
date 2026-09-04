@@ -54,6 +54,8 @@ pub mod video_stream;
 
 #[cfg(test)]
 mod audio_filter_tests;
+#[cfg(test)]
+mod connect_abort_tests;
 
 #[derive(Clone)]
 pub struct FfiConfig {
@@ -170,8 +172,35 @@ impl FfiServer {
             .collect()
     }
 
+    /// Snapshot of in-flight connects (handles that are still `FfiConnectingRoom`).
+    pub fn list_connecting_rooms(&self) -> Vec<room::FfiConnectingRoom> {
+        self.ffi_handles
+            .iter()
+            .filter_map(|h| h.value().downcast_ref::<room::FfiConnectingRoom>().cloned())
+            .collect()
+    }
+
+    /// Cancel every in-flight `Room::connect` and wait until those tasks settle.
+    /// rust-sdks#1340: dispose used to only close live `FfiRoom`s, so a handshake
+    /// in progress kept running after the server was torn down. `close()` any
+    /// Room that already completed; abort before connect returns Ok still does
+    /// not enter `SessionInner::close`.
+    pub async fn cancel_connecting_rooms(&'static self) {
+        let connecting = self.list_connecting_rooms();
+        let mut finished_flags = Vec::with_capacity(connecting.len());
+        for room in connecting {
+            finished_flags.push(room.finished_flag());
+            room.cancel();
+        }
+        for flag in finished_flags {
+            room::wait_until_flag(&flag).await;
+        }
+    }
+
     pub async fn dispose(&'static self) {
         log::debug!("disposing ffi server");
+
+        self.cancel_connecting_rooms().await;
 
         // Close all rooms
         let rooms = self.list_rooms();
@@ -260,6 +289,11 @@ impl FfiServer {
     }
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
+        {
+            if let Ok(connecting) = self.retrieve_handle::<room::FfiConnectingRoom>(id) {
+                connecting.cancel();
+            }
+        }
         let existed = self.ffi_handles.remove(&id).is_some();
         self.handle_dropped_txs.remove(&id);
         if !existed {

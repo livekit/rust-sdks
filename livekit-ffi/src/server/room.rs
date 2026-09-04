@@ -20,7 +20,7 @@ use livekit::{prelude::*, registered_audio_filter_plugins, PluginError};
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex, Notify};
+use tokio::sync::{broadcast, mpsc, oneshot, watch, Mutex as AsyncMutex, Notify};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
@@ -49,6 +49,39 @@ pub struct FfiTrack {
 impl FfiHandle for FfiTrack {}
 impl FfiHandle for FfiPublication {}
 impl FfiHandle for FfiRoom {}
+impl FfiHandle for FfiConnectingRoom {}
+
+/// In-flight connect. Stored under `room_handle` from the moment
+/// `ConnectRequest` is received so `DisconnectRequest` can abort
+/// `Room::connect` before a `Room` exists.
+#[derive(Clone)]
+pub struct FfiConnectingRoom {
+    pub handle_id: FfiHandleId,
+    abort: watch::Sender<bool>,
+    finished: watch::Sender<bool>,
+    /// Created at ConnectRequest so a ReadyForRoomEventRequest on the early
+    /// `room_handle` can store a permit before `FfiRoom` exists.
+    room_event_ready_notify: Arc<Notify>,
+}
+
+impl FfiConnectingRoom {
+    pub fn cancel(&self) {
+        self.abort.send_replace(true);
+        self.room_event_ready_notify.notify_one();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        *self.abort.borrow()
+    }
+
+    pub fn finished_flag(&self) -> watch::Sender<bool> {
+        self.finished.clone()
+    }
+
+    pub fn ready_for_room_event(&self) {
+        self.room_event_ready_notify.notify_one();
+    }
+}
 
 #[derive(Clone)]
 pub struct FfiRoom {
@@ -60,6 +93,7 @@ pub struct FfiRoom {
     /// event-forwarding tasks once it fires, ensuring no room events are
     /// emitted before the client is ready to receive them.
     room_event_ready_notify: Arc<Notify>,
+    abort: watch::Sender<bool>,
 }
 
 pub struct RoomInner {
@@ -127,15 +161,102 @@ struct FfiSipDtmfPacket {
     async_id: u64,
 }
 
+pub(crate) async fn wait_until_flag(flag: &watch::Sender<bool>) {
+    let mut rx = flag.subscribe();
+    loop {
+        if *rx.borrow() {
+            return;
+        }
+        if rx.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+fn abort_requested(abort: &watch::Sender<bool>) -> bool {
+    *abort.borrow()
+}
+
+async fn send_connect_error(server: &'static FfiServer, async_id: u64, error: String) {
+    let _ = server.send_event(
+        proto::ConnectCallback {
+            async_id,
+            message: Some(proto::connect_callback::Message::Error(error)),
+            ..Default::default()
+        }
+        .into(),
+    );
+}
+
+enum ConnectOutcome {
+    Connected(Room, mpsc::UnboundedReceiver<RoomEvent>),
+    Failed(String),
+    Cancelled,
+}
+
+/// rust-sdks#1334: aborting a JoinHandle without awaiting it drops a completed
+/// `Room` without `close()`; `engine_task`/`room_task` keep ICE sockets alive
+/// (~13 UDP/cycle). Always join after abort and close if connect already returned Ok.
+async fn settle_aborted_connect(
+    connect_join: JoinHandle<RoomResult<(Room, mpsc::UnboundedReceiver<RoomEvent>)>>,
+    user_aborted: bool,
+) -> ConnectOutcome {
+    connect_join.abort();
+    match connect_join.await {
+        Ok(Ok((room, events))) => {
+            let _ = room.close_with_reason(DisconnectReason::ClientInitiated.into()).await;
+            drop(events);
+            ConnectOutcome::Cancelled
+        }
+        Ok(Err(e)) => {
+            if user_aborted {
+                ConnectOutcome::Cancelled
+            } else {
+                ConnectOutcome::Failed(e.to_string())
+            }
+        }
+        Err(join) if join.is_cancelled() => ConnectOutcome::Cancelled,
+        Err(join) if join.is_panic() => {
+            // python-sdks#785: surface as a connect error; do not send_panic.
+            ConnectOutcome::Failed("Room::connect panicked".into())
+        }
+        Err(_) => ConnectOutcome::Cancelled,
+    }
+}
+
+/// Marks the in-flight connect finished on every exit, including panic unwind.
+/// `send_replace` (not `send`): `watch::Sender::send` no-ops if no receiver exists yet.
+struct FinishOnDrop(watch::Sender<bool>);
+
+impl Drop for FinishOnDrop {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
+}
+
 impl FfiRoom {
     pub fn connect(
         server: &'static FfiServer,
         connect: proto::ConnectRequest,
     ) -> proto::ConnectResponse {
         let async_id = server.resolve_async_id(connect.request_async_id);
+        let handle_id = server.next_id();
+        let (abort_tx, _) = watch::channel(false);
+        let (finished_tx, _) = watch::channel(false);
+        let ready_notify = Arc::new(Notify::new());
+
+        server.store_handle(
+            handle_id,
+            FfiConnectingRoom {
+                handle_id,
+                abort: abort_tx.clone(),
+                finished: finished_tx.clone(),
+                room_event_ready_notify: ready_notify.clone(),
+            },
+        );
 
         let req = connect.clone();
-        let mut options: RoomOptions = connect.options.into();
+        let mut options: RoomOptions = connect.options.clone().into();
 
         {
             let config = server.config.lock();
@@ -145,211 +266,311 @@ impl FfiRoom {
             }
         }
 
-        let connect = async move {
-            match Room::connect(&connect.url, &connect.token, options.clone()).await {
-                Ok((room, mut events)) => {
-                    // initialize audio filters
-                    let result = server
-                        .async_runtime
-                        .spawn_blocking(move || {
-                            for filter in registered_audio_filter_plugins().into_iter() {
-                                filter.on_load(&req.url, &req.token)?;
-                            }
-                            Ok::<(), PluginError>(())
-                        })
-                        .await;
+        let abort = abort_tx.clone();
+        let connect_req = connect;
+        let connect_task = async move {
+            let _finish = FinishOnDrop(finished_tx);
+            let connect_url = connect_req.url.clone();
+            let connect_token = connect_req.token.clone();
+            let connect_options = options.clone();
+            let mut connect_join = server.async_runtime.spawn(async move {
+                Room::connect(&connect_url, &connect_token, connect_options).await
+            });
 
+            let join_result = tokio::select! {
+                biased;
+                _ = wait_until_flag(&abort) => None,
+                join = &mut connect_join => Some(join),
+            };
+
+            let outcome = match join_result {
+                None => settle_aborted_connect(connect_join, true).await,
+                Some(Ok(Ok((room, events)))) => ConnectOutcome::Connected(room, events),
+                Some(Ok(Err(e))) => ConnectOutcome::Failed(e.to_string()),
+                Some(Err(join)) if join.is_panic() => {
+                    // python-sdks#785: do not send_panic from the connect path.
+                    ConnectOutcome::Failed("Room::connect panicked".into())
+                }
+                Some(Err(_)) => ConnectOutcome::Cancelled,
+            };
+
+            let (room, mut events) = match outcome {
+                ConnectOutcome::Cancelled => {
+                    send_connect_error(server, async_id, "connect cancelled".into()).await;
+                    server.drop_handle(handle_id);
+                    return;
+                }
+                ConnectOutcome::Failed(e) => {
+                    log::error!("error while connecting to a room: {}", e);
+                    send_connect_error(server, async_id, e).await;
+                    server.drop_handle(handle_id);
+                    return;
+                }
+                ConnectOutcome::Connected(room, events) => (room, events),
+            };
+
+            if abort_requested(&abort) {
+                let _ = room.close_with_reason(DisconnectReason::ClientInitiated.into()).await;
+                send_connect_error(server, async_id, "connect cancelled".into()).await;
+                server.drop_handle(handle_id);
+                return;
+            }
+
+            // initialize audio filters
+            let filter_req = req.clone();
+            let filter_join = server.async_runtime.spawn_blocking(move || {
+                for filter in registered_audio_filter_plugins().into_iter() {
+                    filter.on_load(&filter_req.url, &filter_req.token)?;
+                }
+                Ok::<(), PluginError>(())
+            });
+
+            let result = tokio::select! {
+                biased;
+                _ = wait_until_flag(&abort) => None,
+                result = filter_join => Some(result),
+            };
+
+            match result {
+                None => {
+                    // rust-sdks#1334: abort during filter wait must close the Room.
+                    let _ = room.close_with_reason(DisconnectReason::ClientInitiated.into()).await;
+                    send_connect_error(server, async_id, "connect cancelled".into()).await;
+                    server.drop_handle(handle_id);
+                    return;
+                }
+                Some(Ok(Ok(()))) => (),
+                Some(Ok(Err(e))) => {
                     // Filter failures are non-fatal: keep the RTC session alive, just
                     // without the filter enabled.
-                    match result {
-                        Ok(Ok(())) => (),
-                        Ok(Err(e)) => {
-                            let hint = match &e {
-                                PluginError::OnLoad(_) => " — ensure you are connecting to LiveKit Cloud and that the filter is configured correctly",
-                                PluginError::Library(_) => " — the filter dylib could not be loaded",
-                                PluginError::NotImplemented(_) => " — the filter dylib is missing a required entry point",
-                            };
-                            log::error!("audio filter disabled, continuing without it: {e}{hint}");
-                        }
-                        Err(join_err) => {
-                            log::error!("audio filter disabled, on_load task panicked: {join_err}");
-                        }
+                    let hint = match &e {
+                        PluginError::OnLoad(_) => " — ensure you are connecting to LiveKit Cloud and that the filter is configured correctly",
+                        PluginError::Library(_) => " — the filter dylib could not be loaded",
+                        PluginError::NotImplemented(_) => " — the filter dylib is missing a required entry point",
                     };
-
-                    // Successfully connected to the room
-                    // Forward the initial state for the FfiClient
-                    let Some(RoomEvent::Connected { participants_with_tracks }) =
-                        events.recv().await
-                    else {
-                        unreachable!("Connected event should always be the first event");
-                    };
-
-                    let (data_tx, data_rx) = mpsc::unbounded_channel();
-                    let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
-                    let (dtmf_tx, dtmf_rx) = mpsc::unbounded_channel();
-                    let (close_tx, close_rx) = broadcast::channel(1);
-
-                    let handle_id = server.next_id();
-                    let inner = Arc::new(RoomInner {
-                        room,
-                        handle_id,
-                        data_tx,
-                        transcription_tx,
-                        dtmf_tx,
-                        pending_published_tracks: Default::default(),
-                        pending_unpublished_tracks: Default::default(),
-                        track_handle_lookup: Default::default(),
-                        local_publication_lookup: Default::default(),
-                        rpc_method_invocation_waiters: Default::default(),
-                        url: connect.url,
-                    });
-
-                    let (local_info, remote_infos) =
-                        build_initial_states(server, &inner, participants_with_tracks);
-
-                    // Send callback
-                    let ffi_room = Self {
-                        inner: inner.clone(),
-                        handle: Default::default(),
-                        room_event_ready_notify: Arc::new(Notify::new()),
-                    };
-                    server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
-
-                    // Keep the lock until the handle is "Some" (So it is OK for the client to
-                    // request a disconnect quickly after connecting)
-                    // (When requesting a disconnect, the handle will still be locked and the
-                    // disconnect will wait for the lock to be released and gracefully close the
-                    // room)
-                    let mut handle = ffi_room.handle.lock().await;
-                    let room_info = proto::RoomInfo::from(&ffi_room);
-
-                    // Send the async response to the FfiClient *before* starting the tasks.
-                    // Ensure no events are sent before the callback
-                    let _ = server.send_event(
-                        proto::ConnectCallback {
-                            async_id,
-                            message: Some(proto::connect_callback::Message::Result(
-                                proto::connect_callback::Result {
-                                    room: proto::OwnedRoom {
-                                        handle: proto::FfiOwnedHandle { id: handle_id },
-                                        info: room_info,
-                                    },
-                                    local_participant: local_info,
-                                    participants: remote_infos,
-                                },
-                            )),
-                        }
-                        .into(),
-                    );
-
-                    // Wait for the FFI client to install its event listener and
-                    // send a ReadyForRoomEventRequest before forwarding any room
-                    // events. This avoids a race where events emitted between
-                    // the ConnectCallback and the listener registration are
-                    // dropped.
-                    if tokio::time::timeout(
-                        ROOM_EVENT_READY_TIMEOUT,
-                        ffi_room.room_event_ready_notify.notified(),
-                    )
-                    .await
-                    .is_err()
-                    {
-                        let msg = format!(
-                            "timed out waiting for ReadyForRoomEventRequest after ConnectCallback \
-                             (room_handle={handle_id})"
-                        );
-                        log::error!("{}", msg);
-                        drop(handle);
-                        ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
-                        server.drop_handle(handle_id);
-                        server.send_panic(Box::new(FfiError::InvalidRequest(msg.into())));
-                        return;
-                    }
-
-                    // Update Room SID on promise resolve. Spawned after the
-                    // ready handshake so the RoomSidChanged event is never
-                    // delivered before the client is ready to receive it.
-                    let room_handle = inner.handle_id.clone();
-                    server.async_runtime.spawn(async move {
-                        let _ = server.send_event(
-                            proto::RoomEvent {
-                                room_handle,
-                                message: Some(
-                                    proto::RoomSidChanged {
-                                        sid: ffi_room.inner.room.sid().await.into(),
-                                    }
-                                    .into(),
-                                ),
-                            }
-                            .into(),
-                        );
-                    });
-
-                    // Forward events
-                    let event_handle = server.watch_panic({
-                        let close_rx = close_rx.resubscribe();
-                        server.async_runtime.spawn(room_task(
-                            server,
-                            inner.clone(),
-                            events,
-                            close_rx,
-                        ))
-                    });
-
-                    let data_handle = server.watch_panic({
-                        let close_rx = close_rx.resubscribe();
-                        server.async_runtime.spawn(data_task(
-                            server,
-                            inner.clone(),
-                            data_rx,
-                            close_rx,
-                        ))
-                    }); // Publish data
-
-                    let transcription_handle = server.watch_panic({
-                        let close_rx = close_rx.resubscribe();
-                        server.async_runtime.spawn(transcription_task(
-                            server,
-                            inner.clone(),
-                            transcription_rx,
-                            close_rx,
-                        ))
-                    }); // Publish transcription
-
-                    let sip_dtmf_handle =
-                        server.watch_panic(server.async_runtime.spawn(sip_dtmf_task(
-                            server,
-                            inner.clone(),
-                            dtmf_rx,
-                            close_rx,
-                        )));
-
-                    *handle = Some(Handle {
-                        event_handle,
-                        data_handle,
-                        transcription_handle,
-                        sip_dtmf_handle,
-                        close_tx,
-                    });
+                    log::error!("audio filter disabled, continuing without it: {e}{hint}");
                 }
-                Err(e) => {
-                    // Failed to connect to the room, send an error message to the FfiClient
-                    // TODO(theomonnom): Typed errors?
-                    log::error!("error while connecting to a room: {}", e);
-                    let _ = server.send_event(
-                        proto::ConnectCallback {
-                            async_id,
-                            message: Some(proto::connect_callback::Message::Error(e.to_string())),
-                            ..Default::default()
-                        }
-                        .into(),
-                    );
+                Some(Err(join_err)) => {
+                    log::error!("audio filter disabled, on_load task panicked: {join_err}");
                 }
+            }
+
+            if abort_requested(&abort) {
+                let _ = room.close_with_reason(DisconnectReason::ClientInitiated.into()).await;
+                send_connect_error(server, async_id, "connect cancelled".into()).await;
+                server.drop_handle(handle_id);
+                return;
+            }
+
+            // Successfully connected to the room
+            // Forward the initial state for the FfiClient
+            let connected = tokio::select! {
+                biased;
+                _ = wait_until_flag(&abort) => None,
+                ev = events.recv() => ev,
             };
+            let Some(RoomEvent::Connected { participants_with_tracks }) = connected else {
+                if abort_requested(&abort) {
+                    let _ = room.close_with_reason(DisconnectReason::ClientInitiated.into()).await;
+                    send_connect_error(server, async_id, "connect cancelled".into()).await;
+                    server.drop_handle(handle_id);
+                    return;
+                }
+                // Do not unreachable!/watch_panic the host if the first event is wrong.
+                log::error!("first room event was not Connected");
+                let _ = room.close_with_reason(DisconnectReason::ClientInitiated.into()).await;
+                send_connect_error(server, async_id, "first room event was not Connected".into())
+                    .await;
+                server.drop_handle(handle_id);
+                return;
+            };
+
+            if abort_requested(&abort) {
+                let _ = room.close_with_reason(DisconnectReason::ClientInitiated.into()).await;
+                send_connect_error(server, async_id, "connect cancelled".into()).await;
+                server.drop_handle(handle_id);
+                return;
+            }
+
+            let (data_tx, data_rx) = mpsc::unbounded_channel();
+            let (transcription_tx, transcription_rx) = mpsc::unbounded_channel();
+            let (dtmf_tx, dtmf_rx) = mpsc::unbounded_channel();
+            let (close_tx, close_rx) = broadcast::channel(1);
+
+            let inner = Arc::new(RoomInner {
+                room,
+                handle_id,
+                data_tx,
+                transcription_tx,
+                dtmf_tx,
+                pending_published_tracks: Default::default(),
+                pending_unpublished_tracks: Default::default(),
+                track_handle_lookup: Default::default(),
+                local_publication_lookup: Default::default(),
+                rpc_method_invocation_waiters: Default::default(),
+                url: connect_req.url,
+            });
+
+            let (local_info, remote_infos) =
+                build_initial_states(server, &inner, participants_with_tracks);
+
+            let ffi_room = Self {
+                inner: inner.clone(),
+                handle: Default::default(),
+                room_event_ready_notify: ready_notify,
+                abort: abort.clone(),
+            };
+
+            // Overwrite the connecting handle in place. take+store left the id
+            // missing for one DashMap beat; DisconnectRequest then 404'd.
+            server.store_handle(handle_id, ffi_room.clone());
+            if abort_requested(&abort) {
+                // Client never received ConnectCallback.Result, so it does not
+                // own these ids. Drop them or the handle table leaks.
+                drop_initial_state_handles(server, &local_info, &remote_infos);
+                ffi_room.close(server, DisconnectReason::ClientInitiated).await;
+                send_connect_error(server, async_id, "connect cancelled".into()).await;
+                server.drop_handle(handle_id);
+                return;
+            }
+
+            // Keep the lock until the handle is "Some" (So it is OK for the client to
+            // request a disconnect quickly after connecting)
+            // (When requesting a disconnect, the handle will still be locked and the
+            // disconnect will wait for the lock to be released and gracefully close the
+            // room)
+            let mut handle = ffi_room.handle.lock().await;
+            let room_info = proto::RoomInfo::from(&ffi_room);
+
+            // Send the async response to the FfiClient *before* starting the tasks.
+            // Ensure no events are sent before the callback
+            let _ = server.send_event(
+                proto::ConnectCallback {
+                    async_id,
+                    message: Some(proto::connect_callback::Message::Result(
+                        proto::connect_callback::Result {
+                            room: proto::OwnedRoom {
+                                handle: proto::FfiOwnedHandle { id: handle_id },
+                                info: room_info,
+                            },
+                            local_participant: local_info,
+                            participants: remote_infos,
+                        },
+                    )),
+                }
+                .into(),
+            );
+
+            // Wait for the FFI client to install its event listener and
+            // send a ReadyForRoomEventRequest before forwarding any room
+            // events. This avoids a race where events emitted between
+            // the ConnectCallback and the listener registration are
+            // dropped.
+            //
+            // A missed ReadyFor handshake fails this room only. It must
+            // never panic the host process. Disconnect/cancel unblocks
+            // this wait immediately.
+            let ready = tokio::select! {
+                biased;
+                _ = wait_until_flag(&abort) => Err(()),
+                ready = tokio::time::timeout(
+                    ROOM_EVENT_READY_TIMEOUT,
+                    ffi_room.room_event_ready_notify.notified(),
+                ) => ready.map_err(|_| ()),
+            };
+
+            if ready.is_err() {
+                if abort_requested(&abort) {
+                    log::info!(
+                        "connect aborted while waiting for ReadyForRoomEventRequest \
+                         (room_handle={handle_id})"
+                    );
+                } else {
+                    // python-sdks#785: missed ReadyFor is not a panic. Result was
+                    // already sent; close the room and return. Do not send_panic
+                    // and do not send a second ConnectCallback.
+                    log::error!(
+                        "timed out waiting for ReadyForRoomEventRequest after ConnectCallback \
+                         (room_handle={handle_id})"
+                    );
+                }
+                drop(handle);
+                // Result was already delivered. End the event stream so the
+                // language object does not sit on a room that will never emit.
+                let _ = server.send_event(
+                    proto::RoomEvent {
+                        room_handle: handle_id,
+                        message: Some(proto::RoomEos {}.into()),
+                    }
+                    .into(),
+                );
+                ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
+                server.drop_handle(handle_id);
+                return;
+            }
+
+            // Update Room SID on promise resolve. Spawned after the
+            // ready handshake so the RoomSidChanged event is never
+            // delivered before the client is ready to receive it.
+            let room_handle = inner.handle_id;
+            let sid_room = ffi_room.clone();
+            server.async_runtime.spawn(async move {
+                let _ = server.send_event(
+                    proto::RoomEvent {
+                        room_handle,
+                        message: Some(
+                            proto::RoomSidChanged { sid: sid_room.inner.room.sid().await.into() }
+                                .into(),
+                        ),
+                    }
+                    .into(),
+                );
+            });
+
+            // Forward events
+            let event_handle = server.watch_panic({
+                let close_rx = close_rx.resubscribe();
+                server.async_runtime.spawn(room_task(server, inner.clone(), events, close_rx))
+            });
+
+            let data_handle = server.watch_panic({
+                let close_rx = close_rx.resubscribe();
+                server.async_runtime.spawn(data_task(server, inner.clone(), data_rx, close_rx))
+            }); // Publish data
+
+            let transcription_handle = server.watch_panic({
+                let close_rx = close_rx.resubscribe();
+                server.async_runtime.spawn(transcription_task(
+                    server,
+                    inner.clone(),
+                    transcription_rx,
+                    close_rx,
+                ))
+            }); // Publish transcription
+
+            let sip_dtmf_handle = server.watch_panic(server.async_runtime.spawn(sip_dtmf_task(
+                server,
+                inner.clone(),
+                dtmf_rx,
+                close_rx,
+            )));
+
+            *handle = Some(Handle {
+                event_handle,
+                data_handle,
+                transcription_handle,
+                sip_dtmf_handle,
+                close_tx,
+            });
         };
 
-        server.watch_panic(server.async_runtime.spawn(connect));
-        proto::ConnectResponse { async_id }
+        server.watch_panic(server.async_runtime.spawn(connect_task));
+        proto::ConnectResponse { async_id, room_handle: Some(handle_id), ..Default::default() }
+    }
+
+    pub fn cancel(&self) {
+        self.abort.send_replace(true);
+        self.room_event_ready_notify.notify_one();
     }
 
     /// Release the connect task's wait point so room event forwarding can
@@ -361,6 +582,9 @@ impl FfiRoom {
 
     /// Close the room and stop the tasks
     pub async fn close(&self, server: &'static FfiServer, reason: DisconnectReason) {
+        let _ = self.abort.send_replace(true);
+        self.room_event_ready_notify.notify_one();
+
         // drop associated track handles
         for (_, &handle) in self.inner.track_handle_lookup.lock().iter() {
             if server.drop_handle(handle) {
@@ -1590,6 +1814,20 @@ async fn forward_event(
             log::warn!("unhandled room event: {:?}", event);
         }
     };
+}
+
+fn drop_initial_state_handles(
+    server: &'static FfiServer,
+    local: &proto::OwnedParticipant,
+    remotes: &[proto::connect_callback::ParticipantWithTracks],
+) {
+    let _ = server.drop_handle(local.handle.id);
+    for remote in remotes {
+        let _ = server.drop_handle(remote.participant.handle.id);
+        for publication in &remote.publications {
+            let _ = server.drop_handle(publication.handle.id);
+        }
+    }
 }
 
 fn build_initial_states(
