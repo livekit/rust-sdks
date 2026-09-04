@@ -272,6 +272,12 @@ impl TelemetrySpan {
     }
 }
 
+/// A span's wire name (`lk.connect`, …, or the custom name), for the platform's own logging.
+#[uniffi::export]
+pub fn span_label(name: SpanName) -> String {
+    name.label().to_owned()
+}
+
 #[derive(uniffi::Object)]
 pub struct TelemetryExportQueue {
     tx: mpsc::UnboundedSender<Pending>,
