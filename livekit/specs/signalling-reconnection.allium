@@ -121,6 +121,12 @@ entity SignalConnection {
     --                buffer, pass_through sends still flow. Cleared by
     --                MarkReconnected.
     -- closed       : terminal (clean/local close or server Disconnect).
+    --
+    -- Code (livekit-signaling `SignalState`):
+    -- connected = Connected(stream); reconnecting = Reconnecting(None) in
+    -- flight, then Reconnecting(Some(stream)) with the gate still on until
+    -- MarkReconnected; lost = Offline; closed = Disconnecting then Closed.
+    -- Whether a resume may follow `lost` is the engine's call, not this layer's.
     status: connected | lost | reconnecting | closed
 
     -- Auth token; refreshable mid-session so a resume can outlive an expired
