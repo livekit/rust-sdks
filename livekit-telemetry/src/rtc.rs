@@ -151,6 +151,8 @@ struct Window {
     session: Arc<SessionState>,
     start_ns: u64,
     samples: u32,
+    /// Cumulative counters at the window's first reading, for the display body's deltas.
+    first: RtcStatsSample,
     last: RtcStatsSample,
     jitter: Gauge,
     rtt: Gauge,
@@ -164,6 +166,7 @@ impl Window {
             session,
             start_ns,
             samples: 0,
+            first: first.clone(),
             last: first.clone(),
             jitter: Gauge::default(),
             rtt: Gauge::default(),
@@ -172,6 +175,40 @@ impl Window {
         };
         window.add(first);
         window
+    }
+
+    /// `video outbound: 1204 kbps, loss 0.4%, rtt 48 ms, 30 fps` — deltas over the window.
+    fn summary(&self, window_ms: u64) -> String {
+        let mut parts = Vec::new();
+        let delta = |a: Option<u64>, b: Option<u64>| Some(a?.saturating_sub(b?));
+        if let (Some(bytes), true) = (delta(self.last.bytes, self.first.bytes), window_ms > 0) {
+            parts.push(format!("{} kbps", bytes * 8 / window_ms));
+        }
+        if let (Some(lost), Some(packets)) = (
+            delta(self.last.packets_lost, self.first.packets_lost),
+            delta(self.last.packets, self.first.packets),
+        ) {
+            if lost + packets > 0 {
+                parts.push(format!("loss {:.1}%", lost as f64 * 100.0 / (lost + packets) as f64));
+            }
+        }
+        if self.rtt.n > 0 {
+            parts.push(format!("rtt {:.0} ms", self.rtt.sum / self.rtt.n as f64));
+        }
+        if self.fps.n > 0 {
+            parts.push(format!("{:.0} fps", self.fps.sum / self.fps.n as f64));
+        }
+        if let Some(freezes) =
+            delta(self.last.freeze_count, self.first.freeze_count).filter(|f| *f > 0)
+        {
+            parts.push(format!("{freezes} freezes"));
+        }
+        format!(
+            "{} {}: {}",
+            self.last.kind.as_str(),
+            self.last.direction.as_str(),
+            if parts.is_empty() { "no data".to_owned() } else { parts.join(", ") }
+        )
     }
 
     fn add(&mut self, sample: RtcStatsSample) {
@@ -183,17 +220,19 @@ impl Window {
         self.last = sample;
     }
 
-    /// The `lk.rtc.stats.sample` event for this window, stamped at `end_ns`.
+    /// The `lk.rtc.stats.sample` event for this window, stamped at `end_ns`. Its body is the
+    /// one-line human summary a log view shows (OTel: an event's body is its display message);
+    /// the attributes carry the numbers.
     fn into_event(self, end_ns: u64) -> TelemetryEvent {
+        let window_ms = end_ns.saturating_sub(self.start_ns) / 1_000_000;
+        let body = self.summary(window_ms);
         let last = self.last;
         let mut event = TelemetryEvent::new("lk.rtc.stats.sample")
+            .with_body(body)
             .with_attribute("lk.track.sid", last.track_sid)
             .with_attribute("lk.track.kind", last.kind.as_str())
             .with_attribute("lk.track.direction", last.direction.as_str())
-            .with_attribute(
-                "lk.rtc.window_ms",
-                (end_ns.saturating_sub(self.start_ns) / 1_000_000) as i64,
-            )
+            .with_attribute("lk.rtc.window_ms", window_ms as i64)
             .with_attribute("lk.rtc.samples", self.samples as i64);
         if let Some(codec) = last.codec {
             event = event.with_attribute("lk.rtc.codec", codec);

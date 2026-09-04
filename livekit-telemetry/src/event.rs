@@ -80,7 +80,7 @@ impl TelemetryEvent {
     /// attributes keep the caller's namespace (`acme.checkout.step`).
     pub fn custom(name: &str, attributes: Vec<Attribute>) -> Self {
         let name = format!("custom.{}", name.trim_start_matches("custom."));
-        Self { attributes, ..Self::new(name) }
+        Self { attributes, body: Some(name.clone()), ..Self::new(name) }
     }
 
     /// Rough encoded size — strings plus a fixed overhead per field. Drives the byte bounds on
@@ -98,7 +98,7 @@ impl TelemetryEvent {
 
 /// Event severity, mapped onto the OTel severity numbers (`TRACE`=1 … `ERROR`=17).
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
     Trace,
     Debug,

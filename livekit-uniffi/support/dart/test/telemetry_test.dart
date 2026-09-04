@@ -27,6 +27,7 @@ void main() {
           endpoint: 'http://collector/v1/logs',
           headers: {'Authorization': 'Bearer test'},
           resource: [],
+          logSeverity: Severity.warn,
         ),
         queue: queue,
       );
@@ -60,7 +61,7 @@ void main() {
     test('refuses to start without any transport', () {
       expect(
         () => Telemetry(
-          config: TelemetryConfig(endpoint: 'http://collector/v1/logs', headers: {}, resource: []),
+          config: TelemetryConfig(endpoint: 'http://collector/v1/logs', headers: {}, resource: [], logSeverity: Severity.warn),
           transport: null,
         ),
         throwsA(anything),

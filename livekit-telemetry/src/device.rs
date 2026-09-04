@@ -145,24 +145,31 @@ impl DeviceState {
         if previous.is_none_or(|p| p.thermal != self.thermal) {
             events.push(
                 TelemetryEvent::new("lk.device.thermal.changed")
+                    .with_body(format!("thermal: {}", self.thermal.as_str()))
                     .with_attribute("lk.device.thermal.state", self.thermal.as_str()),
             );
         }
         if previous.is_none_or(|p| p.low_power_mode != self.low_power_mode) {
             events.push(
                 TelemetryEvent::new("lk.device.low_power.changed")
+                    .with_body(format!(
+                        "low power mode: {}",
+                        if self.low_power_mode { "on" } else { "off" }
+                    ))
                     .with_attribute("lk.device.low_power.enabled", self.low_power_mode),
             );
         }
         if previous.is_none_or(|p| p.app_state != self.app_state) {
             events.push(
                 TelemetryEvent::new("lk.device.app_state.changed")
+                    .with_body(format!("app: {}", self.app_state.as_str()))
                     .with_attribute("lk.device.app_state", self.app_state.as_str()),
             );
         }
         if previous.is_none_or(|p| p.memory != self.memory) {
             events.push(
                 TelemetryEvent::new("lk.device.memory.changed")
+                    .with_body(format!("memory pressure: {}", self.memory.as_str()))
                     .with_attribute("lk.device.memory.pressure", self.memory.as_str()),
             );
         }
@@ -172,6 +179,12 @@ impl DeviceState {
         }) {
             events.push(
                 TelemetryEvent::new("lk.device.network.changed")
+                    .with_body(format!(
+                        "network: {}{}{}",
+                        self.network.as_str(),
+                        if self.network_expensive { ", expensive" } else { "" },
+                        if self.network_constrained { ", constrained" } else { "" }
+                    ))
                     .with_attribute("network.connection.type", self.network.as_str())
                     .with_attribute("lk.device.network.expensive", self.network_expensive)
                     .with_attribute("lk.device.network.constrained", self.network_constrained),
@@ -187,6 +200,11 @@ impl DeviceState {
         {
             events.push(
                 TelemetryEvent::new("lk.device.battery.changed")
+                    .with_body(format!(
+                        "battery: {}%{}",
+                        self.battery_level.unwrap_or(0),
+                        if self.battery_charging { ", charging" } else { "" }
+                    ))
                     .with_attribute(
                         "lk.device.battery.level",
                         self.battery_level.unwrap_or(0) as i64,

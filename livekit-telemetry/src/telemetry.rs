@@ -96,6 +96,10 @@ pub struct TelemetryConfig {
     /// Cap on one request's payload before compression (design doc: "single POST ≤ 1 MB").
     #[cfg_attr(feature = "uniffi", uniffi(default = 1048576))]
     pub max_batch_bytes: u64,
+    /// Lowest severity a plain log record (an event with no name) needs to leave the device.
+    /// Events are not subject to it. Design doc: warn.
+    // No uniffi default: enum defaults are not supported by the Swift generator (uniffi 0.31).
+    pub log_severity: Severity,
 }
 
 impl TelemetryConfig {
@@ -117,6 +121,7 @@ impl TelemetryConfig {
             max_batches_per_upload: 4,
             flush_threshold_bytes: 256 * 1024,
             max_batch_bytes: 1024 * 1024,
+            log_severity: Severity::Warn,
         }
     }
 }
@@ -321,9 +326,7 @@ impl Telemetry {
     }
 
     pub(crate) fn emit_in(&self, mut event: TelemetryEvent, session: &Arc<SessionState>) {
-        if event.name.is_empty()
-            && matches!(event.severity, Severity::Trace | Severity::Debug | Severity::Info)
-        {
+        if event.name.is_empty() && event.severity < self.config.log_severity {
             return;
         }
         if !self.guard.lock().unwrap_or_else(|e| e.into_inner()).admit() {

@@ -139,6 +139,14 @@ impl Snapshot {
     /// computed from.
     pub fn report(&self, cached_batches: u64) -> TelemetryEvent {
         let mut event = TelemetryEvent::new("lk.telemetry.report")
+            .with_body(format!(
+                "telemetry: {} batches sent ({} B), {} failed, {} dropped, {} cached",
+                self.uploads_sent,
+                self.upload_bytes,
+                self.upload_failures + self.upload_timeouts,
+                self.dropped() - self.disabled,
+                cached_batches
+            ))
             .with_attribute("lk.telemetry.uploads.sent", self.uploads_sent as i64)
             .with_attribute("lk.telemetry.uploads.bytes", self.upload_bytes as i64)
             .with_attribute("lk.telemetry.uploads.failed", self.upload_failures as i64)

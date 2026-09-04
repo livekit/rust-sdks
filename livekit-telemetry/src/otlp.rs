@@ -90,9 +90,13 @@ pub(crate) fn encode_spans(
 fn log_record(Queued { mut event, session }: Queued, global: &[Attribute]) -> LogRecord {
     session.decorate(&mut event.attributes, global);
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
-    // An event without a body still needs a line: backends that key the UI on the body (Loki,
-    // most log viewers) would show it empty, and `event_name` is not surfaced everywhere yet.
+    // Events carry a display body (OTel: "a string display message of the event"); the name is
+    // the last resort so no event ever renders as an empty line. `otel.event.name` (semconv 1.39)
+    // duplicates `EventName` for backends that do not surface the field yet — Loki included.
     let body = event.body.or_else(|| (!event.name.is_empty()).then(|| event.name.clone()));
+    if !event.name.is_empty() {
+        event.attributes.push(Attribute::new("otel.event.name", event.name.clone()));
+    }
     LogRecord {
         time_unix_nano,
         observed_time_unix_nano: time_unix_nano,
