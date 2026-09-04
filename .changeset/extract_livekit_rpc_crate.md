@@ -2,6 +2,8 @@
 livekit-rpc: patch
 livekit: minor
 livekit-ffi: patch
+livekit-data-stream: patch
+livekit-uniffi: patch
 ---
 
 Moves the RPC implementation into a new `livekit-rpc` crate, alongside the existing
