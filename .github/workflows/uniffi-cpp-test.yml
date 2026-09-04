@@ -1,0 +1,58 @@
+name: UniFFI C++ tests
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "livekit-uniffi/**"
+      - "livekit-common/**"
+      - "livekit-datatrack/**"
+      - "livekit-net/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - ".cargo/**"
+      - ".github/actions/uniffi-deps/**"
+      - ".github/workflows/uniffi-cpp-test.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "livekit-uniffi/**"
+      - "livekit-common/**"
+      - "livekit-datatrack/**"
+      - "livekit-net/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - ".cargo/**"
+      - ".github/actions/uniffi-deps/**"
+      - ".github/workflows/uniffi-cpp-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cpp-smoke:
+    name: C++17 smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          cache: false
+          rustflags: ""
+
+      - name: Install UniFFI task dependencies
+        uses: ./.github/actions/uniffi-deps
+
+      - name: Generate, compile, and run C++ smoke test
+        working-directory: livekit-uniffi
+        run: cargo make cpp-smoke

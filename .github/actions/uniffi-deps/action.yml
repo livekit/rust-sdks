@@ -1,4 +1,5 @@
 name: Install Common Deps for UniFFI Tasks
+description: Install shared tools required by UniFFI build tasks
 runs:
   using: composite
   steps:
