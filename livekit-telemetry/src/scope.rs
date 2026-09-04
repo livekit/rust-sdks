@@ -17,11 +17,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::span::SpanKind;
-use crate::{
-    Attribute, AttributeValue, RtcStatsSample, Span, SpanName, SpanOutcome, Telemetry,
-    TelemetryEvent,
-};
+use crate::{Attribute, AttributeValue, RtcStatsSample, Span, SpanName, Telemetry, TelemetryEvent};
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
 /// attached to them at export time (`lk.room.sid`, `lk.participant.identity`, …).
@@ -152,26 +148,5 @@ impl Scope {
         ] {
             self.set_attribute(key, value.map(AttributeValue::Str));
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn begin_span(&self, name: &str, kind: SpanKind, parent: Option<u64>) -> u64 {
-        self.telemetry.begin_span_in(name, kind, parent, &self.state)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn add_span_event(&self, span: u64, name: &str, attributes: Vec<Attribute>) {
-        self.telemetry.add_span_event(span, name, attributes);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn end_span(
-        &self,
-        span: u64,
-        outcome: SpanOutcome,
-        error_type: Option<String>,
-        attributes: Vec<Attribute>,
-    ) {
-        self.telemetry.end_span(span, outcome, error_type, attributes);
     }
 }

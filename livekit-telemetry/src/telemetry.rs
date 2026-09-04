@@ -1252,16 +1252,17 @@ mod tests {
         assert_ne!(a.trace_id(), telemetry.trace_id(), "the process has its own session");
         a.set_attribute("lk.room.sid", Some("RM_a".into()));
         b.set_attribute("lk.room.sid", Some("RM_b".into()));
-        let span = a.begin_span("lk.connect", SpanKind::Client, None);
+        let span = a.start(SpanName::Connect, None);
+        let span_id = span.context().expect("bound").span_id;
         a.emit(TelemetryEvent::new("lk.ping"));
         b.emit(TelemetryEvent::new("lk.ping"));
         // A warn record from the SDK logger, inside room A's connect: no session handle, just
         // the ambient span id — the core files it under A.
         telemetry.emit(
-            TelemetryEvent::new("").with_severity(Severity::Warn).with_body("hmm").in_span(span),
+            TelemetryEvent::new("").with_severity(Severity::Warn).with_body("hmm").in_span(span_id),
         );
         telemetry.emit(TelemetryEvent::new("lk.device.thermal.changed"));
-        a.end_span(span, SpanOutcome::Ok, None, Vec::new());
+        span.end(SpanOutcome::Ok, None);
         telemetry.flush().await;
 
         let sent = transport.sent();
@@ -1288,12 +1289,15 @@ mod tests {
         // A record that names a span which has already ended — and been exported — is still that
         // session's: the SDK's log path hops threads, the span does not wait for it.
         telemetry.emit(
-            TelemetryEvent::new("").with_severity(Severity::Error).with_body("late").in_span(span),
+            TelemetryEvent::new("")
+                .with_severity(Severity::Error)
+                .with_body("late")
+                .in_span(span_id),
         );
         telemetry.flush().await;
         let late = &records(&transport.sent()[2])[0];
         assert_eq!(hex(&late.trace_id), a.trace_id(), "filed under the ended span's session");
-        assert_eq!(late.span_id, span.to_be_bytes().to_vec());
+        assert_eq!(late.span_id, span_id.to_be_bytes().to_vec());
     }
 
     #[tokio::test(start_paused = true)]
@@ -1316,7 +1320,6 @@ mod tests {
         assert_eq!(sent.len(), 1, "cached batches ship as soon as the destination is known");
         assert_eq!(sent[0].url, "https://x.livekit.cloud/observability/logs/otlp/v0");
         assert_eq!(sent[0].headers["Authorization"], "Bearer t");
-        telemetry.begin_scope().begin_span("lk.publish", SpanKind::Internal, None);
         let span = telemetry.begin_span("lk.publish", SpanKind::Internal, None);
         telemetry.end_span(span, SpanOutcome::Ok, None, Vec::new());
         telemetry.flush().await;
