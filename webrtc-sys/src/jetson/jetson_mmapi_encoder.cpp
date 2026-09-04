@@ -17,6 +17,7 @@
 #include "jetson_mmapi_encoder.h"
 
 #include "jetson_plane_layout.h"
+#include "jetson_runtime_loader.h"
 
 #include <cerrno>
 #include <linux/v4l2-controls.h>
@@ -166,6 +167,15 @@ bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
   if (!device.has_value()) {
     return false;
   }
+  // The MMAPI/v4l2 symbols below are lazily bound and abort the process if
+  // invoked while the Jetson userspace libraries are absent, so the library
+  // probe must pass before any of them is called.
+  if (!lk_jetson_runtime_libs_available()) {
+    RTC_LOG(LS_WARNING)
+        << "Jetson encoder device exists, but the Jetson multimedia "
+           "libraries (libnvbufsurface/libv4l2) could not be loaded.";
+    return false;
+  }
   std::unique_ptr<NvVideoEncoder> encoder(
       NvVideoEncoder::createVideoEncoder("livekit-encoder"));
   if (!encoder) {
@@ -234,6 +244,16 @@ bool JetsonMmapiEncoder::Initialize(int width,
   auto device = FindEncoderDevice();
   if (!device.has_value()) {
     RTC_LOG(LS_WARNING) << "Jetson MMAPI encoder device not found.";
+    return false;
+  }
+
+  // Re-checked here rather than relying on the factory's IsSupported() gate:
+  // this is a public entry point, and an unresolved lazily-bound symbol
+  // aborts the process instead of returning an error.
+  if (!lk_jetson_runtime_libs_available()) {
+    RTC_LOG(LS_WARNING)
+        << "Jetson encoder device exists, but the Jetson multimedia "
+           "libraries (libnvbufsurface/libv4l2) could not be loaded.";
     return false;
   }
 
