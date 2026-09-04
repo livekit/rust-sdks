@@ -133,6 +133,15 @@ impl Default for SIPGrants {
     }
 }
 
+/// Grants for the LiveKit Inference gateway. `perform` is the only capability today; the struct
+/// exists so a second one can be added without changing the claim's shape.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InferenceGrants {
+    #[serde(default)]
+    pub perform: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Default, Deserialize, PartialEq)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -149,6 +158,14 @@ pub struct Claims {
     pub metadata: String,
     pub attributes: HashMap<String, String>,
     pub room_config: Option<livekit_protocol::RoomConfiguration>,
+
+    // `kind` and `inference` are the only two claims that skip when unset. Every other field here
+    // is serialized unconditionally, so adding these without the skip would silently grow every
+    // token minted by every user of this SDK by two claims.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference: Option<InferenceGrants>,
 }
 
 impl Claims {
@@ -194,6 +211,8 @@ impl AccessToken {
                 metadata: Default::default(),
                 attributes: HashMap::new(),
                 room_config: Default::default(),
+                kind: Default::default(),
+                inference: Default::default(),
             },
         }
     }
@@ -258,6 +277,18 @@ impl AccessToken {
 
     pub fn with_room_config(mut self, config: livekit_protocol::RoomConfiguration) -> Self {
         self.claims.room_config = Some(config);
+        self
+    }
+
+    /// The participant kind the server should record for this identity, e.g. `"agent"`. A
+    /// participant that joins without it is counted as a user by the room.
+    pub fn with_kind(mut self, kind: &str) -> Self {
+        self.claims.kind = kind.to_owned();
+        self
+    }
+
+    pub fn with_inference_grants(mut self, grants: InferenceGrants) -> Self {
+        self.claims.inference = Some(grants);
         self
     }
 
@@ -326,7 +357,7 @@ impl TokenVerifier {
 mod tests {
     use std::time::Duration;
 
-    use super::{AccessToken, Claims, TokenVerifier, VideoGrants};
+    use super::{AccessToken, Claims, InferenceGrants, TokenVerifier, VideoGrants};
 
     const TEST_API_KEY: &str = "myapikey";
     const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";
@@ -390,6 +421,56 @@ mod tests {
             },
             claims
         );
+    }
+
+    #[test]
+    fn test_kind_and_inference_round_trip() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_ttl(Duration::from_secs(60))
+            .with_identity("agent-1")
+            .with_kind("agent")
+            .with_inference_grants(InferenceGrants { perform: true })
+            .to_jwt()
+            .unwrap();
+
+        let verifier = TokenVerifier::with_api_key(TEST_API_KEY, TEST_API_SECRET);
+        let claims = verifier.verify(&token).unwrap();
+
+        assert_eq!(claims.kind, "agent");
+        assert_eq!(claims.inference, Some(InferenceGrants { perform: true }));
+    }
+
+    /// The constraint that decides the design: `Claims` has no other `skip_serializing_if`, so
+    /// without one on these two fields every token minted by every user of this SDK would grow
+    /// `kind: ""` and `inference: null`.
+    #[test]
+    fn test_kind_and_inference_are_absent_from_a_token_that_does_not_set_them() {
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_ttl(Duration::from_secs(60))
+            .with_identity("test")
+            .to_jwt()
+            .unwrap();
+
+        let payload = serde_json::to_value(
+            &TokenVerifier::with_api_key(TEST_API_KEY, TEST_API_SECRET).verify(&token).unwrap(),
+        )
+        .unwrap();
+        let payload = payload.as_object().unwrap();
+
+        assert!(!payload.contains_key("kind"), "unset `kind` must not be serialized");
+        assert!(!payload.contains_key("inference"), "unset `inference` must not be serialized");
+        // The fields that already serialize unconditionally still do -- this is additive only.
+        assert!(payload.contains_key("name"));
+        assert!(payload.contains_key("metadata"));
+    }
+
+    /// `Claims` is `#[serde(default)]`, so the verify path reads a token minted before these two
+    /// claims existed without change.
+    #[test]
+    fn test_a_token_without_the_new_claims_still_deserializes() {
+        let claims = Claims::from_unverified(TEST_TOKEN).expect("Failed to parse token");
+        assert_eq!(claims.kind, "");
+        assert_eq!(claims.inference, None);
     }
 
     #[test]
