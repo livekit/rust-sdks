@@ -20,7 +20,7 @@ use livekit::{
     },
     options::{
         AudioEncoding, DegradationPreference, FrameMetadataFeatures, TrackPublishOptions,
-        VideoEncoderBackend, VideoEncoding,
+        VideoEncoderBackend, VideoEncoding, VideoPreset,
     },
     prelude::*,
     webrtc::{
@@ -356,7 +356,11 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             red: opts.red.unwrap_or(default_publish_options.red),
             simulcast: opts.simulcast.unwrap_or(default_publish_options.simulcast),
             stream: opts.stream.unwrap_or(default_publish_options.stream),
-            simulcast_layers: default_publish_options.simulcast_layers,
+            simulcast_layers: if opts.simulcast_layers.is_empty() {
+                opts.default_publish_options.simulcast_layers
+            } else {
+                Some(opts.simulcast_layers.into_iter().map(Into::into).collect())
+            },
             preconnect_buffer: opts
                 .preconnect_buffer
                 .unwrap_or(default_publish_options.preconnect_buffer),
@@ -380,6 +384,12 @@ impl From<proto::VideoEncoding> for VideoEncoding {
 impl From<proto::AudioEncoding> for AudioEncoding {
     fn from(opts: proto::AudioEncoding) -> Self {
         Self { max_bitrate: opts.max_bitrate }
+    }
+}
+
+impl From<proto::VideoPreset> for VideoPreset {
+    fn from(preset: proto::VideoPreset) -> Self {
+        Self { width: preset.width, height: preset.height, encoding: preset.encoding.into() }
     }
 }
 
