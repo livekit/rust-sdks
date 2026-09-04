@@ -27,7 +27,7 @@ use crate::{
     rtc::StatsWindows,
     session::{Session, SessionState},
     span::Spans,
-    stats::Counters,
+    stats::{Counters, TelemetryStatus},
     store::{Queued, Store},
     Attribute, AttributeValue, BatchCache, DeviceState, Exporter, FileCache, MemoryCache,
     RtcStatsSample, Severity, SpanKind, SpanOutcome, TelemetryEvent, TelemetryStats,
@@ -164,6 +164,7 @@ pub struct Telemetry {
     /// Attributes attached to every record of every session.
     global: Arc<Mutex<Vec<Attribute>>>,
     destination: Arc<Mutex<Option<Destination>>>,
+    status: Arc<Mutex<TelemetryStatus>>,
     commands: mpsc::UnboundedSender<Command>,
 }
 
@@ -228,7 +229,7 @@ impl Telemetry {
             Some(dir) => match FileCache::open(dir, config.max_cache_bytes) {
                 Ok(cache) => Arc::new(cache),
                 Err(err) => {
-                    log::warn!("telemetry: cannot use storage dir {dir}: {err}; caching in memory");
+                    log::warn!("cannot use storage dir {dir}: {err}; caching in memory");
                     Arc::new(MemoryCache::new(config.max_cache_bytes))
                 }
             },
@@ -253,6 +254,7 @@ impl Telemetry {
         let process = SessionState::new();
         let global = Arc::new(Mutex::new(Vec::new()));
         let counters = Arc::new(Counters::default());
+        let status = Arc::new(Mutex::new(TelemetryStatus::Ok));
         let store = Arc::new(Store::new(
             config.max_queue_size.max(1) as usize,
             usize::try_from(config.flush_threshold_bytes.max(1)).unwrap_or(usize::MAX),
@@ -276,6 +278,7 @@ impl Telemetry {
             destination.clone(),
             receiver,
             device.clone(),
+            status.clone(),
         );
         let telemetry = Self {
             store,
@@ -289,6 +292,7 @@ impl Telemetry {
             process,
             global,
             destination,
+            status,
             commands,
         };
         (telemetry, exporter)
@@ -447,7 +451,11 @@ impl Telemetry {
     /// Pipeline health: drops by reason, uploads, cached batches. The same numbers ride to the
     /// backend as `lk.telemetry.report` events whenever something went wrong.
     pub fn stats(&self) -> TelemetryStats {
-        TelemetryStats::new(self.counters.snapshot(), self.cache.pending().len() as u64)
+        TelemetryStats::new(
+            self.counters.snapshot(),
+            self.cache.pending().len() as u64,
+            *self.status.lock().unwrap_or_else(|e| e.into_inner()),
+        )
     }
 
     async fn command(&self, make: impl FnOnce(oneshot::Sender<()>) -> Command) {

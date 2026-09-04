@@ -58,7 +58,7 @@ pub use exporter::Exporter;
 pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
 pub use session::Session;
 pub use span::{SpanKind, SpanOutcome};
-pub use stats::TelemetryStats;
+pub use stats::{TelemetryStats, TelemetryStatus};
 pub use telemetry::*;
 pub use transport::*;
 

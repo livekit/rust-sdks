@@ -169,10 +169,44 @@ impl Snapshot {
     }
 }
 
+/// What the upload policy is doing right now.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TelemetryStatus {
+    /// Uploading as data arrives.
+    Ok,
+    /// Uploads wait for a connect/reconnect to finish or for the device (Low Data Mode, low
+    /// battery); capped at 60 s.
+    Held,
+    /// The last upload failed; retrying in a minute.
+    Paused,
+    /// The collector asked for a pause (`Retry-After`).
+    Throttled,
+    /// No destination yet (no room connected); everything waits in the cache.
+    Waiting,
+    /// The collector disabled telemetry for this process.
+    Off,
+}
+
+impl std::fmt::Display for TelemetryStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Ok => "ok",
+            Self::Held => "held",
+            Self::Paused => "paused",
+            Self::Throttled => "throttled",
+            Self::Waiting => "waiting",
+            Self::Off => "off",
+        })
+    }
+}
+
 /// Pipeline health as seen by the SDK: [`Telemetry::stats`](crate::Telemetry::stats).
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TelemetryStats {
+    /// What the upload policy is doing right now.
+    pub status: TelemetryStatus,
     /// Events lost for any reason (sum of the `dropped_*` fields).
     pub dropped: u64,
     pub dropped_queue_full: u64,
@@ -196,34 +230,35 @@ pub struct TelemetryStats {
     pub cached_batches: u64,
 }
 
-/// One line for a debug console.
+/// One line for a debug console: status, throughput, one backlog number, one loss number, then
+/// the loss breakdown.
 impl std::fmt::Display for TelemetryStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "telemetry: sent {} ({} B), cached {}, failed {}, timeouts {}, holds capped {}, dropped {} \
-             (queue {}, cache {}/{}, rejected {}, throttled {}, rate-limited {}, disabled {})",
+            "{}, sent {} ({} B), backlog {}, failed {}, lost {} (queue {}, cache {}, rejected {}, \
+             throttled {}, rate-limited {}, disabled {}; holds capped {})",
+            self.status,
             self.uploads_sent,
             self.upload_bytes,
             self.cached_batches,
-            self.upload_failures,
-            self.upload_timeouts,
-            self.holds_capped,
+            self.upload_failures + self.upload_timeouts,
             self.dropped,
             self.dropped_queue_full,
-            self.dropped_cache_full,
-            self.dropped_cache_error,
+            self.dropped_cache_full + self.dropped_cache_error,
             self.dropped_rejected,
             self.dropped_throttled,
             self.dropped_rate_limited,
             self.dropped_disabled,
+            self.holds_capped,
         )
     }
 }
 
 impl TelemetryStats {
-    pub(crate) fn new(snapshot: Snapshot, cached_batches: u64) -> Self {
+    pub(crate) fn new(snapshot: Snapshot, cached_batches: u64, status: TelemetryStatus) -> Self {
         Self {
+            status,
             dropped: snapshot.dropped(),
             dropped_queue_full: snapshot.queue_full,
             dropped_cache_error: snapshot.cache_error,

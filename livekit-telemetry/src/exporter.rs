@@ -28,7 +28,7 @@ use crate::{
     rtc::StatsWindows,
     session::SessionState,
     span::Spans,
-    stats::{Counters, Snapshot},
+    stats::{Counters, Snapshot, TelemetryStatus},
     store::{Queued, Store},
     telemetry::Destination,
     AppState, Attribute, BatchCache, DeviceState, ExportError, ExportRequest, MemoryPressure,
@@ -142,6 +142,8 @@ pub struct Exporter {
     /// cadence factor last logged.
     hold_logged: Option<&'static str>,
     cadence_logged: u32,
+    /// Shared with `Telemetry::stats`.
+    status: Arc<Mutex<TelemetryStatus>>,
     /// Drop new batches until then (`Retry-After` window).
     throttled_until: Option<Instant>,
     seq: u64,
@@ -177,6 +179,7 @@ impl Exporter {
         destination: Arc<Mutex<Option<Destination>>>,
         commands: mpsc::UnboundedReceiver<Command>,
         device: Arc<Mutex<Option<DeviceState>>>,
+        status: Arc<Mutex<TelemetryStatus>>,
     ) -> Self {
         Self {
             store,
@@ -194,6 +197,7 @@ impl Exporter {
             paused_until: None,
             hold_logged: None,
             cadence_logged: 1,
+            status,
             throttled_until: None,
             seq: 0,
             cache_failures: 0,
@@ -300,7 +304,7 @@ impl Exporter {
             why.push("encoder cpu-limited".to_string());
         }
         log::debug!(
-            "telemetry: cadence ×{factor}, flush every {}s ({})",
+            "cadence ×{factor}, flush every {}s ({})",
             self.period(self.config.flush_interval_ms).as_secs(),
             if why.is_empty() { "pressure over".to_string() } else { why.join(", ") }
         );
@@ -317,7 +321,7 @@ impl Exporter {
         self.export_pending().await;
         let left = self.cache.pending().len();
         if left > 0 {
-            log::debug!("telemetry: {left} batches still cached at shutdown (replayed next start)");
+            log::debug!("{left} batches still cached at shutdown (replayed next start)");
         }
     }
 
@@ -366,7 +370,11 @@ impl Exporter {
                 // The host's console gets the cumulative line through the FFI log path.
                 log::debug!(
                     "{}",
-                    crate::stats::TelemetryStats::new(self.counters.snapshot(), cached)
+                    crate::stats::TelemetryStats::new(
+                        self.counters.snapshot(),
+                        cached,
+                        self.status()
+                    )
                 );
                 let report = delta.report(cached);
                 batch.push(Queued { event: report, session: self.process.clone() });
@@ -417,11 +425,9 @@ impl Exporter {
             Err(err) => {
                 // A full disk is a steady state, not an event: warn once, then stay quiet.
                 if self.cache_failures == 0 {
-                    log::warn!(
-                        "telemetry: cannot cache batches ({err}); dropping until it recovers"
-                    );
+                    log::warn!("cannot cache batches ({err}); dropping until it recovers");
                 } else {
-                    log::debug!("telemetry: could not cache {count} items: {err}");
+                    log::debug!("could not cache {count} items: {err}");
                 }
                 self.cache_failures += 1;
                 Counters::add(&self.counters.cache_error, count);
@@ -446,58 +452,79 @@ impl Exporter {
 
     /// Send cached batches oldest-first, within this tick's budget, until one fails; then back
     /// off.
+    fn status(&self) -> TelemetryStatus {
+        *self.status.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Record the policy state; true when it changed (log once, not per tick).
+    fn set_status(&self, status: TelemetryStatus) -> bool {
+        let mut current = self.status.lock().unwrap_or_else(|e| e.into_inner());
+        let changed = *current != status;
+        *current = status;
+        changed
+    }
+
     async fn upload(&mut self) {
         if self.silenced {
+            self.set_status(TelemetryStatus::Off);
             return;
         }
+        let backlog = self.cache.pending().len();
         if let Some(until) = self.paused_until {
             if Instant::now() < until {
-                log::trace!("telemetry: paused for {}s more", (until - Instant::now()).as_secs());
+                let throttled = self.throttled_until.is_some_and(|t| Instant::now() < t);
+                self.set_status(if throttled {
+                    TelemetryStatus::Throttled
+                } else {
+                    TelemetryStatus::Paused
+                });
+                log::trace!(
+                    "paused for {}s more, backlog {backlog}",
+                    (until - Instant::now()).as_secs()
+                );
                 return;
             }
             self.paused_until = None;
-            log::debug!("telemetry: uploads resume after the pause");
+            log::debug!("resumed after the pause, backlog {backlog}");
         }
         // No destination yet (SDK started, no room connected): everything waits in the cache.
         if self.destination.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
-            log::trace!(
-                "telemetry: no destination yet; {} batches wait",
-                self.cache.pending().len()
-            );
+            if self.set_status(TelemetryStatus::Waiting) {
+                log::debug!("waiting for a destination, backlog {backlog}");
+            }
             return;
         }
         let pending = self.cache.pending();
         if pending.is_empty() {
             self.held_since = None;
+            self.set_status(TelemetryStatus::Ok);
             return;
         }
         let reason = self.hold_reason();
         match (self.hold_logged, reason) {
-            (None, Some(now)) => log::debug!("telemetry: uploads held: {now}"),
+            (None, Some(now)) => log::debug!("held ({now}), backlog {backlog}"),
             (Some(was), Some(now)) if was != now => {
-                log::debug!("telemetry: uploads held: {now} (was: {was})")
+                log::debug!("held ({now}, was {was}), backlog {backlog}")
             }
             (Some(was), None) => match self.held_since {
                 Some(since) => log::debug!(
-                    "telemetry: uploads resume after {}s ({was})",
+                    "resumed after {}s ({was}), backlog {backlog}",
                     since.elapsed().as_secs()
                 ),
-                None => log::debug!("telemetry: uploads resume ({was})"),
+                None => log::debug!("resumed ({was}), backlog {backlog}"),
             },
             _ => {}
         }
         self.hold_logged = reason;
+        self.set_status(if reason.is_some() { TelemetryStatus::Held } else { TelemetryStatus::Ok });
         let budget = match reason {
             Some(reason) => {
                 let since = *self.held_since.get_or_insert_with(Instant::now);
                 if since.elapsed() < MAX_HOLD {
-                    log::trace!("telemetry: holding {} batches: {reason}", pending.len());
+                    log::trace!("holding {} batches: {reason}", pending.len());
                     return;
                 }
-                log::debug!(
-                    "telemetry: hold capped after {}s ({reason}); sending one batch",
-                    MAX_HOLD.as_secs()
-                );
+                log::debug!("held {}s ({reason}): sending one batch", MAX_HOLD.as_secs());
                 // Held long enough: one batch goes out, then the hold starts over.
                 self.held_since = Some(Instant::now());
                 Counters::add(&self.counters.hold_cap_hits, 1);
@@ -520,13 +547,17 @@ impl Exporter {
             match self.deliver(&body, Signal::of(&id)).await {
                 Delivery::Sent => {
                     self.cache.remove(&id);
-                    log::debug!(
-                        "telemetry: sent {} B, {} batches left",
-                        body.len(),
-                        self.cache.pending().len()
-                    );
                     Counters::add(&self.counters.uploads_sent, 1);
                     Counters::add(&self.counters.upload_bytes, body.len() as u64);
+                    let snapshot = self.counters.snapshot();
+                    log::debug!(
+                        "{}, sent {} B, backlog {}, failed {}, lost {}",
+                        self.status(),
+                        body.len(),
+                        self.cache.pending().len(),
+                        snapshot.upload_failures + snapshot.upload_timeouts,
+                        snapshot.dropped()
+                    );
                 }
                 Delivery::Rejected => {
                     self.cache.remove(&id);
@@ -535,15 +566,20 @@ impl Exporter {
                 Delivery::Failed => {
                     self.paused_until = Some(Instant::now() + UPLOAD_BACKOFF);
                     log::debug!(
-                        "telemetry: uploads paused {}s after a failure",
-                        UPLOAD_BACKOFF.as_secs()
+                        "paused {}s after a failure, backlog {}",
+                        UPLOAD_BACKOFF.as_secs(),
+                        self.cache.pending().len()
                     );
                     return;
                 }
                 Delivery::Throttled { retry_after } => {
                     let wait = retry_after.unwrap_or(UPLOAD_BACKOFF);
                     let until = Instant::now() + wait;
-                    log::debug!("telemetry: uploads paused {}s (collector asked)", wait.as_secs());
+                    log::debug!(
+                        "throttled {}s by the collector, backlog {}",
+                        wait.as_secs(),
+                        self.cache.pending().len()
+                    );
                     self.paused_until = Some(until);
                     self.throttled_until = Some(until);
                     return;
@@ -558,7 +594,7 @@ impl Exporter {
 
     /// Telemetry is disabled for this project: never send again, and never replay what is cached.
     fn silence(&mut self) {
-        log::warn!("telemetry disabled by the collector; going silent");
+        log::warn!("disabled by the collector; going silent");
         self.silenced = true;
         let cached: u64 = self.cache.pending().iter().map(|id| events_in(id)).sum();
         Counters::add(&self.counters.disabled, cached);
@@ -589,19 +625,19 @@ impl Exporter {
                 Ok(Ok(())) => return Delivery::Sent,
                 Ok(Err(ExportError::Disabled)) => return Delivery::Disabled,
                 Ok(Err(ExportError::Rejected { message })) => {
-                    log::warn!("telemetry batch rejected: {message}");
+                    log::warn!("batch rejected: {message}");
                     return Delivery::Rejected;
                 }
                 Ok(Err(ExportError::Retryable { message, retry_after_ms: Some(ms) })) => {
-                    log::debug!("telemetry throttled for {ms} ms: {message}");
+                    log::debug!("throttled for {ms} ms: {message}");
                     return Delivery::Throttled { retry_after: Some(Duration::from_millis(ms)) };
                 }
                 Ok(Err(ExportError::Retryable { message, retry_after_ms: None })) => {
-                    log::debug!("telemetry upload failed (attempt {}): {message}", attempt + 1);
+                    log::debug!("upload failed (attempt {}): {message}", attempt + 1);
                     Counters::add(&self.counters.upload_failures, 1);
                 }
                 Err(_) => {
-                    log::debug!("telemetry upload timed out (attempt {})", attempt + 1);
+                    log::debug!("upload timed out (attempt {})", attempt + 1);
                     Counters::add(&self.counters.upload_timeouts, 1);
                 }
             }
