@@ -262,6 +262,8 @@ impl Span {
         };
         if let Some(bound) = &self.bound {
             bound.telemetry.end_span(bound.id, outcome, error, attributes);
+            // The platform's console line, the same on every SDK (debug: FFI log path).
+            log::debug!("{}", self.describe());
         }
     }
 
