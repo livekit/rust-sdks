@@ -62,6 +62,12 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.7.13 (2026-09-04)
+
+### Features
+
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+
 ## 0.7.12 (2026-07-29)
 
 ### Fixes

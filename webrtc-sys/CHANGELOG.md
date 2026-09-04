@@ -165,6 +165,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.44 (2026-09-04)
+
+### Features
+
+- Handle capture of dmabuf using existing capture path
+
+### Fixes
+
+- Fix pre-encoded frame segfault on macOS
+
+#### Make AdmProxy worker-thread-affine: all platform ADM access now happens on the WebRTC worker thread, matching the ADM threading contract.
+
+- The platform ADM is now created lazily on the first PlatformAudio acquire on all platforms, so apps that never use platform audio never construct it.
+- Fixes Android platform recording delivering no audio: the audio transport was never registered on the lazily created ADM.
+- Fixes a shutdown race by keeping the runtime threads alive as long as Rust can reach the audio device controller.
+- Adds a `platform_audio` example exercising the PlatformAudio API and the worker-thread marshaling.
+
 ## 0.3.43 (2026-08-25)
 
 ### Fixes
