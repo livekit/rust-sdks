@@ -28,6 +28,8 @@ use parking_lot::Mutex;
 
 #[cfg(feature = "capture-clock")]
 use livekit_capture::sources::clock::ClockVideoSource;
+#[cfg(feature = "capture-device")]
+use livekit_capture::sources::device::{self, DeviceVideoSource};
 #[cfg(feature = "capture-gstreamer")]
 use livekit_capture::sources::gstreamer::GStreamerVideoSource;
 #[cfg(feature = "capture-pattern")]
@@ -36,6 +38,8 @@ use livekit_capture::sources::pattern::PatternVideoSource;
 use livekit_capture::sources::rtsp::RtspVideoSource;
 
 use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
+#[cfg(feature = "capture-device")]
+use crate::conversion::capture::{device_config_from_proto, device_info_to_proto};
 #[cfg(feature = "capture-gstreamer")]
 use crate::conversion::capture::gstreamer_config_from_proto;
 #[cfg(feature = "capture-pattern")]
@@ -135,6 +139,14 @@ async fn create_capture_source(
         #[cfg(feature = "capture-pattern")]
         proto::new_capture_source_request::Config::Pattern(config) => {
             let source = PatternVideoSource::new(pattern_config_from_proto(config)?)
+                .await
+                .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source: Box<dyn PixelVideoSource> = Box::new(source);
+            CapturePump::Pixel(PixelVideoPump::new(source))
+        }
+        #[cfg(feature = "capture-device")]
+        proto::new_capture_source_request::Config::Device(config) => {
+            let source = DeviceVideoSource::new(device_config_from_proto(config)?)
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn PixelVideoSource> = Box::new(source);
@@ -317,6 +329,28 @@ pub fn on_stop_capture(
     let ffi_capture = server.retrieve_handle::<FfiCaptureSource>(request.capture_handle)?;
     ffi_capture.stop.stop();
     Ok(proto::StopCaptureResponse { error: None })
+}
+
+#[cfg(feature = "capture-device")]
+pub fn on_list_capture_devices(
+    server: &'static FfiServer,
+    request: proto::ListCaptureDevicesRequest,
+) -> FfiResult<proto::ListCaptureDevicesResponse> {
+    let async_id = server.resolve_async_id(request.request_async_id);
+    server.async_runtime.spawn(async move {
+        let message = match device::devices().await {
+            Ok(devices) => {
+                proto::list_capture_devices_callback::Message::Devices(proto::CaptureDeviceList {
+                    devices: devices.into_iter().map(device_info_to_proto).collect(),
+                })
+            }
+            Err(err) => proto::list_capture_devices_callback::Message::Error(err.to_string()),
+        };
+        let _ = server.send_event(proto::ffi_event::Message::ListCaptureDevices(
+            proto::ListCaptureDevicesCallback { async_id, message: Some(message) },
+        ));
+    });
+    Ok(proto::ListCaptureDevicesResponse { async_id })
 }
 
 #[cfg(all(test, feature = "capture-pattern"))]
