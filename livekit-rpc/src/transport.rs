@@ -16,6 +16,7 @@
 
 use livekit_common::RemoteParticipantRegistry;
 use livekit_data_stream::api::{StreamResult, StreamTextOptions, TextStreamInfo};
+use livekit_protocol as proto;
 use std::future::Future;
 
 /// Error returned by the transport when an RPC data packet fails to send.
@@ -42,7 +43,7 @@ pub trait RpcTransport: RemoteParticipantRegistry {
     /// Send a data packet (used for v1 RPC packets and ACKs).
     fn publish_data(
         &self,
-        data: livekit_protocol::DataPacket,
+        data: proto::DataPacket,
     ) -> impl Future<Output = Result<(), RpcTransportError>> + Send;
 
     /// Send text as a data stream (used for v2 RPC requests and responses).
