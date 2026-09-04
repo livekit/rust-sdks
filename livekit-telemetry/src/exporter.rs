@@ -461,13 +461,12 @@ impl Exporter {
             };
             match self.deliver(&body, Signal::of(&id)).await {
                 Delivery::Sent => {
+                    self.cache.remove(&id);
                     log::debug!(
-                        "telemetry: sent {} ({} B, {} left)",
-                        id,
+                        "telemetry: sent {} B, {} batches left",
                         body.len(),
                         self.cache.pending().len()
                     );
-                    self.cache.remove(&id);
                     Counters::add(&self.counters.uploads_sent, 1);
                     Counters::add(&self.counters.upload_bytes, body.len() as u64);
                 }
