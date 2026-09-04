@@ -100,9 +100,11 @@ These two methods must coexist without interference.
                                  │                         │
                                  ▼                         ▼
                   ┌────────────────────────────────────────────┐
-                  │        Platform ADM (Lazy Init)            │
-                  │  Created when: AcquirePlatformAdm()        │
-                  │  Destroyed when: ref_count → 0             │
+                  │              Platform ADM                  │
+                  │  Created: lazily on the first acquire      │
+                  │  (AcquirePlatformAdm, all platforms)       │
+                  │  Active when: ref_count > 0                │
+                  │  Destroyed: with the proxy                 │
                   └──────────────────┬─────────────────────────┘
                                      │
                           ┌──────────┴──────────┐
@@ -180,26 +182,33 @@ These two methods must coexist without interference.
 3. **NativeAudioSource**: Existing API for manual audio frame pushing
 4. **external_audio_source.patch**: WebRTC patch to prevent audio mixing conflicts
 
-### Lazy Initialization + Reference Counting Pattern
+### Reference Counting Pattern
 
-The Platform ADM is **not** created at startup. Instead, it's created lazily when first needed:
+The Platform ADM instance exists for the proxy's whole lifetime, but stays idle until acquired. The ref count and gates decide whether it actually touches the hardware:
 
 ```cpp
 // adm_proxy.h
 class AdmProxy : public webrtc::AudioDeviceModule {
-  // Platform ADM is created lazily, NOT at startup
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
+  // All state is owned by the worker thread, no locks needed
 
-  // Reference count for Platform ADM lifecycle
-  int platform_adm_ref_count_ = 0;
+  // Synthetic ADM pumps the pipeline when platform playout is inactive
+  webrtc::scoped_refptr<SyntheticAudioDevice> synthetic_adm_
+      RTC_GUARDED_BY(worker_thread_);
+
+  // Platform ADM for real audio I/O
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_
+      RTC_GUARDED_BY(worker_thread_);
+
+  // Reference count for Platform ADM users
+  int platform_adm_ref_count_ RTC_GUARDED_BY(worker_thread_) = 0;
 
   // Gate controls whether microphone recording is active
   // Default: FALSE - NativeAudioSource works without interference
-  bool recording_enabled_ = false;
+  bool recording_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 
   // Gate controls whether playout goes through platform speakers
   // Default: FALSE - synthetic mode (FFI callbacks to application)
-  bool playout_enabled_ = false;
+  bool playout_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 };
 ```
 
@@ -207,12 +216,35 @@ class AdmProxy : public webrtc::AudioDeviceModule {
 
 | Method | Effect |
 |--------|--------|
-| `AcquirePlatformAdm()` | Increments ref_count. Creates Platform ADM on first call. |
-| `ReleasePlatformAdm()` | Decrements ref_count. Terminates Platform ADM when count reaches 0. |
+| `AcquirePlatformAdm()` | Increments ref_count. Creates the Platform ADM if it does not exist yet, and switches to platform mode on 0 → 1. |
+| `ReleasePlatformAdm()` | Decrements ref_count. Switches back to synthetic mode on 1 → 0. The Platform ADM instance stays alive until the proxy is destroyed. |
 
-**Why Lazy Initialization?**
+**Creation timing:**
 
-On iOS, creating Platform ADM configures the AVAudioSession for VoIP mode. This interferes with Unity's AudioSource playback even when PlatformAudio isn't being used. By deferring Platform ADM creation until actually needed, synthetic mode works correctly.
+The Platform ADM is created lazily, on the first `AcquirePlatformAdm()` call, on every platform. Applications that never use `PlatformAudio` never construct the platform ADM at all, so creating a `PeerConnectionFactory` has no platform audio footprint (no audio session delegates, no CoreAudio listeners, no JNI requirement on Android, where JNI may not even be initialized at factory construction time). Creation happens inside the worker-marshaled acquire path, so the fresh ADM binds its sequence checker to the worker thread exactly as an eagerly constructed one would. State configured before the first acquire (the audio transport WebRTC registers at factory init, device selection, channel configuration) is cached by the proxy and replayed onto the fresh ADM in `EnsurePlatformAdmCreated()`.
+
+Once created, the instance is kept for the proxy's lifetime, release does not destroy it. Repeatedly destroying and re-creating the ADM caused iOS KVO race conditions, so laziness applies only to the first creation.
+
+### Threading Model
+
+The proxy is worker-thread-affine, matching WebRTC's own convention that the
+ADM is created and driven on the worker thread:
+
+- Every public method marshals once at the boundary onto the worker thread
+  (`RunOnWorker`, a `BlockingCall` that runs inline when the caller is already
+  the worker). Calls originating from WebRTC internals (AudioState, the voice
+  engine) are already on the worker and never hop.
+- All mutable state, including both sub ADMs, is owned by the worker thread.
+  There are no mutexes, and mode transitions are plain sequential worker code,
+  so transitions cannot interleave.
+- Platform ADM implementations bind a sequence checker to their construction
+  thread. The Platform ADM is created lazily inside the worker-marshaled
+  acquire path, and the proxy itself is constructed on the worker thread, so
+  both sub ADMs bind to the worker. Destruction may happen on any thread and
+  hops to the worker for teardown.
+- No realtime audio path goes through the proxy. The registered
+  `AudioTransport` is invoked directly by the sub ADMs from their own audio
+  threads.
 
 ### Recording/Playout Gates
 
@@ -240,27 +272,7 @@ When Platform ADM is active, additional gates control behavior:
 
 ### Synthetic Playout Mode
 
-When Platform ADM is not active (or `playout_enabled_ = false`), the SDK uses synthetic playout to keep WebRTC's audio pipeline functioning:
-
-```cpp
-// AdmProxy runs a periodic task that pulls audio from WebRTC
-void AdmProxy::StartSyntheticPlayoutTask() {
-  // 10ms task interval (100 calls/second)
-  stub_audio_queue_->PostDelayedTask(
-    [this] {
-      if (playing_ && audio_transport_) {
-        // Pull audio from WebRTC to keep pipeline alive
-        audio_transport_->NeedMorePlayData(
-            kSamplesPer10Ms, kBytesPerSample, kChannels,
-            kSampleRate, stub_data_.data(), samples_out,
-            &elapsed_time_ms, &ntp_time_ms);
-      }
-      // Reschedule
-      StartSyntheticPlayoutTask();
-    },
-    TimeDelta::Millis(10));
-}
-```
+When platform playout is not active (ref_count is 0 or `playout_enabled_ = false`), the proxy delegates playout to `SyntheticAudioDevice` (webrtc-sys/src/synthetic_audio_device.cpp), a minimal ADM that runs a 10ms repeating task on its own task queue and pulls audio from WebRTC via `NeedMorePlayData()` without touching platform hardware. The proxy registers the same `AudioTransport` with both sub ADMs and starts/stops whichever one the current mode selects.
 
 **Why Synthetic Playout is Needed:**
 
@@ -272,7 +284,7 @@ void AdmProxy::StartSyntheticPlayoutTask() {
 
 | Mode | Recording | Playout | Platform ADM | Use Case |
 |------|-----------|---------|--------------|----------|
-| Synthetic | NativeAudioSource | FFI callbacks | Not created | Unity audio, agents |
+| Synthetic | NativeAudioSource | FFI callbacks | Idle (created, not started) | Unity audio, agents |
 | Platform | ADM microphone | ADM speakers | Active | VoIP with AEC |
 | Hybrid | Both supported | Both supported | Active | Mixed scenarios |
 
@@ -328,11 +340,12 @@ This is the default mode used by Unity, agents, and applications that manage the
   ┌─────────────────────────────────────────────────────────────────┐
   │                           AdmProxy                               │
   │                                                                  │
-  │   platform_adm_ = NULL  ◀─── Platform ADM NOT created            │
+  │   platform_adm_ = idle  ◀─── created but not started            │
+  │   ref_count = 0                                                  │
   │   playout_enabled_ = false                                       │
   │                                                                  │
   │   ┌───────────────────────────────────────────────────────────┐ │
-  │   │           Synthetic Playout Task (10ms interval)          │ │
+  │   │        SyntheticAudioDevice (10ms internal task)          │ │
   │   │                                                           │ │
   │   │  NeedMorePlayData() ─────▶ Pulls audio from mixer         │ │
   │   │                           (audio NOT sent to speakers)    │ │
@@ -351,10 +364,10 @@ This is the default mode used by Unity, agents, and applications that manage the
 
 
   KEY POINTS:
-  • Platform ADM is NEVER created in synthetic mode
+  • Platform ADM is never STARTED in synthetic mode (no mic/speaker I/O)
+    (on Android it is not even created until first acquire)
   • No interference with Unity AudioSource or application audio routing
-  • iOS: AVAudioSession NOT configured for VoIP → Unity audio works
-  • Synthetic playout task keeps WebRTC pipeline alive
+  • SyntheticAudioDevice keeps the WebRTC pipeline alive
 ```
 
 ### Flow 2: Platform Audio Mode (PlatformAudio with ADM)
@@ -376,9 +389,8 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
   │ 1. runtime.acquire_platform_adm()                                │
   │    └─▶ AdmProxy::AcquirePlatformAdm()                            │
   │        └─▶ ref_count++ (1)                                       │
-  │        └─▶ CreatePlatformAdm() [first time only]                 │
-  │            └─▶ webrtc::AudioDeviceModule::Create()               │
-  │            └─▶ platform_adm_->Init()                             │
+  │        └─▶ on 0 -> 1: switch playout/recording to platform mode  │
+  │            (Android only: create + Init the ADM first)           │
   │                                                                  │
   │ 2. runtime.set_adm_recording_enabled(true)                       │
   │    └─▶ AdmProxy::set_recording_enabled(true)                     │
@@ -483,21 +495,22 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
                │        SYNTHETIC MODE               │
                │        (Default State)              │
                │                                     │
-               │  • platform_adm_ = NULL             │
+               │  • platform_adm_ = idle             │
                │  • platform_adm_ref_count_ = 0      │
                │  • recording_enabled_ = false       │
                │  • playout_enabled_ = false         │
                │                                     │
                │  AdmProxy handles all ADM calls:    │
                │  - Recording ops → no-op (success)  │
-               │  - Playout ops → synthetic task     │
+               │  - Playout ops → SyntheticAudioDevice│
                │                                     │
                └──────────────────┬──────────────────┘
                                   │
                 PlatformAudio::new()
                 └─▶ acquire_platform_adm()
                 └─▶ ref_count = 1
-                └─▶ CreatePlatformAdm()
+                └─▶ switch to platform mode
+                    (Android: create + Init ADM first)
                                   │
                                   ▼
                ┌─────────────────────────────────────┐
@@ -519,7 +532,8 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
                 drop(PlatformAudio)
                 └─▶ release_platform_adm()
                 └─▶ ref_count = 0
-                └─▶ TerminatePlatformAdm()
+                └─▶ switch back to synthetic mode
+                    (ADM stops but stays alive)
                                   │
                                   ▼
                ┌─────────────────────────────────────┐
@@ -527,7 +541,7 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
                │        SYNTHETIC MODE               │
                │        (Back to Default)            │
                │                                     │
-               │  • platform_adm_ = NULL             │
+               │  • platform_adm_ = idle             │
                │  • platform_adm_ref_count_ = 0      │
                │  • recording_enabled_ = false       │
                │  • playout_enabled_ = false         │
@@ -548,7 +562,7 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
     ┌──────────────────────┐                    ┌──────────────────────┐
     │ PlatformAudio::new() │                    │ drop(audio)          │
     │ ref_count: 0 → 1     │                    │ ref_count: 1 → 0     │
-    │ CREATE Platform ADM  │                    │ TERMINATE Platform   │
+    │ START Platform ADM   │                    │ STOP Platform ADM    │
     └──────────┬───────────┘                    └──────────┬───────────┘
                │                                           │
                ▼                                           ▼
@@ -567,7 +581,7 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
     │ audio1 =  │     │ audio2 =  │     │drop(audio1│     │drop(audio2│
     │ new()     │     │ new()     │     │           │     │           │
     │ ref: 0→1  │     │ ref: 1→2  │     │ ref: 2→1  │     │ ref: 1→0  │
-    │ CREATE    │     │ (reuse)   │     │ (still    │     │ TERMINATE │
+    │ START     │     │ (reuse)   │     │ (still    │     │ STOP      │
     │ ADM       │     │           │     │  active)  │     │ ADM       │
     └─────┬─────┘     └─────┬─────┘     └─────┬─────┘     └─────┬─────┘
           │                 │                 │                 │
@@ -602,69 +616,57 @@ This mode is used for VoIP applications that need AEC and direct microphone/spea
     │                                                                  │
     │   When both Unity clients call DisposeRequest:                   │
     │     handle_1 dispose → ref_count = 1                             │
-    │     handle_2 dispose → ref_count = 0 → TERMINATE                 │
+    │     handle_2 dispose → ref_count = 0 → back to synthetic mode    │
     └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Why Lazy Initialization Matters
+### Lazy Creation, Then Idle Until Acquired
+
+The Platform ADM does not exist until the first `AcquirePlatformAdm()`
+call, on every platform. An application that only ever uses synthetic mode
+(e.g. a Unity app playing its own audio through AVAudioSession) never
+constructs the platform ADM, so WebRTC installs no audio session
+delegates, CoreAudio listeners, or other platform audio plumbing on its
+behalf. On Android this is also a correctness requirement: the ADM needs
+JNI (application context) which may not be initialized when the
+PeerConnectionFactory is constructed.
+
+Creation is also decoupled from actual audio I/O. Even once created, the
+ADM stays idle: the audio session, microphone, and speakers are only
+touched in `InitPlayout()`/`InitRecording()`, which the proxy calls only
+while platform mode is entered (ref_count > 0 with the gates enabled).
+
+The instance is kept alive when the last `PlatformAudio` is dropped:
+release only stops playout/recording and switches back to synthetic mode.
+Repeatedly destroying and re-creating the ADM caused iOS KVO race
+conditions, so a single instance persists for the proxy's lifetime and
+laziness applies only to the first creation.
 
 ```
-                iOS Audio Session Problem & Solution
-
-  ═══════════════════ WITHOUT LAZY INIT (Problem) ═══════════════════
-
   App Startup
   ────────────
        │
        ▼
   ┌─────────────────────────────────────────────────────────────────┐
   │ PeerConnectionFactory created                                    │
-  │ └─▶ AdmProxy created                                             │
-  │     └─▶ Platform ADM created immediately                         │
-  │         └─▶ iOS: AVAudioSession configured for VoIP mode         │
-  │             └─▶ Audio session category = PlayAndRecord           │
-  │                 └─▶ Other audio (Unity AudioSource) INTERRUPTED  │
-  └─────────────────────────────────────────────────────────────────┘
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │ Unity app tries to play audio via AudioSource                    │
-  │ ❌ FAILS - AVAudioSession is in VoIP mode!                       │
-  └─────────────────────────────────────────────────────────────────┘
-
-
-  ════════════════════ WITH LAZY INIT (Solution) ════════════════════
-
-  App Startup
-  ────────────
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │ PeerConnectionFactory created                                    │
-  │ └─▶ AdmProxy created                                             │
-  │     └─▶ platform_adm_ = NULL (NOT created!)                      │
-  │         └─▶ iOS: AVAudioSession NOT configured                   │
-  │             └─▶ Other audio works normally!                      │
-  └─────────────────────────────────────────────────────────────────┘
-       │
-       ▼
-  ┌─────────────────────────────────────────────────────────────────┐
-  │ Unity app plays audio via AudioSource                            │
-  │ ✅ WORKS - using synthetic mode, no ADM interference             │
+  │ └─▶ AdmProxy created (on the worker thread)                      │
+  │     └─▶ synthetic ADM only, NO Platform ADM                      │
+  │         └─▶ no session config, no mic/speaker I/O,               │
+  │             app audio works normally                             │
   └─────────────────────────────────────────────────────────────────┘
        │
        ▼ (Later, if needed)
   ┌─────────────────────────────────────────────────────────────────┐
   │ PlatformAudio::new() called for VoIP                             │
-  │ └─▶ acquire_platform_adm()                                       │
-  │     └─▶ CreatePlatformAdm() - NOW creates Platform ADM           │
-  │         └─▶ iOS: AVAudioSession configured for VoIP              │
+  │ └─▶ acquire_platform_adm() + enable gates                        │
+  │     └─▶ Platform ADM created + Init on the worker thread,        │
+  │         cached transport/device/channel state replayed           │
+  │     └─▶ playout/recording switch to the Platform ADM             │
   │                                                                  │
   │ drop(PlatformAudio)                                              │
   │ └─▶ release_platform_adm()                                       │
-  │     └─▶ TerminatePlatformAdm() - destroys Platform ADM           │
-  │         └─▶ iOS: AVAudioSession released                         │
-  │             └─▶ Unity audio can work again!                      │
+  │     └─▶ Platform ADM stops, synthetic mode resumes               │
+  │         (instance stays alive until the proxy is destroyed)      │
   └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1303,13 +1305,14 @@ FFI responses include optional error messages:
 // webrtc-sys/include/livekit/adm_proxy.h
 class AdmProxy : public webrtc::AudioDeviceModule {
  public:
+  // Must be constructed on the worker thread
   explicit AdmProxy(const webrtc::Environment& env,
                     webrtc::Thread* worker_thread);
   ~AdmProxy() override;
 
   // Platform ADM Lifecycle Management
-  bool AcquirePlatformAdm();   // Increment ref, create ADM on first call
-  void ReleasePlatformAdm();   // Decrement ref, terminate ADM when 0
+  bool AcquirePlatformAdm();   // Increment ref, switch to platform mode on 0 -> 1
+  void ReleasePlatformAdm();   // Decrement ref, back to synthetic mode on 1 -> 0
   int platform_adm_ref_count() const;
   bool is_platform_adm_active() const;
 
@@ -1322,68 +1325,74 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // All AudioDeviceModule methods with gated behavior
 
  private:
-  bool CreatePlatformAdm();      // Called by AcquirePlatformAdm
-  void TerminatePlatformAdm();   // Called by ReleasePlatformAdm
+  // Runs fn on the worker thread, inline when already on it
+  template <typename Fn>
+  auto RunOnWorker(Fn&& fn) const;
 
-  void StartSyntheticPlayoutTask();  // Keep WebRTC alive in synthetic mode
-  void StopSyntheticPlayoutTask();
+  // Forwards to the platform ADM on the worker, or returns default_value
+  template <typename R, typename Fn>
+  R WithPlatformAdm(R default_value, Fn&& fn) const;
+
+  void SwitchPlayoutMode() RTC_RUN_ON(worker_thread_);
+  void SwitchRecordingAdm() RTC_RUN_ON(worker_thread_);
 
   const webrtc::Environment env_;
-  webrtc::Thread* worker_thread_;
+  webrtc::Thread* const worker_thread_;
 
-  mutable webrtc::Mutex mutex_;
-
-  // Platform ADM (created lazily, NOT at startup)
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
-  int platform_adm_ref_count_ = 0;
+  // All mutable state is owned by the worker thread, no mutex
+  webrtc::scoped_refptr<SyntheticAudioDevice> synthetic_adm_
+      RTC_GUARDED_BY(worker_thread_);
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_
+      RTC_GUARDED_BY(worker_thread_);
+  int platform_adm_ref_count_ RTC_GUARDED_BY(worker_thread_) = 0;
 
   // Control flags
-  bool recording_enabled_ = false;  // Default: NativeAudioSource mode
-  bool playout_enabled_ = false;    // Default: synthetic mode (FFI callbacks)
-
-  // Synthetic playout task
-  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> stub_audio_queue_;
-  webrtc::RepeatingTaskHandle stub_audio_task_;
-  std::vector<int16_t> stub_data_;
+  bool recording_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
+  bool playout_enabled_ RTC_GUARDED_BY(worker_thread_) = false;
 };
 ```
 
-### Lazy Initialization Implementation
+### Lifecycle Implementation
+
+The synthetic ADM is created and initialized in the constructor, which runs
+on the worker thread. The platform ADM is created lazily on the first
+acquire (see `EnsurePlatformAdmCreated()`), which also runs on the worker
+thread via the acquire path's marshaling. Acquire and release move the ref
+count and switch modes:
 
 ```cpp
 // webrtc-sys/src/adm_proxy.cpp
 
-AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread)
-    : env_(env), worker_thread_(worker_thread), stub_data_(kSamplesPer10Ms * kChannels) {
-  // Platform ADM is NOT created here - lazy initialization
-  RTC_LOG(LS_INFO) << "AdmProxy: Lazy initialization mode (no Platform ADM yet)";
-}
-
 bool AdmProxy::AcquirePlatformAdm() {
-  webrtc::MutexLock lock(&mutex_);
-  platform_adm_ref_count_++;
-
-  if (platform_adm_ref_count_ == 1) {
-    // First acquisition - create Platform ADM
-    if (!CreatePlatformAdm()) {
-      platform_adm_ref_count_--;
+  return RunOnWorker([this] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    if (!EnsurePlatformAdmCreated()) {
       return false;
     }
-    RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM created and initialized";
-  }
-  return platform_adm_ != nullptr;
+    int old_ref_count = platform_adm_ref_count_;
+    platform_adm_ref_count_++;
+    if (old_ref_count == 0) {
+      SwitchPlayoutMode();
+      SwitchRecordingAdm();
+    }
+    return true;
+  });
 }
 
 void AdmProxy::ReleasePlatformAdm() {
-  webrtc::MutexLock lock(&mutex_);
-  if (platform_adm_ref_count_ <= 0) return;
-
-  platform_adm_ref_count_--;
-  if (platform_adm_ref_count_ == 0) {
-    // Last release - terminate Platform ADM
-    TerminatePlatformAdm();
-    RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM terminated, returning to synthetic mode";
-  }
+  RunOnWorker([this] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    if (platform_adm_ref_count_ <= 0) {
+      return;
+    }
+    platform_adm_ref_count_--;
+    // The Platform ADM is NOT terminated here, it stays alive until the
+    // destructor to avoid iOS KVO races from re-creating it
+    if (platform_adm_ref_count_ == 0) {
+      SwitchPlayoutMode();
+      SwitchRecordingAdm();
+    }
+  });
 }
 ```
 
@@ -1391,23 +1400,25 @@ void AdmProxy::ReleasePlatformAdm() {
 
 ```cpp
 int32_t AdmProxy::InitRecording() {
-  webrtc::MutexLock lock(&mutex_);
-  if (!recording_enabled_ || !platform_adm_) {
-    recording_initialized_ = true;  // Track state even in synthetic mode
-    return 0;  // Success but no-op
-  }
-  return platform_adm_->InitRecording();
+  return RunOnWorker([this] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
+    auto* adm = RecordingAdm();  // null unless ref_count > 0 && recording_enabled_
+    if (!adm) {
+      return 0;  // Success but no-op, keeps WebRTC's init flow happy
+    }
+    return adm->InitRecording();
+  });
 }
 
 int32_t AdmProxy::StartPlayout() {
-  webrtc::MutexLock lock(&mutex_);
-  if (!playout_enabled_ || !platform_adm_) {
-    // Synthetic mode - start stub task to keep WebRTC pipeline alive
+  return RunOnWorker([this] {
+    RTC_DCHECK_RUN_ON(worker_thread_);
     playing_ = true;
-    StartSyntheticPlayoutTask();
-    return 0;
-  }
-  return platform_adm_->StartPlayout();
+    if (IsPlatformPlayoutActive()) {
+      return platform_adm_->StartPlayout();
+    }
+    return synthetic_adm_ ? synthetic_adm_->StartPlayout() : -1;
+  });
 }
 ```
 
@@ -1436,10 +1447,12 @@ impl PlatformAudio {
     pub fn new() -> AudioResult<Self> {
         let mut handle_ref = PLATFORM_ADM_HANDLE.lock();
 
-        // Reuse existing handle if available
+        // Reuse existing handle if available. The Platform ADM was already
+        // acquired when the handle was created, the Arc strong count tracks
+        // the additional PlatformAudio instances, so the C++ ref count is
+        // effectively 0 or 1 and release_platform_adm() runs exactly once,
+        // from the single PlatformAdmHandle::drop.
         if let Some(handle) = handle_ref.upgrade() {
-            // Still acquire Platform ADM for this instance
-            handle.runtime.acquire_platform_adm();
             return Ok(Self { handle });
         }
 

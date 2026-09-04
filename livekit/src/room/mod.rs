@@ -1571,6 +1571,7 @@ impl RoomSession {
             data_channels: dcs,
             datachannel_receive_states: session.data_channel_receive_states(),
             publish_data_tracks,
+            data_subscription: None,
         };
 
         log::debug!("sending sync state {:?}", sync_state);
