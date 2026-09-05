@@ -3,5 +3,5 @@ runs:
   using: composite
   steps:
     - name: Install cargo-make
-      uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2.82.4
+      uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.86.5
       with: { tool: cargo-make@0.37 }
