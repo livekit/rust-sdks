@@ -365,6 +365,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             ),
             video_encoder: video_encoder_from_proto(opts.video_encoder)
                 .unwrap_or(default_publish_options.video_encoder),
+            fec: default_publish_options.fec,
             scalability_mode: opts.scalability_mode,
             degradation_preference: degradation_preference_from_proto(opts.degradation_preference),
         }

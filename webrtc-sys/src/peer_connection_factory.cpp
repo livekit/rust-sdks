@@ -88,10 +88,25 @@ class EnableWarpFieldTrials final : public webrtc::FieldTrialsView {
   }
 };
 
+class EnableFlexFecFieldTrials final : public webrtc::FieldTrialsView {
+ public:
+  std::string Lookup(absl::string_view key) const override {
+    if (key == "WebRTC-FlexFEC-03" ||
+        key == "WebRTC-FlexFEC-03-Advertised") {
+      return "Enabled";
+    }
+    return "";
+  }
+
+  std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
+    return std::make_unique<EnableFlexFecFieldTrials>();
+  }
+};
+
 // An Environment accepts a single FieldTrialsView, so to enable several
-// independent trial groups (e.g. zero-playout-delay AND WARP) we combine their
-// views into one: Lookup delegates to each sub-view and returns the first
-// non-empty result. The groups' keys are disjoint, so ordering is irrelevant.
+// independent trial groups we combine their views into one: Lookup delegates
+// to each sub-view and returns the first non-empty result. Built-in groups are
+// placed first so optional custom trials cannot disable required SDK behavior.
 class CompositeFieldTrials final : public webrtc::FieldTrialsView {
  public:
   explicit CompositeFieldTrials(
@@ -121,11 +136,14 @@ class CompositeFieldTrials final : public webrtc::FieldTrialsView {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views_;
 };
 
-// zero_playout_delay, enable_warp, and the process-wide configured field trials
-// are independent and may all be enabled; their views are composed into one.
+// FlexFEC, zero_playout_delay, enable_warp, and process-wide configured field
+// trials are independent and may all be enabled; compose their views into one.
 webrtc::Environment CreateEnvironment(bool zero_playout_delay,
                                       bool enable_warp) {
   std::vector<std::unique_ptr<webrtc::FieldTrialsView>> views;
+  // Always advertise and accept FlexFEC repair streams. Sending protection is
+  // still opt-in per room and per track.
+  views.push_back(std::make_unique<EnableFlexFecFieldTrials>());
   if (zero_playout_delay) {
     views.push_back(std::make_unique<ZeroPlayoutDelayFieldTrials>());
   }
@@ -207,8 +225,9 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
 
-  // replaces FecControllerDefault for video send streams, behaves the same
-  // as no FEC until enabled via set_fec_controller_config
+  // Replace FecControllerDefault for video send streams. Per-stream
+  // protection remains disabled until its encoder configures a non-zero rate
+  // through the controller override.
   dependencies.fec_controller_factory = std::make_unique<LkFecControllerFactory>();
   FecGlobalState::Instance().MarkFactoryCreated();
 

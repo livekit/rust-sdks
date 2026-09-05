@@ -21,10 +21,10 @@ mod common;
 use std::{fs::File, io::Write as _, time::Duration};
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use livekit::{
     options::{
-        FlexFecOptions, FrameMetadataFeatures, TrackPublishOptions, VideoCodec, VideoEncoding,
+        FecProtection, FrameMetadataFeatures, TrackPublishOptions, VideoCodec, VideoEncoding,
     },
     track::{LocalTrack, LocalVideoTrack, TrackSource},
     webrtc::{
@@ -34,6 +34,23 @@ use livekit::{
     },
     Room, RoomOptions,
 };
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum FecLevel {
+    Low,
+    Medium,
+    High,
+}
+
+impl From<FecLevel> for FecProtection {
+    fn from(level: FecLevel) -> Self {
+        match level {
+            FecLevel::Low => Self::Low,
+            FecLevel::Medium => Self::Medium,
+            FecLevel::High => Self::High,
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(about = "FlexFEC test publisher")]
@@ -51,12 +68,9 @@ struct Args {
     /// enable FlexFEC protection for the published video
     #[arg(long)]
     fec: bool,
-    /// percentage of the video bitrate spent on FEC
-    #[arg(long, default_value_t = 20)]
-    protection_percent: u8,
-    /// frames per FEC protection block
-    #[arg(long, default_value_t = 6)]
-    max_fec_frames: u8,
+    /// FlexFEC protection level for the published video
+    #[arg(long, value_enum, default_value_t = FecLevel::Low)]
+    fec_level: FecLevel,
     #[arg(long, default_value_t = 640)]
     width: u32,
     #[arg(long, default_value_t = 360)]
@@ -119,13 +133,7 @@ async fn main() -> Result<()> {
     let token = common::mint_token(&args.api_key, &args.api_secret, &args.room, &args.identity)?;
 
     let mut options = RoomOptions::default();
-    if args.fec {
-        options.flexfec = Some(FlexFecOptions {
-            protection_percent: args.protection_percent,
-            max_fec_frames: args.max_fec_frames,
-            bursty_mask: false,
-        });
-    }
+    options.fec_enabled = args.fec;
 
     let (room, mut events) = Room::connect(&args.url, &token, options).await?;
     log::info!("connected to room {} as {} (fec: {})", room.name(), args.identity, args.fec);
@@ -154,6 +162,7 @@ async fn main() -> Result<()> {
                     max_framerate: args.fps as f64,
                 }),
                 frame_metadata_features,
+                fec: if args.fec { args.fec_level.into() } else { FecProtection::Disabled },
                 ..Default::default()
             },
         )

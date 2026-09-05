@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder_factory.h"
@@ -31,6 +32,7 @@ namespace livekit_ffi {
 namespace {
 
 constexpr char kBackendParameter[] = "x-livekit-video-encoder-backend";
+constexpr char kFecRateParameter[] = "x-livekit-fec-rate";
 
 const char* BackendName(VideoEncoderBackend backend) {
   switch (backend) {
@@ -80,23 +82,46 @@ std::optional<VideoEncoderBackend> BackendFromFormat(
   return std::nullopt;
 }
 
-webrtc::SdpVideoFormat WithBackend(
+bool FecRateMatches(const webrtc::SdpVideoFormat& format,
+                    std::uint8_t fec_rate) {
+  auto it = format.parameters.find(kFecRateParameter);
+  if (fec_rate == 0) {
+    return it == format.parameters.end() || it->second == "0";
+  }
+  return it != format.parameters.end() &&
+         it->second == std::to_string(fec_rate);
+}
+
+webrtc::SdpVideoFormat WithSenderOptions(
     const webrtc::SdpVideoFormat& format,
-    VideoEncoderBackend backend) {
+    VideoEncoderBackend backend,
+    std::uint8_t fec_rate) {
   webrtc::SdpVideoFormat tagged = format;
-  tagged.parameters[kBackendParameter] = BackendName(backend);
+  if (backend == VideoEncoderBackend::Auto) {
+    tagged.parameters.erase(kBackendParameter);
+  } else {
+    tagged.parameters[kBackendParameter] = BackendName(backend);
+  }
+  if (fec_rate == 0) {
+    tagged.parameters.erase(kFecRateParameter);
+  } else {
+    tagged.parameters[kFecRateParameter] = std::to_string(fec_rate);
+  }
   return tagged;
 }
 
 class FixedVideoEncoderSelector final
     : public webrtc::VideoEncoderFactory::EncoderSelectorInterface {
  public:
-  explicit FixedVideoEncoderSelector(VideoEncoderBackend backend)
-      : backend_(backend) {}
+  FixedVideoEncoderSelector(VideoEncoderBackend backend, std::uint8_t fec_rate)
+      : backend_(backend), fec_rate_(fec_rate) {}
 
   void OnCurrentEncoder(const webrtc::SdpVideoFormat& format) override {
     current_encoder_ = format;
-    requested_ = BackendFromFormat(format) == backend_;
+    requested_ =
+        (backend_ == VideoEncoderBackend::Auto ||
+         BackendFromFormat(format) == backend_) &&
+        FecRateMatches(format, fec_rate_);
   }
 
   std::optional<webrtc::SdpVideoFormat> OnAvailableBitrate(
@@ -119,7 +144,7 @@ class FixedVideoEncoderSelector final
       return std::nullopt;
     }
     requested_ = true;
-    return WithBackend(*current_encoder_, backend_);
+    return WithSenderOptions(*current_encoder_, backend_, fec_rate_);
   }
 
  private:
@@ -129,10 +154,11 @@ class FixedVideoEncoderSelector final
     }
 
     requested_ = true;
-    return WithBackend(*current_encoder_, backend_);
+    return WithSenderOptions(*current_encoder_, backend_, fec_rate_);
   }
 
   VideoEncoderBackend backend_;
+  std::uint8_t fec_rate_;
   bool requested_ = false;
   std::optional<webrtc::SdpVideoFormat> current_encoder_;
 };
@@ -207,20 +233,25 @@ void RtpSender::set_parameters(RtpParameters params) const {
 }
 
 void RtpSender::set_video_encoder_backend(VideoEncoderBackend backend) const {
+  set_video_sender_options(backend, 0);
+}
+
+void RtpSender::set_video_sender_options(VideoEncoderBackend backend,
+                                         std::uint8_t fec_rate) const {
   if (sender_->media_type() != webrtc::MediaType::VIDEO) {
     RTC_LOG(LS_WARNING)
-        << "Ignoring video encoder backend preference on non-video sender.";
+        << "Ignoring video sender options on non-video sender.";
     return;
   }
 
-  if (backend == VideoEncoderBackend::Auto) {
+  if (backend == VideoEncoderBackend::Auto && fec_rate == 0) {
     sender_->SetEncoderSelector(
         std::unique_ptr<webrtc::VideoEncoderFactory::EncoderSelectorInterface>());
     return;
   }
 
   sender_->SetEncoderSelector(
-      std::make_unique<FixedVideoEncoderSelector>(backend));
+      std::make_unique<FixedVideoEncoderSelector>(backend, fec_rate));
 }
 
 }  // namespace livekit_ffi

@@ -14,20 +14,6 @@
 
 #[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
-    /// Configuration of the process wide fixed rate FEC controller used for
-    /// FlexFEC protected video send streams.
-    #[derive(Debug, Clone, Copy)]
-    pub struct FecControllerConfig {
-        /// request FEC protection irrespective of observed loss
-        pub enabled: bool,
-        /// protection factor, 0..=255 (255 ~= 100% overhead)
-        pub fec_rate: i32,
-        /// number of frames per protection block, 1..=48
-        pub max_fec_frames: i32,
-        /// optimize the packet masks for bursty rather than random loss
-        pub bursty_mask: bool,
-    }
-
     /// Aggregated send side FEC rates as reported by the RTP modules of all
     /// live video send streams.
     #[derive(Debug, Clone, Copy, Default)]
@@ -40,10 +26,6 @@ pub mod ffi {
 
     unsafe extern "C++" {
         include!("livekit/fec_controller.h");
-
-        /// Updates the FEC protection parameters, effective immediately for
-        /// all current and future video send streams.
-        fn set_fec_controller_config(config: FecControllerConfig);
 
         /// Snapshot of the aggregated send side FEC rates.
         fn fec_sender_metrics() -> FecSenderMetrics;

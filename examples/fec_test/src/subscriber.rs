@@ -24,7 +24,6 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 use livekit::{
-    options::FlexFecOptions,
     track::RemoteTrack,
     webrtc::{stats::RtcStats, video_stream::native::NativeVideoStream},
     Room, RoomEvent, RoomOptions,
@@ -44,10 +43,6 @@ struct Args {
     room: String,
     #[arg(long, default_value = "subscriber")]
     identity: String,
-    /// negotiate FlexFEC on the subscriber leg (required to receive the
-    /// SFU's FEC repair stream)
-    #[arg(long)]
-    fec: bool,
     /// run duration in seconds, 0 = forever
     #[arg(long, default_value_t = 0)]
     duration: u64,
@@ -65,14 +60,9 @@ async fn main() -> Result<()> {
 
     let mut options = RoomOptions::default();
     options.auto_subscribe = true;
-    if args.fec {
-        // enables the FlexFEC field trials so the subscriber accepts the
-        // flexfec-03 repair stream offered by the SFU
-        options.flexfec = Some(FlexFecOptions::default());
-    }
 
     let (room, mut events) = Room::connect(&args.url, &token, options).await?;
-    log::info!("connected to room {} as {} (fec: {})", room.name(), args.identity, args.fec);
+    log::info!("connected to room {} as {}", room.name(), args.identity);
 
     let mut csv = File::create(&args.stats_out)?;
     writeln!(

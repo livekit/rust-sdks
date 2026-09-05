@@ -113,45 +113,34 @@ impl AudioPreset {
     }
 }
 
-/// FlexFEC-03 forward error correction for published video.
+/// Proactive FlexFEC protection applied to a published video track.
 ///
-/// When set on [`RoomOptions::flexfec`](crate::RoomOptions), the SDK enables
-/// the `WebRTC-FlexFEC-03` field trials, negotiates the flexfec-03 codec and
-/// replaces libwebrtc's loss-reactive FEC controller with one that protects
-/// video at the configured rate proactively, so short loss bursts are
-/// repairable before any loss has ever been reported.
-///
-/// Notes:
-/// - The configuration is process wide (the underlying peer connection
-///   factory is a process singleton). It must be supplied on the first room
-///   connected by the process; later rooms inherit it. The protection
-///   parameters can be adjusted at runtime via
-///   [`Room::set_flexfec_options`](crate::Room::set_flexfec_options).
-/// - libwebrtc protects only the first simulcast layer with FlexFEC,
-///   disabling simulcast for FEC protected tracks is recommended.
-/// - The `LK_WEBRTC_FIELD_TRIALS` environment variable can be used to set
-///   additional field trials.
-#[derive(Debug, Clone, Copy)]
-pub struct FlexFecOptions {
-    /// Percentage of the video bitrate to spend on FEC, 0..=100.
-    pub protection_percent: u8,
-    /// Number of frames protected per FEC block, 1..=48. Smaller values
-    /// lower the repair latency, larger values resist longer bursts.
-    pub max_fec_frames: u8,
-    /// Optimize the protection masks for bursty rather than random loss.
-    pub bursty_mask: bool,
+/// The room must be connected with [`RoomOptions::fec_enabled`](crate::RoomOptions::fec_enabled)
+/// before a level other than [`Self::Disabled`] can take effect. FlexFEC protects only the first
+/// simulcast layer, so disabling simulcast is recommended for protected tracks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum FecProtection {
+    /// Do not generate FEC for this track.
+    #[default]
+    Disabled,
+    /// Spend approximately 15% of the video bitrate on FEC.
+    Low,
+    /// Spend approximately 25% of the video bitrate on FEC.
+    Medium,
+    /// Spend approximately 35% of the video bitrate on FEC.
+    High,
 }
 
-impl Default for FlexFecOptions {
-    fn default() -> Self {
-        Self { protection_percent: 15, max_fec_frames: 6, bursty_mask: false }
-    }
-}
-
-impl FlexFecOptions {
-    /// libwebrtc protection factor (0..=255) for the configured percentage.
-    pub(crate) fn fec_rate(&self) -> u8 {
-        let percent = self.protection_percent.min(100) as u32;
+impl FecProtection {
+    /// Returns libwebrtc's protection factor (0..=255) for this level.
+    pub(crate) const fn fec_rate(self) -> u8 {
+        let percent = match self {
+            Self::Disabled => 0,
+            Self::Low => 15,
+            Self::Medium => 25,
+            Self::High => 35,
+        };
         (percent * 255 / 100) as u8
     }
 }
@@ -178,6 +167,8 @@ pub struct TrackPublishOptions {
     /// If the requested backend is unavailable, the SDK logs a warning and
     /// falls back to another compatible encoder.
     pub video_encoder: VideoEncoderBackend,
+    /// Proactive FlexFEC protection for this video track.
+    pub fec: FecProtection,
     /// RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
@@ -211,9 +202,28 @@ impl Default for TrackPublishOptions {
             preconnect_buffer: false,
             frame_metadata_features: FrameMetadataFeatures::default(),
             video_encoder: VideoEncoderBackend::Auto,
+            fec: FecProtection::Disabled,
             scalability_mode: None,
             degradation_preference: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod fec_tests {
+    use super::{FecProtection, TrackPublishOptions};
+
+    #[test]
+    fn fec_protection_maps_to_fixed_rates() {
+        assert_eq!(FecProtection::Disabled.fec_rate(), 0);
+        assert_eq!(FecProtection::Low.fec_rate(), 38);
+        assert_eq!(FecProtection::Medium.fec_rate(), 63);
+        assert_eq!(FecProtection::High.fec_rate(), 89);
+    }
+
+    #[test]
+    fn fec_is_disabled_by_default() {
+        assert_eq!(TrackPublishOptions::default().fec, FecProtection::Disabled);
     }
 }
 

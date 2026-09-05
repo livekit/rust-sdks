@@ -19,11 +19,33 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "call/rtp_video_sender.h"
 #include "modules/include/module_fec_types.h"
 #include "rtc_base/logging.h"
 #include "webrtc-sys/src/fec_controller.rs.h"
 
 namespace livekit_ffi {
+namespace {
+
+const void* ControllerOwner(
+    webrtc::VCMProtectionCallback* protection_callback) {
+  if (!protection_callback) {
+    return nullptr;
+  }
+  auto* sender = static_cast<webrtc::RtpVideoSender*>(protection_callback);
+  return static_cast<webrtc::RtpVideoSenderInterface*>(sender);
+}
+
+const void* ControllerOwner(
+    webrtc::FecControllerOverride* fec_controller_override) {
+  if (!fec_controller_override) {
+    return nullptr;
+  }
+  return static_cast<webrtc::RtpVideoSenderInterface*>(
+      fec_controller_override);
+}
+
+}  // namespace
 
 FecGlobalState& FecGlobalState::Instance() {
   static FecGlobalState* instance = new FecGlobalState();
@@ -63,6 +85,59 @@ void FecGlobalState::RegisterController(FixedRateFecController* controller) {
 void FecGlobalState::DeregisterController(FixedRateFecController* controller) {
   std::lock_guard<std::mutex> lock(mutex_);
   controllers_.erase(controller);
+  for (auto it = controllers_by_owner_.begin();
+       it != controllers_by_owner_.end();) {
+    if (it->second == controller) {
+      fec_rates_by_owner_.erase(it->first);
+      it = controllers_by_owner_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+void FecGlobalState::BindController(
+    FixedRateFecController* controller,
+    webrtc::VCMProtectionCallback* protection_callback) {
+  const void* owner = ControllerOwner(protection_callback);
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (auto it = controllers_by_owner_.begin();
+       it != controllers_by_owner_.end();) {
+    if (it->second == controller) {
+      if (it->first != owner) {
+        fec_rates_by_owner_.erase(it->first);
+      }
+      it = controllers_by_owner_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  if (!owner) {
+    controller->SetFecRate(0);
+    return;
+  }
+  controllers_by_owner_[owner] = controller;
+  auto rate = fec_rates_by_owner_.find(owner);
+  controller->SetFecRate(rate == fec_rates_by_owner_.end() ? 0
+                                                           : rate->second);
+}
+
+void FecGlobalState::ConfigureController(
+    webrtc::FecControllerOverride* fec_controller_override,
+    int fec_rate) {
+  const void* owner = ControllerOwner(fec_controller_override);
+  if (!owner) {
+    return;
+  }
+
+  fec_rate = std::clamp(fec_rate, 0, 255);
+  std::lock_guard<std::mutex> lock(mutex_);
+  fec_rates_by_owner_[owner] = fec_rate;
+  auto controller = controllers_by_owner_.find(owner);
+  if (controller != controllers_by_owner_.end()) {
+    controller->second->SetFecRate(fec_rate);
+  }
+  RTC_LOG(LS_INFO) << "FlexFEC controller rate=" << fec_rate;
 }
 
 void FecGlobalState::AggregateMetrics(uint32_t& sent_video_rate_bps,
@@ -96,6 +171,7 @@ FixedRateFecController::~FixedRateFecController() {
 void FixedRateFecController::SetProtectionCallback(
     webrtc::VCMProtectionCallback* protection_callback) {
   protection_callback_.store(protection_callback);
+  FecGlobalState::Instance().BindController(this, protection_callback);
 }
 
 void FixedRateFecController::SetProtectionMethod(bool enable_fec,
@@ -116,19 +192,13 @@ uint32_t FixedRateFecController::UpdateFecRates(
     uint8_t fraction_lost,
     std::vector<bool> loss_mask_vector,
     int64_t round_trip_time_ms) {
-  auto& state = FecGlobalState::Instance();
-
   webrtc::FecProtectionParams delta_params;
   webrtc::FecProtectionParams key_params;
-  if (state.enabled.load() && fec_negotiated_.load()) {
-    int fec_rate = std::clamp(state.fec_rate.load(), 0, 255);
-    int max_frames = std::clamp(state.max_fec_frames.load(), 1, 48);
-    webrtc::FecMaskType mask_type = state.bursty_mask.load()
-                                        ? webrtc::FecMaskType::kFecMaskBursty
-                                        : webrtc::FecMaskType::kFecMaskRandom;
+  int fec_rate = std::clamp(fec_rate_.load(), 0, 255);
+  if (fec_rate > 0 && fec_negotiated_.load()) {
     delta_params.fec_rate = fec_rate;
-    delta_params.max_fec_frames = max_frames;
-    delta_params.fec_mask_type = mask_type;
+    delta_params.max_fec_frames = 1;
+    delta_params.fec_mask_type = webrtc::FecMaskType::kFecMaskRandom;
     key_params = delta_params;
   }
 
@@ -144,7 +214,7 @@ uint32_t FixedRateFecController::UpdateFecRates(
   sent_nack_rate_bps_.store(sent_nack_rate_bps);
   sent_fec_rate_bps_.store(sent_fec_rate_bps);
 
-  if (!state.enabled.load() || !fec_negotiated_.load()) {
+  if (fec_rate == 0 || !fec_negotiated_.load()) {
     return estimated_bitrate_bps;
   }
 
@@ -159,7 +229,6 @@ uint32_t FixedRateFecController::UpdateFecRates(
     overhead_rate = static_cast<float>(sent_nack_rate_bps + sent_fec_rate_bps) /
                     static_cast<float>(sent_total);
   } else {
-    int fec_rate = std::clamp(state.fec_rate.load(), 0, 255);
     overhead_rate = static_cast<float>(fec_rate) / (255.0f + fec_rate);
   }
   overhead_rate = std::min(overhead_rate, 0.5f);
@@ -182,18 +251,6 @@ LkFecControllerFactory::CreateFecController(const webrtc::Environment& env) {
 }
 
 // ---------------------------------------------------------------------------
-
-void set_fec_controller_config(FecControllerConfig config) {
-  auto& state = FecGlobalState::Instance();
-  state.enabled.store(config.enabled);
-  state.fec_rate.store(config.fec_rate);
-  state.max_fec_frames.store(config.max_fec_frames);
-  state.bursty_mask.store(config.bursty_mask);
-  RTC_LOG(LS_INFO) << "FlexFEC controller config enabled=" << config.enabled
-                   << " fec_rate=" << config.fec_rate
-                   << " max_fec_frames=" << config.max_fec_frames
-                   << " bursty_mask=" << config.bursty_mask;
-}
 
 FecSenderMetrics fec_sender_metrics() {
   FecSenderMetrics metrics{};

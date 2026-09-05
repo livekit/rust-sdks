@@ -17,6 +17,7 @@
 #pragma once
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -24,26 +25,19 @@
 
 #include "api/environment/environment.h"
 #include "api/fec_controller.h"
+#include "api/fec_controller_override.h"
 #include "rust/cxx.h"
 
 namespace livekit_ffi {
 
-struct FecControllerConfig;
 struct FecSenderMetrics;
 
-// Process wide FlexFEC state. The PeerConnectionFactory is a process
-// singleton in the SDK, so FEC configuration is process wide as well. The
-// protection parameters are runtime adjustable through atomics, field trials
-// can only be applied before the factory is created.
+// Process-wide FlexFEC registry. Negotiation field trials belong to the shared
+// PeerConnectionFactory, while protection rates are bound to individual video
+// send-stream controllers.
 class FecGlobalState {
  public:
   static FecGlobalState& Instance();
-
-  // configuration (set via the cxx bridge)
-  std::atomic<bool> enabled{false};
-  std::atomic<int> fec_rate{38};         // 0..255, ~15%
-  std::atomic<int> max_fec_frames{6};    // frames per protection block
-  std::atomic<bool> bursty_mask{false};  // bursty vs random loss mask
 
   // Returns false when the factory already exists and the trials cannot
   // take effect anymore.
@@ -56,6 +50,11 @@ class FecGlobalState {
 
   void RegisterController(class FixedRateFecController* controller);
   void DeregisterController(class FixedRateFecController* controller);
+  void BindController(class FixedRateFecController* controller,
+                      webrtc::VCMProtectionCallback* protection_callback);
+  void ConfigureController(
+      webrtc::FecControllerOverride* fec_controller_override,
+      int fec_rate);
   void AggregateMetrics(uint32_t& sent_video_rate_bps,
                         uint32_t& sent_fec_rate_bps,
                         uint32_t& sent_nack_rate_bps,
@@ -68,6 +67,8 @@ class FecGlobalState {
   std::mutex mutex_;
   std::string field_trials_;
   std::set<class FixedRateFecController*> controllers_;
+  std::map<const void*, class FixedRateFecController*> controllers_by_owner_;
+  std::map<const void*, int> fec_rates_by_owner_;
 };
 
 // FecController that requests a constant protection rate whenever FEC has
@@ -98,10 +99,12 @@ class FixedRateFecController : public webrtc::FecController {
   uint32_t sent_video_rate_bps() const { return sent_video_rate_bps_.load(); }
   uint32_t sent_fec_rate_bps() const { return sent_fec_rate_bps_.load(); }
   uint32_t sent_nack_rate_bps() const { return sent_nack_rate_bps_.load(); }
+  void SetFecRate(int fec_rate) { fec_rate_.store(fec_rate); }
 
  private:
   std::atomic<webrtc::VCMProtectionCallback*> protection_callback_{nullptr};
   std::atomic<bool> fec_negotiated_{false};
+  std::atomic<int> fec_rate_{0};
   std::atomic<uint32_t> sent_video_rate_bps_{0};
   std::atomic<uint32_t> sent_fec_rate_bps_{0};
   std::atomic<uint32_t> sent_nack_rate_bps_{0};
@@ -114,7 +117,6 @@ class LkFecControllerFactory : public webrtc::FecControllerFactoryInterface {
 };
 
 // cxx bridge entry points
-void set_fec_controller_config(FecControllerConfig config);
 FecSenderMetrics fec_sender_metrics();
 bool set_field_trials(rust::String field_trials);
 
