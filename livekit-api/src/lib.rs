@@ -14,34 +14,33 @@
 
 #![doc = include_str!("../README.md")]
 
+// The token implementation lives in the livekit-token crate. This alias keeps
+// the historical `livekit_api::access_token::*` paths working, and remains the
+// documented, supported way to reach these types.
 #[cfg(feature = "access-token")]
-pub mod access_token;
+#[doc(inline)]
+pub use livekit_token as access_token;
 
-#[cfg(any(feature = "services-tokio", feature = "services-async"))]
+#[cfg(feature = "services")]
 pub mod services;
 
-#[cfg(any(
-    feature = "signal-client-tokio",
-    feature = "signal-client-async",
-    feature = "signal-client-dispatcher"
-))]
-pub mod signal_client;
+// The signalling client lives in the livekit-signaling crate. Unlike
+// `access_token`, this path is NOT supported API: nothing in the workspace uses
+// it any more and it exists only so existing dependents keep compiling.
+//
+// The deprecation fires on `use livekit_api::signal_client;` but not on
+// `use livekit_api::signal_client::{Item}` — rustc only lints a deprecated
+// module when it is the final path segment. `#[doc(hidden)]` keeps it out of the
+// published docs so it stops reading as blessed API.
+#[cfg(feature = "signal-client")]
+#[deprecated(note = "internal SDK API; depend on livekit-signaling directly")]
+#[doc(hidden)]
+pub mod signal_client {
+    pub use livekit_signaling::*;
+}
 
-#[cfg(any(
-    feature = "signal-client-tokio",
-    feature = "signal-client-async",
-    feature = "signal-client-dispatcher",
-    feature = "services-tokio",
-    feature = "services-async"
-))]
+#[cfg(feature = "services")]
 mod http_client;
 
 #[cfg(feature = "webhooks")]
 pub mod webhooks;
-
-#[allow(dead_code)]
-pub(crate) fn get_env_keys() -> Result<(String, String), std::env::VarError> {
-    let api_key = std::env::var("LIVEKIT_API_KEY")?;
-    let api_secret = std::env::var("LIVEKIT_API_SECRET")?;
-    Ok((api_key, api_secret))
-}

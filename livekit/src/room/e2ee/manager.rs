@@ -43,6 +43,7 @@ fn has_packet_trailer_features(features: &[i32]) -> bool {
     features.iter().any(|f| {
         *f == PacketTrailerFeature::PtfUserTimestamp as i32
             || *f == PacketTrailerFeature::PtfFrameId as i32
+            || *f == PacketTrailerFeature::PtfUserData as i32
     })
 }
 
@@ -372,6 +373,13 @@ mod tests {
     #[test]
     fn receiver_packet_trailer_handler_is_needed_for_frame_id() {
         let features = [PacketTrailerFeature::PtfFrameId as i32];
+
+        assert!(needs_video_receiver_packet_trailer_handler(&features));
+    }
+
+    #[test]
+    fn receiver_packet_trailer_handler_is_needed_for_user_data() {
+        let features = [PacketTrailerFeature::PtfUserData as i32];
 
         assert!(needs_video_receiver_packet_trailer_handler(&features));
     }

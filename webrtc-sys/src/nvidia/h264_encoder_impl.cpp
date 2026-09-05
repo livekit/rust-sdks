@@ -1,6 +1,7 @@
 #include "h264_encoder_impl.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <string>
 
@@ -209,8 +210,8 @@ int32_t NvidiaH264EncoderImpl::InitEncode(
                                        presetGuid,
                                        NV_ENC_TUNING_INFO_ULTRA_LOW_LATENCY);
 
-  nv_initialize_params_.frameRateNum =
-      static_cast<uint32_t>(configuration_.max_frame_rate);
+  nv_initialize_params_.frameRateNum = std::max<uint32_t>(
+      1, static_cast<uint32_t>(std::round(configuration_.max_frame_rate)));
   nv_initialize_params_.frameRateDen = 1;
   nv_initialize_params_.bufferFormat = nv_format_;
 
@@ -371,8 +372,7 @@ int32_t NvidiaH264EncoderImpl::ProcessEncodedFrame(
   encoded_image_.timing_.flags = VideoSendTiming::kInvalid;
   encoded_image_._frameType = VideoFrameType::kVideoFrameDelta;
   encoded_image_.SetColorSpace(inputFrame.color_space());
-  std::vector<H264::NaluIndex> naluIndices =
-      H264::FindNaluIndices(MakeArrayView(packet.data(), packet.size()));
+  std::vector<H264::NaluIndex> naluIndices = H264::FindNaluIndices(packet);
   for (uint32_t i = 0; i < naluIndices.size(); i++) {
     const H264::NaluType naluType =
         H264::ParseNaluType(packet[naluIndices[i].payload_start_offset]);
@@ -422,27 +422,39 @@ void NvidiaH264EncoderImpl::SetRates(
     return;
   }
 
-  if (parameters.framerate_fps < 1.0) {
+  if (!std::isfinite(parameters.framerate_fps) ||
+      parameters.framerate_fps < 1.0) {
     RTC_LOG(LS_WARNING) << "Invalid frame rate: " << parameters.framerate_fps;
     return;
   }
 
-  if (parameters.bitrate.get_sum_bps() == 0) {
+  const uint32_t target_bps = parameters.bitrate.get_sum_bps();
+  if (target_bps == 0) {
     configuration_.SetStreamState(false);
     return;
   }
 
-  codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
-  codec_.maxBitrate = parameters.bitrate.GetSpatialLayerSum(0);
-
-  configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
-  configuration_.max_frame_rate = parameters.framerate_fps;
-
-  if (configuration_.target_bps) {
-    configuration_.SetStreamState(true);
-  } else {
-    configuration_.SetStreamState(false);
+  const uint32_t frame_rate = static_cast<uint32_t>(std::clamp(
+      std::round(parameters.framerate_fps), 1.0,
+      static_cast<double>(std::numeric_limits<uint32_t>::max())));
+  try {
+    if (!encoder_->SetRates(frame_rate, target_bps)) {
+      RTC_LOG(LS_WARNING) << "Failed to reconfigure NVENC rates: encoder is "
+                             "not initialized.";
+      return;
+    }
+  } catch (const NVENCException& e) {
+    RTC_LOG(LS_WARNING) << "Failed to reconfigure NVENC rates to "
+                        << target_bps << " bps @ " << frame_rate
+                        << " fps: " << e.what();
+    return;
   }
+
+  codec_.maxFramerate = frame_rate;
+  codec_.maxBitrate = target_bps / 1000;
+  configuration_.target_bps = target_bps;
+  configuration_.max_frame_rate = frame_rate;
+  configuration_.SetStreamState(true);
 }
 
 void NvidiaH264EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {

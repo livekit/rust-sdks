@@ -136,18 +136,23 @@ export declare enum AudioTrackFeature {
 }
 
 /**
- * @generated from enum livekit.proto.PacketTrailerFeature
+ * @generated from enum livekit.proto.FrameMetadataFeature
  */
-export declare enum PacketTrailerFeature {
+export declare enum FrameMetadataFeature {
   /**
-   * @generated from enum value: PTF_USER_TIMESTAMP = 0;
+   * @generated from enum value: FMF_USER_TIMESTAMP = 0;
    */
-  PTF_USER_TIMESTAMP = 0,
+  FMF_USER_TIMESTAMP = 0,
 
   /**
-   * @generated from enum value: PTF_FRAME_ID = 1;
+   * @generated from enum value: FMF_FRAME_ID = 1;
    */
-  PTF_FRAME_ID = 1,
+  FMF_FRAME_ID = 1,
+
+  /**
+   * @generated from enum value: FMF_USER_DATA = 2;
+   */
+  FMF_USER_DATA = 2,
 }
 
 /**
@@ -431,9 +436,9 @@ export declare class TrackPublicationInfo extends Message<TrackPublicationInfo> 
   audioFeatures: AudioTrackFeature[];
 
   /**
-   * @generated from field: repeated livekit.proto.PacketTrailerFeature packet_trailer_features = 13;
+   * @generated from field: repeated livekit.proto.FrameMetadataFeature frame_metadata_features = 13;
    */
-  packetTrailerFeatures: PacketTrailerFeature[];
+  frameMetadataFeatures: FrameMetadataFeature[];
 
   constructor(data?: PartialMessage<TrackPublicationInfo>);
 

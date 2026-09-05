@@ -78,6 +78,16 @@ pub enum VideoQuality {
     High,
 }
 
+impl From<VideoQuality> for proto::VideoQuality {
+    fn from(quality: VideoQuality) -> Self {
+        match quality {
+            VideoQuality::Low => Self::Low,
+            VideoQuality::Medium => Self::Medium,
+            VideoQuality::High => Self::High,
+        }
+    }
+}
+
 macro_rules! track_dispatch {
     ([$($variant:ident),+]) => {
         enum_dispatch!(

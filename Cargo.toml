@@ -4,12 +4,19 @@ members = [
     "livekit",
     "livekit-api",
     "livekit-protocol",
+    "livekit-region",
+    "livekit-common",
+    "livekit-data-stream",
     "livekit-ffi",
     "livekit-uniffi",
     "livekit-datatrack",
+    "livekit-token",
+    "livekit-token-source",
     "livekit-ffi-node-bindings",
-    "livekit-runtime",
+    "livekit-net",
+    "livekit-signaling",
     "livekit-wakeword",
+    "tools/bindgens",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
@@ -33,9 +40,8 @@ members = [
     "examples/rpc",
     "examples/save_to_disk",
     "examples/screensharing",
-    "examples/send_bytes",
+    "examples/token_source",
     "examples/webhooks",
-    "examples/wgpu_room",
 ]
 
 [workspace.package]
@@ -46,18 +52,24 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 device-info = { version = "0.1.1", path = "device-info" }
-imgproc = { version = "0.3.19", path = "imgproc" }
-libwebrtc = { version = "0.3.36", path = "libwebrtc" }
-livekit = { version = "0.7.45", path = "livekit" }
-livekit-api = { version = "0.5.1", path = "livekit-api" }
-livekit-ffi = { version = "0.12.63", path = "livekit-ffi" }
-livekit-datatrack = { version = "0.1.8", path = "livekit-datatrack" }
-livekit-protocol = { version = "0.7.8", path = "livekit-protocol" }
-livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
+imgproc = { version = "0.3.20", path = "imgproc" }
+libwebrtc = { version = "0.3.46", path = "libwebrtc" }
+livekit = { version = "0.8.4", path = "livekit" }
+livekit-api = { version = "0.6.4", path = "livekit-api" }
+livekit-ffi = { version = "0.12.76", path = "livekit-ffi" }
+livekit-datatrack = { version = "0.1.14", path = "livekit-datatrack" }
+livekit-signaling = { version = "0.1.0", path = "livekit-signaling" }
+livekit-token = { version = "0.1.1", path = "livekit-token" }
+livekit-token-source = { version = "0.1.2", path = "livekit-token-source" }
+livekit-common = { version = "0.1.2", path = "livekit-common" }
+livekit-data-stream = { version = "0.1.3", path = "livekit-data-stream" }
+livekit-net = { version = "0.1.2", path = "livekit-net" }
+livekit-protocol = { version = "0.7.12", path = "livekit-protocol" }
+livekit-region = { version = "0.1.0", path = "livekit-region" }
 soxr-sys = { version = "0.1.3", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.34", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.18", path = "webrtc-sys/build" }
-yuv-sys = { version = "0.3.14", path = "yuv-sys" }
+webrtc-sys = { version = "0.3.43", path = "webrtc-sys" }
+webrtc-sys-build = { version = "0.3.19", path = "webrtc-sys/build" }
+yuv-sys = { version = "0.3.15", path = "yuv-sys" }
 
 anyhow = "1.0"
 bytes = "1.10"
@@ -80,16 +92,30 @@ serde_json = "1.0"
 thiserror = "2"
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
-hound = "3.5"
+# Test on a 64-bit ARM device before you change this version.
+#
+# The Kotlin bindings from uniffi 0.31.2 and 0.32.0 compare each checksum incorrectly on 64-bit
+# ARM. Every affected method then fails. See https://github.com/mozilla/uniffi-rs/pull/2897, which
+# introduced the defect. Version 0.31.1 has a related defect on 32-bit ARM, and it also does not
+# build here, because uniffi-dart requires 0.31.2 or later. mozilla/uniffi-rs#2935 corrects both
+# defects, but no release (as of mid august 2026) contains that change.
+#
+# For this reason, livekit-uniffi sets `omit_checksums` for Kotlin. See livekit-uniffi/uniffi.toml.
+uniffi = "0.31"
 
 # For examples
-eframe = { version = "0.33.3", default-features = false }
-egui = "0.33.3"
-egui-wgpu = "0.33.3"
+eframe = { version = "0.35.0", default-features = false }
+egui = "0.35.0"
+egui-wgpu = "0.35.0"
 image = "0.25"
-wgpu = "28.0"
-winit = "0.30.12"
+wgpu = "29.0"
+winit = "0.30.13"
+hound = "3.5"
 cc = { version = "1.0", features = ["parallel"] }
+
+[profile.dev]
+debug = "line-tables-only"
+# Set to `true` instead for enhanced debugging at the cost of slower builds.
 
 [profile.release]
 opt-level = "z"

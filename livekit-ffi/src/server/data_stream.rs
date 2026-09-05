@@ -69,7 +69,10 @@ impl FfiByteStreamReader {
                         let _ = server.send_event(event.into());
                     }
                     Err(err) => {
-                        let detail = proto::ByteStreamReaderEos { error: Some(err.into()) };
+                        let detail = proto::ByteStreamReaderEos {
+                            error: Some(err.into()),
+                            attributes: stream.info().attributes(),
+                        };
                         let event = proto::ByteStreamReaderEvent {
                             reader_handle: self.handle_id,
                             detail: Some(detail.into()),
@@ -80,7 +83,8 @@ impl FfiByteStreamReader {
                 }
             }
 
-            let detail = proto::ByteStreamReaderEos { error: None };
+            let detail =
+                proto::ByteStreamReaderEos { error: None, attributes: stream.info().attributes() };
             let event = proto::ByteStreamReaderEvent {
                 reader_handle: self.handle_id,
                 detail: Some(detail.into()),
@@ -149,7 +153,10 @@ impl FfiTextStreamReader {
                         let _ = server.send_event(event.into());
                     }
                     Err(err) => {
-                        let detail = proto::TextStreamReaderEos { error: Some(err.into()) };
+                        let detail = proto::TextStreamReaderEos {
+                            error: Some(err.into()),
+                            attributes: stream.info().attributes(),
+                        };
                         let event = proto::TextStreamReaderEvent {
                             reader_handle: self.handle_id,
                             detail: Some(detail.into()),
@@ -160,7 +167,8 @@ impl FfiTextStreamReader {
                 }
             }
 
-            let detail = proto::TextStreamReaderEos { error: None };
+            let detail =
+                proto::TextStreamReaderEos { error: None, attributes: stream.info().attributes() };
             let event = proto::TextStreamReaderEvent {
                 reader_handle: self.handle_id,
                 detail: Some(detail.into()),
@@ -229,10 +237,8 @@ impl FfiByteStreamWriter {
     ) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
         let async_id = server.resolve_async_id(request.request_async_id);
         let handle = server.async_runtime.spawn(async move {
-            let result = match request.reason {
-                Some(reason) => self.inner.close_with_reason(&reason).await,
-                None => self.inner.close().await,
-            };
+            let attributes = (!request.attributes.is_empty()).then(|| request.attributes.clone());
+            let result = self.inner.close_with_options(request.reason.as_deref(), attributes).await;
             let callback = proto::ByteStreamWriterCloseCallback {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),
@@ -285,10 +291,8 @@ impl FfiTextStreamWriter {
     ) -> FfiResult<proto::TextStreamWriterCloseResponse> {
         let async_id = server.resolve_async_id(request.request_async_id);
         let handle = server.async_runtime.spawn(async move {
-            let result = match request.reason {
-                Some(reason) => self.inner.close_with_reason(&reason).await,
-                None => self.inner.close().await,
-            };
+            let attributes = (!request.attributes.is_empty()).then(|| request.attributes.clone());
+            let result = self.inner.close_with_options(request.reason.as_deref(), attributes).await;
             let callback = proto::TextStreamWriterCloseCallback {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),

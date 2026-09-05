@@ -60,7 +60,7 @@ impl TrackPublication {
         pub fn is_remote(self: &Self) -> bool;
         pub fn encryption_type(self: &Self) -> EncryptionType;
         pub fn audio_features(self: &Self) -> Vec<AudioTrackFeature>;
-        pub fn packet_trailer_features(self: &Self) -> Vec<PacketTrailerFeature>;
+        pub fn frame_metadata_features(self: &Self) -> Vec<PacketTrailerFeature>;
 
         pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication) + Send + 'static) -> ();
         pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication) + Send + 'static) -> ();
@@ -97,7 +97,7 @@ struct PublicationInfo {
     pub proto_info: proto::TrackInfo,
     pub encryption_type: EncryptionType,
     pub audio_features: Vec<AudioTrackFeature>,
-    pub packet_trailer_features: Vec<PacketTrailerFeature>,
+    pub frame_metadata_features: Vec<PacketTrailerFeature>,
 }
 
 pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication) + Send>;
@@ -145,7 +145,7 @@ pub(super) fn new_inner(
             .into_iter()
             .map(|item| item.try_into().unwrap())
             .collect(),
-        packet_trailer_features: info
+        frame_metadata_features: info
             .packet_trailer_features
             .iter()
             .filter_map(|v| PacketTrailerFeature::try_from(*v).ok())
@@ -171,7 +171,7 @@ pub(super) fn update_info(
     info.mime_type = new_info.mime_type.clone();
     info.simulcasted = is_simulcasted(&new_info);
     info.audio_features = new_info.audio_features().collect();
-    info.packet_trailer_features = new_info
+    info.frame_metadata_features = new_info
         .packet_trailer_features
         .iter()
         .filter_map(|v| PacketTrailerFeature::try_from(*v).ok())

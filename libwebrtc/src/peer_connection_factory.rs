@@ -39,11 +39,26 @@ pub enum IceTransportsType {
     All,
 }
 
+/// Configuration for a [`PeerConnection`].
+///
+/// This type is `#[non_exhaustive]`: construct it from [`RtcConfiguration::default`]
+/// and set the fields you need, e.g.
+/// ```
+/// # use libwebrtc::peer_connection_factory::{IceTransportsType, RtcConfiguration};
+/// let mut cfg = RtcConfiguration::default();
+/// cfg.ice_transport_type = IceTransportsType::Relay;
+/// ```
+/// New fields may be added in future releases without a breaking change.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct RtcConfiguration {
     pub ice_servers: Vec<IceServer>,
     pub continual_gathering_policy: ContinualGatheringPolicy,
     pub ice_transport_type: IceTransportsType,
+    /// WARP: enable SNAP (SCTP-INIT-in-SDP). Maps to the immutable
+    /// `enable_sctp_snap` RTCConfiguration field, so it must be set the same at
+    /// PeerConnection creation and every set_configuration.
+    pub enable_sctp_snap: bool,
 }
 
 impl Default for RtcConfiguration {
@@ -52,6 +67,7 @@ impl Default for RtcConfiguration {
             ice_servers: vec![],
             continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
             ice_transport_type: IceTransportsType::All,
+            enable_sctp_snap: false,
         }
     }
 }
@@ -68,6 +84,22 @@ impl Debug for PeerConnectionFactory {
 }
 
 impl PeerConnectionFactory {
+    /// Creates a native peer connection factory that renders received video as soon as possible.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_zero_playout_delay() -> Self {
+        Self { handle: imp_pcf::PeerConnectionFactory::with_zero_playout_delay() }
+    }
+
+    /// Creates a native peer connection factory with the given runtime options.
+    /// `zero_playout_delay` and `enable_warp` (SPED + SNAP) are independent and
+    /// may be combined.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_options(zero_playout_delay: bool, enable_warp: bool) -> Self {
+        Self {
+            handle: imp_pcf::PeerConnectionFactory::with_options(zero_playout_delay, enable_warp),
+        }
+    }
+
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,
@@ -81,6 +113,21 @@ impl PeerConnectionFactory {
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.handle.get_rtp_receiver_capabilities(media_type)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::PeerConnectionFactory;
+
+    #[test]
+    fn zero_playout_delay_factory_uses_force_playout_delay_field_trial() {
+        let default_factory = PeerConnectionFactory::default();
+        assert!(!default_factory.handle.zero_playout_delay_enabled());
+        drop(default_factory);
+
+        let low_latency_factory = PeerConnectionFactory::with_zero_playout_delay();
+        assert!(low_latency_factory.handle.zero_playout_delay_enabled());
     }
 }
 

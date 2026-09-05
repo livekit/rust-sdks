@@ -7,6 +7,108 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## 0.6.4 (2026-08-25)
+
+### Fixes
+
+- differentiate signal connection errors correctly from timeouts - #1234 (@lukasIO)
+- fix(uniffi): register the Bytes custom type once, in livekit-common - #1343 (@pblazej)
+
+#### Moves access-token generation and verification into a new `livekit-token` crate.
+
+`livekit_api::access_token::*` continues to resolve to the same types via a
+re-export, so no consumer changes are needed.
+
+Also fixes the `services-tokio` and `services-async` features, which used the
+access-token types without declaring the `access-token` feature. Building with
+`--no-default-features --features services-tokio` previously failed to compile.
+
+## 0.6.3 (2026-08-10)
+
+### Features
+
+- Add `other_sdks` field to propagate additional SDK metadata to the server.
+
+## 0.6.2 (2026-08-03)
+
+### Features
+
+- Add a unified `EgressClient::start_egress` that calls the v2 `Egress.StartEgress` RPC with a `StartEgressRequest`, alongside the existing per-type helpers.
+
+## 0.6.1 (2026-07-29)
+
+### Fixes
+
+- Caching of tokio backend reqwest http client - #1285 (@MaxHeimbrock)
+- Add data streams v2 - #1192 (@1egoman)
+
+## 0.6.0 (2026-07-27)
+
+### Breaking Changes
+
+#### Route LiveKit signalling through a pluggable transport (new `livekit-net` crate).
+
+The signalling WebSocket and the two pre-connect HTTP GETs (validate, region discovery) now go through pluggable transport traits (`WsClient` for the WebSocket, `HttpClient` for request/response) resolved from a process-global registry with independent slots — a consumer can bring only HTTP, or only WebSocket. The new `livekit-net` crate owns the WebSocket/HTTP/TLS stack behind those traits and ships native (tokio / async-std) backends. Native builds are unchanged in behavior.
+
+**Breaking (`livekit-api`, and `livekit` via `EngineError::Signal`):**
+
+- `SignalError::WsError` is removed — `tungstenite` is no longer part of the public API. A failed WebSocket handshake now surfaces its HTTP status as `SignalError::Client`/`Server`; transport connection and close failures surface as the new `SignalError::Connection(String)` / `SignalError::Closed` variants (previously all collapsed into `Timeout`).
+- `SignalError` is now `#[non_exhaustive]`, and gains a `SignalError::TransportNotConfigured` variant — returned when no transport is registered (host/foreign builds must call `livekit_net::set_ws_client` / `set_http_client` before connecting). This is a permanent configuration error; callers must not retry.
+- The signalling WebSocket/HTTP/TLS crates are no longer transitive dependencies of `livekit-api`; TLS features delegate to `livekit-net`. Existing `signal-client-tokio` / `-async` / `-dispatcher` and TLS feature names are unchanged.
+
+### Fixes
+
+- Data tracks schema metadata support.
+
+## 0.5.6 (2026-07-17)
+
+### Fixes
+
+- Add deployment field documentation for agent dispatch
+
+#### Compress initial offer in URL for single PC mode
+
+Apply compression to the initial offer when sending it in the JoinRequest URL, reducing URL size and improving connection performance on slow networks.
+
+## 0.5.5 (2026-07-09)
+
+### Features
+
+- feat: auto failover APIs with LK Cloud - #1196 (@davidzhao)
+- introduce LiveKitAPI construct, added smoke tests - #1220 (@davidzhao)
+
+## 0.5.4 (2026-06-24)
+
+### Fixes
+
+- harden reconnect behaviour - #1148 (@lukasIO)
+
+## 0.5.3 (2026-06-23)
+
+### Fixes
+
+- Upgrade protocol to v1.48.0
+
+## 0.5.2 (2026-06-17)
+
+### Fixes
+
+#### Shrink binaries with an HMAC-only JWT crypto provider
+
+`livekit-api` now installs a minimal in-crate HMAC `CryptoProvider`
+(HS256/384/512) instead of jsonwebtoken's `rust_crypto` backend, dropping the
+unused RSA/EC/EdDSA algorithms. LiveKit access tokens are HS256, so there is no
+public API or behavior change. This trims ~200 KiB of unreachable crypto code,
+shrinking the shipped binaries ~25–29% — the `RustLiveKitUniFFI` iOS framework
+drops from ~900 KiB to ~672 KiB (arm64) and the Android arm64-v8a `.so` from
+~1.13 MiB to ~816 KiB. `livekit-ffi` and `livekit` benefit too.
+
+#### fix: surface full error chain in region fetch failures for better TLS error diagnosis.
+
+When connecting to LiveKit Cloud from containers without CA certificates installed, the error message now includes the full error chain (e.g., "invalid peer certificate: UnknownIssuer") instead of just "error sending request for url (...)". This makes TLS certificate issues self-diagnosing.
+
+Also added documentation for TLS features in Cargo.toml, highlighting `rustls-tls-webpki-roots` as the recommended option for container deployments.
+
 ## 0.5.1 (2026-06-03)
 
 ### Fixes

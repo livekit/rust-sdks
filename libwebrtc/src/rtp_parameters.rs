@@ -22,6 +22,28 @@ pub enum Priority {
     High,
 }
 
+/// Controls how the encoder degrades quality when bandwidth is constrained.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum DegradationPreference {
+    /// Maintain both framerate and resolution. Frames may be dropped before encoding
+    /// if necessary to avoid overusing network and encoder resources.
+    MaintainFramerateAndResolution,
+    /// Degrade framerate to maintain resolution.
+    MaintainFramerate,
+    /// Degrade resolution to maintain framerate.
+    MaintainResolution,
+    /// Balance between framerate and resolution degradation.
+    #[default]
+    Balanced,
+}
+
+impl DegradationPreference {
+    /// Deprecated: Use `MaintainFramerateAndResolution` instead.
+    #[deprecated(since = "0.8.0", note = "Use MaintainFramerateAndResolution instead")]
+    #[allow(non_upper_case_globals)]
+    pub const Disabled: Self = Self::MaintainFramerateAndResolution;
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtensionParameters {
     pub uri: String,
@@ -33,7 +55,52 @@ pub struct RtpHeaderExtensionParameters {
 pub struct RtpParameters {
     pub codecs: Vec<RtpCodecParameters>,
     pub header_extensions: Vec<RtpHeaderExtensionParameters>,
+    pub encodings: Vec<RtpEncodingParameters>,
     pub rtcp: RtcpParameters,
+    /// Opaque token used by WebRTC to pair getParameters/setParameters calls.
+    /// Must be preserved when round-tripping through set_parameters().
+    pub(crate) transaction_id: String,
+    pub(crate) mid: String,
+    pub(crate) has_degradation_preference: bool,
+    pub(crate) degradation_preference: i32,
+}
+
+impl RtpParameters {
+    /// Sets the degradation preference for this RTP sender.
+    ///
+    /// This controls how the encoder trades off between resolution and framerate
+    /// when bandwidth is constrained.
+    pub fn set_degradation_preference(&mut self, preference: DegradationPreference) {
+        self.has_degradation_preference = true;
+        self.degradation_preference = match preference {
+            DegradationPreference::MaintainFramerateAndResolution => 0,
+            DegradationPreference::MaintainFramerate => 1,
+            DegradationPreference::MaintainResolution => 2,
+            DegradationPreference::Balanced => 3,
+        };
+    }
+
+    /// Gets the current degradation preference, if set.
+    pub fn degradation_preference(&self) -> Option<DegradationPreference> {
+        if !self.has_degradation_preference {
+            return None;
+        }
+        Some(match self.degradation_preference {
+            0 => DegradationPreference::MaintainFramerateAndResolution,
+            1 => DegradationPreference::MaintainFramerate,
+            2 => DegradationPreference::MaintainResolution,
+            3 => DegradationPreference::Balanced,
+            _ => DegradationPreference::Balanced,
+        })
+    }
+}
+
+/// Mirrors webrtc_sys RtcpFeedback for round-trip fidelity.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CodecFeedback {
+    pub feedback_type: i32,
+    pub has_message_type: bool,
+    pub message_type: i32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,12 +109,23 @@ pub struct RtpCodecParameters {
     pub mime_type: String, // read-only
     pub clock_rate: Option<u64>,
     pub channels: Option<u16>,
+    pub(crate) name: String,
+    pub(crate) kind: i32,
+    pub(crate) has_max_ptime: bool,
+    pub(crate) max_ptime: i32,
+    pub(crate) has_ptime: bool,
+    pub(crate) ptime: i32,
+    pub(crate) rtcp_feedback: Vec<CodecFeedback>,
+    pub(crate) parameters: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct RtcpParameters {
     pub cname: String,
     pub reduced_size: bool,
+    pub(crate) mux: bool,
+    pub(crate) has_ssrc: bool,
+    pub(crate) ssrc: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +139,9 @@ pub struct RtpEncodingParameters {
     /// RTP scalability mode (e.g. "L3T3_KEY"). Required to enable true
     /// SVC for codecs that support it (VP9, AV1).
     pub scalability_mode: Option<String>,
+    /// Preserved for round-trip fidelity with WebRTC's getParameters/setParameters.
+    pub has_ssrc: bool,
+    pub ssrc: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +174,8 @@ impl Default for RtpEncodingParameters {
             rid: String::default(),
             scale_resolution_down_by: None,
             scalability_mode: None,
+            has_ssrc: false,
+            ssrc: 0,
         }
     }
 }

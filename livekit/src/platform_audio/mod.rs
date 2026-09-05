@@ -635,6 +635,18 @@ impl PlatformAudio {
         })
     }
 
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    fn ensure_device_exists<Device>(
+        devices: impl IntoIterator<Item = Device>,
+        mut is_match: impl FnMut(&Device) -> bool,
+    ) -> AudioResult<()> {
+        if devices.into_iter().any(|device| is_match(&device)) {
+            Ok(())
+        } else {
+            Err(AudioError::DeviceNotFound)
+        }
+    }
+
     // =========================================================================
     // Device Selection
     // =========================================================================
@@ -657,6 +669,11 @@ impl PlatformAudio {
     ///
     /// * `id` - Device identifier from [`RecordingDeviceInfo::id`]
     ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if the device ID does not exist
+    /// in the current list of available recording devices.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -668,6 +685,9 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Self::ensure_device_exists(self.recording_devices(), |device| &device.id == id)?;
+
         if self.handle.runtime.set_recording_device_by_guid(id.as_str()) {
             Ok(())
         } else {
@@ -693,6 +713,11 @@ impl PlatformAudio {
     ///
     /// * `id` - Device identifier from [`PlayoutDeviceInfo::id`]
     ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::DeviceNotFound`] if the device ID does not exist
+    /// in the current list of available playout devices.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -704,6 +729,9 @@ impl PlatformAudio {
     /// }
     /// ```
     pub fn set_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
+        Self::ensure_device_exists(self.playout_devices(), |device| &device.id == id)?;
+
         let runtime = &self.handle.runtime;
         if !runtime.set_playout_device_by_guid(id.as_str()) {
             return Err(AudioError::DeviceNotFound);

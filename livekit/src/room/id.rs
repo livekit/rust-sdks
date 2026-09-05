@@ -20,29 +20,16 @@ const ROOM_PREFIX: &str = "RM_";
 const PARTICIPANT_PREFIX: &str = "PA_";
 const TRACK_PREFIX: &str = "TR_";
 
+pub use livekit_common::ParticipantIdentity;
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct ParticipantSid(String);
-
-#[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
-pub struct ParticipantIdentity(pub String);
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct TrackSid(String);
 
 #[derive(Clone, Default, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct RoomSid(String);
-
-impl From<String> for ParticipantIdentity {
-    fn from(value: String) -> Self {
-        Self(value)
-    }
-}
-
-impl From<&str> for ParticipantIdentity {
-    fn from(value: &str) -> Self {
-        Self(value.to_string())
-    }
-}
 
 macro_rules! impl_string_into {
     ($from:ty) => {
@@ -67,7 +54,6 @@ macro_rules! impl_string_into {
 }
 
 impl_string_into!(ParticipantSid);
-impl_string_into!(ParticipantIdentity);
 impl_string_into!(TrackSid);
 impl_string_into!(RoomSid);
 

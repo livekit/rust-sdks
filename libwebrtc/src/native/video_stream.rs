@@ -23,9 +23,9 @@ use std::{
 };
 
 use cxx::{SharedPtr, UniquePtr};
-use livekit_runtime::Stream;
 use parking_lot::Mutex;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
+use tokio_stream::Stream;
 use webrtc_sys::video_track as sys_vt;
 
 use super::{packet_trailer::SubscribeTimingStage, video_frame::new_video_frame_buffer};
@@ -112,14 +112,15 @@ impl VideoTrackObserver {
     ) -> Option<FrameMetadata> {
         handler
             .and_then(|handler| {
-                handler.lookup_frame_metadata(rtp_timestamp).map(|(ts, fid)| {
+                handler.lookup_frame_metadata(rtp_timestamp).map(|(ts, fid, user_data)| {
                     handler.emit_subscribe_timing(SubscribeTimingStage::DecoderOutput, ts, fid);
-                    (ts, fid)
+                    (ts, fid, user_data)
                 })
             })
-            .map(|(ts, fid)| FrameMetadata {
-                user_timestamp: Some(ts),
+            .map(|(ts, fid, user_data)| FrameMetadata {
+                user_timestamp: if ts != 0 { Some(ts) } else { None },
                 frame_id: if fid != 0 { Some(fid) } else { None },
+                user_data: if user_data.is_empty() { None } else { Some(user_data) },
             })
     }
 }
