@@ -179,9 +179,7 @@ bool CudaContext::Initialize() {
   cu_device_ = cu_device;
   cu_context_ = context;
   ref_count_ = 1;
-  ++create_count_;
-  RTC_LOG(LS_INFO) << "CUDA context initialized (refs=1, creates="
-                   << create_count_ << ", destroys=" << destroy_count_ << ").";
+  RTC_LOG(LS_INFO) << "CUDA context initialized (refs=1).";
 
   return true;
 }
@@ -236,13 +234,9 @@ void CudaContext::Shutdown() {
           << "Failed to destroy CUDA context: " << error_name
           << " (code=" << static_cast<int>(result)
           << "); cleanup is indeterminate and CUDA resources may have leaked. "
-             "A later Initialize() will create a new context (refs=0, creates="
-          << create_count_ << ", destroys=" << destroy_count_ << ").";
+             "A later Initialize() will create a new context (refs=0).";
     } else {
-      ++destroy_count_;
-      RTC_LOG(LS_INFO)
-          << "CUDA context destroyed successfully (refs=0, creates="
-          << create_count_ << ", destroys=" << destroy_count_ << ").";
+      RTC_LOG(LS_INFO) << "CUDA context destroyed successfully (refs=0).";
     }
   }
   if (s_module_ptr) {

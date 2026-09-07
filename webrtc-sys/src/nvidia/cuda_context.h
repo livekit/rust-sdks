@@ -3,8 +3,6 @@
 
 #include <cuda.h>
 
-#include <cstdint>
-
 namespace livekit_ffi {
 
 /// @brief Process-wide CUDA context shared by NVIDIA codec factories.
@@ -46,8 +44,6 @@ class CudaContext {
   CUcontext cu_context_ = nullptr;
   // Guarded by cudaMutex() in cuda_context.cpp.
   int ref_count_ = 0;
-  std::uint64_t create_count_ = 0;
-  std::uint64_t destroy_count_ = 0;
 };
 
 }  // namespace livekit_ffi
