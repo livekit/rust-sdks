@@ -55,9 +55,11 @@ pub struct TelemetryConfig {
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub traces_endpoint: Option<String>,
     /// Extra request headers, e.g. `Authorization: Bearer <token>`.
-    pub headers: HashMap<String, String>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub headers: Option<HashMap<String, String>>,
     /// Resource attributes describing the emitter (`service.name`, `os.name`,
     /// `device.model.identifier`, `session.id`, …). `telemetry.sdk.*` are filled in by the core.
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
     pub resource: Vec<Attribute>,
     /// Who is reporting, typed; the core owns the semconv keys. Extra attributes go in `resource`.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
@@ -103,8 +105,26 @@ pub struct TelemetryConfig {
     pub max_batch_bytes: u64,
     /// Lowest severity a plain log record (an event with no name) needs to leave the device.
     /// Events are not subject to it. Design doc: warn.
-    // No uniffi default: enum defaults are not supported by the Swift generator (uniffi 0.31).
-    pub log_severity: Severity,
+    /// `None` is `Warn`. (Optional because UniFFI 0.31 cannot default an enum literal.)
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub log_severity: Option<Severity>,
+    /// Platform instruments not to run; all run by default.
+    #[cfg_attr(feature = "uniffi", uniffi(default = []))]
+    pub disabled_instruments: Vec<Instrument>,
+}
+
+/// The platform instruments a config can switch off.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Instrument {
+    /// Thermal, power, memory, network, battery, audio session.
+    Device,
+    /// Warn/error lines from the SDK, the core and WebRTC.
+    Logs,
+    /// `getStats` windows per track and subscribe spans.
+    Rtc,
+    /// Connect, reconnect and publish spans.
+    Room,
 }
 
 impl TelemetryConfig {
@@ -113,7 +133,7 @@ impl TelemetryConfig {
         Self {
             endpoint: Some(endpoint.into()),
             traces_endpoint: None,
-            headers: HashMap::new(),
+            headers: None,
             resource: Vec::new(),
             sdk: None,
             storage_dir: None,
@@ -127,7 +147,8 @@ impl TelemetryConfig {
             max_batches_per_upload: 4,
             flush_threshold_bytes: 256 * 1024,
             max_batch_bytes: 1024 * 1024,
-            log_severity: Severity::Warn,
+            log_severity: None,
+            disabled_instruments: Vec::new(),
         }
     }
 }
@@ -262,7 +283,11 @@ impl Telemetry {
     ) -> (Self, Exporter) {
         add_sdk_resource(&mut config.resource, config.sdk.as_ref());
         let destination = Arc::new(Mutex::new(config.endpoint.as_deref().map(|endpoint| {
-            Destination::new(endpoint, config.traces_endpoint.clone(), config.headers.clone())
+            Destination::new(
+                endpoint,
+                config.traces_endpoint.clone(),
+                config.headers.clone().unwrap_or_default(),
+            )
         })));
         let config = Arc::new(config);
         // One pipeline per process; sessions (rooms) carry their own trace ids. This is the
@@ -370,8 +395,8 @@ impl Telemetry {
     /// produced a batch would never end).
     pub fn log(&self, record: LogRecord) {
         let floor = match record.source {
-            LogSource::WebRtc => self.config.log_severity.max(Severity::Error),
-            _ => self.config.log_severity,
+            LogSource::WebRtc => self.log_severity().max(Severity::Error),
+            _ => self.log_severity(),
         };
         if record.severity < floor {
             return;
@@ -394,8 +419,12 @@ impl Telemetry {
         self.emit_in(event, &session);
     }
 
+    fn log_severity(&self) -> Severity {
+        self.config.log_severity.unwrap_or(Severity::Warn)
+    }
+
     pub(crate) fn emit_in(&self, mut event: TelemetryEvent, session: &Arc<ScopeState>) {
-        if event.name.is_empty() && event.severity < self.config.log_severity {
+        if event.name.is_empty() && event.severity < self.log_severity() {
             return;
         }
         if !self.guard.lock().unwrap_or_else(|e| e.into_inner()).admit() {
