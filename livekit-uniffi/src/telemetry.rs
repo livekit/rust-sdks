@@ -17,9 +17,10 @@ use std::{
 };
 
 use livekit_telemetry::{
-    global, Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest,
-    LogRecord, NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome, SpanStep,
-    SpanTrack, TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport, TraceContext,
+    global::{self, TelemetryInstrument},
+    Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest, LogRecord,
+    NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome, SpanStep, SpanTrack,
+    TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport, TraceContext,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -39,27 +40,34 @@ pub enum TelemetryError {
 pub fn telemetry_configure(
     config: TelemetryConfig,
     transport: Option<Arc<dyn TelemetryTransport>>,
+    instruments: Vec<Arc<dyn TelemetryInstrument>>,
 ) -> Result<(), TelemetryError> {
     let transport: Arc<dyn TelemetryTransport> = match transport {
         Some(transport) => transport,
         None => Arc::new(NetTransport::from_registry().ok_or(TelemetryError::NoTransport)?),
     };
-    install(livekit_telemetry::Telemetry::new(config, transport));
+    install(livekit_telemetry::Telemetry::new(config, transport), instruments);
     Ok(())
 }
 
 /// Like [`telemetry_configure`], exporting through a queue the host drains from its own thread.
 /// For bindings whose callbacks cannot be invoked from Rust threads (uniffi-dart today).
 #[uniffi::export]
-pub fn telemetry_configure_pulled(config: TelemetryConfig) -> Arc<TelemetryExportQueue> {
+pub fn telemetry_configure_pulled(
+    config: TelemetryConfig,
+    instruments: Vec<Arc<dyn TelemetryInstrument>>,
+) -> Arc<TelemetryExportQueue> {
     let queue = TelemetryExportQueue::new();
-    install(livekit_telemetry::Telemetry::new(config, queue.clone()));
+    install(livekit_telemetry::Telemetry::new(config, queue.clone()), instruments);
     queue
 }
 
-fn install((telemetry, exporter): (livekit_telemetry::Telemetry, livekit_telemetry::Exporter)) {
+fn install(
+    (telemetry, exporter): (livekit_telemetry::Telemetry, livekit_telemetry::Exporter),
+    instruments: Vec<Arc<dyn TelemetryInstrument>>,
+) {
     crate::runtime::runtime().spawn(exporter.run());
-    if let Some(previous) = global::install(telemetry) {
+    if let Some(previous) = global::install(telemetry, instruments) {
         crate::runtime::runtime().spawn(async move { previous.shutdown().await });
     }
 }

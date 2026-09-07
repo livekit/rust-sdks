@@ -27,6 +27,7 @@ void main() {
           resource: [],
           logSeverity: Severity.warn,
         ),
+        instruments: [],
       );
       final serving = serve(queue, requests, 2);
 
@@ -62,6 +63,7 @@ void main() {
         () => telemetryConfigure(
           config: TelemetryConfig(endpoint: 'http://collector/v1/logs', headers: {}, resource: [], logSeverity: Severity.warn),
           transport: null,
+          instruments: [],
         ),
         throwsA(anything),
       );

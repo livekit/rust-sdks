@@ -672,13 +672,42 @@ mod tests {
         crate::global::log(line());
         assert!(crate::global::scope().is_none());
         assert_eq!(crate::global::diagnostics(), "off");
+        struct Counting(std::sync::atomic::AtomicU32, std::sync::atomic::AtomicU32);
+        impl crate::global::TelemetryInstrument for Counting {
+            fn start(&self) {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                crate::global::log(crate::LogRecord {
+                    severity: Severity::Warn,
+                    source: LogSource::Sdk,
+                    message: "from start".into(),
+                    logger: None,
+                    function: None,
+                    file: None,
+                    line: None,
+                    timestamp_ns: None,
+                    span_id: None,
+                });
+            }
+            fn stop(&self) {
+                self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+        let instrument = Arc::new(Counting(Default::default(), Default::default()));
         let transport = FakeTransport::scripted([]);
-        assert!(crate::global::install(pipeline(transport.clone())).is_none());
+        assert!(
+            crate::global::install(pipeline(transport.clone()), vec![instrument.clone()]).is_none()
+        );
+        assert_eq!(instrument.0.load(std::sync::atomic::Ordering::SeqCst), 1, "started on install");
         crate::global::log(line());
         crate::global::flush().await;
-        assert_eq!(transport.sent().len(), 1, "installed: the line reaches the collector");
+        assert_eq!(records(&transport.sent()[0]).len(), 2, "the instrument's own line and ours");
         assert!(crate::global::diagnostics().starts_with("ok, sent 1"));
         crate::global::shutdown().await;
+        assert_eq!(
+            instrument.1.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "stopped on shutdown"
+        );
         assert!(crate::global::shared().is_none());
         crate::global::log(line());
     }
