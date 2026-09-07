@@ -48,6 +48,8 @@ mod proto;
 /// Transport seam: how encoded batches leave the device.
 mod transport;
 
+/// The process pipeline: [`global::install`] once, then reach it anywhere.
+pub mod global;
 /// Entry point and configuration.
 mod telemetry;
 mod trace;

@@ -17,9 +17,9 @@ use std::{
 };
 
 use livekit_telemetry::{
-    Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest, LogRecord,
-    NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome, SpanStep, SpanTrack,
-    TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport, TraceContext,
+    global, Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest,
+    LogRecord, NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome, SpanStep,
+    SpanTrack, TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport, TraceContext,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -33,118 +33,102 @@ pub enum TelemetryError {
 }
 
 /// Telemetry pipeline: buffer, batch, cache and export events as OTLP.
-#[derive(uniffi::Object)]
-pub struct Telemetry(livekit_telemetry::Telemetry);
+/// Start the process pipeline; a previous one is drained and replaced. `transport = None` uses
+/// the HTTP client registered with `livekit-net`, if any.
+#[uniffi::export]
+pub fn telemetry_configure(
+    config: TelemetryConfig,
+    transport: Option<Arc<dyn TelemetryTransport>>,
+) -> Result<(), TelemetryError> {
+    let transport: Arc<dyn TelemetryTransport> = match transport {
+        Some(transport) => transport,
+        None => Arc::new(NetTransport::from_registry().ok_or(TelemetryError::NoTransport)?),
+    };
+    install(livekit_telemetry::Telemetry::new(config, transport));
+    Ok(())
+}
 
-#[uniffi::export(async_runtime = "tokio")]
-impl Telemetry {
-    /// `transport = None` uses the HTTP client registered with `livekit-net`, if any.
-    #[uniffi::constructor]
-    pub fn new(
-        config: TelemetryConfig,
-        transport: Option<Arc<dyn TelemetryTransport>>,
-    ) -> Result<Arc<Self>, TelemetryError> {
-        let transport: Arc<dyn TelemetryTransport> = match transport {
-            Some(transport) => transport,
-            None => Arc::new(NetTransport::from_registry().ok_or(TelemetryError::NoTransport)?),
-        };
-        let (telemetry, exporter) = livekit_telemetry::Telemetry::new(config, transport);
-        crate::runtime::runtime().spawn(exporter.run());
-        Ok(Arc::new(Self(telemetry)))
-    }
+/// Like [`telemetry_configure`], exporting through a queue the host drains from its own thread.
+/// For bindings whose callbacks cannot be invoked from Rust threads (uniffi-dart today).
+#[uniffi::export]
+pub fn telemetry_configure_pulled(config: TelemetryConfig) -> Arc<TelemetryExportQueue> {
+    let queue = TelemetryExportQueue::new();
+    install(livekit_telemetry::Telemetry::new(config, queue.clone()));
+    queue
+}
 
-    /// Like [`Telemetry::new`], but exports through a [`TelemetryExportQueue`] the host drains
-    /// from its own thread. For bindings whose callbacks cannot be invoked from Rust threads
-    /// (uniffi-dart today).
-    #[uniffi::constructor]
-    pub fn new_pulled(config: TelemetryConfig, queue: Arc<TelemetryExportQueue>) -> Arc<Self> {
-        let (telemetry, exporter) = livekit_telemetry::Telemetry::new(config, queue);
-        crate::runtime::runtime().spawn(exporter.run());
-        Arc::new(Self(telemetry))
-    }
-
-    /// Queue an event for export. Never blocks; drops the oldest event when the queue is full.
-    pub fn emit(&self, event: TelemetryEvent) {
-        self.0.emit(event);
-    }
-
-    /// A consumer-defined event, exported as `custom.<name>`; attributes keep their own namespace.
-    pub fn emit_custom(&self, name: String, attributes: Vec<Attribute>) {
-        self.0.emit_custom(&name, attributes);
-    }
-
-    /// A captured log line; the core applies the per-source floor and builds the record.
-    pub fn log(&self, record: LogRecord) {
-        self.0.log(record);
-    }
-
-    /// Audio route, interruption, denied permission: a process-level record built by the core.
-    pub fn device_event(&self, event: DeviceEvent) {
-        self.0.device_event(event);
-    }
-
-    /// Cloud rule: server URL → observability endpoint, room token → bearer header. No-op when
-    /// the config names an explicit endpoint.
-    pub fn set_server(&self, url: String, token: String) {
-        self.0.set_server(&url, &token);
-    }
-
-    /// Where to send, once known (first connect: server URL → endpoint, token → headers). Until
-    /// then everything waits in the cache; afterwards it uploads.
-    pub fn set_destination(&self, endpoint: String, headers: HashMap<String, String>) {
-        self.0.set_destination(&endpoint, headers);
-    }
-
-    /// A session — one room, one call — with its own trace id and attributes on this pipeline.
-    pub fn begin_scope(&self) -> Arc<TelemetryScope> {
-        Arc::new(TelemetryScope(self.0.begin_scope()))
-    }
-
-    /// Report the device state (thermal, low power, foreground/background). Emits the matching
-    /// `lk.device.*.changed` events and adapts the export cadence.
-    pub fn set_device_state(&self, state: DeviceState) {
-        self.0.set_device_state(state);
-    }
-
-    /// A pipeline-wide attribute (`enduser.id`, `acme.tenant`), attached to every record of every
-    /// session unless the record or its session already carries the key; `None` removes it.
-    pub fn set_attribute(&self, key: String, value: Option<AttributeValue>) {
-        self.0.set_attribute(&key, value);
-    }
-
-    /// The session's trace id (32 hex chars) — on every span and record of this pipeline.
-    pub fn trace_id(&self) -> String {
-        self.0.trace_id()
-    }
-
-    /// Push one `getStats()` reading for a track; windowed on device into `lk.rtc.stats.sample`.
-    pub fn record_stats(&self, sample: RtcStatsSample) {
-        self.0.record_stats(sample);
-    }
-
-    /// Export everything queued and wait for the transport.
-    pub async fn flush(&self) {
-        self.0.flush().await;
-    }
-
-    /// Flush, then stop exporting. Bounded by `export_timeout_ms`.
-    pub async fn shutdown(&self) {
-        self.0.shutdown().await;
-    }
-
-    /// Pipeline health: drops by reason, uploads, cached batches.
-    pub fn stats(&self) -> TelemetryStats {
-        self.0.stats()
-    }
-
-    /// The stats as one line for a debug console.
-    pub fn diagnostics(&self) -> String {
-        self.0.stats().to_string()
+fn install((telemetry, exporter): (livekit_telemetry::Telemetry, livekit_telemetry::Exporter)) {
+    crate::runtime::runtime().spawn(exporter.run());
+    if let Some(previous) = global::install(telemetry) {
+        crate::runtime::runtime().spawn(async move { previous.shutdown().await });
     }
 }
 
-/// One room's session on the process pipeline: what its spans, stats and events are filed
-/// under. Obtained from [`Telemetry::begin_scope`].
+/// Drain and stop the process pipeline; every call is a no-op afterwards.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn telemetry_shutdown() {
+    global::shutdown().await;
+}
+
+/// Cache everything queued and upload what the network allows.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn telemetry_flush() {
+    global::flush().await;
+}
+
+/// A scope — one room, one call — on the process pipeline; `None` while telemetry is off.
+#[uniffi::export]
+pub fn telemetry_scope() -> Option<Arc<TelemetryScope>> {
+    global::scope().map(|scope| Arc::new(TelemetryScope(scope)))
+}
+
+/// A process-level event (outside any room).
+#[uniffi::export]
+pub fn telemetry_emit(event: TelemetryEvent) {
+    global::emit(event);
+}
+
+/// A captured log line; the core applies the per-source floor and builds the record.
+#[uniffi::export]
+pub fn telemetry_log(record: LogRecord) {
+    global::log(record);
+}
+
+/// Audio route, interruption, denied permission: a process-level record built by the core.
+#[uniffi::export]
+pub fn telemetry_device_event(event: DeviceEvent) {
+    global::device_event(event);
+}
+
+/// The device's current state; drives the upload cadence and yields change events.
+#[uniffi::export]
+pub fn telemetry_set_device_state(state: DeviceState) {
+    global::set_device_state(state);
+}
+
+/// Cloud rule: server URL → observability endpoint, room token → bearer header.
+#[uniffi::export]
+pub fn telemetry_set_server(url: String, token: String) {
+    global::set_server(&url, &token);
+}
+
+/// An attribute on every record of every scope; `None` removes it.
+#[uniffi::export]
+pub fn telemetry_set_attribute(key: String, value: Option<AttributeValue>) {
+    global::set_attribute(&key, value);
+}
+
+#[uniffi::export]
+pub fn telemetry_stats() -> Option<TelemetryStats> {
+    global::stats()
+}
+
+/// The stats as one line for a debug console, or `off`.
+#[uniffi::export]
+pub fn telemetry_diagnostics() -> String {
+    global::diagnostics()
+}
+
 #[derive(uniffi::Object)]
 pub struct TelemetryScope(livekit_telemetry::Scope);
 

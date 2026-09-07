@@ -19,23 +19,21 @@ Future<void> serve(TelemetryExportQueue queue, List<ExportRequest> sink, int cou
 void main() {
   group('telemetry', () {
     test('exports through the pull queue from the Dart side', () async {
-      final queue = TelemetryExportQueue();
       final requests = <ExportRequest>[];
-      final serving = serve(queue, requests, 2);
-      final telemetry = Telemetry.newPulled(
+      final queue = telemetryConfigurePulled(
         config: TelemetryConfig(
           endpoint: 'http://collector/v1/logs',
           headers: {'Authorization': 'Bearer test'},
           resource: [],
           logSeverity: Severity.warn,
         ),
-        queue: queue,
       );
+      final serving = serve(queue, requests, 2);
 
-      telemetry.emit(
+      telemetryEmit(
         event: TelemetryEvent(name: 'lk.ping', severity: Severity.info, attributes: []),
       );
-      telemetry.recordStats(
+      telemetryScope()!.recordStats(
         sample: RtcStatsSample(
           trackSid: 'TR_1',
           kind: TrackKind.audio,
@@ -43,24 +41,25 @@ void main() {
           bytes: 42,
         ),
       );
-      await telemetry.flush();
+      await telemetryFlush();
       expect(requests, hasLength(1));
       expect(requests.single.url, 'http://collector/v1/logs');
       expect(requests.single.headers['Content-Type'], 'application/x-protobuf');
       expect(requests.single.headers['Authorization'], 'Bearer test');
       expect(requests.single.body, isNotEmpty);
-      expect(telemetry.stats().uploadsSent, 1);
+      expect(telemetryStats()!.uploadsSent, 1);
+      expect(telemetryStats()!.dropped, 0);
 
       // Shutdown closes the open stats window, which ships as a second batch.
-      await telemetry.shutdown();
+      await telemetryShutdown();
       await serving;
       expect(requests, hasLength(2));
-      expect(telemetry.stats().dropped, 0);
+      expect(telemetryStats(), isNull);
     });
 
     test('refuses to start without any transport', () {
       expect(
-        () => Telemetry(
+        () => telemetryConfigure(
           config: TelemetryConfig(endpoint: 'http://collector/v1/logs', headers: {}, resource: [], logSeverity: Severity.warn),
           transport: null,
         ),

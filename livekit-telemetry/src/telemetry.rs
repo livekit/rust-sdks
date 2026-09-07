@@ -657,6 +657,33 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn the_process_pipeline_no_ops_until_installed() {
+        let line = || crate::LogRecord {
+            severity: Severity::Warn,
+            source: LogSource::Sdk,
+            message: "hmm".into(),
+            logger: None,
+            function: None,
+            file: None,
+            line: None,
+            timestamp_ns: None,
+            span_id: None,
+        };
+        crate::global::log(line());
+        assert!(crate::global::scope().is_none());
+        assert_eq!(crate::global::diagnostics(), "off");
+        let transport = FakeTransport::scripted([]);
+        assert!(crate::global::install(pipeline(transport.clone())).is_none());
+        crate::global::log(line());
+        crate::global::flush().await;
+        assert_eq!(transport.sent().len(), 1, "installed: the line reaches the collector");
+        assert!(crate::global::diagnostics().starts_with("ok, sent 1"));
+        crate::global::shutdown().await;
+        assert!(crate::global::shared().is_none());
+        crate::global::log(line());
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn typed_spans_hold_uploads_while_connecting_and_export_when_ended() {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
