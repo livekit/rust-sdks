@@ -179,8 +179,16 @@ bool CudaContext::Initialize() {
   cu_device_ = cu_device;
   cu_context_ = context;
   ref_count_ = 1;
+  ++create_count_;
+  RTC_LOG(LS_INFO) << "CUDA context initialized (refs=1, creates="
+                   << create_count_ << ", destroys=" << destroy_count_ << ").";
 
   return true;
+}
+
+bool CudaContext::IsInitialized() const {
+  std::lock_guard<std::mutex> lock(cudaMutex());
+  return cu_context_ != nullptr;
 }
 
 CUcontext CudaContext::GetContext() const {
@@ -212,8 +220,30 @@ void CudaContext::Shutdown() {
   }
 
   if (cu_context_) {
-    cuCtxDestroy(cu_context_);
+    const CUresult result = cuCtxDestroy(cu_context_);
+    // NVIDIA documents that cuCtxDestroy() may report an error from an earlier
+    // asynchronous launch, so the context state is indeterminate after this
+    // call. Never reuse the handle; allow a later Initialize() to create a new
+    // context instead.
     cu_context_ = nullptr;
+    if (result != CUDA_SUCCESS) {
+      const char* error_name = nullptr;
+      if (cuGetErrorName(result, &error_name) != CUDA_SUCCESS ||
+          error_name == nullptr) {
+        error_name = "unknown";
+      }
+      RTC_LOG(LS_ERROR)
+          << "Failed to destroy CUDA context: " << error_name
+          << " (code=" << static_cast<int>(result)
+          << "); cleanup is indeterminate and CUDA resources may have leaked. "
+             "A later Initialize() will create a new context (refs=0, creates="
+          << create_count_ << ", destroys=" << destroy_count_ << ").";
+    } else {
+      ++destroy_count_;
+      RTC_LOG(LS_INFO)
+          << "CUDA context destroyed successfully (refs=0, creates="
+          << create_count_ << ", destroys=" << destroy_count_ << ").";
+    }
   }
   if (s_module_ptr) {
 #if defined(WIN32)

@@ -3,6 +3,8 @@
 
 #include <cuda.h>
 
+#include <cstdint>
+
 namespace livekit_ffi {
 
 /// @brief Process-wide CUDA context shared by NVIDIA codec factories.
@@ -29,7 +31,7 @@ class CudaContext {
 
   /// @brief Reports whether the underlying CUDA context exists.
   /// @return True after successful initialization and before final shutdown.
-  bool IsInitialized() const { return cu_context_ != nullptr; }
+  bool IsInitialized() const;
 
   /// @brief Returns the CUDA context and makes it current on the calling
   /// thread.
@@ -44,6 +46,8 @@ class CudaContext {
   CUcontext cu_context_ = nullptr;
   // Guarded by cudaMutex() in cuda_context.cpp.
   int ref_count_ = 0;
+  std::uint64_t create_count_ = 0;
+  std::uint64_t destroy_count_ = 0;
 };
 
 }  // namespace livekit_ffi
