@@ -253,13 +253,14 @@ enum SignalInput {
 }
 
 impl SignalState {
-    /// The transition table. `Ok`: the transport the old state owned and the new one does not;
-    /// close it. `Err`: refused, logged, nothing moved.
+    /// The transition table.
+    /// `Ok`: the transport the old state owned and the new one does not - close it.
+    /// `Err`: refused, logged, nothing moved.
     fn transition(&mut self, input: SignalInput) -> Result<Option<SignalStream>, SignalInput> {
         use SignalInput as In;
         use SignalState::*;
         // `Closed` is a placeholder while the old state is moved out
-        let (next, released) = match (std::mem::replace(self, Closed), input) {
+        let (next_state, released_stream) = match (std::mem::replace(self, Closed), input) {
             (Connected(stream), In::Reconnect) => (Reconnecting(None), Some(stream)),
             (Offline | Closed, In::Reconnect) => (Reconnecting(None), None),
             (Reconnecting(None), In::ReconnectComplete(stream)) => {
@@ -281,8 +282,8 @@ impl SignalState {
                 return Err(input);
             }
         };
-        *self = next;
-        Ok(released)
+        *self = next_state;
+        Ok(released_stream)
     }
 
     fn stream(&self) -> Option<&SignalStream> {
