@@ -35,6 +35,13 @@ message ConnectRequest {
 }
 message ConnectResponse {
   required uint64 async_id = 1;
+  // Allocated as soon as ConnectRequest is received, before Room::connect
+  // finishes. DisconnectRequest with this handle aborts the in-flight
+  // handshake and close()s any Room that already completed (rust-sdks#1334:
+  // dropping a completed Room without close leaks ICE sockets). Old clients
+  // ignore this proto2 optional field. A missed ReadyFor handshake must fail
+  // this room only, never Panic the host (python-sdks#785).
+  optional uint64 room_handle = 2;
 }
 message ConnectCallback {
   message ParticipantWithTracks {
