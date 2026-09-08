@@ -21,7 +21,6 @@ use std::{
 };
 
 use cxx::SharedPtr;
-use tokio::task::JoinHandle;
 use tokio::time::interval;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
@@ -55,46 +54,46 @@ fn keepalive_should_continue(captured_frames: &Weak<AtomicUsize>) -> bool {
         .is_some_and(|captured_frames| captured_frames.load(Ordering::Relaxed) == 0)
 }
 
-fn spawn_raw_keepalive(
+async fn raw_keepalive_task(
     resolution: VideoResolution,
     captured_frames: Weak<AtomicUsize>,
     sys_handle: SharedPtr<vt_sys::ffi::VideoTrackSource>,
-) -> JoinHandle<()> {
-    tokio::spawn({
-        // This buffer reaches the encoder without any plane ever being
-        // written, so it must be black-initialized: `I420Buffer::new`
-        // leaves the pixel data uninitialized and would leak recycled
-        // heap memory to subscribers in the first keyframes.
-        let i420 = I420Buffer::new_black(resolution.width, resolution.height);
-        async move {
-            let mut interval = interval(Duration::from_millis(100)); // 10 fps
+) {
+    if !keepalive_should_continue(&captured_frames) {
+        return;
+    }
 
-            loop {
-                interval.tick().await;
+    // This buffer reaches the encoder without any plane ever being
+    // written, so it must be black-initialized: `I420Buffer::new`
+    // leaves the pixel data uninitialized and would leak recycled
+    // heap memory to subscribers in the first keyframes.
+    let i420 = I420Buffer::new_black(resolution.width, resolution.height);
+    let mut interval = interval(Duration::from_millis(100)); // 10 fps
 
-                if !keepalive_should_continue(&captured_frames) {
-                    break;
-                }
+    loop {
+        interval.tick().await;
 
-                let mut builder = vf_sys::ffi::new_video_frame_builder();
-                builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
-                builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
-
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-                builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
-
-                sys_handle.on_captured_frame(
-                    &builder.pin_mut().build(),
-                    &vt_sys::ffi::FrameMetadata {
-                        has_packet_trailer: false,
-                        user_timestamp: 0,
-                        frame_id: 0,
-                        user_data: Vec::new(),
-                    },
-                );
-            }
+        if !keepalive_should_continue(&captured_frames) {
+            break;
         }
-    })
+
+        let mut builder = vf_sys::ffi::new_video_frame_builder();
+        builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
+        builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
+
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
+
+        sys_handle.on_captured_frame(
+            &builder.pin_mut().build(),
+            &vt_sys::ffi::FrameMetadata {
+                has_packet_trailer: false,
+                user_timestamp: 0,
+                frame_id: 0,
+                user_data: Vec::new(),
+            },
+        );
+    }
 }
 
 impl NativeVideoSource {
@@ -128,7 +127,8 @@ impl NativeVideoSource {
         if raw_keepalive {
             let captured_frames = Arc::downgrade(&source.captured_frames);
             let sys_handle = source.sys_handle.clone();
-            drop(spawn_raw_keepalive(resolution, captured_frames, sys_handle));
+            let _keepalive_task =
+                tokio::spawn(raw_keepalive_task(resolution, captured_frames, sys_handle));
         }
 
         source
@@ -254,7 +254,7 @@ mod tests {
     };
     use std::time::Duration;
 
-    use super::{keepalive_should_continue, spawn_raw_keepalive, NativeVideoSource};
+    use super::{keepalive_should_continue, raw_keepalive_task, NativeVideoSource};
     use crate::video_source::VideoResolution;
 
     #[test]
@@ -298,11 +298,11 @@ mod tests {
     async fn keepalive_task_releases_native_source_after_drop() {
         let resolution = VideoResolution { width: 16, height: 16 };
         let source = NativeVideoSource::new_inner(resolution.clone(), false, false);
-        let keepalive_task = spawn_raw_keepalive(
+        let keepalive_task = tokio::spawn(raw_keepalive_task(
             resolution,
             Arc::downgrade(&source.captured_frames),
             source.sys_handle.clone(),
-        );
+        ));
 
         tokio::task::yield_now().await;
         drop(source);
