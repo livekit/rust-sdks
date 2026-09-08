@@ -759,10 +759,14 @@ impl Room {
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
-            let inner = inner.clone();
+            let inner = Arc::downgrade(&inner);
             move |participant_identity, state| {
                 // Forward e2ee events to the room
                 // (Ignore if the participant is not in the room anymore)
+                let Some(inner) = inner.upgrade() else {
+                    // RoomSession is gone, nothing left to forward the events to.
+                    return;
+                };
 
                 let participant = if participant_identity.as_str()
                     == inner.local_participant.identity().as_str()
