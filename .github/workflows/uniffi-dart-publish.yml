@@ -163,7 +163,11 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1.7.2
         with:
-          sdk: stable
+          # Pinned, and kept identical to uniffi-dart-test.yml, so PR CI
+          # validates the SDK the publish runs with. A floating channel could
+          # introduce a new lint that fails the dry run only on release day.
+          # Bump both together.
+          sdk: 3.13.1
 
       - name: Build Dart package (release)
         working-directory: livekit-uniffi
