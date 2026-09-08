@@ -202,6 +202,7 @@ pub enum SessionEvent {
     DataStreamTrailer {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataChannelBufferedAmountLowThresholdChanged {
         kind: DataPacketKind,
@@ -1795,7 +1796,11 @@ impl SessionInner {
             proto::data_packet::Value::StreamTrailer(trailer) => {
                 let participant_identity =
                     participant_identity.map_or("".into(), |identity| identity.0);
-                self.emitter.send(SessionEvent::DataStreamTrailer { trailer, participant_identity })
+                self.emitter.send(SessionEvent::DataStreamTrailer {
+                    trailer,
+                    participant_identity,
+                    encryption_type,
+                })
             }
             proto::data_packet::Value::EncryptedPacket(encrypted_packet) => {
                 // Handle encrypted data packets

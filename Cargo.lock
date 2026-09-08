@@ -3823,10 +3823,12 @@ dependencies = [
 name = "livekit-uniffi"
 version = "0.1.9"
 dependencies = [
+ "async-trait",
  "bytes",
  "camino",
  "futures-util",
  "livekit-common",
+ "livekit-data-stream",
  "livekit-datatrack",
  "livekit-net",
  "livekit-protocol",

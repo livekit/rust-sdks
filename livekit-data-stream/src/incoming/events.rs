@@ -17,7 +17,7 @@ use livekit_common::ParticipantIdentity;
 
 use crate::{
     incoming::AnyStreamReader,
-    types::{Chunk, Packet, Trailer},
+    types::{Chunk, Packet, StreamId, Trailer},
 };
 
 pub struct PacketReceived {
@@ -39,6 +39,14 @@ pub enum InputEvent {
     PacketReceived(PacketReceived),
     /// Abort every open stream sent by this participant (they disconnected mid-send).
     AbortStreamsFrom(ParticipantIdentity),
+    /// Abort every open stream (e.g. the local connection is going away). Unlike
+    /// [`InputEvent::Shutdown`], the run loop keeps going so streams opened later are still handled.
+    AbortAllStreams,
+    /// Reply with the number of currently open streams (registered by a header and awaiting more
+    /// packets). Processed in order with the other events, so the answer reflects everything
+    /// enqueued before it.
+    #[from_variants(skip)]
+    QueryOpenStreamCount(tokio::sync::oneshot::Sender<usize>),
     /// Stop the run loop.
     Shutdown,
 }
@@ -48,6 +56,20 @@ pub enum InputEvent {
 pub struct StreamOpened {
     pub stream_reader: AnyStreamReader,
     pub participant_identity: ParticipantIdentity,
+}
+
+/// A stream previously announced via [`StreamOpened`] has terminated and will produce no further
+/// data: its trailer arrived, its inline payload completed, it failed with an error, or it was
+/// aborted.
+///
+/// Emitted exactly once per opened stream. Hosts delivering streams on ordered topics use this to
+/// know when a stream's handler can be considered finished on the wire (a trailer alone is not
+/// enough: inline single-packet streams never receive one).
+pub struct StreamClosed {
+    pub stream_id: StreamId,
+    pub participant_identity: ParticipantIdentity,
+    /// Topic the stream was opened on.
+    pub topic: String,
 }
 
 /// A "raw chunk received" notification, which is used to trigger
@@ -79,6 +101,7 @@ pub struct TrailerReceived {
 #[derive(FromVariants)]
 pub enum OutputEvent {
     StreamOpened(StreamOpened),
+    StreamClosed(StreamClosed),
     ChunkReceived(ChunkReceived),
     TrailerReceived(TrailerReceived),
 }

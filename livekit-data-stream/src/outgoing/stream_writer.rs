@@ -68,6 +68,11 @@ impl ByteStreamWriter {
     pub(crate) fn new(info: Arc<ByteStreamInfo>, stream: Arc<Mutex<RawStream>>) -> Self {
         Self { info, stream }
     }
+
+    /// Whether the stream has been closed — either locally (via `close`) or because a send failed.
+    pub async fn is_closed(&self) -> bool {
+        self.stream.lock().await.is_closed()
+    }
 }
 
 #[derive(Clone)]
@@ -80,6 +85,11 @@ pub struct TextStreamWriter {
 impl TextStreamWriter {
     pub(crate) fn new(info: Arc<TextStreamInfo>, stream: Arc<Mutex<RawStream>>) -> Self {
         Self { info, stream }
+    }
+
+    /// Whether the stream has been closed — either locally (via `close`) or because a send failed.
+    pub async fn is_closed(&self) -> bool {
+        self.stream.lock().await.is_closed()
     }
 }
 

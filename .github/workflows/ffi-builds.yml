@@ -257,6 +257,70 @@ jobs:
           mv TEMP_LICENSE.md "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/LICENSE.md"
         shell: bash
 
+      # UniFFI's library-mode bindgen reads UNIFFI_META_* symbols out of a
+      # compiled cdylib. The Python it emits is platform-independent (the
+      # generated loader picks .dylib/.so/.dll at import time and looks next to
+      # the .py file), so generate it once here instead of paying for a separate
+      # full livekit-ffi build.
+      #
+      # This has to run on a macOS entry. The release profile sets
+      # `strip = "symbols"`, which removes the metadata on Linux while macOS
+      # strips less aggressively -- see the note on `bindgen-dart` in
+      # livekit-uniffi/Makefile.toml. Do not move this to ffi-linux-x86_64 for
+      # symmetry; bindgen would silently emit an empty module.
+      - name: Generate Python bindings (UniFFI)
+        if: ${{ matrix.name == 'ffi-macos-arm64' }}
+        run: |
+          set -euo pipefail
+          cargo run -p bindgens --bin uniffi-bindgen -- generate \
+            --language python \
+            --library "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/${{ matrix.dylib }}" \
+            --out-dir python-bindings
+
+          # Bindgen emits a near-empty module rather than failing when it finds
+          # no metadata, so assert on the output instead of the exit code.
+          test -s python-bindings/livekit_ffi.py
+          grep -q 'def build_version' python-bindings/livekit_ffi.py
+
+      - name: Zip Python bindings
+        if: ${{ matrix.name == 'ffi-macos-arm64' }}
+        run: |
+          set -euo pipefail
+          cp "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/LICENSE.md" python-bindings/
+          cat > python-bindings/README.md <<'MARKDOWN'
+          # livekit-ffi Python bindings
+
+          UniFFI-generated Python bindings for the `livekit-ffi` build in this
+          release. This is an experimental prototype; expect it to be replaced by
+          a published PyPI package.
+
+          ## Usage
+
+          1. Download the native library for your platform from this same
+             release: `ffi-<platform>-<arch>.zip` (for example
+             `ffi-macos-arm64.zip`, `ffi-linux-x86_64.zip`,
+             `ffi-windows-x86_64.zip`).
+          2. Extract it and put the library -- `liblivekit_ffi.dylib` on macOS,
+             `liblivekit_ffi.so` on Linux, `livekit_ffi.dll` on Windows -- in the
+             same directory as the `.py` file(s) from this archive.
+          3. Import it:
+
+                 import livekit_ffi
+                 print(livekit_ffi.build_version())
+
+          The bindings and the native library must come from the same release;
+          mixing versions is not supported.
+          MARKDOWN
+          cd python-bindings
+          zip "${{ github.workspace }}/ffi-python-bindings.zip" ./*.py LICENSE.md README.md
+
+      - name: Upload Python bindings artifact
+        if: ${{ matrix.name == 'ffi-macos-arm64' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ffi-builds-python
+          path: ffi-python-bindings.zip
+
       # zip the files
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' && matrix.platform != 'android'}}

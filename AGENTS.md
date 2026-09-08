@@ -55,6 +55,26 @@
 - Avoid excessive nesting and prefer [`let-else`](https://doc.rust-lang.org/rust-by-example/flow_control/let_else.html)
 - Avoid long parameter lists; group related inputs into a purpose-built struct when it improves readability
 
+## UniFFI integration
+
+Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `livekit-uniffi`, plus `livekit-common`, `livekit-datatrack`, and `livekit-net`, each carrying its own `uniffi.toml`. The Kotlin bindgen has sharp edges that `cargo build`, `cargo test`, and the Swift/Node/Python bindings do **not** catch: they surface only when the generated Kotlin is compiled, and one bad name fails the entire generated file.
+
+- Verify any change to UniFFI-exported API by actually generating and compiling the Kotlin bindings (`cargo make android-package` from `livekit-uniffi/`) — a green `cargo build` proves nothing here
+- **Never export a method named `close`**
+  - UniFFI gives every object a non-`suspend` `close()` to satisfy `AutoCloseable`. An exported Rust method also called `close` differs from it only by `suspend`, which Kotlin rejects as conflicting overloads — see [mozilla/uniffi-rs#2955](https://github.com/mozilla/uniffi-rs/issues/2955)
+  - Work around it with a Kotlin-only rename, so the Rust source and the Swift/Node/Python bindings keep the original name:
+    ```toml
+    [bindings.kotlin.rename]
+    "ByteStreamWriter.close" = "close_stream"
+    ```
+  - The rename must go in the `uniffi.toml` of the crate that **declares** the item, not in `livekit-uniffi/uniffi.toml`: a rename table only reaches items from the crate that owns it. `WsConnection.close` is renamed in `livekit-net/uniffi.toml` for exactly this reason
+- **Never name a field of an exported enum or record `message`**
+  - For an error variant carrying a `message` field, UniFFI emits a constructor property `message` next to an `override val message` inherited from `Throwable` in one class body, which does not compile — and their types differ (`String` vs `String?`), so they cannot be merged into a single override. See [mozilla/uniffi-rs#2938](https://github.com/mozilla/uniffi-rs/issues/2938), closed without a fix
+  - Unlike `close`, this **cannot** be renamed away: UniFFI keys the rename table by crate name but looks up enum and record members by the item's full module path, so a rename for anything declared in a submodule is silently ignored (method renames use the crate name and do work)
+  - Name the field `reason` in Rust instead — see `DataStreamError` in `livekit-uniffi/src/data_stream/common.rs`
+- A new crate that exports UniFFI items needs its own `uniffi.toml`, including `omit_checksums = true` under `[bindings.kotlin]`
+  - The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; the full explanation lives in `livekit-uniffi/uniffi.toml` and the root `Cargo.toml`
+
 ## Documenting changes
 
 - Changes are documented using [_knope_](https://knope.tech)

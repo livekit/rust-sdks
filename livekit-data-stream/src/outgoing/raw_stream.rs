@@ -30,7 +30,7 @@ pub(crate) struct RawStreamOpenOptions {
     /// Identity the stream's packets are attributed to; empty means the server attributes
     /// them to the sending participant.
     pub(crate) sender_identity: Option<ParticipantIdentity>,
-    pub(crate) packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
+    pub(crate) packet_tx: UnboundedRequestSender<Vec<proto::DataPacket>, Result<(), SendError>>,
 }
 
 pub(crate) struct RawStream {
@@ -38,8 +38,8 @@ pub(crate) struct RawStream {
     sender_identity: Option<ParticipantIdentity>,
     progress: StreamProgress,
     is_closed: bool,
-    /// Request channel for sending packets.
-    packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
+    /// Request channel for sending packet batches.
+    packet_tx: UnboundedRequestSender<Vec<proto::DataPacket>, Result<(), SendError>>,
 }
 
 impl RawStream {
@@ -63,18 +63,28 @@ impl RawStream {
         })
     }
 
+    pub(crate) fn is_closed(&self) -> bool {
+        self.is_closed
+    }
+
     pub(crate) async fn write_chunk(&mut self, bytes: &[u8]) -> StreamResult<()> {
         let mut packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
-        Self::send_packet(&self.packet_tx, packet).await?;
+        if let Err(error) = Self::send_packet(&self.packet_tx, packet).await {
+            // A failed send makes the stream unusable; mark it closed so readers/writers stop
+            // treating it as open.
+            self.is_closed = true;
+            return Err(error);
+        }
         self.progress.bytes_processed += bytes.len() as u64;
         self.progress.chunk_index += 1;
         Ok(())
     }
 
-    /// Writes opaque bytes split into MTU-sized chunks on raw byte boundaries.
+    /// Writes opaque bytes split into MTU-sized chunks on raw byte boundaries, one transport
+    /// request per chunk.
     ///
     /// Used for byte payloads and for compressed (deflate-raw) content, where the bytes
     /// are opaque and must not be split on UTF-8 boundaries.
@@ -155,16 +165,25 @@ impl RawStream {
         if let Some(sender_identity) = self.sender_identity.as_ref() {
             packet.participant_identity = sender_identity.clone().into();
         }
-        Self::send_packet(&self.packet_tx, packet).await?;
+        // The stream is done after a close attempt regardless of whether the trailer send succeeds.
         self.is_closed = true;
+        Self::send_packet(&self.packet_tx, packet).await?;
         Ok(())
     }
 
     pub(crate) async fn send_packet(
-        tx: &UnboundedRequestSender<proto::DataPacket, Result<(), SendError>>,
+        tx: &UnboundedRequestSender<Vec<proto::DataPacket>, Result<(), SendError>>,
         packet: proto::DataPacket,
     ) -> StreamResult<()> {
-        tx.send_receive(packet)
+        Self::send_packets(tx, vec![packet]).await
+    }
+
+    /// Sends a batch of packets as a single transport request, acknowledged as a whole.
+    pub(crate) async fn send_packets(
+        tx: &UnboundedRequestSender<Vec<proto::DataPacket>, Result<(), SendError>>,
+        packets: Vec<proto::DataPacket>,
+    ) -> StreamResult<()> {
+        tx.send_receive(packets)
             .await
             .map_err(|_| StreamError::Internal)? // request channel closed
             .map_err(|_| StreamError::SendFailed) // data channel error
