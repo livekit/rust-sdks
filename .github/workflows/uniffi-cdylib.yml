@@ -5,8 +5,9 @@ name: UniFFI cdylib builds
 # `.sha256` sidecar). The Dart build hook (support/dart/hook/build.dart.tera)
 # downloads these at consumer build time.
 #
-# Reusable workflow, invoked from uniffi-packages.yml once the release tag has
-# been resolved. Mirrors the structure of ffi-builds.yml. Not triggered directly.
+# Reusable workflow, invoked from uniffi-dart-publish.yml once the release tag
+# has been resolved, so the Dart publish job can depend on the assets being
+# attached. Mirrors the structure of ffi-builds.yml. Not triggered directly.
 
 on:
   workflow_call:
