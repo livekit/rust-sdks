@@ -759,8 +759,12 @@ impl Room {
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
-            let inner = inner.clone();
+            let weak_inner = Arc::downgrade(&inner);
             move |participant_identity, state| {
+                let Some(inner) = weak_inner.upgrade() else {
+                    return;
+                };
+
                 // Forward e2ee events to the room
                 // (Ignore if the participant is not in the room anymore)
 
@@ -906,6 +910,13 @@ impl Room {
     #[cfg(feature = "__lk-e2e-test")]
     pub fn publisher_connection_state(&self) -> libwebrtc::prelude::PeerConnectionState {
         self.inner.rtc_engine.session().publisher_connection_state()
+    }
+
+    /// Test-only: returns a probe that reports whether the room session has been dropped.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
     }
 
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
