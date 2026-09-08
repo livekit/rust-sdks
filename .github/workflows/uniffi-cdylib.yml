@@ -5,8 +5,9 @@ name: UniFFI cdylib builds
 # `.sha256` sidecar). The Dart build hook (support/dart/hook/build.dart.tera)
 # downloads these at consumer build time.
 #
-# Reusable workflow, invoked from uniffi-packages.yml once the release tag has
-# been resolved. Mirrors the structure of ffi-builds.yml. Not triggered directly.
+# Reusable workflow, invoked from uniffi-dart-publish.yml once the release tag
+# has been resolved, so the Dart publish job can depend on the assets being
+# attached. Mirrors the structure of ffi-builds.yml. Not triggered directly.
 
 on:
   workflow_call:
@@ -53,9 +54,11 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
-          - os: ubuntu-latest
+            build_image: quay.io/pypa/manylinux_2_28_x86_64
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             platform: linux
+            build_image: quay.io/pypa/manylinux_2_28_aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             platform: windows
@@ -75,9 +78,15 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          # Build the tagged source, not the ref the workflow was dispatched
+          # from. A manual re-run for an older release would otherwise upload
+          # libraries built from main under that release's version.
+          ref: ${{ inputs.tag_name }}
           submodules: true
 
       - name: Setup Rust toolchain
+        # Linux builds run inside a container with their own toolchain.
+        if: ${{ matrix.platform != 'linux' }}
         uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
         with:
           target: ${{ matrix.target }}
@@ -92,28 +101,45 @@ jobs:
         shell: bash
         run: cargo build --release --target ${{ matrix.target }} -p livekit-uniffi
 
-      # Linux: native build for x64; cross toolchain for aarch64.
+      # Linux: build inside a manylinux_2_28 container so the shared library
+      # links against glibc 2.28 and loads on the distributions the Dart package
+      # is used on (Debian 12, Ubuntu 22.04, Amazon Linux 2023 and newer). A
+      # native build on the runner would inherit its glibc 2.39 floor. Same
+      # approach as ffi-builds.yml. The arm64 entry runs on a native arm64
+      # runner, so no cross toolchain is needed, and livekit-uniffi has no C
+      # dependencies, so the image's stock gcc is enough. The toolchain version
+      # comes from rust-toolchain.toml.
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
+        env:
+          TARGET: ${{ matrix.target }}
+          BUILD_IMAGE: ${{ matrix.build_image }}
         run: |
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            sudo apt-get update
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-            # .cargo/config.toml forces -fuse-ld=lld for this target to link
-            # libwebrtc; livekit-uniffi doesn't use libwebrtc. A non-empty global
-            # RUSTFLAGS overrides that per-target config, selecting the GNU bfd
-            # linker the cross binutils provides.
-            export RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
-          fi
-          cargo build --release --target ${{ matrix.target }} -p livekit-uniffi
+          docker run --rm -e TARGET -v "$PWD:/workspace" -w /workspace "$BUILD_IMAGE" bash -euo pipefail -c '
+            curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            export PATH="/root/.cargo/bin:$PATH"
+            if [ "$TARGET" = "aarch64-unknown-linux-gnu" ]; then
+              # .cargo/config.toml forces -fuse-ld=lld for this target to link
+              # libwebrtc, which livekit-uniffi does not use. A non-empty global
+              # RUSTFLAGS overrides that per-target config, selecting the GNU
+              # bfd linker the image provides.
+              export RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
+            fi
+            cargo build --release --target "$TARGET" -p livekit-uniffi
+          '
+          # The container ran as root, so hand the outputs back to the runner user.
+          sudo chown -R "$USER:$USER" target
 
-      # Android: build with cargo-ndk.
+      # Android: build with cargo-ndk. Installed as a prebuilt binary; a
+      # source build costs 3-5 minutes per matrix job on the release path.
+      - name: Install cargo-ndk
+        if: ${{ matrix.platform == 'android' }}
+        uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2.82.4
+        with: { tool: cargo-ndk }
+
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
-        run: |
-          cargo install cargo-ndk
-          cargo ndk --target ${{ matrix.target }} build --release -p livekit-uniffi
+        run: cargo ndk --target ${{ matrix.target }} build --release -p livekit-uniffi
 
       # macOS/Linux: zip + shasum are available.
       - name: Package artifact (Unix)
@@ -167,6 +193,10 @@ jobs:
           path: cdylibs
 
       - name: Upload to release
+        # TAG_NAME is bound through env rather than template-expanded into the
+        # script: tag names may contain shell metacharacters (Actions script
+        # injection). GITHUB_REPOSITORY is provided by the runner already.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.tag_name }}" cdylibs/* --repo "${{ github.repository }}" --clobber
+          TAG_NAME: ${{ inputs.tag_name }}
+        run: gh release upload "$TAG_NAME" cdylibs/* --repo "$GITHUB_REPOSITORY" --clobber

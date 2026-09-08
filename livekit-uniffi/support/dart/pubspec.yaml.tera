@@ -1,16 +1,30 @@
 name: {{ DART_PACKAGE_NAME }}
-description: Dart bindings for the LiveKit UniFFI interface.
+description: Dart bindings for the LiveKit Rust SDK core, delivered as a prebuilt native library via Native Assets.
 version: {{ CARGO_MAKE_CRATE_VERSION }}
-publish_to: none
+repository: https://github.com/livekit/rust-sdks
+issue_tracker: https://github.com/livekit/rust-sdks/issues
+homepage: https://livekit.io/
+{#- Dev packages embed a host dylib and must never be published; release
+    packages omit publish_to so pub.dev accepts them. Fails closed: the base
+    [env] in Makefile.toml sets "none" for every profile and only
+    [env.release] clears it. #}
+{%- if PUBSPEC_PUBLISH_TO %}
+publish_to: {{ PUBSPEC_PUBLISH_TO }}
+{%- endif %}
 
 environment:
   sdk: ">=3.10.0 <4.0.0"
 
 dependencies:
   ffi: ^2.1.0
-  # Native Assets build-hook support. `any` tracks the SDK-bundled versions.
-  code_assets: any
-  hooks: any
+  # Native Assets build-hook support. pub.dev requires bounded constraints
+  # (`any` fails publish validation), but these must stay wide: the resolvable
+  # version is coupled to the consumer's Dart SDK via a shared `meta` pin
+  # (Flutter 3.44 back-solves to code_assets 1.0.0 / hooks 1.0.2, while a bare
+  # Dart 3.12 resolves 1.2.1 / 2.1.0). Carets here break `flutter pub get`
+  # for consumers on older stable channels.
+  code_assets: ">=1.0.0 <2.0.0"
+  hooks: ">=1.0.2 <3.0.0"
   # Used by hook/build.dart to download and verify prebuilt libraries.
   archive: ^4.0.0
   crypto: ^3.0.0

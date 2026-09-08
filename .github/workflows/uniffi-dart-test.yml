@@ -23,8 +23,6 @@ permissions:
 
 jobs:
   dart-test:
-    # TODO: Fix tests then re-enable.
-    if: false
     name: Dart package tests
     runs-on: ubuntu-latest
     steps:
@@ -44,7 +42,11 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1.7.2
         with:
-          sdk: stable
+          # Pinned, and kept identical to uniffi-dart-publish.yml, so this job
+          # validates the SDK the publish will run with. A floating channel
+          # could introduce a new lint that fails the publish dry run only on
+          # release day. Bump both together.
+          sdk: 3.13.1
 
       - name: Cache cargo registry
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
