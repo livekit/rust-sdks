@@ -5,9 +5,9 @@ livekit: patch
 livekit-ffi: patch
 ---
 
-Fix NativeVideoSource keepalive retaining dropped sources.
+Fix native video-source lifecycle and NVENC initialization failure handling.
 
-The raw-video keepalive task now uses a weak liveness check instead of cloning
-`NativeVideoSource`, so dropping an unused source releases the native handle
-and black I420 keepalive buffer. `nvEncInitializeEncoder` failures now
+The raw-video keepalive task now uses a weak liveness check and defers its
+black I420 buffer allocation until source liveness is confirmed, so dropping
+an unused source releases its resources. `nvEncInitializeEncoder` failures now
 propagate instead of leaving the encoder half-initialized.
