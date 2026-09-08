@@ -12,13 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# The node flow is large enough to read badly inline — it owns more tasks than
+# any other language here — so it lives beside the files it drives. cargo-make
+# resolves `extend` relative to this file and runs everything from this
+# directory, so paths in the extended file are written as if they were here.
+extend = "support/node/Makefile.node.toml"
+
 [env]
-PACKAGES_DIR = "./packages"
-SUPPORT_DIR = "./support"
 LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
+PACKAGES_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}/packages"
+SUPPORT_DIR = "./support"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
-NPM_NAME = "@livekit/uniffi"
 DART_PACKAGE_NAME = "livekit_uniffi"
 
 # Per-release directory holding the cdylib archives published by
@@ -145,11 +150,18 @@ dependencies = [
 source = "${CARGO_MAKE_RUST_TARGET_OS}"
 mapping = { linux = "so", macos = "dylib", windows = "dll" }
 
+# Windows cdylibs carry no `lib` prefix.
+[tasks.locate-lib.env.LIB_PREFIX]
+source = "${CARGO_MAKE_RUST_TARGET_OS}"
+mapping = { linux = "lib", macos = "lib", windows = "" }
+
 [tasks.locate-lib]
 private = true
 script_runner = "@duckscript"
 script = """
-path = join_path ${TARGET_DIR} ${TARGET} release/ ${LIB_NAME}.${LIB_EXT}
+name = concat "${LIB_PREFIX}" "${CARGO_MAKE_CRATE_FS_NAME}" "." "${LIB_EXT}"
+set_env LIB_FILENAME "${name}"
+path = join_path ${TARGET_DIR} ${TARGET} release/ ${name}
 set_env LIB_PATH "${path}"
 """
 
@@ -198,90 +210,6 @@ env = { LANG = "kotlin" }
 private = false
 extend = "uniffi-bindgen"
 env = { LANG = "python" }
-
-# MARK: - Node
-
-[tasks.node-bindgen]
-private = true
-dependencies = ["build", "locate-lib"]
-env = { CARGO_NET_GIT_FETCH_WITH_CLI = true }
-install_crate = { crate_name = "uniffi-bindgen-node", binary = "uniffi-bindgen-node", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/livekit/uniffi-bindgen-node.git"]
-command = "uniffi-bindgen-node"
-args = [
-    "--out-dir", "${PACKAGES_DIR}/${LANG}",
-    "--out-dirname-api", "import-meta-url",
-    "--out-node-version", "^18",
-    "--out-verbose-logs",
-    "--crate-name", "${CARGO_MAKE_CRATE_FS_NAME}",
-    "${LIB_PATH}"
-]
-
-[tasks.node-format]
-private = true
-command = "npx"
-args = [
-    "--yes",
-    "prettier",
-    "--write", "${PACKAGES_DIR}/${LANG}"
-]
-
-[tasks.node-move-code-into-src]
-private = true
-script_runner = "@shell"
-script = """
-mkdir -p ${PACKAGES_DIR}/${LANG}/src
-mv ${PACKAGES_DIR}/${LANG}/*.ts ${PACKAGES_DIR}/${LANG}/src
-"""
-
-[tasks.node-generate-manifest]
-private = true
-extend = "tera"
-args = [
-    "--env",
-    "-t", "${SUPPORT_DIR}/${LANG}/package.json.tera",
-    "-o", "${PACKAGES_DIR}/${LANG}/package.json",
-    "${PACKAGES_DIR}/${LANG}/package.json"
-    # Provide original package.json as input
-]
-
-[tasks.node-copy-support-files]
-private = true
-script_runner = "@shell"
-script = """
-cp ${SUPPORT_DIR}/${LANG}/tsconfig.json ${PACKAGES_DIR}/${LANG}/tsconfig.json
-cp ${SUPPORT_DIR}/${LANG}/tsup.config.ts ${PACKAGES_DIR}/${LANG}/tsup.config.ts
-"""
-
-[tasks.node-generate-downloader]
-private = true
-condition = { profiles = ["release"] }
-extend = "tera"
-args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/download-lib.ts.tera", "-o", "${PACKAGES_DIR}/${LANG}/download-lib.ts"]
-
-[tasks.node-link-lib]
-private = true
-condition = { profiles = ["development"] }
-script_runner = "@shell"
-script = """
-ln -sf ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/src
-"""
-
-[tasks.node-package-flow]
-private = true
-dependencies = [
-    "node-bindgen",
-    "node-move-code-into-src",
-    "node-generate-manifest",
-    "node-generate-downloader",
-    "node-copy-support-files",
-    "node-format",
-    "node-link-lib"
-]
-
-[tasks.node-package]
-env = { LANG = "node" }
-run_task = "node-package-flow"
 
 # MARK: - Swift
 #

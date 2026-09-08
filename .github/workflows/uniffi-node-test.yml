@@ -1,0 +1,111 @@
+name: UniFFI Node tests
+
+# Builds the node packages (main + host per-arch) and tests them two ways: a full
+# FFI round trip against the built workspace, and a smoke test of an install from
+# the packed tarballs. Both are needed — a workspace link bypasses `files`,
+# `exports`, and platform-package resolution, so the round trip alone does not
+# prove a published install works.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+    # Every livekit crate in `cargo tree -p livekit-uniffi -e normal,build`.
+    # livekit-common, livekit-datatrack and livekit-net each surface as their own
+    # uniffi namespace in the generated bindings; livekit-token backs
+    # tokenGenerate/tokenVerify. livekit-api is deliberately absent —
+    # livekit-uniffi stopped depending on it when livekit-token was extracted.
+    paths:
+      - "livekit-uniffi/**"
+      - "livekit-common/**"
+      - "livekit-datatrack/**"
+      - "livekit-net/**"
+      - "livekit-protocol/**"
+      - "livekit-token/**"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - ".cargo/**"
+      - ".github/workflows/uniffi-node-test.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  node-test:
+    name: Node package tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          cache: false
+          rustflags: ""
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - name: Install Common Deps for UniFFI Tasks
+        uses: ./.github/actions/uniffi-deps
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+
+      # The target dir belongs to the workspace, not the crate, so derive it
+      # rather than hardcoding a relative path that silently resolves nowhere.
+      - name: Resolve packages directory
+        run: |
+          set -euo pipefail
+          target_dir=$(cargo metadata --format-version 1 --no-deps | jq -r .target_directory)
+          echo "PACKAGES_DIR=${target_dir}/packages" >> "$GITHUB_ENV"
+
+      # Three invocations, not one: cargo make takes a single task name and
+      # passes any further words to it as arguments, so a combined line would
+      # silently build only the first.
+      - name: Build node packages
+        working-directory: livekit-uniffi
+        run: |
+          cargo make node-package
+          cargo make node-native-package
+          cargo make node-setup-workspace
+
+      # The generated TypeScript imports @ubjs/* at UBRN_VERSION; the bindings doing
+      # that importing were emitted by the generator Cargo.lock pinned. If the two
+      # drift the package builds fine and fails at load time in a consumer, so
+      # compare what actually ran against what it actually produced. After the build,
+      # because the manifest side is a build output.
+      - name: Assert generator and runtime versions agree
+        run: |
+          set -euo pipefail
+          generator=$(cargo metadata --format-version 1 --locked \
+            | jq -r '.packages[] | select(.name == "uniffi-bindgen-react-native") | .version')
+          declared=$(jq -r '.dependencies["@ubjs/core"]' "$PACKAGES_DIR/node/package.json")
+          echo "generator=${generator}  runtime=${declared}"
+          if [ "${generator}" != "${declared}" ]; then
+            echo "::error::Generator ${generator} produced bindings importing @ubjs/core ${declared}."
+            exit 1
+          fi
+
+      # The full FFI round trip: log forwarding, token generate/verify, against
+      # the built workspace. Also covers `exports.require` → dist/index.cjs,
+      # since support/node/test has no `"type": "module"`; node-pack-test is ESM
+      # and covers the other half.
+      - name: Round-trip test against the built packages
+        working-directory: livekit-uniffi
+        run: cargo make node-package-test
+
+      - name: Smoke-test an install from the packed tarballs
+        working-directory: livekit-uniffi
+        run: cargo make node-pack-test

@@ -1,0 +1,10 @@
+{
+  "name": "node-test",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Full FFI round trip against the built @livekit/uniffi.",
+  "dependencies": {
+    "@livekit/uniffi": "link:../../../../target/packages/node"
+  }
+}

@@ -11,6 +11,10 @@ name: UniFFI packages
 #
 # The Dart/Flutter cdylib target is experimental and not published for now; add a
 # `cdylib` job (uniffi-cdylib.yml) back when it ships.
+#
+# Node packages (@livekit/uniffi + per-arch siblings) are shape-tested on one host
+# triple by uniffi-node-test.yml, but are not published yet. Turning publishing on
+# means a `node` job here plus a matrix that packages every per-arch cdylib.
 
 on:
   release:
