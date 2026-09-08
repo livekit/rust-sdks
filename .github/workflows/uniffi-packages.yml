@@ -42,8 +42,12 @@ jobs:
       version: ${{ steps.get-tag.outputs.version }}
     steps:
       - id: get-tag
+        # TAG is bound through env rather than template-expanded into the
+        # script: tag names may contain shell metacharacters (Actions script
+        # injection).
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name || inputs.tag_name }}"
           echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
           # Strip the "livekit-uniffi/v" prefix to get the package version (e.g. 0.1.6).
           echo "version=${TAG#livekit-uniffi/v}" >> "$GITHUB_OUTPUT"
