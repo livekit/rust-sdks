@@ -13,7 +13,7 @@ livekit = { workspace = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync"] }
+tokio = { workspace = true, features = ["rt", "sync"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
@@ -22,7 +22,3 @@ tokio = { workspace = true, features = ["rt", "time", "macros"] }
 default = []
 serde = ["dep:serde"]
 schemars = ["dep:schemars", "serde"]
-
-# Async convenience wrappers for blocking source construction when using
-# a tokio runtime.
-tokio = ["tokio/rt"]
