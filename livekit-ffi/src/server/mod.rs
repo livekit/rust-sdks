@@ -49,8 +49,8 @@ mod utils;
 pub mod video_source;
 pub mod video_stream;
 
-//#[cfg(test)]
-//mod tests;
+#[cfg(test)]
+mod tests;
 
 #[cfg(test)]
 mod audio_filter_tests;
@@ -170,6 +170,10 @@ impl FfiServer {
             .collect()
     }
 
+    /// Closes active rooms and releases every resource owned by an FFI handle.
+    ///
+    /// Clearing the handle map is required even after rooms are closed because
+    /// room handles retain their RTC engines and peer connection factories.
     pub async fn dispose(&'static self) {
         log::debug!("disposing ffi server");
 
@@ -182,8 +186,15 @@ impl FfiServer {
 
         self.logger.set_capture_logs(false);
 
-        // Drop all handles
-        *self.config.lock() = None; // Invalidate the config
+        // Closing rooms does not release resources owned by FFI handles.
+        // Cancel handle watchers first, then drop handles one by one so Drop
+        // impls can call drop_handle without re-entering DashMap::clear().
+        *self.config.lock() = None;
+        self.handle_dropped_txs.clear();
+        let leftover: Vec<_> = self.ffi_handles.iter().map(|entry| *entry.key()).collect();
+        for id in leftover {
+            let _ = self.ffi_handles.remove(&id);
+        }
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
@@ -262,10 +273,10 @@ impl FfiServer {
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
         let existed = self.ffi_handles.remove(&id).is_some();
         self.handle_dropped_txs.remove(&id);
-        if !existed {
+        if !existed && self.is_setup() {
             log::warn!("Attempted to drop unknown FFI handle: {id}");
         }
-        return existed;
+        existed
     }
 
     pub fn watch_handle_dropped(&self, handle: FfiHandleId) -> oneshot::Receiver<()> {
