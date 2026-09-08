@@ -105,6 +105,8 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
             {
                 frame.frame_metadata = Some(metadata);
             }
+            // TODO: the source can return `false` indicating it failed to capture the frame;
+            // consider adding a reporting mechanism for this.
             self.rtc_source.capture_frame(&frame);
             frames_captured += 1;
         };
