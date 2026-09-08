@@ -1,6 +1,6 @@
 [package]
 name = "livekit-region"
-version = "0.1.0"
+version = "0.1.1"
 license.workspace = true
 description = "Internal region-discovery cache shared by the LiveKit signalling and server-API clients"
 edition.workspace = true
