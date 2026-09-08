@@ -13,26 +13,25 @@
 # limitations under the License.
 
 # Feature checking, split by where combinatorial coverage is actually worth
-# paying for. Two halves:
+# paying for. Which half a crate lands in is declared by the crate itself, in
+# `[package.metadata.feature-combinations] mode` in its Cargo.toml, and read
+# out here with `cargo metadata`. Nothing in this file lists crate names.
 #
-#   1. Leaf crates get the full `--feature-powerset --depth 2`. Their feature
+#   mode = "powerset"  — the full `cargo hack --feature-powerset --depth 2`.
+#      104 combinations across the eleven crates that declare it. Their feature
 #      sets are small, so exhaustive coverage is cheap, and they are where the
-#      `dep:`/`?/` plumbing bugs actually live. The set is every publishable
-#      workspace crate that has features and is not one of the two below — note
-#      that is *not* the same as "everything livekit depends on":
-#      livekit-token-source is a sibling crate, not a dependency, and belongs
-#      here all the same.
+#      `dep:`/`?/` plumbing bugs actually live. Adding a feature to one of them
+#      needs no change anywhere: cargo-hack picks it up.
 #
-#   2. livekit and livekit-api get a hand-picked list of 19 combinations
-#      instead of their 125-combination powerset. Most of those 125 are
-#      configurations nobody can actually select — two TLS backends at once, or
-#      an internal `__lk-*` feature paired with something unrelated.
+#   mode = "curated"   — only the combinations listed in that crate's `check`
+#      list. livekit and livekit-api use this: 19 combinations instead of their
+#      125-combination powerset, because most of those 125 are configurations
+#      nobody can actually select — two TLS backends at once, or an internal
+#      `__lk-*` feature paired with something unrelated. The tradeoff is that a
+#      new feature is invisible to this job until it is added to that list.
 #
-#      That list is not kept here. It lives in each crate's own Cargo.toml, as
-#      `[package.metadata.feature-combinations] check`, next to the
-#      `[features]` table it mirrors, and is read out below with `cargo
-#      metadata`. Adding a crate to this half means adding that table to its
-#      manifest — nothing here changes.
+# A crate with no such table is not feature-checked here at all. livekit-ffi
+# and livekit-uniffi are the deliberate omissions; see the curated step below.
 #
 # Measured cold on a 14-core machine: the full 209-combination powerset takes
 # 359s; this split takes 242s, a 33% saving. That is what brings the job in
@@ -43,9 +42,10 @@
 # dropped combinations is not caught anywhere. There is no exhaustive backstop
 # — the nightly full-powerset workflow was removed once this proved to be the
 # better cost/benefit. To get the full 209 back for a one-off investigation,
-# run it by hand:
+# run it by hand over every crate that declares a mode:
 #
-#   cargo hack -p livekit -p livekit-api $LEAF_PACKAGES \
+#   cargo hack $(cargo metadata --no-deps --format-version 1 \
+#     | jq -r '.packages[] | select(.metadata["feature-combinations"]) | "-p \(.name)"') \
 #     --feature-powerset --depth 2 --keep-going check
 name: Feature Combinations (per-commit)
 
@@ -73,19 +73,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Leaf/internal crates: full powerset. 83 combinations across the ten.
-  LEAF_PACKAGES: >-
-    -p livekit-signaling
-    -p livekit-net
-    -p livekit-region
-    -p livekit-protocol
-    -p livekit-datatrack
-    -p livekit-data-stream
-    -p livekit-common
-    -p libwebrtc
-    -p webrtc-sys
-    -p livekit-token
-    -p livekit-token-source
 
 jobs:
   curated:
@@ -197,26 +184,81 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
 
+      # The two package sets, and the curated combinations, all come out of
+      # `[package.metadata.feature-combinations]` in each crate's own Cargo.toml
+      # — so a crate opts into this job by editing its own manifest, next to the
+      # `[features]` table that decides what needs covering.
+      - name: Resolve feature-combination sets from Cargo.toml
+        shell: bash
+        run: |
+          set -uo pipefail
+          META=$(cargo metadata --no-deps --format-version 1)
+
+          # `.metadata` is null for a crate that declares nothing, and jq
+          # indexes null to null, so these select() calls simply skip it.
+          by_mode() {
+            printf '%s' "$META" | jq -r --arg mode "$1" '
+              .packages[]
+              | select(.metadata["feature-combinations"].mode == $mode)
+              | "-p \(.name)"
+            ' | sort | tr '\n' ' '
+          }
+
+          # A typo'd mode, or a curated crate with nothing to run, would
+          # otherwise drop that crate from CI without failing anything.
+          BAD=$(printf '%s' "$META" | jq -r '
+            .packages[]
+            | .name as $crate
+            | .metadata["feature-combinations"] as $fc
+            | select($fc != null)
+            | if ($fc.mode != "powerset" and $fc.mode != "curated") then
+                "\($crate): unknown mode \($fc.mode // "<missing>") (want \"powerset\" or \"curated\")"
+              elif ($fc.mode == "curated" and (($fc.check // []) | length) == 0) then
+                "\($crate): mode is \"curated\" but check list is missing or empty"
+              elif ($fc.mode == "powerset" and $fc.check != null) then
+                "\($crate): mode is \"powerset\", so its check list is silently ignored"
+              else empty end
+          ')
+          if [ -n "$BAD" ]; then
+            echo "::error::bad [package.metadata.feature-combinations] tables:"
+            echo "$BAD"
+            exit 1
+          fi
+
+          POWERSET_PACKAGES=$(by_mode powerset)
+          CURATED_PACKAGES=$(by_mode curated)
+          if [ -z "${POWERSET_PACKAGES// /}" ] || [ -z "${CURATED_PACKAGES// /}" ]; then
+            echo "::error::resolved an empty package set (powerset='$POWERSET_PACKAGES' curated='$CURATED_PACKAGES')"
+            exit 1
+          fi
+
+          echo "POWERSET_PACKAGES=$POWERSET_PACKAGES" >> "$GITHUB_ENV"
+          echo "CURATED_PACKAGES=$CURATED_PACKAGES" >> "$GITHUB_ENV"
+          echo "powerset: $POWERSET_PACKAGES"
+          echo "curated:  $CURATED_PACKAGES"
+
       # A plain default-feature check of the same crates, so the feature steps
       # below have something to be measured against in the run summary.
       - name: Baseline check (default features)
         shell: bash
         run: |
           start=$(date +%s)
-          $CHECK_CMD $LEAF_PACKAGES -p livekit -p livekit-api
+          $CHECK_CMD $POWERSET_PACKAGES $CURATED_PACKAGES
           echo "BASELINE_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
-      - name: Leaf crates — full feature powerset (depth 2)
+      - name: Powerset crates — full feature powerset (depth 2)
         shell: bash
         run: |
+          HACK_ARGS="--feature-powerset --depth 2 --keep-going ${{ matrix.exclude_features && format('--exclude-features {0}', matrix.exclude_features) || '' }}"
+
+          # Counted rather than hardcoded, so the run summary cannot drift from
+          # what actually ran. --print-command-list compiles nothing.
+          POWERSET_TOTAL=$($HACK_CMD $POWERSET_PACKAGES $HACK_ARGS --print-command-list check 2>/dev/null | grep -c '^cargo' || true)
+          echo "POWERSET_TOTAL=$POWERSET_TOTAL" >> "$GITHUB_ENV"
+
           start=$(date +%s)
-          $HACK_CMD $LEAF_PACKAGES \
-            --feature-powerset \
-            --depth 2 \
-            --keep-going \
-            ${{ matrix.exclude_features && format('--exclude-features {0}', matrix.exclude_features) || '' }} \
-            check
-          echo "LEAF_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          $HACK_CMD $POWERSET_PACKAGES $HACK_ARGS check
+          echo "POWERSET_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
       # Curated combinations for the user-facing crates. The list itself is
       # not here: it lives in each crate's own Cargo.toml, under
@@ -303,10 +345,10 @@ jobs:
             echo "| Measurement | Value |"
             echo "| --- | --- |"
             echo "| Baseline \`cargo check\` (default features) | $(secs "${BASELINE_SECS:-}") |"
-            echo "| Leaf crates, full powerset (83 combos) | $(secs "${LEAF_SECS:-}") |"
-            echo "| Top-level crates, curated from Cargo.toml (${CURATED_TOTAL:-?} combos) | $(secs "${CURATED_SECS:-}") |"
-            if [ -n "${LEAF_SECS:-}" ] && [ -n "${CURATED_SECS:-}" ]; then
-              awk -v l="$LEAF_SECS" -v c="$CURATED_SECS" -v b="${BASELINE_SECS:-0}" \
+            echo "| Powerset crates (${POWERSET_TOTAL:-?} combos) | $(secs "${POWERSET_SECS:-}") |"
+            echo "| Curated crates (${CURATED_TOTAL:-?} combos) | $(secs "${CURATED_SECS:-}") |"
+            if [ -n "${POWERSET_SECS:-}" ] && [ -n "${CURATED_SECS:-}" ]; then
+              awk -v l="$POWERSET_SECS" -v c="$CURATED_SECS" -v b="${BASELINE_SECS:-0}" \
                 'BEGIN { printf "| **Feature checking total** | **%.1f min** |\n", (l+c)/60
                          if (b > 0) printf "| Total as a multiple of baseline | %.1fx |\n", (l+c)/b }'
             fi

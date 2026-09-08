@@ -56,12 +56,13 @@ rustls-tls-webpki-roots = ["livekit-signaling?/rustls-tls-webpki-roots", "reqwes
 __rustls-tls            = ["livekit-signaling?/__rustls-tls",             "reqwest?/__rustls"]
 
 # Feature combinations checked in CI. See the equivalent table in
-# `livekit/Cargo.toml` for the encoding and why this crate is hand-picked
-# rather than run through cargo-hack's powerset.
+# `livekit/Cargo.toml` for the encoding, and what `mode = "curated"` costs
+# relative to cargo-hack's powerset.
 [package.metadata.feature-combinations]
+mode = "curated"
 check = [
-    ["default"],
-    [],
+    ["default"],                                        # a plain `cargo check`
+    [],                                                 # --no-default-features
     ["access-token"],
     ["webhooks"],
     ["services", "native-tls"],
@@ -69,7 +70,7 @@ check = [
     ["services", "rustls-tls-webpki-roots"],
     ["services", "rustls-tls-native-roots"],
     ["signal-client-native", "rustls-tls-webpki-roots"],
-    ["default", "rustls-tls-webpki-roots"],
+    ["default", "rustls-tls-webpki-roots"],             # defaults *plus* one
 ]
 
 [dependencies]

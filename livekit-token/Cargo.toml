@@ -18,3 +18,8 @@ sha2 = "0.10"
 jsonwebtoken = { version = "10", default-features = false }
 hmac = "0.12"
 signature = "2"
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"

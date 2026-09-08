@@ -28,6 +28,11 @@ indexmap = "2"
 uniffi = ["dep:uniffi", "dep:livekit-common", "livekit-common/uniffi"]
 __fuzz = ["dep:fake"]
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
 [dev-dependencies]
 test-case = "3.3"
 fake = { version = "4.4", features = ["derive"] }
