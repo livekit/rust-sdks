@@ -32,6 +32,29 @@ __rustls-tls = ["livekit-signaling/__rustls-tls"]
 __lk-internal = [] # internal features (used by livekit-ffi)
 __lk-e2e-test = ["livekit-data-stream/test-utils"] # end-to-end testing with a LiveKit server
 
+# Feature combinations checked in CI, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+# Each entry is a complete feature set, run as
+# `cargo check --no-default-features --features <entry joined by commas>`:
+# list `"default"` to mean a plain `cargo check`, and `[]` for no features at
+# all. This crate gets a hand-picked list rather than cargo-hack's powerset
+# (most of the powerset is unselectable — two TLS backends at once, or an
+# internal `__lk-*` flag paired with something unrelated), so a new feature is
+# invisible to CI until it is listed here. Pair a feature with what it
+# realistically ships alongside rather than listing it alone.
+[package.metadata.feature-combinations]
+check = [
+    ["default"],
+    [],
+    ["native"],
+    ["native", "native-tls"],
+    ["native", "native-tls-vendored"],
+    ["native", "rustls-tls-native-roots"],
+    ["native", "rustls-tls-webpki-roots"],
+    ["native", "rustls-tls-webpki-roots", "glib-main-loop"],
+    ["native", "__lk-internal"],
+]
+
 [dependencies]
 livekit-signaling = { workspace = true }
 libwebrtc = { workspace = true }

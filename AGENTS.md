@@ -79,18 +79,24 @@ Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `live
 
 `.github/workflows/feature-combinations-curated.yml` is the only job in CI that exercises features in *combination*. A `dep:` that one feature pulls in but the code uses unconditionally, or a `?/` forward that silently no-ops, compiles fine under default features and breaks only for the caller who picks a particular set — nothing else catches that. It has two halves, maintained differently, and both need updating by hand.
 
-- **When adding a feature to `livekit` or `livekit-api`**, add the configurations a user would plausibly select to the `COMBOS` list in the "Top-level crates" step
-  - These two crates get a hand-picked list rather than a powerset, so a new feature is invisible to this job until it is listed there
-  - One line per configuration, `crate|cargo feature flags`; an empty flags field means default features
+- **When adding a feature to `livekit` or `livekit-api`**, add the configurations a user would plausibly select to that crate's own `[package.metadata.feature-combinations] check` table, directly below its `[features]` table
+  - These two crates get a hand-picked list rather than a powerset, so a new feature is invisible to this job until it is listed there. The workflow reads the tables with `cargo metadata`, so it needs no edit
+  - Each entry is a complete feature set run as `--no-default-features --features <entry joined by commas>`. List `"default"` to mean a plain `cargo check`, and `[]` for no features at all — `["default", "rustls-tls-webpki-roots"]` is defaults *plus* that feature
   - Pair the feature with what it realistically ships alongside (a TLS backend together with `native`, say) rather than listing it on its own
   - Do not add combinations nobody can select — internal `__lk-*` flags and two-TLS-backends-at-once are deliberately absent, and were most of what made the full powerset expensive
+  - Check the table parses and says what you meant without building anything:
+    ```bash
+    cargo metadata --no-deps --format-version 1 \
+      | jq -r '.packages[] | .name as $c | (.metadata["feature-combinations"].check // [])[] | "\($c) \(join(","))"'
+    ```
+- **To give another crate a curated list**, add the same table to its manifest. Any workspace crate that declares one is picked up; `livekit-ffi` and `livekit-uniffi` deliberately do not (see below)
 - **When adding a workspace crate below `livekit`/`livekit-api`**, add `-p <crate>` to `LEAF_PACKAGES`
   - Leaf crates get the full `cargo hack --feature-powerset --depth 2`, so listing the crate is all that is needed; its features are then picked up automatically as they are added
   - cargo-hack only varies the features of packages named with `-p`. An unlisted crate still gets built as a dependency, which makes it easy to assume it is covered when it is not
 - Keep `--depth 2`. `livekit` alone goes from 67 combinations to 232 at depth 3, and pairwise interactions are where these bugs actually live
 - A feature that pulls in `openssl-sys` cannot build for the three Android targets — there is no Android OpenSSL to link against. Add it to their `exclude_features` rather than trying to make it work; Android ships rustls (see `ffi-builds.yml`)
 - `livekit-ffi` and `livekit-uniffi` are excluded on purpose: their combinations cost more than everything else in the job combined, because each TLS change rebuilds `livekit` underneath them. Their shipped configurations are covered by `builds.yml` and `ffi-builds.yml` instead
-- Check a change to either list without building anything by appending `--print-command-list`, which enumerates the combinations cargo-hack would run
+- Check a change to `LEAF_PACKAGES` without building anything by appending `--print-command-list`, which enumerates the combinations cargo-hack would run (the curated tables have their own `cargo metadata` check, above)
 
 ## Documenting changes
 

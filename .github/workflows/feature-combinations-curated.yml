@@ -23,11 +23,16 @@
 #      livekit-token-source is a sibling crate, not a dependency, and belongs
 #      here all the same.
 #
-#   2. livekit and livekit-api get a hand-picked list of 17 combinations
+#   2. livekit and livekit-api get a hand-picked list of 19 combinations
 #      instead of their 125-combination powerset. Most of those 125 are
 #      configurations nobody can actually select — two TLS backends at once, or
-#      an internal `__lk-*` feature paired with something unrelated. Every
-#      entry in the list is drawn from what the manifests document.
+#      an internal `__lk-*` feature paired with something unrelated.
+#
+#      That list is not kept here. It lives in each crate's own Cargo.toml, as
+#      `[package.metadata.feature-combinations] check`, next to the
+#      `[features]` table it mirrors, and is read out below with `cargo
+#      metadata`. Adding a crate to this half means adding that table to its
+#      manifest — nothing here changes.
 #
 # Measured cold on a 14-core machine: the full 209-combination powerset takes
 # 359s; this split takes 242s, a 33% saving. That is what brings the job in
@@ -213,80 +218,75 @@ jobs:
             check
           echo "LEAF_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
-      # Curated combinations for the user-facing crates. Each line is
-      # `crate|cargo feature flags`; an empty flags field means default
-      # features. Every entry is a configuration someone can actually select
-      # and that the manifests or ffi-builds.yml document.
+      # Curated combinations for the user-facing crates. The list itself is
+      # not here: it lives in each crate's own Cargo.toml, under
+      # `[package.metadata.feature-combinations] check`, right next to the
+      # `[features]` table it mirrors — so whoever adds a feature is already
+      # editing the file that decides whether CI covers it. Every workspace
+      # crate that declares that table is picked up, so adding a crate to this
+      # half of the job means adding the table and nothing else.
+      #
+      # livekit-ffi and livekit-uniffi deliberately do NOT declare one.
+      # Measured cold, their 8 combinations cost 103s of a 345s total — 30% of
+      # the budget for two crates, because each TLS change rebuilds livekit
+      # underneath livekit-ffi.
       - name: Top-level crates — curated feature combinations
         shell: bash
         run: |
           set -uo pipefail
-          COMBOS=$(cat <<'EOF'
-          # --- livekit -------------------------------------------------------
-          livekit|
-          livekit|--no-default-features
-          livekit|--no-default-features --features native
-          livekit|--no-default-features --features native,native-tls
-          livekit|--no-default-features --features native,native-tls-vendored
-          livekit|--no-default-features --features native,rustls-tls-native-roots
-          livekit|--no-default-features --features native,rustls-tls-webpki-roots
-          livekit|--no-default-features --features native,rustls-tls-webpki-roots,glib-main-loop
-          livekit|--no-default-features --features native,__lk-internal
-          # --- livekit-api ---------------------------------------------------
-          livekit-api|
-          livekit-api|--no-default-features
-          livekit-api|--no-default-features --features access-token
-          livekit-api|--no-default-features --features webhooks
-          livekit-api|--no-default-features --features services,native-tls
-          livekit-api|--no-default-features --features services,native-tls-vendored
-          livekit-api|--no-default-features --features services,rustls-tls-webpki-roots
-          livekit-api|--no-default-features --features services,rustls-tls-native-roots
-          livekit-api|--no-default-features --features signal-client-native,rustls-tls-webpki-roots
-          livekit-api|--features rustls-tls-webpki-roots
-          # livekit-ffi and livekit-uniffi are deliberately NOT here. Measured
-          # cold, their 8 combinations cost 103s of a 345s total — 30% of the
-          # budget for two crates, because each TLS change rebuilds livekit
-          # underneath livekit-ffi. Dropping them takes the job from 345s to
-          # 242s, which is what makes per-commit affordable. Their shipped
-          # configurations are still covered: builds.yml builds the whole
-          # workspace (livekit-ffi at default features) on every PR, and
-          # ffi-builds.yml builds every shipped per-platform TLS variant on
-          # push to main. The residual gap — livekit-ffi's non-default TLS
-          # variants on PRs — is knowingly accepted: covering it cost 103s of a
-          # 345s budget, for two crates whose shipped configurations are
-          # already built on every PR and on every push to main.
-          EOF
-          )
+
+          # One `crate|feat,feat` line per combination. `.metadata` is null for
+          # a crate without the table, and jq indexes null to null, so the
+          # `// []` covers every other workspace member.
+          COMBOS=$(cargo metadata --no-deps --format-version 1 | jq -r '
+            .packages[]
+            | .name as $crate
+            | (.metadata["feature-combinations"].check // [])[]
+            | "\($crate)|\(join(","))"
+          ')
+
+          # A renamed table or a bad jq path would otherwise turn this step into
+          # a silent no-op that still reports success.
+          if [ -z "$COMBOS" ]; then
+            echo "::error::no [package.metadata.feature-combinations] table found in the workspace"
+            exit 1
+          fi
+
+          # Features that cannot build on this target (see the matrix comment).
+          EXCLUDED="${{ matrix.exclude_features || '' }}"
 
           start=$(date +%s)
-          total=0; failed=0
+          total=0; failed=0; skipped=0
           FAILURES=""
-          while IFS='|' read -r crate flags; do
-            # Skip comments and blanks.
-            [[ -z "${crate// /}" || "$crate" =~ ^[[:space:]]*# ]] && continue
-            crate="${crate// /}"
+          while IFS='|' read -r crate features; do
+            [ -n "$crate" ] || continue
 
-            # Android has no OpenSSL to link: drop bare `native-tls` (but keep
-            # `native-tls-vendored`, which builds it from source).
-            if [ -n "${{ matrix.exclude_features || '' }}" ] \
-               && printf '%s' "$flags" | grep -qE '(^|[ ,])native-tls($|[ ,])'; then
-              echo "::notice::skipping (no Android OpenSSL): $crate $flags"
+            skip=""
+            for ex in ${EXCLUDED//,/ }; do
+              case ",$features," in
+                *",$ex,"*) skip="$ex"; break ;;
+              esac
+            done
+            if [ -n "$skip" ]; then
+              echo "::notice::skipping ($skip unsupported on ${{ matrix.target }}): $crate [$features]"
+              skipped=$((skipped + 1))
               continue
             fi
 
             total=$((total + 1))
-            echo "::group::$crate $flags"
-            if ! $CHECK_CMD -p "$crate" $flags; then
+            echo "::group::$crate [$features]"
+            if ! $CHECK_CMD -p "$crate" --no-default-features ${features:+--features "$features"}; then
               failed=$((failed + 1))
-              FAILURES="${FAILURES}\n  $crate $flags"
+              FAILURES="${FAILURES}\n  $crate [$features]"
             fi
             echo "::endgroup::"
           done <<< "$COMBOS"
 
           echo "CURATED_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
           echo "CURATED_TOTAL=$total" >> "$GITHUB_ENV"
+          echo "CURATED_SKIPPED=$skipped" >> "$GITHUB_ENV"
           echo "CURATED_FAILED=$failed" >> "$GITHUB_ENV"
-          echo "Ran $total curated combinations, $failed failed."
+          echo "Ran $total curated combinations, $failed failed, $skipped skipped."
           if [ "$failed" -gt 0 ]; then
             echo -e "::error::failed curated combinations:$FAILURES"
             exit 1
@@ -304,11 +304,12 @@ jobs:
             echo "| --- | --- |"
             echo "| Baseline \`cargo check\` (default features) | $(secs "${BASELINE_SECS:-}") |"
             echo "| Leaf crates, full powerset (83 combos) | $(secs "${LEAF_SECS:-}") |"
-            echo "| Top-level crates, curated (${CURATED_TOTAL:-?} combos) | $(secs "${CURATED_SECS:-}") |"
+            echo "| Top-level crates, curated from Cargo.toml (${CURATED_TOTAL:-?} combos) | $(secs "${CURATED_SECS:-}") |"
             if [ -n "${LEAF_SECS:-}" ] && [ -n "${CURATED_SECS:-}" ]; then
               awk -v l="$LEAF_SECS" -v c="$CURATED_SECS" -v b="${BASELINE_SECS:-0}" \
                 'BEGIN { printf "| **Feature checking total** | **%.1f min** |\n", (l+c)/60
                          if (b > 0) printf "| Total as a multiple of baseline | %.1fx |\n", (l+c)/b }'
             fi
+            echo "| Curated skipped (unsupported on target) | ${CURATED_SKIPPED:-n/a} |"
             echo "| Curated failures | ${CURATED_FAILED:-n/a} |"
           } >> "$GITHUB_STEP_SUMMARY"
