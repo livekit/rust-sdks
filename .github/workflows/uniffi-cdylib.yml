@@ -75,6 +75,10 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
+          # Build the tagged source, not the ref the workflow was dispatched
+          # from. A manual re-run for an older release would otherwise upload
+          # libraries built from main under that release's version.
+          ref: ${{ inputs.tag_name }}
           submodules: true
 
       - name: Setup Rust toolchain
