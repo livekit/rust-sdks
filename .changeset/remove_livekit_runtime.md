@@ -1,7 +1,7 @@
 ---
 libwebrtc: minor
-livekit: minor
-livekit-api: minor
+livekit: major
+livekit-api: major
 livekit-datatrack: minor
 livekit-ffi: minor
 livekit-net: minor
