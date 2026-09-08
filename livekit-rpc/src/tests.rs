@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
-use crate::data_stream::api::{
-    OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
-};
-use crate::e2ee::EncryptionType;
-use crate::room::id::ParticipantIdentity;
-use crate::room::participant::ClientCapability;
-use crate::room::RoomError;
+use crate::client::RpcClientManager;
+use crate::constants::*;
+use crate::server::{HandleRequestOptions, RpcServerManager};
+use crate::transport::{RpcTransport, RpcTransportError};
+use crate::types::*;
 use bytes::Bytes;
 use chrono::Utc;
-use livekit_common::RemoteParticipantRegistry;
+use livekit_common::{
+    ClientCapability, EncryptionType, ParticipantIdentity, RemoteParticipantRegistry,
+    CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT,
+};
+use livekit_data_stream::api::{
+    OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
+};
 use livekit_protocol as proto;
-use livekit_signaling::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 use parking_lot::{Mutex as ParkingMutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -113,7 +115,7 @@ impl MockTransport {
 }
 
 impl RpcTransport for MockTransport {
-    async fn publish_data(&self, data: proto::DataPacket) -> Result<(), RoomError> {
+    async fn publish_data(&self, data: proto::DataPacket) -> Result<(), RpcTransportError> {
         self.sent_packets.lock().push(data);
         self.packet_sent.notify_waiters();
         Ok(())
@@ -755,7 +757,7 @@ async fn test_v2_response_stream_resolves_caller() {
 
     // Manually register a pending response
     let (tx, rx) = tokio::sync::oneshot::channel();
-    client.insert_pending_response("req-stream".to_string(), tx);
+    client.insert_pending_response("req-stream".to_string(), "dest", tx);
 
     let reader =
         make_text_reader("stream-result", v2_response_attrs("req-stream"), RPC_RESPONSE_TOPIC);
@@ -792,6 +794,89 @@ async fn test_server_below_minimum_version_rejected() {
     assert_eq!(err.code, RpcErrorCode::UnsupportedServer as u32);
     assert!(transport.packets().is_empty());
     assert!(transport.texts().is_empty());
+}
+
+/// A participant leaving mid-call must fail the caller promptly with RECIPIENT_DISCONNECTED,
+/// rather than stranding it until the (much longer) response timeout expires.
+#[tokio::test]
+async fn test_participant_disconnect_fails_pending_call() {
+    let client = Arc::new(RpcClientManager::new());
+    let transport = Arc::new(
+        MockTransport::new()
+            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+            .with_server_version(Some("1.9.0")),
+    );
+
+    let handle = spawn_perform_rpc(
+        client.clone(),
+        transport.clone(),
+        PerformRpcData::new("dest", "greet")
+            .with_payload("hi")
+            // Long enough that a timeout could not explain a prompt result.
+            .with_response_timeout(Duration::from_secs(30))
+            .with_max_round_trip_latency(Duration::from_secs(30)),
+    )
+    .await;
+
+    // Ack the request so the call is parked on the response rather than on the ack.
+    transport.wait_for_text().await;
+    client.handle_incoming_rpc_ack(transport.extract_request_id());
+
+    client.handle_participant_disconnected(&ParticipantIdentity::from("dest"));
+
+    let err = handle.await.unwrap().unwrap_err();
+    assert_eq!(err.code, RpcErrorCode::RecipientDisconnected as u32);
+}
+
+/// A disconnect must only fail calls addressed to the participant that left.
+#[tokio::test]
+async fn test_participant_disconnect_leaves_other_calls_alone() {
+    let client = RpcClientManager::new();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    client.insert_pending_response("req-other".to_string(), "someone-else", tx);
+
+    client.handle_participant_disconnected(&ParticipantIdentity::from("dest"));
+
+    // Untouched: the entry is still there to be resolved normally.
+    client.handle_v1_response_packet("req-other".to_string(), Some("ok".into()), None);
+    assert_eq!(rx.await.expect("caller resolved").unwrap(), "ok");
+}
+
+/// Closing the room fails every in-flight call, whoever it was addressed to.
+#[tokio::test]
+async fn test_fail_all_pending_resolves_callers() {
+    let client = RpcClientManager::new();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    client.insert_pending_response("req-close".to_string(), "dest", tx);
+
+    client.fail_all_pending();
+
+    let err = rx.await.expect("caller resolved").unwrap_err();
+    assert_eq!(err.code, RpcErrorCode::RecipientDisconnected as u32);
+}
+
+/// A server version we cannot parse must not panic, and must not block the call: we fail open
+/// and let the request go out rather than rejecting every RPC on a cosmetic version string.
+#[tokio::test]
+async fn test_unparseable_server_version_allows_call() {
+    let client = RpcClientManager::new();
+    let transport = MockTransport::new()
+        .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC)
+        .with_server_version(Some("not-a-semver"));
+
+    let result = client
+        .perform_rpc(
+            PerformRpcData::new("dest", "greet")
+                .with_payload("hi")
+                .with_response_timeout(Duration::from_millis(50))
+                .with_max_round_trip_latency(Duration::from_millis(50)),
+            &transport,
+        )
+        .await;
+
+    // The request was sent; it only fails later, waiting for an ack the mock never delivers.
+    assert_eq!(result.unwrap_err().code, RpcErrorCode::ConnectionTimeout as u32);
+    assert_eq!(transport.texts().len(), 1);
 }
 
 /// Verify unregistered method returns UNSUPPORTED_METHOD error via v2 path.

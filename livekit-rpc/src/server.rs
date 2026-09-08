@@ -12,24 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD, ATTR_REQUEST_ID,
-    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_V1_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC,
+use crate::constants::{
+    ATTR_METHOD, ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, RPC_RESPONSE_TOPIC,
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
-use crate::data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
-use crate::room::id::ParticipantIdentity;
+use crate::transport::{RpcTransport, RpcTransportError};
+use crate::types::{RpcError, RpcErrorCode, RpcInvocationData, MAX_V1_PAYLOAD_BYTES};
+use livekit_common::ParticipantIdentity;
+use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
-pub(crate) type RpcHandlerFn = Arc<
+type RpcHandlerFn = Arc<
     dyn Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
         + Send
         + Sync,
 >;
 
-/// Parameters for [`RpcServerManager::handle_request`].
+/// Parameters for [`RpcServerManager::handle_v1_request`] and
+/// [`RpcServerManager::handle_v2_request_stream`].
 pub struct HandleRequestOptions {
     pub caller_identity: ParticipantIdentity,
     pub request_id: String,
@@ -68,7 +70,7 @@ impl RpcServerManager {
         self.handlers.lock().remove(method);
     }
 
-    pub(crate) fn get_handler(&self, method: &str) -> Option<RpcHandlerFn> {
+    fn get_handler(&self, method: &str) -> Option<RpcHandlerFn> {
         self.handlers.lock().get(method).cloned()
     }
 
@@ -76,7 +78,7 @@ impl RpcServerManager {
     ///
     /// Sends ACK, invokes the registered handler, and sends the response
     /// as a v1 RPC response packet.
-    pub(crate) async fn handle_v1_request(
+    pub async fn handle_v1_request(
         &self,
         options: HandleRequestOptions,
         transport: &(impl RpcTransport + 'static),
@@ -102,25 +104,18 @@ impl RpcServerManager {
                 .await
         };
 
-        let (resp_payload, error) = match response {
+        let response = match response {
             Ok(response_payload) if response_payload.len() <= MAX_V1_PAYLOAD_BYTES => {
-                (Some(response_payload), None)
+                Ok(response_payload)
             }
-            Ok(_) => (
-                None,
-                Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None).to_proto()),
-            ),
-            Err(e) => (None, Some(e.to_proto())),
+            Ok(_) => {
+                Err(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None).to_proto())
+            }
+            Err(e) => Err(e.to_proto()),
         };
 
         if let Err(e) = self
-            .publish_rpc_response_packet(
-                transport,
-                &caller_identity.0,
-                &request_id,
-                resp_payload,
-                error,
-            )
+            .publish_rpc_response_packet(transport, &caller_identity.0, &request_id, response)
             .await
         {
             log::error!("Failed to publish RPC response: {:?}", e);
@@ -132,7 +127,7 @@ impl RpcServerManager {
     /// Parses request metadata from stream attributes, sends ACK,
     /// invokes the handler, and sends the response. Success responses
     /// use a v2 data stream; error responses always use v1 packets.
-    pub(crate) async fn handle_v2_request_stream(
+    pub async fn handle_v2_request_stream(
         &self,
         reader: TextStreamReader,
         caller_identity: ParticipantIdentity,
@@ -164,8 +159,7 @@ impl RpcServerManager {
                     transport,
                     &caller_identity.0,
                     &request_id,
-                    None,
-                    Some(error.to_proto()),
+                    Err(error.to_proto()),
                 )
                 .await;
             return;
@@ -185,8 +179,7 @@ impl RpcServerManager {
                         transport,
                         &caller_identity.0,
                         &request_id,
-                        None,
-                        Some(error.to_proto()),
+                        Err(error.to_proto()),
                     )
                     .await;
                 return;
@@ -216,8 +209,7 @@ impl RpcServerManager {
                             transport,
                             &caller_identity.0,
                             &request_id,
-                            None,
-                            Some(error.to_proto()),
+                            Err(error.to_proto()),
                         )
                         .await;
                 }
@@ -229,8 +221,7 @@ impl RpcServerManager {
                         transport,
                         &caller_identity.0,
                         &request_id,
-                        None,
-                        Some(e.to_proto()),
+                        Err(e.to_proto()),
                     )
                     .await
                 {
@@ -284,14 +275,13 @@ impl RpcServerManager {
         transport: &impl RpcTransport,
         destination_identity: &str,
         request_id: &str,
-        payload: Option<String>,
-        error: Option<proto::RpcError>,
-    ) -> Result<(), crate::room::RoomError> {
+        response: Result<String, proto::RpcError>,
+    ) -> Result<(), RpcTransportError> {
         let rpc_response_message = proto::RpcResponse {
             request_id: request_id.to_string(),
-            value: Some(match error {
-                Some(error) => proto::rpc_response::Value::Error(error),
-                None => proto::rpc_response::Value::Payload(payload.unwrap()),
+            value: Some(match response {
+                Ok(payload) => proto::rpc_response::Value::Payload(payload),
+                Err(error) => proto::rpc_response::Value::Error(error),
             }),
             ..Default::default()
         };
@@ -311,7 +301,7 @@ impl RpcServerManager {
         transport: &impl RpcTransport,
         destination_identity: &str,
         request_id: &str,
-    ) -> Result<(), crate::room::RoomError> {
+    ) -> Result<(), RpcTransportError> {
         let rpc_ack_message =
             proto::RpcAck { request_id: request_id.to_string(), ..Default::default() };
 
