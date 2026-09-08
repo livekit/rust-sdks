@@ -49,6 +49,20 @@
   - Isolate only the unsafe operations
   - Every unsafe block should have a `// SAFETY:` comment explaining why the operation is actually safe (e.g., verifying pointers are non-null)
 
+## Memory lifecycle
+
+Rust memory safety does not prevent leaks: `Arc` cycles, stored callbacks, detached tasks, unbounded channels, and native handles can retain resources indefinitely.
+
+- Treat every `Arc::clone`, `Rc::clone`, callback capture, observer registration, and spawned task as an ownership edge. If an owner transitively stores the callback/task, the callback/task must not strongly capture that owner.
+- Use `Weak` for non-owning back-references. A strong back-reference is allowed only when teardown explicitly unregisters or clears it before releasing the owner, and a lifecycle regression test proves cleanup.
+- A callback stored by an object must not capture a strong clone of that same object. Reviewers must flag `move` closures capturing `Arc` when the receiver can retain the callback.
+- Every task, thread, subscription, FFI handle, observer, timer, and channel must have a named owner and deterministic shutdown path. Tasks/threads must be cancelled and joined; observers must be unregistered; channels and queues must be bounded or explicitly justified.
+- For lifecycle-sensitive changes, test observable destruction: `Weak::upgrade() == None`, FFI handle maps empty, task completion, and thread/FD counts returning near baseline. `Drop` code alone is not evidence that destruction occurs because reference cycles prevent it from running.
+- Any new FFI handle must add a repeated `initialize → use → disconnect/drop → shutdown` workload. Include success, failure/cancellation, and partial-initialization teardown where applicable.
+- Review ownership changes by sketching the strong-reference graph. Every cycle must contain a weak edge or an explicit, tested unlink operation.
+
+When reviewing changed code, search for `Arc::clone`, `.clone()` inside `move` closures, `tokio::spawn`, unbounded channels, callback setters, listener registration, and FFI `store_handle`. Report lifecycle risks even when the code is type-safe.
+
 ## Style guidelines
 
 - Always format using `cargo fmt`
