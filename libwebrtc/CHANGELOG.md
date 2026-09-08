@@ -139,6 +139,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.47 (2026-09-08)
+
+### Features
+
+- Handle capture of dmabuf using existing capture path
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+#### Expose network_type on IceCandidateStats
+
+Chromium's local `RTCIceCandidateStats` carries a non-standard `networkType` field (WiFi,
+cellular, ethernet, etc.), but `IceCandidateStats` had no place to put it, so it was silently
+dropped during `get_stats()` deserialization. Adds `network_type: Option<String>` to the struct;
+non-breaking since it already derives `#[serde(default)]`.
+
+### Fixes
+
+- Fix pre-encoded frame segfault on macOS
+
+#### Make AdmProxy worker-thread-affine: all platform ADM access now happens on the WebRTC worker thread, matching the ADM threading contract.
+
+- The platform ADM is now created lazily on the first PlatformAudio acquire on all platforms, so apps that never use platform audio never construct it.
+- Fixes Android platform recording delivering no audio: the audio transport was never registered on the lazily created ADM.
+- Fixes a shutdown race by keeping the runtime threads alive as long as Rust can reach the audio device controller.
+- Adds a `platform_audio` example exercising the PlatformAudio API and the worker-thread marshaling.
+
+#### Add agent guidance for detecting and preventing memory-lifecycle regressions in
+
+Rust, FFI, and native WebRTC code.
+
+#### Fix CUDA and FFI resource cleanup during SDK shutdown.
+
+NVIDIA encoder and decoder factories now share a reference-counted CUDA context
+and destroy it when the final factory is dropped. FFI shutdown now releases
+leftover handles one at a time so nested `drop_handle` calls do not re-enter
+`DashMap::clear()`. Adds regression coverage for FFI-handle, watcher, and
+configuration cleanup during disposal.
+
+#### Fix room-session and data-channel leaks across connect/disconnect cycles.
+
+The E2EE manager callback now captures `RoomSession` weakly so the session can
+drop after disconnect. Data-channel observer callbacks are cleared during RTC
+teardown so the observer/callback cycle cannot keep peer connections alive.
+Adds regression coverage for room-session destruction and data-channel callback
+cleanup.
+
+#### Fix native video-source lifecycle and NVENC initialization failure handling.
+
+The raw-video keepalive task now uses a weak liveness check and defers its
+black I420 buffer allocation until source liveness is confirmed, so dropping
+an unused source releases its resources. `nvEncInitializeEncoder` failures now
+propagate instead of leaving the encoder half-initialized.
+
 ## 0.3.46 (2026-08-25)
 
 ### Features
