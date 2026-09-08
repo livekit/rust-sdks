@@ -38,7 +38,7 @@ base64 = { version = "0.21", features = ["std"] }
 flate2 = "1"
 http = "1.1"
 os_info = "3.14.0"
-prost = "0.12"
+prost = { workspace = true }
 url = "2.3"
 
 [dev-dependencies]

@@ -16,13 +16,14 @@ livekit-protocol = { workspace = true }
 livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-token = { workspace = true }
 livekit-datatrack = { workspace = true, features = ["uniffi"] }
+livekit-telemetry = { workspace = true, features = ["uniffi", "net"] }
 livekit-net = { workspace = true, features = ["uniffi"] }
 livekit-data-stream = { workspace = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns", "tokio"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
 tokio-util =  "0.7.18"
-prost = "0.12"
+prost = { workspace = true }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 bytes = { workspace = true }
 once_cell = "1.21.3"

@@ -994,7 +994,7 @@ version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d012d2b9d65aca7f18f4d9878a045bc17899bba951561ba5ec3c2ba1eed9a061"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "proc-macro2",
  "quote",
  "syn 3.0.3",
@@ -2482,7 +2482,7 @@ version = "0.21.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf59b675301228a696fe01c3073974643365080a76cc3ed5bc2cbc466ad87f17"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
@@ -2706,12 +2706,6 @@ dependencies = [
  "nom 8.0.0",
  "num-traits",
 ]
-
-[[package]]
-name = "heck"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "heck"
@@ -3176,15 +3170,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
@@ -3613,7 +3598,7 @@ dependencies = [
  "livekit-token",
  "log",
  "parking_lot",
- "prost 0.12.6",
+ "prost 0.14.4",
  "rand 0.9.5",
  "semver",
  "serde",
@@ -3638,7 +3623,7 @@ dependencies = [
  "livekit-token",
  "log",
  "pbjson-types",
- "prost 0.12.6",
+ "prost 0.14.4",
  "rand 0.9.5",
  "reqwest",
  "serde",
@@ -3672,7 +3657,7 @@ dependencies = [
  "livekit-protocol",
  "log",
  "parking_lot",
- "prost 0.12.6",
+ "prost 0.14.4",
  "rand 0.9.5",
  "thiserror 2.0.19",
  "tokio",
@@ -3724,7 +3709,7 @@ dependencies = [
  "log",
  "parking_lot",
  "prost 0.14.4",
- "prost-build 0.14.4",
+ "prost-build",
  "soxr-sys",
  "thiserror 2.0.19",
  "tokio",
@@ -3758,7 +3743,7 @@ version = "0.7.12"
 dependencies = [
  "pbjson",
  "pbjson-types",
- "prost 0.12.6",
+ "prost 0.14.4",
  "serde",
 ]
 
@@ -3786,11 +3771,27 @@ dependencies = [
  "log",
  "os_info",
  "parking_lot",
- "prost 0.12.6",
+ "prost 0.14.4",
  "serde_json",
  "thiserror 2.0.19",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "livekit-telemetry"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "flate2",
+ "livekit-net",
+ "log",
+ "opentelemetry-proto",
+ "prost 0.14.4",
+ "rand 0.9.5",
+ "thiserror 2.0.19",
+ "tokio",
+ "uniffi",
 ]
 
 [[package]]
@@ -3832,10 +3833,11 @@ dependencies = [
  "livekit-datatrack",
  "livekit-net",
  "livekit-protocol",
+ "livekit-telemetry",
  "livekit-token",
  "log",
  "once_cell",
- "prost 0.12.6",
+ "prost 0.14.4",
  "thiserror 2.0.19",
  "tokio",
  "tokio-util",
@@ -5018,6 +5020,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0142c63252a9e054e68a4c61a5778f7b14f576274d593f8ce883d191a099682"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "js-sys",
+ "pin-project-lite",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "opentelemetry-proto"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d658ba1faf63f7b9c492cfbe6e0ec365440a16132d3270c1065f7b33f1b638"
+dependencies = [
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "prost 0.14.4",
+]
+
+[[package]]
+name = "opentelemetry_sdk"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b59f80e1ac4d5ff7a2db8fb6c80badb7f0f3f858211fba08dd9aaec750894f9"
+dependencies = [
+ "futures-channel",
+ "futures-executor",
+ "futures-util",
+ "opentelemetry",
+ "percent-encoding",
+ "portable-atomic",
+ "rand 0.9.5",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "orbclient"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5129,38 +5171,38 @@ checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
 
 [[package]]
 name = "pbjson"
-version = "0.6.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1030c719b0ec2a2d25a5df729d6cff1acf3cc230bf766f4f97833591f7577b90"
+checksum = "e8edd1efdd8ab23ba9cb9ace3d9987a72663d5d7c9f74fa00b51d6213645cf6c"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "serde",
 ]
 
 [[package]]
 name = "pbjson-build"
-version = "0.6.2"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2580e33f2292d34be285c5bc3dba5259542b083cfad6037b6d70345f24dcb735"
+checksum = "2ed4d5c6ae95e08ac768883c8401cf0e8deb4e6e1d6a4e1fd3d2ec4f0ec63200"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.11.0",
- "prost 0.12.6",
- "prost-types 0.12.6",
+ "heck",
+ "itertools 0.14.0",
+ "prost 0.14.4",
+ "prost-types 0.14.4",
 ]
 
 [[package]]
 name = "pbjson-types"
-version = "0.6.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18f596653ba4ac51bdecbb4ef6773bc7f56042dc13927910de1684ad3d32aa12"
+checksum = "a14e2757d877c0f607a82ce1b8560e224370f159d66c5d52eb55ea187ef0350e"
 dependencies = [
  "bytes",
  "chrono",
  "pbjson",
  "pbjson-build",
- "prost 0.12.6",
- "prost-build 0.12.6",
+ "prost 0.14.4",
+ "prost-build",
  "serde",
 ]
 
@@ -5456,16 +5498,6 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
-dependencies = [
- "bytes",
- "prost-derive 0.12.6",
-]
-
-[[package]]
-name = "prost"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
@@ -5476,32 +5508,11 @@ dependencies = [
 
 [[package]]
 name = "prost-build"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
-dependencies = [
- "bytes",
- "heck 0.5.0",
- "itertools 0.12.1",
- "log",
- "multimap",
- "once_cell",
- "petgraph 0.6.5",
- "prettyplease",
- "prost 0.12.6",
- "prost-types 0.12.6",
- "regex",
- "syn 2.0.119",
- "tempfile",
-]
-
-[[package]]
-name = "prost-build"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03da047801ff44bb6a4d407d4860c05fd70bb81714e6b2f3812603d5b145b042"
 dependencies = [
- "heck 0.5.0",
+ "heck",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -5529,19 +5540,6 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
-dependencies = [
- "anyhow",
- "itertools 0.12.1",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "prost-derive"
 version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
@@ -5560,15 +5558,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "213622a1460818959ac1181aaeb2dc9c7f63df720db7d788b3e24eacd1983e13"
 dependencies = [
  "prost 0.11.9",
-]
-
-[[package]]
-name = "prost-types"
-version = "0.12.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
-dependencies = [
- "prost 0.12.6",
 ]
 
 [[package]]
@@ -6868,7 +6857,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "396a35feb67335377e0251fcbc1092fc85c484bd4e3a7a54319399da127796e7"
 dependencies = [
  "cfg-expr",
- "heck 0.5.0",
+ "heck",
  "pkg-config",
  "toml 1.1.3+spec-1.1.0",
  "version-compare",
@@ -6890,6 +6879,16 @@ name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
+
+[[package]]
+name = "telemetry_ping"
+version = "0.1.0"
+dependencies = [
+ "env_logger 0.11.11",
+ "livekit-net",
+ "livekit-telemetry",
+ "tokio",
+]
 
 [[package]]
 name = "tempfile"
@@ -7745,7 +7744,7 @@ dependencies = [
  "camino",
  "cargo_metadata 0.18.1",
  "genco",
- "heck 0.5.0",
+ "heck",
  "lazy_static",
  "paste",
  "proc-macro2",
@@ -7770,7 +7769,7 @@ dependencies = [
  "fs-err",
  "glob",
  "goblin",
- "heck 0.5.0",
+ "heck",
  "indexmap 2.14.0",
  "once_cell",
  "serde",
@@ -7869,7 +7868,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "032739b3ec725576914c15899dedaf080163ced86b6934566c20ec2b20ce90ca"
 dependencies = [
  "anyhow",
- "heck 0.5.0",
+ "heck",
  "indexmap 2.14.0",
  "tempfile",
  "uniffi_internal_macros",

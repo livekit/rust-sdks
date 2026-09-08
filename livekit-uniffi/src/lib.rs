@@ -21,6 +21,9 @@ pub mod data_stream;
 /// Access token generation and verification from [`livekit-api::access_token`].
 pub mod access_token;
 
+/// Client telemetry core from [`livekit-telemetry`].
+pub mod telemetry;
+
 /// Forward log messages from Rust.
 pub mod log_forward;
 

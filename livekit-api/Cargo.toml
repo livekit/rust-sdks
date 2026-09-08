@@ -65,8 +65,8 @@ serde = { workspace = true, features = ["derive"] }
 sha2 = "0.10"
 url = "2.3"
 log = { workspace = true }
-prost = "0.12"
-pbjson-types = "0.6"
+prost = { workspace = true }
+pbjson-types = "0.9"
 
 # webhooks
 serde_json = { workspace = true, optional = true }
