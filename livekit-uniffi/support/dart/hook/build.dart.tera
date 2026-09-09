@@ -71,14 +71,22 @@ Future<Uri> _resolveLibrary(
     return local.uri;
   }
 
-  // Download mode: fetch the prebuilt library for the target. The hooks-runner
-  // already caches hook results across builds, so there's no manual cache check.
+  // Download mode: fetch the prebuilt library for the target. The hooks runner
+  // caches hook results across builds, so there is no manual cache check. The
+  // downloaded file is an output, not an input, so it is deliberately not
+  // registered as a dependency: doing so made the runner see a file modified
+  // during the build and rerun the hook (and the download) once per fresh build.
+  //
+  // The shared directory is one per package, not per target, and a universal
+  // macOS build runs this hook once per architecture before lipo merges the
+  // results. Keep each target in its own subdirectory, or the second download
+  // overwrites the first and lipo is handed the same architecture twice.
+  final triple = _targetTriple(os, arch, iosSdk);
   final outDir = Directory.fromUri(
-    input.outputDirectoryShared.resolve('$_cdylibName/'),
+    input.outputDirectoryShared.resolve('$_cdylibName/$triple/'),
   );
   final libFile = File.fromUri(outDir.uri.resolve(libName));
 
-  final triple = _targetTriple(os, arch, iosSdk);
   // Asset naming matches the existing node downloader convention so one set of
   // release assets serves both: `<base>/v<version>/build-<triple>.zip`.
   final zipUrl = Uri.parse('$_downloadBase/v$_version/build-$triple.zip');
@@ -89,7 +97,7 @@ Future<Uri> _resolveLibrary(
   for (final entry in ZipDecoder().decodeBytes(bytes)) {
     if (!entry.isFile) continue;
     // Guard against zip-slip: `resolve` normalizes `../` and absolute paths, so
-    // an entry that lands outside `base` is a malicious name — reject it. The
+    // an entry that lands outside `base` is a malicious name, so reject it. The
     // SHA-256 check proves integrity against tampering in transit, not that a
     // compromised host can't serve a matching-checksum malicious archive.
     final entryUri = base.resolve(entry.name);
@@ -104,7 +112,6 @@ Future<Uri> _resolveLibrary(
   if (!await libFile.exists()) {
     throw Exception('$libName not found in $zipUrl');
   }
-  output.dependencies.add(libFile.uri);
   return libFile.uri;
 }
 
