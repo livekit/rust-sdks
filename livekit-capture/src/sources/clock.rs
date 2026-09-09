@@ -97,9 +97,12 @@ impl ClockVideoSource {
     ///
     /// Requires a running tokio runtime. Use
     /// [`ClockVideoSource::new_blocking`] outside of async contexts.
-    #[cfg(feature = "tokio")]
     pub async fn new(config: ClockVideoSourceConfig) -> Result<Self, SourceError> {
-        crate::utils::run_blocking(move || Self::new_blocking(config)).await
+        match tokio::task::spawn_blocking(move || Self::new_blocking(config)).await {
+            Ok(result) => result,
+            Err(err) if err.is_panic() => std::panic::resume_unwind(err.into_panic()),
+            Err(err) => Err(SourceError::new(err)),
+        }
     }
 
     /// Selects a GPU adapter, compiles the clock shader, and builds the
