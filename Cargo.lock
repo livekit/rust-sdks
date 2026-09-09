@@ -3475,7 +3475,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.47"
+version = "0.3.48"
 dependencies = [
  "cxx",
  "env_logger 0.11.11",
@@ -3592,7 +3592,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3628,7 +3628,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "base64 0.21.7",
  "http 1.4.2",
@@ -3660,7 +3660,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-data-stream"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "async-compression",
  "bmrng",
@@ -3704,7 +3704,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.77"
+version = "0.12.78"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -3771,7 +3771,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-rpc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -3788,7 +3788,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-signaling"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64 0.21.7",
@@ -3838,7 +3838,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-uniffi"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8318,7 +8318,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "cc",
  "cxx",
