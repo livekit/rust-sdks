@@ -30,7 +30,7 @@ use super::{
     room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
-use crate::proto;
+use crate::{conversion, proto};
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -821,15 +821,15 @@ fn on_get_session_stats(
 }
 
 fn on_new_sox_resampler(
-    server: &'static FfiServer,
+    _server: &'static FfiServer,
     new_soxr: proto::NewSoxResamplerRequest,
 ) -> FfiResult<proto::NewSoxResamplerResponse> {
-    let io_spec = resampler::IOSpec {
+    let io_spec = conversion::resampler::IOSpec {
         input_type: new_soxr.input_data_type(),
         output_type: new_soxr.output_data_type(),
     };
 
-    let quality_spec = resampler::QualitySpec {
+    let quality_spec = conversion::resampler::QualitySpec {
         quality: new_soxr.quality_recipe(),
         flags: new_soxr.flags.unwrap_or(0),
     };
@@ -840,16 +840,12 @@ fn on_new_sox_resampler(
         new_soxr.input_rate,
         new_soxr.output_rate,
         new_soxr.num_channels,
-        io_spec,
-        quality_spec,
+        io_spec.into(),
+        quality_spec.into(),
         runtime_spec,
     ) {
         Ok(resampler) => {
-            let resampler = Arc::new(Mutex::new(resampler));
-
-            let handle_id = server.next_id();
-            server.store_handle(handle_id, resampler);
-
+            let handle_id = resampler.ffi_handle_id();
             Ok(proto::NewSoxResamplerResponse {
                 message: Some(proto::new_sox_resampler_response::Message::Resampler(
                     proto::OwnedSoxResampler {
@@ -869,9 +865,8 @@ fn on_push_sox_resampler(
     server: &'static FfiServer,
     push: proto::PushSoxResamplerRequest,
 ) -> FfiResult<proto::PushSoxResamplerResponse> {
-    let resampler = server
-        .retrieve_handle::<Arc<Mutex<resampler::SoxResampler>>>(push.resampler_handle)?
-        .clone();
+    let resampler =
+        server.retrieve_handle::<Arc<resampler::SoxResampler>>(push.resampler_handle)?.clone();
 
     let data_ptr = push.data_ptr;
     let data_size = push.size;
@@ -883,7 +878,6 @@ fn on_push_sox_resampler(
         )
     };
 
-    let mut resampler = resampler.lock();
     match resampler.push(data) {
         Ok(output) => {
             if output.is_empty() {
@@ -910,11 +904,9 @@ fn on_flush_sox_resampler(
     server: &'static FfiServer,
     flush: proto::FlushSoxResamplerRequest,
 ) -> FfiResult<proto::FlushSoxResamplerResponse> {
-    let resampler = server
-        .retrieve_handle::<Arc<Mutex<resampler::SoxResampler>>>(flush.resampler_handle)?
-        .clone();
+    let resampler =
+        server.retrieve_handle::<Arc<resampler::SoxResampler>>(flush.resampler_handle)?.clone();
 
-    let mut resampler = resampler.lock();
     match resampler.flush() {
         Ok(output) => Ok(proto::FlushSoxResamplerResponse {
             output_ptr: output.as_ptr() as u64,
