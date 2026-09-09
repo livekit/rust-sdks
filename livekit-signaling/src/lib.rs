@@ -1078,6 +1078,13 @@ get_async_message!(
     proto::JoinResponse
 );
 
+/// Debug-slice the prost oneof to recover the variant name (e.g. "Update") without
+/// matching every possible variant. Only used in cold log paths.
+fn signal_message_variant_name(msg: &proto::signal_response::Message) -> String {
+    let dbg = format!("{:?}", msg);
+    dbg.split(['(', ' ']).next().unwrap_or("Unknown").to_string()
+}
+
 async fn get_reconnect_response(
     receiver: &mut mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
 ) -> SignalResult<proto::ReconnectResponse> {
@@ -1091,7 +1098,16 @@ async fn get_reconnect_response(
                         action: leave.action(),
                     });
                 }
-                _ => {}
+                other => {
+                    // Some server versions interleave signal messages before the
+                    // ReconnectResponse. Client-side reordering would risk applying
+                    // stale state; log and drop, and rely on a server-side ordering
+                    // fix for correctness.
+                    log::warn!(
+                        "signal message arrived before ReconnectResponse, dropping: {}",
+                        signal_message_variant_name(&other)
+                    );
+                }
             }
         }
 
@@ -1703,5 +1719,13 @@ mod tests {
             "expected RegionError from serde parse failure, got: {:?}",
             err
         );
+    }
+
+    #[test]
+    fn signal_message_variant_name_extracts_variant() {
+        let msg = proto::signal_response::Message::Update(proto::ParticipantUpdate::default());
+        assert_eq!(signal_message_variant_name(&msg), "Update");
+        let msg = proto::signal_response::Message::Leave(proto::LeaveRequest::default());
+        assert_eq!(signal_message_variant_name(&msg), "Leave");
     }
 }
