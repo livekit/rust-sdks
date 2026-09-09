@@ -15,27 +15,85 @@
 use std::{
     ffi::c_char,
     os::raw::{c_ulong, c_void},
+    sync::Arc,
 };
 
+use parking_lot::Mutex;
 use soxr_sys;
 
-use crate::proto;
+use crate::migration::HasFfiHandleId as _;
 
+#[derive(uniffi::Record)]
 pub struct IOSpec {
-    pub input_type: proto::SoxResamplerDataType,
-    pub output_type: proto::SoxResamplerDataType,
+    pub input_type: SoxResamplerDataType,
+    pub output_type: SoxResamplerDataType,
 }
 
+#[derive(uniffi::Record)]
 pub struct QualitySpec {
-    pub quality: proto::SoxQualityRecipe,
-    pub flags: u32, // proto::SoxQualityFlags
+    pub quality: SoxQualityRecipe,
+    pub flags: u32,
 }
 
+#[derive(uniffi::Record)]
 pub struct RuntimeSpec {
     pub num_threads: u32,
 }
 
+#[derive(uniffi::Object)]
+/// New resampler using SoX (much better quality)
 pub struct SoxResampler {
+    inner: Mutex<SoxResamplerInner>,
+    // After the migration is complete, this field can be removed.
+    handle_id: Option<crate::FfiHandleId>,
+}
+// After the migration is complete, this call can be removed.
+crate::migrate_from_ffi!(SoxResampler);
+
+unsafe impl Send for SoxResampler {}
+unsafe impl Sync for SoxResampler {}
+
+#[uniffi::export]
+impl SoxResampler {
+    #[uniffi::constructor]
+    pub fn new(
+        input_rate: f64,
+        output_rate: f64,
+        num_channels: u32,
+        io_spec: IOSpec,
+        quality_spec: QualitySpec,
+        runtime_spec: RuntimeSpec,
+    ) -> Result<Arc<Self>, SoxResamplerError> {
+        let inner: SoxResamplerInner = SoxResamplerInner::new(
+            input_rate,
+            output_rate,
+            num_channels,
+            io_spec,
+            quality_spec,
+            runtime_spec,
+        )
+        .map_err(|s| SoxResamplerError::NewError(s))?;
+
+        let obj = Self { inner: Mutex::new(inner), handle_id: None };
+
+        // After the migration is complete, arc_from_self can be replace with Arc::new(obj)
+        Ok(obj.arc_from_self())
+    }
+
+    pub fn push(&self, input: &[i16]) -> Result<Vec<i16>, SoxResamplerError> {
+        let mut inner = self.inner.lock();
+        let output_slice = inner.push(input).map_err(|s| SoxResamplerError::PushError(s))?;
+        Ok(output_slice.to_vec())
+    }
+
+    pub fn flush(&self) -> Result<Vec<i16>, SoxResamplerError> {
+        let mut inner = self.inner.lock();
+        let output_slice = inner.flush().map_err(|s| SoxResamplerError::FlushError(s))?;
+        Ok(output_slice.to_vec())
+    }
+}
+
+struct SoxResamplerInner {
     soxr_ptr: soxr_sys::soxr_t,
     out_buf: Vec<i16>,
     input_rate: f64,
@@ -43,9 +101,7 @@ pub struct SoxResampler {
     num_channels: u32,
 }
 
-unsafe impl Send for SoxResampler {}
-
-impl SoxResampler {
+impl SoxResamplerInner {
     pub fn new(
         input_rate: f64,
         output_rate: f64,
@@ -57,10 +113,8 @@ impl SoxResampler {
         let error: *mut *const c_char = std::ptr::null_mut();
 
         let soxr_ptr = unsafe {
-            let io_spec = soxr_sys::soxr_io_spec(
-                to_soxr_datatype(io_spec.input_type),
-                to_soxr_datatype(io_spec.output_type),
-            );
+            let io_spec =
+                soxr_sys::soxr_io_spec(io_spec.input_type.into(), io_spec.output_type.into());
 
             let quality_spec = soxr_sys::soxr_quality_spec(
                 quality_spec.quality as c_ulong,
@@ -159,7 +213,7 @@ impl SoxResampler {
     }
 }
 
-impl Drop for SoxResampler {
+impl Drop for SoxResamplerInner {
     fn drop(&mut self) {
         unsafe {
             soxr_sys::soxr_delete(self.soxr_ptr);
@@ -167,11 +221,39 @@ impl Drop for SoxResampler {
     }
 }
 
-fn to_soxr_datatype(datatype: proto::SoxResamplerDataType) -> soxr_sys::soxr_datatype_t {
-    match datatype {
-        proto::SoxResamplerDataType::SoxrDatatypeInt16i => soxr_sys::soxr_datatype_t_SOXR_INT16_I,
-        proto::SoxResamplerDataType::SoxrDatatypeInt16s => soxr_sys::soxr_datatype_t_SOXR_INT16_S,
+#[derive(uniffi::Enum)]
+// TODO(theomonnom): support other datatypes (shouldn't really be needed)
+pub enum SoxResamplerDataType {
+    Interleaved,
+    Split,
+}
+
+impl From<SoxResamplerDataType> for soxr_sys::soxr_datatype_t {
+    fn from(value: SoxResamplerDataType) -> Self {
+        match value {
+            SoxResamplerDataType::Interleaved => soxr_sys::soxr_datatype_t_SOXR_INT16_I,
+            SoxResamplerDataType::Split => soxr_sys::soxr_datatype_t_SOXR_INT16_S,
+        }
     }
+}
+
+#[derive(uniffi::Enum)]
+pub enum SoxQualityRecipe {
+    Quick = 0,
+    Low = 1,
+    Medium = 2,
+    High = 3,
+    VeryHigh = 4,
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum SoxResamplerError {
+    #[error("{0}")]
+    NewError(String),
+    #[error("{0}")]
+    PushError(String),
+    #[error("{0}")]
+    FlushError(String),
 }
 
 /// Direct-call tests for [`SoxResampler`], paired with the protobuf-driven tests

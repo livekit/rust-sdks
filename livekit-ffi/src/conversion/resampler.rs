@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,3 +11,49 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
+use crate::{proto, server::resampler};
+
+pub(crate) struct IOSpec {
+    pub input_type: proto::SoxResamplerDataType,
+    pub output_type: proto::SoxResamplerDataType,
+}
+
+impl From<IOSpec> for resampler::IOSpec {
+    fn from(value: IOSpec) -> Self {
+        Self { input_type: value.input_type.into(), output_type: value.output_type.into() }
+    }
+}
+
+impl From<proto::SoxResamplerDataType> for resampler::SoxResamplerDataType {
+    fn from(value: proto::SoxResamplerDataType) -> Self {
+        match value {
+            proto::SoxResamplerDataType::SoxrDatatypeInt16i => Self::Interleaved,
+            proto::SoxResamplerDataType::SoxrDatatypeInt16s => Self::Split,
+        }
+    }
+}
+
+pub(crate) struct QualitySpec {
+    pub quality: proto::SoxQualityRecipe,
+    pub flags: u32, // proto::SoxQualityFlags
+}
+
+impl From<QualitySpec> for resampler::QualitySpec {
+    fn from(value: QualitySpec) -> Self {
+        Self { quality: value.quality.into(), flags: value.flags }
+    }
+}
+
+impl From<proto::SoxQualityRecipe> for resampler::SoxQualityRecipe {
+    fn from(value: proto::SoxQualityRecipe) -> Self {
+        match value as std::os::raw::c_ulong {
+            0 => Self::Quick,
+            1 => Self::Low,
+            2 => Self::Medium,
+            3 => Self::High,
+            4 => Self::VeryHigh,
+            _ => Self::Medium, // default to Medium if unknown
+        }
+    }
+}
