@@ -18,3 +18,9 @@ sha2 = "0.10"
 jsonwebtoken = { version = "10", default-features = false }
 hmac = "0.12"
 signature = "2"
+
+[dev-dependencies]
+# The tests assert that `kind` and `inference` are *absent* from the payload when unset, which
+# needs to look at the serialized claims. A dev-dependency does not propagate, so this does not
+# widen what a consumer of this crate builds.
+serde_json = { workspace = true }
