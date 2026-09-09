@@ -14,16 +14,15 @@
 
 //! The error type shared by capture sources.
 //!
-//! Concrete errors live with what produces them: each source module defines
-//! its own error type, and the pumps report through
+//! [`SourceError`] type-erases a source's own error type so that a pump can
+//! report any source failure through
 //! [`PumpError`](crate::pump::PumpError).
 
 use std::{error::Error as StdError, fmt};
 
 /// Error returned by a capture source.
 ///
-/// `Display` and [`StdError::source`] delegate to the wrapped backend
-/// error.
+/// `Display` forwards to the wrapped error.
 #[derive(Debug)]
 pub struct SourceError(Box<dyn StdError + Send + Sync>);
 

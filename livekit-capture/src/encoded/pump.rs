@@ -50,8 +50,9 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     /// Creates a pump for an encoded source and builds the matching RTC
     /// source.
     ///
-    /// Must be called from within a tokio runtime context; panics
-    /// otherwise.
+    /// # Panics
+    ///
+    /// Panics if called outside a tokio runtime context.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new_encoded(source.resolution().into());
         Self { source, rtc_source, stop: PumpStop::new(), frame_metadata: None }
@@ -102,7 +103,6 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     /// This occupies the calling thread for the life of the capture. Most
     /// applications instead use [`EncodedVideoPump::spawn`], and reach for
     /// this only to run the pump on a thread they create themselves.
-    ///
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
         let mut frames_captured = 0;
         let mut awaiting_initial_keyframe = true;
@@ -142,9 +142,10 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
 
     /// Runs the pump on a dedicated thread.
     ///
-    /// This is how most applications run a pump; see [`EncodedVideoPump::run`] to
-    /// supply the thread yourself.
-    ///
+    /// This is how most applications run a pump; see
+    /// [`EncodedVideoPump::run`] to supply the thread yourself. A panic on
+    /// the pump thread is reported as [`PumpError::Panicked`] when the pump
+    /// is joined.
     pub fn spawn(self) -> io::Result<RunningPump>
     where
         S: 'static,
