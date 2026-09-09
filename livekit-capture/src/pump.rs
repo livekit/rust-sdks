@@ -146,36 +146,22 @@ impl RunningPump {
         self.thread.is_finished()
     }
 
-    /// Waits for the pump thread to exit.
-    ///
-    /// Panics on the pump thread are reported as [`PumpError::Panicked`].
-    pub fn join(self) -> Result<PumpStats, PumpError> {
-        self.thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
-    }
-
-    /// Signals the pump to stop and waits for its thread to exit.
-    pub fn stop_and_join(self) -> Result<PumpStats, PumpError> {
-        self.stop();
-        self.join()
-    }
-
     /// Waits for the pump thread to exit without blocking the async runtime.
     ///
-    /// This works under any async runtime, not only tokio, and is safe to
-    /// hold across long waits — for example in a `select!` that supervises
-    /// every running pump. Panics on the pump thread are reported as
-    /// [`PumpError::Panicked`].
-    pub async fn join_async(mut self) -> Result<PumpStats, PumpError> {
+    /// Safe to hold across long waits — for example in a `select!` that
+    /// supervises every running pump. Panics on the pump thread are
+    /// reported as [`PumpError::Panicked`].
+    pub async fn join(mut self) -> Result<PumpStats, PumpError> {
         // An error means the sender dropped, which also implies the pump
         // thread is done; either way the join below returns promptly.
         let _ = self.finished.wait_for(|finished| *finished).await;
-        self.join()
+        self.thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 
     /// Signals the pump to stop and waits for its thread to exit without
     /// blocking the async runtime.
-    pub async fn stop_and_join_async(self) -> Result<PumpStats, PumpError> {
+    pub async fn stop_and_join(self) -> Result<PumpStats, PumpError> {
         self.stop();
-        self.join_async().await
+        self.join().await
     }
 }
