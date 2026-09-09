@@ -39,14 +39,15 @@ pub struct VideoGrants {
     pub room_join: bool,
     pub room: String,
     pub destination_room: String,
-    pub can_publish: bool,
-    pub can_subscribe: bool,
-    pub can_publish_data: bool,
+    pub can_publish: Option<bool>,
+    pub can_subscribe: Option<bool>,
+    pub can_publish_data: Option<bool>,
     pub can_publish_sources: Vec<String>,
-    pub can_update_own_metadata: bool,
+    pub can_update_own_metadata: Option<bool>,
     pub ingress_admin: bool,
     pub hidden: bool,
     pub recorder: bool,
+    pub agent: bool,
 }
 
 /// SIP grants
@@ -113,6 +114,7 @@ pub struct Claims {
     pub nbf: u64,
     pub sub: String,
     pub name: String,
+    pub kind: String,
     pub video: VideoGrants,
     pub sip: SIPGrants,
     pub sha256: String,
@@ -129,6 +131,7 @@ impl From<livekit_token::Claims> for Claims {
             nbf: claims.nbf as u64,
             sub: claims.sub,
             name: claims.name,
+            kind: claims.kind,
             video: claims.video,
             sip: claims.sip,
             sha256: claims.sha256,
@@ -162,6 +165,8 @@ pub struct TokenOptions {
     identity: Option<String>,
     #[uniffi(default)]
     name: Option<String>,
+    #[uniffi(default)]
+    kind: Option<String>,
     #[uniffi(default)]
     metadata: Option<String>,
     #[uniffi(default)]
@@ -202,6 +207,9 @@ pub fn token_generate(
     }
     if let Some(name) = options.name {
         token = token.with_name(&name);
+    }
+    if let Some(kind) = options.kind {
+        token = token.with_kind(&kind);
     }
     if let Some(metadata) = options.metadata {
         token = token.with_metadata(&metadata);
