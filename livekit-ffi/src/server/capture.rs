@@ -113,7 +113,7 @@ pub fn on_start_capture(
     // The watcher owns the running pump and delivers the terminal event
     // exactly once, whether the capture is stopped, ends, or fails.
     server.async_runtime.spawn(async move {
-        let result = running.join_async().await;
+        let result = running.join().await;
         if let Ok(ffi_capture) = server.retrieve_handle::<FfiCaptureSource>(capture_handle) {
             *ffi_capture.state.lock() = CaptureState::Finished;
         }
