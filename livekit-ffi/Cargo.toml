@@ -22,7 +22,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 # Capture sources (livekit-capture): publish tracks from server-side
 # producers. This enables the capture scaffolding only; enable a
 # `capture-*` feature to include a specific source.
-capture = ["dep:livekit-capture", "livekit-capture/tokio"]
+capture = ["dep:livekit-capture"]
 
 [dependencies]
 livekit = { workspace = true }
