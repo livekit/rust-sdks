@@ -45,8 +45,8 @@
 # run it by hand over every crate that declares a mode:
 #
 #   cargo hack $(cargo metadata --no-deps --format-version 1 \
-#     | jq -r '.packages[] | select(.metadata["feature-combinations"]) | "-p \(.name)"') \
-#     --feature-powerset --depth 2 --keep-going check
+#     | jq -r '.packages[] | select(.metadata["feature-combinations"]) | "-p \(.name)"' \
+#     | tr -d '\r') --feature-powerset --depth 2 --keep-going check
 name: Feature Combinations (per-commit)
 
 on:
@@ -196,12 +196,16 @@ jobs:
 
           # `.metadata` is null for a crate that declares nothing, and jq
           # indexes null to null, so these select() calls simply skip it.
+          #
+          # `tr -d '\r'` is not optional: jq.exe on the Windows runners writes
+          # CRLF, and a CR that survives rides into the package name, which
+          # cargo rejects with `invalid character in package name`.
           by_mode() {
             printf '%s' "$META" | jq -r --arg mode "$1" '
               .packages[]
               | select(.metadata["feature-combinations"].mode == $mode)
               | "-p \(.name)"
-            ' | sort | tr '\n' ' '
+            ' | tr -d '\r' | sort | tr '\n' ' '
           }
 
           # A typo'd mode, or a curated crate with nothing to run, would
@@ -218,7 +222,7 @@ jobs:
               elif ($fc.mode == "powerset" and $fc.check != null) then
                 "\($crate): mode is \"powerset\", so its check list is silently ignored"
               else empty end
-          ')
+          ' | tr -d '\r')
           if [ -n "$BAD" ]; then
             echo "::error::bad [package.metadata.feature-combinations] tables:"
             echo "$BAD"
@@ -279,13 +283,15 @@ jobs:
 
           # One `crate|feat,feat` line per combination. `.metadata` is null for
           # a crate without the table, and jq indexes null to null, so the
-          # `// []` covers every other workspace member.
+          # `// []` covers every other workspace member. `tr -d '\r'` because
+          # jq.exe on the Windows runners writes CRLF, and a surviving CR ends
+          # up inside the `--features` value.
           COMBOS=$(cargo metadata --no-deps --format-version 1 | jq -r '
             .packages[]
             | .name as $crate
             | (.metadata["feature-combinations"].check // [])[]
             | "\($crate)|\(join(","))"
-          ')
+          ' | tr -d '\r')
 
           # A renamed table or a bad jq path would otherwise turn this step into
           # a silent no-op that still reports success.

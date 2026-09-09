@@ -114,7 +114,7 @@ A crate with no such table is not feature-checked at all. Today eleven crates ar
     .packages[] | .name as $c | .metadata["feature-combinations"] as $fc
     | select($fc != null)
     | if $fc.mode == "curated" then ($fc.check[] | "curated  \($c) \(join(","))")
-      else "powerset \($c)" end'
+      else "powerset \($c)" end' | tr -d '\r'
   ```
   For a `"powerset"` crate, `cargo hack -p <crate> --feature-powerset --depth 2 --print-command-list check` enumerates the combinations cargo-hack would run
 - The workflow validates the tables before running anything and fails on a typo'd `mode`, a `"curated"` crate with an empty `check`, a `"powerset"` crate carrying a `check` list that would be silently ignored, or either package set resolving to empty. A malformed table fails the job rather than quietly dropping a crate from CI
