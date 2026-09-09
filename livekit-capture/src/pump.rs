@@ -39,7 +39,7 @@ pub enum PumpError {
     #[error("capture source failed: {0}")]
     Source(#[from] SourceError),
     /// The RTC source rejected a frame.
-    #[error("capture source rejected the frame")]
+    #[error("RTC source rejected the frame")]
     CaptureFailed,
     /// The pump thread panicked.
     #[error("pump panicked: {0}")]
@@ -59,7 +59,7 @@ pub enum PumpExit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PumpStats {
-    /// Number of frames or access units captured.
+    /// Number of frames or access units captured from the source.
     pub frames_captured: u64,
     /// Why the run ended.
     pub exit: PumpExit,
@@ -118,7 +118,7 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
     }
 }
 
-/// A pump of either kind that runs on a dedicated thread.
+/// Handle to a pump running on its own thread.
 ///
 /// A stop takes effect between frames: a source that is blocked on its next
 /// frame completes that wait before the pump observes the signal.
@@ -146,7 +146,7 @@ impl RunningPump {
         self.thread.is_finished()
     }
 
-    /// Waits for the pump thread to exit without blocking the async runtime.
+    /// Waits for the pump to exit.
     ///
     /// Safe to hold across long waits — for example in a `select!` that
     /// supervises every running pump. Panics on the pump thread are
@@ -158,8 +158,7 @@ impl RunningPump {
         self.thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 
-    /// Signals the pump to stop and waits for its thread to exit without
-    /// blocking the async runtime.
+    /// Signals the pump to stop and waits for it to exit.
     pub async fn stop_and_join(self) -> Result<PumpStats, PumpError> {
         self.stop();
         self.join().await

@@ -104,7 +104,7 @@ pub enum EncodedFrameType {
     Delta,
 }
 
-/// Owned encoded video access unit.
+/// A single encoded frame and the metadata needed to publish it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnedEncodedAccessUnit {
     /// Codec of the payload.

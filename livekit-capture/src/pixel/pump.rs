@@ -42,8 +42,9 @@ pub struct PixelVideoPump<S: PixelVideoSource> {
 impl<S: PixelVideoSource> PixelVideoPump<S> {
     /// Creates a pump for a pixel source and builds the matching RTC source.
     ///
-    /// Must be called from within a tokio runtime context; panics
-    /// otherwise.
+    /// # Panics
+    ///
+    /// Panics if called outside a tokio runtime context.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new(source.resolution().into(), false);
         Self { source, rtc_source, stop: PumpStop::new(), frame_metadata: None }
@@ -117,11 +118,11 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
         Ok(PumpStats { frames_captured, exit })
     }
 
-    /// Runs the pump on a dedicated thread. This is how most applications
-    /// run a pump; see [`PixelVideoPump::run`] to supply the thread yourself.
+    /// Runs the pump on a dedicated thread.
     ///
-    /// A panic on the pump thread is reported as [`PumpError::Panicked`]
-    /// when the pump is joined.
+    /// This is how most applications run a pump; see [`PixelVideoPump::run`]
+    /// to supply the thread yourself. A panic on the pump thread is
+    /// reported as [`PumpError::Panicked`] when the pump is joined.
     pub fn spawn(self) -> io::Result<RunningPump>
     where
         S: 'static,
