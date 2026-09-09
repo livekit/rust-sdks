@@ -1,6 +1,6 @@
 ---
 livekit-rpc: patch
-livekit: minor
+livekit: major
 livekit-ffi: patch
 livekit-data-stream: patch
 livekit-uniffi: patch
