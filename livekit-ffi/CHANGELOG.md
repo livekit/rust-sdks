@@ -316,6 +316,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.78 (2026-09-09)
+
+### Fixes
+
+- Load the Jetson MMAPI encoder's runtime libraries (libnvbufsurface, libv4l2/libnvv4l2) lazily via dlopen instead of linking them, so an aarch64 binary built with Jetson support also loads on non-Jetson ARM systems and falls back to other encoders there.
+- log warning if signal messages get dropped during reconnect - #1391 (@lukasIO)
+
+#### Own the add_ice_candidate completion state
+
+`PeerConnection::add_ice_candidate` captured `ctx` and `on_complete` by reference in the
+completion lambda it hands to libwebrtc. That completion runs asynchronously on the signaling
+thread and is deferred behind the operations chain whenever it is busy, for example while a
+`SetRemoteDescription` is in flight, so it could execute after the calling frame had returned
+and dereference freed stack memory (a crash on the signaling thread on the first ICE candidate
+in practice). The lambda now owns its state through a `shared_ptr`.
+
+#### Moves the RPC implementation into a new `livekit-rpc` crate, alongside the existing
+
+`livekit-data-stream` and `livekit-datatrack` crates.
+
+**Breaking:** the `livekit::rpc` module is gone. The RPC types it held are unchanged and
+still re-exported from `livekit::participant` and the prelude, so most code needs no edit;
+code that spelled the module out (`use livekit::rpc::RpcError;`) should import from
+`livekit::participant` or the prelude instead. `RpcClientManager`, `RpcServerManager` and
+`HandleRequestOptions` remain reachable under `livekit::participant` but are now
+`#[doc(hidden)]`: they are internal SDK API and were never usable without the (private)
+transport trait.
+
+Within the `livekit` crate itself, RPC types are now imported from `livekit-rpc` directly
+rather than through those re-exports.
+
+The new crate does not depend on `libwebrtc`, so its unit tests run without building WebRTC.
+The transport seam that made this possible was already in place; the only change to it is
+that `RpcTransport::publish_data` now returns a message-only `RpcTransportError` instead of
+`livekit::RoomError`, mirroring `livekit_data_stream::api::SendError`.
+
+Also fixes four latent bugs found while moving the code:
+
+- An RPC call to a participant who disconnects mid-call now fails promptly with
+  `RecipientDisconnected`. Pending calls were never purged on disconnect, so the caller
+  waited out its full response timeout (15s by default) and got `ResponseTimeout` instead.
+- A server reporting a version that is not valid semver no longer panics the calling task.
+  An unparseable version is no longer treated as evidence that the server is too old.
+- A v1 `RpcResponse` carrying a compressed payload, or no value at all, now fails with an
+  `ApplicationError` instead of resolving the caller with an empty successful response.
+- Removed an unguarded `unwrap` when building a v1 response packet, by giving the function
+  a signature that cannot represent the invalid state.
+
+Also drops the `semver` dependency from `livekit`, which was only used by the RPC client.
+
 ## 0.12.77 (2026-09-08)
 
 ### Features

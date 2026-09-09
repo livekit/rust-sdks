@@ -165,6 +165,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.45 (2026-09-09)
+
+### Fixes
+
+- Load the Jetson MMAPI encoder's runtime libraries (libnvbufsurface, libv4l2/libnvv4l2) lazily via dlopen instead of linking them, so an aarch64 binary built with Jetson support also loads on non-Jetson ARM systems and falls back to other encoders there.
+
+#### Own the add_ice_candidate completion state
+
+`PeerConnection::add_ice_candidate` captured `ctx` and `on_complete` by reference in the
+completion lambda it hands to libwebrtc. That completion runs asynchronously on the signaling
+thread and is deferred behind the operations chain whenever it is busy, for example while a
+`SetRemoteDescription` is in flight, so it could execute after the calling frame had returned
+and dereference freed stack memory (a crash on the signaling thread on the first ICE candidate
+in practice). The lambda now owns its state through a `shared_ptr`.
+
 ## 0.3.44 (2026-09-08)
 
 ### Features
