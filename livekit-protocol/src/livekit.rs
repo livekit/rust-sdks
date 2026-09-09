@@ -94,14 +94,6 @@ pub struct MetricsRecordingHeader {
     pub room_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="7")]
     pub room_start_time: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(string, tag="8")]
-    pub job_id: ::prost::alloc::string::String,
-    /// session is a simulation; the collector skips PII redaction for it unless redaction_enabled is set
-    #[prost(bool, tag="9")]
-    pub simulated: bool,
-    /// force PII redaction on for this session (only ever enables, never disables)
-    #[prost(bool, tag="10")]
-    pub redaction_enabled: bool,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -479,9 +471,8 @@ pub mod participant_info {
         Forwarded = 1,
         ConnectorWhatsapp = 2,
         ConnectorTwilio = 3,
+        /// NEXT_ID: 5
         BridgeRtsp = 4,
-        /// NEXT_ID: 6
-        Simulation = 5,
     }
     impl KindDetail {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -495,7 +486,6 @@ pub mod participant_info {
                 KindDetail::ConnectorWhatsapp => "CONNECTOR_WHATSAPP",
                 KindDetail::ConnectorTwilio => "CONNECTOR_TWILIO",
                 KindDetail::BridgeRtsp => "BRIDGE_RTSP",
-                KindDetail::Simulation => "SIMULATION",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -506,7 +496,6 @@ pub mod participant_info {
                 "CONNECTOR_WHATSAPP" => Some(Self::ConnectorWhatsapp),
                 "CONNECTOR_TWILIO" => Some(Self::ConnectorTwilio),
                 "BRIDGE_RTSP" => Some(Self::BridgeRtsp),
-                "SIMULATION" => Some(Self::Simulation),
                 _ => None,
             }
         }
@@ -2858,6 +2847,20 @@ pub struct ListEgressResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateEgressRequest {
+    #[prost(string, tag="1")]
+    pub egress_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub layout: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="4")]
+    pub add_stream_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="5")]
+    pub remove_stream_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StopEgressRequest {
     #[prost(string, tag="1")]
     pub egress_id: ::prost::alloc::string::String,
@@ -3470,8 +3473,6 @@ pub enum EncodingOptionsPreset {
     PortraitH2641080p30 = 6,
     /// 1080x1920, 60fps, 6000kbps, H.264_MAIN / OPUS
     PortraitH2641080p60 = 7,
-    /// Skip transcoding. Valid only when specifying a single track with MediaSource
-    Passthrough = 8,
 }
 impl EncodingOptionsPreset {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3488,7 +3489,6 @@ impl EncodingOptionsPreset {
             EncodingOptionsPreset::PortraitH264720p60 => "PORTRAIT_H264_720P_60",
             EncodingOptionsPreset::PortraitH2641080p30 => "PORTRAIT_H264_1080P_30",
             EncodingOptionsPreset::PortraitH2641080p60 => "PORTRAIT_H264_1080P_60",
-            EncodingOptionsPreset::Passthrough => "PASSTHROUGH",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3502,7 +3502,6 @@ impl EncodingOptionsPreset {
             "PORTRAIT_H264_720P_60" => Some(Self::PortraitH264720p60),
             "PORTRAIT_H264_1080P_30" => Some(Self::PortraitH2641080p30),
             "PORTRAIT_H264_1080P_60" => Some(Self::PortraitH2641080p60),
-            "PASSTHROUGH" => Some(Self::Passthrough),
             _ => None,
         }
     }
@@ -4516,8 +4515,6 @@ pub struct SyncState {
     pub datachannel_receive_states: ::prost::alloc::vec::Vec<DataChannelReceiveState>,
     #[prost(message, repeated, tag="8")]
     pub publish_data_tracks: ::prost::alloc::vec::Vec<PublishDataTrackResponse>,
-    #[prost(message, optional, tag="9")]
-    pub data_subscription: ::core::option::Option<UpdateDataSubscription>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4914,8 +4911,6 @@ pub struct Job {
     pub deployment: ::prost::alloc::string::String,
     #[prost(map="string, string", tag="12")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-    #[prost(bool, tag="13")]
-    pub enable_redaction: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5557,7 +5552,7 @@ pub struct RoomConfiguration {
     /// number of seconds to keep the room open after everyone leaves
     #[prost(uint32, tag="3")]
     pub departure_timeout: u32,
-    /// limit number of participants that can be in a room, excluding Egress and Agent participants
+    /// limit number of participants that can be in a room, excluding Egress and Ingress participants
     #[prost(uint32, tag="4")]
     pub max_participants: u32,
     /// metadata of room
@@ -6054,7 +6049,7 @@ impl IngressVideoEncodingPreset {
 pub struct WebhookEvent {
     /// one of room_started, room_finished, participant_joined, participant_left, participant_connection_aborted,
     /// track_published, track_unpublished, egress_started, egress_updated, egress_ended,
-    /// ingress_started, ingress_ended, agent_job_started, agent_job_ended
+    /// ingress_started, ingress_ended
     #[prost(string, tag="1")]
     pub event: ::prost::alloc::string::String,
     #[prost(message, optional, tag="2")]
@@ -6071,9 +6066,6 @@ pub struct WebhookEvent {
     /// set when event is track_*
     #[prost(message, optional, tag="8")]
     pub track: ::core::option::Option<TrackInfo>,
-    /// set when event is agent_job_*
-    #[prost(message, optional, tag="12")]
-    pub job: ::core::option::Option<Job>,
     /// unique event uuid
     #[prost(string, tag="6")]
     pub id: ::prost::alloc::string::String,
@@ -7694,9 +7686,6 @@ pub struct ConnectWhatsAppCallRequest {
     /// It is the answer SDP for a business initiated call
     #[prost(message, optional, tag="2")]
     pub sdp: ::core::option::Option<SessionDescription>,
-    /// Wait for the answer for the call before returning.
-    #[prost(bool, tag="3")]
-    pub wait_until_answered: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -8324,9 +8313,6 @@ pub struct WebhookInfo {
     pub service_error: ::prost::alloc::string::String,
     #[prost(string, tag="22")]
     pub send_error: ::prost::alloc::string::String,
-    /// HTTP response status code for the delivery attempt (0 if no response).
-    #[prost(int32, tag="23")]
-    pub http_status_code: i32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
