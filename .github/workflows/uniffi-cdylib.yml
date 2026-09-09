@@ -76,7 +76,7 @@ jobs:
             platform: android
 
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # Build the tagged source, not the ref the workflow was dispatched
           # from. A manual re-run for an older release would otherwise upload
@@ -87,7 +87,7 @@ jobs:
       - name: Setup Rust toolchain
         # Linux builds run inside a container with their own toolchain.
         if: ${{ matrix.platform != 'linux' }}
-        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
         with:
           target: ${{ matrix.target }}
           cache: false
@@ -134,7 +134,7 @@ jobs:
       # source build costs 3-5 minutes per matrix job on the release path.
       - name: Install cargo-ndk
         if: ${{ matrix.platform == 'android' }}
-        uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2.82.4
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.86.7
         with: { tool: cargo-ndk }
 
       - name: Build (Android)
