@@ -248,9 +248,12 @@ impl DeviceInfo {
 ///
 /// Requires a running tokio runtime: enumeration runs on the tokio blocking
 /// pool. Use [`devices_blocking`] outside of async contexts.
-#[cfg(feature = "tokio")]
 pub async fn devices() -> Result<Vec<DeviceInfo>, SourceError> {
-    crate::utils::run_blocking(devices_blocking).await
+    match tokio::task::spawn_blocking(devices_blocking).await {
+        Ok(result) => result,
+        Err(err) if err.is_panic() => std::panic::resume_unwind(err.into_panic()),
+        Err(err) => Err(SourceError::new(err)),
+    }
 }
 
 /// Lists the video capture devices on this machine.
@@ -300,9 +303,12 @@ impl DeviceVideoSource {
     ///
     /// Requires a running tokio runtime. Use
     /// [`DeviceVideoSource::new_blocking`] outside of async contexts.
-    #[cfg(feature = "tokio")]
     pub async fn new(config: DeviceVideoSourceConfig) -> Result<Self, SourceError> {
-        crate::utils::run_blocking(move || Self::new_blocking(config)).await
+        match tokio::task::spawn_blocking(move || Self::new_blocking(config)).await {
+            Ok(result) => result,
+            Err(err) if err.is_panic() => std::panic::resume_unwind(err.into_panic()),
+            Err(err) => Err(SourceError::new(err)),
+        }
     }
 
     /// Opens the configured device and negotiates the capture format.
