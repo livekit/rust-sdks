@@ -493,7 +493,11 @@ mod tests {
 
         let agent = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
             .with_ttl(Duration::from_secs(60))
-            .with_grants(VideoGrants { agent: true, can_publish: Some(false), ..Default::default() })
+            .with_grants(VideoGrants {
+                agent: true,
+                can_publish: Some(false),
+                ..Default::default()
+            })
             .to_jwt()
             .expect("Failed to create token");
         let p = payload(&agent);
@@ -509,7 +513,11 @@ mod tests {
         let parsed: VideoGrants = serde_json::from_str("{}").unwrap();
         assert_eq!(parsed, VideoGrants::default());
         assert_eq!(serde_json::to_string(&parsed).unwrap(), "{}");
-        let explicit = VideoGrants { can_publish: Some(false), can_publish_data: Some(true), ..Default::default() };
+        let explicit = VideoGrants {
+            can_publish: Some(false),
+            can_publish_data: Some(true),
+            ..Default::default()
+        };
         assert_eq!(
             serde_json::to_string(&explicit).unwrap(),
             r#"{"canPublish":false,"canPublishData":true}"#
