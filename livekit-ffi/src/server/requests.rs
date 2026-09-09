@@ -520,6 +520,25 @@ unsafe fn on_capture_video_frame(
     Ok(proto::CaptureVideoFrameResponse::default())
 }
 
+/// Push one complete pre-encoded access unit to an encoded video source.
+unsafe fn on_capture_encoded_video_frame(
+    server: &'static FfiServer,
+    capture: proto::CaptureEncodedVideoFrameRequest,
+) -> FfiResult<proto::CaptureEncodedVideoFrameResponse> {
+    let source = server.retrieve_handle::<video_source::FfiVideoSource>(capture.source_handle)?;
+    let accepted = source.capture_encoded_frame(capture)?;
+    Ok(proto::CaptureEncodedVideoFrameResponse { accepted })
+}
+
+/// Consume pending keyframe and rate-control feedback for an encoded source.
+fn on_take_encoded_video_source_feedback(
+    server: &'static FfiServer,
+    request: proto::TakeEncodedVideoSourceFeedbackRequest,
+) -> FfiResult<proto::TakeEncodedVideoSourceFeedbackResponse> {
+    let source = server.retrieve_handle::<video_source::FfiVideoSource>(request.source_handle)?;
+    source.take_encoded_feedback()
+}
+
 /// Convert a video frame
 ///
 /// # Safety: The user must ensure that the pointers/len provided are valid
@@ -1390,6 +1409,12 @@ pub fn handle_request(
         }
         Request::NewVideoSource(req) => on_new_video_source(server, req)?.into(),
         Request::CaptureVideoFrame(req) => unsafe { on_capture_video_frame(server, req)?.into() },
+        Request::CaptureEncodedVideoFrame(req) => unsafe {
+            on_capture_encoded_video_frame(server, req)?.into()
+        },
+        Request::TakeEncodedVideoSourceFeedback(req) => {
+            on_take_encoded_video_source_feedback(server, req)?.into()
+        }
         Request::VideoConvert(req) => unsafe { on_video_convert(server, req)?.into() },
         Request::NewAudioStream(req) => on_new_audio_stream(server, req)?.into(),
         Request::NewAudioSource(req) => on_new_audio_source(server, req)?.into(),

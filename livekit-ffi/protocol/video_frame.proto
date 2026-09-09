@@ -82,6 +82,38 @@ message CaptureVideoFrameRequest {
 
 message CaptureVideoFrameResponse {}
 
+// Push one complete pre-encoded access unit to an encoded VideoSource.
+// The payload pointer only needs to remain valid for the duration of the
+// synchronous FFI request; the native implementation copies it before
+// returning.
+message CaptureEncodedVideoFrameRequest {
+  required uint64 source_handle = 1;
+  required uint64 data_ptr = 2;
+  required uint64 data_len = 3;
+  required VideoCodec codec = 4;
+  required EncodedFrameType frame_type = 5;
+  required uint32 width = 6;
+  required uint32 height = 7;
+  required int64 timestamp_us = 8;
+  optional FrameMetadata metadata = 9;
+}
+
+message CaptureEncodedVideoFrameResponse { required bool accepted = 1; }
+
+// Consumes feedback accumulated by the pre-encoded passthrough encoder since
+// the previous call.
+message TakeEncodedVideoSourceFeedbackRequest { required uint64 source_handle = 1; }
+
+message EncodedRateControl {
+  required uint64 target_bitrate_bps = 1;
+  required double framerate_fps = 2;
+}
+
+message TakeEncodedVideoSourceFeedbackResponse {
+  required bool keyframe_requested = 1;
+  optional EncodedRateControl rate_control = 2;
+}
+
 message VideoConvertRequest {
   optional bool flip_y = 1;
   required VideoBufferInfo buffer = 2;
@@ -110,6 +142,11 @@ enum VideoCodec {
   AV1 = 2;
   VP9 = 3;
   H265 = 4;
+}
+
+enum EncodedFrameType {
+  ENCODED_FRAME_KEY = 0;
+  ENCODED_FRAME_DELTA = 1;
 }
 
 enum VideoRotation {
@@ -207,6 +244,7 @@ message VideoSourceResolution {
 
 enum VideoSourceType {
   VIDEO_SOURCE_NATIVE = 0;
+  VIDEO_SOURCE_ENCODED = 1;
 }
 
 message VideoSourceInfo {

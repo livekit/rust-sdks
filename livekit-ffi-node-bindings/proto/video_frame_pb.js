@@ -39,6 +39,17 @@ const VideoCodec = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * @generated from enum livekit.proto.EncodedFrameType
+ */
+const EncodedFrameType = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.EncodedFrameType",
+  [
+    {no: 0, name: "ENCODED_FRAME_KEY"},
+    {no: 1, name: "ENCODED_FRAME_DELTA"},
+  ],
+);
+
+/**
  * @generated from enum livekit.proto.VideoRotation
  */
 const VideoRotation = /*@__PURE__*/ proto2.makeEnum(
@@ -93,6 +104,7 @@ const VideoSourceType = /*@__PURE__*/ proto2.makeEnum(
   "livekit.proto.VideoSourceType",
   [
     {no: 0, name: "VIDEO_SOURCE_NATIVE"},
+    {no: 1, name: "VIDEO_SOURCE_ENCODED"},
   ],
 );
 
@@ -197,6 +209,74 @@ const CaptureVideoFrameRequest = /*@__PURE__*/ proto2.makeMessageType(
 const CaptureVideoFrameResponse = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.CaptureVideoFrameResponse",
   [],
+);
+
+/**
+ * Push one complete pre-encoded access unit to an encoded VideoSource.
+ * The payload pointer only needs to remain valid for the duration of the
+ * synchronous FFI request; the native implementation copies it before
+ * returning.
+ *
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest
+ */
+const CaptureEncodedVideoFrameRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.CaptureEncodedVideoFrameRequest",
+  () => [
+    { no: 1, name: "source_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "data_ptr", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 3, name: "data_len", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 4, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), req: true },
+    { no: 5, name: "frame_type", kind: "enum", T: proto2.getEnumType(EncodedFrameType), req: true },
+    { no: 6, name: "width", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 7, name: "height", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 8, name: "timestamp_us", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
+    { no: 9, name: "metadata", kind: "message", T: FrameMetadata, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameResponse
+ */
+const CaptureEncodedVideoFrameResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.CaptureEncodedVideoFrameResponse",
+  () => [
+    { no: 1, name: "accepted", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+  ],
+);
+
+/**
+ * Consumes feedback accumulated by the pre-encoded passthrough encoder since
+ * the previous call.
+ *
+ * @generated from message livekit.proto.TakeEncodedVideoSourceFeedbackRequest
+ */
+const TakeEncodedVideoSourceFeedbackRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.TakeEncodedVideoSourceFeedbackRequest",
+  () => [
+    { no: 1, name: "source_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.EncodedRateControl
+ */
+const EncodedRateControl = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.EncodedRateControl",
+  () => [
+    { no: 1, name: "target_bitrate_bps", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "framerate_fps", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.TakeEncodedVideoSourceFeedbackResponse
+ */
+const TakeEncodedVideoSourceFeedbackResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.TakeEncodedVideoSourceFeedbackResponse",
+  () => [
+    { no: 1, name: "keyframe_requested", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 2, name: "rate_control", kind: "message", T: EncodedRateControl, opt: true },
+  ],
 );
 
 /**
@@ -373,6 +453,7 @@ const OwnedVideoSource = /*@__PURE__*/ proto2.makeMessageType(
 
 
 exports.VideoCodec = VideoCodec;
+exports.EncodedFrameType = EncodedFrameType;
 exports.VideoRotation = VideoRotation;
 exports.VideoBufferType = VideoBufferType;
 exports.VideoStreamType = VideoStreamType;
@@ -385,6 +466,11 @@ exports.NewVideoSourceRequest = NewVideoSourceRequest;
 exports.NewVideoSourceResponse = NewVideoSourceResponse;
 exports.CaptureVideoFrameRequest = CaptureVideoFrameRequest;
 exports.CaptureVideoFrameResponse = CaptureVideoFrameResponse;
+exports.CaptureEncodedVideoFrameRequest = CaptureEncodedVideoFrameRequest;
+exports.CaptureEncodedVideoFrameResponse = CaptureEncodedVideoFrameResponse;
+exports.TakeEncodedVideoSourceFeedbackRequest = TakeEncodedVideoSourceFeedbackRequest;
+exports.EncodedRateControl = EncodedRateControl;
+exports.TakeEncodedVideoSourceFeedbackResponse = TakeEncodedVideoSourceFeedbackResponse;
 exports.VideoConvertRequest = VideoConvertRequest;
 exports.VideoConvertResponse = VideoConvertResponse;
 exports.VideoResolution = VideoResolution;
