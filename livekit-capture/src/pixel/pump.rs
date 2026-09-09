@@ -41,6 +41,9 @@ pub struct PixelVideoPump<S: PixelVideoSource> {
 
 impl<S: PixelVideoSource> PixelVideoPump<S> {
     /// Creates a pump for a pixel source and builds the matching RTC source.
+    ///
+    /// Must be called from within a tokio runtime context; panics
+    /// otherwise.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new(source.resolution().into(), false);
         Self { source, rtc_source, stop: PumpStop::new(), frame_metadata: None }
@@ -83,8 +86,9 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
     /// Runs the pump on the calling thread until the source ends, an error
     /// occurs, or the stop handle fires.
     ///
-    /// Sources block. On an async runtime, run this on a dedicated thread
-    /// (see [`PixelVideoPump::spawn`]) or a blocking pool.
+    /// This occupies the calling thread for the life of the capture. Most
+    /// applications instead use [`PixelVideoPump::spawn`], and reach for
+    /// this only to run the pump on a thread they create themselves.
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
         let mut frames_captured = 0;
         let exit = loop {
@@ -113,7 +117,8 @@ impl<S: PixelVideoSource> PixelVideoPump<S> {
         Ok(PumpStats { frames_captured, exit })
     }
 
-    /// Runs the pump on a dedicated thread.
+    /// Runs the pump on a dedicated thread. This is how most applications
+    /// run a pump; see [`PixelVideoPump::run`] to supply the thread yourself.
     ///
     /// A panic on the pump thread is reported as [`PumpError::Panicked`]
     /// when the pump is joined.
@@ -146,15 +151,6 @@ mod tests {
 
     const RESOLUTION: VideoResolution = VideoResolution { width: 64, height: 36 };
 
-    /// Pixel RTC sources spawn their keepalive task at construction; give the
-    /// tests the runtime context an SDK application would have.
-    fn runtime_context() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .build()
-            .expect("failed to build test runtime")
-    }
-
     fn pixel_frame(timestamp_us: i64) -> BoxVideoFrame {
         VideoFrame {
             rotation: VideoRotation::VideoRotation0,
@@ -184,22 +180,16 @@ mod tests {
         }
     }
 
-    #[test]
-    fn pixel_pump_captures_all_frames_until_eof() {
-        let runtime = runtime_context();
-        let _guard = runtime.enter();
-
+    #[tokio::test]
+    async fn pixel_pump_captures_all_frames_until_eof() {
         let source = FakePixelSource::new([pixel_frame(1), pixel_frame(2), pixel_frame(3)]);
         let stats = PixelVideoPump::new(source).run().unwrap();
         assert_eq!(stats.frames_captured, 3);
         assert_eq!(stats.exit, PumpExit::EndOfStream);
     }
 
-    #[test]
-    fn boxed_source_drives_generic_pump() {
-        let runtime = runtime_context();
-        let _guard = runtime.enter();
-
+    #[tokio::test]
+    async fn boxed_source_drives_generic_pump() {
         // The dynamic-instantiation pattern: box at the edge, same pump.
         let source: Box<dyn PixelVideoSource> =
             Box::new(FakePixelSource::new([pixel_frame(1), pixel_frame(2)]));
@@ -207,11 +197,8 @@ mod tests {
         assert_eq!(stats.frames_captured, 2);
     }
 
-    #[test]
-    fn metadata_callback_runs_per_frame() {
-        let runtime = runtime_context();
-        let _guard = runtime.enter();
-
+    #[tokio::test]
+    async fn metadata_callback_runs_per_frame() {
         let source = FakePixelSource::new([pixel_frame(1), pixel_frame(2), pixel_frame(3)]);
         let calls = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
         let calls_in_callback = calls.clone();
@@ -227,8 +214,8 @@ mod tests {
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 3);
     }
 
-    #[test]
-    fn pump_panics_become_errors() {
+    #[tokio::test]
+    async fn pump_panics_become_errors() {
         struct PanickingSource;
 
         impl PixelVideoSource for PanickingSource {
@@ -244,46 +231,15 @@ mod tests {
             }
         }
 
-        let runtime = runtime_context();
-        let _guard = runtime.enter();
-
         let running = PixelVideoPump::new(PanickingSource).spawn().unwrap();
-        let error = running.join().unwrap_err();
+        let error = running.join().await.unwrap_err();
         assert!(
             matches!(&error, PumpError::Panicked(message) if message.contains("source exploded"))
         );
     }
 
-    #[test]
-    fn running_pump_stops_on_signal() {
-        struct EndlessSource;
-
-        impl PixelVideoSource for EndlessSource {
-            fn resolution(&self) -> VideoResolution {
-                RESOLUTION
-            }
-
-            fn next_frame(
-                &mut self,
-                _stop: &PumpStop,
-            ) -> Result<Option<BoxVideoFrame>, SourceError> {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-                Ok(Some(pixel_frame(0)))
-            }
-        }
-
-        let runtime = runtime_context();
-        let _guard = runtime.enter();
-
-        let running = PixelVideoPump::new(EndlessSource).spawn().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        let stats = running.stop_and_join().unwrap();
-        assert!(stats.frames_captured > 0);
-        assert_eq!(stats.exit, PumpExit::Stopped);
-    }
-
     #[tokio::test]
-    async fn pump_stops_and_joins_async() {
+    async fn running_pump_stops_on_signal() {
         struct EndlessSource;
 
         impl PixelVideoSource for EndlessSource {
@@ -302,7 +258,8 @@ mod tests {
 
         let running = PixelVideoPump::new(EndlessSource).spawn().unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        let stats = running.stop_and_join_async().await.unwrap();
+        let stats = running.stop_and_join().await.unwrap();
         assert!(stats.frames_captured > 0);
+        assert_eq!(stats.exit, PumpExit::Stopped);
     }
 }

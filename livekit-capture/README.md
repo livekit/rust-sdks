@@ -14,8 +14,7 @@ way.
 Two concepts make up the crate. Video reaches a LiveKit track in one of two
 forms, so the source and the pump each have two variants.
 
-**A source** produces video, one blocking call at a time. Implement one of
-these two traits:
+**A source** produces video:
 
 - A `pixel::PixelVideoSource` produces raw `VideoFrame`s — from a camera, for
   example. The WebRTC encoder encodes them.
@@ -27,12 +26,11 @@ these two traits:
 **A pump** connects one source to an RTC video source:
 `pixel::PixelVideoPump<S>` or `encoded::EncodedVideoPump<S>`. It builds the
 matching RTC video source, derives the publish options, and runs the capture
-loop. Spawn a pump onto a dedicated thread and it becomes a
-`pump::RunningPump`. Both pump kinds spawn into the same type, so an
-application supervises them the same way. Stop a running pump from any
-thread through its stop handle.
-
-Sources block, so the pumps run synchronous code on plain threads.
+loop. Spawn a pump and it becomes a `pump::RunningPump`: await it to join,
+or stop it from any thread through its stop handle. Both pump kinds spawn
+into the same type, so an application supervises them the same way.
+Spawning is the usual choice; a pump can also `run` on the calling thread,
+for an application that creates the capture thread itself.
 
 ## Publishing a track
 
@@ -49,7 +47,7 @@ room.local_participant().publish_track(LocalTrack::Video(track), options).await?
 let running = pump.spawn()?;
 
 // On shutdown:
-let stats = running.stop_and_join_async().await?;
+let stats = running.stop_and_join().await?;
 ```
 
 ## Adding a source
@@ -58,3 +56,13 @@ Implement `pixel::PixelVideoSource` for raw frames or
 `encoded::EncodedVideoSource` for pre-encoded access units. A source is
 constructed from its own config struct and is driven by the matching pump —
 no other integration is needed.
+
+Two conventions keep a source easy to consume:
+
+- **Construct with an `async fn new`**, so an application can build a source
+  inline where it publishes. When setup itself blocks — probing a device,
+  waiting on a first frame to learn the resolution — run that work in
+  `tokio::task::spawn_blocking`.
+- **Block freely in the next-frame call.** The pump runs the source on its
+  own thread, so waiting there costs the application nothing. Return
+  promptly once the stop token fires.

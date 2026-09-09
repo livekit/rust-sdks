@@ -49,6 +49,9 @@ pub struct EncodedVideoPump<S: EncodedVideoSource> {
 impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     /// Creates a pump for an encoded source and builds the matching RTC
     /// source.
+    ///
+    /// Must be called from within a tokio runtime context; panics
+    /// otherwise.
     pub fn new(source: S) -> Self {
         let rtc_source = NativeVideoSource::new_encoded(source.resolution().into());
         Self { source, rtc_source, stop: PumpStop::new(), frame_metadata: None }
@@ -96,8 +99,10 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     /// Runs the pump on the calling thread until the source ends, an error
     /// occurs, or the stop handle fires.
     ///
-    /// Sources block. On an async runtime, run this on a dedicated thread
-    /// (see [`EncodedVideoPump::spawn`]) or a blocking pool.
+    /// This occupies the calling thread for the life of the capture. Most
+    /// applications instead use [`EncodedVideoPump::spawn`], and reach for
+    /// this only to run the pump on a thread they create themselves.
+    ///
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
         let mut frames_captured = 0;
         let mut awaiting_initial_keyframe = true;
@@ -137,8 +142,9 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
 
     /// Runs the pump on a dedicated thread.
     ///
-    /// A panic on the pump thread is reported as [`PumpError::Panicked`]
-    /// when the pump is joined.
+    /// This is how most applications run a pump; see [`EncodedVideoPump::run`] to
+    /// supply the thread yourself.
+    ///
     pub fn spawn(self) -> io::Result<RunningPump>
     where
         S: 'static,
@@ -229,8 +235,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn encoded_pump_starts_at_initial_keyframe() {
+    #[tokio::test]
+    async fn encoded_pump_starts_at_initial_keyframe() {
         let source = FakeEncodedSource::new([
             access_unit(1, EncodedFrameType::Delta),
             access_unit(2, EncodedFrameType::Delta),
@@ -241,8 +247,8 @@ mod tests {
         assert_eq!(stats.frames_captured, 2);
     }
 
-    #[test]
-    fn boxed_source_drives_generic_pump() {
+    #[tokio::test]
+    async fn boxed_source_drives_generic_pump() {
         // The dynamic-instantiation pattern: box at the edge, same pump.
         let source: Box<dyn EncodedVideoSource> =
             Box::new(FakeEncodedSource::new([access_unit(1, EncodedFrameType::Key)]));
@@ -252,8 +258,8 @@ mod tests {
         assert_eq!(stats.frames_captured, 1);
     }
 
-    #[test]
-    fn metadata_callback_runs_per_captured_access_unit() {
+    #[tokio::test]
+    async fn metadata_callback_runs_per_captured_access_unit() {
         let source = FakeEncodedSource::new([
             access_unit(1, EncodedFrameType::Delta), // dropped pre-roll, no callback
             access_unit(2, EncodedFrameType::Key),
@@ -273,8 +279,8 @@ mod tests {
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
     }
 
-    #[test]
-    fn encoded_pump_rejects_empty_payloads() {
+    #[tokio::test]
+    async fn encoded_pump_rejects_empty_payloads() {
         let mut unit = access_unit(1, EncodedFrameType::Key);
         unit.payload = Bytes::new();
 
@@ -283,8 +289,8 @@ mod tests {
         assert!(error.to_string().contains("empty payload"));
     }
 
-    #[test]
-    fn encoded_publish_options_use_passthrough() {
+    #[tokio::test]
+    async fn encoded_publish_options_use_passthrough() {
         let pump = EncodedVideoPump::new(FakeEncodedSource::new([]));
         let options = pump.publish_options();
         assert_eq!(options.video_encoder, VideoEncoderBackend::PreEncoded);

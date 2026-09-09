@@ -17,11 +17,14 @@
 //! A capture source produces video: pixel frames ([`pixel`]) or pre-encoded
 //! access units ([`encoded`]). A pump drives a source and publishes its
 //! output to an RTC video source.
+//!
+//! Construct a source, hand it to the matching pump, and publish the pump's
+//! [`rtc_source`](pixel::PixelVideoPump::rtc_source) with its
+//! [`publish_options`](pixel::PixelVideoPump::publish_options). Spawning the
+//! pump returns a [`RunningPump`](pump::RunningPump) to await or stop.
 
 pub mod encoded;
 pub mod error;
 pub mod pixel;
 pub mod primitive;
 pub mod pump;
-
-mod utils;
