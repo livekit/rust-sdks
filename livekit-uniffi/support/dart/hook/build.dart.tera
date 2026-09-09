@@ -76,12 +76,17 @@ Future<Uri> _resolveLibrary(
   // downloaded file is an output, not an input, so it is deliberately not
   // registered as a dependency: doing so made the runner see a file modified
   // during the build and rerun the hook (and the download) once per fresh build.
+  //
+  // The shared directory is one per package, not per target, and a universal
+  // macOS build runs this hook once per architecture before lipo merges the
+  // results. Keep each target in its own subdirectory, or the second download
+  // overwrites the first and lipo is handed the same architecture twice.
+  final triple = _targetTriple(os, arch, iosSdk);
   final outDir = Directory.fromUri(
-    input.outputDirectoryShared.resolve('$_cdylibName/'),
+    input.outputDirectoryShared.resolve('$_cdylibName/$triple/'),
   );
   final libFile = File.fromUri(outDir.uri.resolve(libName));
 
-  final triple = _targetTriple(os, arch, iosSdk);
   // Asset naming matches the existing node downloader convention so one set of
   // release assets serves both: `<base>/v<version>/build-<triple>.zip`.
   final zipUrl = Uri.parse('$_downloadBase/v$_version/build-$triple.zip');

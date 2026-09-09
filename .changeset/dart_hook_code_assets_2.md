@@ -13,3 +13,8 @@ was verified against `code_assets 2.0.0` / `hooks 2.2.0`.
 The hook also registered the downloaded library as a dependency. Dependencies are
 inputs, so the hooks runner saw a file modified during the build and re-ran the
 hook, and the download, once on every fresh build. The registration is removed.
+
+The hook also wrote every target's library to the same shared path. A universal
+macOS build runs the hook once per architecture and then merges the results with
+`lipo`, which failed because the second download had overwritten the first. Each
+target now gets its own subdirectory.
