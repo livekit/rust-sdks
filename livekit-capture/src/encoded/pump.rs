@@ -16,7 +16,7 @@
 //! source.
 
 use crate::{
-    encoded::{EncodedFrameType, EncodedVideoSource, OwnedEncodedAccessUnit},
+    encoded::{EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit},
     error::SourceError,
     pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
 };
@@ -104,6 +104,7 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
     /// applications instead use [`EncodedVideoPump::spawn`], and reach for
     /// this only to run the pump on a thread they create themselves.
     pub fn run(mut self) -> Result<PumpStats, PumpError> {
+        let codec = self.source.codec();
         let mut frames_captured = 0;
         let mut awaiting_initial_keyframe = true;
         let exit = loop {
@@ -134,7 +135,7 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
             awaiting_initial_keyframe = false;
 
             let metadata = self.frame_metadata.as_mut().and_then(|callback| callback(&access_unit));
-            capture_access_unit(&self.rtc_source, &access_unit, metadata)?;
+            capture_access_unit(&self.rtc_source, &access_unit, codec, metadata)?;
             frames_captured += 1;
         };
         Ok(PumpStats { frames_captured, exit })
@@ -167,6 +168,7 @@ impl<S: EncodedVideoSource> fmt::Debug for EncodedVideoPump<S> {
 fn capture_access_unit(
     rtc_source: &NativeVideoSource,
     access_unit: &OwnedEncodedAccessUnit,
+    codec: EncodedVideoCodec,
     frame_metadata: Option<FrameMetadata>,
 ) -> Result<(), PumpError> {
     // An empty payload is a violation of the source contract, so it is
@@ -175,6 +177,24 @@ fn capture_access_unit(
         return Err(PumpError::Source(SourceError::new(
             "source produced an access unit with an empty payload",
         )));
+    }
+
+    // The passthrough encoder is bound to the negotiated codec and drops
+    // mismatched frames without telling the pump, so reject them here.
+    if access_unit.codec != codec {
+        return Err(PumpError::Source(SourceError::new(format!(
+            "source produced a {:?} access unit but reports {:?}",
+            access_unit.codec, codec
+        ))));
+    }
+
+    // Per-frame resolution may differ from the source's nominal resolution,
+    // but a zero dimension yields an unpacketizable frame downstream.
+    if access_unit.resolution.is_zero() {
+        return Err(PumpError::Source(SourceError::new(format!(
+            "source produced an access unit with a zero-sized resolution ({}x{})",
+            access_unit.resolution.width, access_unit.resolution.height
+        ))));
     }
 
     let frame = EncodedVideoFrame {
@@ -288,6 +308,36 @@ mod tests {
         let error = EncodedVideoPump::new(FakeEncodedSource::new([unit])).run().unwrap_err();
         assert!(matches!(&error, PumpError::Source(_)));
         assert!(error.to_string().contains("empty payload"));
+    }
+
+    #[tokio::test]
+    async fn encoded_pump_rejects_codec_mismatch() {
+        let mut unit = access_unit(1, EncodedFrameType::Key);
+        unit.codec = EncodedVideoCodec::H264;
+
+        let error = EncodedVideoPump::new(FakeEncodedSource::new([unit])).run().unwrap_err();
+        assert!(matches!(&error, PumpError::Source(_)));
+        assert!(error.to_string().contains("H264"));
+    }
+
+    #[tokio::test]
+    async fn encoded_pump_rejects_zero_sized_resolution() {
+        let mut unit = access_unit(1, EncodedFrameType::Key);
+        unit.resolution = VideoResolution { width: 64, height: 0 };
+
+        let error = EncodedVideoPump::new(FakeEncodedSource::new([unit])).run().unwrap_err();
+        assert!(matches!(&error, PumpError::Source(_)));
+        assert!(error.to_string().contains("64x0"));
+    }
+
+    #[tokio::test]
+    async fn encoded_pump_allows_mid_stream_resolution_change() {
+        let mut resized = access_unit(2, EncodedFrameType::Delta);
+        resized.resolution = VideoResolution { width: 32, height: 18 };
+
+        let source = FakeEncodedSource::new([access_unit(1, EncodedFrameType::Key), resized]);
+        let stats = EncodedVideoPump::new(source).run().unwrap();
+        assert_eq!(stats.frames_captured, 2);
     }
 
     #[tokio::test]
