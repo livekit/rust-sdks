@@ -343,7 +343,13 @@ impl SignalClient {
         self.inner.send(signal).await
     }
 
-    /// Close the connection to the server
+    /// Close the connection to the server.
+    ///
+    /// Returns even when the link is dead, but not necessarily quickly: a close that
+    /// races an in-flight reconnect waits on the stream lock behind that reconnect's own
+    /// close drain (2s), [`SIGNAL_CONNECT_TIMEOUT`] and [`JOIN_RESPONSE_TIMEOUT`] before
+    /// it can take the stream, and then drains its own stream. Callers that need a
+    /// deadline should impose their own.
     pub async fn close(&self) {
         self.inner.close(true).await;
 
@@ -613,9 +619,15 @@ impl SignalInner {
         self.flush_queue().await;
     }
 
-    /// Close the connection
+    /// Close the connection.
+    ///
+    /// The stream comes out of the slot before it is closed, so the write lock is not
+    /// held across the shutdown: `restart` and pass-through sends would otherwise queue
+    /// behind a network operation. This is the one path where the lock protects nothing,
+    /// since the stream is already on its way out.
     pub async fn close(&self, notify_close: bool) {
-        if let Some(stream) = self.stream.write().await.take() {
+        let stream = self.stream.write().await.take();
+        if let Some(stream) = stream {
             stream.close(notify_close).await;
         }
     }
