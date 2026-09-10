@@ -1111,6 +1111,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "connection_test"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "livekit",
+ "tokio",
+]
+
+[[package]]
 name = "console-api"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
