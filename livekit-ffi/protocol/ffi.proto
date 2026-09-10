@@ -186,6 +186,7 @@ message FfiRequest {
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
     // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceRequest new_capture_source = 87;
     StartCaptureRequest start_capture = 88;
     StopCaptureRequest stop_capture = 89;
 
@@ -319,6 +320,7 @@ message FfiResponse {
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
     // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceResponse new_capture_source = 87;
     StartCaptureResponse start_capture = 88;
     StopCaptureResponse stop_capture = 89;
 
@@ -392,6 +394,7 @@ message FfiEvent {
     GetSchemaCallback get_schema = 46;
 
     // Capture sources (livekit-capture; requires the `capture` feature)
+    NewCaptureSourceCallback new_capture_source = 47;
     CaptureSourceEvent capture_source_event = 48;
 
     // NEXT_ID: 49
