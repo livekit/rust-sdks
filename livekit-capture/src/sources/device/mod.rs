@@ -24,9 +24,21 @@
 //! Where the platform supports it, frames reach the RTC track as
 //! platform-native buffers without a CPU copy. Otherwise they are converted
 //! to I420.
+//!
+//! On Linux with the `source-device-argus` feature, NVIDIA Jetson CSI
+//! sensors are captured through libargus (hardware ISP, NV12 DMA buffers,
+//! zero copy) and listed alongside V4L2 devices with `argus:`-prefixed
+//! identifiers; the raw V4L2 nodes belonging to those sensors are omitted.
+//! Other devices (e.g. USB webcams) keep using V4L2. On systems without the
+//! Jetson stack the feature is inert and enumeration is identical to plain
+//! V4L2.
 
+#[cfg(all(target_os = "linux", feature = "source-device-argus"))]
+mod argus;
 #[cfg(target_os = "macos")]
 mod avfoundation;
+#[cfg(all(target_os = "linux", feature = "source-device-argus"))]
+mod linux;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod timestamp;
 #[cfg(target_os = "linux")]
@@ -34,9 +46,11 @@ mod v4l2;
 
 #[cfg(target_os = "macos")]
 use avfoundation as backend;
+#[cfg(all(target_os = "linux", feature = "source-device-argus"))]
+use linux as backend;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use unsupported as backend;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(feature = "source-device-argus")))]
 use v4l2 as backend;
 
 use std::fmt;
