@@ -57,8 +57,8 @@ imgproc = { version = "0.3.20", path = "imgproc" }
 libwebrtc = { version = "0.3.47", path = "libwebrtc" }
 livekit = { version = "0.9.0", path = "livekit" }
 livekit-api = { version = "0.7.0", path = "livekit-api" }
-livekit-capture = { version = "0.1.0", path = "livekit-capture" }
-livekit-ffi = { version = "0.12.77", path = "livekit-ffi" }
+livekit-capture = { version = "0.1.1", path = "livekit-capture" }
+livekit-ffi = { version = "0.12.79", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.15", path = "livekit-datatrack" }
 livekit-signaling = { version = "0.1.2", path = "livekit-signaling" }
 livekit-token = { version = "0.1.2", path = "livekit-token" }
