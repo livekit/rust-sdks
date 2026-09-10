@@ -15,5 +15,8 @@
 //! Ready-made capture sources. Each source is gated behind its own
 //! `source-*` feature.
 
+#[cfg(feature = "source-clock")]
+pub mod clock;
+
 #[cfg(feature = "source-pattern")]
 pub mod pattern;
