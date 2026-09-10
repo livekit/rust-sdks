@@ -113,9 +113,9 @@ fn create_token(api_key: &str, api_secret: &str, room: &str, identity: &str) -> 
         .with_grants(VideoGrants {
             room_join: true,
             room: room.to_string(),
-            can_publish: true,
-            can_publish_data: true,
-            can_subscribe: true,
+            can_publish: Some(true),
+            can_publish_data: Some(true),
+            can_subscribe: Some(true),
             ..Default::default()
         })
         .to_jwt()?;

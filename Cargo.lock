@@ -3830,6 +3830,7 @@ dependencies = [
  "jsonwebtoken",
  "livekit-protocol",
  "serde",
+ "serde_json",
  "sha2",
  "signature",
  "thiserror 2.0.19",

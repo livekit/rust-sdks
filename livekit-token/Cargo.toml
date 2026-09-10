@@ -19,6 +19,9 @@ jsonwebtoken = { version = "10", default-features = false }
 hmac = "0.12"
 signature = "2"
 
+[dev-dependencies]
+serde_json = { workspace = true }
+
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
 [package.metadata.feature-combinations]
