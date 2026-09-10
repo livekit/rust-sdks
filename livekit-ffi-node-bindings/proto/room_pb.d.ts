@@ -125,6 +125,11 @@ export declare enum VideoEncoderBackend {
    * @generated from enum value: ENCODER_BACKEND_VIDEOTOOLBOX = 5;
    */
   ENCODER_BACKEND_VIDEOTOOLBOX = 5,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_PRE_ENCODED = 6;
+   */
+  ENCODER_BACKEND_PRE_ENCODED = 6,
 }
 
 /**

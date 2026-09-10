@@ -170,6 +170,10 @@ message FfiRequest {
     DefineSchemaRequest define_schema = 85;
     GetSchemaRequest get_schema = 86;
 
+    // Pre-encoded video
+    CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 87;
+    TakeEncodedVideoSourceFeedbackRequest take_encoded_video_source_feedback = 88;
+
     // Reconnection / chaos testing
     SimulateScenarioRequest simulate_scenario = 76;
 
@@ -184,7 +188,7 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 87
+    // NEXT_ID: 89
   }
 }
 
@@ -299,6 +303,10 @@ message FfiResponse {
     DefineSchemaResponse define_schema = 85;
     GetSchemaResponse get_schema = 86;
 
+    // Pre-encoded video
+    CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 87;
+    TakeEncodedVideoSourceFeedbackResponse take_encoded_video_source_feedback = 88;
+
     // Reconnection / chaos testing
     SimulateScenarioResponse simulate_scenario = 75;
 
@@ -313,7 +321,7 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 87
+    // NEXT_ID: 89
   }
 }
 
