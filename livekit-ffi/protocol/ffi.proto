@@ -87,6 +87,7 @@ message FfiRequest {
     NewVideoStreamRequest new_video_stream = 20;
     NewVideoSourceRequest new_video_source = 21;
     CaptureVideoFrameRequest capture_video_frame = 22;
+    CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 87;
     VideoConvertRequest video_convert = 23;
     VideoStreamFromParticipantRequest video_stream_from_participant = 24;
 
@@ -184,7 +185,7 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 87
+    // NEXT_ID: 88
   }
 }
 
@@ -219,6 +220,7 @@ message FfiResponse {
     NewVideoStreamResponse new_video_stream = 20;
     NewVideoSourceResponse new_video_source = 21;
     CaptureVideoFrameResponse capture_video_frame = 22;
+    CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 87;
     VideoConvertResponse video_convert = 23;
     VideoStreamFromParticipantResponse video_stream_from_participant = 24;
 
@@ -313,7 +315,7 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 87
+    // NEXT_ID: 88
   }
 }
 
@@ -381,8 +383,9 @@ message FfiEvent {
     // Data Track (schemas)
     DefineSchemaCallback define_schema = 45;
     GetSchemaCallback get_schema = 46;
+    VideoSourceEvent video_source_event = 47;
 
-    // NEXT_ID: 47
+    // NEXT_ID: 48
   }
 }
 

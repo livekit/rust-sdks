@@ -53,15 +53,54 @@ impl FfiVideoSource {
             proto::VideoSourceType::VideoSourceNative => {
                 use livekit::webrtc::video_source::native::NativeVideoSource;
 
-                let is_screencast = new_source.is_screencast.unwrap_or(false);
-                let video_source =
-                    NativeVideoSource::new(new_source.resolution.into(), is_screencast);
+                let video_source = if new_source.encoded.unwrap_or(false) {
+                    NativeVideoSource::new_encoded(new_source.resolution.into())
+                } else {
+                    let is_screencast = new_source.is_screencast.unwrap_or(false);
+                    NativeVideoSource::new(new_source.resolution.into(), is_screencast)
+                };
                 RtcVideoSource::Native(video_source)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported video source type".into())),
         };
 
         let handle_id = server.next_id();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let RtcVideoSource::Native(ref native_source) = source_inner {
+            if new_source.encoded.unwrap_or(false) {
+                let native_source = native_source.clone();
+                let handle = server.async_runtime.spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_millis(100));
+                    loop {
+                        interval.tick().await;
+
+                        let keyframe_requested = native_source.take_keyframe_request();
+                        let rate_control = native_source.take_rate_control_request();
+
+                        if keyframe_requested || rate_control.is_some() {
+                            let event = proto::EncodedRateControlEvent {
+                                source_handle: handle_id,
+                                target_bitrate_bps: rate_control.map(|r| r.target_bitrate_bps),
+                                framerate_fps: rate_control.map(|r| r.framerate_fps),
+                                keyframe_requested,
+                            };
+                            let _ = server.send_event(
+                                proto::VideoSourceEvent {
+                                    source_handle: handle_id,
+                                    message: Some(proto::video_source_event::Message::RateControl(
+                                        event,
+                                    )),
+                                }
+                                .into(),
+                            );
+                        }
+                    }
+                });
+                server.watch_panic(handle);
+            }
+        }
+
         let video_source = Self { handle_id, source_type, source: source_inner };
         let source_info = proto::VideoSourceInfo::from(&video_source);
         server.store_handle(handle_id, video_source);
@@ -89,6 +128,47 @@ impl FfiVideoSource {
                 };
 
                 source.capture_frame(&frame);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub unsafe fn capture_encoded_frame(
+        &self,
+        _server: &'static server::FfiServer,
+        capture: proto::CaptureEncodedVideoFrameRequest,
+    ) -> FfiResult<()> {
+        match self.source {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcVideoSource::Native(ref source) => {
+                use livekit::webrtc::video_frame::{
+                    EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame,
+                };
+                use livekit::webrtc::video_source::VideoResolution;
+
+                let codec = match capture.codec() {
+                    proto::EncodedVideoCodec::EncodedCodecH264 => EncodedVideoCodec::H264,
+                    proto::EncodedVideoCodec::EncodedCodecH265 => EncodedVideoCodec::H265,
+                    proto::EncodedVideoCodec::EncodedCodecVp8 => EncodedVideoCodec::VP8,
+                    proto::EncodedVideoCodec::EncodedCodecVp9 => EncodedVideoCodec::VP9,
+                    proto::EncodedVideoCodec::EncodedCodecAv1 => EncodedVideoCodec::AV1,
+                };
+                let frame_type = match capture.frame_type() {
+                    proto::EncodedFrameType::EncodedFrameKey => EncodedFrameType::Key,
+                    proto::EncodedFrameType::EncodedFrameDelta => EncodedFrameType::Delta,
+                };
+
+                let frame = EncodedVideoFrame {
+                    codec,
+                    payload: &capture.data,
+                    timestamp_us: capture.timestamp_us,
+                    frame_type,
+                    resolution: VideoResolution { width: capture.width, height: capture.height },
+                    frame_metadata: frame_metadata_from_proto(capture.metadata),
+                };
+
+                source.capture_encoded_frame(&frame);
             }
             _ => {}
         }
