@@ -1,8 +1,9 @@
 [package]
 name = "livekit-capture"
-description = "Encoded video ingest helpers for LiveKit"
+description = "Ingest pixel frames or pre-encoded access units into LiveKit from any source"
 version = "0.1.0"
 readme = "README.md"
+categories = ["multimedia::video"]
 license.workspace = true
 edition.workspace = true
 repository.workspace = true
