@@ -127,6 +127,99 @@ message ClockVideoSourceConfig {
   required uint32 framerate_fps = 2;
 }
 
+// Frame format delivered by a capture device.
+enum DeviceFrameFormat {
+  DEVICE_FRAME_FORMAT_I420 = 0;
+  DEVICE_FRAME_FORMAT_NV12 = 1;
+  DEVICE_FRAME_FORMAT_BGRA = 2;
+  DEVICE_FRAME_FORMAT_RGB24 = 3;
+  DEVICE_FRAME_FORMAT_BGR24 = 4;
+  DEVICE_FRAME_FORMAT_YUYV = 5;
+  DEVICE_FRAME_FORMAT_UYVY = 6;
+  DEVICE_FRAME_FORMAT_GREY = 7;
+  DEVICE_FRAME_FORMAT_MJPEG = 8;
+}
+
+// Capture format offered by or requested from a device.
+message DeviceFormat {
+  // Frame dimensions.
+  required VideoSourceResolution resolution = 1;
+  // Frame rate in frames per second.
+  required uint32 framerate_fps = 2;
+  // Frame format.
+  required DeviceFrameFormat frame_format = 3;
+}
+
+// Format selection requested from a capture device. The device negotiates
+// the delivered format; CaptureSourceInfo reports the outcome.
+message DeviceFormatRequest {
+  // Prefer the highest frame rate, optionally constrained.
+  message HighestFramerate {
+    optional VideoSourceResolution resolution = 1;
+    optional DeviceFrameFormat frame_format = 2;
+  }
+  // Prefer the highest resolution, optionally constrained.
+  message HighestResolution {
+    optional uint32 framerate_fps = 1;
+    optional DeviceFrameFormat frame_format = 2;
+  }
+  // The device's default format when unset.
+  oneof request {
+    // Require an exact format match.
+    DeviceFormat exact = 1;
+    // Use the device's closest supported format.
+    DeviceFormat closest = 2;
+    HighestFramerate highest_framerate = 3;
+    HighestResolution highest_resolution = 4;
+  }
+}
+
+// Camera device capture using the platform's native capture stack.
+message DeviceVideoSourceConfig {
+  // Device to capture from; the platform default device when unset.
+  oneof device {
+    // Position in the platform enumeration order.
+    uint32 device_index = 1;
+    // Platform-stable identifier, as reported by CaptureDeviceInfo.id.
+    string device_id = 2;
+  }
+  // Format requested from the device; the device default when unset.
+  optional DeviceFormatRequest format = 3;
+}
+
+// Video capture device discovered by ListCaptureDevicesRequest.
+message CaptureDeviceInfo {
+  // Platform-stable device identifier.
+  required string id = 1;
+  // Human-readable device name.
+  required string name = 2;
+  // Device model identifier, when available.
+  optional string model_id = 3;
+  // Device manufacturer, when available.
+  optional string manufacturer = 4;
+  // Capture formats reported by the device.
+  repeated DeviceFormat formats = 5;
+  // Whether `formats` is a complete list; some platforms do not enumerate
+  // formats up front.
+  required bool formats_complete = 6;
+}
+
+message CaptureDeviceList { repeated CaptureDeviceInfo devices = 1; }
+
+// List the video capture devices available on this machine.
+//
+// Completes asynchronously with a ListCaptureDevicesCallback: enumeration
+// queries the platform capture stack and may block briefly.
+message ListCaptureDevicesRequest { optional uint64 request_async_id = 1; }
+message ListCaptureDevicesResponse { required uint64 async_id = 1; }
+message ListCaptureDevicesCallback {
+  required uint64 async_id = 1;
+  oneof message {
+    string error = 2;
+    CaptureDeviceList devices = 3;
+  }
+}
+
 // Kind of media a capture source produces.
 enum CaptureSourceKind {
   // Pixel frames, published through the WebRTC encoder.
@@ -164,6 +257,7 @@ message NewCaptureSourceRequest {
   oneof config {
     GstreamerVideoSourceConfig gstreamer = 1;
     PatternVideoSourceConfig pattern = 2;
+    DeviceVideoSourceConfig device = 4;
     ClockVideoSourceConfig clock = 5;
     RtspVideoSourceConfig rtsp = 6;
   }
