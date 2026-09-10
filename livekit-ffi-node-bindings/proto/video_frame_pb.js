@@ -212,10 +212,23 @@ const CaptureVideoFrameResponse = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
- * Push one complete pre-encoded access unit to an encoded VideoSource.
+ * Foreign-memory buffer containing one encoded video access unit.
  * The payload pointer only needs to remain valid for the duration of the
  * synchronous FFI request; the native implementation copies it before
  * returning.
+ *
+ * @generated from message livekit.proto.EncodedVideoBufferInfo
+ */
+const EncodedVideoBufferInfo = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.EncodedVideoBufferInfo",
+  () => [
+    { no: 1, name: "data_ptr", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "data_len", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * Push one complete pre-encoded access unit to an encoded VideoSource.
  *
  * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest
  */
@@ -223,14 +236,13 @@ const CaptureEncodedVideoFrameRequest = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.CaptureEncodedVideoFrameRequest",
   () => [
     { no: 1, name: "source_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
-    { no: 2, name: "data_ptr", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
-    { no: 3, name: "data_len", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
-    { no: 4, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), req: true },
-    { no: 5, name: "frame_type", kind: "enum", T: proto2.getEnumType(EncodedFrameType), req: true },
-    { no: 6, name: "width", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
-    { no: 7, name: "height", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
-    { no: 8, name: "timestamp_us", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
-    { no: 9, name: "metadata", kind: "message", T: FrameMetadata, opt: true },
+    { no: 2, name: "buffer", kind: "message", T: EncodedVideoBufferInfo, req: true },
+    { no: 3, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), req: true },
+    { no: 4, name: "frame_type", kind: "enum", T: proto2.getEnumType(EncodedFrameType), req: true },
+    { no: 5, name: "width", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 6, name: "height", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 7, name: "timestamp_us", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
+    { no: 8, name: "metadata", kind: "message", T: FrameMetadata, opt: true },
   ],
 );
 
@@ -466,6 +478,7 @@ exports.NewVideoSourceRequest = NewVideoSourceRequest;
 exports.NewVideoSourceResponse = NewVideoSourceResponse;
 exports.CaptureVideoFrameRequest = CaptureVideoFrameRequest;
 exports.CaptureVideoFrameResponse = CaptureVideoFrameResponse;
+exports.EncodedVideoBufferInfo = EncodedVideoBufferInfo;
 exports.CaptureEncodedVideoFrameRequest = CaptureEncodedVideoFrameRequest;
 exports.CaptureEncodedVideoFrameResponse = CaptureEncodedVideoFrameResponse;
 exports.TakeEncodedVideoSourceFeedbackRequest = TakeEncodedVideoSourceFeedbackRequest;

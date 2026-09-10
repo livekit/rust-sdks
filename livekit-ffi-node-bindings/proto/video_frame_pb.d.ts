@@ -490,10 +490,41 @@ export declare class CaptureVideoFrameResponse extends Message<CaptureVideoFrame
 }
 
 /**
- * Push one complete pre-encoded access unit to an encoded VideoSource.
+ * Foreign-memory buffer containing one encoded video access unit.
  * The payload pointer only needs to remain valid for the duration of the
  * synchronous FFI request; the native implementation copies it before
  * returning.
+ *
+ * @generated from message livekit.proto.EncodedVideoBufferInfo
+ */
+export declare class EncodedVideoBufferInfo extends Message<EncodedVideoBufferInfo> {
+  /**
+   * @generated from field: required uint64 data_ptr = 1;
+   */
+  dataPtr?: bigint;
+
+  /**
+   * @generated from field: required uint64 data_len = 2;
+   */
+  dataLen?: bigint;
+
+  constructor(data?: PartialMessage<EncodedVideoBufferInfo>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.EncodedVideoBufferInfo";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EncodedVideoBufferInfo;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EncodedVideoBufferInfo;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EncodedVideoBufferInfo;
+
+  static equals(a: EncodedVideoBufferInfo | PlainMessage<EncodedVideoBufferInfo> | undefined, b: EncodedVideoBufferInfo | PlainMessage<EncodedVideoBufferInfo> | undefined): boolean;
+}
+
+/**
+ * Push one complete pre-encoded access unit to an encoded VideoSource.
  *
  * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest
  */
@@ -504,42 +535,37 @@ export declare class CaptureEncodedVideoFrameRequest extends Message<CaptureEnco
   sourceHandle?: bigint;
 
   /**
-   * @generated from field: required uint64 data_ptr = 2;
+   * @generated from field: required livekit.proto.EncodedVideoBufferInfo buffer = 2;
    */
-  dataPtr?: bigint;
+  buffer?: EncodedVideoBufferInfo;
 
   /**
-   * @generated from field: required uint64 data_len = 3;
-   */
-  dataLen?: bigint;
-
-  /**
-   * @generated from field: required livekit.proto.VideoCodec codec = 4;
+   * @generated from field: required livekit.proto.VideoCodec codec = 3;
    */
   codec?: VideoCodec;
 
   /**
-   * @generated from field: required livekit.proto.EncodedFrameType frame_type = 5;
+   * @generated from field: required livekit.proto.EncodedFrameType frame_type = 4;
    */
   frameType?: EncodedFrameType;
 
   /**
-   * @generated from field: required uint32 width = 6;
+   * @generated from field: required uint32 width = 5;
    */
   width?: number;
 
   /**
-   * @generated from field: required uint32 height = 7;
+   * @generated from field: required uint32 height = 6;
    */
   height?: number;
 
   /**
-   * @generated from field: required int64 timestamp_us = 8;
+   * @generated from field: required int64 timestamp_us = 7;
    */
   timestampUs?: bigint;
 
   /**
-   * @generated from field: optional livekit.proto.FrameMetadata metadata = 9;
+   * @generated from field: optional livekit.proto.FrameMetadata metadata = 8;
    */
   metadata?: FrameMetadata;
 
