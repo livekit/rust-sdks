@@ -18,29 +18,17 @@
 //! report any source failure through
 //! [`PumpError`](crate::pump::PumpError).
 
-use std::{error::Error as StdError, fmt};
+use std::error::Error;
+
+type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
 /// Error returned by a capture source.
-///
-/// `Display` forwards to the wrapped error.
-#[derive(Debug)]
-pub struct SourceError(Box<dyn StdError + Send + Sync>);
+#[derive(Debug, thiserror::Error)]
+#[error("capture source failed: {0}")]
+pub struct SourceError(#[source] BoxError);
 
 impl SourceError {
-    /// Wraps a backend error.
-    pub fn new(error: impl Into<Box<dyn StdError + Send + Sync>>) -> Self {
+    pub fn new(error: impl Into<BoxError>) -> Self {
         Self(error.into())
-    }
-}
-
-impl fmt::Display for SourceError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
-    }
-}
-
-impl StdError for SourceError {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        self.0.source()
     }
 }
