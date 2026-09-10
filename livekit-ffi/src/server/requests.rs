@@ -30,7 +30,7 @@ use super::{
     room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
-use crate::{conversion, proto};
+use crate::proto;
 
 /// Dispose the server, close all rooms and clean up all handles
 /// It is not mandatory to call this function.
@@ -824,25 +824,14 @@ fn on_new_sox_resampler(
     _server: &'static FfiServer,
     new_soxr: proto::NewSoxResamplerRequest,
 ) -> FfiResult<proto::NewSoxResamplerResponse> {
-    let io_spec = conversion::resampler::IOSpec {
-        input_type: new_soxr.input_data_type(),
-        output_type: new_soxr.output_data_type(),
-    };
-
-    let quality_spec = conversion::resampler::QualitySpec {
-        quality: new_soxr.quality_recipe(),
-        flags: new_soxr.flags.unwrap_or(0),
-    };
-
-    let runtime_spec = resampler::RuntimeSpec { num_threads: 1 };
-
     match resampler::SoxResampler::new(
         new_soxr.input_rate,
         new_soxr.output_rate,
         new_soxr.num_channels,
-        io_spec.into(),
-        quality_spec.into(),
-        runtime_spec,
+        new_soxr.input_data_type().into(),
+        new_soxr.output_data_type().into(),
+        new_soxr.quality_recipe().into(),
+        new_soxr.flags.unwrap_or(0),
     ) {
         Ok(resampler) => {
             let handle_id = resampler.ffi_handle_id();

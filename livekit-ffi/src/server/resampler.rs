@@ -56,7 +56,7 @@ unsafe impl Sync for SoxResampler {}
 #[uniffi::export]
 impl SoxResampler {
     #[uniffi::constructor]
-    pub fn new(
+    pub fn new_with_options(
         input_rate: f64,
         output_rate: f64,
         num_channels: u32,
@@ -78,6 +78,26 @@ impl SoxResampler {
 
         // After the migration is complete, arc_from_self can be replace with Arc::new(obj)
         Ok(obj.arc_from_self())
+    }
+
+    #[uniffi::constructor(default(flags = 0))]
+    pub fn new(
+        input_rate: f64,
+        output_rate: f64,
+        num_channels: u32,
+        input_data_type: SoxResamplerDataType,
+        output_data_type: SoxResamplerDataType,
+        quality_recipe: SoxQualityRecipe,
+        flags: u32,
+    ) -> Result<Arc<Self>, SoxResamplerError> {
+        Self::new_with_options(
+            input_rate,
+            output_rate,
+            num_channels,
+            IOSpec { input_type: input_data_type, output_type: output_data_type },
+            QualitySpec { quality: quality_recipe, flags },
+            RuntimeSpec { num_threads: 1 },
+        )
     }
 
     pub fn push(&self, input: &[i16]) -> Result<Vec<i16>, SoxResamplerError> {
@@ -295,7 +315,7 @@ mod migration_tests {
     #[macro_export]
     macro_rules! sox_resampler {
         ($input_rate:expr, $output_rate:expr, $num_channels:expr, $quality:expr) => {
-            $crate::server::resampler::SoxResampler::new(
+            $crate::server::resampler::SoxResampler::new_with_options(
                 $input_rate,
                 $output_rate,
                 $num_channels,
