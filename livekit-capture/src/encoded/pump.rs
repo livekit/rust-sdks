@@ -107,6 +107,7 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
         let codec = self.source.codec();
         let mut frames_captured = 0;
         let mut awaiting_initial_keyframe = true;
+        let mut initial_keyframe_requested = false;
         let exit = loop {
             if self.stop.is_stopped() {
                 break PumpExit::Stopped;
@@ -129,7 +130,13 @@ impl<S: EncodedVideoSource> EncodedVideoPump<S> {
             };
 
             // Drop pre-roll deltas: decoding can only start at a keyframe.
+            // Ask once for the keyframe, otherwise a source that emits one
+            // only on request would never leave the pre-roll.
             if awaiting_initial_keyframe && access_unit.frame_type != EncodedFrameType::Key {
+                if !initial_keyframe_requested {
+                    self.source.request_keyframe();
+                    initial_keyframe_requested = true;
+                }
                 continue;
             }
             awaiting_initial_keyframe = false;
@@ -246,6 +253,43 @@ mod tests {
         }
     }
 
+    /// A source that emits a keyframe only after one is requested.
+    struct RequestDrivenSource {
+        deltas_remaining: u32,
+        keyframe_requested: bool,
+        timestamp_us: i64,
+    }
+
+    impl EncodedVideoSource for RequestDrivenSource {
+        fn resolution(&self) -> VideoResolution {
+            RESOLUTION
+        }
+
+        fn codec(&self) -> EncodedVideoCodec {
+            EncodedVideoCodec::VP8
+        }
+
+        fn next_access_unit(
+            &mut self,
+            _stop: &PumpStop,
+        ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
+            self.timestamp_us += 1;
+            if self.keyframe_requested {
+                self.keyframe_requested = false;
+                return Ok(Some(access_unit(self.timestamp_us, EncodedFrameType::Key)));
+            }
+            if self.deltas_remaining == 0 {
+                return Ok(None);
+            }
+            self.deltas_remaining -= 1;
+            Ok(Some(access_unit(self.timestamp_us, EncodedFrameType::Delta)))
+        }
+
+        fn request_keyframe(&mut self) {
+            self.keyframe_requested = true;
+        }
+    }
+
     fn access_unit(timestamp_us: i64, frame_type: EncodedFrameType) -> OwnedEncodedAccessUnit {
         OwnedEncodedAccessUnit::new(
             EncodedVideoCodec::VP8,
@@ -338,6 +382,17 @@ mod tests {
         let source = FakeEncodedSource::new([access_unit(1, EncodedFrameType::Key), resized]);
         let stats = EncodedVideoPump::new(source).run().unwrap();
         assert_eq!(stats.frames_captured, 2);
+    }
+
+    #[tokio::test]
+    async fn encoded_pump_requests_initial_keyframe_during_pre_roll() {
+        // One delta is dropped, the request turns the next unit into a
+        // keyframe, and the two remaining deltas follow it.
+        let source =
+            RequestDrivenSource { deltas_remaining: 3, keyframe_requested: false, timestamp_us: 0 };
+        let stats = EncodedVideoPump::new(source).run().unwrap();
+        assert_eq!(stats.frames_captured, 3);
+        assert_eq!(stats.exit, PumpExit::EndOfStream);
     }
 
     #[tokio::test]
