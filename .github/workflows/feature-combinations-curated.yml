@@ -63,9 +63,6 @@ on:
   push:
     branches:
       - "main"
-      # TEMPORARY: so this runs on the branch that introduces it. Remove before
-      # merging.
-      - "add-all-features-complication"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
