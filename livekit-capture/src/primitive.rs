@@ -60,6 +60,11 @@ impl VideoResolution {
         }
         Some(f64::from(self.width) / f64::from(self.height))
     }
+
+    /// Returns whether either component is zero.
+    pub const fn is_zero(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
 }
 
 impl std::fmt::Display for VideoResolution {
