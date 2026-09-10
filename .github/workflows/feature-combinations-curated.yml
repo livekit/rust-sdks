@@ -1,0 +1,360 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Feature checking, split by where combinatorial coverage is actually worth
+# paying for. Which half a crate lands in is declared by the crate itself, in
+# `[package.metadata.feature-combinations] mode` in its Cargo.toml, and read
+# out here with `cargo metadata`. Nothing in this file lists crate names.
+#
+#   mode = "powerset"  — the full `cargo hack --feature-powerset --depth 2`.
+#      104 combinations across the eleven crates that declare it. Their feature
+#      sets are small, so exhaustive coverage is cheap, and they are where the
+#      `dep:`/`?/` plumbing bugs actually live. Adding a feature to one of them
+#      needs no change anywhere: cargo-hack picks it up.
+#
+#   mode = "curated"   — only the combinations listed in that crate's `check`
+#      list. livekit and livekit-api use this: 19 combinations instead of their
+#      125-combination powerset, because most of those 125 are configurations
+#      nobody can actually select — two TLS backends at once, or an internal
+#      `__lk-*` feature paired with something unrelated. The tradeoff is that a
+#      new feature is invisible to this job until it is added to that list.
+#
+# A crate with no such table is not feature-checked here at all. livekit-ffi
+# and livekit-uniffi are the deliberate omissions; see the curated step below.
+#
+# Measured cold on a 14-core machine: the full 209-combination powerset takes
+# 359s; this split takes 242s, a 33% saving. That is what brings the job in
+# line with the existing per-commit builds.
+#
+# The tradeoff is real and worth stating: this trades exhaustiveness on the top
+# two crates for speed, so a feature pair that only breaks in one of the
+# dropped combinations is not caught anywhere. There is no exhaustive backstop
+# — the nightly full-powerset workflow was removed once this proved to be the
+# better cost/benefit. To get the full 209 back for a one-off investigation,
+# run it by hand over every crate that declares a mode:
+#
+#   cargo hack $(cargo metadata --no-deps --format-version 1 \
+#     | jq -r '.packages[] | select(.metadata["feature-combinations"]) | "-p \(.name)"' \
+#     | tr -d '\r') --feature-powerset --depth 2 --keep-going check
+name: Feature Combinations (per-commit)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - ".changeset/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "renovate.json"
+      - ".vscode/**"
+  push:
+    branches:
+      - "main"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  curated:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-ios
+          - os: macos-latest
+            target: aarch64-apple-ios-sim
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          # `native-tls` means openssl-sys on Android, and there is no Android
+          # OpenSSL to link against — its build script fails outright. Not a
+          # feature-wiring bug: ffi-builds.yml ships all three Android targets
+          # as `rustls-tls-webpki-roots`. `native-tls-vendored`, which builds
+          # OpenSSL from source, still works and stays covered.
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            exclude_features: native-tls
+          - os: ubuntu-latest
+            target: armv7-linux-androideabi
+            exclude_features: native-tls
+          - os: ubuntu-latest
+            target: x86_64-linux-android
+            exclude_features: native-tls
+
+    name: Features per-commit (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          submodules: true
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install linux dependencies
+        if: ${{ startsWith(matrix.os, 'ubuntu') }}
+        run: |
+          sudo apt update -y
+          sudo apt install -y \
+            lld \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev
+
+      - name: Install clang for webrtc-sys
+        if: ${{ contains(matrix.target, 'unknown-linux-gnu') }}
+        run: .github/scripts/install-clang.sh
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1.16.1
+        with:
+          target: ${{ matrix.target }}
+          cache: false
+          rustflags: ""
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked --version 0.6.45
+
+      - name: Install cargo-ndk
+        if: ${{ contains(matrix.target, 'android') }}
+        run: cargo install cargo-ndk --locked
+
+      - name: Resolve cargo driver for this target
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == *android* ]]; then
+            echo "CHECK_CMD=cargo ndk --target ${{ matrix.target }} check" >> "$GITHUB_ENV"
+            echo "HACK_CMD=cargo ndk --target ${{ matrix.target }} hack"   >> "$GITHUB_ENV"
+          else
+            echo "CHECK_CMD=cargo check --target ${{ matrix.target }}" >> "$GITHUB_ENV"
+            echo "HACK_CMD=cargo hack --target ${{ matrix.target }}"   >> "$GITHUB_ENV"
+          fi
+
+      - name: Cache cargo registry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-registry-
+
+      # The two package sets, and the curated combinations, all come out of
+      # `[package.metadata.feature-combinations]` in each crate's own Cargo.toml
+      # — so a crate opts into this job by editing its own manifest, next to the
+      # `[features]` table that decides what needs covering.
+      - name: Resolve feature-combination sets from Cargo.toml
+        shell: bash
+        run: |
+          set -uo pipefail
+          META=$(cargo metadata --no-deps --format-version 1)
+
+          # `.metadata` is null for a crate that declares nothing, and jq
+          # indexes null to null, so these select() calls simply skip it.
+          #
+          # `tr -d '\r'` is not optional: jq.exe on the Windows runners writes
+          # CRLF, and a CR that survives rides into the package name, which
+          # cargo rejects with `invalid character in package name`.
+          by_mode() {
+            printf '%s' "$META" | jq -r --arg mode "$1" '
+              .packages[]
+              | select(.metadata["feature-combinations"].mode == $mode)
+              | "-p \(.name)"
+            ' | tr -d '\r' | sort | tr '\n' ' '
+          }
+
+          # A typo'd mode, or a curated crate with nothing to run, would
+          # otherwise drop that crate from CI without failing anything.
+          BAD=$(printf '%s' "$META" | jq -r '
+            .packages[]
+            | .name as $crate
+            | .metadata["feature-combinations"] as $fc
+            | select($fc != null)
+            | if ($fc.mode != "powerset" and $fc.mode != "curated") then
+                "\($crate): unknown mode \($fc.mode // "<missing>") (want \"powerset\" or \"curated\")"
+              elif ($fc.mode == "curated" and (($fc.check // []) | length) == 0) then
+                "\($crate): mode is \"curated\" but check list is missing or empty"
+              elif ($fc.mode == "powerset" and $fc.check != null) then
+                "\($crate): mode is \"powerset\", so its check list is silently ignored"
+              else empty end
+          ' | tr -d '\r')
+          if [ -n "$BAD" ]; then
+            echo "::error::bad [package.metadata.feature-combinations] tables:"
+            echo "$BAD"
+            exit 1
+          fi
+
+          POWERSET_PACKAGES=$(by_mode powerset)
+          CURATED_PACKAGES=$(by_mode curated)
+          if [ -z "${POWERSET_PACKAGES// /}" ] || [ -z "${CURATED_PACKAGES// /}" ]; then
+            echo "::error::resolved an empty package set (powerset='$POWERSET_PACKAGES' curated='$CURATED_PACKAGES')"
+            exit 1
+          fi
+
+          echo "POWERSET_PACKAGES=$POWERSET_PACKAGES" >> "$GITHUB_ENV"
+          echo "CURATED_PACKAGES=$CURATED_PACKAGES" >> "$GITHUB_ENV"
+          echo "powerset: $POWERSET_PACKAGES"
+          echo "curated:  $CURATED_PACKAGES"
+
+      # A plain default-feature check of the same crates, so the feature steps
+      # below have something to be measured against in the run summary.
+      - name: Baseline check (default features)
+        shell: bash
+        run: |
+          start=$(date +%s)
+          $CHECK_CMD $POWERSET_PACKAGES $CURATED_PACKAGES
+          echo "BASELINE_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Powerset crates — full feature powerset (depth 2)
+        shell: bash
+        run: |
+          HACK_ARGS="--feature-powerset --depth 2 --keep-going ${{ matrix.exclude_features && format('--exclude-features {0}', matrix.exclude_features) || '' }}"
+
+          # Counted rather than hardcoded, so the run summary cannot drift from
+          # what actually ran. --print-command-list compiles nothing.
+          POWERSET_TOTAL=$($HACK_CMD $POWERSET_PACKAGES $HACK_ARGS --print-command-list check 2>/dev/null | grep -c '^cargo' || true)
+          echo "POWERSET_TOTAL=$POWERSET_TOTAL" >> "$GITHUB_ENV"
+
+          start=$(date +%s)
+          $HACK_CMD $POWERSET_PACKAGES $HACK_ARGS check
+          echo "POWERSET_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      # Curated combinations for the user-facing crates. The list itself is
+      # not here: it lives in each crate's own Cargo.toml, under
+      # `[package.metadata.feature-combinations] check`, right next to the
+      # `[features]` table it mirrors — so whoever adds a feature is already
+      # editing the file that decides whether CI covers it. Every workspace
+      # crate that declares that table is picked up, so adding a crate to this
+      # half of the job means adding the table and nothing else.
+      #
+      # livekit-ffi and livekit-uniffi deliberately do NOT declare one.
+      # Measured cold, their 8 combinations cost 103s of a 345s total — 30% of
+      # the budget for two crates, because each TLS change rebuilds livekit
+      # underneath livekit-ffi.
+      - name: Top-level crates — curated feature combinations
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          # One `crate|feat,feat` line per combination. `.metadata` is null for
+          # a crate without the table, and jq indexes null to null, so the
+          # `// []` covers every other workspace member. `tr -d '\r'` because
+          # jq.exe on the Windows runners writes CRLF, and a surviving CR ends
+          # up inside the `--features` value.
+          COMBOS=$(cargo metadata --no-deps --format-version 1 | jq -r '
+            .packages[]
+            | .name as $crate
+            | (.metadata["feature-combinations"].check // [])[]
+            | "\($crate)|\(join(","))"
+          ' | tr -d '\r')
+
+          # A renamed table or a bad jq path would otherwise turn this step into
+          # a silent no-op that still reports success.
+          if [ -z "$COMBOS" ]; then
+            echo "::error::no [package.metadata.feature-combinations] table found in the workspace"
+            exit 1
+          fi
+
+          # Features that cannot build on this target (see the matrix comment).
+          EXCLUDED="${{ matrix.exclude_features || '' }}"
+
+          start=$(date +%s)
+          total=0; failed=0; skipped=0
+          FAILURES=""
+          while IFS='|' read -r crate features; do
+            [ -n "$crate" ] || continue
+
+            skip=""
+            for ex in ${EXCLUDED//,/ }; do
+              case ",$features," in
+                *",$ex,"*) skip="$ex"; break ;;
+              esac
+            done
+            if [ -n "$skip" ]; then
+              echo "::notice::skipping ($skip unsupported on ${{ matrix.target }}): $crate [$features]"
+              skipped=$((skipped + 1))
+              continue
+            fi
+
+            total=$((total + 1))
+            echo "::group::$crate [$features]"
+            if ! $CHECK_CMD -p "$crate" --no-default-features ${features:+--features "$features"}; then
+              failed=$((failed + 1))
+              FAILURES="${FAILURES}\n  $crate [$features]"
+            fi
+            echo "::endgroup::"
+          done <<< "$COMBOS"
+
+          echo "CURATED_SECS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          echo "CURATED_TOTAL=$total" >> "$GITHUB_ENV"
+          echo "CURATED_SKIPPED=$skipped" >> "$GITHUB_ENV"
+          echo "CURATED_FAILED=$failed" >> "$GITHUB_ENV"
+          echo "Ran $total curated combinations, $failed failed, $skipped skipped."
+          if [ "$failed" -gt 0 ]; then
+            echo -e "::error::failed curated combinations:$FAILURES"
+            exit 1
+          fi
+
+      - name: Report timings
+        if: always()
+        shell: bash
+        run: |
+          secs() { if [ -n "${1:-}" ]; then echo "${1}s"; else echo "n/a"; fi; }
+          {
+            echo "### Per-commit feature checking — \`${{ matrix.target }}\`"
+            echo ""
+            echo "| Measurement | Value |"
+            echo "| --- | --- |"
+            echo "| Baseline \`cargo check\` (default features) | $(secs "${BASELINE_SECS:-}") |"
+            echo "| Powerset crates (${POWERSET_TOTAL:-?} combos) | $(secs "${POWERSET_SECS:-}") |"
+            echo "| Curated crates (${CURATED_TOTAL:-?} combos) | $(secs "${CURATED_SECS:-}") |"
+            if [ -n "${POWERSET_SECS:-}" ] && [ -n "${CURATED_SECS:-}" ]; then
+              awk -v l="$POWERSET_SECS" -v c="$CURATED_SECS" -v b="${BASELINE_SECS:-0}" \
+                'BEGIN { printf "| **Feature checking total** | **%.1f min** |\n", (l+c)/60
+                         if (b > 0) printf "| Total as a multiple of baseline | %.1fx |\n", (l+c)/b }'
+            fi
+            echo "| Curated skipped (unsupported on target) | ${CURATED_SKIPPED:-n/a} |"
+            echo "| Curated failures | ${CURATED_FAILED:-n/a} |"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -10,6 +10,11 @@ repository.workspace = true
 [features]
 test-utils = ["dep:rand"]
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
 [dependencies]
 livekit-common = { workspace = true }
 livekit-protocol = { workspace = true }

@@ -89,6 +89,53 @@ Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `live
 - A new crate that exports UniFFI items needs its own `uniffi.toml`, including `omit_checksums = true` under `[bindings.kotlin]`
   - The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; the full explanation lives in `livekit-uniffi/uniffi.toml` and the root `Cargo.toml`
 
+## Feature combinations
+
+`.github/workflows/feature-combinations-curated.yml` is the only job in CI that exercises features in *combination*. A `dep:` that one feature pulls in but the code uses unconditionally, or a `?/` forward that silently no-ops, compiles fine under default features and breaks only for the caller who picks a particular set — nothing else catches that.
+
+**The workflow lists no crate names.** Each crate declares how it wants to be checked, in its own `Cargo.toml` directly below its `[features]` table, and the workflow reads those declarations with `cargo metadata`:
+
+```toml
+[package.metadata.feature-combinations]
+mode = "powerset"   # cargo hack --feature-powerset --depth 2
+```
+
+```toml
+[package.metadata.feature-combinations]
+mode = "curated"    # only the combinations listed below
+check = [
+    ["default"],                    # a plain `cargo check`
+    [],                             # --no-default-features
+    ["native", "rustls-tls-webpki-roots"],
+    ["default", "rustls-tls-webpki-roots"],   # defaults *plus* one
+]
+```
+
+A crate with no such table is not feature-checked at all. Today eleven crates are `"powerset"`, `livekit` and `livekit-api` are `"curated"`, and `livekit-ffi`/`livekit-uniffi` deliberately declare nothing.
+
+- **When adding a workspace crate**, give it `mode = "powerset"` and stop there
+  - Its features are then picked up automatically as they are added, and no CI file changes
+  - Reach for `"curated"` only when the powerset is genuinely too expensive — that is a real loss of coverage, so it needs a reason recorded next to the table
+  - cargo-hack only varies the features of packages it is given. A crate with no table still gets built as a dependency, which makes it easy to assume it is covered when it is not
+- **When adding a feature to a `"curated"` crate** (`livekit`, `livekit-api`), add the configurations a user would plausibly select to that crate's `check` list
+  - A curated crate's new feature is invisible to this job until it is listed there — this is the standing cost of `"curated"`
+  - Each entry is a complete feature set, run as `--no-default-features --features <entry joined by commas>`. Spell defaults as `"default"`, since a bare `[]` already means "no features at all"
+  - Pair the feature with what it realistically ships alongside (a TLS backend together with `native`, say) rather than listing it on its own
+  - Do not add combinations nobody can select — internal `__lk-*` flags and two-TLS-backends-at-once are deliberately absent, and were most of what made the full powerset expensive
+- **Check any change to these tables without building anything.** This prints exactly what CI will do:
+  ```bash
+  cargo metadata --no-deps --format-version 1 | jq -r '
+    .packages[] | .name as $c | .metadata["feature-combinations"] as $fc
+    | select($fc != null)
+    | if $fc.mode == "curated" then ($fc.check[] | "curated  \($c) \(join(","))")
+      else "powerset \($c)" end' | tr -d '\r'
+  ```
+  For a `"powerset"` crate, `cargo hack -p <crate> --feature-powerset --depth 2 --print-command-list check` enumerates the combinations cargo-hack would run
+- The workflow validates the tables before running anything and fails on a typo'd `mode`, a `"curated"` crate with an empty `check`, a `"powerset"` crate carrying a `check` list that would be silently ignored, or either package set resolving to empty. A malformed table fails the job rather than quietly dropping a crate from CI
+- Keep `--depth 2`. `livekit` alone goes from 67 combinations to 232 at depth 3, and pairwise interactions are where these bugs actually live
+- A feature that pulls in `openssl-sys` cannot build for the three Android targets — there is no Android OpenSSL to link against. Add it to their `exclude_features` in the workflow matrix rather than trying to make it work; Android ships rustls (see `ffi-builds.yml`). It is honoured by both halves of the job
+- `livekit-ffi` and `livekit-uniffi` declare no table on purpose: their combinations cost more than everything else in the job combined, because each TLS change rebuilds `livekit` underneath them. Their shipped configurations are covered by `builds.yml` and `ffi-builds.yml` instead
+
 ## Documenting changes
 
 - Changes are documented using [_knope_](https://knope.tech)
