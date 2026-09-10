@@ -21,8 +21,6 @@ use livekit::webrtc::{
     },
 };
 
-const MAX_ENCODED_VIDEO_FRAME_SIZE: usize = 64 * 1024 * 1024;
-
 pub struct FfiVideoSource {
     pub handle_id: FfiHandleId,
     pub source_type: proto::VideoSourceType,
@@ -149,11 +147,6 @@ impl FfiVideoSource {
         let payload_len = usize::try_from(capture.data_len).map_err(|_| {
             FfiError::InvalidRequest("encoded frame payload length does not fit usize".into())
         })?;
-        if payload_len == 0 || payload_len > MAX_ENCODED_VIDEO_FRAME_SIZE {
-            return Err(FfiError::InvalidRequest(
-                "encoded frame payload must be between 1 byte and 64 MiB".into(),
-            ));
-        }
         if capture.data_ptr == 0 {
             return Err(FfiError::InvalidRequest(
                 "encoded frame payload pointer must be non-null".into(),
