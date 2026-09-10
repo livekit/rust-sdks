@@ -24,8 +24,8 @@ type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
 /// Error returned by a capture source.
 #[derive(Debug, thiserror::Error)]
-#[error("capture source failed: {0}")]
-pub struct SourceError(#[source] BoxError);
+#[error(transparent)]
+pub struct SourceError(#[from] BoxError);
 
 impl SourceError {
     pub fn new(error: impl Into<BoxError>) -> Self {
