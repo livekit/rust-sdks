@@ -126,13 +126,11 @@ impl FfiVideoSource {
         Ok(())
     }
 
-    /// # Safety
-    ///
-    /// `capture.data_ptr` must address `capture.data_len` readable bytes for
-    /// the duration of this call.
-    pub unsafe fn capture_encoded_frame(
+    pub fn capture_encoded_frame(
         &self,
-        capture: proto::CaptureEncodedVideoFrameRequest,
+        capture: &proto::CaptureEncodedVideoFrameRequest,
+        payload: &[u8],
+        metadata: Option<proto::FrameMetadata>,
     ) -> FfiResult<bool> {
         if self.source_type != proto::VideoSourceType::VideoSourceEncoded {
             return Err(FfiError::InvalidRequest(
@@ -144,29 +142,19 @@ impl FfiVideoSource {
                 "encoded frame dimensions must be non-zero".into(),
             ));
         }
-        let payload_len = usize::try_from(capture.data_len).map_err(|_| {
-            FfiError::InvalidRequest("encoded frame payload length does not fit usize".into())
-        })?;
-        if capture.data_ptr == 0 {
-            return Err(FfiError::InvalidRequest(
-                "encoded frame payload pointer must be non-null".into(),
-            ));
-        }
-
         let codec = proto::VideoCodec::try_from(capture.codec)
             .map(encoded_video_codec_from_proto)
             .map_err(|_| FfiError::InvalidRequest("unknown encoded video codec".into()))?;
         let frame_type = proto::EncodedFrameType::try_from(capture.frame_type)
             .map(encoded_frame_type_from_proto)
             .map_err(|_| FfiError::InvalidRequest("unknown encoded frame type".into()))?;
-        let payload = std::slice::from_raw_parts(capture.data_ptr as *const u8, payload_len);
         let frame = EncodedVideoFrame {
             codec,
             payload,
             timestamp_us: capture.timestamp_us,
             frame_type,
             resolution: VideoResolution { width: capture.width, height: capture.height },
-            frame_metadata: frame_metadata_from_proto(capture.metadata),
+            frame_metadata: frame_metadata_from_proto(metadata),
         };
 
         match self.source {
