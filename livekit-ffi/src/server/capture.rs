@@ -116,33 +116,28 @@ pub fn on_start_capture(
             *ffi_capture.state.lock() = CaptureState::Finished;
         }
         let _ = server.send_event(proto::ffi_event::Message::CaptureSourceEvent(
-            proto::CaptureSourceEvent {
-                capture_handle,
-                message: Some(capture_result_to_proto(result)),
-            },
+            proto::CaptureSourceEvent { capture_handle, message: Some(result.into()) },
         ));
     });
 
     Ok(proto::StartCaptureResponse { error: None })
 }
 
-fn capture_result_to_proto(
-    result: Result<PumpStats, PumpError>,
-) -> proto::capture_source_event::Message {
-    match result {
-        Ok(stats) => {
-            let exit = match stats.exit {
-                PumpExit::Stopped => proto::CaptureExit::Stopped,
-                PumpExit::EndOfStream => proto::CaptureExit::EndOfStream,
-            };
-            proto::capture_source_event::Message::Finished(proto::CaptureFinished {
-                frames_captured: stats.frames_captured,
-                exit: exit.into(),
-            })
+impl From<Result<PumpStats, PumpError>> for proto::capture_source_event::Message {
+    fn from(result: Result<PumpStats, PumpError>) -> Self {
+        match result {
+            Ok(stats) => {
+                let exit = match stats.exit {
+                    PumpExit::Stopped => proto::CaptureExit::Stopped,
+                    PumpExit::EndOfStream => proto::CaptureExit::EndOfStream,
+                };
+                Self::Finished(proto::CaptureFinished {
+                    frames_captured: stats.frames_captured,
+                    exit: exit.into(),
+                })
+            }
+            Err(err) => Self::Error(proto::CaptureError { error: err.to_string() }),
         }
-        Err(err) => proto::capture_source_event::Message::Error(proto::CaptureError {
-            error: err.to_string(),
-        }),
     }
 }
 
