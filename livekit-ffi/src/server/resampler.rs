@@ -173,3 +173,94 @@ fn to_soxr_datatype(datatype: proto::SoxResamplerDataType) -> soxr_sys::soxr_dat
         proto::SoxResamplerDataType::SoxrDatatypeInt16s => soxr_sys::soxr_datatype_t_SOXR_INT16_S,
     }
 }
+
+/// Direct-call tests for [`SoxResampler`], paired with the protobuf-driven tests
+/// in `crate::migration_tests`. Both sets are written to compile and pass on
+/// either side of the uniffi migration, so they can be replayed across it.
+///
+/// `sox_resampler!` is the only migration seam: the migration renames and
+/// re-types the constructor that takes the spec structs, so the macro body is the
+/// one thing that differs between commits. The tests bind the resampler to a
+/// `mut` local, which suits both a plain `SoxResampler` and an `Arc<Self>`.
+#[cfg(test)]
+// `mut` is load-bearing before the migration (`push(&mut self)`) and redundant
+// after it (`Arc<SoxResampler>`, `push(&self)`).
+#[allow(unused_mut)]
+mod migration_tests {
+    use crate::proto;
+
+    /// Builds a resampler from the same spec structs the FFI request handler uses.
+    /// Proto enums are passed through `.into()` so this reads identically before
+    /// the migration (identity conversion) and after it (proto -> uniffi enum).
+    #[macro_export]
+    macro_rules! sox_resampler {
+        ($input_rate:expr, $output_rate:expr, $num_channels:expr, $quality:expr) => {
+            $crate::server::resampler::SoxResampler::new(
+                $input_rate,
+                $output_rate,
+                $num_channels,
+                $crate::server::resampler::IOSpec {
+                    input_type: $crate::proto::SoxResamplerDataType::SoxrDatatypeInt16i.into(),
+                    output_type: $crate::proto::SoxResamplerDataType::SoxrDatatypeInt16i.into(),
+                },
+                $crate::server::resampler::QualitySpec { quality: $quality.into(), flags: 0 },
+                $crate::server::resampler::RuntimeSpec { num_threads: 1 },
+            )
+            .unwrap()
+        };
+    }
+
+    /// 30ms of 48kHz mono in, 30ms of 16kHz mono out, once the filter has been
+    /// drained by `flush`.
+    #[test]
+    fn push_then_flush_conserves_duration() {
+        let mut resampler =
+            sox_resampler!(48000.0, 16000.0, 1, proto::SoxQualityRecipe::SoxrQualityQuick);
+        let frame = vec![1000i16; 480]; // 10ms @ 48kHz
+
+        let mut frames = 0;
+        for _ in 0..3 {
+            frames += resampler.push(&frame).unwrap().len();
+        }
+        frames += resampler.flush().unwrap().len();
+
+        // 3 x 10ms @ 48kHz == 480 frames @ 16kHz, give or take the filter delay.
+        assert!((frames as i64 - 480).abs() <= 8, "got {frames} frames, expected ~480");
+    }
+
+    /// A steady level comes out at the same level, i.e. the sample data really is
+    /// being resampled rather than reinterpreted or truncated.
+    #[test]
+    fn steady_level_survives_resampling() {
+        let mut resampler =
+            sox_resampler!(48000.0, 16000.0, 1, proto::SoxQualityRecipe::SoxrQualityVeryhigh);
+        let frame = vec![8000i16; 4800]; // 100ms @ 48kHz
+
+        resampler.push(&frame).unwrap(); // warm up past the filter ramp
+        let output = resampler.push(&frame).unwrap();
+
+        assert!(output.len() > 1000, "expected ~1600 frames, got {}", output.len());
+        for (i, sample) in output.iter().enumerate() {
+            assert!((*sample as i32 - 8000).abs() < 80, "sample {i} is {sample}, expected ~8000");
+        }
+    }
+
+    /// Interleaved channels are resampled independently: a stereo frame of
+    /// (+8000, -8000) must not average out into silence.
+    #[test]
+    fn interleaved_channels_stay_separate() {
+        let mut resampler =
+            sox_resampler!(48000.0, 24000.0, 2, proto::SoxQualityRecipe::SoxrQualityQuick);
+        let frame: Vec<i16> = std::iter::repeat([8000, -8000]).take(4800).flatten().collect();
+
+        resampler.push(&frame).unwrap(); // warm up past the filter ramp
+        let output = resampler.push(&frame).unwrap();
+
+        assert_eq!(output.len() % 2, 0, "output is not a whole number of stereo frames");
+        assert!(output.len() > 1000, "expected ~4800 samples, got {}", output.len());
+        for (i, out_frame) in output.chunks(2).enumerate() {
+            assert!(out_frame[0] > 7000, "frame {i} left is {}, expected ~8000", out_frame[0]);
+            assert!(out_frame[1] < -7000, "frame {i} right is {}, expected ~-8000", out_frame[1]);
+        }
+    }
+}

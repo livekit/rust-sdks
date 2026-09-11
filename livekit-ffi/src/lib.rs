@@ -19,6 +19,8 @@ use livekit::prelude::*;
 use thiserror::Error;
 
 mod conversion;
+#[cfg(test)]
+mod migration_tests;
 
 pub mod build_info;
 pub mod cabi;
