@@ -1,3 +1,5 @@
+webrtc-sys/src/lazy_load_deps_for/** linguist-vendored
+
 # Generated from the LiveKit protocol definitions; do not edit by hand.
 livekit-protocol/src/livekit.rs linguist-generated=true
 livekit-protocol/src/livekit.serde.rs linguist-generated=true
