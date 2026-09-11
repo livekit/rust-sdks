@@ -326,6 +326,7 @@ message TrackPublishOptions {
   // Controls how the encoder trades off between resolution and framerate
   // when bandwidth is constrained. Default is MAINTAIN_RESOLUTION.
   optional DegradationPreference degradation_preference = 13;
+  optional FecProtection fec = 14;
 }
 
 enum VideoEncoderBackend {
@@ -348,6 +349,13 @@ enum DegradationPreference {
   // Maintain both framerate and resolution. Frames may be dropped before encoding
   // if necessary to avoid overusing network and encoder resources.
   DEGRADATION_PREFERENCE_MAINTAIN_FRAMERATE_AND_RESOLUTION = 4;
+}
+
+enum FecProtection {
+  FEC_PROTECTION_DISABLED = 0;
+  FEC_PROTECTION_LOW = 1;
+  FEC_PROTECTION_MEDIUM = 2;
+  FEC_PROTECTION_HIGH = 3;
 }
 
 enum IceTransportType {
@@ -403,6 +411,7 @@ message RoomOptions {
   // Comma separated list of additional LiveKit SDKs layered on top of this one, with versions,
   // e.g. "components-js:1.2.3,track-processors-js:1.2.3". Forwarded to ClientInfo.other_sdks.
   optional string other_sdks = 11;
+  optional bool fec_enabled = 12;
 }
 
 //
