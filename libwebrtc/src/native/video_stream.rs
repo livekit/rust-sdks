@@ -108,12 +108,31 @@ impl VideoTrackObserver {
     fn frame_metadata(
         &self,
         rtp_timestamp: u32,
+        decode_start_timestamp_us: u64,
+        decode_finish_timestamp_us: u64,
         handler: Option<&PacketTrailerHandler>,
     ) -> Option<FrameMetadata> {
         handler
             .and_then(|handler| {
                 handler.lookup_frame_metadata(rtp_timestamp).map(|(ts, fid, user_data)| {
-                    handler.emit_subscribe_timing(SubscribeTimingStage::DecoderOutput, ts, fid);
+                    if decode_start_timestamp_us != 0 {
+                        handler.emit_subscribe_timing_at(
+                            SubscribeTimingStage::DecoderUpload,
+                            ts,
+                            fid,
+                            decode_start_timestamp_us,
+                        );
+                    }
+                    if decode_finish_timestamp_us != 0 {
+                        handler.emit_subscribe_timing_at(
+                            SubscribeTimingStage::DecoderOutput,
+                            ts,
+                            fid,
+                            decode_finish_timestamp_us,
+                        );
+                    } else {
+                        handler.emit_subscribe_timing(SubscribeTimingStage::DecoderOutput, ts, fid);
+                    }
                     (ts, fid, user_data)
                 })
             })
@@ -128,8 +147,12 @@ impl VideoTrackObserver {
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         let packet_trailer_handler = self.packet_trailer_handler.lock().clone();
-        let frame_metadata =
-            self.frame_metadata(frame.timestamp(), packet_trailer_handler.as_ref());
+        let frame_metadata = self.frame_metadata(
+            frame.timestamp(),
+            frame.decode_start_timestamp_us(),
+            frame.decode_finish_timestamp_us(),
+            packet_trailer_handler.as_ref(),
+        );
 
         self.frame_queue.push(VideoFrame {
             rotation: frame.rotation().into(),
