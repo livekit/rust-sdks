@@ -151,8 +151,8 @@ impl Default for FfiServer {
 // It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FfiServer {
     pub fn setup(&self, config: FfiConfig) {
+        self.logger.setup(config.capture_logs);
         *self.config.lock() = Some(config.clone());
-        self.logger.set_capture_logs(config.capture_logs);
 
         log::debug!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
@@ -184,7 +184,7 @@ impl FfiServer {
             room.close(self, DisconnectReason::ClientInitiated).await;
         }
 
-        self.logger.set_capture_logs(false);
+        self.logger.dispose();
 
         // Closing rooms does not release resources owned by FFI handles.
         // Cancel handle watchers first, then drop handles one by one so Drop
