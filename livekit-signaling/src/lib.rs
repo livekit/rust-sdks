@@ -308,6 +308,7 @@ impl SignalState {
 }
 
 struct SignalInner {
+    // The write lock is held across reconnects to avoid transportless gaps
     state: AsyncRwLock<SignalState>,
     token: Mutex<String>, // Token can be refreshed
     /// Session-scoped signals held while no confirmed transport can carry them. A sync lock that
