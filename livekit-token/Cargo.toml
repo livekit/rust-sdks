@@ -1,6 +1,6 @@
 [package]
 name = "livekit-token"
-version = "0.1.2"
+version = "0.2.0"
 license.workspace = true
 description = "Core logic for generating LiveKit tokens"
 edition.workspace = true
