@@ -30,7 +30,6 @@ use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 
 /// A capture pump of either kind, boxed at the FFI edge.
-#[allow(dead_code)]
 enum CapturePump {
     Pixel(PixelVideoPump<Box<dyn PixelVideoSource>>),
     Encoded(EncodedVideoPump<Box<dyn EncodedVideoSource>>),
@@ -49,7 +48,6 @@ impl CapturePump {
 ///
 /// The activity can end without client action (end of stream, error); the
 /// FFI object outlives it and is disposed only by the client.
-#[allow(dead_code)]
 enum CaptureState {
     /// Created but not started.
     Idle(CapturePump),
