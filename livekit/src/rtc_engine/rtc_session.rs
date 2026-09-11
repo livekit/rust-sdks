@@ -2025,13 +2025,17 @@ impl SessionInner {
             sub_pc.close();
         }
 
-        self.signal_client
-            .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
-                action: proto::leave_request::Action::Disconnect.into(),
-                reason: reason as i32,
-                ..Default::default()
-            }))
-            .await;
+        // A server-initiated Leave already ended the session on the server, and the socket it
+        // arrived on is closing under us: there is nothing to answer.
+        if !self.disconnecting.load(Ordering::Acquire) {
+            self.signal_client
+                .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Disconnect.into(),
+                    reason: reason as i32,
+                    ..Default::default()
+                }))
+                .await;
+        }
 
         self.signal_client.close().await;
     }

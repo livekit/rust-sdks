@@ -78,6 +78,8 @@ base64 = "0.22"
 
 [dev-dependencies]
 livekit-token = { workspace = true }
+# Room service client, so an e2e test can delete the room it joined.
+livekit-api = { workspace = true, default-features = false, features = ["services"] }
 # Enable data-stream test constructors (e.g. TextStreamReader::new_for_test) for our test suites.
 livekit-data-stream = { workspace = true, features = ["test-utils"] }
 # Async test runtime + timers, needed by the peer_transport deadlock reproducer.
