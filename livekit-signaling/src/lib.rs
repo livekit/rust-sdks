@@ -219,8 +219,12 @@ pub enum SignalEvent {
 ///   transport's task before it starts the next attempt.
 /// - `ReconnectFailed` always lands in `Offline`. Whether the failure is terminal is the
 ///   engine's call, made from the error `restart` returns.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum SignalState {
+    /// The initial connect is in flight. The constructor drives this state: no client exists
+    /// to send or close on until it completes.
+    #[default]
+    Connecting,
     /// Transport up and the session confirmed. Sends go straight through.
     Connected(SignalStream),
     /// Resume in flight (`None`), or transport back and engine not yet confirmed (`Some`).
@@ -238,6 +242,10 @@ enum SignalState {
 /// Inputs that move a [`SignalState`].
 #[derive(Debug)]
 enum SignalInput {
+    /// The transport is up and the server answered with a `JoinResponse`.
+    ConnectComplete(SignalStream),
+    /// The initial connect failed. There is no session to fall back on, so this is terminal.
+    ConnectFailed,
     /// Start resuming the session on a new transport.
     Reconnect,
     /// The resume's transport is up and the server answered with a `ReconnectResponse`.
@@ -259,8 +267,9 @@ impl SignalState {
     fn transition(&mut self, input: SignalInput) -> Result<Option<SignalStream>, SignalInput> {
         use SignalInput as In;
         use SignalState::*;
-        // `Closed` is a placeholder while the old state is moved out
-        let (next_state, released_stream) = match (std::mem::replace(self, Closed), input) {
+        let (next_state, released_stream) = match (std::mem::take(self), input) {
+            (Connecting, In::ConnectComplete(stream)) => (Connected(stream), None),
+            (Connecting, In::ConnectFailed) => (Closed, None),
             (Connected(stream), In::Reconnect) => (Reconnecting(None), Some(stream)),
             (Offline | Closed, In::Reconnect) => (Reconnecting(None), None),
             (Reconnecting(None), In::ReconnectComplete(stream)) => {
@@ -289,7 +298,11 @@ impl SignalState {
     fn stream(&self) -> Option<&SignalStream> {
         match self {
             Self::Connected(stream) | Self::Reconnecting(Some(stream)) => Some(stream),
-            Self::Reconnecting(None) | Self::Offline | Self::Disconnecting | Self::Closed => None,
+            Self::Connecting
+            | Self::Reconnecting(None)
+            | Self::Offline
+            | Self::Disconnecting
+            | Self::Closed => None,
         }
     }
 }
@@ -499,73 +512,28 @@ impl SignalInner {
         proto::JoinResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        // Try v1 path first if single_peer_connection is enabled
-        let use_v1_path = options.single_peer_connection;
-        // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
-        let lk_url =
-            get_livekit_url(url, &options, use_v1_path, false, None, "", publisher_offer.as_ref())?;
-        // Try to connect to the SignalClient
-        let (stream, mut events, single_pc_mode_active) =
-            match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
-                Ok((new_stream, stream_events)) => {
-                    log::debug!(
-                        "signal connection successful: path={}, single_pc_mode={}",
-                        if use_v1_path { "v1" } else { "v0" },
-                        use_v1_path
-                    );
-                    (new_stream, stream_events, use_v1_path)
-                }
-                Err(err) => {
-                    log::warn!(
-                        "signal connection failed on {} path: {:?}",
-                        if use_v1_path { "v1" } else { "v0" },
-                        err
-                    );
+        // The machine starts `Connecting` and is driven here, before there is a client to
+        // hold it. A failed attempt ends `Closed` and is dropped with the error.
+        let mut state = SignalState::default();
+        let attempt = async {
+            let (stream, mut events, single_pc_mode_active) =
+                Self::open_transport(url, token, &options, publisher_offer.as_ref()).await?;
+            let join_response = get_join_response(&mut events).await?;
+            SignalResult::Ok((stream, events, single_pc_mode_active, join_response))
+        };
+        let (stream, events, single_pc_mode_active, join_response) = match attempt.await {
+            Ok(connected) => connected,
+            Err(err) => {
+                let _ = state.transition(SignalInput::ConnectFailed);
+                return Err(err);
+            }
+        };
+        state
+            .transition(SignalInput::ConnectComplete(stream))
+            .expect("a fresh machine is Connecting and accepts its transport");
 
-                    if let SignalError::TokenFormat = err {
-                        return Err(err);
-                    }
-
-                    // Only fall back to v0 on a 404 (v1 endpoint absent). Other statuses
-                    // are real issues that shouldn't be masked by switching signaling mode.
-                    // The 404 is a WebSocket upgrade status, so it arrives as `Handshake`.
-                    let is_not_found =
-                        matches!(&err, SignalError::Handshake { status } if status.as_u16() == 404);
-
-                    if use_v1_path && is_not_found {
-                        let lk_url_v0 =
-                            get_livekit_url(url, &options, false, false, None, "", None)?;
-                        log::warn!("v1 path not found (404), falling back to v0 path");
-                        match SignalStream::connect(
-                            lk_url_v0.clone(),
-                            token,
-                            options.connect_timeout,
-                        )
-                        .await
-                        {
-                            Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
-                            Err(err) => {
-                                log::error!("v0 fallback also failed: {:?}", err);
-                                if let SignalError::TokenFormat = err {
-                                    return Err(err);
-                                }
-                                Self::validate(lk_url_v0, token).await?;
-                                return Err(err);
-                            }
-                        }
-                    } else {
-                        // Connection failed, try to retrieve more information
-                        Self::validate(lk_url, token).await?;
-                        return Err(err);
-                    }
-                }
-            };
-
-        let join_response = get_join_response(&mut events).await?;
-
-        // Successfully connected to the SignalClient
         let inner = Arc::new(SignalInner {
-            state: AsyncRwLock::new(SignalState::Connected(stream)),
+            state: AsyncRwLock::new(state),
             token: Mutex::new(token.to_owned()),
             queue: Default::default(),
             options,
@@ -576,6 +544,73 @@ impl SignalInner {
         });
 
         Ok((inner, join_response, events))
+    }
+
+    /// Open the WebSocket: the v1 path first when single peer connection is enabled, falling
+    /// back to v0 only when v1 is absent (404). Also returns whether the v1 path is active.
+    async fn open_transport(
+        url: &str,
+        token: &str,
+        options: &SignalOptions,
+        publisher_offer: Option<&proto::SessionDescription>,
+    ) -> SignalResult<(
+        SignalStream,
+        mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+        bool,
+    )> {
+        // Try v1 path first if single_peer_connection is enabled
+        let use_v1_path = options.single_peer_connection;
+        // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
+        let lk_url = get_livekit_url(url, options, use_v1_path, false, None, "", publisher_offer)?;
+        match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
+            Ok((new_stream, stream_events)) => {
+                log::debug!(
+                    "signal connection successful: path={}, single_pc_mode={}",
+                    if use_v1_path { "v1" } else { "v0" },
+                    use_v1_path
+                );
+                Ok((new_stream, stream_events, use_v1_path))
+            }
+            Err(err) => {
+                log::warn!(
+                    "signal connection failed on {} path: {:?}",
+                    if use_v1_path { "v1" } else { "v0" },
+                    err
+                );
+
+                if let SignalError::TokenFormat = err {
+                    return Err(err);
+                }
+
+                // Only fall back to v0 on a 404 (v1 endpoint absent). Other statuses
+                // are real issues that shouldn't be masked by switching signaling mode.
+                // The 404 is a WebSocket upgrade status, so it arrives as `Handshake`.
+                let is_not_found =
+                    matches!(&err, SignalError::Handshake { status } if status.as_u16() == 404);
+
+                if use_v1_path && is_not_found {
+                    let lk_url_v0 = get_livekit_url(url, options, false, false, None, "", None)?;
+                    log::warn!("v1 path not found (404), falling back to v0 path");
+                    match SignalStream::connect(lk_url_v0.clone(), token, options.connect_timeout)
+                        .await
+                    {
+                        Ok((new_stream, stream_events)) => Ok((new_stream, stream_events, false)),
+                        Err(err) => {
+                            log::error!("v0 fallback also failed: {:?}", err);
+                            if let SignalError::TokenFormat = err {
+                                return Err(err);
+                            }
+                            Self::validate(lk_url_v0, token).await?;
+                            Err(err)
+                        }
+                    }
+                } else {
+                    // Connection failed, try to retrieve more information
+                    Self::validate(lk_url, token).await?;
+                    Err(err)
+                }
+            }
+        }
     }
 
     /// Validate the connection by calling rtc/validate.
@@ -724,7 +759,8 @@ impl SignalInner {
                 Some(stream)
             }
             SignalState::Reconnecting(Some(stream)) if is_pass_through(&signal) => Some(stream),
-            SignalState::Reconnecting(_)
+            SignalState::Connecting
+            | SignalState::Reconnecting(_)
             | SignalState::Offline
             | SignalState::Disconnecting
             | SignalState::Closed => None,
@@ -1409,6 +1445,7 @@ mod tests {
 
     async fn state_named(name: &str) -> SignalState {
         match name {
+            "Connecting" => SignalState::Connecting,
             "Connected(SignalStream)" => SignalState::Connected(mock_stream().await),
             "Reconnecting(None)" => SignalState::Reconnecting(None),
             "Reconnecting(Some(SignalStream))" => {
@@ -1423,6 +1460,8 @@ mod tests {
 
     async fn input_named(name: &str) -> SignalInput {
         match name {
+            "ConnectComplete" => SignalInput::ConnectComplete(mock_stream().await),
+            "ConnectFailed" => SignalInput::ConnectFailed,
             "Reconnect" => SignalInput::Reconnect,
             "ReconnectComplete" => SignalInput::ReconnectComplete(mock_stream().await),
             "ReconnectFailed" => SignalInput::ReconnectFailed,
@@ -1437,6 +1476,8 @@ mod tests {
     /// The whole table: `None` means the state refuses the input and must not move.
     fn expected(from: &str, input: &str) -> Option<&'static str> {
         match (from, input) {
+            ("Connecting", "ConnectComplete") => Some("Connected(SignalStream)"),
+            ("Connecting", "ConnectFailed") => Some("Closed"),
             ("Connected(SignalStream)", "Reconnect") => Some("Reconnecting(None)"),
             ("Connected(SignalStream)", "TransportFailed") => Some("Offline"),
             ("Connected(SignalStream)", "Close") => Some("Disconnecting"),
@@ -1458,6 +1499,7 @@ mod tests {
     #[tokio::test]
     async fn every_state_and_input_matches_the_transition_table() {
         const STATES: &[&str] = &[
+            "Connecting",
             "Connected(SignalStream)",
             "Reconnecting(None)",
             "Reconnecting(Some(SignalStream))",
@@ -1466,6 +1508,8 @@ mod tests {
             "Closed",
         ];
         const INPUTS: &[&str] = &[
+            "ConnectComplete",
+            "ConnectFailed",
             "Reconnect",
             "ReconnectComplete",
             "ReconnectFailed",

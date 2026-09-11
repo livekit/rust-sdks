@@ -13,4 +13,5 @@ instead of proceeding.
 
 The held-signal queue moved to a sync lock that is never held across an await, which removes
 a lock-order hazard between the queue and the stream lock. A send that fails for any
-transport error is now held like a `SendError` was.
+transport error is now held like a `SendError` was. The initial connect is modelled too: the machine starts `Connecting`
+and the constructor drives it to `Connected`, or to `Closed` on failure.

@@ -122,7 +122,8 @@ entity SignalConnection {
     --                MarkReconnected.
     -- closed       : terminal (clean/local close or server Disconnect).
     --
-    -- Code (livekit-signaling `SignalState`):
+    -- Code (livekit-signaling `SignalState`): the initial connect is
+    -- `Connecting`, before SignalConnectionEstablished creates this entity;
     -- connected = Connected(stream); reconnecting = Reconnecting(None) in
     -- flight, then Reconnecting(Some(stream)) with the gate still on until
     -- MarkReconnected; lost = Offline; closed = Disconnecting then Closed.
