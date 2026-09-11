@@ -16,7 +16,7 @@ use std::path::Path;
 #[cfg(use_tract)]
 use std::sync::Once;
 
-use ort::session::Session;
+use ort::session::{builder::SessionBuilder, Session};
 
 #[cfg(use_tract)]
 static INIT_TRACT: Once = Once::new();
@@ -32,6 +32,8 @@ pub(crate) mod embedding;
 pub(crate) mod melspectrogram;
 pub mod wakeword;
 
+/// Graph optimizations requested when an ONNX session is created.
+pub use ort::session::builder::GraphOptimizationLevel;
 pub use wakeword::WakeWordModel;
 
 #[derive(Debug, thiserror::Error)]
@@ -74,15 +76,121 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
     }
 }
 
-pub(crate) fn build_session_from_memory(bytes: &[u8]) -> Result<Session, WakeWordError> {
-    #[cfg(use_tract)]
-    ensure_tract_backend();
-    Ok(Session::builder()?.commit_from_memory(bytes)?)
+/// How every ONNX session a [`WakeWordModel`] creates is configured: the two
+/// bundled feature extraction models and each wake word classifier. Mirrors the
+/// `sess_options` parameter the Python SDK takes.
+///
+/// [`Default`] is what [`WakeWordModel::new`] uses. Pass a value of your own to
+/// [`WakeWordModel::with_session_options`] to trade latency for CPU, which is
+/// useful when detection runs as a background process on a small machine:
+///
+/// ```no_run
+/// # use livekit_wakeword::{SessionOptions, WakeWordModel};
+/// # fn main() -> Result<(), livekit_wakeword::WakeWordError> {
+/// let options = SessionOptions {
+///     intra_threads: Some(1),
+///     inter_threads: Some(1),
+///     parallel_execution: Some(false),
+///     intra_op_spinning: Some(false),
+///     inter_op_spinning: Some(false),
+///     ..Default::default()
+/// };
+/// let model = WakeWordModel::with_session_options(&["hey_livekit.onnx"], 16000, options)?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// `optimization_level` is the only option the `ort-tract` backend used on every
+/// target except aarch64 Windows implements; the rest are skipped there rather than
+/// failing session creation, and since tract runs single-threaded without
+/// spin-waiting, they already describe what it does.
+#[derive(Clone, Debug)]
+pub struct SessionOptions {
+    /// Graph optimizations to apply when the session is created. Matters more than
+    /// it looks: `ort-tract` runs tract's `into_optimized()` only when some level is
+    /// requested, and wake word inference measured several times slower without it.
+    pub optimization_level: GraphOptimizationLevel,
+    /// Threads used to run a single operator. `Some(1)` keeps each session on the
+    /// calling thread.
+    pub intra_threads: Option<usize>,
+    /// Threads used to run operators in parallel, when `parallel_execution` is on.
+    pub inter_threads: Option<usize>,
+    /// Whether independent operators may run in parallel. `Some(false)` is ONNX
+    /// Runtime's sequential execution mode.
+    pub parallel_execution: Option<bool>,
+    /// Whether intra-op threads may spin before blocking. `Some(false)` trades a
+    /// little latency for markedly less CPU while idle.
+    pub intra_op_spinning: Option<bool>,
+    /// Whether inter-op threads may spin before blocking.
+    pub inter_op_spinning: Option<bool>,
+    /// Session config entries applied verbatim, for anything the fields above do
+    /// not cover.
+    pub config_entries: Vec<(String, String)>,
 }
 
-pub(crate) fn build_session_from_file(path: impl AsRef<Path>) -> Result<Session, WakeWordError> {
+impl Default for SessionOptions {
+    /// Requests [`GraphOptimizationLevel::Level3`], ONNX Runtime's own default, and
+    /// leaves every other option to the backend.
+    fn default() -> Self {
+        Self {
+            optimization_level: GraphOptimizationLevel::Level3,
+            intra_threads: None,
+            inter_threads: None,
+            parallel_execution: None,
+            intra_op_spinning: None,
+            inter_op_spinning: None,
+            config_entries: Vec::new(),
+        }
+    }
+}
+
+impl SessionOptions {
+    // The optimization level is the only session option `ort-tract` implements;
+    // every other one resolves to `ort-sys`' stub API and reports `NotImplemented`.
+    // Since tract runs single-threaded without spin-waiting, skipping those is
+    // closer to what the caller asked for than refusing to build the session.
+    #[cfg(use_tract)]
+    fn apply(&self, builder: SessionBuilder) -> Result<SessionBuilder, WakeWordError> {
+        Ok(builder.with_optimization_level(self.optimization_level)?)
+    }
+
+    #[cfg(not(use_tract))]
+    fn apply(&self, builder: SessionBuilder) -> Result<SessionBuilder, WakeWordError> {
+        let mut builder = builder.with_optimization_level(self.optimization_level)?;
+        if let Some(threads) = self.intra_threads {
+            builder = builder.with_intra_threads(threads)?;
+        }
+        if let Some(threads) = self.inter_threads {
+            builder = builder.with_inter_threads(threads)?;
+        }
+        if let Some(parallel) = self.parallel_execution {
+            builder = builder.with_parallel_execution(parallel)?;
+        }
+        if let Some(enable) = self.intra_op_spinning {
+            builder = builder.with_intra_op_spinning(enable)?;
+        }
+        if let Some(enable) = self.inter_op_spinning {
+            builder = builder.with_inter_op_spinning(enable)?;
+        }
+        for (key, value) in &self.config_entries {
+            builder = builder.with_config_entry(key, value)?;
+        }
+        Ok(builder)
+    }
+}
+
+pub(crate) fn build_session_from_memory(
+    bytes: &[u8],
+    options: &SessionOptions,
+) -> Result<Session, WakeWordError> {
     #[cfg(use_tract)]
     ensure_tract_backend();
-    let bytes = std::fs::read(path)?;
-    Ok(Session::builder()?.commit_from_memory(&bytes)?)
+    Ok(options.apply(Session::builder()?)?.commit_from_memory(bytes)?)
+}
+
+pub(crate) fn build_session_from_file(
+    path: impl AsRef<Path>,
+    options: &SessionOptions,
+) -> Result<Session, WakeWordError> {
+    build_session_from_memory(&std::fs::read(path)?, options)
 }
