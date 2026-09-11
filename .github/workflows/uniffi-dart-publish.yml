@@ -188,13 +188,23 @@ jobs:
             exit 1
           fi
 
+      # pub.dev currently answers 403 to package metadata requests that carry a
+      # bearer token (dart-lang/pub-dev#9576), and setup-dart registers the
+      # publishing token for the whole host, so dependency resolution has to run
+      # without it. The token is added back right before the upload, the only
+      # request that needs it, and client-side validation is skipped there
+      # because this step just did it. Collapse back to plain `dart pub get`,
+      # `--dry-run` and `--force` once the issue is fixed.
       - name: Validate package
         working-directory: ${{ runner.temp }}/livekit_uniffi
         run: |
+          dart pub token remove https://pub.dev || true
           dart pub get
           dart pub publish --dry-run
 
       - name: Publish to pub.dev
         if: ${{ env.PUBLISH_ENABLED == 'true' && github.event_name == 'push' }}
         working-directory: ${{ runner.temp }}/livekit_uniffi
-        run: dart pub publish --force
+        run: |
+          dart pub token add https://pub.dev --env-var PUB_TOKEN
+          dart pub publish --force --skip-validation
