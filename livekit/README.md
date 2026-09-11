@@ -10,7 +10,7 @@ Published video can be protected with proactive FlexFEC-03 forward error
 correction, letting receivers (the LiveKit SFU or peers) repair packet loss
 without waiting for retransmissions:
 
-```rust
+```rust,ignore
 use livekit::options::{FecProtection, TrackPublishOptions};
 
 let mut options = RoomOptions::default();
