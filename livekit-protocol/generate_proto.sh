@@ -35,4 +35,8 @@ protoc \
     $PROTOCOL/livekit_connector.proto \
     $PROTOCOL/livekit_connector_whatsapp.proto \
     $PROTOCOL/livekit_connector_twilio.proto \
-    $PROTOCOL/livekit_analytics.proto
+    $PROTOCOL/livekit_analytics.proto \
+    $PROTOCOL/agent/livekit_agent_dev.proto \
+    $PROTOCOL/agent/livekit_agent_session.proto \
+    $PROTOCOL/agent/livekit_agent_text.proto \
+    $PROTOCOL/agent/livekit_agent_inference.proto

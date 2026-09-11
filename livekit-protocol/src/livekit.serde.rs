@@ -7725,18 +7725,12 @@ impl serde::Serialize for ConnectWhatsAppCallRequest {
         if self.sdp.is_some() {
             len += 1;
         }
-        if self.wait_until_answered {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.ConnectWhatsAppCallRequest", len)?;
         if !self.whatsapp_call_id.is_empty() {
             struct_ser.serialize_field("whatsappCallId", &self.whatsapp_call_id)?;
         }
         if let Some(v) = self.sdp.as_ref() {
             struct_ser.serialize_field("sdp", v)?;
-        }
-        if self.wait_until_answered {
-            struct_ser.serialize_field("waitUntilAnswered", &self.wait_until_answered)?;
         }
         struct_ser.end()
     }
@@ -7751,15 +7745,12 @@ impl<'de> serde::Deserialize<'de> for ConnectWhatsAppCallRequest {
             "whatsapp_call_id",
             "whatsappCallId",
             "sdp",
-            "wait_until_answered",
-            "waitUntilAnswered",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             WhatsappCallId,
             Sdp,
-            WaitUntilAnswered,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -7784,7 +7775,6 @@ impl<'de> serde::Deserialize<'de> for ConnectWhatsAppCallRequest {
                         match value {
                             "whatsappCallId" | "whatsapp_call_id" => Ok(GeneratedField::WhatsappCallId),
                             "sdp" => Ok(GeneratedField::Sdp),
-                            "waitUntilAnswered" | "wait_until_answered" => Ok(GeneratedField::WaitUntilAnswered),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -7806,7 +7796,6 @@ impl<'de> serde::Deserialize<'de> for ConnectWhatsAppCallRequest {
             {
                 let mut whatsapp_call_id__ = None;
                 let mut sdp__ = None;
-                let mut wait_until_answered__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::WhatsappCallId => {
@@ -7821,12 +7810,6 @@ impl<'de> serde::Deserialize<'de> for ConnectWhatsAppCallRequest {
                             }
                             sdp__ = map_.next_value()?;
                         }
-                        GeneratedField::WaitUntilAnswered => {
-                            if wait_until_answered__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("waitUntilAnswered"));
-                            }
-                            wait_until_answered__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -7835,7 +7818,6 @@ impl<'de> serde::Deserialize<'de> for ConnectWhatsAppCallRequest {
                 Ok(ConnectWhatsAppCallRequest {
                     whatsapp_call_id: whatsapp_call_id__.unwrap_or_default(),
                     sdp: sdp__,
-                    wait_until_answered: wait_until_answered__.unwrap_or_default(),
                 })
             }
         }
@@ -22566,9 +22548,6 @@ impl serde::Serialize for Job {
         if !self.attributes.is_empty() {
             len += 1;
         }
-        if self.enable_redaction {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.Job", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -22608,9 +22587,6 @@ impl serde::Serialize for Job {
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
-        if self.enable_redaction {
-            struct_ser.serialize_field("enableRedaction", &self.enable_redaction)?;
-        }
         struct_ser.end()
     }
 }
@@ -22636,8 +22612,6 @@ impl<'de> serde::Deserialize<'de> for Job {
             "enableRecording",
             "deployment",
             "attributes",
-            "enable_redaction",
-            "enableRedaction",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -22654,7 +22628,6 @@ impl<'de> serde::Deserialize<'de> for Job {
             EnableRecording,
             Deployment,
             Attributes,
-            EnableRedaction,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -22689,7 +22662,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                             "enableRecording" | "enable_recording" => Ok(GeneratedField::EnableRecording),
                             "deployment" => Ok(GeneratedField::Deployment),
                             "attributes" => Ok(GeneratedField::Attributes),
-                            "enableRedaction" | "enable_redaction" => Ok(GeneratedField::EnableRedaction),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -22721,7 +22693,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                 let mut enable_recording__ = None;
                 let mut deployment__ = None;
                 let mut attributes__ = None;
-                let mut enable_redaction__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -22798,12 +22769,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
-                        GeneratedField::EnableRedaction => {
-                            if enable_redaction__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("enableRedaction"));
-                            }
-                            enable_redaction__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -22822,7 +22787,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                     enable_recording: enable_recording__.unwrap_or_default(),
                     deployment: deployment__.unwrap_or_default(),
                     attributes: attributes__.unwrap_or_default(),
-                    enable_redaction: enable_redaction__.unwrap_or_default(),
                 })
             }
         }
@@ -27168,15 +27132,6 @@ impl serde::Serialize for MetricsRecordingHeader {
         if self.room_start_time.is_some() {
             len += 1;
         }
-        if !self.job_id.is_empty() {
-            len += 1;
-        }
-        if self.simulated {
-            len += 1;
-        }
-        if self.redaction_enabled {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.MetricsRecordingHeader", len)?;
         if !self.room_id.is_empty() {
             struct_ser.serialize_field("roomId", &self.room_id)?;
@@ -27197,15 +27152,6 @@ impl serde::Serialize for MetricsRecordingHeader {
         }
         if let Some(v) = self.room_start_time.as_ref() {
             struct_ser.serialize_field("roomStartTime", v)?;
-        }
-        if !self.job_id.is_empty() {
-            struct_ser.serialize_field("jobId", &self.job_id)?;
-        }
-        if self.simulated {
-            struct_ser.serialize_field("simulated", &self.simulated)?;
-        }
-        if self.redaction_enabled {
-            struct_ser.serialize_field("redactionEnabled", &self.redaction_enabled)?;
         }
         struct_ser.end()
     }
@@ -27228,11 +27174,6 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
             "roomName",
             "room_start_time",
             "roomStartTime",
-            "job_id",
-            "jobId",
-            "simulated",
-            "redaction_enabled",
-            "redactionEnabled",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -27243,9 +27184,6 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
             RoomTags,
             RoomName,
             RoomStartTime,
-            JobId,
-            Simulated,
-            RedactionEnabled,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -27274,9 +27212,6 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                             "roomTags" | "room_tags" => Ok(GeneratedField::RoomTags),
                             "roomName" | "room_name" => Ok(GeneratedField::RoomName),
                             "roomStartTime" | "room_start_time" => Ok(GeneratedField::RoomStartTime),
-                            "jobId" | "job_id" => Ok(GeneratedField::JobId),
-                            "simulated" => Ok(GeneratedField::Simulated),
-                            "redactionEnabled" | "redaction_enabled" => Ok(GeneratedField::RedactionEnabled),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -27302,9 +27237,6 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                 let mut room_tags__ = None;
                 let mut room_name__ = None;
                 let mut room_start_time__ = None;
-                let mut job_id__ = None;
-                let mut simulated__ = None;
-                let mut redaction_enabled__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RoomId => {
@@ -27347,24 +27279,6 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                             }
                             room_start_time__ = map_.next_value()?;
                         }
-                        GeneratedField::JobId => {
-                            if job_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("jobId"));
-                            }
-                            job_id__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Simulated => {
-                            if simulated__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("simulated"));
-                            }
-                            simulated__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::RedactionEnabled => {
-                            if redaction_enabled__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("redactionEnabled"));
-                            }
-                            redaction_enabled__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -27377,9 +27291,6 @@ impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
                     room_tags: room_tags__.unwrap_or_default(),
                     room_name: room_name__.unwrap_or_default(),
                     room_start_time: room_start_time__,
-                    job_id: job_id__.unwrap_or_default(),
-                    simulated: simulated__.unwrap_or_default(),
-                    redaction_enabled: redaction_enabled__.unwrap_or_default(),
                 })
             }
         }
@@ -29173,7 +29084,6 @@ impl serde::Serialize for participant_info::KindDetail {
             Self::ConnectorWhatsapp => "CONNECTOR_WHATSAPP",
             Self::ConnectorTwilio => "CONNECTOR_TWILIO",
             Self::BridgeRtsp => "BRIDGE_RTSP",
-            Self::Simulation => "SIMULATION",
         };
         serializer.serialize_str(variant)
     }
@@ -29190,7 +29100,6 @@ impl<'de> serde::Deserialize<'de> for participant_info::KindDetail {
             "CONNECTOR_WHATSAPP",
             "CONNECTOR_TWILIO",
             "BRIDGE_RTSP",
-            "SIMULATION",
         ];
 
         struct GeneratedVisitor;
@@ -29236,7 +29145,6 @@ impl<'de> serde::Deserialize<'de> for participant_info::KindDetail {
                     "CONNECTOR_WHATSAPP" => Ok(participant_info::KindDetail::ConnectorWhatsapp),
                     "CONNECTOR_TWILIO" => Ok(participant_info::KindDetail::ConnectorTwilio),
                     "BRIDGE_RTSP" => Ok(participant_info::KindDetail::BridgeRtsp),
-                    "SIMULATION" => Ok(participant_info::KindDetail::Simulation),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
