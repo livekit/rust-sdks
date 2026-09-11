@@ -239,28 +239,33 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn running_pump_stops_on_signal() {
-        struct EndlessSource;
+    struct EndlessSource;
 
-        impl PixelVideoSource for EndlessSource {
-            fn resolution(&self) -> VideoResolution {
-                RESOLUTION
-            }
-
-            fn next_frame(
-                &mut self,
-                _stop: &PumpStop,
-            ) -> Result<Option<BoxVideoFrame>, SourceError> {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-                Ok(Some(pixel_frame(0)))
-            }
+    impl PixelVideoSource for EndlessSource {
+        fn resolution(&self) -> VideoResolution {
+            RESOLUTION
         }
 
+        fn next_frame(&mut self, _stop: &PumpStop) -> Result<Option<BoxVideoFrame>, SourceError> {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            Ok(Some(pixel_frame(0)))
+        }
+    }
+
+    #[tokio::test]
+    async fn running_pump_stops_on_signal() {
         let running = PixelVideoPump::new(EndlessSource).spawn().unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         let stats = running.stop_and_join().await.unwrap();
         assert!(stats.frames_captured > 0);
         assert_eq!(stats.exit, PumpExit::Stopped);
+    }
+
+    #[tokio::test]
+    async fn dropping_running_pump_stops_the_thread() {
+        let running = PixelVideoPump::new(EndlessSource).spawn().unwrap();
+        let stop = running.stop_handle();
+        drop(running);
+        assert!(stop.is_stopped());
     }
 }

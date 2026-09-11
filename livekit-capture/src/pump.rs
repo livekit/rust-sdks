@@ -104,7 +104,7 @@ pub(crate) fn spawn_pump(
         result
     })?;
 
-    Ok(RunningPump { stop, thread, finished: finished_rx })
+    Ok(RunningPump { stop, thread: Some(thread), finished: finished_rx })
 }
 
 /// Renders a panic payload for [`PumpError::Panicked`].
@@ -122,12 +122,23 @@ fn panic_message(panic: &(dyn Any + Send)) -> String {
 ///
 /// A stop takes effect between frames: a source that is blocked on its next
 /// frame completes that wait before the pump observes the signal.
+///
+/// Dropping the handle signals the pump to stop, so an endless source does
+/// not keep capturing. The drop does not wait for the thread to exit; use
+/// [`RunningPump::stop_and_join`] to observe the outcome.
 #[derive(Debug)]
 pub struct RunningPump {
     stop: PumpStop,
-    thread: thread::JoinHandle<Result<PumpStats, PumpError>>,
+    // Taken by `join`; `None` only after the thread has been joined.
+    thread: Option<thread::JoinHandle<Result<PumpStats, PumpError>>>,
     // Flipped to true by the pump thread just before it exits.
     finished: tokio::sync::watch::Receiver<bool>,
+}
+
+impl Drop for RunningPump {
+    fn drop(&mut self) {
+        self.stop.stop();
+    }
 }
 
 impl RunningPump {
@@ -143,7 +154,7 @@ impl RunningPump {
 
     /// Returns whether the pump thread exited.
     pub fn is_finished(&self) -> bool {
-        self.thread.is_finished()
+        self.thread.as_ref().map_or(true, |thread| thread.is_finished())
     }
 
     /// Waits for the pump to exit.
@@ -155,7 +166,8 @@ impl RunningPump {
         // An error means the sender dropped, which also implies the pump
         // thread is done; either way the join below returns promptly.
         let _ = self.finished.wait_for(|finished| *finished).await;
-        self.thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
+        let thread = self.thread.take().expect("pump thread is joined at most once");
+        thread.join().unwrap_or_else(|panic| Err(PumpError::Panicked(panic_message(&*panic))))
     }
 
     /// Signals the pump to stop and waits for it to exit.
