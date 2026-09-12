@@ -878,7 +878,8 @@ fn on_push_sox_resampler(
         )
     };
 
-    match resampler.push(data) {
+    let output = resampler.push_ffi(data);
+    match output {
         Ok(output) => {
             if output.is_empty() {
                 return Ok(proto::PushSoxResamplerResponse {
@@ -907,7 +908,8 @@ fn on_flush_sox_resampler(
     let resampler =
         server.retrieve_handle::<Arc<resampler::SoxResampler>>(flush.resampler_handle)?.clone();
 
-    match resampler.flush() {
+    let output = resampler.flush_ffi();
+    match output {
         Ok(output) => Ok(proto::FlushSoxResamplerResponse {
             output_ptr: output.as_ptr() as u64,
             size: (output.len() * std::mem::size_of::<i16>()) as u32,

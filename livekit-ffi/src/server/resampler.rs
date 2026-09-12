@@ -18,7 +18,7 @@ use std::{
     sync::Arc,
 };
 
-use parking_lot::Mutex;
+use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use soxr_sys;
 
 use crate::migration::HasFfiHandleId as _;
@@ -90,6 +90,24 @@ impl SoxResampler {
         let mut inner = self.inner.lock();
         let output_slice = inner.flush().map_err(|s| SoxResamplerError::FlushError(s))?;
         Ok(output_slice.to_vec())
+    }
+}
+
+// After the migration is complete, this impl can be removed.
+impl SoxResampler {
+    pub(crate) fn push_ffi(
+        &self,
+        input: &[i16],
+    ) -> Result<MappedMutexGuard<'_, [i16]>, SoxResamplerError> {
+        let mut inner = self.inner.lock();
+        let output_len = inner.push(input).map_err(|s| SoxResamplerError::PushError(s))?.len();
+        Ok(MutexGuard::map(inner, |inner| &mut inner.out_buf[..output_len]))
+    }
+
+    pub(crate) fn flush_ffi(&self) -> Result<MappedMutexGuard<'_, [i16]>, SoxResamplerError> {
+        let mut inner = self.inner.lock();
+        let output_len = inner.flush().map_err(|s| SoxResamplerError::FlushError(s))?.len();
+        Ok(MutexGuard::map(inner, |inner| &mut inner.out_buf[..output_len]))
     }
 }
 
