@@ -41,6 +41,7 @@ use {
     common::test_rooms,
     libwebrtc::native::create_random_uuid,
     livekit::{ConnectionState, Room, RoomEvent, RoomOptions, SimulateScenario},
+    livekit_api::services::room::RoomClient,
     livekit_token::{AccessToken, VideoGrants},
     std::{env, net::SocketAddr, time::Duration},
     tokio::{
@@ -371,5 +372,46 @@ async fn test_reconnect_exhaustion_disconnects() -> Result<()> {
         ConnectionState::Disconnected,
         "room must reach Disconnected after reconnection is exhausted, not hang in Reconnecting"
     );
+    Ok(())
+}
+
+// A server-side room deletion is a terminal Leave: the room must report
+// Disconnected { RoomDeleted } without ever entering Reconnecting, and the client
+// has nothing to say back on a signalling socket the server is already closing.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_room_deleted_disconnects_without_reconnect() -> Result<()> {
+    let api_key = env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| "devkey".into());
+    let api_secret = env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| "secret".into());
+    let server_url = env::var("LIVEKIT_URL").unwrap_or_else(|_| "ws://localhost:7880".into());
+
+    let room_name = format!("test_room_{}", create_random_uuid());
+    let token = AccessToken::with_api_key(&api_key, &api_secret)
+        .with_ttl(Duration::from_secs(30 * 60))
+        .with_grants(VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() })
+        .with_identity("p0")
+        .with_name("Participant 0")
+        .to_jwt()?;
+
+    let (room, mut events) = Room::connect(&server_url, &token, RoomOptions::default()).await?;
+    assert_eq!(room.connection_state(), ConnectionState::Connected);
+
+    let http_url = server_url.replacen("ws", "http", 1);
+    RoomClient::with_api_key(&http_url, &api_key, &api_secret).delete_room(&room_name).await?;
+
+    let observe = async {
+        while let Some(event) = events.recv().await {
+            match event {
+                RoomEvent::Reconnecting => bail!("a deleted room must not be reconnected to"),
+                RoomEvent::Disconnected { reason } => return Ok(reason),
+                _ => {}
+            }
+        }
+        bail!("event stream ended before the room reported Disconnected");
+    };
+    let reason = timeout(Duration::from_secs(30), observe).await??;
+
+    assert_eq!(reason, livekit::DisconnectReason::RoomDeleted);
+    assert_eq!(room.connection_state(), ConnectionState::Disconnected);
     Ok(())
 }
