@@ -19,8 +19,8 @@ use livekit::{
         E2eeOptions, EncryptionType,
     },
     options::{
-        AudioEncoding, DegradationPreference, FrameMetadataFeatures, TrackPublishOptions,
-        VideoEncoderBackend, VideoEncoding,
+        AudioEncoding, DegradationPreference, FecProtection, FrameMetadataFeatures,
+        TrackPublishOptions, VideoEncoderBackend, VideoEncoding,
     },
     prelude::*,
     webrtc::{
@@ -81,6 +81,15 @@ fn degradation_preference_from_proto(pref: Option<i32>) -> Option<DegradationPre
         proto::DegradationPreference::MaintainFramerateAndResolution => {
             Some(DegradationPreference::MaintainFramerateAndResolution)
         }
+    }
+}
+
+fn fec_protection_from_proto(fec: Option<i32>) -> Option<FecProtection> {
+    match fec.and_then(|value| proto::FecProtection::try_from(value).ok())? {
+        proto::FecProtection::FecProtectionDisabled => Some(FecProtection::Disabled),
+        proto::FecProtection::FecProtectionLow => Some(FecProtection::Low),
+        proto::FecProtection::FecProtectionMedium => Some(FecProtection::Medium),
+        proto::FecProtection::FecProtectionHigh => Some(FecProtection::High),
     }
 }
 
@@ -305,6 +314,7 @@ impl From<proto::RoomOptions> for RoomOptions {
         options.connect_timeout =
             value.connect_timeout_ms.map(Duration::from_millis).unwrap_or(options.connect_timeout);
         options.sdk_options.other_sdks = value.other_sdks;
+        options.fec_enabled = value.fec_enabled.unwrap_or(options.fec_enabled);
         if let Some(data_stream) = value.data_stream {
             let mut data_stream_options = RoomDataStreamOptions::default();
             if let Some(max_payload_byte_length) = data_stream.max_payload_byte_length {
@@ -368,6 +378,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             ),
             video_encoder: video_encoder_from_proto(opts.video_encoder)
                 .unwrap_or(default_publish_options.video_encoder),
+            fec: fec_protection_from_proto(opts.fec).unwrap_or(default_publish_options.fec),
             scalability_mode: opts.scalability_mode,
             degradation_preference: degradation_preference_from_proto(opts.degradation_preference),
         }
@@ -389,11 +400,13 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 #[cfg(test)]
 mod tests {
     use livekit::{
-        options::{TrackPublishOptions, VideoEncoderBackend},
+        options::{FecProtection, TrackPublishOptions, VideoEncoderBackend},
         prelude::RoomOptions,
     };
 
-    use super::{frame_metadata_features_from_proto, video_encoder_from_proto};
+    use super::{
+        fec_protection_from_proto, frame_metadata_features_from_proto, video_encoder_from_proto,
+    };
     use crate::proto;
 
     #[test]
@@ -433,6 +446,14 @@ mod tests {
     }
 
     #[test]
+    fn fec_enabled_round_trips_from_room_options() {
+        let options =
+            RoomOptions::from(proto::RoomOptions { fec_enabled: Some(true), ..Default::default() });
+
+        assert!(options.fec_enabled);
+    }
+
+    #[test]
     fn video_encoder_defaults_to_auto() {
         let options = TrackPublishOptions::from(proto::TrackPublishOptions::default());
 
@@ -456,6 +477,27 @@ mod tests {
 
         for (proto_backend, expected) in cases {
             assert_eq!(video_encoder_from_proto(Some(proto_backend as i32)), Some(expected));
+        }
+    }
+
+    #[test]
+    fn fec_defaults_to_disabled() {
+        let options = TrackPublishOptions::from(proto::TrackPublishOptions::default());
+
+        assert_eq!(options.fec, FecProtection::Disabled);
+    }
+
+    #[test]
+    fn fec_maps_known_values() {
+        let cases = [
+            (proto::FecProtection::FecProtectionDisabled, FecProtection::Disabled),
+            (proto::FecProtection::FecProtectionLow, FecProtection::Low),
+            (proto::FecProtection::FecProtectionMedium, FecProtection::Medium),
+            (proto::FecProtection::FecProtectionHigh, FecProtection::High),
+        ];
+
+        for (proto_fec, expected) in cases {
+            assert_eq!(fec_protection_from_proto(Some(proto_fec as i32)), Some(expected));
         }
     }
 }
