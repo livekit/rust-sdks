@@ -257,6 +257,134 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.9.1 (2026-09-09)
+
+### Features
+
+#### Moves the RPC implementation into a new `livekit-rpc` crate, alongside the existing
+
+`livekit-data-stream` and `livekit-datatrack` crates.
+
+**Breaking:** the `livekit::rpc` module is gone. The RPC types it held are unchanged and
+still re-exported from `livekit::participant` and the prelude, so most code needs no edit;
+code that spelled the module out (`use livekit::rpc::RpcError;`) should import from
+`livekit::participant` or the prelude instead. `RpcClientManager`, `RpcServerManager` and
+`HandleRequestOptions` remain reachable under `livekit::participant` but are now
+`#[doc(hidden)]`: they are internal SDK API and were never usable without the (private)
+transport trait.
+
+Within the `livekit` crate itself, RPC types are now imported from `livekit-rpc` directly
+rather than through those re-exports.
+
+The new crate does not depend on `libwebrtc`, so its unit tests run without building WebRTC.
+The transport seam that made this possible was already in place; the only change to it is
+that `RpcTransport::publish_data` now returns a message-only `RpcTransportError` instead of
+`livekit::RoomError`, mirroring `livekit_data_stream::api::SendError`.
+
+Also fixes four latent bugs found while moving the code:
+
+- An RPC call to a participant who disconnects mid-call now fails promptly with
+  `RecipientDisconnected`. Pending calls were never purged on disconnect, so the caller
+  waited out its full response timeout (15s by default) and got `ResponseTimeout` instead.
+- A server reporting a version that is not valid semver no longer panics the calling task.
+  An unparseable version is no longer treated as evidence that the server is too old.
+- A v1 `RpcResponse` carrying a compressed payload, or no value at all, now fails with an
+  `ApplicationError` instead of resolving the caller with an empty successful response.
+- Removed an unguarded `unwrap` when building a v1 response packet, by giving the function
+  a signature that cannot represent the invalid state.
+
+Also drops the `semver` dependency from `livekit`, which was only used by the RPC client.
+
+### Fixes
+
+- Load the Jetson MMAPI encoder's runtime libraries (libnvbufsurface, libv4l2/libnvv4l2) lazily via dlopen instead of linking them, so an aarch64 binary built with Jetson support also loads on non-Jetson ARM systems and falls back to other encoders there.
+- log warning if signal messages get dropped during reconnect - #1391 (@lukasIO)
+
+#### Own the add_ice_candidate completion state
+
+`PeerConnection::add_ice_candidate` captured `ctx` and `on_complete` by reference in the
+completion lambda it hands to libwebrtc. That completion runs asynchronously on the signaling
+thread and is deferred behind the operations chain whenever it is busy, for example while a
+`SetRemoteDescription` is in flight, so it could execute after the calling frame had returned
+and dereference freed stack memory (a crash on the signaling thread on the first ICE candidate
+in practice). The lambda now owns its state through a `shared_ptr`.
+
+## 0.9.0 (2026-09-08)
+
+### Breaking Changes
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+- Fix pre-encoded frame segfault on macOS
+- Handle capture of dmabuf using existing capture path
+- Add `self_test_http_get` / `self_test_ws_echo` / `has_http_client` / `has_ws_client` UniFFI exports so foreign hosts can exercise the transport seam end-to-end.
+
+#### Make AdmProxy worker-thread-affine: all platform ADM access now happens on the WebRTC worker thread, matching the ADM threading contract.
+
+- The platform ADM is now created lazily on the first PlatformAudio acquire on all platforms, so apps that never use platform audio never construct it.
+- Fixes Android platform recording delivering no audio: the audio transport was never registered on the lazily created ADM.
+- Fixes a shutdown race by keeping the runtime threads alive as long as Rust can reach the audio device controller.
+- Adds a `platform_audio` example exercising the PlatformAudio API and the worker-thread marshaling.
+
+#### Add agent guidance for detecting and preventing memory-lifecycle regressions in
+
+Rust, FFI, and native WebRTC code.
+
+#### Close peer connections before awaiting signal teardown
+
+`SessionInner::close` released the peer connections only after two awaits that can block
+indefinitely, so cancelling `close()` — for example by wrapping it in a timeout — left the
+transports open and their ICE UDP sockets bound for the lifetime of the process. Long-lived
+clients eventually exhausted their file descriptors. The transports are now closed before
+the first await, which makes the teardown safe to cancel.
+
+#### Moves the internal region-discovery cache into a new `livekit-region` crate. No
+
+public API or behaviour change.
+
+#### Moves the signalling client into a new `livekit-signaling` crate. livekit-api
+
+re-exports it under the historical `livekit_api::signal_client` path, now marked
+deprecated: it is internal SDK API, and dependents should use livekit-signaling
+directly. livekit-api no longer depends on livekit-net.
+
+Also drops two dependencies that were declared but never used: `scopeguard` and
+`bytes`.
+
+#### Fix CUDA and FFI resource cleanup during SDK shutdown.
+
+NVIDIA encoder and decoder factories now share a reference-counted CUDA context
+and destroy it when the final factory is dropped. FFI shutdown now releases
+leftover handles one at a time so nested `drop_handle` calls do not re-enter
+`DashMap::clear()`. Adds regression coverage for FFI-handle, watcher, and
+configuration cleanup during disposal.
+
+#### Expose network_type on IceCandidateStats
+
+Chromium's local `RTCIceCandidateStats` carries a non-standard `networkType` field (WiFi,
+cellular, ethernet, etc.), but `IceCandidateStats` had no place to put it, so it was silently
+dropped during `get_stats()` deserialization. Adds `network_type: Option<String>` to the struct;
+non-breaking since it already derives `#[serde(default)]`.
+
+#### Fix room-session and data-channel leaks across connect/disconnect cycles.
+
+The E2EE manager callback now captures `RoomSession` weakly so the session can
+drop after disconnect. Data-channel observer callbacks are cleared during RTC
+teardown so the observer/callback cycle cannot keep peer connections alive.
+Adds regression coverage for room-session destruction and data-channel callback
+cleanup.
+
+#### Fix native video-source lifecycle and NVENC initialization failure handling.
+
+The raw-video keepalive task now uses a weak liveness check and defers its
+black I420 buffer allocation until source liveness is confirmed, so dropping
+an unused source releases its resources. `nvEncInitializeEncoder` failures now
+propagate instead of leaving the encoder half-initialized.
+
 ## 0.8.4 (2026-08-25)
 
 ### Features

@@ -116,15 +116,6 @@ pub mod ffi {
             frame: &UniquePtr<VideoFrame>,
             frame_metadata: &FrameMetadata,
         ) -> bool;
-        fn capture_dmabuf_frame(
-            self: &VideoTrackSource,
-            dmabuf_fd: i32,
-            width: i32,
-            height: i32,
-            pixel_format: i32,
-            timestamp_us: i64,
-            frame_metadata: &FrameMetadata,
-        ) -> bool;
         fn capture_encoded_frame(
             self: &VideoTrackSource,
             width: i32,

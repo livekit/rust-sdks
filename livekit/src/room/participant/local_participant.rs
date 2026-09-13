@@ -35,7 +35,6 @@ use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::rpc::{RpcError, RpcErrorCode, RpcInvocationData},
     rtc_engine::lk_runtime::LkRuntime,
     rtc_engine::{EngineError, EngineResult, RtcEngine},
     ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
@@ -48,10 +47,10 @@ use libwebrtc::{
     video_source::RtcVideoSource,
 };
 use livekit_protocol as proto;
-use livekit_runtime::timeout;
 use livekit_signaling::SignalError;
 use parking_lot::{Mutex, RwLock};
 use proto::request_response::Reason;
+use tokio::time::timeout;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -909,7 +908,7 @@ impl LocalParticipant {
         let session = self.session().ok_or_else(|| {
             RpcError::built_in(RpcErrorCode::SendFailed, Some("Not connected".to_string()))
         })?;
-        let transport = crate::room::rpc::SessionTransport(session.clone());
+        let transport = crate::room::rpc_transport::SessionTransport(session.clone());
         session.rpc_client.perform_rpc(data, &transport).await
     }
 

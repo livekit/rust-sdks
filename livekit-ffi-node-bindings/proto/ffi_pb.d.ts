@@ -21,13 +21,14 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { ConnectCallback, ConnectRequest, ConnectResponse, DisconnectCallback, DisconnectRequest, DisconnectResponse, EditChatMessageRequest, GetSessionStatsCallback, GetSessionStatsRequest, GetSessionStatsResponse, PublishDataCallback, PublishDataRequest, PublishDataResponse, PublishSipDtmfCallback, PublishSipDtmfRequest, PublishSipDtmfResponse, PublishTrackCallback, PublishTrackRequest, PublishTrackResponse, PublishTranscriptionCallback, PublishTranscriptionRequest, PublishTranscriptionResponse, ReadyForRoomEventRequest, ReadyForRoomEventResponse, RoomEvent, SendChatMessageCallback, SendChatMessageRequest, SendChatMessageResponse, SendStreamChunkCallback, SendStreamChunkRequest, SendStreamChunkResponse, SendStreamHeaderCallback, SendStreamHeaderRequest, SendStreamHeaderResponse, SendStreamTrailerCallback, SendStreamTrailerRequest, SendStreamTrailerResponse, SetDataChannelBufferedAmountLowThresholdRequest, SetDataChannelBufferedAmountLowThresholdResponse, SetLocalAttributesCallback, SetLocalAttributesRequest, SetLocalAttributesResponse, SetLocalMetadataCallback, SetLocalMetadataRequest, SetLocalMetadataResponse, SetLocalNameCallback, SetLocalNameRequest, SetLocalNameResponse, SetSubscribedRequest, SetSubscribedResponse, SimulateScenarioCallback, SimulateScenarioRequest, SimulateScenarioResponse, UnpublishTrackCallback, UnpublishTrackRequest, UnpublishTrackResponse } from "./room_pb.js";
 import type { CreateAudioTrackRequest, CreateAudioTrackResponse, CreateVideoTrackRequest, CreateVideoTrackResponse, EnableRemoteTrackRequest, EnableRemoteTrackResponse, GetStatsCallback, GetStatsRequest, GetStatsResponse, LocalTrackMuteRequest, LocalTrackMuteResponse, SetTrackSubscriptionPermissionsRequest, SetTrackSubscriptionPermissionsResponse, TrackEvent } from "./track_pb.js";
-import type { CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } from "./video_frame_pb.js";
+import type { CaptureEncodedVideoFrameRequest, CaptureEncodedVideoFrameResponse, CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, TakeEncodedVideoSourceFeedbackRequest, TakeEncodedVideoSourceFeedbackResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } from "./video_frame_pb.js";
 import type { ApmProcessReverseStreamRequest, ApmProcessReverseStreamResponse, ApmProcessStreamRequest, ApmProcessStreamResponse, ApmSetStreamDelayRequest, ApmSetStreamDelayResponse, AudioStreamEvent, AudioStreamFromParticipantRequest, AudioStreamFromParticipantResponse, CaptureAudioFrameCallback, CaptureAudioFrameRequest, CaptureAudioFrameResponse, ClearAudioBufferRequest, ClearAudioBufferResponse, FlushSoxResamplerRequest, FlushSoxResamplerResponse, GetAudioDevicesRequest, GetAudioDevicesResponse, LoadAudioFilterPluginRequest, LoadAudioFilterPluginResponse, NewApmRequest, NewApmResponse, NewAudioResamplerRequest, NewAudioResamplerResponse, NewAudioSourceRequest, NewAudioSourceResponse, NewAudioStreamRequest, NewAudioStreamResponse, NewPlatformAudioRequest, NewPlatformAudioResponse, NewSoxResamplerRequest, NewSoxResamplerResponse, PushSoxResamplerRequest, PushSoxResamplerResponse, RemixAndResampleRequest, RemixAndResampleResponse, SetPlayoutDeviceRequest, SetPlayoutDeviceResponse, SetRecordingDeviceRequest, SetRecordingDeviceResponse, StartRecordingRequest, StartRecordingResponse, StopRecordingRequest, StopRecordingResponse } from "./audio_frame_pb.js";
 import type { E2eeRequest, E2eeResponse } from "./e2ee_pb.js";
 import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } from "./rpc_pb.js";
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
 import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
+import type { CaptureSourceEvent, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -559,6 +560,20 @@ export declare class FfiRequest extends Message<FfiRequest> {
     case: "getSchema";
   } | {
     /**
+     * Pre-encoded video
+     *
+     * @generated from field: livekit.proto.CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 87;
+     */
+    value: CaptureEncodedVideoFrameRequest;
+    case: "captureEncodedVideoFrame";
+  } | {
+    /**
+     * @generated from field: livekit.proto.TakeEncodedVideoSourceFeedbackRequest take_encoded_video_source_feedback = 88;
+     */
+    value: TakeEncodedVideoSourceFeedbackRequest;
+    case: "takeEncodedVideoSourceFeedback";
+  } | {
+    /**
      * Reconnection / chaos testing
      *
      * @generated from field: livekit.proto.SimulateScenarioRequest simulate_scenario = 76;
@@ -611,6 +626,20 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: ReadyForRoomEventRequest;
     case: "readyForRoomEvent";
+  } | {
+    /**
+     * Capture sources (livekit-capture; requires the `capture` feature)
+     *
+     * @generated from field: livekit.proto.StartCaptureRequest start_capture = 89;
+     */
+    value: StartCaptureRequest;
+    case: "startCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.StopCaptureRequest stop_capture = 90;
+     */
+    value: StopCaptureRequest;
+    case: "stopCapture";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1121,6 +1150,20 @@ export declare class FfiResponse extends Message<FfiResponse> {
     case: "getSchema";
   } | {
     /**
+     * Pre-encoded video
+     *
+     * @generated from field: livekit.proto.CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 87;
+     */
+    value: CaptureEncodedVideoFrameResponse;
+    case: "captureEncodedVideoFrame";
+  } | {
+    /**
+     * @generated from field: livekit.proto.TakeEncodedVideoSourceFeedbackResponse take_encoded_video_source_feedback = 88;
+     */
+    value: TakeEncodedVideoSourceFeedbackResponse;
+    case: "takeEncodedVideoSourceFeedback";
+  } | {
+    /**
      * Reconnection / chaos testing
      *
      * @generated from field: livekit.proto.SimulateScenarioResponse simulate_scenario = 75;
@@ -1173,6 +1216,20 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: ReadyForRoomEventResponse;
     case: "readyForRoomEvent";
+  } | {
+    /**
+     * Capture sources (livekit-capture; requires the `capture` feature)
+     *
+     * @generated from field: livekit.proto.StartCaptureResponse start_capture = 89;
+     */
+    value: StartCaptureResponse;
+    case: "startCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.StopCaptureResponse stop_capture = 90;
+     */
+    value: StopCaptureResponse;
+    case: "stopCapture";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1481,6 +1538,14 @@ export declare class FfiEvent extends Message<FfiEvent> {
      */
     value: GetSchemaCallback;
     case: "getSchema";
+  } | {
+    /**
+     * Capture sources (livekit-capture; requires the `capture` feature)
+     *
+     * @generated from field: livekit.proto.CaptureSourceEvent capture_source_event = 48;
+     */
+    value: CaptureSourceEvent;
+    case: "captureSourceEvent";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);

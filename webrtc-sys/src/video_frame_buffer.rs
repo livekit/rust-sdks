@@ -160,6 +160,23 @@ pub mod ffi {
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
 
+        /// Creates a native buffer backed by a DMA-BUF file descriptor
+        /// (Jetson `NvBufSurface`). `pixel_format` is a
+        /// `livekit::DmaBufPixelFormat` value: `0` for NV12, `1` for YUV420M.
+        ///
+        /// The buffer does not take ownership of the fd: it must remain valid
+        /// until every frame captured from it has been consumed downstream.
+        fn new_native_buffer_from_dmabuf(
+            dmabuf_fd: i32,
+            width: i32,
+            height: i32,
+            pixel_format: i32,
+        ) -> UniquePtr<VideoFrameBuffer>;
+
+        /// Returns the DMA-BUF fd backing this buffer, or `-1` if this buffer
+        /// is not DMA-BUF backed.
+        fn native_buffer_to_dmabuf_fd(buffer: &UniquePtr<VideoFrameBuffer>) -> i32;
+
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;

@@ -1,0 +1,10 @@
+[bindings.kotlin]
+# The Kotlin checksum test is off because it fails on ARM devices. For more info, see the similar
+# comment in livekit-uniffi/uniffi.toml.
+omit_checksums = true
+
+# Kotlin only, so the Rust source and the Swift/Python/Node bindings keep the original name. Lives
+# here rather than in livekit-uniffi/uniffi.toml because uniffi applies a rename table only to
+# items from the crate that owns it.
+[bindings.kotlin.rename]
+"WsConnection.close" = "close_connection"

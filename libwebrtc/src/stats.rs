@@ -601,6 +601,9 @@ pub mod dictionaries {
         pub related_port: i32,
         pub username_fragment: String,
         pub tcp_type: Option<IceTcpCandidateType>,
+        /// Chromium's non-standard `RTCIceCandidateStats.networkType` (WiFi, cellular, ethernet,
+        /// etc.), reported only for local candidates.
+        pub network_type: Option<String>,
     }
 
     #[derive(Debug, Default, Clone, Deserialize)]

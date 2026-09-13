@@ -166,6 +166,30 @@ impl NativeBuffer {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
+    #[cfg(target_os = "linux")]
+    pub fn from_dmabuf(
+        dmabuf_fd: vf::native::DmaBufFileDescriptor,
+        resolution: crate::video_source::VideoResolution,
+        pixel_format: vf::native::DmaBufPixelFormat,
+    ) -> vf::native::NativeBuffer {
+        vf::native::NativeBuffer {
+            handle: NativeBuffer {
+                sys_handle: vfb_sys::ffi::new_native_buffer_from_dmabuf(
+                    dmabuf_fd,
+                    resolution.width as i32,
+                    resolution.height as i32,
+                    pixel_format as i32,
+                ),
+            },
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn get_dmabuf_fd(&self) -> Option<vf::native::DmaBufFileDescriptor> {
+        let fd = vfb_sys::ffi::native_buffer_to_dmabuf_fd(&self.sys_handle);
+        (fd >= 0).then_some(fd)
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }

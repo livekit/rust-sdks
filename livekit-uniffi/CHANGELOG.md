@@ -1,3 +1,79 @@
+## 0.1.12 (2026-09-10)
+
+### Fixes
+
+#### Allow code_assets 2.x in the Dart package and stop re-running its build hook
+
+The `livekit_uniffi` Dart package capped `code_assets` below 2.0.0, which has since
+shipped. Its only breaking change (equality on `OS` and `Architecture`) does not
+affect the hook, and the cap would make the package unresolvable next to any
+dependency that already requires 2.x. The constraint now allows it, and the hook
+was verified against `code_assets 2.0.0` / `hooks 2.2.0`.
+
+The hook also registered the downloaded library as a dependency. Dependencies are
+inputs, so the hooks runner saw a file modified during the build and re-ran the
+hook, and the download, once on every fresh build. The registration is removed.
+
+The hook also wrote every target's library to the same shared path. A universal
+macOS build runs the hook once per architecture and then merges the results with
+`lipo`, which failed because the second download had overwritten the first. Each
+target now gets its own subdirectory.
+
+## 0.1.11 (2026-09-09)
+
+### Fixes
+
+- Re-baseline the iOS and Android binary size budgets, which had fallen behind the shipping binaries and blocked the 0.1.10 release.
+
+#### Moves the RPC implementation into a new `livekit-rpc` crate, alongside the existing
+
+`livekit-data-stream` and `livekit-datatrack` crates.
+
+**Breaking:** the `livekit::rpc` module is gone. The RPC types it held are unchanged and
+still re-exported from `livekit::participant` and the prelude, so most code needs no edit;
+code that spelled the module out (`use livekit::rpc::RpcError;`) should import from
+`livekit::participant` or the prelude instead. `RpcClientManager`, `RpcServerManager` and
+`HandleRequestOptions` remain reachable under `livekit::participant` but are now
+`#[doc(hidden)]`: they are internal SDK API and were never usable without the (private)
+transport trait.
+
+Within the `livekit` crate itself, RPC types are now imported from `livekit-rpc` directly
+rather than through those re-exports.
+
+The new crate does not depend on `libwebrtc`, so its unit tests run without building WebRTC.
+The transport seam that made this possible was already in place; the only change to it is
+that `RpcTransport::publish_data` now returns a message-only `RpcTransportError` instead of
+`livekit::RoomError`, mirroring `livekit_data_stream::api::SendError`.
+
+Also fixes four latent bugs found while moving the code:
+
+- An RPC call to a participant who disconnects mid-call now fails promptly with
+  `RecipientDisconnected`. Pending calls were never purged on disconnect, so the caller
+  waited out its full response timeout (15s by default) and got `ResponseTimeout` instead.
+- A server reporting a version that is not valid semver no longer panics the calling task.
+  An unparseable version is no longer treated as evidence that the server is too old.
+- A v1 `RpcResponse` carrying a compressed payload, or no value at all, now fails with an
+  `ApplicationError` instead of resolving the caller with an empty successful response.
+- Removed an unguarded `unwrap` when building a v1 response packet, by giving the function
+  a signature that cannot represent the invalid state.
+
+Also drops the `semver` dependency from `livekit`, which was only used by the RPC client.
+
+## 0.1.10 (2026-09-08)
+
+### Features
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Lower the Android UniFFI AAR minSdk from 24 to 21
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+- Add `self_test_http_get` / `self_test_ws_echo` / `has_http_client` / `has_ws_client` UniFFI exports so foreign hosts can exercise the transport seam end-to-end.
+- Attach Dart/Flutter cdylib assets to releases and prepare livekit_uniffi for pub.dev publishing
+- Update Android's JNA dependency version to 5.19.1 to support 16KB page sizes
+
 ## 0.1.9 (2026-08-25)
 
 ### Fixes

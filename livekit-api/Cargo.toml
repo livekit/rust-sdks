@@ -1,6 +1,6 @@
 [package]
 name = "livekit-api"
-version = "0.6.4"
+version = "0.7.1"
 license.workspace = true
 description = "Rust Server SDK for LiveKit"
 edition.workspace = true
@@ -9,21 +9,17 @@ readme = "README.md"
 
 [features]
 # By default ws TLS is not enabled
-default = ["services-tokio", "access-token", "webhooks"]
+default = ["services", "access-token", "webhooks"]
 
 # Signalling client. This is an internal compatibility shim: prefer depending on
 # the livekit-signaling crate directly. Enabling it here only re-exports that
 # crate under the historical `livekit_api::signal_client` path, which is marked
-# deprecated. Resolution is unchanged from when signal_client lived here:
-# livekit-signaling/native-<rt> forwards to livekit-net/native-<rt>, which
-# already folds in livekit-runtime/<rt>.
-signal-client            = ["dep:livekit-signaling"]
-signal-client-tokio      = ["signal-client", "livekit-signaling/native-tokio"]
-signal-client-async      = ["signal-client", "livekit-signaling/native-async"]
-signal-client-dispatcher = ["signal-client", "livekit-signaling/native-dispatcher"]
+# deprecated.
+signal-client        = ["dep:livekit-signaling"]
+signal-client-native = ["signal-client", "livekit-signaling/native"]
 
-services-tokio = ["access-token", "dep:livekit-region", "dep:reqwest", "dep:tokio", "tokio/time", "dep:livekit-runtime", "livekit-runtime/tokio"]
-services-async = ["access-token", "dep:livekit-region", "dep:isahc", "dep:livekit-runtime", "livekit-runtime/async"]
+services = ["access-token", "dep:livekit-region", "dep:reqwest", "dep:tokio", "tokio/time"]
+
 access-token = ["dep:livekit-token"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
@@ -59,6 +55,24 @@ rustls-tls-native-roots = ["livekit-signaling?/rustls-tls-native-roots", "reqwes
 rustls-tls-webpki-roots = ["livekit-signaling?/rustls-tls-webpki-roots", "reqwest?/rustls-tls-webpki-roots"]
 __rustls-tls            = ["livekit-signaling?/__rustls-tls",             "reqwest?/__rustls"]
 
+# Feature combinations checked in CI. See the equivalent table in
+# `livekit/Cargo.toml` for the encoding, and what `mode = "curated"` costs
+# relative to cargo-hack's powerset.
+[package.metadata.feature-combinations]
+mode = "curated"
+check = [
+    ["default"],                                        # a plain `cargo check`
+    [],                                                 # --no-default-features
+    ["access-token"],
+    ["webhooks"],
+    ["services", "native-tls"],
+    ["services", "native-tls-vendored"],
+    ["services", "rustls-tls-webpki-roots"],
+    ["services", "rustls-tls-native-roots"],
+    ["signal-client-native", "rustls-tls-webpki-roots"],
+    ["default", "rustls-tls-webpki-roots"],             # defaults *plus* one
+]
+
 [dependencies]
 livekit-signaling = { workspace = true, optional = true }
 livekit-protocol = { workspace = true }
@@ -77,17 +91,13 @@ serde_json = { workspace = true, optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
 # signal_client
-livekit-runtime = { workspace = true, optional = true, default-features = false }
-tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net", "rt-multi-thread"], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
 http = "1.1"
 reqwest = { version = "0.12", default-features = false, features = [ "json" ], optional = true }
-isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
 
 rand = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
-# Minimal executor to drive the runtime-agnostic `services-async` (isahc) tests.
-futures = "0.3"

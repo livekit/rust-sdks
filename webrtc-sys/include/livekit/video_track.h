@@ -138,16 +138,6 @@ class VideoTrackSource {
                          const FrameMetadata& frame_metadata)
       const;  // frames pushed from Rust (+interior mutability)
 
-  // Single-call DmaBuf capture: creates the DmaBufVideoFrameBuffer and
-  // VideoFrame internally, avoiding multiple FFI round-trips and heap
-  // allocations on the hot path.
-  bool capture_dmabuf_frame(int dmabuf_fd,
-                            int width,
-                            int height,
-                            int pixel_format,
-                            int64_t timestamp_us,
-                            const FrameMetadata& frame_metadata) const;
-
   bool capture_encoded_frame(int width,
                              int height,
                              const EncodedVideoFrameData& frame,

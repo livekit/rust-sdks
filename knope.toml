@@ -157,8 +157,9 @@ versioned_files = [
 changelog = "livekit-uniffi/CHANGELOG.md"
 # No `assets` marker: knope publishes the release + tag directly, and
 # uniffi-packages.yml reacts to the published release to build/publish the Swift
-# and Android wrapper packages. (Re-add the marker if the release itself needs
-# to host assets, e.g. the Dart/Flutter cdylibs.)
+# and Android wrapper packages. The Dart/Flutter cdylibs are attached to the
+# already-published release by its cdylib job (gh release upload --clobber), so
+# the marker stays off; a draft-based flow stranded releases before (#1256).
 scopes = ["uniffi", "livekit-uniffi"]
 
 [packages.livekit-wakeword]
@@ -193,6 +194,14 @@ versioned_files = [
 ]
 changelog = "livekit-data-stream/CHANGELOG.md"
 
+[packages.livekit-rpc]
+versioned_files = [
+  "livekit-rpc/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-rpc" },
+]
+changelog = "livekit-rpc/CHANGELOG.md"
+
 [packages.device-info]
 versioned_files = [
   "device-info/Cargo.toml",
@@ -201,14 +210,6 @@ versioned_files = [
 ]
 changelog = "device-info/CHANGELOG.md"
 
-[packages.livekit-runtime]
-versioned_files = [
-  "livekit-runtime/Cargo.toml",
-  "Cargo.lock",
-  { path = "Cargo.toml", dependency = "livekit-runtime" },
-]
-changelog = "livekit-runtime/CHANGELOG.md"
-
 [packages.livekit-token-source]
 versioned_files = [
   "livekit-token-source/Cargo.toml",
@@ -216,3 +217,11 @@ versioned_files = [
   { path = "Cargo.toml", dependency = "livekit-token-source" },
 ]
 changelog = "livekit-token-source/CHANGELOG.md"
+
+[packages.livekit-capture]
+versioned_files = [
+  "livekit-capture/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-capture" },
+]
+changelog = "livekit-capture/CHANGELOG.md"

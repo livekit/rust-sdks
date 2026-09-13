@@ -198,7 +198,7 @@ pub(crate) async fn fetch_from_endpoint(
         Ok((parsed.regions.into_iter().map(|i| i.url).collect(), max_age))
     };
 
-    livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
+    tokio::time::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
         .await
         .map_err(|_| SignalError::RegionError("region fetch timed out".into()))?
 }

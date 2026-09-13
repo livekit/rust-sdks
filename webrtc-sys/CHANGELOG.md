@@ -165,6 +165,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.45 (2026-09-09)
+
+### Fixes
+
+- Load the Jetson MMAPI encoder's runtime libraries (libnvbufsurface, libv4l2/libnvv4l2) lazily via dlopen instead of linking them, so an aarch64 binary built with Jetson support also loads on non-Jetson ARM systems and falls back to other encoders there.
+
+#### Own the add_ice_candidate completion state
+
+`PeerConnection::add_ice_candidate` captured `ctx` and `on_complete` by reference in the
+completion lambda it hands to libwebrtc. That completion runs asynchronously on the signaling
+thread and is deferred behind the operations chain whenever it is busy, for example while a
+`SetRemoteDescription` is in flight, so it could execute after the calling frame had returned
+and dereference freed stack memory (a crash on the signaling thread on the first ICE candidate
+in practice). The lambda now owns its state through a `shared_ptr`.
+
+## 0.3.44 (2026-09-08)
+
+### Features
+
+- Handle capture of dmabuf using existing capture path
+
+### Fixes
+
+- Fix pre-encoded frame segfault on macOS
+
+#### Make AdmProxy worker-thread-affine: all platform ADM access now happens on the WebRTC worker thread, matching the ADM threading contract.
+
+- The platform ADM is now created lazily on the first PlatformAudio acquire on all platforms, so apps that never use platform audio never construct it.
+- Fixes Android platform recording delivering no audio: the audio transport was never registered on the lazily created ADM.
+- Fixes a shutdown race by keeping the runtime threads alive as long as Rust can reach the audio device controller.
+- Adds a `platform_audio` example exercising the PlatformAudio API and the worker-thread marshaling.
+
+#### Add agent guidance for detecting and preventing memory-lifecycle regressions in
+
+Rust, FFI, and native WebRTC code.
+
+#### Fix CUDA and FFI resource cleanup during SDK shutdown.
+
+NVIDIA encoder and decoder factories now share a reference-counted CUDA context
+and destroy it when the final factory is dropped. FFI shutdown now releases
+leftover handles one at a time so nested `drop_handle` calls do not re-enter
+`DashMap::clear()`. Adds regression coverage for FFI-handle, watcher, and
+configuration cleanup during disposal.
+
+#### Fix native video-source lifecycle and NVENC initialization failure handling.
+
+The raw-video keepalive task now uses a weak liveness check and defers its
+black I420 buffer allocation until source liveness is confirmed, so dropping
+an unused source releases its resources. `nvEncInitializeEncoder` failures now
+propagate instead of leaving the encoder half-initialized.
+
 ## 0.3.43 (2026-08-25)
 
 ### Fixes

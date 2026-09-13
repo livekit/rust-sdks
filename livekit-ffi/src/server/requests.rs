@@ -23,6 +23,8 @@ use livekit::{
 };
 use parking_lot::Mutex;
 
+#[cfg(feature = "capture")]
+use super::capture;
 use super::{
     audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
@@ -518,6 +520,52 @@ unsafe fn on_capture_video_frame(
     let source = server.retrieve_handle::<video_source::FfiVideoSource>(push.source_handle)?;
     source.capture_frame(server, push)?;
     Ok(proto::CaptureVideoFrameResponse::default())
+}
+
+/// Push one complete pre-encoded access unit to an encoded video source.
+unsafe fn on_capture_encoded_video_frame(
+    server: &'static FfiServer,
+    mut capture: proto::CaptureEncodedVideoFrameRequest,
+) -> FfiResult<proto::CaptureEncodedVideoFrameResponse> {
+    let source = server.retrieve_handle::<video_source::FfiVideoSource>(capture.source_handle)?;
+    let metadata = capture.metadata.take();
+    // SAFETY: `livekit_ffi_request` requires all pointers embedded in the
+    // decoded request to remain valid for the duration of the call.
+    let payload = unsafe { capture.buffer.as_slice()? };
+    let accepted = source.capture_encoded_frame(&capture, payload, metadata)?;
+    Ok(proto::CaptureEncodedVideoFrameResponse { accepted })
+}
+
+impl proto::EncodedVideoBufferInfo {
+    /// Views the foreign encoded-video buffer as a byte slice.
+    ///
+    /// # Safety
+    ///
+    /// `data_ptr` must address `data_len` readable bytes for the returned
+    /// slice's lifetime.
+    unsafe fn as_slice(&self) -> FfiResult<&[u8]> {
+        let len = usize::try_from(self.data_len).map_err(|_| {
+            FfiError::InvalidRequest("encoded frame payload length does not fit usize".into())
+        })?;
+        if self.data_ptr == 0 {
+            return Err(FfiError::InvalidRequest(
+                "encoded frame payload pointer must be non-null".into(),
+            ));
+        }
+
+        // SAFETY: The caller guarantees that the pointer addresses `len`
+        // readable bytes for the lifetime of the returned slice.
+        Ok(unsafe { std::slice::from_raw_parts(self.data_ptr as *const u8, len) })
+    }
+}
+
+/// Consume pending keyframe and rate-control feedback for an encoded source.
+fn on_take_encoded_video_source_feedback(
+    server: &'static FfiServer,
+    request: proto::TakeEncodedVideoSourceFeedbackRequest,
+) -> FfiResult<proto::TakeEncodedVideoSourceFeedbackResponse> {
+    let source = server.retrieve_handle::<video_source::FfiVideoSource>(request.source_handle)?;
+    source.take_encoded_feedback()
 }
 
 /// Convert a video frame
@@ -1390,6 +1438,12 @@ pub fn handle_request(
         }
         Request::NewVideoSource(req) => on_new_video_source(server, req)?.into(),
         Request::CaptureVideoFrame(req) => unsafe { on_capture_video_frame(server, req)?.into() },
+        Request::CaptureEncodedVideoFrame(req) => unsafe {
+            on_capture_encoded_video_frame(server, req)?.into()
+        },
+        Request::TakeEncodedVideoSourceFeedback(req) => {
+            on_take_encoded_video_source_feedback(server, req)?.into()
+        }
         Request::VideoConvert(req) => unsafe { on_video_convert(server, req)?.into() },
         Request::NewAudioStream(req) => on_new_audio_stream(server, req)?.into(),
         Request::NewAudioSource(req) => on_new_audio_source(server, req)?.into(),
@@ -1481,6 +1535,17 @@ pub fn handle_request(
         }
         Request::StartRecording(req) => platform_audio::on_start_recording(server, req)?.into(),
         Request::StopRecording(req) => platform_audio::on_stop_recording(server, req)?.into(),
+
+        #[cfg(feature = "capture")]
+        Request::StartCapture(req) => capture::on_start_capture(server, req)?.into(),
+        #[cfg(feature = "capture")]
+        Request::StopCapture(req) => capture::on_stop_capture(server, req)?.into(),
+        #[cfg(not(feature = "capture"))]
+        Request::StartCapture(_) | Request::StopCapture(_) => {
+            return Err(FfiError::InvalidRequest(
+                "livekit-ffi was built without the 'capture' feature".into(),
+            ));
+        }
     });
 
     Ok(res)

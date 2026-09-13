@@ -57,12 +57,8 @@ mod normalize_host_tests {
 
 #[derive(Debug, Error)]
 pub enum ServerError {
-    #[cfg(feature = "services-tokio")]
     #[error("failed to execute the request: {0}")]
     Request(#[from] reqwest::Error),
-    #[cfg(feature = "services-async")]
-    #[error("failed to execute the request: {0}")]
-    Request(#[from] std::io::Error),
     #[error("server error: {0}")]
     Twirp(ServerErrorCode),
     #[error("url error: {0}")]

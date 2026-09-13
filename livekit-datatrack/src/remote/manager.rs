@@ -367,7 +367,7 @@ impl Manager {
             frame_tx: frame_tx.clone(),
             event_in_tx: self.event_in_tx.clone(),
         };
-        let task_handle = livekit_runtime::spawn(track_task.run());
+        let task_handle = tokio::spawn(track_task.run());
 
         descriptor.subscription = SubscriptionState::Active {
             sub_handle: assigned_handle,
@@ -431,7 +431,9 @@ impl Manager {
                         _ = result_tx.send(Err(DataTrackSubscribeError::Disconnected));
                     }
                 }
-                SubscriptionState::Active { task_handle, .. } => task_handle.await,
+                SubscriptionState::Active { task_handle, .. } => {
+                    let _ = task_handle.await;
+                }
             }
         }
     }
@@ -470,7 +472,7 @@ enum SubscriptionState {
         sub_handle: Handle,
         packet_tx: mpsc::Sender<Packet>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
-        task_handle: livekit_runtime::JoinHandle<()>,
+        task_handle: tokio::task::JoinHandle<()>,
     },
 }
 
@@ -594,10 +596,10 @@ mod tests {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, _) = Manager::new(options);
 
-        let join_handle = livekit_runtime::spawn(manager.run());
+        let join_handle = tokio::spawn(manager.run());
         _ = input.send(InputEvent::Shutdown);
 
-        time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
+        time::timeout(Duration::from_secs(1), join_handle).await.unwrap().unwrap();
     }
 
     #[test_case(true; "via_unpublish")]
@@ -628,7 +630,7 @@ mod tests {
 
         let task =
             TrackTask { info: info, pipeline, published_rx, packet_rx, frame_tx, event_in_tx };
-        let task_handle = livekit_runtime::spawn(task.run());
+        let task_handle = tokio::spawn(task.run());
 
         let trigger_shutdown = async {
             if via_unpublish {
@@ -648,7 +650,11 @@ mod tests {
             }
             panic!("Did not receive unsubscribe");
         };
-        time::timeout(Duration::from_secs(1), join(task_handle, trigger_shutdown)).await.unwrap();
+        let (joined, _) =
+            time::timeout(Duration::from_secs(1), join(task_handle, trigger_shutdown))
+                .await
+                .unwrap();
+        joined.unwrap();
     }
 
     #[tokio::test]
@@ -660,7 +666,7 @@ mod tests {
 
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Simulate track published
         let event = SfuPublicationUpdates {
@@ -727,7 +733,7 @@ mod tests {
     async fn test_track_publication_add_and_remove() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let info = DataTrackInfo {
@@ -765,7 +771,7 @@ mod tests {
     async fn test_sfu_publication_updates_idempotent() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let info = DataTrackInfo {
@@ -798,7 +804,7 @@ mod tests {
     async fn test_sid_reassignment_does_not_republish() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let pub_handle: Handle = Faker.fake();
         let old_sid: DataTrackSid = Faker.fake();
@@ -846,7 +852,7 @@ mod tests {
     async fn test_sid_reassignment_resubscribes_active_subscription() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let pub_handle: Handle = Faker.fake();
         let old_sid: DataTrackSid = Faker.fake();
@@ -927,7 +933,7 @@ mod tests {
     async fn test_subscribe_receives_frame() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -988,7 +994,7 @@ mod tests {
         let options =
             ManagerOptions { decryption_provider: Some(Arc::new(PrefixStrippingDecryptor)) };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -1051,7 +1057,7 @@ mod tests {
     async fn test_subscribe_fan_out_to_multiple_subscribers() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -1133,7 +1139,7 @@ mod tests {
     async fn test_subscribe_unknown_track_fails() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, _) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         // Subscribe to a track that was never published
         let (result_tx, result_rx) = oneshot::channel();
@@ -1152,7 +1158,7 @@ mod tests {
     async fn test_unpublish_terminates_pending_subscription() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let info = DataTrackInfo {
@@ -1196,7 +1202,7 @@ mod tests {
     async fn test_unpublish_terminates_active_subscription() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -1249,7 +1255,7 @@ mod tests {
     async fn test_all_subscribers_dropped_terminates_sfu_subscription() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
@@ -1302,7 +1308,7 @@ mod tests {
     async fn test_max_partial_frames_set_before_subscribe() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;
@@ -1364,7 +1370,7 @@ mod tests {
     async fn test_max_partial_frames_set_live() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;
@@ -1423,7 +1429,7 @@ mod tests {
     async fn test_default_drops_older_partial_frame() {
         let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
-        livekit_runtime::spawn(manager.run());
+        tokio::spawn(manager.run());
 
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;

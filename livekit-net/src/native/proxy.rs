@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "__native-tokio")]
 use crate::TransportError;
 
-#[cfg(feature = "__native-tokio")]
 use std::env;
 
 /// Map a tungstenite error from a WS handshake to a [`TransportError`].
@@ -24,7 +22,6 @@ use std::env;
 /// on the /rtc endpoint), tungstenite surfaces it as `Error::Http(response)`.
 /// We extract the status code and return `TransportError::Http { status }` so
 /// callers can distinguish HTTP error codes (403, 404) from network errors.
-#[cfg(feature = "__native-tokio")]
 fn map_ws_err(e: tokio_tungstenite::tungstenite::Error) -> TransportError {
     use tokio_tungstenite::tungstenite::Error;
     match e {
@@ -33,19 +30,15 @@ fn map_ws_err(e: tokio_tungstenite::tungstenite::Error) -> TransportError {
     }
 }
 
-#[cfg(feature = "__native-tokio")]
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream as TokioTcpStream,
 };
 
-#[cfg(feature = "__native-tokio")]
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
-#[cfg(feature = "__native-tokio")]
-use livekit_runtime::TcpStream;
+use tokio::net::TcpStream;
 
-#[cfg(feature = "__native-tokio")]
 pub(super) async fn connect_ws(
     request: http::Request<()>,
     url: &url::Url,

@@ -1,6 +1,6 @@
 [package]
 name = "livekit"
-version = "0.8.4"
+version = "0.9.1"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
@@ -9,11 +9,12 @@ readme = "README.md"
 
 [features]
 # By default ws TLS is not enabled
-default = ["tokio"]
+default = ["native"]
 
-async = ["livekit-signaling/native-async", "livekit-runtime/async"]
-tokio = ["livekit-signaling/native-tokio", "livekit-runtime/tokio"]
-dispatcher = ["livekit-signaling/native-dispatcher", "livekit-runtime/dispatcher"]
+native = ["livekit-signaling/native"]
+
+# Back-compat alias from when this also selected a runtime.
+tokio = ["native"]
 
 # On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
 # GDBus requires a GLib event loop to be running. Enable this feature if you
@@ -31,26 +32,44 @@ __rustls-tls = ["livekit-signaling/__rustls-tls"]
 __lk-internal = [] # internal features (used by livekit-ffi)
 __lk-e2e-test = ["livekit-data-stream/test-utils"] # end-to-end testing with a LiveKit server
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+#
+# Each entry is a complete feature set, run as
+# `cargo check --no-default-features --features <entry joined by commas>`.
+[package.metadata.feature-combinations]
+mode = "curated"
+check = [
+    ["default"],                                        # a plain `cargo check`
+    [],                                                 # --no-default-features
+    ["native"],
+    ["native", "native-tls"],
+    ["native", "native-tls-vendored"],
+    ["native", "rustls-tls-native-roots"],
+    ["native", "rustls-tls-webpki-roots"],
+    ["native", "rustls-tls-webpki-roots", "glib-main-loop"],
+    ["native", "__lk-internal"],
+]
+
 [dependencies]
-livekit-runtime = { workspace = true }
 livekit-signaling = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
 livekit-common = { workspace = true }
 livekit-data-stream = { workspace = true }
 livekit-datatrack = { workspace = true }
+livekit-rpc = { workspace = true }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", default-features = false, features = ["sync", "macros", "fs"] }
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "fs", "time", "rt-multi-thread"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 parking_lot = { version = "0.12" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 thiserror = "1.0"
 lazy_static = "1.4"
 log = "0.4"
-chrono = "0.4.38"
-semver = "1.0"
+chrono = { workspace = true }
 libloading = { version = "0.8.6" }
 bytes = "1.10.1"
 bmrng = "0.5.2"

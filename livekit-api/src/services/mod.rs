@@ -43,7 +43,7 @@ mod failover;
 mod livekit_api;
 mod twirp_client;
 
-#[cfg(all(test, feature = "services-tokio"))]
+#[cfg(all(test, feature = "services"))]
 mod api_test;
 
 pub const LIVEKIT_PACKAGE: &str = "livekit";

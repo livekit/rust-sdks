@@ -47,13 +47,6 @@ mod platform_audio;
 #[cfg(not(target_arch = "wasm32"))]
 pub use platform_audio::*;
 
-#[cfg(feature = "dispatcher")]
-pub mod dispatcher {
-    pub use livekit_runtime::set_dispatcher;
-    pub use livekit_runtime::Dispatcher;
-    pub use livekit_runtime::Runnable;
-}
-
 pub use plugin::*;
 
 mod utils;

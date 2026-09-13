@@ -17112,6 +17112,7 @@ impl serde::Serialize for EncodingOptionsPreset {
             Self::PortraitH264720p60 => "PORTRAIT_H264_720P_60",
             Self::PortraitH2641080p30 => "PORTRAIT_H264_1080P_30",
             Self::PortraitH2641080p60 => "PORTRAIT_H264_1080P_60",
+            Self::Passthrough => "PASSTHROUGH",
         };
         serializer.serialize_str(variant)
     }
@@ -17131,6 +17132,7 @@ impl<'de> serde::Deserialize<'de> for EncodingOptionsPreset {
             "PORTRAIT_H264_720P_60",
             "PORTRAIT_H264_1080P_30",
             "PORTRAIT_H264_1080P_60",
+            "PASSTHROUGH",
         ];
 
         struct GeneratedVisitor;
@@ -17179,6 +17181,7 @@ impl<'de> serde::Deserialize<'de> for EncodingOptionsPreset {
                     "PORTRAIT_H264_720P_60" => Ok(EncodingOptionsPreset::PortraitH264720p60),
                     "PORTRAIT_H264_1080P_30" => Ok(EncodingOptionsPreset::PortraitH2641080p30),
                     "PORTRAIT_H264_1080P_60" => Ok(EncodingOptionsPreset::PortraitH2641080p60),
+                    "PASSTHROUGH" => Ok(EncodingOptionsPreset::Passthrough),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -48867,6 +48870,9 @@ impl serde::Serialize for SyncState {
         if !self.publish_data_tracks.is_empty() {
             len += 1;
         }
+        if self.data_subscription.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.SyncState", len)?;
         if let Some(v) = self.answer.as_ref() {
             struct_ser.serialize_field("answer", v)?;
@@ -48892,6 +48898,9 @@ impl serde::Serialize for SyncState {
         if !self.publish_data_tracks.is_empty() {
             struct_ser.serialize_field("publishDataTracks", &self.publish_data_tracks)?;
         }
+        if let Some(v) = self.data_subscription.as_ref() {
+            struct_ser.serialize_field("dataSubscription", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -48915,6 +48924,8 @@ impl<'de> serde::Deserialize<'de> for SyncState {
             "datachannelReceiveStates",
             "publish_data_tracks",
             "publishDataTracks",
+            "data_subscription",
+            "dataSubscription",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -48927,6 +48938,7 @@ impl<'de> serde::Deserialize<'de> for SyncState {
             TrackSidsDisabled,
             DatachannelReceiveStates,
             PublishDataTracks,
+            DataSubscription,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -48957,6 +48969,7 @@ impl<'de> serde::Deserialize<'de> for SyncState {
                             "trackSidsDisabled" | "track_sids_disabled" => Ok(GeneratedField::TrackSidsDisabled),
                             "datachannelReceiveStates" | "datachannel_receive_states" => Ok(GeneratedField::DatachannelReceiveStates),
                             "publishDataTracks" | "publish_data_tracks" => Ok(GeneratedField::PublishDataTracks),
+                            "dataSubscription" | "data_subscription" => Ok(GeneratedField::DataSubscription),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -48984,6 +48997,7 @@ impl<'de> serde::Deserialize<'de> for SyncState {
                 let mut track_sids_disabled__ = None;
                 let mut datachannel_receive_states__ = None;
                 let mut publish_data_tracks__ = None;
+                let mut data_subscription__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Answer => {
@@ -49034,6 +49048,12 @@ impl<'de> serde::Deserialize<'de> for SyncState {
                             }
                             publish_data_tracks__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::DataSubscription => {
+                            if data_subscription__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("dataSubscription"));
+                            }
+                            data_subscription__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -49048,6 +49068,7 @@ impl<'de> serde::Deserialize<'de> for SyncState {
                     track_sids_disabled: track_sids_disabled__.unwrap_or_default(),
                     datachannel_receive_states: datachannel_receive_states__.unwrap_or_default(),
                     publish_data_tracks: publish_data_tracks__.unwrap_or_default(),
+                    data_subscription: data_subscription__,
                 })
             }
         }
@@ -52299,172 +52320,6 @@ impl<'de> serde::Deserialize<'de> for update_data_subscription::Update {
             }
         }
         deserializer.deserialize_struct("livekit.UpdateDataSubscription.Update", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for UpdateEgressRequest {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.egress_id.is_empty() {
-            len += 1;
-        }
-        if !self.url.is_empty() {
-            len += 1;
-        }
-        if !self.layout.is_empty() {
-            len += 1;
-        }
-        if !self.add_stream_urls.is_empty() {
-            len += 1;
-        }
-        if !self.remove_stream_urls.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("livekit.UpdateEgressRequest", len)?;
-        if !self.egress_id.is_empty() {
-            struct_ser.serialize_field("egressId", &self.egress_id)?;
-        }
-        if !self.url.is_empty() {
-            struct_ser.serialize_field("url", &self.url)?;
-        }
-        if !self.layout.is_empty() {
-            struct_ser.serialize_field("layout", &self.layout)?;
-        }
-        if !self.add_stream_urls.is_empty() {
-            struct_ser.serialize_field("addStreamUrls", &self.add_stream_urls)?;
-        }
-        if !self.remove_stream_urls.is_empty() {
-            struct_ser.serialize_field("removeStreamUrls", &self.remove_stream_urls)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for UpdateEgressRequest {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "egress_id",
-            "egressId",
-            "url",
-            "layout",
-            "add_stream_urls",
-            "addStreamUrls",
-            "remove_stream_urls",
-            "removeStreamUrls",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            EgressId,
-            Url,
-            Layout,
-            AddStreamUrls,
-            RemoveStreamUrls,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "egressId" | "egress_id" => Ok(GeneratedField::EgressId),
-                            "url" => Ok(GeneratedField::Url),
-                            "layout" => Ok(GeneratedField::Layout),
-                            "addStreamUrls" | "add_stream_urls" => Ok(GeneratedField::AddStreamUrls),
-                            "removeStreamUrls" | "remove_stream_urls" => Ok(GeneratedField::RemoveStreamUrls),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = UpdateEgressRequest;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.UpdateEgressRequest")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<UpdateEgressRequest, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut egress_id__ = None;
-                let mut url__ = None;
-                let mut layout__ = None;
-                let mut add_stream_urls__ = None;
-                let mut remove_stream_urls__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::EgressId => {
-                            if egress_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("egressId"));
-                            }
-                            egress_id__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Url => {
-                            if url__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("url"));
-                            }
-                            url__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Layout => {
-                            if layout__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("layout"));
-                            }
-                            layout__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::AddStreamUrls => {
-                            if add_stream_urls__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("addStreamUrls"));
-                            }
-                            add_stream_urls__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::RemoveStreamUrls => {
-                            if remove_stream_urls__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("removeStreamUrls"));
-                            }
-                            remove_stream_urls__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(UpdateEgressRequest {
-                    egress_id: egress_id__.unwrap_or_default(),
-                    url: url__.unwrap_or_default(),
-                    layout: layout__.unwrap_or_default(),
-                    add_stream_urls: add_stream_urls__.unwrap_or_default(),
-                    remove_stream_urls: remove_stream_urls__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("livekit.UpdateEgressRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for UpdateIngressRequest {
@@ -56700,6 +56555,9 @@ impl serde::Serialize for WebhookEvent {
         if self.track.is_some() {
             len += 1;
         }
+        if self.job.is_some() {
+            len += 1;
+        }
         if !self.id.is_empty() {
             len += 1;
         }
@@ -56727,6 +56585,9 @@ impl serde::Serialize for WebhookEvent {
         }
         if let Some(v) = self.track.as_ref() {
             struct_ser.serialize_field("track", v)?;
+        }
+        if let Some(v) = self.job.as_ref() {
+            struct_ser.serialize_field("job", v)?;
         }
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -56757,6 +56618,7 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
             "ingress_info",
             "ingressInfo",
             "track",
+            "job",
             "id",
             "created_at",
             "createdAt",
@@ -56772,6 +56634,7 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
             EgressInfo,
             IngressInfo,
             Track,
+            Job,
             Id,
             CreatedAt,
             NumDropped,
@@ -56803,6 +56666,7 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
                             "egressInfo" | "egress_info" => Ok(GeneratedField::EgressInfo),
                             "ingressInfo" | "ingress_info" => Ok(GeneratedField::IngressInfo),
                             "track" => Ok(GeneratedField::Track),
+                            "job" => Ok(GeneratedField::Job),
                             "id" => Ok(GeneratedField::Id),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
                             "numDropped" | "num_dropped" => Ok(GeneratedField::NumDropped),
@@ -56831,6 +56695,7 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
                 let mut egress_info__ = None;
                 let mut ingress_info__ = None;
                 let mut track__ = None;
+                let mut job__ = None;
                 let mut id__ = None;
                 let mut created_at__ = None;
                 let mut num_dropped__ = None;
@@ -56872,6 +56737,12 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
                             }
                             track__ = map_.next_value()?;
                         }
+                        GeneratedField::Job => {
+                            if job__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("job"));
+                            }
+                            job__ = map_.next_value()?;
+                        }
                         GeneratedField::Id => {
                             if id__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("id"));
@@ -56906,6 +56777,7 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
                     egress_info: egress_info__,
                     ingress_info: ingress_info__,
                     track: track__,
+                    job: job__,
                     id: id__.unwrap_or_default(),
                     created_at: created_at__.unwrap_or_default(),
                     num_dropped: num_dropped__.unwrap_or_default(),
@@ -56989,6 +56861,9 @@ impl serde::Serialize for WebhookInfo {
         if !self.send_error.is_empty() {
             len += 1;
         }
+        if self.http_status_code != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.WebhookInfo", len)?;
         if !self.event_id.is_empty() {
             struct_ser.serialize_field("eventId", &self.event_id)?;
@@ -57060,6 +56935,9 @@ impl serde::Serialize for WebhookInfo {
         if !self.send_error.is_empty() {
             struct_ser.serialize_field("sendError", &self.send_error)?;
         }
+        if self.http_status_code != 0 {
+            struct_ser.serialize_field("httpStatusCode", &self.http_status_code)?;
+        }
         struct_ser.end()
     }
 }
@@ -57112,6 +56990,8 @@ impl<'de> serde::Deserialize<'de> for WebhookInfo {
             "serviceError",
             "send_error",
             "sendError",
+            "http_status_code",
+            "httpStatusCode",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -57138,6 +57018,7 @@ impl<'de> serde::Deserialize<'de> for WebhookInfo {
             ServiceErrorCode,
             ServiceError,
             SendError,
+            HttpStatusCode,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -57182,6 +57063,7 @@ impl<'de> serde::Deserialize<'de> for WebhookInfo {
                             "serviceErrorCode" | "service_error_code" => Ok(GeneratedField::ServiceErrorCode),
                             "serviceError" | "service_error" => Ok(GeneratedField::ServiceError),
                             "sendError" | "send_error" => Ok(GeneratedField::SendError),
+                            "httpStatusCode" | "http_status_code" => Ok(GeneratedField::HttpStatusCode),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -57223,6 +57105,7 @@ impl<'de> serde::Deserialize<'de> for WebhookInfo {
                 let mut service_error_code__ = None;
                 let mut service_error__ = None;
                 let mut send_error__ = None;
+                let mut http_status_code__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::EventId => {
@@ -57365,6 +57248,14 @@ impl<'de> serde::Deserialize<'de> for WebhookInfo {
                             }
                             send_error__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::HttpStatusCode => {
+                            if http_status_code__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("httpStatusCode"));
+                            }
+                            http_status_code__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -57393,6 +57284,7 @@ impl<'de> serde::Deserialize<'de> for WebhookInfo {
                     service_error_code: service_error_code__.unwrap_or_default(),
                     service_error: service_error__.unwrap_or_default(),
                     send_error: send_error__.unwrap_or_default(),
+                    http_status_code: http_status_code__.unwrap_or_default(),
                 })
             }
         }
