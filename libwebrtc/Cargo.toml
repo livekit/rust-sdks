@@ -16,6 +16,11 @@ default = []
 # running in your application.
 glib-main-loop = [ "dep:glib" ]
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
 [dependencies]
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

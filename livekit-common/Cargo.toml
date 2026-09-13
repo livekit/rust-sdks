@@ -16,3 +16,9 @@ uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional
 # Exposes this crate's shared FFI type registrations. Enabled transitively by
 # livekit-uniffi so every component borrows one converter per type.
 uniffi = ["dep:uniffi", "dep:bytes"]
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+# `mode = "powerset"` is the full `cargo hack --feature-powerset --depth 2`:
+[package.metadata.feature-combinations]
+mode = "powerset"

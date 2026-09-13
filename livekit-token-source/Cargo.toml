@@ -22,6 +22,11 @@ native-tls-vendored     = ["livekit-net/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit-net/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-net/rustls-tls-webpki-roots"]
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
 [dependencies]
 async-trait = "0.1"
 base64 = { version = "0.21", features = ["std"] }

@@ -65,6 +65,7 @@ const VideoEncoderBackend = /*@__PURE__*/ proto2.makeEnum(
     {no: 3, name: "ENCODER_BACKEND_NVENC"},
     {no: 4, name: "ENCODER_BACKEND_VAAPI"},
     {no: 5, name: "ENCODER_BACKEND_VIDEOTOOLBOX"},
+    {no: 6, name: "ENCODER_BACKEND_PRE_ENCODED"},
   ],
 );
 

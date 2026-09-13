@@ -11,3 +11,8 @@ prost = "0.12"
 serde = { workspace = true }
 pbjson = "0.6"
 pbjson-types = "0.6"
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"

@@ -36,6 +36,8 @@ use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HA
 pub mod audio_plugin;
 pub mod audio_source;
 pub mod audio_stream;
+#[cfg(feature = "capture")]
+pub mod capture;
 pub mod colorcvt;
 pub mod data_stream;
 pub mod data_track;

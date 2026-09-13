@@ -42,6 +42,11 @@ rustls-tls-webpki-roots = [
 ]
 __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
 [dependencies]
 async-trait = "0.1"
 

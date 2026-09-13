@@ -316,6 +316,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.79 (2026-09-10)
+
+### Fixes
+
+- Add FFI support for publishing pre-encoded video frames and consuming encoder feedback.
+
 ## 0.12.78 (2026-09-09)
 
 ### Fixes

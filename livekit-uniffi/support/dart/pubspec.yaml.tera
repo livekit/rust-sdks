@@ -18,12 +18,16 @@ environment:
 dependencies:
   ffi: ^2.1.0
   # Native Assets build-hook support. pub.dev requires bounded constraints
-  # (`any` fails publish validation), but these must stay wide: the resolvable
-  # version is coupled to the consumer's Dart SDK via a shared `meta` pin
-  # (Flutter 3.44 back-solves to code_assets 1.0.0 / hooks 1.0.2, while a bare
-  # Dart 3.12 resolves 1.2.1 / 2.1.0). Carets here break `flutter pub get`
-  # for consumers on older stable channels.
-  code_assets: ">=1.0.0 <2.0.0"
+  # (`any` fails publish validation), but these must stay wide. The resolvable
+  # version is coupled to the consumer's Dart SDK: older hooks releases pin
+  # `meta`, which Flutter's flutter_test pins exactly, so Flutter 3.44
+  # back-solves to code_assets 1.0.0 / hooks 1.0.2 while a bare Dart 3.12
+  # resolves newer ones. Carets here break `flutter pub get` for consumers on
+  # older stable channels, and a tight upper bound makes this package
+  # unresolvable next to any package that already requires the next major.
+  # The hook uses only the stable core of both APIs (target config, CodeAsset,
+  # DynamicLoadingBundled), which is unchanged across these majors.
+  code_assets: ">=1.0.0 <3.0.0"
   hooks: ">=1.0.2 <3.0.0"
   # Used by hook/build.dart to download and verify prebuilt libraries.
   archive: ^4.0.0
