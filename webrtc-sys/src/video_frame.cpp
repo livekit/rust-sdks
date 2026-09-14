@@ -16,11 +16,45 @@
 
 #include "livekit/video_frame.h"
 
+#include <chrono>
 #include <memory>
+#include <optional>
 
 #include "api/video/video_frame.h"
+#include "rtc_base/time_utils.h"
 
 namespace livekit_ffi {
+namespace {
+
+constexpr int64_t kMaxDecodeTimestampAgeUs = 30'000'000;
+
+uint64_t MonotonicToUnixTimeMicros(webrtc::Timestamp timestamp) {
+  if (!timestamp.IsFinite()) {
+    return 0;
+  }
+
+  const int64_t now_monotonic_us = webrtc::TimeMicros();
+  const int64_t timestamp_monotonic_us = timestamp.us();
+  if (timestamp_monotonic_us > now_monotonic_us) {
+    return 0;
+  }
+
+  const int64_t age_us = now_monotonic_us - timestamp_monotonic_us;
+  if (age_us > kMaxDecodeTimestampAgeUs) {
+    return 0;
+  }
+
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  const uint64_t now_unix_us = static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(now).count());
+  if (static_cast<uint64_t>(age_us) > now_unix_us) {
+    return 0;
+  }
+  return now_unix_us - static_cast<uint64_t>(age_us);
+}
+
+}  // namespace
+
 VideoFrame::VideoFrame(const webrtc::VideoFrame& frame)
     : frame_(std::move(frame)) {}
 
@@ -44,6 +78,20 @@ int64_t VideoFrame::ntp_time_ms() const {
 }
 uint32_t VideoFrame::timestamp() const {
   return frame_.rtp_timestamp();
+}
+uint64_t VideoFrame::decode_start_timestamp_us() const {
+  const std::optional<webrtc::VideoFrame::ProcessingTime> processing_time =
+      frame_.processing_time();
+  return processing_time.has_value()
+             ? MonotonicToUnixTimeMicros(processing_time->start)
+             : 0;
+}
+uint64_t VideoFrame::decode_finish_timestamp_us() const {
+  const std::optional<webrtc::VideoFrame::ProcessingTime> processing_time =
+      frame_.processing_time();
+  return processing_time.has_value()
+             ? MonotonicToUnixTimeMicros(processing_time->finish)
+             : 0;
 }
 
 VideoRotation VideoFrame::rotation() const {
