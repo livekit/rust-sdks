@@ -26,7 +26,7 @@ use std::{
     process::{Command, ExitCode},
 };
 
-const REPOSITORY: &str = "https://github.com/alan-george-lk/uniffi-bindgen-cpp.git";
+const REPOSITORY: &str = "https://github.com/livekit/uniffi-bindgen-cpp.git";
 const REVISION: &str = "7d54c1c56e0e4c46772ef4c2b5be3cb26396cbdb";
 
 fn main() -> ExitCode {
