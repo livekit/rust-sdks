@@ -1,0 +1,23 @@
+[package]
+name = "fec_test"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "fec_publisher"
+path = "src/publisher.rs"
+
+[[bin]]
+name = "fec_subscriber"
+path = "src/subscriber.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["full", "parking_lot"] }
+futures = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+clap = { workspace = true, features = ["derive"] }
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
