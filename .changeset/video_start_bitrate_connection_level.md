@@ -1,5 +1,7 @@
 ---
 livekit: patch
+livekit-ffi: patch
+livekit-capture: patch
 ---
 
 Write the `x-google-start-bitrate` hint once per publisher connection, and exempt screen share from the 1 Mbps cap.
