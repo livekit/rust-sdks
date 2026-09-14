@@ -186,6 +186,14 @@ impl Depacketizer {
         end_sequence: u16,
     ) -> DepacketizerPushResult {
         let received = partial.payloads.len() as u16;
+        let expected = end_sequence.wrapping_sub(partial.start_sequence).wrapping_add(1);
+        if received != expected {
+            return DepacketizerDropError {
+                frame_number,
+                reason: DepacketizerDropReason::Incomplete { received, expected },
+            }
+            .into();
+        }
 
         let payload_len: usize = partial.payloads.iter().map(|(_, payload)| payload.len()).sum();
         let mut payload = BytesMut::with_capacity(payload_len);
@@ -205,10 +213,7 @@ impl Depacketizer {
         }
         DepacketizerDropError {
             frame_number,
-            reason: DepacketizerDropReason::Incomplete {
-                received,
-                expected: end_sequence.wrapping_sub(partial.start_sequence).wrapping_add(1),
-            },
+            reason: DepacketizerDropReason::Incomplete { received, expected },
         }
         .into()
     }
