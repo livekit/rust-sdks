@@ -4,3 +4,6 @@
 [submodule "yuv-sys/libyuv"]
 	path = yuv-sys/libyuv
 	url = https://chromium.googlesource.com/libyuv/libyuv
+[submodule "livekit-a2a-relay-standalone"]
+	path = livekit-a2a-relay-standalone
+	url = https://github.com/mjpvl-ai/rust-sdks.git
