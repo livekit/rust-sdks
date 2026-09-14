@@ -33,11 +33,17 @@ enum InternalMessage {
 /// SignalStream holds the WebSocket connection (via `WsConnection`).
 ///
 /// It is replaced by [SignalClient] at each reconnection.
-#[derive(Debug)]
 pub(super) struct SignalStream {
     internal_tx: mpsc::Sender<InternalMessage>,
     read_handle: JoinHandle<()>,
     write_handle: JoinHandle<()>,
+}
+
+/// Terse: this appears inside `SignalState` in logs and tests.
+impl std::fmt::Debug for SignalStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SignalStream")
+    }
 }
 
 impl SignalStream {
