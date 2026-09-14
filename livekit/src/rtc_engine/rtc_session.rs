@@ -60,7 +60,7 @@ use crate::{
         peer_transport::PeerTransport,
         rtc_events::{RtcEvent, RtcEvents},
     },
-    track::LocalTrack,
+    track::{LocalTrack, TrackSource},
     DataPacketKind,
 };
 
@@ -1939,7 +1939,8 @@ impl SessionInner {
                 let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
                 (sum > 0).then_some(sum)
             };
-            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps).await;
+            let is_screen_share = options.source == TrackSource::Screenshare;
+            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
         }
 
         let init = RtpTransceiverInit {
