@@ -150,6 +150,18 @@ bool AudioDeviceController::playout_is_initialized() const {
   return adm_proxy_->PlayoutIsInitialized();
 }
 
+bool AudioDeviceController::set_mute_mode(int32_t mode) const {
+  return adm_proxy_->SetMuteMode(mode) == 0;
+}
+
+int32_t AudioDeviceController::mute_mode() const {
+  int32_t mode = -1;
+  if (adm_proxy_->GetMuteMode(&mode) != 0) {
+    return -1;
+  }
+  return mode;
+}
+
 bool AudioDeviceController::builtin_aec_is_available() const {
   return adm_proxy_->BuiltInAECIsAvailable();
 }
