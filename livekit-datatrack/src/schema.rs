@@ -114,6 +114,8 @@ pub enum DataTrackSchemaEncoding {
     JsonSchema,
 
     /// Another well-known encoding not known to this client version.
+    ///
+    /// Only produced for received tracks; cannot be used when publishing.
     Other,
     /// An application-specific encoding identified by the contained string.
     ///
@@ -163,6 +165,8 @@ pub enum DataTrackFrameEncoding {
     Json,
 
     /// Another well-known encoding not known to this client version.
+    ///
+    /// Only produced for received tracks; cannot be used when publishing.
     Other,
     /// An application-specific encoding identified by the contained string.
     ///
@@ -186,6 +190,11 @@ pub enum DataTrackSchemaError {
     /// Specified schema and frame encodings are incompatible.
     #[error("Specified schema and frame encodings are incompatible")]
     Incompatible,
+
+    /// The 'other' encoding represents an unrecognized encoding on received tracks
+    /// and cannot be used when publishing.
+    #[error("The 'other' encoding cannot be used when publishing")]
+    OtherEncoding,
 }
 
 /// Validates that the given frame and schema encodings are compatible.
@@ -193,7 +202,12 @@ pub(crate) fn validate_schema(
     frame_encoding: Option<&DataTrackFrameEncoding>,
     schema_encoding: Option<&DataTrackSchemaEncoding>,
 ) -> Result<(), DataTrackSchemaError> {
+    use DataTrackFrameEncoding as FrameEncoding;
+    use DataTrackSchemaEncoding as SchemaEncoding;
     match (frame_encoding, schema_encoding) {
+        (Some(FrameEncoding::Other), _) | (_, Some(SchemaEncoding::Other)) => {
+            Err(DataTrackSchemaError::OtherEncoding)
+        }
         (None, Some(_)) => Err(DataTrackSchemaError::MissingFrameEncoding),
         (Some(frame_encoding), None) => match frame_encoding.is_self_describing() {
             Some(false) => Err(DataTrackSchemaError::MissingSchemaId),
@@ -230,7 +244,10 @@ impl DataTrackFrameEncoding {
             | (Self::Protobuf, SchemaEncoding::Protobuf)
             | (Self::Flatbuffer, SchemaEncoding::Flatbuffer)
             | (Self::Json, SchemaEncoding::JsonSchema) => Some(true),
-            (Self::Other, _) | (Self::Custom(_), _) => None, // Cannot be determined
+            (Self::Other, _)
+            | (Self::Custom(_), _)
+            | (_, SchemaEncoding::Other)
+            | (_, SchemaEncoding::Custom(_)) => None, // Cannot be determined
             _ => Some(false),
         }
     }
@@ -380,6 +397,36 @@ mod tests {
                 Some(&DataTrackSchemaEncoding::Custom("my-schema-encoding".to_string()))
             ),
             Ok(())
+        );
+    }
+
+    #[test]
+    fn test_validate_schema_custom_schema_encoding() {
+        assert_eq!(
+            validate_schema(
+                Some(&DataTrackFrameEncoding::Json),
+                Some(&DataTrackSchemaEncoding::Custom("my-schema-encoding".to_string()))
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn test_validate_schema_other_schema_encoding() {
+        assert_eq!(
+            validate_schema(
+                Some(&DataTrackFrameEncoding::Json),
+                Some(&DataTrackSchemaEncoding::Other)
+            ),
+            Err(DataTrackSchemaError::OtherEncoding)
+        );
+    }
+
+    #[test]
+    fn test_validate_schema_other_frame_encoding() {
+        assert_eq!(
+            validate_schema(Some(&DataTrackFrameEncoding::Other), None),
+            Err(DataTrackSchemaError::OtherEncoding)
         );
     }
 
