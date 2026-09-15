@@ -88,6 +88,10 @@ Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `live
   - Name the field `reason` in Rust instead — see `DataStreamError` in `livekit-uniffi/src/data_stream/common.rs`
 - A new crate that exports UniFFI items needs its own `uniffi.toml`, including `omit_checksums = true` under `[bindings.kotlin]`
   - The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; the full explanation lives in `livekit-uniffi/uniffi.toml` and the root `Cargo.toml`
+- **Never use `uniffi(flat_error)` on an error that foreign code can return**
+  - Flat errors lower (Rust → foreign) but cannot be lifted: the derived `Lift` exists only to satisfy trait bounds, and its `try_read`/`try_lift` are `panic!("Can't lift flat errors")`. In an FFI callback that panic has nowhere to unwind to, so the host process aborts — and nothing catches it earlier, since the build, bindings generation, and Kotlin compilation all pass
+  - Applies to the error type of any `#[uniffi::export(with_foreign)]` trait or callback interface, since foreign code implements the method. `flat_error` is correct only for an error that travels Rust → foreign exclusively, e.g. `PublishError` in `livekit-datatrack/src/local/mod.rs`
+  - Give a host-thrown error a single `Failed { reason: String }` variant plus `From<uniffi::UnexpectedUniFFICallbackError>`, so an undeclared exception surfaces as an error rather than aborting — see `PacketDeliveryError` in `livekit-uniffi/src/data_stream/common.rs`
 
 ## Feature combinations
 
