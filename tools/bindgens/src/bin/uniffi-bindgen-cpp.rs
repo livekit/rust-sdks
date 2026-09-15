@@ -27,7 +27,7 @@ use std::{
 };
 
 const REPOSITORY: &str = "https://github.com/livekit/uniffi-bindgen-cpp.git";
-const REVISION: &str = "7d54c1c56e0e4c46772ef4c2b5be3cb26396cbdb";
+const REVISION: &str = "b43f2432c169888d6deb9ac578383237ee8fa056";
 
 fn main() -> ExitCode {
     match run() {
