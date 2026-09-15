@@ -49,8 +49,8 @@ impl dt::EncryptionProvider for DataTrackEncryptionProvider {
         let iv = encrypted.iv.try_into().map_err(|iv: Vec<u8>| dt::EncryptionError::Failed {
             reason: format!("unexpected IV length: {}", iv.len()),
         })?;
-        let key_index = encrypted.key_index.try_into().map_err(|e| dt::EncryptionError::Failed {
-            reason: format!("key index out of range: {e}"),
+        let key_index = encrypted.key_index.try_into().map_err(|e| {
+            dt::EncryptionError::Failed { reason: format!("key index out of range: {e}") }
         })?;
 
         Ok(dt::EncryptedPayload { payload, iv, key_index })
