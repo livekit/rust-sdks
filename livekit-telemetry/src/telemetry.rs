@@ -396,19 +396,27 @@ impl Telemetry {
     /// floor; the core's own telemetry module never (a rejected batch that produced a record that
     /// produced a batch would never end).
     pub fn log(&self, record: LogRecord) {
+        if let Some(event) = self.log_event(record) {
+            self.emit(event);
+        }
+    }
+
+    /// The record as an event, or nothing when it is below the floor (WebRTC: error only) or is
+    /// telemetry's own.
+    pub(crate) fn log_event(&self, record: LogRecord) -> Option<TelemetryEvent> {
         let floor = match record.source {
             LogSource::WebRtc => self.log_severity().max(Severity::Error),
             _ => self.log_severity(),
         };
         if record.severity < floor {
-            return;
+            return None;
         }
         if record.source == LogSource::Ffi
             && record.logger.as_deref().is_some_and(|l| l.starts_with("livekit_telemetry"))
         {
-            return;
+            return None;
         }
-        self.emit(record.into());
+        Some(record.into())
     }
 
     pub fn emit(&self, event: TelemetryEvent) {

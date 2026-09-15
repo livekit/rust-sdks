@@ -381,6 +381,7 @@ scope `set_attribute`, and `Span::set_attribute` for app-defined spans.
 | `Scope::subscribe_started(SpanTrack)`, `subscribed(SpanTrack)`, `subscribe_cancelled(sid)`, `subscribe_failed(sid, error_type)` | the `lk.subscribe` span, ended by the core at the first inbound reading with bytes, or `timed_out` after 30 s, or cancelled at disconnect |
 | `Scope::record_stats_report(sid, kind, direction, Vec<RtcStat>, ts)` | one track's raw `getStats()` entries (type, id, standard members) → the core picks RTP streams, resolves codec / RTT, converts seconds to ms and records one `RtcStatsSample` per stream; `record_stats(RtcStatsSample)` stays for platforms with typed stats |
 | `DisconnectReason::from_proto(i32)`, `ReconnectReason::from_proto(i32)` | the protocol numbers → the shared enums |
+| `Scope::log(LogRecord)` | a record filed under the session without an ambient span (Dart has no task-local outside a zone); same floor and filters as `Telemetry::log` |
 | `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect.reason` — info when the client hung up, warn otherwise |
 | `RtcStatsSample.layer` (rid, ssrc or stats id) | simulcast layers folded into one monotonic series per track before windowing |
 

@@ -180,6 +180,11 @@ impl TelemetryScope {
         self.0.disconnected(reason);
     }
 
+    /// A log record filed under this session even without an ambient span.
+    pub fn log(&self, record: LogRecord) {
+        self.0.log(record);
+    }
+
     /// One track's whole `getStats()` report; the core maps it (see `record_stats`).
     pub fn record_stats_report(
         &self,
@@ -302,7 +307,8 @@ impl TelemetrySpan {
 
 #[derive(uniffi::Object)]
 pub struct TelemetryExportQueue {
-    tx: mpsc::UnboundedSender<Pending>,
+    /// `None` once closed: `next` then drains and resolves `None`.
+    tx: Mutex<Option<mpsc::UnboundedSender<Pending>>>,
     rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<Pending>>,
     inflight: Mutex<HashMap<u64, oneshot::Sender<Result<ExportResponse, ExportError>>>>,
     seq: AtomicU64,
@@ -314,14 +320,20 @@ impl TelemetryExportQueue {
     pub fn new() -> Arc<Self> {
         let (tx, rx) = mpsc::unbounded_channel();
         Arc::new(Self {
-            tx,
+            tx: Mutex::new(Some(tx)),
             rx: tokio::sync::Mutex::new(rx),
             inflight: Mutex::new(HashMap::new()),
             seq: AtomicU64::new(0),
         })
     }
 
-    /// The next request to perform. Resolves when one is queued; `None` once the pipeline is gone.
+    /// End the serving loop: `next` resolves `None` once the queue is drained. Call after
+    /// `telemetry_shutdown`, or when a later `telemetry_configure_pulled` replaced this queue.
+    pub fn close(&self) {
+        self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
+    }
+
+    /// The next request to perform. Resolves when one is queued; `None` once closed and drained.
     pub async fn next(&self) -> Option<PendingExport> {
         let pending = self.rx.lock().await.recv().await?;
         self.inflight
@@ -357,7 +369,8 @@ impl TelemetryTransport for TelemetryExportQueue {
         let id = self.seq.fetch_add(1, Ordering::Relaxed);
         let (done, wait) = oneshot::channel();
         let pending = Pending { export: PendingExport { id, request }, done };
-        if self.tx.send(pending).is_err() {
+        let tx = self.tx.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if tx.is_none_or(|tx| tx.send(pending).is_err()) {
             return Err(ExportError::Retryable {
                 reason: "export queue closed".into(),
                 retry_after_ms: None,

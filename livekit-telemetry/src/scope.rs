@@ -22,8 +22,8 @@ use std::{
 use tokio::time::Instant;
 
 use crate::{
-    rtc::RtcStat, Attribute, AttributeValue, RtcStatsSample, Span, SpanName, SpanOutcome, SpanStep,
-    SpanTrack, StreamDirection, Telemetry, TelemetryEvent, TrackKind,
+    rtc::RtcStat, Attribute, AttributeValue, LogRecord, RtcStatsSample, Span, SpanName,
+    SpanOutcome, SpanStep, SpanTrack, StreamDirection, Telemetry, TelemetryEvent, TrackKind,
 };
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
@@ -182,6 +182,14 @@ impl Scope {
     /// A consumer-defined event (`custom.<name>`) under this session.
     pub fn emit_custom(&self, name: &str, attributes: Vec<Attribute>) {
         self.emit(TelemetryEvent::custom(name, attributes));
+    }
+
+    /// A log record filed under this session even without an ambient span — for platforms with
+    /// no task-local context (Dart outside a zone). Same floor and filters as `Telemetry::log`.
+    pub fn log(&self, record: LogRecord) {
+        if let Some(event) = self.telemetry.log_event(record) {
+            self.emit(event);
+        }
     }
 
     /// The session ended for good (not a reconnect): the `lk.room.disconnected` record.

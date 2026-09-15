@@ -115,8 +115,9 @@ impl Spans {
             sessions: HashMap::new(),
             session_order: VecDeque::new(),
             // Span ids must be non-zero (OTLP treats all-zero as absent); start at 1 and mix in
-            // randomness so ids from two pipelines in one process never collide.
-            next_id: rand::random::<u64>() | 1,
+            // randomness so ids from two pipelines in one process never collide. 63 bits: a
+            // platform whose integers are signed (Dart) must be able to hand an id back.
+            next_id: (rand::random::<u64>() >> 1) | 1,
             dropped: 0,
         }
     }
@@ -130,7 +131,7 @@ impl Spans {
         session: Arc<ScopeState>,
     ) -> u64 {
         let id = self.next_id;
-        self.next_id = self.next_id.wrapping_add(1).max(1);
+        self.next_id = ((self.next_id + 1) & (u64::MAX >> 1)).max(1);
         if self.open.len() >= MAX_OPEN_SPANS {
             if let Some(oldest) = self.open_order.pop_front() {
                 self.open.remove(&oldest);
