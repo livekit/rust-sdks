@@ -365,12 +365,12 @@ impl RtcEngine {
         session.add_track(req).await
     }
 
-    pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
+    pub fn remove_track(&self, transceiver: RtpTransceiver) -> EngineResult<()> {
         // We don't need to wait for the reconnection
         let session = self.inner.running_handle.read().session.clone();
-        session.remove_track(sender) // TODO(theomonnom): Ignore errors where this
-                                     // RtpSender is bound to the old session. (Can
-                                     // happen on bad timing and it is safe to ignore)
+        session.remove_track(transceiver) // TODO(theomonnom): Ignore errors where this
+                                          // RtpSender is bound to the old session. (Can
+                                          // happen on bad timing and it is safe to ignore)
     }
 
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {

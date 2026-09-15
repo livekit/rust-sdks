@@ -534,6 +534,7 @@ impl RoomInner {
 
                     let publication_info = proto::TrackPublicationInfo::from(&ffi_publication);
                     server.store_handle(ffi_publication.handle, ffi_publication);
+                    inner.local_publication_lookup.lock().insert(publication.sid(), handle_id);
 
                     let _ = server.send_event(
                         proto::PublishTrackCallback {
@@ -592,6 +593,10 @@ impl RoomInner {
 
                     log::debug!("waiting for the LocalTrackUnpublished event to be sent");
                     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                }
+
+                if let Some(handle_id) = inner.local_publication_lookup.lock().remove(&sid) {
+                    server.drop_handle(handle_id);
                 }
             }
 
