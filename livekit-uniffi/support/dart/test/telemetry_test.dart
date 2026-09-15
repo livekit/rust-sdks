@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:livekit_uniffi/livekit_telemetry.dart';
 import 'package:livekit_uniffi/livekit_uniffi.dart';
 import 'package:test/test.dart';
@@ -6,13 +8,14 @@ import 'package:test/test.dart';
 /// callbacks are isolate-bound (`Pointer.fromFunction`) and the VM aborts with "Cannot invoke
 /// native callback outside an isolate" when the exporter invokes `TelemetryTransport.send` from
 /// a tokio worker. The pull queue inverts the direction: Dart awaits `next()`, performs the
-/// request, and reports back with `complete()`.
+/// request, and reports the collector's answer back with `complete()` (or `fail()` when there
+/// was none); the core classifies the status and body.
 Future<void> serve(TelemetryExportQueue queue, List<ExportRequest> sink, int count) async {
   for (var i = 0; i < count; i++) {
     final pending = await queue.next();
     if (pending == null) return;
     sink.add(pending.request);
-    queue.complete(id: pending.id, error: null);
+    queue.complete(id: pending.id, response: ExportResponse(status: 200, headers: {}, body: Uint8List(0)));
   }
 }
 

@@ -3788,6 +3788,7 @@ dependencies = [
  "log",
  "opentelemetry-proto",
  "prost 0.14.4",
+ "prost-types 0.14.4",
  "rand 0.9.5",
  "thiserror 2.0.19",
  "tokio",

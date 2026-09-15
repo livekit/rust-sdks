@@ -18,9 +18,10 @@ use std::{
 
 use livekit_telemetry::{
     global::{self, TelemetryInstrument},
-    Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest, LogRecord,
-    NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome, SpanStep, SpanTrack,
-    TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport, TraceContext,
+    Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest,
+    ExportResponse, LogRecord, NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome,
+    SpanStep, SpanTrack, TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport,
+    TraceContext,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -184,7 +185,7 @@ pub struct PendingExport {
 
 struct Pending {
     export: PendingExport,
-    done: oneshot::Sender<Result<(), ExportError>>,
+    done: oneshot::Sender<Result<ExportResponse, ExportError>>,
 }
 
 /// Pull-side transport: Rust never calls into the host. The exporter queues each request; the
@@ -254,7 +255,7 @@ impl TelemetrySpan {
 pub struct TelemetryExportQueue {
     tx: mpsc::UnboundedSender<Pending>,
     rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<Pending>>,
-    inflight: Mutex<HashMap<u64, oneshot::Sender<Result<(), ExportError>>>>,
+    inflight: Mutex<HashMap<u64, oneshot::Sender<Result<ExportResponse, ExportError>>>>,
     seq: AtomicU64,
 }
 
@@ -281,29 +282,40 @@ impl TelemetryExportQueue {
         Some(pending.export)
     }
 
-    /// Report how the request with `id` went: `None` = accepted by the collector.
-    pub fn complete(&self, id: u64, error: Option<ExportError>) {
+    /// The collector's answer to the request with `id`, whatever its status; the core classifies it.
+    pub fn complete(&self, id: u64, response: ExportResponse) {
+        self.finish(id, Ok(response));
+    }
+
+    /// The request with `id` got no answer (network error, timeout, invalid URL).
+    pub fn fail(&self, id: u64, error: ExportError) {
+        self.finish(id, Err(error));
+    }
+}
+
+impl TelemetryExportQueue {
+    fn finish(&self, id: u64, outcome: Result<ExportResponse, ExportError>) {
         let done = self.inflight.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
         if let Some(done) = done {
-            let _ = done.send(error.map_or(Ok(()), Err));
+            let _ = done.send(outcome);
         }
     }
 }
 
 #[async_trait::async_trait]
 impl TelemetryTransport for TelemetryExportQueue {
-    async fn send(&self, request: ExportRequest) -> Result<(), ExportError> {
+    async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
         let id = self.seq.fetch_add(1, Ordering::Relaxed);
         let (done, wait) = oneshot::channel();
         let pending = Pending { export: PendingExport { id, request }, done };
         if self.tx.send(pending).is_err() {
             return Err(ExportError::Retryable {
-                message: "export queue closed".into(),
+                reason: "export queue closed".into(),
                 retry_after_ms: None,
             });
         }
         wait.await.unwrap_or(Err(ExportError::Retryable {
-            message: "host dropped the export".into(),
+            reason: "host dropped the export".into(),
             retry_after_ms: None,
         }))
     }

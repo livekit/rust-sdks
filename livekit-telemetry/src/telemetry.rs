@@ -165,7 +165,9 @@ impl TelemetryConfig {
 /// # struct Discard;
 /// # #[async_trait::async_trait]
 /// # impl TelemetryTransport for Discard {
-/// #     async fn send(&self, _: ExportRequest) -> Result<(), ExportError> { Ok(()) }
+/// #     async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+/// #         Ok(ExportResponse::accepted())
+/// #     }
 /// # }
 /// # #[tokio::main(flavor = "current_thread")] async fn main() {
 /// let (telemetry, exporter) =
@@ -852,8 +854,8 @@ mod tests {
             logs::v1::LogRecord,
             trace::v1::{span, status},
         },
-        AppState, ExportError, ExportRequest, SpanOutcome, StreamDirection, ThermalState,
-        TrackKind,
+        AppState, ExportError, ExportRequest, ExportResponse, SpanOutcome, StreamDirection,
+        ThermalState, TrackKind,
     };
 
     #[derive(Default)]
@@ -876,9 +878,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TelemetryTransport for FakeTransport {
-        async fn send(&self, request: ExportRequest) -> Result<(), ExportError> {
+        async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
             self.requests.lock().expect("lock").push(request);
-            self.script.lock().expect("lock").pop_front().unwrap_or(Ok(()))
+            let scripted = self.script.lock().expect("lock").pop_front().unwrap_or(Ok(()));
+            scripted.map(|()| ExportResponse::accepted())
         }
     }
 
@@ -890,7 +893,7 @@ mod tests {
     }
 
     fn offline() -> Result<(), ExportError> {
-        Err(ExportError::Retryable { message: "offline".into(), retry_after_ms: None })
+        Err(ExportError::Retryable { reason: "offline".into(), retry_after_ms: None })
     }
 
     fn offline_forever() -> impl Iterator<Item = Result<(), ExportError>> {
@@ -1014,7 +1017,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn rejected_batch_is_dropped_without_retry() {
         let transport =
-            FakeTransport::scripted([Err(ExportError::Rejected { message: "400".into() })]);
+            FakeTransport::scripted([Err(ExportError::Rejected { reason: "400".into() })]);
         let telemetry = pipeline(transport.clone());
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
@@ -1061,7 +1064,7 @@ mod tests {
     async fn throttling_keeps_cached_batches_and_drops_new_ones() {
         let dir = temp_dir("throttle");
         let throttled =
-            Err(ExportError::Retryable { message: "429".into(), retry_after_ms: Some(5_000) });
+            Err(ExportError::Retryable { reason: "429".into(), retry_after_ms: Some(5_000) });
         let transport = FakeTransport::scripted([throttled]);
         let telemetry = persisted_pipeline(transport.clone(), &dir);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
@@ -1225,7 +1228,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TelemetryTransport for Hanging {
-        async fn send(&self, _: ExportRequest) -> Result<(), ExportError> {
+        async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
             std::future::pending().await
         }
     }

@@ -13,6 +13,8 @@ log = { workspace = true }
 thiserror = { workspace = true }
 async-trait = "0.1"
 prost = { workspace = true }
+# `google.protobuf.Any`/`Duration` for the `google.rpc.Status` error body (RetryInfo).
+prost-types = { workspace = true }
 rand = { workspace = true }
 # gzip for request bodies; the deflate backend (miniz_oxide) is already linked by data streams.
 flate2 = "1"

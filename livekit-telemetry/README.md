@@ -103,7 +103,9 @@ start it again and run once more to watch the cached batch replay.
   No Rust crate can observe these without a JVM/ObjC bridge, and `device-info` (in this
   workspace) covers static facts, not state.
 - **Transport is the only injection point.** The core composes URL, headers and body; the
-  transport moves bytes and reports [`ExportError`] so the core alone decides retry / drop /
+  transport moves bytes both ways and returns the raw [`ExportResponse`] (failing only without
+  one), so the core alone reads `Retry-After`, the `google.rpc.Status` body (`RetryInfo`) and
+  the "disabled" answer, and decides retry / drop /
   persist / go-silent. No Rust HTTP/TLS stack is linked unless the `net` feature is enabled.
 - **Size.** OTLP types come from `opentelemetry-proto` (`gen-tonic-messages`, no tonic). Its
   `opentelemetry`/`opentelemetry_sdk` dependencies are dead code here and LTO removes them

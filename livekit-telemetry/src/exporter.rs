@@ -106,7 +106,8 @@ enum Delivery {
 /// gzips the batch and writes it to the [`BatchCache`] *before* any network is involved; then it
 /// [`upload`](Self::upload)s the cache oldest-first through the [`TelemetryTransport`],
 /// removing what the collector accepted or rejected. A failed upload pauses the cache for a
-/// minute; a `Retry-After` additionally drops new batches for its duration (throttling must not
+/// minute; a `Retry-After` header or `RetryInfo` body additionally drops new batches for its
+/// duration (throttling must not
 /// become a disk-backed queue); `Disabled` empties the cache and silences the exporter for good.
 ///
 /// Telemetry must never win over media, so uploads are shaped as well as batched: at most
@@ -640,20 +641,23 @@ impl Exporter {
         // Exponential + jitter once real fleets exercise this.
         let mut last = String::new();
         for attempt in 0..=MAX_RETRIES {
-            match timeout(attempt_timeout, self.transport.send(request.clone())).await {
+            let attempt_result = timeout(attempt_timeout, self.transport.send(request.clone()))
+                .await
+                .map(|sent| sent.and_then(|response| ExportError::from_response(&response)));
+            match attempt_result {
                 Ok(Ok(())) => return Delivery::Sent,
                 Ok(Err(ExportError::Disabled)) => return Delivery::Disabled,
-                Ok(Err(ExportError::Rejected { message })) => {
-                    log::error!("batch rejected by the collector, data lost: {message}");
+                Ok(Err(ExportError::Rejected { reason })) => {
+                    log::error!("batch rejected by the collector, data lost: {reason}");
                     return Delivery::Rejected;
                 }
-                Ok(Err(ExportError::Retryable { message, retry_after_ms: Some(ms) })) => {
-                    log::debug!("throttled for {ms} ms: {message}");
+                Ok(Err(ExportError::Retryable { reason, retry_after_ms: Some(ms) })) => {
+                    log::debug!("throttled for {ms} ms: {reason}");
                     return Delivery::Throttled { retry_after: Some(Duration::from_millis(ms)) };
                 }
-                Ok(Err(ExportError::Retryable { message, retry_after_ms: None })) => {
-                    log::debug!("upload failed (attempt {}): {message}", attempt + 1);
-                    last = message;
+                Ok(Err(ExportError::Retryable { reason, retry_after_ms: None })) => {
+                    log::debug!("upload failed (attempt {}): {reason}", attempt + 1);
+                    last = reason;
                     Counters::add(&self.counters.upload_failures, 1);
                 }
                 Err(_) => {
