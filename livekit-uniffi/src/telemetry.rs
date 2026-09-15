@@ -307,7 +307,7 @@ impl TelemetrySpan {
 
 #[derive(uniffi::Object)]
 pub struct TelemetryExportQueue {
-    /// `None` once closed: `next` then drains and resolves `None`.
+    /// `None` once finished: `next` then drains and resolves `None`.
     tx: Mutex<Option<mpsc::UnboundedSender<Pending>>>,
     rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<Pending>>,
     inflight: Mutex<HashMap<u64, oneshot::Sender<Result<ExportResponse, ExportError>>>>,
@@ -329,11 +329,12 @@ impl TelemetryExportQueue {
 
     /// End the serving loop: `next` resolves `None` once the queue is drained. Call after
     /// `telemetry_shutdown`, or when a later `telemetry_configure_pulled` replaced this queue.
-    pub fn close(&self) {
+    /// (Not `close`: UniFFI's Kotlin objects already have `AutoCloseable.close`.)
+    pub fn finish(&self) {
         self.tx.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
-    /// The next request to perform. Resolves when one is queued; `None` once closed and drained.
+    /// The next request to perform. Resolves when one is queued; `None` once finished and drained.
     pub async fn next(&self) -> Option<PendingExport> {
         let pending = self.rx.lock().await.recv().await?;
         self.inflight
@@ -345,17 +346,17 @@ impl TelemetryExportQueue {
 
     /// The collector's answer to the request with `id`, whatever its status; the core classifies it.
     pub fn complete(&self, id: u64, response: ExportResponse) {
-        self.finish(id, Ok(response));
+        self.settle(id, Ok(response));
     }
 
     /// The request with `id` got no answer (network error, timeout, invalid URL).
     pub fn fail(&self, id: u64, error: ExportError) {
-        self.finish(id, Err(error));
+        self.settle(id, Err(error));
     }
 }
 
 impl TelemetryExportQueue {
-    fn finish(&self, id: u64, outcome: Result<ExportResponse, ExportError>) {
+    fn settle(&self, id: u64, outcome: Result<ExportResponse, ExportError>) {
         let done = self.inflight.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
         if let Some(done) = done {
             let _ = done.send(outcome);

@@ -59,8 +59,8 @@ void main() {
       await serving;
       expect(requests, hasLength(2));
       expect(telemetryStats(), isNull);
-      // The queue outlives the pipeline (Dart holds it): closing it ends the serving loop.
-      queue.close();
+      // The queue outlives the pipeline (Dart holds it): finishing it ends the serving loop.
+      queue.finish();
       expect(await queue.next(), isNull);
     });
 
