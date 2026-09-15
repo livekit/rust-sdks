@@ -58,7 +58,7 @@ pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use device::*;
 pub use event::*;
 pub use exporter::Exporter;
-pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
+pub use rtc::{RtcStat, RtcStatsSample, StreamDirection, TrackKind};
 pub use scope::{DisconnectReason, RoomIdentity, Scope};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};

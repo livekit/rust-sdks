@@ -16,7 +16,9 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use tokio::time::Instant;
 
-use crate::{event::now_unix_nanos, scope::ScopeState, store::Queued, TelemetryEvent};
+use crate::{
+    event::now_unix_nanos, scope::ScopeState, store::Queued, AttributeValue, TelemetryEvent,
+};
 
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -99,6 +101,123 @@ pub struct RtcStatsSample {
     /// never sums them itself.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub layer: Option<String>,
+}
+
+/// One entry of a WebRTC `RTCStatsReport`, as the platform got it: the entry's `type`, `id` and
+/// its standard members (W3C webrtc-stats names; nested maps flattened with a dot, e.g.
+/// `qualityLimitationDurations.cpu`). Numbers may arrive as `Int`, `Double` or numeric `Str`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Clone, PartialEq)]
+pub struct RtcStat {
+    pub kind: String,
+    pub id: String,
+    pub members: HashMap<String, AttributeValue>,
+}
+
+fn num(stat: &RtcStat, key: &str) -> Option<f64> {
+    match stat.members.get(key)? {
+        AttributeValue::Int(i) => Some(*i as f64),
+        AttributeValue::Double(d) => Some(*d),
+        AttributeValue::Str(s) => s.parse().ok(),
+        AttributeValue::Bool(_) => None,
+    }
+}
+
+fn count(stat: &RtcStat, key: &str) -> Option<u64> {
+    num(stat, key).map(|v| v.max(0.0) as u64)
+}
+
+/// A duration member (seconds, per webrtc-stats) as whole milliseconds.
+fn ms(stat: &RtcStat, key: &str) -> Option<u64> {
+    num(stat, key).map(|s| (s.max(0.0) * 1000.0) as u64)
+}
+
+fn text(stat: &RtcStat, key: &str) -> Option<String> {
+    match stat.members.get(key)? {
+        AttributeValue::Str(s) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// The samples in one track's `getStats()` report: one per `outbound-rtp` (tagged with its
+/// layer) or `inbound-rtp` entry, codec resolved through `codecId`, RTT from the
+/// `remote-inbound-rtp` that reports on the stream (outbound) or the nominated candidate pair
+/// (inbound), durations converted from seconds to milliseconds. One mapping for every SDK.
+pub(crate) fn samples_from_report(
+    track_sid: &str,
+    kind: TrackKind,
+    direction: StreamDirection,
+    report: &[RtcStat],
+    timestamp_ns: Option<u64>,
+) -> Vec<RtcStatsSample> {
+    let codec = |stat: &RtcStat| {
+        text(stat, "codecId")
+            .and_then(|id| report.iter().find(|s| s.kind == "codec" && s.id == id))
+            .and_then(|c| text(c, "mimeType"))
+    };
+    let mut out = Vec::new();
+    match direction {
+        StreamDirection::Outbound => {
+            for stat in report.iter().filter(|s| s.kind == "outbound-rtp") {
+                let mut sample = RtcStatsSample::new(track_sid, kind, direction);
+                sample.layer = Some(text(stat, "rid").unwrap_or_else(|| stat.id.clone()));
+                sample.codec = codec(stat);
+                sample.bytes = count(stat, "bytesSent");
+                sample.packets = count(stat, "packetsSent");
+                sample.frames_per_second = num(stat, "framesPerSecond");
+                sample.quality_limitation_bandwidth_ms =
+                    ms(stat, "qualityLimitationDurations.bandwidth");
+                sample.quality_limitation_cpu_ms = ms(stat, "qualityLimitationDurations.cpu");
+                sample.quality_limitation_other_ms = ms(stat, "qualityLimitationDurations.other");
+                sample.rtt_ms = report
+                    .iter()
+                    .find(|s| {
+                        s.kind == "remote-inbound-rtp"
+                            && text(s, "localId").as_deref() == Some(stat.id.as_str())
+                    })
+                    .and_then(|r| num(r, "roundTripTime"))
+                    .map(|s| s * 1000.0);
+                sample.timestamp_ns = timestamp_ns;
+                out.push(sample);
+            }
+        }
+        StreamDirection::Inbound => {
+            let rtt = report
+                .iter()
+                .find(|s| {
+                    s.kind == "candidate-pair"
+                        && (matches!(s.members.get("nominated"), Some(AttributeValue::Bool(true)))
+                            || text(s, "state").as_deref() == Some("succeeded"))
+                })
+                .and_then(|p| num(p, "currentRoundTripTime"))
+                .map(|s| s * 1000.0);
+            for stat in report.iter().filter(|s| s.kind == "inbound-rtp") {
+                let mut sample = RtcStatsSample::new(track_sid, kind, direction);
+                sample.codec = codec(stat);
+                sample.bytes = count(stat, "bytesReceived");
+                sample.packets = count(stat, "packetsReceived");
+                sample.packets_lost = count(stat, "packetsLost");
+                sample.freeze_count = count(stat, "freezeCount");
+                sample.freezes_duration_ms = ms(stat, "totalFreezesDuration");
+                sample.pause_count = count(stat, "pauseCount");
+                sample.pauses_duration_ms = ms(stat, "totalPausesDuration");
+                sample.concealed_samples = count(stat, "concealedSamples");
+                sample.silent_concealed_samples = count(stat, "silentConcealedSamples");
+                sample.concealment_events = count(stat, "concealmentEvents");
+                sample.interruption_count = count(stat, "interruptionCount");
+                sample.interruptions_duration_ms = ms(stat, "totalInterruptionDuration");
+                sample.jitter_buffer_delay_ms = ms(stat, "jitterBufferDelay");
+                sample.jitter_buffer_emitted_count = count(stat, "jitterBufferEmittedCount");
+                sample.jitter_ms = num(stat, "jitter").map(|s| s * 1000.0);
+                sample.frames_per_second = num(stat, "framesPerSecond");
+                sample.audio_level = num(stat, "audioLevel");
+                sample.rtt_ms = rtt;
+                sample.timestamp_ns = timestamp_ns;
+                out.push(sample);
+            }
+        }
+    }
+    out
 }
 
 impl RtcStatsSample {
@@ -533,5 +652,91 @@ mod tests {
         assert_eq!(attr(inbound, "lk.rtc.jitter_ms.avg"), Some(AttributeValue::Double(2.0)));
         assert_eq!(attr(inbound, "lk.rtc.rtt_ms.avg"), None, "absent gauges are omitted");
         assert_eq!(attr(&events[1], "lk.rtc.packets"), Some(AttributeValue::Int(7)));
+    }
+
+    #[test]
+    fn a_report_maps_to_samples_with_codec_rtt_layers_and_milliseconds() {
+        let stat = |kind: &str, id: &str, members: &[(&str, AttributeValue)]| RtcStat {
+            kind: kind.into(),
+            id: id.into(),
+            members: members.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+        };
+        let s = |v: &str| AttributeValue::Str(v.into());
+        let report = vec![
+            stat("codec", "C1", &[("mimeType", s("video/VP8"))]),
+            stat(
+                "outbound-rtp",
+                "OUT_f",
+                &[
+                    ("rid", s("f")),
+                    ("codecId", s("C1")),
+                    ("bytesSent", AttributeValue::Int(7_000)),
+                    ("packetsSent", s("70")),
+                    ("framesPerSecond", AttributeValue::Double(29.5)),
+                    ("qualityLimitationDurations.cpu", AttributeValue::Double(1.25)),
+                ],
+            ),
+            stat(
+                "outbound-rtp",
+                "OUT_h",
+                &[("rid", s("h")), ("bytesSent", AttributeValue::Int(500))],
+            ),
+            stat(
+                "remote-inbound-rtp",
+                "RI_f",
+                &[("localId", s("OUT_f")), ("roundTripTime", AttributeValue::Double(0.042))],
+            ),
+        ];
+        let out = samples_from_report(
+            "TR_1",
+            TrackKind::Video,
+            StreamDirection::Outbound,
+            &report,
+            Some(5),
+        );
+        assert_eq!(out.len(), 2);
+        let f = out.iter().find(|x| x.layer.as_deref() == Some("f")).expect("layer f");
+        assert_eq!(f.codec.as_deref(), Some("video/VP8"));
+        assert_eq!((f.bytes, f.packets, f.frames_per_second), (Some(7_000), Some(70), Some(29.5)));
+        assert_eq!(f.quality_limitation_cpu_ms, Some(1_250));
+        assert_eq!(f.rtt_ms, Some(42.0));
+        assert_eq!(f.timestamp_ns, Some(5));
+        assert_eq!(
+            out.iter().find(|x| x.layer.as_deref() == Some("h")).and_then(|x| x.rtt_ms),
+            None
+        );
+
+        let report = vec![
+            stat(
+                "candidate-pair",
+                "CP",
+                &[
+                    ("nominated", AttributeValue::Bool(true)),
+                    ("currentRoundTripTime", AttributeValue::Double(0.1)),
+                ],
+            ),
+            stat(
+                "inbound-rtp",
+                "IN",
+                &[
+                    ("bytesReceived", AttributeValue::Int(12)),
+                    ("packetsLost", AttributeValue::Int(-3)),
+                    ("jitter", AttributeValue::Double(0.02)),
+                    ("totalFreezesDuration", AttributeValue::Double(2.5)),
+                    ("jitterBufferDelay", AttributeValue::Double(3.0)),
+                    ("audioLevel", AttributeValue::Double(0.5)),
+                ],
+            ),
+        ];
+        let out =
+            samples_from_report("TR_2", TrackKind::Audio, StreamDirection::Inbound, &report, None);
+        assert_eq!(out.len(), 1);
+        let x = &out[0];
+        assert_eq!((x.bytes, x.packets_lost, x.rtt_ms), (Some(12), Some(0), Some(100.0)));
+        assert_eq!(
+            (x.jitter_ms, x.freezes_duration_ms, x.jitter_buffer_delay_ms),
+            (Some(20.0), Some(2_500), Some(3_000))
+        );
+        assert_eq!(x.layer, None);
     }
 }

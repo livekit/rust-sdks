@@ -19,9 +19,9 @@ use std::{
 use livekit_telemetry::{
     global::{self, TelemetryInstrument},
     Attribute, AttributeValue, DeviceEvent, DeviceState, DisconnectReason, ExportError,
-    ExportRequest, ExportResponse, LogRecord, NetTransport, RoomIdentity, RtcStatsSample, SpanName,
-    SpanOutcome, SpanStep, SpanTrack, TelemetryConfig, TelemetryEvent, TelemetryStats,
-    TelemetryTransport, TraceContext,
+    ExportRequest, ExportResponse, LogRecord, NetTransport, ReconnectReason, RoomIdentity, RtcStat,
+    RtcStatsSample, SpanName, SpanOutcome, SpanStep, SpanTrack, StreamDirection, TelemetryConfig,
+    TelemetryEvent, TelemetryStats, TelemetryTransport, TraceContext, TrackKind,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -179,6 +179,50 @@ impl TelemetryScope {
     pub fn disconnected(&self, reason: DisconnectReason) {
         self.0.disconnected(reason);
     }
+
+    /// One track's whole `getStats()` report; the core maps it (see `record_stats`).
+    pub fn record_stats_report(
+        &self,
+        track_sid: String,
+        kind: TrackKind,
+        direction: StreamDirection,
+        report: Vec<RtcStat>,
+        timestamp_ns: Option<u64>,
+    ) {
+        self.0.record_stats_report(&track_sid, kind, direction, report, timestamp_ns);
+    }
+
+    /// Intent to subscribe (autoSubscribe: the remote publish; manual: the call): opens `lk.subscribe`.
+    pub fn subscribe_started(&self, track: SpanTrack) {
+        self.0.subscribe_started(track);
+    }
+
+    /// The server confirmed the subscription.
+    pub fn subscribed(&self, track: SpanTrack) {
+        self.0.subscribed(track);
+    }
+
+    /// Unsubscribed or unpublished before media.
+    pub fn subscribe_cancelled(&self, sid: String) {
+        self.0.subscribe_cancelled(&sid);
+    }
+
+    /// The subscription failed; `error_type` is the platform's error name.
+    pub fn subscribe_failed(&self, sid: String, error_type: String) {
+        self.0.subscribe_failed(&sid, &error_type);
+    }
+}
+
+/// The protocol's `DisconnectReason` number as the shared enum.
+#[uniffi::export]
+pub fn telemetry_disconnect_reason(proto: i32) -> DisconnectReason {
+    DisconnectReason::from_proto(proto)
+}
+
+/// The protocol's `ReconnectReason` number (`RR_*`) as the shared enum.
+#[uniffi::export]
+pub fn telemetry_reconnect_reason(proto: i32) -> ReconnectReason {
+    ReconnectReason::from_proto(proto)
 }
 
 /// One export the host has to perform on behalf of a pulled pipeline.

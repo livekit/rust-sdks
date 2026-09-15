@@ -760,6 +760,94 @@ mod tests {
         assert!(transport.sent().iter().any(|r| r.url.contains("traces")), "the span is exported");
     }
 
+    fn exported_spans(
+        transport: &FakeTransport,
+    ) -> Vec<crate::proto::opentelemetry::proto::trace::v1::Span> {
+        transport
+            .sent()
+            .iter()
+            .filter(|r| r.url.contains("traces"))
+            .flat_map(|r| {
+                ExportTraceServiceRequest::decode(&gunzip(&r.body)[..])
+                    .expect("otlp")
+                    .resource_spans
+                    .into_iter()
+                    .flat_map(|rs| rs.scope_spans.into_iter().flat_map(|ss| ss.spans))
+            })
+            .collect()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_subscribe_span_is_owned_by_the_core() {
+        use crate::{SpanTrack, TrackSource};
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let session = telemetry.begin_scope();
+        let track = |sid: &str| SpanTrack {
+            sid: Some(sid.into()),
+            kind: TrackKind::Video,
+            source: TrackSource::Camera,
+            remote_identity: Some("bob".into()),
+        };
+        // Intent, confirmation, then the first inbound reading with bytes: ok.
+        session.subscribe_started(track("TR_a"));
+        session.subscribed(track("TR_a"));
+        let mut empty = RtcStatsSample::new("TR_a", TrackKind::Video, StreamDirection::Inbound);
+        empty.bytes = Some(0);
+        session.record_stats(empty);
+        let mut media = RtcStatsSample::new("TR_a", TrackKind::Video, StreamDirection::Inbound);
+        media.bytes = Some(1_500);
+        session.record_stats(media);
+        // A second one nobody hears from: timed out at the next sweep; a third: unpublished.
+        session.subscribe_started(track("TR_b"));
+        session.subscribe_started(track("TR_c"));
+        session.subscribe_cancelled("TR_c");
+        tokio::time::advance(Scope::SUBSCRIBE_TIMEOUT + Duration::from_secs(1)).await;
+        session.subscribe_started(track("TR_d")); // any activity sweeps
+        telemetry.flush().await;
+
+        let spans = exported_spans(&transport);
+        let by_sid = |sid: &str| {
+            spans
+                .iter()
+                .find(|s| {
+                    s.attributes.iter().any(|kv| {
+                        kv.key == "lk.track.sid"
+                            && kv.value.as_ref().and_then(|v| v.value.clone())
+                                == Some(Value::StringValue(sid.into()))
+                    })
+                })
+                .unwrap_or_else(|| panic!("span for {sid}"))
+        };
+        let ok = by_sid("TR_a");
+        assert_eq!(ok.name, "lk.subscribe");
+        assert_eq!(
+            ok.events.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["subscribed", "first_media"]
+        );
+        assert!(ok.attributes.iter().any(|kv| kv.key == "lk.outcome"
+            && kv.value.as_ref().and_then(|v| v.value.clone())
+                == Some(Value::StringValue("ok".into()))));
+        let timed_out = by_sid("TR_b");
+        assert_eq!(
+            timed_out.status.as_ref().map(|s| s.code),
+            Some(status::StatusCode::Error as i32)
+        );
+        assert!(timed_out.attributes.iter().any(|kv| kv.key == "error.type"
+            && kv.value.as_ref().and_then(|v| v.value.clone())
+                == Some(Value::StringValue("timed_out".into()))));
+        assert!(
+            spans.iter().filter(|s| s.name == "lk.subscribe").count() >= 3,
+            "cancelled exports too"
+        );
+        assert!(
+            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track.sid"
+                && kv.value.as_ref().and_then(|v| v.value.clone())
+                    == Some(Value::StringValue("TR_d".into())))),
+            "still open"
+        );
+    }
+
     #[tokio::test(start_paused = true)]
     async fn room_identity_and_resource_are_typed() {
         let transport = FakeTransport::scripted([]);

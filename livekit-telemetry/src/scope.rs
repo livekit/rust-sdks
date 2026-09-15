@@ -13,17 +13,26 @@
 // limitations under the License.
 
 use std::{
+    collections::HashMap,
     fmt,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
-use crate::{Attribute, AttributeValue, RtcStatsSample, Span, SpanName, Telemetry, TelemetryEvent};
+use tokio::time::Instant;
+
+use crate::{
+    rtc::RtcStat, Attribute, AttributeValue, RtcStatsSample, Span, SpanName, SpanOutcome, SpanStep,
+    SpanTrack, StreamDirection, Telemetry, TelemetryEvent, TrackKind,
+};
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
 /// attached to them at export time (`lk.room.sid`, `lk.participant.identity`, …).
 pub(crate) struct ScopeState {
     pub trace_id: [u8; 16],
     attributes: Mutex<Vec<Attribute>>,
+    /// Open `lk.subscribe` spans by track sid, from intent to first media.
+    subscribes: Mutex<HashMap<String, (Arc<Span>, Instant)>>,
 }
 
 impl ScopeState {
@@ -33,7 +42,11 @@ impl ScopeState {
     }
 
     pub fn with_trace_id(trace_id: [u8; 16]) -> Arc<Self> {
-        Arc::new(Self { trace_id, attributes: Mutex::new(Vec::new()) })
+        Arc::new(Self {
+            trace_id,
+            attributes: Mutex::new(Vec::new()),
+            subscribes: Mutex::new(HashMap::new()),
+        })
     }
 
     /// The trace id as 32 hex characters.
@@ -123,6 +136,31 @@ pub enum DisconnectReason {
     ReconnectFailed,
 }
 
+impl DisconnectReason {
+    /// The protocol's `DisconnectReason` number, so no SDK keeps its own switch.
+    pub fn from_proto(value: i32) -> Self {
+        match value {
+            1 => Self::ClientInitiated,
+            2 => Self::DuplicateIdentity,
+            3 => Self::ServerShutdown,
+            4 => Self::ParticipantRemoved,
+            5 => Self::RoomDeleted,
+            6 => Self::StateMismatch,
+            7 => Self::JoinFailure,
+            8 => Self::Migration,
+            9 => Self::SignalClose,
+            10 => Self::RoomClosed,
+            11 => Self::UserUnavailable,
+            12 => Self::UserRejected,
+            13 => Self::SipTrunkFailure,
+            14 => Self::ConnectionTimeout,
+            15 => Self::MediaFailure,
+            16 => Self::AgentError,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Scope {
     pub(crate) telemetry: Telemetry,
@@ -148,6 +186,11 @@ impl Scope {
 
     /// The session ended for good (not a reconnect): the `lk.room.disconnected` record.
     pub fn disconnected(&self, reason: DisconnectReason) {
+        let open: Vec<_> =
+            self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
+        for (_, (span, _)) in open {
+            span.cancel();
+        }
         let severity = if reason == DisconnectReason::ClientInitiated {
             crate::Severity::Info
         } else {
@@ -167,9 +210,105 @@ impl Scope {
         self.state.set_attribute(key, value);
     }
 
-    /// Push one `getStats()` reading; its window ships under this session.
+    /// Push one `getStats()` reading; its window ships under this session. The first inbound
+    /// reading with bytes is a subscribed track's first media.
     pub fn record_stats(&self, sample: RtcStatsSample) {
+        self.sweep_subscribes();
+        if sample.direction == StreamDirection::Inbound && sample.bytes.unwrap_or(0) > 0 {
+            self.first_media(&sample.track_sid);
+        }
         self.telemetry.record_stats_in(sample, &self.state);
+    }
+
+    /// A whole `getStats()` report for one track, as the platform got it. The core picks the RTP
+    /// streams, resolves codec and RTT, converts units and records one sample per stream (outbound
+    /// ones tagged with their layer), so no SDK maps stats fields itself.
+    pub fn record_stats_report(
+        &self,
+        track_sid: &str,
+        kind: TrackKind,
+        direction: StreamDirection,
+        report: Vec<RtcStat>,
+        timestamp_ns: Option<u64>,
+    ) {
+        for sample in
+            crate::rtc::samples_from_report(track_sid, kind, direction, &report, timestamp_ns)
+        {
+            self.record_stats(sample);
+        }
+    }
+
+    /// No media within this long ends `lk.subscribe` with `error.type = timed_out`.
+    pub const SUBSCRIBE_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// The intent to subscribe exists (autoSubscribe: at the remote publish; manual: at the
+    /// subscribe call): `lk.subscribe` opens, once per track. Its end is an RTC fact the core
+    /// sees itself — the first inbound reading with bytes — so no SDK keeps this state.
+    pub fn subscribe_started(&self, track: SpanTrack) {
+        self.sweep_subscribes();
+        let Some(sid) = track.sid.clone() else { return };
+        let mut open = self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner());
+        if open.contains_key(&sid) {
+            return;
+        }
+        let span = self.start(SpanName::Subscribe, None);
+        span.set_track(track);
+        open.insert(sid, (span, Instant::now()));
+    }
+
+    /// The server confirmed the subscription: the `subscribed` step (opens the span for a manual
+    /// subscribe that had no earlier intent).
+    pub fn subscribed(&self, track: SpanTrack) {
+        self.subscribe_started(track.clone());
+        let Some(sid) = &track.sid else { return };
+        if let Some((span, _)) =
+            self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).get(sid)
+        {
+            span.step(SpanStep::Subscribed);
+        }
+    }
+
+    /// Unsubscribed or unpublished before media: cancelled.
+    pub fn subscribe_cancelled(&self, sid: &str) {
+        if let Some((span, _)) = self.take_subscribe(sid) {
+            span.cancel();
+        }
+    }
+
+    /// The subscription failed (`error.type` = the platform's error name).
+    pub fn subscribe_failed(&self, sid: &str, error_type: &str) {
+        if let Some((span, _)) = self.take_subscribe(sid) {
+            span.fail(error_type.to_owned());
+        }
+    }
+
+    fn first_media(&self, sid: &str) {
+        if let Some((span, _)) = self.take_subscribe(sid) {
+            span.step(SpanStep::FirstMedia);
+            span.end(SpanOutcome::Ok, None);
+        }
+    }
+
+    fn take_subscribe(&self, sid: &str) -> Option<(Arc<Span>, Instant)> {
+        self.state.subscribes.lock().unwrap_or_else(|e| e.into_inner()).remove(sid)
+    }
+
+    // ponytail: timeouts are swept on activity (stats readings arrive every 1–2 s while any media
+    // flows; a silent session sweeps at the next subscribe event or at disconnect), a timer if the
+    // 30 s must be exact.
+    fn sweep_subscribes(&self) {
+        let expired: Vec<String> = self
+            .state
+            .subscribes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|(_, (_, since))| since.elapsed() >= Self::SUBSCRIBE_TIMEOUT)
+            .map(|(sid, _)| sid.clone())
+            .collect();
+        for sid in expired {
+            self.subscribe_failed(&sid, "timed_out");
+        }
     }
 
     /// Open a span in this session's trace.

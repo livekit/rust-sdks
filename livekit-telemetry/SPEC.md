@@ -346,9 +346,11 @@ span: lk.subscribe
 kind: internal
 starts: when the intent to subscribe exists — a remote publish under autoSubscribe, or the
         manual subscribe call
-ends:   at first media (the first stats reading with bytes received; 1 s granularity) → ok;
+ends:   at first media (the first inbound stats reading with bytes; the core sees it) → ok;
         unsubscribe / unpublish before media → cancelled;
-        subscription failure → error; no media within 30 s → error (error.type = LiveKitError.timedOut)
+        subscription failure → error; no media within 30 s → error (error.type = timed_out)
+owner:  the core (`Scope::subscribe_started / subscribed / subscribe_cancelled / subscribe_failed`);
+        an SDK only reports the remote track's lifecycle
 attributes:
   lk.track.sid: string
   lk.track.kind: enum(audio | video)
@@ -376,6 +378,9 @@ scope `set_attribute`, and `Span::set_attribute` for app-defined spans.
 | `Span::describe()` | `lk.connect: ws_open +1.49s, signal +0.03s, total 1.83s, ok` — the console line, identical on every platform |
 | `Span::context()` | `TraceContext { trace_id, span_id }` for log correlation; `None` when detached |
 | `device_event(DeviceEvent::{AudioRouteChanged, AudioInterruption, CaptureFailed})` | `lk.device.audio_route.changed`, `lk.device.audio.interruption`, `lk.device.capture.failed` with display bodies; every value is a shared enum (`AudioOutput`, `CaptureDevice`, `CaptureFailure`) |
+| `Scope::subscribe_started(SpanTrack)`, `subscribed(SpanTrack)`, `subscribe_cancelled(sid)`, `subscribe_failed(sid, error_type)` | the `lk.subscribe` span, ended by the core at the first inbound reading with bytes, or `timed_out` after 30 s, or cancelled at disconnect |
+| `Scope::record_stats_report(sid, kind, direction, Vec<RtcStat>, ts)` | one track's raw `getStats()` entries (type, id, standard members) → the core picks RTP streams, resolves codec / RTT, converts seconds to ms and records one `RtcStatsSample` per stream; `record_stats(RtcStatsSample)` stays for platforms with typed stats |
+| `DisconnectReason::from_proto(i32)`, `ReconnectReason::from_proto(i32)` | the protocol numbers → the shared enums |
 | `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect.reason` — info when the client hung up, warn otherwise |
 | `RtcStatsSample.layer` (rid, ssrc or stats id) | simulcast layers folded into one monotonic series per track before windowing |
 

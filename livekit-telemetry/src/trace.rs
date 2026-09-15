@@ -35,6 +35,19 @@ pub enum ReconnectReason {
     Unknown,
 }
 
+impl ReconnectReason {
+    /// The protocol's `ReconnectReason` number (`RR_*`).
+    pub fn from_proto(value: i32) -> Self {
+        match value {
+            1 => Self::SignalDisconnected,
+            2 => Self::PublisherFailed,
+            3 => Self::SubscriberFailed,
+            4 => Self::SwitchCandidate,
+            _ => Self::Unknown,
+        }
+    }
+}
+
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpanName {
