@@ -59,7 +59,7 @@ pub use device::*;
 pub use event::*;
 pub use exporter::Exporter;
 pub use rtc::{RtcStatsSample, StreamDirection, TrackKind};
-pub use scope::{RoomIdentity, Scope};
+pub use scope::{DisconnectReason, RoomIdentity, Scope};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
 pub use telemetry::*;

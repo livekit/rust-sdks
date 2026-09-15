@@ -664,7 +664,7 @@ pub(crate) fn observability_endpoint(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use crate::span::SpanKind;
-    use crate::{RoomIdentity, SpanName, SpanStep};
+    use crate::{ReconnectReason, RoomIdentity, SpanName, SpanStep};
     use std::{collections::VecDeque, fs, path::Path, sync::Mutex};
 
     #[test]
@@ -748,7 +748,8 @@ mod tests {
         let transport = FakeTransport::scripted([]);
         let telemetry = pipeline(transport.clone());
         let session = telemetry.begin_scope();
-        let span = session.start(SpanName::Reconnect { reason: "ws closed".into() }, None);
+        let span = session
+            .start(SpanName::Reconnect { reason: ReconnectReason::SignalDisconnected }, None);
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
         assert!(transport.sent().is_empty(), "an open reconnect holds uploads");

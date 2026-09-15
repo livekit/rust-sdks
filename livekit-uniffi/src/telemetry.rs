@@ -18,10 +18,10 @@ use std::{
 
 use livekit_telemetry::{
     global::{self, TelemetryInstrument},
-    Attribute, AttributeValue, DeviceEvent, DeviceState, ExportError, ExportRequest,
-    ExportResponse, LogRecord, NetTransport, RoomIdentity, RtcStatsSample, SpanName, SpanOutcome,
-    SpanStep, SpanTrack, TelemetryConfig, TelemetryEvent, TelemetryStats, TelemetryTransport,
-    TraceContext,
+    Attribute, AttributeValue, DeviceEvent, DeviceState, DisconnectReason, ExportError,
+    ExportRequest, ExportResponse, LogRecord, NetTransport, RoomIdentity, RtcStatsSample, SpanName,
+    SpanOutcome, SpanStep, SpanTrack, TelemetryConfig, TelemetryEvent, TelemetryStats,
+    TelemetryTransport, TraceContext,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -173,6 +173,11 @@ impl TelemetryScope {
     /// The room and local participant, on every record of this session from now on.
     pub fn set_room(&self, room: RoomIdentity) {
         self.0.set_room(room);
+    }
+
+    /// The session ended for good (not a reconnect).
+    pub fn disconnected(&self, reason: DisconnectReason) {
+        self.0.disconnected(reason);
     }
 }
 

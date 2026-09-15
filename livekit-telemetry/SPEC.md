@@ -117,7 +117,7 @@ platforms: ios, macos, android — optional elsewhere
 event: lk.device.network.changed
 area: device
 attributes:
-  network.connection.type: enum(wifi | cell | wired | unavailable | unknown)   # OTel semconv
+  network.connection.type: enum(wifi | cell | wired | vpn | bluetooth | other | unavailable | unknown)   # OTel semconv
   lk.device.network.expensive: bool     # cellular / hotspot (NWPath.isExpensive, metered)
   lk.device.network.constrained: bool   # Low Data Mode / Data Saver / navigator.connection.saveData
 cadence: on change of any attribute (+ initial value)
@@ -139,8 +139,8 @@ platforms: ios, android — optional elsewhere
 event: lk.device.audio_route.changed
 area: device
 attributes:
-  lk.device.audio_route.reason: string   # AVAudioSession route-change reason name
-  lk.device.audio_route.outputs: string  # comma-separated output port types (speaker, bluetooth_a2dp, …)
+  lk.device.audio_route.reason: enum(new_device | old_device_unavailable | category_change | override | wake_from_sleep | no_suitable_route | route_configuration_change | unknown)   # AVAudioSession names; `unknown` where the platform gives none
+  lk.device.audio_route.outputs: string  # comma-separated enum(speaker | receiver | wired_headset | bluetooth | car_audio | air_play | hdmi | usb | other)
 cadence: on change
 platforms: ios — android: audio device callbacks; optional elsewhere
 ```
@@ -152,6 +152,17 @@ attributes:
   lk.device.audio.interruption: enum(began | ended)
 cadence: on change
 platforms: ios — android: audio focus loss/gain; optional elsewhere
+```
+
+```yaml
+event: lk.device.capture.failed
+area: device
+severity: warn
+attributes:
+  lk.device.capture.device: enum(camera | microphone | screen_share)
+  lk.device.capture.reason: enum(permission_denied | not_found | in_use | disconnected | other)   # the getUserMedia failure taxonomy
+cadence: on failure
+platforms: all — ios: authorization status, capture interruptions; android: permission checks, camera callbacks; web: DOMException names
 ```
 
 ## Cadence policy
@@ -260,11 +271,27 @@ attributes:
   lk.rtc.jitter_buffer_emitted_count: int   # inbound
   lk.rtc.quality_limitation.bandwidth_ms: int   # outbound video
   lk.rtc.quality_limitation.cpu_ms: int         # outbound video
+  lk.rtc.quality_limitation.other_ms: int       # outbound video
+  lk.rtc.pause_count: int                   # inbound video
+  lk.rtc.pauses_duration_ms: int            # inbound video
+  lk.rtc.silent_concealed_samples: int      # inbound audio
+  lk.rtc.interruption_count: int            # inbound audio
+  lk.rtc.interruptions_duration_ms: int     # inbound audio
   # gauges — min / max / avg over the window
   lk.rtc.jitter_ms.{min,max,avg}: double
   lk.rtc.rtt_ms.{min,max,avg}: double       # remote-inbound RTT for outbound, candidate-pair for inbound
   lk.rtc.fps.{min,max,avg}: double          # video
   lk.rtc.audio_level.{min,max,avg}: double  # audio
+platforms: all
+```
+
+```yaml
+event: lk.room.disconnected
+area: session
+severity: info (client_initiated) | warn (anything else)
+cadence: once, when the Room leaves connected for good — never on a reconnect
+attributes:
+  lk.disconnect.reason: enum(client_initiated | duplicate_identity | server_shutdown | participant_removed | room_deleted | state_mismatch | join_failure | migration | signal_close | room_closed | user_unavailable | user_rejected | sip_trunk_failure | connection_timeout | media_failure | agent_error | reconnect_failed | unknown)   # the protocol's DisconnectReason, plus the client giving up
 platforms: all
 ```
 
@@ -296,7 +323,7 @@ outcome: ok | error (error.type = LiveKitError.<case> | CancellationError | <Swi
 span: lk.reconnect
 kind: client
 attributes:
-  lk.reconnect.reason: string      # what triggered the cycle
+  lk.reconnect.reason: enum(signal_disconnected | publisher_failed | subscriber_failed | transport_failed | switch_candidate | network_changed | debug | unknown)
   lk.reconnect.mode: enum(quick | full)   # mode of the last attempt
   lk.reconnect.attempts: int
 checkpoints: "attempt <n> <mode>" per attempt
@@ -309,7 +336,7 @@ kind: internal
 parent: the ambient span, when any (the connect span for a pre-connect microphone)
 attributes:
   lk.track.kind: enum(audio | video)
-  lk.track.source: enum(camera | microphone | screenShare | screenShareAudio | unknown)
+  lk.track.source: enum(camera | microphone | screen_share | screen_share_audio | unknown)
   lk.track.sid: string            # on success
 outcome: ok | error (error.type) | cancelled
 ```
@@ -325,7 +352,7 @@ ends:   at first media (the first stats reading with bytes received; 1 s granula
 attributes:
   lk.track.sid: string
   lk.track.kind: enum(audio | video)
-  lk.track.source: string
+  lk.track.source: enum(camera | microphone | screen_share | screen_share_audio | unknown)
   lk.participant.remote_identity: string
 checkpoints: subscribed, first_media
 ```
@@ -348,7 +375,8 @@ scope `set_attribute`, and `Span::set_attribute` for app-defined spans.
 | `Span::end(outcome, error)` / `fail(error)` / `cancel()` | status, `error.type`, `lk.outcome`; ending twice is a no-op |
 | `Span::describe()` | `lk.connect: ws_open +1.49s, signal +0.03s, total 1.83s, ok` — the console line, identical on every platform |
 | `Span::context()` | `TraceContext { trace_id, span_id }` for log correlation; `None` when detached |
-| `device_event(DeviceEvent::{AudioRouteChanged, AudioInterruption, PermissionDenied})` | `lk.device.audio_route.changed`, `lk.device.audio.interruption`, `lk.device.permission.denied` with display bodies |
+| `device_event(DeviceEvent::{AudioRouteChanged, AudioInterruption, CaptureFailed})` | `lk.device.audio_route.changed`, `lk.device.audio.interruption`, `lk.device.capture.failed` with display bodies; every value is a shared enum (`AudioOutput`, `CaptureDevice`, `CaptureFailure`) |
+| `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect.reason` — info when the client hung up, warn otherwise |
 | `RtcStatsSample.layer` (rid, ssrc or stats id) | simulcast layers folded into one monotonic series per track before windowing |
 
 Timing rule: span calls are synchronous and stamp the clock inside the core, so the only skew is

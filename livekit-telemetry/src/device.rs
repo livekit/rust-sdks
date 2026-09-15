@@ -54,6 +54,13 @@ pub enum NetworkType {
     Wifi,
     Cell,
     Wired,
+    /// A VPN tunnel is the active interface (Android `TRANSPORT_VPN`, WebRTC candidate `vpn`).
+    Vpn,
+    /// Bluetooth tethering (Android `TRANSPORT_BLUETOOTH`, WebRTC candidate `bluetooth`).
+    Bluetooth,
+    /// Connected over something the platform does not name (`NWInterface.InterfaceType.other`,
+    /// Android `TRANSPORT_USB` / `LOWPAN`, …).
+    Other,
     Unavailable,
 }
 
@@ -253,6 +260,9 @@ impl NetworkType {
             NetworkType::Wifi => "wifi",
             NetworkType::Cell => "cell",
             NetworkType::Wired => "wired",
+            NetworkType::Vpn => "vpn",
+            NetworkType::Bluetooth => "bluetooth",
+            NetworkType::Other => "other",
             NetworkType::Unavailable => "unavailable",
         }
     }
@@ -348,12 +358,44 @@ pub enum AudioRouteReason {
     Unknown,
 }
 
+/// Where the audio goes, in platform-neutral terms (AVAudioSession port types, Android's
+/// `AudioDevice`; the web's `MediaDeviceInfo.kind` only ever gives `other`).
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DevicePermission {
+pub enum AudioOutput {
+    Speaker,
+    /// The phone earpiece (`builtInReceiver`, Android `Earpiece`).
+    Receiver,
+    WiredHeadset,
+    Bluetooth,
+    CarAudio,
+    AirPlay,
+    Hdmi,
+    Usb,
+    Other,
+}
+
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureDevice {
     Camera,
     Microphone,
     ScreenShare,
+}
+
+/// Why a capture device could not be used: the `getUserMedia` failure taxonomy, which every
+/// platform maps onto (authorization status, `onCameraDisconnected`, `NotReadableError`, …).
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureFailure {
+    /// The user (or MDM) said no: the most common pre-connect failure on mobile.
+    PermissionDenied,
+    NotFound,
+    /// Another app holds the device (`NotReadableError`, `TrackStartError`).
+    InUse,
+    /// The device went away mid-capture (unplugged, `onCameraDisconnected`).
+    Disconnected,
+    Other,
 }
 
 /// Things that happen to the device mid-call and explain what the media did next. Not state
@@ -361,21 +403,15 @@ pub enum DevicePermission {
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeviceEvent {
-    /// `outputs` as the platform names them (`Speaker`, `BluetoothA2DPOutput`, …).
-    AudioRouteChanged {
-        outputs: Vec<String>,
-        reason: AudioRouteReason,
-    },
-    AudioInterruption {
-        began: bool,
-    },
-    /// The user (or MDM) said no: the most common pre-connect failure on mobile.
-    PermissionDenied {
-        permission: DevicePermission,
-    },
+    /// The outputs after the change, in the order the platform lists them.
+    AudioRouteChanged { outputs: Vec<AudioOutput>, reason: AudioRouteReason },
+    /// A phone call, Siri, another app taking audio focus: `began`, then the matching `ended`.
+    AudioInterruption { began: bool },
+    /// A capture device could not be, or stay, used.
+    CaptureFailed { device: CaptureDevice, reason: CaptureFailure },
 }
 
-fn snake(debug: impl std::fmt::Debug) -> String {
+pub(crate) fn snake(debug: impl std::fmt::Debug) -> String {
     let mut out = String::new();
     for (i, c) in format!("{debug:?}").chars().enumerate() {
         if c.is_uppercase() && i > 0 {
@@ -391,7 +427,7 @@ impl DeviceEvent {
         use crate::{Severity, TelemetryEvent};
         match self {
             Self::AudioRouteChanged { outputs, reason } => {
-                let outputs = outputs.join(",");
+                let outputs = outputs.into_iter().map(snake).collect::<Vec<_>>().join(",");
                 let reason = snake(reason);
                 TelemetryEvent::new("lk.device.audio_route.changed")
                     .with_body(format!("audio route: {outputs} ({reason})"))
@@ -404,12 +440,13 @@ impl DeviceEvent {
                     .with_body(format!("audio interruption {phase}"))
                     .with_attribute("lk.device.audio.interruption", phase)
             }
-            Self::PermissionDenied { permission } => {
-                let permission = snake(permission);
-                TelemetryEvent::new("lk.device.permission.denied")
+            Self::CaptureFailed { device, reason } => {
+                let (device, reason) = (snake(device), snake(reason));
+                TelemetryEvent::new("lk.device.capture.failed")
                     .with_severity(Severity::Warn)
-                    .with_body(format!("permission denied: {permission}"))
-                    .with_attribute("lk.device.permission", permission)
+                    .with_body(format!("capture failed: {device} ({reason})"))
+                    .with_attribute("lk.device.capture.device", device)
+                    .with_attribute("lk.device.capture.reason", reason)
             }
         }
     }
@@ -422,14 +459,20 @@ mod event_tests {
     #[test]
     fn device_events_have_bodies_and_snake_case_values() {
         let event = DeviceEvent::AudioRouteChanged {
-            outputs: vec!["Speaker".into()],
+            outputs: vec![AudioOutput::Speaker],
             reason: AudioRouteReason::OldDeviceUnavailable,
         }
         .into_event();
-        assert_eq!(event.body.as_deref(), Some("audio route: Speaker (old_device_unavailable)"));
-        let denied = DeviceEvent::PermissionDenied { permission: DevicePermission::ScreenShare }
-            .into_event();
-        assert_eq!(denied.body.as_deref(), Some("permission denied: screen_share"));
+        assert_eq!(event.body.as_deref(), Some("audio route: speaker (old_device_unavailable)"));
+        let denied = DeviceEvent::CaptureFailed {
+            device: CaptureDevice::ScreenShare,
+            reason: CaptureFailure::PermissionDenied,
+        }
+        .into_event();
+        assert_eq!(
+            denied.body.as_deref(),
+            Some("capture failed: screen_share (permission_denied)")
+        );
         assert_eq!(denied.severity, crate::Severity::Warn);
     }
 }

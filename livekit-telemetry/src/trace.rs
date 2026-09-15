@@ -3,6 +3,7 @@
 //! inside, so the only skew is the FFI call itself; context propagation (the "current" span)
 //! stays with the platform runtime, which is the one thing a core cannot do.
 
+use crate::device::snake;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -15,12 +16,31 @@ use crate::{scope::ScopeState, Attribute, AttributeValue, SpanOutcome, Telemetry
 
 /// What an SDK operation is. The kind follows from the name: connects talk to the server
 /// (`client`), the rest is internal work.
+/// What triggered a reconnect cycle: the protocol's `ReconnectReason` values, plus the ones only
+/// a client knows.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReconnectReason {
+    /// The signaling socket closed (`RR_SIGNAL_DISCONNECTED`).
+    SignalDisconnected,
+    PublisherFailed,
+    SubscriberFailed,
+    /// A peer connection failed and the platform did not say which.
+    TransportFailed,
+    SwitchCandidate,
+    /// The device moved to another network (Wi-Fi ↔ cellular): the client noticed first.
+    NetworkChanged,
+    /// A test or a debug menu asked for it.
+    Debug,
+    Unknown,
+}
+
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpanName {
     Connect,
     Reconnect {
-        reason: String,
+        reason: ReconnectReason,
     },
     Publish,
     Subscribe,
@@ -51,7 +71,7 @@ impl SpanName {
     fn attributes(&self) -> Vec<Attribute> {
         match self {
             Self::Reconnect { reason } => {
-                vec![Attribute::new("lk.reconnect.reason", reason.as_str())]
+                vec![Attribute::new("lk.reconnect.reason", snake(reason))]
             }
             _ => Vec::new(),
         }
@@ -116,6 +136,17 @@ impl SpanStep {
     }
 }
 
+/// The protocol's `TrackSource`.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackSource {
+    Camera,
+    Microphone,
+    ScreenShare,
+    ScreenShareAudio,
+    Unknown,
+}
+
 /// The track a publish or subscribe span is about.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone, PartialEq)]
@@ -124,8 +155,7 @@ pub struct SpanTrack {
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub sid: Option<String>,
     pub kind: TrackKind,
-    /// `camera`, `microphone`, `screen_share`, … as the platform names it.
-    pub source: String,
+    pub source: TrackSource,
     /// The publisher, for subscribe spans.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub remote_identity: Option<String>,
@@ -135,7 +165,7 @@ impl SpanTrack {
     fn attributes(&self) -> Vec<Attribute> {
         let mut out = vec![
             Attribute::new("lk.track.kind", format!("{:?}", self.kind).to_lowercase()),
-            Attribute::new("lk.track.source", self.source.as_str()),
+            Attribute::new("lk.track.source", snake(self.source)),
         ];
         if let Some(sid) = &self.sid {
             out.push(Attribute::new("lk.track.sid", sid.as_str()));
@@ -323,7 +353,8 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_detached_span_times_and_describes_itself() {
-        let span = Span::detached(SpanName::Reconnect { reason: "ws closed".into() });
+        let span =
+            Span::detached(SpanName::Reconnect { reason: ReconnectReason::SignalDisconnected });
         tokio::time::advance(Duration::from_millis(1490)).await;
         span.step(SpanStep::Attempt { number: 1, full: false });
         tokio::time::advance(Duration::from_millis(30)).await;
@@ -343,7 +374,10 @@ mod tests {
         assert!(span.context().is_none());
         let attributes = span.lock().attributes.clone();
         let get = |key: &str| attributes.iter().find(|a| a.key == key).map(|a| a.value.clone());
-        assert_eq!(get("lk.reconnect.reason"), Some(AttributeValue::Str("ws closed".into())));
+        assert_eq!(
+            get("lk.reconnect.reason"),
+            Some(AttributeValue::Str("signal_disconnected".into()))
+        );
         assert_eq!(get("lk.reconnect.attempts"), Some(AttributeValue::Int(1)));
         assert_eq!(get("lk.reconnect.mode"), Some(AttributeValue::Str("quick".into())));
     }
@@ -354,13 +388,13 @@ mod tests {
         span.set_track(SpanTrack {
             sid: None,
             kind: TrackKind::Video,
-            source: "camera".into(),
+            source: TrackSource::Camera,
             remote_identity: None,
         });
         span.set_track(SpanTrack {
             sid: Some("TR_1".into()),
             kind: TrackKind::Video,
-            source: "camera".into(),
+            source: TrackSource::Camera,
             remote_identity: None,
         });
         let attributes = span.lock().attributes.clone();

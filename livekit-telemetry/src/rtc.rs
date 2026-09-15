@@ -70,6 +70,18 @@ pub struct RtcStatsSample {
     pub quality_limitation_bandwidth_ms: Option<u64>,
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub quality_limitation_cpu_ms: Option<u64>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub quality_limitation_other_ms: Option<u64>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub pause_count: Option<u64>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub pauses_duration_ms: Option<u64>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub silent_concealed_samples: Option<u64>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub interruption_count: Option<u64>,
+    #[cfg_attr(feature = "uniffi", uniffi(default))]
+    pub interruptions_duration_ms: Option<u64>,
     // Gauges.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub jitter_ms: Option<f64>,
@@ -108,6 +120,12 @@ impl RtcStatsSample {
             jitter_buffer_emitted_count: None,
             quality_limitation_bandwidth_ms: None,
             quality_limitation_cpu_ms: None,
+            quality_limitation_other_ms: None,
+            pause_count: None,
+            pauses_duration_ms: None,
+            silent_concealed_samples: None,
+            interruption_count: None,
+            interruptions_duration_ms: None,
             jitter_ms: None,
             rtt_ms: None,
             frames_per_second: None,
@@ -255,6 +273,12 @@ impl Window {
             ("lk.rtc.jitter_buffer_emitted_count", last.jitter_buffer_emitted_count),
             ("lk.rtc.quality_limitation.bandwidth_ms", last.quality_limitation_bandwidth_ms),
             ("lk.rtc.quality_limitation.cpu_ms", last.quality_limitation_cpu_ms),
+            ("lk.rtc.quality_limitation.other_ms", last.quality_limitation_other_ms),
+            ("lk.rtc.pause_count", last.pause_count),
+            ("lk.rtc.pauses_duration_ms", last.pauses_duration_ms),
+            ("lk.rtc.silent_concealed_samples", last.silent_concealed_samples),
+            ("lk.rtc.interruption_count", last.interruption_count),
+            ("lk.rtc.interruptions_duration_ms", last.interruptions_duration_ms),
         ];
         for (key, value) in counters {
             if let Some(value) = value {
@@ -295,6 +319,7 @@ struct LayerCounters {
     fps: Option<f64>,
     limitation_bandwidth_ms: Option<u64>,
     limitation_cpu_ms: Option<u64>,
+    limitation_other_ms: Option<u64>,
 }
 
 fn sum(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
@@ -339,6 +364,7 @@ impl StatsWindows {
                 fps: sample.frames_per_second,
                 limitation_bandwidth_ms: sample.quality_limitation_bandwidth_ms,
                 limitation_cpu_ms: sample.quality_limitation_cpu_ms,
+                limitation_other_ms: sample.quality_limitation_other_ms,
             },
         );
         sample.bytes = sum(layers.values().map(|l| l.bytes));
@@ -350,6 +376,8 @@ impl StatsWindows {
         sample.quality_limitation_bandwidth_ms =
             max_u64(layers.values().map(|l| l.limitation_bandwidth_ms));
         sample.quality_limitation_cpu_ms = max_u64(layers.values().map(|l| l.limitation_cpu_ms));
+        sample.quality_limitation_other_ms =
+            max_u64(layers.values().map(|l| l.limitation_other_ms));
     }
 
     /// Close every open window into its event, filed under the window's session, and start fresh.

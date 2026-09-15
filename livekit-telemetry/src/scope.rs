@@ -98,6 +98,31 @@ pub struct RoomIdentity {
     pub participant_identity: Option<String>,
 }
 
+/// Why a session ended: the protocol's `DisconnectReason`, plus the client giving up.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisconnectReason {
+    Unknown,
+    ClientInitiated,
+    DuplicateIdentity,
+    ServerShutdown,
+    ParticipantRemoved,
+    RoomDeleted,
+    StateMismatch,
+    JoinFailure,
+    Migration,
+    SignalClose,
+    RoomClosed,
+    UserUnavailable,
+    UserRejected,
+    SipTrunkFailure,
+    ConnectionTimeout,
+    MediaFailure,
+    AgentError,
+    /// The reconnect policy ran out of attempts.
+    ReconnectFailed,
+}
+
 #[derive(Clone)]
 pub struct Scope {
     pub(crate) telemetry: Telemetry,
@@ -119,6 +144,22 @@ impl Scope {
     /// A consumer-defined event (`custom.<name>`) under this session.
     pub fn emit_custom(&self, name: &str, attributes: Vec<Attribute>) {
         self.emit(TelemetryEvent::custom(name, attributes));
+    }
+
+    /// The session ended for good (not a reconnect): the `lk.room.disconnected` record.
+    pub fn disconnected(&self, reason: DisconnectReason) {
+        let severity = if reason == DisconnectReason::ClientInitiated {
+            crate::Severity::Info
+        } else {
+            crate::Severity::Warn
+        };
+        let reason = crate::device::snake(reason);
+        self.emit(
+            TelemetryEvent::new("lk.room.disconnected")
+                .with_severity(severity)
+                .with_body(format!("disconnected: {reason}"))
+                .with_attribute("lk.disconnect.reason", reason),
+        );
     }
 
     /// Attach an attribute to every record of this session from now on; `None` removes it.

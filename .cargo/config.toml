@@ -8,16 +8,18 @@ rustflags = ["-C", "target-feature=+crt-static"]
 [target.aarch64-pc-windows-msvc]
 rustflags = ["-C", "target-feature=+crt-static"]
 
+# `-headerpad_max_install_names` on macOS: Flutter's native-assets step rewrites the cdylib's
+# install name with install_name_tool, which fails without the padding.
 # `-ObjC` must also be passed to rustdoc: doctest binaries are linked by rustdoc
 # and do not inherit `rustflags`. Without it the ObjC categories in libwebrtc's
 # static lib (e.g. `NSString (StdString)`) are not loaded, and static
 # initializers such as RTCH264ProfileLevelId.mm abort at process startup.
 [target.x86_64-apple-darwin]
-rustflags = ["-C", "link-args=-ObjC"]
+rustflags = ["-C", "link-args=-ObjC -Wl,-headerpad_max_install_names"]
 rustdocflags = ["-C", "link-args=-ObjC"]
 
 [target.aarch64-apple-darwin]
-rustflags = ["-C", "link-args=-ObjC"]
+rustflags = ["-C", "link-args=-ObjC -Wl,-headerpad_max_install_names"]
 rustdocflags = ["-C", "link-args=-ObjC"]
 
 [target.aarch64-apple-ios]
