@@ -353,18 +353,13 @@ impl Exporter {
                 self.config.max_batch_size.max(1) as usize,
                 usize::try_from(self.config.max_batch_bytes.max(1)).unwrap_or(usize::MAX),
             );
-            let throttled = self.throttled_until.is_some_and(|t| Instant::now() < t);
             // The shutdown summary goes out even with nothing else queued.
-            let report_due = self.force_report && !self.silenced && !throttled;
+            let report_due = self.force_report && !self.silenced;
             if batch.is_empty() && !report_due {
                 return;
             }
             if self.silenced {
                 Counters::add(&self.counters.disabled, batch.len() as u64);
-                continue;
-            }
-            if throttled {
-                Counters::add(&self.counters.throttled, batch.len() as u64);
                 continue;
             }
             // Self-telemetry rides along with real data: never its own request, never its own
@@ -404,10 +399,11 @@ impl Exporter {
         if spans.is_empty() {
             return;
         }
-        if self.silenced || self.throttled_until.is_some_and(|t| Instant::now() < t) {
-            let counter =
-                if self.silenced { &self.counters.disabled } else { &self.counters.throttled };
-            Counters::add(counter, spans.len() as u64);
+        // A throttle is a pause, not a verdict on the data: spans keep flowing into the
+        // write-ahead cache (bounded, oldest evicted first) and ship when the window ends. Only
+        // "telemetry is off for this project" throws work away.
+        if self.silenced {
+            Counters::add(&self.counters.disabled, spans.len() as u64);
             return;
         }
         let count = spans.len() as u64;
@@ -424,9 +420,14 @@ impl Exporter {
         let id = format!("{:020}-{:06}-{count}-{}", now_unix_nanos(), self.seq, signal.tag());
         match self.cache.push(&id, &body) {
             Ok(evicted) => {
-                // Older batches pushed out by `max_cache_bytes`: lost, but counted.
+                // Older batches pushed out by `max_cache_bytes`: lost, but counted. Losing them
+                // mid-hold is its own answer — the collector held us off longer than the cache
+                // could carry — so it is counted apart from an ordinary overflow.
                 let lost: u64 = evicted.iter().map(|id| events_in(id)).sum();
-                Counters::add(&self.counters.cache_full, lost);
+                let held = self.throttled_until.is_some_and(|t| Instant::now() < t);
+                let counter =
+                    if held { &self.counters.throttled } else { &self.counters.cache_full };
+                Counters::add(counter, lost);
             }
             Err(err) => {
                 // A full disk is a steady state, not an event: warn once, then stay quiet.

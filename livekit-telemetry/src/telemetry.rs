@@ -1161,7 +1161,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn throttling_keeps_cached_batches_and_drops_new_ones() {
+    async fn throttling_holds_uploads_and_keeps_collecting() {
         let dir = temp_dir("throttle");
         let throttled =
             Err(ExportError::Retryable { reason: "429".into(), retry_after_ms: Some(5_000) });
@@ -1173,13 +1173,15 @@ mod tests {
         assert_eq!(files_in(&dir), 1, "the throttled batch stays cached");
         assert_eq!(telemetry.stats().dropped, 0);
 
+        // A hold pauses uploads, not collection: what happens during the quiet window is the
+        // part an operator most wants afterwards.
         telemetry.emit(TelemetryEvent::new("lk.ping"));
         telemetry.flush().await;
-        assert_eq!(telemetry.stats().dropped_throttled, 1, "new batches dropped inside the window");
-        assert_eq!(files_in(&dir), 1, "and never written");
+        assert_eq!(files_in(&dir), 2, "events inside the window are cached too");
+        assert_eq!(telemetry.stats().dropped, 0, "and nothing is thrown away");
 
         tokio::time::sleep(Duration::from_secs(6)).await;
-        assert_eq!(transport.sent().len(), 2, "cached batch uploaded after Retry-After");
+        assert_eq!(transport.sent().len(), 3, "both cached batches upload after Retry-After");
         assert_eq!(files_in(&dir), 0);
         let _ = fs::remove_dir_all(&dir);
     }

@@ -65,7 +65,7 @@ attributes:
   lk.telemetry.dropped.cache_error: int # events lost because the cache could not store them (disk full)
   lk.telemetry.dropped.cache_full: int  # events evicted from the cache by max_cache_bytes / max age
   lk.telemetry.dropped.rejected: int    # events the collector rejected (4xx)
-  lk.telemetry.dropped.throttled: int   # events dropped inside a Retry-After window
+  lk.telemetry.dropped.throttled: int   # events the cache could not carry through a hold
   lk.telemetry.dropped.rate_limited: int # discrete events dropped by the flood guard
 cadence: appended to the next batch whenever a drop, an upload failure or a capped hold happened
          since the previous report — never its own request, never persisted on its own (Sentry
@@ -194,7 +194,9 @@ Uploads are shaped, not just batched:
 - **One request in flight**, oldest batch first; a failure pauses the cache for 60 s (throttling:
   see `lk.telemetry.report`). A `429` pauses it without spending retries first — for the
   `Retry-After` seconds, else `RetryInfo.retry_delay`, else that same minute (LiveKit Cloud's
-  quota answer names no delay).
+  quota answer names no delay). A pause stops uploads, never collection: records keep landing in
+  the cache and ship when it lifts, so the quiet window is not a hole in the session. Only
+  `Disabled` throws work away.
 - **Budget:** at most `max_batches_per_upload` (default 4) cached batches per tick while a scope
   may be live, so a backlog (offline period, previous launch) replays at ~4 × 20 KB per 15 s
   ≈ 40 kbps next to a call. `shutdown` drains without the budget.
