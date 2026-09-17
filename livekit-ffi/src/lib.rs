@@ -59,4 +59,4 @@ pub mod build_info;
 #[cfg(feature = "room-apis")]
 uniffi::setup_scaffolding!("livekit_ffi");
 #[cfg(feature = "core-modules")]
-uniffi::setup_scaffolding!("livekit_uniffi");
+uniffi::setup_scaffolding!("livekit_ffi");

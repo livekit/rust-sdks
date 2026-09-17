@@ -1,6 +1,6 @@
 # LiveKit UniFFI — Android library
 
-Gradle Android library module that packages UniFFI Kotlin bindings and native `liblivekit_uniffi.so` binaries into an **AAR**.
+Gradle Android library module that packages UniFFI Kotlin bindings and native `liblivekit_ffi.so` binaries into an **AAR**.
 
 ## Prerequisites
 
@@ -16,7 +16,7 @@ cargo make android-package                              # debug .so in release A
 cargo make --profile release android-package            # release .so (CI / publishing)
 ```
 
-The built AAR is located at: `packages/android/livekit-uniffi-android-release.aar`
+The built AAR is located at: `packages/android/livekit-ffi-android-release.aar`
 
 In the default (development) profile, Rust builds are unoptimized debug artifacts;
 `--profile release` additionally applies release Rust flags and runs the size gate.
@@ -51,14 +51,14 @@ Or from this directory:
 Output:
 
 ```
-build/outputs/aar/livekit-uniffi-android-release.aar
+build/outputs/aar/livekit-ffi-android-release.aar
 ```
 
 ## App integration
 
 ```kotlin
 dependencies {
-    implementation("io.livekit:livekit-uniffi-android:x.y.z")
+    implementation("io.livekit:livekit-ffi-android:x.y.z")
 }
 ```
 
@@ -85,7 +85,7 @@ Depend on the artifact as above, using the `VERSION_NAME` in this module's `grad
 
 ```kotlin
 dependencies {
-    implementation("io.livekit:livekit-uniffi-android:0.0.1")
+    implementation("io.livekit:livekit-ffi-android:0.0.1")
 }
 ```
 

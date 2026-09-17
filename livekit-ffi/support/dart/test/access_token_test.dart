@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:livekit_uniffi/livekit_uniffi.dart';
+import 'package:livekit_ffi/livekit_ffi.dart';
 
 void main() {
   // Exercises real Rust JWT/HMAC logic across the FFI boundary: generate a

@@ -18,7 +18,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'generated', 'python')))
 
 import asyncio
-from livekit_uniffi import *
+from livekit_ffi import *
 
 def main():
     # Receive log messages from Rust

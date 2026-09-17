@@ -21,8 +21,8 @@ pub(crate) fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
-            .thread_name("livekit-uniffi")
+            .thread_name("livekit-ffi-core")
             .build()
-            .expect("Failed to build livekit-uniffi tokio runtime")
+            .expect("Failed to build livekit-ffi core-modules tokio runtime")
     })
 }

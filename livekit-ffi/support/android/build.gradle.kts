@@ -15,7 +15,7 @@ version = providers.gradleProperty("VERSION_NAME").get()
 val generatedKotlinDir = rootDir.resolve("../../packages/kotlin")
 
 android {
-    namespace = "io.livekit.uniffi"
+    namespace = "io.livekit.ffi"
     compileSdk = 34
 
     defaultConfig {

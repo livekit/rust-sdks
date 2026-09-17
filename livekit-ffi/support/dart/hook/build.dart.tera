@@ -1,4 +1,4 @@
-// Native Assets build hook for the LiveKit UniFFI Dart bindings.
+// Native Assets build hook for the LiveKit FFI Dart bindings.
 //
 // The generated bindings call the native library through `@Native` annotations
 // bound to the asset id `package:<pkg>/uniffi:livekit_ffi`. This hook

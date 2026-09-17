@@ -17,8 +17,8 @@ PACKAGES_DIR = "./packages"
 SUPPORT_DIR = "./support"
 LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
-SPM_NAME = "LiveKitUniFFI"
-DART_PACKAGE_NAME = "livekit_uniffi"
+SPM_NAME = "LiveKitFFI"
+DART_PACKAGE_NAME = "livekit_ffi"
 # Rendered into pubspec.yaml by dart-generate-manifest. Fail closed: every
 # profile gets `publish_to: none` (dev packages embed a host dylib and must
 # never reach pub.dev), and only an explicit release build clears it so
@@ -72,7 +72,7 @@ private = true
 
 [tasks.android-shared.env]
 ANDROID_CARGO_OUT_DIR = { source = "${CARGO_MAKE_PROFILE}", mapping = { development = "debug", release = "release", default = "debug" } }
-ANDROID_AAR_BASENAME = "livekit-uniffi-android-release"
+ANDROID_AAR_BASENAME = "livekit-ffi-android-release"
 
 [tasks.build-android]
 extend = "android-shared"
@@ -446,7 +446,7 @@ run_task = "swift-package-flow"
 
 # MARK: - Android
 #
-# Output: ${PACKAGES_DIR}/android/livekit-uniffi-android-release.aar
+# Output: ${PACKAGES_DIR}/android/livekit-ffi-android-release.aar
 #
 # Debugging:   cargo make android-package
 #              → debug .so files packaged into the release AAR (unstripped Rust
@@ -620,10 +620,10 @@ exec cargo run -p bindgens --features dart-bindgen --bin uniffi-bindgen-dart -- 
 #
 #   packages/dart/
 #     pubspec.yaml          (from support/dart/pubspec.yaml.tera)
-#     lib/livekit_uniffi.dart
+#     lib/livekit_ffi.dart
 #     hook/build.dart       (from support/dart/hook/build.dart)
 #     LICENSE, README.md, CHANGELOG.md
-#     liblivekit_uniffi.<ext>  (dev only: copied local build)
+#     liblivekit_ffi.<ext>  (dev only: copied local build)
 #
 # Publishing note: pub builds its archive from git's file listing and this
 # whole tree is gitignored, so `dart pub publish` must run from a copy of

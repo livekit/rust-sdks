@@ -14,4 +14,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "livekit-uniffi-android"
+rootProject.name = "livekit-ffi-android"
