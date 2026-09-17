@@ -12,20 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, path::Path};
+use std::env;
+#[cfg(feature = "room-apis")]
+use std::path::Path;
 
+#[cfg(feature = "room-apis")]
 const PROTO_SRC_DIR: &str = "protocol";
 
 fn main() {
     if env::var("DOCS_RS").is_ok() {
         return;
     }
-    download_webrtc();
-    copy_webrtc_license();
-    configure_linker();
-    generate_protobuf();
+    // livekit-ffi/core-modules is pure Rust: no libwebrtc download, no linker
+    // configuration (`configure_linker` panics on visionOS/tvOS/Mac Catalyst,
+    // which the Swift package builds) and no protobuf generation.
+    //
+    // This has to be a `cfg` rather than a `CARGO_FEATURE_ROOM_APIS` lookup:
+    // `prost-build` and `webrtc-sys-build` are optional build-dependencies
+    // gated on the same feature, so under core-modules those paths do not
+    // resolve at all.
+    #[cfg(feature = "room-apis")]
+    {
+        download_webrtc();
+        copy_webrtc_license();
+        configure_linker();
+        generate_protobuf();
+    }
 }
 
+#[cfg(feature = "room-apis")]
 fn download_webrtc() {
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
     if !webrtc_dir.exists() {
@@ -33,6 +48,7 @@ fn download_webrtc() {
     }
 }
 
+#[cfg(feature = "room-apis")]
 /// Copy the webrtc license to `CARGO_MANIFEST_DIR`, used by the FFI release action.
 fn copy_webrtc_license() {
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
@@ -42,6 +58,7 @@ fn copy_webrtc_license() {
     std::fs::copy(license, out_file).unwrap();
 }
 
+#[cfg(feature = "room-apis")]
 fn configure_linker() {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     match target_os.as_str() {
@@ -61,6 +78,7 @@ fn configure_linker() {
     }
 }
 
+#[cfg(feature = "room-apis")]
 fn generate_protobuf() {
     let paths: Vec<_> = std::fs::read_dir(PROTO_SRC_DIR)
         .expect("Failed to read protobuf source directory")
@@ -85,6 +103,7 @@ fn generate_protobuf() {
         .expect("Protobuf generation failed");
 }
 
+#[cfg(feature = "room-apis")]
 trait ProstConfigExt {
     /// Derive [`from_variants::FromVariants`] on a oneof field's generated enum.
     fn derive_from_variants(&mut self, path: impl AsRef<str>) -> &mut Self;
@@ -94,6 +113,7 @@ trait ProstConfigExt {
     fn from_variants_skip_field(&mut self, path: impl AsRef<str>) -> &mut Self;
 }
 
+#[cfg(feature = "room-apis")]
 impl ProstConfigExt for prost_build::Config {
     fn derive_from_variants(&mut self, path: impl AsRef<str>) -> &mut Self {
         self.enum_attribute(path, "#[derive(from_variants::FromVariants)]")
