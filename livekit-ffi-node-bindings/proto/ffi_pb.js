@@ -142,9 +142,9 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 81, name: "start_recording", kind: "message", T: StartRecordingRequest, oneof: "message" },
     { no: 82, name: "stop_recording", kind: "message", T: StopRecordingRequest, oneof: "message" },
     { no: 83, name: "ready_for_room_event", kind: "message", T: ReadyForRoomEventRequest, oneof: "message" },
+    { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceRequest, oneof: "message" },
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureRequest, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureRequest, oneof: "message" },
-    { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceRequest, oneof: "message" },
   ],
 );
 
@@ -242,9 +242,9 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 80, name: "start_recording", kind: "message", T: StartRecordingResponse, oneof: "message" },
     { no: 81, name: "stop_recording", kind: "message", T: StopRecordingResponse, oneof: "message" },
     { no: 82, name: "ready_for_room_event", kind: "message", T: ReadyForRoomEventResponse, oneof: "message" },
+    { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceResponse, oneof: "message" },
     { no: 89, name: "start_capture", kind: "message", T: StartCaptureResponse, oneof: "message" },
     { no: 90, name: "stop_capture", kind: "message", T: StopCaptureResponse, oneof: "message" },
-    { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceResponse, oneof: "message" },
   ],
 );
 
