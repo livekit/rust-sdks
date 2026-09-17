@@ -43,8 +43,15 @@ pub trait BatchCache: Send + Sync {
     fn clear(&self);
 }
 
+/// Batches a cache will hold regardless of their size. `max_cache_bytes` is the size policy;
+/// this only stops a long offline stretch at a 1 s cadence from leaving thousands of tiny files
+/// in the directory.
+// ponytail: a flat cap rather than another config knob; make it one if a host ever needs
+// Datadog-scale buffering (512 MB per feature, where the file count matters).
+pub(crate) const MAX_BATCHES: usize = 512;
+
 /// In-memory [`BatchCache`]: batches that could not be uploaded wait for the next attempt,
-/// bounded by `max_bytes` (oldest evicted). Lost with the process.
+/// bounded by `max_bytes` and [`MAX_BATCHES`] (oldest evicted). Lost with the process.
 // ponytail: a Vec with remove(0) — a handful of small batches, and it shares Vec code the
 // binary already has instead of pulling in VecDeque's ring-buffer instantiations.
 pub struct MemoryCache {
@@ -71,7 +78,7 @@ impl BatchCache for MemoryCache {
         batches.push((id.to_owned(), body.to_vec()));
         let mut total: usize = batches.iter().map(|(_, b)| b.len()).sum();
         let mut evicted = Vec::new();
-        while total > self.max_bytes && batches.len() > 1 {
+        while (total > self.max_bytes || batches.len() > MAX_BATCHES) && batches.len() > 1 {
             let (id, body) = batches.remove(0);
             total -= body.len();
             evicted.push(id);
@@ -149,7 +156,7 @@ impl FileCache {
     }
 
     /// Delete stray `.tmp` files and batches older than the max age, then the oldest batches
-    /// until the total fits `max_bytes`. Returns the ids of the batches removed.
+    /// until the rest fit `max_bytes` and [`MAX_BATCHES`]. Returns the ids of the batches removed.
     fn prune(&self) -> io::Result<Vec<String>> {
         let now = crate::event::now_unix_nanos();
         let mut removed = Vec::new();
@@ -169,12 +176,14 @@ impl FileCache {
             .map(|id| fs::metadata(self.path(id, EXT)).map(|m| m.len()).unwrap_or(0))
             .collect();
         let mut total: u64 = sizes.iter().sum();
+        let mut count = kept.len();
         for (id, len) in kept.iter().zip(sizes) {
-            if total <= self.max_bytes {
+            if total <= self.max_bytes && count <= MAX_BATCHES {
                 break;
             }
             self.remove(id);
             total -= len;
+            count -= 1;
             removed.push(id.clone());
         }
         Ok(removed)
@@ -278,6 +287,23 @@ mod tests {
         assert!(!dir.join("crashed.tmp").exists());
         cache.clear();
         assert!(cache.pending().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Days offline at a one-second cadence are tiny batches, not big ones: the byte cap alone
+    /// would leave thousands of files in the directory.
+    #[test]
+    fn file_cache_caps_the_number_of_batches() {
+        let dir = temp_dir("count");
+        let cache = FileCache::open(&dir, 1 << 20).expect("open");
+        // `id` stamps the current second, so keep the ids rather than recomputing them.
+        let ids: Vec<String> = (0..(MAX_BATCHES as u64 + 8)).map(id).collect();
+        for batch in &ids {
+            cache.push(batch, b"x").expect("push");
+        }
+        let kept = cache.pending();
+        assert_eq!(kept.len(), MAX_BATCHES, "far under the byte cap, still bounded");
+        assert_eq!(kept.first(), Some(&ids[8]), "the oldest went first");
         let _ = fs::remove_dir_all(&dir);
     }
 

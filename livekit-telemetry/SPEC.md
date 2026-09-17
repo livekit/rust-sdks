@@ -215,6 +215,12 @@ Uploads are shaped, not just batched:
   than `max_batch_bytes` (1 MiB, estimated before compression) or `max_batch_size` (512) records;
   when the queue reaches `flush_threshold_bytes` (256 KiB) it is exported at once instead of at
   the next tick — "every 15 s or at 256 KB".
+- **Backlog:** four nested bounds, every eviction counted in `lk.telemetry.report` — the queue
+  (`max_queue_size`, 2048 records), the cache's size (`max_cache_bytes`, 4 MiB compressed) and
+  its file count (512 batches, so days offline at a one-second cadence cannot fill a directory
+  with tiny files), and age (24 h, pruned at startup). Oldest goes first at every level. For
+  comparison: Sentry keeps 30 envelopes, Datadog 512 MB per feature with an 18 h age, and the
+  OTel batch processor caches nothing at all.
 - **Priority hints:** every request carries `Priority: u=7` (RFC 9218, lowest urgency) for
   HTTP/2+ hops that implement it, and the host transport marks the local traffic class as
   background — Apple `URLSessionConfiguration.networkServiceType = .background`
