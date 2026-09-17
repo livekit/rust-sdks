@@ -228,8 +228,8 @@ def reconcile_knope_config(meta, knope_packages):
                  (e.g. a renamed or removed crate leaving a dangling entry).
 
     Note the rule is one-directional: publishable implies knope-managed, but a
-    knope-managed crate may set `publish = false` (e.g. livekit-ffi / livekit-
-    uniffi, which CI publishes via wrapper packages rather than `cargo publish`).
+    knope-managed crate may set `publish = false` (e.g. livekit-ffi, which CI
+    publishes via wrapper packages rather than `cargo publish`).
     """
     workspace_names = {pkg["name"] for pkg in meta["packages"]}
     publishable = {pkg["name"] for pkg in meta["packages"] if is_publishable(pkg)}
