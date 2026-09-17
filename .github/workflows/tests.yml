@@ -183,6 +183,16 @@ jobs:
           cargo test --verbose --target ${{ matrix.target }} -p livekit-net --features native
           cargo test --verbose --target ${{ matrix.target }} -p livekit-signaling --features native
 
+      # These live behind livekit-ffi's non-default `core-modules` feature, so a
+      # workspace-wide `cargo test` does not reach them. Before the
+      # livekit-uniffi merge they ran as part of that crate.
+      - name: Test core modules (data streams v2 / data tracks)
+        shell: bash
+        run: |
+          set -euo pipefail
+          FLAGS=$(python3 .github/scripts/platform_features.py --surface core-modules)
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-ffi $FLAGS
+
       - name: Test RPC seam (livekit-rpc)
         shell: bash
         run: |
