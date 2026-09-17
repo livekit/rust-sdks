@@ -2,7 +2,7 @@ name: UniFFI Dart tests
 
 # Builds the Dart package (dev mode: host cdylib + generated bindings) and runs
 # its test suite, exercising the FFI boundary end-to-end. Scoped to changes that
-# can affect the livekit-uniffi Dart bindings.
+# can affect the livekit-ffi Dart bindings.
 
 on:
   push:
@@ -10,7 +10,13 @@ on:
   pull_request:
     branches: ["main"]
     paths:
-      - "livekit-uniffi/**"
+      - "livekit-ffi/src/core_modules/**"
+      - "livekit-ffi/src/lib.rs"
+      - "livekit-ffi/src/build_info.rs"
+      - "livekit-ffi/Cargo.toml"
+      - "livekit-ffi/uniffi.toml"
+      - "livekit-ffi/Makefile.toml"
+      - "livekit-ffi/support/dart/**"
       - "livekit-api/**"
       - "livekit-protocol/**"
       - "Cargo.lock"
@@ -68,11 +74,11 @@ jobs:
             ${{ runner.os }}-cargo-target-dart-
 
       - name: Build Dart package
-        working-directory: livekit-uniffi
+        working-directory: livekit-ffi
         run: cargo make dart-package
 
       - name: Run Dart tests
-        working-directory: livekit-uniffi/packages/dart
+        working-directory: livekit-ffi/packages/dart
         run: |
           dart pub get
           dart test
