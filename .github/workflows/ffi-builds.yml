@@ -266,7 +266,7 @@ jobs:
       # This has to run on a macOS entry. The release profile sets
       # `strip = "symbols"`, which removes the metadata on Linux while macOS
       # strips less aggressively -- see the note on `bindgen-dart` in
-      # livekit-uniffi/Makefile.toml. Do not move this to ffi-linux-x86_64 for
+      # livekit-ffi/Makefile.toml. Do not move this to ffi-linux-x86_64 for
       # symmetry; bindgen would silently emit an empty module.
       - name: Generate Python bindings (UniFFI)
         if: ${{ matrix.name == 'ffi-macos-arm64' }}
@@ -368,7 +368,60 @@ jobs:
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
-      - name: Upload artifacts and publish release
+      - name: Upload artifacts
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: gh release upload "$TAG" ${{ github.workspace }}/ffi-builds/*
+
+      # This is here because pub.dev's automated publishing *requires* a
+      # tag-push-triggered workflow as part of its trusted publishing
+      # configuration. If the default github actions worker were to publish the
+      # tag, then github prevents that from triggering other workflows to
+      # prevent workflow recursion. So this "breaks the cycle" and allows the
+      # downstream workflow to be triggered to satisfy pub.dev.
+      - name: Generate Repo Writer GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2.2.2
+        with:
+          app-id: ${{ vars.REPO_WRITER_GH_APP_ID }}
+          private-key: ${{ secrets.REPO_WRITER_GH_APP_PRIVATE_KEY }}
+          owner: livekit
+          repositories: |
+            rust-sdks
+
+      - name: Create release tag
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+          SHA: ${{ github.sha }}
         run: |
-          gh release upload ${{ needs.get-tag.outputs.tag_name }} ${{ github.workspace }}/ffi-builds/*
-          gh release edit ${{ needs.get-tag.outputs.tag_name }} --draft=false
+          set -euo pipefail
+
+          # This workflow runs on every push to main and adopts whatever draft
+          # release it finds, which may be several commits old. Tagging a commit
+          # whose Cargo.toml says a different version would publish mismatched
+          # packages, and uniffi-dart-publish.yml would reject it later anyway.
+          crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
+          if [ "${TAG#livekit-ffi/v}" != "$crate_version" ]; then
+            echo "::error::tag ${TAG} does not match livekit-ffi version ${crate_version} at ${SHA}"
+            exit 1
+          fi
+
+          existing=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" --jq '.object.sha' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            # Do not fail: the assets are already uploaded, and failing here
+            # would strand the release as a draft. No push event was emitted,
+            # so the downstream publishes need a manual dispatch.
+            echo "::warning::tag ${TAG} already exists at ${existing}; not re-creating it."
+            echo "::warning::uniffi-packages.yml and uniffi-dart-publish.yml did NOT run; dispatch them with this tag if the packages still need publishing."
+            exit 0
+          fi
+
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${TAG}" \
+            -f sha="${SHA}"
+
+      - name: Publish release
+        env:
+          TAG: ${{ needs.get-tag.outputs.tag_name }}
+        run: gh release edit "$TAG" --draft=false
