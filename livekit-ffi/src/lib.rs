@@ -12,12 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
-
-use lazy_static::lazy_static;
-use livekit::prelude::*;
-use thiserror::Error;
-
 mod room_apis;
 
 // Republishes the surface at the crate root, so `livekit_ffi::{cabi, proto,
@@ -27,26 +21,3 @@ pub use room_apis::*;
 pub mod build_info;
 
 uniffi::setup_scaffolding!();
-
-#[derive(Error, Debug)]
-pub enum FfiError {
-    #[error("the server is not configured")]
-    NotConfigured,
-    #[error("the server is already initialized")]
-    AlreadyInitialized,
-    #[error("room error {0}")]
-    Room(#[from] RoomError),
-    #[error("invalid request: {0}")]
-    InvalidRequest(Cow<'static, str>),
-}
-
-/// # SAFTEY: The "C" callback must be threadsafe and not block
-pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
-pub type FfiResult<T> = Result<T, FfiError>;
-pub type FfiHandleId = u64;
-
-pub const INVALID_HANDLE: FfiHandleId = 0;
-
-lazy_static! {
-    pub static ref FFI_SERVER: server::FfiServer = server::FfiServer::default();
-}

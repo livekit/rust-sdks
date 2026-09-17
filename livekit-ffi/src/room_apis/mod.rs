@@ -19,8 +19,37 @@
 //! [`proto::FfiRequest`] messages through [`cabi`] and are dispatched by
 //! [`server`]. It depends on `livekit` and, through it, on libwebrtc.
 
+use std::borrow::Cow;
+
+use lazy_static::lazy_static;
+use livekit::prelude::*;
+use thiserror::Error;
+
 mod conversion;
 
 pub mod cabi;
 pub mod proto;
 pub mod server;
+
+#[derive(Error, Debug)]
+pub enum FfiError {
+    #[error("the server is not configured")]
+    NotConfigured,
+    #[error("the server is already initialized")]
+    AlreadyInitialized,
+    #[error("room error {0}")]
+    Room(#[from] RoomError),
+    #[error("invalid request: {0}")]
+    InvalidRequest(Cow<'static, str>),
+}
+
+/// # SAFTEY: The "C" callback must be threadsafe and not block
+pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
+pub type FfiResult<T> = Result<T, FfiError>;
+pub type FfiHandleId = u64;
+
+pub const INVALID_HANDLE: FfiHandleId = 0;
+
+lazy_static! {
+    pub static ref FFI_SERVER: server::FfiServer = server::FfiServer::default();
+}
