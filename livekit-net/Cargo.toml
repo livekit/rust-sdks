@@ -51,7 +51,7 @@ mode = "powerset"
 async-trait = "0.1"
 
 # Optional: scaffolding for the `uniffi` feature. `scaffolding-ffi-buffer-fns`
-# matches livekit-datatrack/livekit-uniffi so the ABI is consistent when these
+# matches livekit-datatrack/livekit-ffi so the ABI is consistent when these
 # crates are combined into one cdylib. No runtime feature: the exported traits
 # are `with_foreign` (host-driven futures) and the exported setters are sync, so
 # the crate stays runtime-agnostic.
