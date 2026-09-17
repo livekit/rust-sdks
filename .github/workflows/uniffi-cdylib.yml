@@ -1,7 +1,7 @@
 name: UniFFI cdylib builds
 
-# Builds the livekit-uniffi dynamic library for every Dart/Flutter target and
-# attaches them to the livekit-uniffi release as `build-<triple>.zip` (+ a
+# Builds the livekit-ffi core-modules dynamic library for every Dart/Flutter
+# target and attaches them to the livekit-ffi release as `build-<triple>.zip` (+ a
 # `.sha256` sidecar). The Dart build hook (support/dart/hook/build.dart.tera)
 # downloads these at consumer build time.
 #
@@ -13,11 +13,11 @@ on:
   workflow_call:
     inputs:
       version:
-        description: Release version (e.g. 0.1.1)
+        description: Release version (e.g. 0.13.0)
         required: true
         type: string
       tag_name:
-        description: Source release tag (e.g. livekit-uniffi/v0.1.1)
+        description: Source release tag (e.g. livekit-ffi/v0.13.0)
         required: true
         type: string
       dry_run:
@@ -99,15 +99,18 @@ jobs:
       - name: Build (Apple / Windows)
         if: ${{ matrix.platform == 'apple' || matrix.platform == 'windows' }}
         shell: bash
-        run: cargo build --release --target ${{ matrix.target }} -p livekit-uniffi
+        run: |
+          set -euo pipefail
+          FLAGS=$(python3 .github/scripts/platform_features.py dart)
+          cargo build --release --target ${{ matrix.target }} -p livekit-ffi $FLAGS
 
       # Linux: build inside a manylinux_2_28 container so the shared library
       # links against glibc 2.28 and loads on the distributions the Dart package
       # is used on (Debian 12, Ubuntu 22.04, Amazon Linux 2023 and newer). A
       # native build on the runner would inherit its glibc 2.39 floor. Same
       # approach as ffi-builds.yml. The arm64 entry runs on a native arm64
-      # runner, so no cross toolchain is needed, and livekit-uniffi has no C
-      # dependencies, so the image's stock gcc is enough. The toolchain version
+      # runner, so no cross toolchain is needed, and livekit-ffi/core-modules
+      # has no C dependencies, so the image's stock gcc is enough. The toolchain version
       # comes from rust-toolchain.toml.
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
@@ -115,17 +118,19 @@ jobs:
           TARGET: ${{ matrix.target }}
           BUILD_IMAGE: ${{ matrix.build_image }}
         run: |
-          docker run --rm -e TARGET -v "$PWD:/workspace" -w /workspace "$BUILD_IMAGE" bash -euo pipefail -c '
+          set -euo pipefail
+          export FLAGS=$(python3 .github/scripts/platform_features.py dart)
+          docker run --rm -e TARGET -e FLAGS -v "$PWD:/workspace" -w /workspace "$BUILD_IMAGE" bash -euo pipefail -c '
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             export PATH="/root/.cargo/bin:$PATH"
             if [ "$TARGET" = "aarch64-unknown-linux-gnu" ]; then
               # .cargo/config.toml forces -fuse-ld=lld for this target to link
-              # libwebrtc, which livekit-uniffi does not use. A non-empty global
+              # libwebrtc, which livekit-ffi/core-modules does not use. A non-empty global
               # RUSTFLAGS overrides that per-target config, selecting the GNU
               # bfd linker the image provides.
               export RUSTFLAGS="-C link-arg=-fuse-ld=bfd"
             fi
-            cargo build --release --target "$TARGET" -p livekit-uniffi
+            cargo build --release --target "$TARGET" -p livekit-ffi $FLAGS
           '
           # The container ran as root, so hand the outputs back to the runner user.
           sudo chown -R "$USER:$USER" target
@@ -139,7 +144,10 @@ jobs:
 
       - name: Build (Android)
         if: ${{ matrix.platform == 'android' }}
-        run: cargo ndk --target ${{ matrix.target }} build --release -p livekit-uniffi
+        run: |
+          set -euo pipefail
+          FLAGS=$(python3 .github/scripts/platform_features.py dart)
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit-ffi $FLAGS
 
       # macOS/Linux: zip + shasum are available.
       - name: Package artifact (Unix)
@@ -149,8 +157,8 @@ jobs:
           triple="${{ matrix.target }}"
           dir="target/${triple}/release"
           case "$triple" in
-            *apple*) lib="liblivekit_uniffi.dylib" ;;
-            *)       lib="liblivekit_uniffi.so" ;;
+            *apple*) lib="liblivekit_ffi.dylib" ;;
+            *)       lib="liblivekit_ffi.so" ;;
           esac
           out="build-${triple}.zip"
           # Zip with the bare library name at the archive root.
@@ -165,7 +173,7 @@ jobs:
         shell: pwsh
         run: |
           $triple = "${{ matrix.target }}"
-          $lib = "target/$triple/release/livekit_uniffi.dll"
+          $lib = "target/$triple/release/livekit_ffi.dll"
           $out = "build-$triple.zip"
           Compress-Archive -Path $lib -DestinationPath $out -Force
           $hash = (Get-FileHash -Algorithm SHA256 $out).Hash.ToLower()
