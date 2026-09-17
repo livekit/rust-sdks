@@ -23,7 +23,7 @@ use livekit_datatrack::{
     backend::{local, EncryptionProvider},
 };
 use livekit_protocol as proto;
-use prost::Message;
+use prost_012::Message;
 use std::sync::Arc;
 use tokio_util::sync::{CancellationToken, DropGuard};
 

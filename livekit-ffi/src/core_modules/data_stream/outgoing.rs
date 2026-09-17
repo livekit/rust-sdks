@@ -17,7 +17,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use livekit_common as lk_common;
 use livekit_data_stream::{api as ds_api, backend as ds};
-use prost::Message as _;
+use prost_012::Message as _;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::common::{

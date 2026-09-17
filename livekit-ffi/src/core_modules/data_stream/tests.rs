@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use livekit_protocol as proto;
-use prost::Message as _;
+use prost_012::Message as _;
 use tokio::sync::oneshot;
 
 use super::common::{

@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use livekit_common as common;
 use livekit_data_stream::{api as ds_api, backend as ds};
 use livekit_protocol as proto;
-use prost::Message;
+use prost_012::Message;
 
 // MARK: - Enums
 
