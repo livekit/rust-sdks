@@ -18,6 +18,8 @@
 //! have no WebRTC stack of their own: requests arrive as encoded
 //! [`proto::FfiRequest`] messages through [`cabi`] and are dispatched by
 //! [`server`]. It depends on `livekit` and, through it, on libwebrtc.
+//!
+//! Gated behind the `room-apis` feature.
 
 use std::borrow::Cow;
 
