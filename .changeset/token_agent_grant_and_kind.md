@@ -1,9 +1,8 @@
 ---
 livekit-token: major
-livekit-uniffi: major
 livekit-api: major
 livekit: patch
-livekit-ffi: patch
+livekit-ffi: minor
 livekit-signaling: patch
 ---
 
@@ -11,8 +10,8 @@ livekit-signaling: patch
 `AccessToken::with_kind`), which the Go, Python and JS SDKs already carry. An
 agent worker's token is `VideoGrants { agent: true }` and a simulated job's
 participant token is `kind: "agent"`; neither could be minted from Rust before.
-`livekit-uniffi` exposes both: `TokenOptions.kind`, `Claims.kind`, and `agent`
-on its `VideoGrants` record.
+`livekit-ffi/core-modules` exposes both: `TokenOptions.kind`,
+`Claims.kind`, and `agent` on its `VideoGrants` record.
 
 **Breaking:** the four grants the server infers when absent -- `can_publish`,
 `can_subscribe`, `can_publish_data`, `can_update_own_metadata` -- are now
@@ -21,7 +20,7 @@ server, and the new getters (`can_publish()`, `can_subscribe()`,
 `can_publish_data()`, `can_update_own_metadata()`) read a token the way the
 server does, `can_publish_data` falling back to `can_publish` included. Code
 that set these fields writes `Some(..)`; code that read them uses the getters.
-The same fields are optional on the `livekit-uniffi` record, and
+The same fields are optional on the `livekit-ffi` record, and
 `livekit-api` re-exports the crate as `livekit_api::access_token`, so both
 carry the change.
 

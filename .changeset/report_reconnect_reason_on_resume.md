@@ -4,7 +4,6 @@ livekit-api: patch
 livekit-capture: patch
 livekit-ffi: patch
 livekit-signaling: patch
-livekit-uniffi: patch
 ---
 
 Report the reconnect reason to the server when resuming.
