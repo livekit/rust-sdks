@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "room-apis")]
 mod room_apis;
 
 // Republishes the surface at the crate root, so `livekit_ffi::{cabi, proto,
 // server}` and the crate-internal `crate::` paths are unchanged by the move.
+#[cfg(feature = "room-apis")]
 pub use room_apis::*;
 
 pub mod build_info;
