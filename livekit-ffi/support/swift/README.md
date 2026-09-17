@@ -1,10 +1,10 @@
 # Swift packaging
 
-Details for the `cargo make swift-package*` tasks. Both modes write to `./packages/swift/LiveKitUniFFI/`.
+Details for the `cargo make swift-package*` tasks. Both modes write to `./packages/swift/LiveKitFFI/`.
 
 ## Modes
 
-**Debugging** — default profile, produces a `Package.swift` that points at the unzipped xcframework via a relative `path:` so it can be consumed directly from `./packages/swift/LiveKitUniFFI/`. The dylib is an unstripped debug build, so Rust frames show up in lldb/Xcode — see [DEBUGGING.md](./DEBUGGING.md) for the full workflow:
+**Debugging** — default profile, produces a `Package.swift` that points at the unzipped xcframework via a relative `path:` so it can be consumed directly from `./packages/swift/LiveKitFFI/`. The dylib is an unstripped debug build, so Rust frames show up in lldb/Xcode — see [DEBUGGING.md](./DEBUGGING.md) for the full workflow:
 
 ```
 cargo make swift-package-debug                            # macOS only — fastest
@@ -15,7 +15,7 @@ cargo make swift-package                                  # all Apple platforms
 To consume it from a Swift project (e.g. `client-sdk-swift`), add this dependency entry to its `Package.swift` (and `Package@swift-6.2.swift`):
 
 ```swift
-.package(name: "livekit-uniffi-xcframework", path: "../rust-sdks/livekit-uniffi/packages/swift/LiveKitUniFFI"),
+.package(name: "livekit-uniffi-xcframework", path: "../rust-sdks/livekit-ffi/packages/swift/LiveKitFFI"),
 ```
 
 Adjust the relative path to match your checkout layout. Don't commit this change — it's purely for local iteration.
