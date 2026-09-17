@@ -3655,6 +3655,7 @@ name = "livekit-capture"
 version = "0.1.1"
 dependencies = [
  "bytes",
+ "chrono",
  "livekit",
  "log",
  "pollster",

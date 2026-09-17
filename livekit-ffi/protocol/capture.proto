@@ -55,6 +55,15 @@ message PatternVideoSourceConfig {
   required Pattern pattern = 3;
 }
 
+// Wall clock with millisecond precision, rendered on the GPU. Shows the
+// local time of the machine that runs the FFI server.
+message ClockVideoSourceConfig {
+  // Output resolution.
+  required VideoSourceResolution resolution = 1;
+  // Output frame rate in frames per second.
+  required uint32 framerate_fps = 2;
+}
+
 // Kind of media a capture source produces.
 enum CaptureSourceKind {
   // Pixel frames, published through the WebRTC encoder.
@@ -91,6 +100,7 @@ message OwnedCaptureSource {
 message NewCaptureSourceRequest {
   oneof config {
     PatternVideoSourceConfig pattern = 2;
+    ClockVideoSourceConfig clock = 5;
   }
   optional uint64 request_async_id = 3;
 }
