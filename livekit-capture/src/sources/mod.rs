@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod audio_frame;
-#[cfg(feature = "capture")]
-pub mod capture;
-pub mod data_stream;
-pub mod data_track;
-pub mod participant;
-pub mod resampler;
-pub mod room;
-pub mod stats;
-pub mod track;
-pub mod video_frame;
+//! Ready-made capture sources. Each source is gated behind its own
+//! `source-*` feature.
+
+#[cfg(feature = "source-pattern")]
+pub mod pattern;

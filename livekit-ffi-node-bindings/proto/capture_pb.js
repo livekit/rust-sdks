@@ -26,6 +26,19 @@ const { TrackPublishOptions } = require("./room_pb.js");
 const { FfiOwnedHandle } = require("./handle_pb.js");
 
 /**
+ * Test patterns built into livekit-capture.
+ *
+ * @generated from enum livekit.proto.Pattern
+ */
+const Pattern = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.Pattern",
+  [
+    {no: 0, name: "PATTERN_GRADIENT", localName: "GRADIENT"},
+    {no: 1, name: "PATTERN_LOGO", localName: "LOGO"},
+  ],
+);
+
+/**
  * Kind of media a capture source produces.
  *
  * @generated from enum livekit.proto.CaptureSourceKind
@@ -52,6 +65,20 @@ const CaptureExit = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * Test pattern rendered on the GPU.
+ *
+ * @generated from message livekit.proto.PatternVideoSourceConfig
+ */
+const PatternVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PatternVideoSourceConfig",
+  () => [
+    { no: 1, name: "resolution", kind: "message", T: VideoSourceResolution, req: true },
+    { no: 2, name: "framerate_fps", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 3, name: "pattern", kind: "enum", T: proto2.getEnumType(Pattern), req: true },
+  ],
+);
+
+/**
  * @generated from message livekit.proto.CaptureSourceInfo
  */
 const CaptureSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
@@ -73,6 +100,45 @@ const OwnedCaptureSource = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "handle", kind: "message", T: FfiOwnedHandle, req: true },
     { no: 2, name: "info", kind: "message", T: CaptureSourceInfo, req: true },
+  ],
+);
+
+/**
+ * Create a new capture source from configuration.
+ *
+ * Completes asynchronously with a NewCaptureSourceCallback: construction
+ * starts the producer and may wait for its first output to discover stream
+ * settings.
+ *
+ * @generated from message livekit.proto.NewCaptureSourceRequest
+ */
+const NewCaptureSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewCaptureSourceRequest",
+  () => [
+    { no: 2, name: "pattern", kind: "message", T: PatternVideoSourceConfig, oneof: "config" },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.NewCaptureSourceResponse
+ */
+const NewCaptureSourceResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewCaptureSourceResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.NewCaptureSourceCallback
+ */
+const NewCaptureSourceCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewCaptureSourceCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "message" },
+    { no: 3, name: "source", kind: "message", T: OwnedCaptureSource, oneof: "message" },
   ],
 );
 
@@ -159,10 +225,15 @@ const CaptureSourceEvent = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 
+exports.Pattern = Pattern;
 exports.CaptureSourceKind = CaptureSourceKind;
 exports.CaptureExit = CaptureExit;
+exports.PatternVideoSourceConfig = PatternVideoSourceConfig;
 exports.CaptureSourceInfo = CaptureSourceInfo;
 exports.OwnedCaptureSource = OwnedCaptureSource;
+exports.NewCaptureSourceRequest = NewCaptureSourceRequest;
+exports.NewCaptureSourceResponse = NewCaptureSourceResponse;
+exports.NewCaptureSourceCallback = NewCaptureSourceCallback;
 exports.StartCaptureRequest = StartCaptureRequest;
 exports.StartCaptureResponse = StartCaptureResponse;
 exports.StopCaptureRequest = StopCaptureRequest;

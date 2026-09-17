@@ -22,6 +22,9 @@ use std::error::Error;
 
 type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
+#[cfg(feature = "source-pattern")]
+pub use crate::renderer::RendererError;
+
 /// Error returned by a capture source.
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
