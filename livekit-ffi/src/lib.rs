@@ -18,12 +18,13 @@ use lazy_static::lazy_static;
 use livekit::prelude::*;
 use thiserror::Error;
 
-mod conversion;
+mod room_apis;
+
+// Republishes the surface at the crate root, so `livekit_ffi::{cabi, proto,
+// server}` and the crate-internal `crate::` paths are unchanged by the move.
+pub use room_apis::*;
 
 pub mod build_info;
-pub mod cabi;
-pub mod proto;
-pub mod server;
 
 uniffi::setup_scaffolding!();
 
