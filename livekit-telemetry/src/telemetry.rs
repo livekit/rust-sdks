@@ -44,7 +44,7 @@ use crate::{DeviceEvent, Span, SpanName};
 #[derive(Debug, Clone)]
 pub struct TelemetryConfig {
     /// Full OTLP/HTTP logs URL: `http://localhost:4318/v1/logs` locally,
-    /// `https://<domain>/observability/logs/otlp/v0` for LiveKit Cloud. `None` starts the
+    /// `https://<domain>/observability/client/logs/otlp/v0` for LiveKit Cloud. `None` starts the
     /// pipeline without a destination — it buffers (and caches) until
     /// [`Telemetry::set_destination`], typically at the first connect, when the server URL and
     /// the token are known.
@@ -571,7 +571,7 @@ impl Telemetry {
     }
 }
 
-/// `…/logs…` → `…/traces…`: covers `/v1/logs` and `/observability/logs/otlp/v0` alike.
+/// `…/logs…` → `…/traces…`: covers `/v1/logs` and `/observability/client/logs/otlp/v0` alike.
 fn derive_traces_endpoint(logs_endpoint: &str) -> String {
     match logs_endpoint.rsplit_once("logs") {
         Some((before, after)) => format!("{before}traces{after}"),
@@ -653,7 +653,7 @@ fn add_sdk_resource(resource: &mut Vec<Attribute>, sdk: Option<&TelemetryResourc
     }
 }
 
-/// `wss://x.livekit.cloud/rtc?…` → `https://x.livekit.cloud/observability/logs/otlp/v0`;
+/// `wss://x.livekit.cloud/rtc?…` → `https://x.livekit.cloud/observability/client/logs/otlp/v0`;
 /// `ws://`/`http://` stay plain http (dev servers). Host and port only; no path, query or userinfo.
 pub(crate) fn observability_endpoint(url: &str) -> Option<String> {
     let (scheme, rest) = url.split_once("://")?;
@@ -666,7 +666,7 @@ pub(crate) fn observability_endpoint(url: &str) -> Option<String> {
         "ws" | "http" => "http",
         _ => "https",
     };
-    Some(format!("{scheme}://{host}/observability/logs/otlp/v0"))
+    Some(format!("{scheme}://{host}/observability/client/logs/otlp/v0"))
 }
 
 #[cfg(test)]
@@ -680,17 +680,20 @@ mod tests {
         let ep = observability_endpoint;
         assert_eq!(
             ep("wss://x.livekit.cloud").unwrap(),
-            "https://x.livekit.cloud/observability/logs/otlp/v0"
+            "https://x.livekit.cloud/observability/client/logs/otlp/v0"
         );
         assert_eq!(
             ep("wss://x.livekit.cloud/rtc?access_token=t#f").unwrap(),
-            "https://x.livekit.cloud/observability/logs/otlp/v0"
+            "https://x.livekit.cloud/observability/client/logs/otlp/v0"
         );
         assert_eq!(
             ep("ws://192.168.99.24:7880").unwrap(),
-            "http://192.168.99.24:7880/observability/logs/otlp/v0"
+            "http://192.168.99.24:7880/observability/client/logs/otlp/v0"
         );
-        assert_eq!(ep("https://u:p@host").unwrap(), "https://host/observability/logs/otlp/v0");
+        assert_eq!(
+            ep("https://u:p@host").unwrap(),
+            "https://host/observability/client/logs/otlp/v0"
+        );
         assert_eq!(ep("nonsense"), None);
         assert_eq!(ep("wss:///rtc"), None);
     }
@@ -1499,16 +1502,20 @@ mod tests {
 
         let mut headers = HashMap::new();
         headers.insert("Authorization".to_owned(), "Bearer t".to_owned());
-        telemetry.set_destination("https://x.livekit.cloud/observability/logs/otlp/v0", headers);
+        telemetry
+            .set_destination("https://x.livekit.cloud/observability/client/logs/otlp/v0", headers);
         tokio::time::sleep(Duration::from_millis(1)).await;
         let sent = transport.sent();
         assert_eq!(sent.len(), 1, "cached batches ship as soon as the destination is known");
-        assert_eq!(sent[0].url, "https://x.livekit.cloud/observability/logs/otlp/v0");
+        assert_eq!(sent[0].url, "https://x.livekit.cloud/observability/client/logs/otlp/v0");
         assert_eq!(sent[0].headers["Authorization"], "Bearer t");
         let span = telemetry.begin_span("lk.publish", SpanKind::Internal, None);
         telemetry.end_span(span, SpanOutcome::Ok, None, Vec::new());
         telemetry.flush().await;
-        assert_eq!(transport.sent()[1].url, "https://x.livekit.cloud/observability/traces/otlp/v0");
+        assert_eq!(
+            transport.sent()[1].url,
+            "https://x.livekit.cloud/observability/client/traces/otlp/v0"
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -1630,8 +1637,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn spans_export_as_traces_under_the_session_trace_id() {
         let transport = FakeTransport::scripted([]);
-        let telemetry =
-            start(TelemetryConfig::new("http://c/observability/logs/otlp/v0"), transport.clone());
+        let telemetry = start(
+            TelemetryConfig::new("http://c/observability/client/logs/otlp/v0"),
+            transport.clone(),
+        );
         let connect = telemetry.begin_span("lk.connect", SpanKind::Client, None);
         telemetry.add_span_event(connect, "ws_open", vec![]);
         telemetry.emit(
@@ -1653,7 +1662,7 @@ mod tests {
         let traces =
             sent.iter().find(|r| r.url.ends_with("/traces/otlp/v0")).expect("traces request");
         assert_eq!(
-            traces.url, "http://c/observability/traces/otlp/v0",
+            traces.url, "http://c/observability/client/traces/otlp/v0",
             "derived from logs endpoint"
         );
         let decoded =

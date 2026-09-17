@@ -28,9 +28,9 @@ a scope — device state, pre-room errors, self-telemetry — belongs to the pip
 scope. Scopes are not ended: a room's last record is simply its last.
 
 The pipeline may start **without a destination** (`endpoint: None`): it buffers and caches, and
-uploads nothing until `set_server(url, token)` (Cloud: `https://<host>/observability/logs/otlp/v0`,
+uploads nothing until `set_server(url, token)` (Cloud: `https://<host>/observability/client/logs/otlp/v0`,
 `Authorization: Bearer <token>`) or `set_destination(endpoint, headers)` — at the first connect, when the
-server URL yields the endpoint (`https://<host>/observability/logs/otlp/v0`) and the token the
+server URL yields the endpoint (`https://<host>/observability/client/logs/otlp/v0`) and the token the
 `Authorization` header. Calling it again (new token, new server) replaces the destination for
 the batches that follow. Waiting for a destination is not an upload hold: it is uncapped, bounded
 only by the cache.
@@ -367,7 +367,7 @@ scope `set_attribute`, and `Span::set_attribute` for app-defined spans.
 
 | Platform calls | The core produces |
 |---|---|
-| `set_server(url, token)` | `https://<host>/observability/logs/otlp/v0`, `Authorization: Bearer <token>`; no-op with an explicit `endpoint` |
+| `set_server(url, token)` | `https://<host>/observability/client/logs/otlp/v0`, `Authorization: Bearer <token>`; no-op with an explicit `endpoint` |
 | `TelemetryConfig.sdk: TelemetryResource { sdk: Sdk, sdk_version, os_name, os_version, device_model }` | `service.name = livekit-client-<sdk>`, `service.version`, `os.*`, `device.model.identifier`, plus `telemetry.sdk.*` |
 | `log(LogRecord { severity, source: LogSource, message, logger, function, file, line, timestamp_ns, span_id })` | a record with `code.function.name`, `code.file.path`, `code.line.number`, `lk.log.source`, `lk.log.logger`; the per-source floor (WebRTC at `error`, own module never) |
 | `Scope::set_room(RoomIdentity { sid, name, participant_sid, participant_identity })` | `lk.room.*`, `lk.participant.*` on every record of the scope |
