@@ -15,7 +15,7 @@
 use bytes::Bytes;
 use livekit_datatrack::api::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSid};
 use livekit_protocol as proto;
-use prost::Message;
+use prost_012::Message;
 
 uniffi::custom_type!(DataTrackSid, String, {
     remote,
@@ -98,7 +98,7 @@ impl From<livekit_datatrack::api::DataTrackSchemaId> for DataTrackSchemaId {
 #[uniffi(flat_error)]
 pub enum HandleSignalResponseError {
     #[error("Response decoding failed: {0}")]
-    Decode(prost::DecodeError),
+    Decode(prost_012::DecodeError),
     #[error("Response container has no message")]
     EmptyMessage,
     #[error("Unsupported response type in this context")]
