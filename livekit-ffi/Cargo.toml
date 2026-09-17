@@ -11,6 +11,9 @@ publish = false
 [features]
 default = ["room-apis", "rustls-tls-native-roots"]
 
+# There are two mutually exclusive modes that this crate can be configured
+# in, `room-apis` and `core-modules`.
+
 # `room-apis` implements a full, rust owned and managed webrtc stack. This is used by more modern
 # client sdks like python, node, unity, and c++.
 room-apis = [
@@ -29,6 +32,27 @@ room-apis = [
   "dep:webrtc-sys-build",
   "tokio/full",
   "tokio/parking_lot",
+]
+
+# `core-modules` implements a set of smaller utility modules in rust to abstract away business
+# logic. This does NOT include `libwebrtc` or `livekit`.
+#
+# This mode is used by older client sdks which historically were fully implemented in each
+# downstream language and is a transitional step to migrating eventually someday to the full
+# room-apis mode - swift, android, flutter, etc.
+core-modules = [
+  "dep:livekit-common",
+  "dep:livekit-data-stream",
+  "dep:livekit-datatrack",
+  "dep:livekit-net",
+  "dep:livekit-token",
+  "dep:async-trait",
+  "dep:once_cell",
+  "dep:tokio-util",
+  "livekit-common/uniffi",
+  "livekit-datatrack/uniffi",
+  "livekit-net/uniffi",
+  "uniffi/tokio",
 ]
 
 # TLS selection. These imply `room-apis` because they only configure `livekit`:
@@ -52,6 +76,7 @@ capture-clock = ["capture", "livekit-capture/source-clock"]
 capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 [dependencies]
+# Shared by both surfaces.
 livekit-protocol = { workspace = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"] }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
@@ -64,6 +89,16 @@ thiserror = { workspace = true }
 # tree, so gating them costs no source changes.
 livekit = { workspace = true, optional = true }
 livekit-capture = { workspace = true, optional = true, default-features = false }
+
+# core-modules only.
+livekit-common = { workspace = true, optional = true }
+livekit-token = { workspace = true, optional = true }
+livekit-datatrack = { workspace = true, optional = true }
+livekit-net = { workspace = true, optional = true }
+livekit-data-stream = { workspace = true, optional = true }
+tokio-util = { version = "0.7.18", optional = true }
+once_cell = { version = "1.21.3", optional = true }
+async-trait = { version = "0.1", optional = true }
 
 # Referenced from no source file at all: webrtc-sys exists to link static
 # libwebrtc, which build.rs wires up under the same feature.

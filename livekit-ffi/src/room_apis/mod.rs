@@ -19,7 +19,8 @@
 //! [`proto::FfiRequest`] messages through [`cabi`] and are dispatched by
 //! [`server`]. It depends on `livekit` and, through it, on libwebrtc.
 //!
-//! Gated behind the `room-apis` feature.
+//! Gated behind the `room-apis` feature, which is mutually exclusive with
+//! `core-modules`.
 
 use std::borrow::Cow;
 
