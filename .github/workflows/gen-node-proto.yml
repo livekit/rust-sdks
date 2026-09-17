@@ -5,11 +5,11 @@ on:
     branches:
       - main
     paths:
-      - livekit-ffi/**
+      # Only the protos this job regenerates from. livekit-ffi/** would now fire
+      # on every core-modules change too, and this job auto-commits.
+      - livekit-ffi/protocol/**
       - livekit-ffi-node-bindings/**
-      - Cargo.lock
-      - Cargo.toml
-      - .github/**
+      - .github/workflows/gen-node-proto.yml
   workflow_dispatch:
   workflow_call:
 
