@@ -24,7 +24,7 @@ use livekit::webrtc::video_frame::I420Buffer;
 use std::{
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use thiserror::Error;
 
@@ -71,7 +71,7 @@ pub enum RendererError {
 #[derive(Debug)]
 pub(crate) struct FramePacer {
     interval_us: u64,
-    started: Option<Instant>,
+    started: Option<(Instant, SystemTime)>,
     frame_index: u64,
 }
 
@@ -87,7 +87,7 @@ impl FramePacer {
     ///
     /// The sleep is at most one frame interval.
     pub(crate) fn wait_for_next_frame(&mut self) -> (Duration, u64) {
-        let started = *self.started.get_or_insert_with(Instant::now);
+        let (started, _) = *self.started.get_or_insert_with(|| (Instant::now(), SystemTime::now()));
         let elapsed = Duration::from_micros(self.frame_index.saturating_mul(self.interval_us));
         let due = started + elapsed;
         if let Some(wait) = due.checked_duration_since(Instant::now()) {
@@ -96,6 +96,14 @@ impl FramePacer {
         let frame_index = self.frame_index;
         self.frame_index += 1;
         (elapsed, frame_index)
+    }
+
+    /// Converts an elapsed time on the ideal timeline to a capture
+    /// timestamp in microseconds since the Unix epoch.
+    pub(crate) fn timestamp_us(&self, elapsed: Duration) -> i64 {
+        let started = self.started.map_or(UNIX_EPOCH, |(_, started)| started);
+        let started_us = started.duration_since(UNIX_EPOCH).unwrap_or_default().as_micros();
+        (started_us + elapsed.as_micros()) as i64
     }
 }
 

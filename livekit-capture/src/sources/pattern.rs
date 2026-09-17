@@ -195,7 +195,7 @@ impl PixelVideoSource for PatternVideoSource {
 
         Ok(Some(VideoFrame {
             rotation: VideoRotation::VideoRotation0,
-            timestamp_us: elapsed.as_micros() as i64,
+            timestamp_us: self.pacer.timestamp_us(elapsed),
             frame_metadata: None,
             buffer: Box::new(buffer),
         }))
@@ -282,8 +282,8 @@ mod tests {
         let first = source.next_frame(&stop).unwrap().unwrap();
         let second = source.next_frame(&stop).unwrap().unwrap();
         assert_eq!((first.buffer.width(), first.buffer.height()), (64, 36));
-        assert_eq!(first.timestamp_us, 0);
-        assert_eq!(second.timestamp_us, 1_000);
+        assert!(first.timestamp_us > 0, "timestamps are anchored to the wall clock");
+        assert_eq!(second.timestamp_us - first.timestamp_us, 1_000);
 
         // The gradient's top-left pixel at time zero is red-dominant:
         // RGB (255, 68, 47), which is about (121, 91, 211) in
