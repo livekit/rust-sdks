@@ -52,12 +52,7 @@ bool IsNvdecRuntimeAvailable() {
 
 }  // namespace
 
-static int GetCudaDeviceCapabilityMajorVersion(CUcontext context) {
-  cuCtxSetCurrent(context);
-
-  CUdevice device;
-  cuCtxGetDevice(&device);
-
+static int GetCudaDeviceCapabilityMajorVersion(CUdevice device) {
   int major;
   cuDeviceGetAttribute(&major, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
                        device);
@@ -65,14 +60,14 @@ static int GetCudaDeviceCapabilityMajorVersion(CUcontext context) {
   return major;
 }
 
-std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
+std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUdevice device) {
   std::vector<SdpVideoFormat> supportedFormats;
 
   // HardwareGeneration Kepler is 3.x
   // https://docs.nvidia.com/deploy/cuda-compatibility/index.html#faq
   // Kepler support h264 profile Main, Highprofile up to Level4.1
   // https://docs.nvidia.com/video-technologies/video-codec-sdk/nvdec-video-decoder-api-prog-guide/index.html#video-decoder-capabilities__table_o3x_fms_3lb
-  if (GetCudaDeviceCapabilityMajorVersion(context) <= 3) {
+  if (GetCudaDeviceCapabilityMajorVersion(device) <= 3) {
     supportedFormats = {
         CreateH264Format(webrtc::H264Profile::kProfileHigh,
                          webrtc::H264Level::kLevel4_1, "1"),
@@ -117,13 +112,12 @@ NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
     return;
   }
 
-  cu_context_ = livekit_ffi::CudaContext::GetInstance();
-  if (cu_context_->Initialize()) {
-    supported_formats_ = SupportedNvDecoderCodecs(cu_context_->GetContext());
-  } else {
-    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA context.";
-    cu_context_ = nullptr;
+  CUdevice device;
+  if (cuDeviceGet(&device, 0) != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to get CUDA device.";
+    return;
   }
+  supported_formats_ = SupportedNvDecoderCodecs(device);
   RTC_LOG(LS_INFO) << "NvidiaVideoDecoderFactory created with "
                    << supported_formats_.size() << " supported formats.";
 }
