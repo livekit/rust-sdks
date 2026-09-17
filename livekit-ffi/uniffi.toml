@@ -4,7 +4,7 @@ ffi_module_name = "RustLiveKitUniFFI"
 [bindings.kotlin]
 android = true
 package_name = "io.livekit.uniffi"
-cdylib_name = "livekit_uniffi" # the name of the so file to be loaded
+cdylib_name = "livekit_ffi" # the name of the so file to be loaded
 
 # The Kotlin checksum test is off because it fails on ARM devices.
 #
@@ -53,6 +53,8 @@ omit_checksums = true
 
 [bindings.dart]
 # Dart package name; must match the published pub package so the Native Assets
-# asset id resolves to `package:livekit_uniffi/uniffi:livekit_uniffi`.
+# asset id resolves to `package:livekit_uniffi/uniffi:livekit_ffi`. The package
+# name is unchanged by the livekit-uniffi merge; only the library the crate
+# builds is now liblivekit_ffi.
 package_name = "livekit_uniffi"
-cdylib_name = "livekit_uniffi"
+cdylib_name = "livekit_ffi"

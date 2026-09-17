@@ -1,7 +1,7 @@
 // Native Assets build hook for the LiveKit UniFFI Dart bindings.
 //
 // The generated bindings call the native library through `@Native` annotations
-// bound to the asset id `package:<pkg>/uniffi:livekit_uniffi`. This hook
+// bound to the asset id `package:<pkg>/uniffi:livekit_ffi`. This hook
 // resolves the dynamic library for the target and registers that code asset.
 //
 // Two modes, chosen automatically:
@@ -21,7 +21,7 @@ import 'package:hooks/hooks.dart';
 import 'package:http/http.dart' as http;
 
 // Matches `cdylib_name` in uniffi.toml and the asset name in the generated Dart.
-const _cdylibName = 'livekit_uniffi';
+const _cdylibName = 'livekit_ffi';
 const _version = '{{ CARGO_MAKE_CRATE_VERSION }}';
 // Per-release directory holding the `build-<triple>.zip` assets.
 const _downloadBase = '{{ CDYLIB_DOWNLOAD_BASE_URL }}';
