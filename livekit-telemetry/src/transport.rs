@@ -47,6 +47,10 @@ impl ExportResponse {
     }
 }
 
+/// How long a 429 that names no delay holds uploads — the same minute the exporter waits after a
+/// failure, chosen here so the classification alone carries the instruction.
+const THROTTLE_DEFAULT_MS: u64 = 60_000;
+
 /// Why a batch could not be delivered. Drives the exporter's retry / drop / go-silent decision
 /// (OTLP/HTTP failure semantics). Transports return only the `Retryable`/`Rejected` they can
 /// know without a response (network error, timeout, invalid URL); everything else comes from
@@ -101,9 +105,15 @@ impl ExportError {
             .map(|seconds| seconds * 1000);
         let body = rpc.as_ref().and_then(retry_info_ms);
         match status {
-            429 | 502 | 503 | 504 => {
-                Err(Self::Retryable { reason, retry_after_ms: header.or(body) })
-            }
+            // A rate limit is an instruction to stop, so 429 always yields a wait: LiveKit Cloud
+            // answers a quota check with a bare `ResourceExhausted` — no `Retry-After`, no
+            // `RetryInfo` — and without one the exporter would spend its retries hammering the
+            // endpoint that just asked for quiet.
+            429 => Err(Self::Retryable {
+                reason,
+                retry_after_ms: Some(header.or(body).unwrap_or(THROTTLE_DEFAULT_MS)),
+            }),
+            502 | 503 | 504 => Err(Self::Retryable { reason, retry_after_ms: header.or(body) }),
             _ if body.is_some() => Err(Self::Retryable { reason, retry_after_ms: header.or(body) }),
             _ => Err(Self::Rejected { reason }),
         }
@@ -255,6 +265,16 @@ mod tests {
         assert_eq!(
             ExportError::from_response(&neither),
             Err(ExportError::Retryable { reason: "HTTP 503".into(), retry_after_ms: None })
+        );
+        // What LiveKit Cloud actually answers over quota: ResourceExhausted, no header, no
+        // RetryInfo. A 429 is an instruction to stop, so it waits even when nobody said how long.
+        let bare = response(429, &[], status_body("QuotaStatusExceeded", None));
+        assert_eq!(
+            ExportError::from_response(&bare),
+            Err(ExportError::Retryable {
+                reason: "HTTP 429: QuotaStatusExceeded".into(),
+                retry_after_ms: Some(60_000),
+            })
         );
     }
 

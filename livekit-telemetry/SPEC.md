@@ -192,7 +192,9 @@ existing ~1 s timer; the *window* stretches, not the reading.
 Uploads are shaped, not just batched:
 
 - **One request in flight**, oldest batch first; a failure pauses the cache for 60 s (throttling:
-  see `lk.telemetry.report`).
+  see `lk.telemetry.report`). A `429` pauses it without spending retries first — for the
+  `Retry-After` seconds, else `RetryInfo.retry_delay`, else that same minute (LiveKit Cloud's
+  quota answer names no delay).
 - **Budget:** at most `max_batches_per_upload` (default 4) cached batches per tick while a scope
   may be live, so a backlog (offline period, previous launch) replays at ~4 × 20 KB per 15 s
   ≈ 40 kbps next to a call. `shutdown` drains without the budget.
