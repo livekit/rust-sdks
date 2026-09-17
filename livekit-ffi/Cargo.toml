@@ -134,5 +134,37 @@ webrtc-sys-build = { workspace = true, optional = true }
 [dev-dependencies]
 livekit-token = { workspace = true }
 
+# Which FFI mode each downstream package build is configured to use: room-apis or core-modules.
+#
+# This is the single source of truth: CI and Makefile.toml resolve their build
+# flags from here via .github/scripts/platform_features.py, so a platform
+# cannot silently drift onto the wrong surface. `room-apis` and `core-modules`
+# are mutually exclusive, so every core-modules entry must turn the default
+# feature set off.
+#
+#     $ .github/scripts/platform_features.py --list
+#
+# A build site that produces an artifact for a platform names that platform.
+# The script also answers `--surface <feature>` for the few sites that are not
+# platform builds at all -- the per-commit gates in builds.yml and tests.yml,
+# and the shared host build in Makefile.toml that the bindgens read metadata
+# from.
+#
+[package.metadata.platform-features]
+# room-apis -- SDKs with no WebRTC stack of their own. These consume the C ABI
+# (and, increasingly, UniFFI) out of the livekit-ffi release archives.
+python = { features = ["room-apis", "rustls-tls-native-roots"] }
+node = { features = ["room-apis", "rustls-tls-native-roots"] }
+unity = { features = ["room-apis", "rustls-tls-native-roots"] }
+ffi-ios = { no-default-features = true, features = ["room-apis", "rustls-tls-webpki-roots"] }
+ffi-android = { no-default-features = true, features = ["room-apis", "rustls-tls-webpki-roots"] }
+ffi-windows-arm64 = { no-default-features = true, features = ["room-apis", "native-tls"] }
+
+# core-modules -- SDKs that already include their own WebRTC stack and consume
+# this crate purely over UniFFI.
+swift = { no-default-features = true, features = ["core-modules"] }
+android = { no-default-features = true, features = ["core-modules"] }
+dart = { no-default-features = true, features = ["core-modules"] }
+
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
