@@ -1186,6 +1186,33 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// The cache is the floor under a hold: outlast it and the oldest batches go, counted apart
+    /// from an ordinary overflow so the report says *why* the session has a hole.
+    #[tokio::test(start_paused = true)]
+    async fn a_hold_longer_than_the_cache_reports_what_it_cost() {
+        let dir = temp_dir("throttle-overflow");
+        let throttled =
+            Err(ExportError::Retryable { reason: "429".into(), retry_after_ms: Some(60_000) });
+        let transport = FakeTransport::scripted([throttled]);
+        let mut config = TelemetryConfig::new("http://collector/v1/logs");
+        config.storage_dir = Some(dir.to_string_lossy().into_owned());
+        config.max_cache_bytes = 700; // a couple of batches, so the hold overruns it quickly
+        let telemetry = start(config, transport.clone());
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(telemetry.stats().dropped, 0, "the first batch is cached, not dropped");
+
+        for _ in 0..8 {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+            telemetry.flush().await;
+        }
+        let stats = telemetry.stats();
+        assert!(stats.dropped_throttled > 0, "evictions inside a hold are attributed to it");
+        assert_eq!(stats.dropped, stats.dropped_throttled, "and to nothing else");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn shutdown_offline_keeps_queue_on_disk() {
         let dir = temp_dir("spill");
