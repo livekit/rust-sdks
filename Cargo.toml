@@ -9,7 +9,6 @@ members = [
     "livekit-data-stream",
     "livekit-rpc",
     "livekit-ffi",
-    "livekit-uniffi",
     "livekit-datatrack",
     "livekit-token",
     "livekit-token-source",
@@ -105,7 +104,7 @@ tokio-stream = "0.1"
 # build here, because uniffi-dart requires 0.31.2 or later. mozilla/uniffi-rs#2935 corrects both
 # defects, but no release (as of mid august 2026) contains that change.
 #
-# For this reason, livekit-uniffi sets `omit_checksums` for Kotlin. See livekit-uniffi/uniffi.toml.
+# For this reason, livekit-ffi sets `omit_checksums` for Kotlin. See livekit-ffi/uniffi.toml.
 uniffi = "0.31"
 
 # For examples
