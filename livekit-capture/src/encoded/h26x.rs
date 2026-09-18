@@ -365,7 +365,7 @@ impl AccessUnitParser for AvcAccessUnitParser {
 }
 
 /// Returns NAL-unit byte ranges for an Annex-B access unit or stream chunk.
-pub fn annex_b_nal_ranges(bytes: &[u8]) -> Vec<Range<usize>> {
+pub(crate) fn annex_b_nal_ranges(bytes: &[u8]) -> Vec<Range<usize>> {
     let mut ranges = Vec::new();
     let mut cursor = 0;
     let mut current_start = None;
@@ -391,7 +391,7 @@ pub fn annex_b_nal_ranges(bytes: &[u8]) -> Vec<Range<usize>> {
 }
 
 /// Returns borrowed NAL units from an Annex-B buffer.
-pub fn annex_b_nalus(bytes: &[u8]) -> Vec<&[u8]> {
+pub(crate) fn annex_b_nalus(bytes: &[u8]) -> Vec<&[u8]> {
     annex_b_nal_ranges(bytes)
         .into_iter()
         .map(|range| &bytes[range])
@@ -430,7 +430,7 @@ pub fn access_unit_from_annex_b(
 }
 
 /// Creates an Annex-B access unit from raw NAL units.
-pub fn access_unit_from_nalus(
+fn access_unit_from_nalus(
     codec: EncodedVideoCodec,
     nal_units: &[&[u8]],
     timestamp_us: i64,
@@ -443,7 +443,7 @@ pub fn access_unit_from_nalus(
 /// Returns `true` when an Annex-B access unit is a key frame: an IDR
 /// picture for H.264, or parameter sets (VPS/SPS/PPS) plus an IDR picture
 /// for H.265.
-pub fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, H26xParseError> {
+fn is_keyframe_annex_b(codec: EncodedVideoCodec, bytes: &[u8]) -> Result<bool, H26xParseError> {
     let nals = annex_b_nalus(bytes);
     is_keyframe_nalus(codec, &nals)
 }
