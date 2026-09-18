@@ -6160,7 +6160,6 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "prost 0.14.4",
- "prost-types 0.14.4",
  "tokio",
 ]
 
