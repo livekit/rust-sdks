@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{collections::HashSet, slice, sync::Arc};
 
 use livekit::{prelude::*, registered_audio_filter_plugins, PluginError};
@@ -60,6 +60,9 @@ pub struct FfiRoom {
     /// event-forwarding tasks once it fires, ensuring no room events are
     /// emitted before the client is ready to receive them.
     room_event_ready_notify: Arc<Notify>,
+    /// Signaled when the room is closing; cancels the connect task's wait for
+    /// [`proto::ReadyForRoomEventRequest`].
+    close_notify: Arc<Notify>,
 }
 
 pub struct RoomInner {
@@ -90,8 +93,6 @@ pub struct RoomInner {
     // ws url associated with this room
     url: String,
 }
-
-const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct Handle {
     event_handle: JoinHandle<()>,
@@ -212,6 +213,7 @@ impl FfiRoom {
                         inner: inner.clone(),
                         handle: Default::default(),
                         room_event_ready_notify: Arc::new(Notify::new()),
+                        close_notify: Arc::new(Notify::new()),
                     };
                     server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
 
@@ -242,28 +244,34 @@ impl FfiRoom {
                         .into(),
                     );
 
-                    // Wait for the FFI client to install its event listener and
-                    // send a ReadyForRoomEventRequest before forwarding any room
-                    // events. This avoids a race where events emitted between
-                    // the ConnectCallback and the listener registration are
-                    // dropped.
-                    if tokio::time::timeout(
-                        ROOM_EVENT_READY_TIMEOUT,
-                        ffi_room.room_event_ready_notify.notified(),
-                    )
-                    .await
-                    .is_err()
-                    {
-                        let msg = format!(
-                            "timed out waiting for ReadyForRoomEventRequest after ConnectCallback \
-                             (room_handle={handle_id})"
-                        );
-                        log::error!("{}", msg);
-                        drop(handle);
-                        ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
-                        server.drop_handle(handle_id);
-                        server.send_panic(Box::new(FfiError::InvalidRequest(msg.into())));
-                        return;
+                    // Forward room events only once the client signals it is
+                    // ready to receive them; cancelled if the room is closed
+                    // first (returning releases the handle lock so close() can
+                    // proceed).
+                    let wait_start = Instant::now();
+                    tokio::select! {
+                        _ = ffi_room.room_event_ready_notify.notified() => {
+                            log::debug!(
+                                "ReadyForRoomEventRequest received after {:?} (room_handle={handle_id})",
+                                wait_start.elapsed()
+                            );
+                        }
+                        _ = ffi_room.close_notify.notified() => {
+                            log::debug!(
+                                "room closed after waiting {:?} for ReadyForRoomEventRequest (room_handle={handle_id})",
+                                wait_start.elapsed()
+                            );
+                            // Emit RoomEos in place of the never-spawned forwarding
+                            // tasks; clients wait for it on disconnect.
+                            let _ = server.send_event(
+                                proto::RoomEvent {
+                                    room_handle: handle_id,
+                                    message: Some(proto::RoomEos {}.into()),
+                                }
+                                .into(),
+                            );
+                            return;
+                        }
                     }
 
                     // Update Room SID on promise resolve. Spawned after the
@@ -361,6 +369,9 @@ impl FfiRoom {
 
     /// Close the room and stop the tasks
     pub async fn close(&self, server: &'static FfiServer, reason: DisconnectReason) {
+        // Cancel the connect task's ready-wait; it holds the handle lock taken below.
+        self.close_notify.notify_one();
+
         // drop associated track handles
         for (_, &handle) in self.inner.track_handle_lookup.lock().iter() {
             if server.drop_handle(handle) {
