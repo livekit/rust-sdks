@@ -28,7 +28,7 @@ use lazy_static::lazy_static;
 use livekit::prelude::*;
 use thiserror::Error;
 
-mod conversion;
+pub(crate) mod conversion;
 
 pub mod cabi;
 pub mod proto;
