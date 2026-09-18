@@ -1179,8 +1179,39 @@ impl RoomSession {
         Ok(())
     }
 
+    /// Unregisters the callbacks that keep remote participants alive, and empties the map.
+    ///
+    /// Dropping the map is not enough: each remote publication registers callbacks that hold
+    /// the participant which owns them, so the participant — and the `Arc<RtcEngine>` it holds
+    /// — survives the room unless those callbacks are unregistered.
+    ///
+    /// Unregister before detaching the track, not after: `RemoteTrackPublication::set_track(None)`
+    /// invokes the unsubscribe handler *before* clearing, and that handler dispatches
+    /// `TrackUnsubscribed` carrying strong clones of the participant and track. Clearing the
+    /// handlers first keeps teardown silent, so a receiver the application has stopped draining
+    /// cannot pin the participant through a queued event. `handle_participant_disconnect` is
+    /// deliberately not reused for the same reason: these peers have not left, the room is closing.
+    ///
+    /// Idempotent, so `close` can call it both before it suspends and after its tasks are joined.
+    fn release_remote_participants(&self) {
+        let remote_participants = std::mem::take(&mut *self.remote_participants.write());
+        for participant in remote_participants.into_values() {
+            for (sid, publication) in participant.track_publications() {
+                participant.remove_publication(&sid);
+                publication.set_track(None);
+            }
+        }
+    }
+
     async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
+
+        // Release the remote participants before anything below can suspend. `close` takes the
+        // handle, so a caller that bounds it with a timeout and drops the future cannot retry:
+        // a later call returns `AlreadyClosed`. Doing this first means a cancelled close still
+        // unlinks the callback cycles. It runs again after the task joins, because `room_task`
+        // can insert a participant in the meantime.
+        self.release_remote_participants();
 
         // remove published tracks
         for (sid, _) in self.local_participant.track_publications().iter() {
@@ -1200,6 +1231,9 @@ impl RoomSession {
         let _ = handle.remote_dt_forward_task.await;
         let _ = handle.remote_dt_task.await;
         let _ = handle.room_handle.await;
+
+        // Again, to catch anything `room_task` inserted after the drain above.
+        self.release_remote_participants();
 
         self.dispatcher.clear();
         Ok(())
