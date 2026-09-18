@@ -78,12 +78,16 @@ def flags_for(entry, platform):
             f"platform '{platform}' must select exactly one of room-apis / "
             f"core-modules (got: {sorted(surfaces) or 'none'})"
         )
-    # core-modules can only be reached by turning the default room-apis off.
-    if surfaces == {"core-modules"} and not entry.get("no-default-features"):
+    # Every entry states its whole feature set. Without this, an entry inherits
+    # whatever `default` happens to list, so a change there moves platforms
+    # silently -- and for a core-modules entry it would select both surfaces,
+    # which do not compile together.
+    if not entry.get("no-default-features"):
         sys.exit(
-            f"platform '{platform}' selects core-modules but does not set "
-            f"no-default-features; the default feature set enables room-apis, "
-            f"and the two are mutually exclusive"
+            f"platform '{platform}' does not set no-default-features; every "
+            f"entry must list the whole feature set it wants, so that a change "
+            f"to the crate's `default` features cannot move it onto another "
+            f"surface"
         )
 
     flags = []
