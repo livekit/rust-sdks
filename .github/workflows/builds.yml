@@ -172,3 +172,30 @@ jobs:
           cargo install cargo-ndk
           # FIXME: wgpu_room does not link on aarch64
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
+
+      # `--workspace` above builds livekit-ffi with its default features, which
+      # select livekit-ffi/room-apis. core-modules is mutually exclusive with
+      # it, so it needs its own invocation or nothing would compile the
+      # core-modules code per-commit across this matrix. (Before the
+      # livekit-uniffi merge that coverage came free from the separate crate.)
+      - name: Build (Cargo, livekit-ffi core-modules)
+        if: ${{ !contains(matrix.target, 'android') }}
+        shell: bash
+        run: |
+          # Not a platform build: this gate only checks that the
+          # core-modules surface still compiles. Platform builds take their
+          # flags from [package.metadata.platform-features] in
+          # livekit-ffi/Cargo.toml.
+          cargo build --release -p livekit-ffi --target ${{ matrix.target }} \
+            --no-default-features --features core-modules
+
+      - name: Build (Android, livekit-ffi core-modules)
+        if: ${{ contains(matrix.target, 'android') }}
+        shell: bash
+        run: |
+          # Not a platform build: this gate only checks that the
+          # core-modules surface still compiles. Platform builds take their
+          # flags from [package.metadata.platform-features] in
+          # livekit-ffi/Cargo.toml.
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit-ffi \
+            --no-default-features --features core-modules

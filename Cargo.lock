@@ -623,7 +623,9 @@ dependencies = [
 name = "bindgens"
 version = "0.1.0"
 dependencies = [
+ "camino",
  "uniffi",
+ "uniffi-dart",
 ]
 
 [[package]]
@@ -3724,6 +3726,7 @@ dependencies = [
 name = "livekit-ffi"
 version = "0.12.79"
 dependencies = [
+ "async-trait",
  "bytes",
  "console-subscriber",
  "dashmap",
@@ -3738,15 +3741,22 @@ dependencies = [
  "link-cplusplus",
  "livekit",
  "livekit-capture",
+ "livekit-common",
+ "livekit-data-stream",
+ "livekit-datatrack",
+ "livekit-net",
  "livekit-protocol",
  "livekit-token",
  "log",
+ "once_cell",
  "parking_lot",
+ "prost 0.12.6",
  "prost 0.14.4",
  "prost-build 0.14.4",
  "soxr-sys",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-util",
  "uniffi",
  "webrtc-sys",
  "webrtc-sys-build",
@@ -3854,30 +3864,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.19",
  "tokio",
-]
-
-[[package]]
-name = "livekit-uniffi"
-version = "0.1.12"
-dependencies = [
- "async-trait",
- "bytes",
- "camino",
- "futures-util",
- "livekit-common",
- "livekit-data-stream",
- "livekit-datatrack",
- "livekit-net",
- "livekit-protocol",
- "livekit-token",
- "log",
- "once_cell",
- "prost 0.12.6",
- "thiserror 2.0.19",
- "tokio",
- "tokio-util",
- "uniffi",
- "uniffi-dart",
 ]
 
 [[package]]

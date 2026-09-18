@@ -145,22 +145,7 @@ versioned_files = [
 changelog = "livekit-ffi/CHANGELOG.md"
 # Assets makes knope create a draft release; CI uploads the actual binaries and publishes.
 assets = "marker"
-scopes = ["ffi", "livekit-ffi"]
-
-[packages.livekit-uniffi]
-# Not in workspace.dependencies (not consumed by other crates here), so no
-# root Cargo.toml entry is needed.
-versioned_files = [
-  "livekit-uniffi/Cargo.toml",
-  "Cargo.lock",
-]
-changelog = "livekit-uniffi/CHANGELOG.md"
-# No `assets` marker: knope publishes the release + tag directly, and
-# uniffi-packages.yml reacts to the published release to build/publish the Swift
-# and Android wrapper packages. The Dart/Flutter cdylibs are attached to the
-# already-published release by its cdylib job (gh release upload --clobber), so
-# the marker stays off; a draft-based flow stranded releases before (#1256).
-scopes = ["uniffi", "livekit-uniffi"]
+scopes = ["ffi", "livekit-ffi", "uniffi", "livekit-uniffi"]
 
 [packages.livekit-wakeword]
 versioned_files = [

@@ -1,7 +1,8 @@
 name: UniFFI Swift package
 
-# Builds livekit-uniffi as a Swift xcframework and publishes it to the
-# livekit-uniffi-xcframework hosting repo (draft release + PR).
+# Builds livekit-ffi/core-modules as a Swift xcframework and
+# publishes it to the livekit-uniffi-xcframework hosting repo
+# (draft release + PR).
 #
 # Reusable workflow — called from uniffi-packages.yml after the source draft
 # release has been resolved. Not triggered directly.
@@ -14,7 +15,7 @@ on:
         required: true
         type: string
       tag_name:
-        description: Source release tag (e.g., livekit-uniffi/v0.0.7) — surfaced in PR/release bodies for traceability
+        description: Source release tag (e.g., livekit-ffi/v0.13.0) — surfaced in PR/release bodies for traceability
         required: true
         type: string
       dry_run:
@@ -29,9 +30,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   HOSTING_REPO: livekit/livekit-uniffi-xcframework
-  # SPM_NAME must match the value in livekit-uniffi/Makefile.toml [env].
+  # SPM_NAME must match the value in livekit-ffi/Makefile.toml [env].
   SPM_NAME: LiveKitUniFFI
-  OUTPUT_DIR: livekit-uniffi/packages/swift/LiveKitUniFFI
+  OUTPUT_DIR: livekit-ffi/packages/swift/LiveKitUniFFI
 
 jobs:
   build-and-publish:
@@ -77,7 +78,7 @@ jobs:
             aarch64-apple-visionos-sim
 
       - name: Build Swift package
-        working-directory: livekit-uniffi
+        working-directory: livekit-ffi
         env:
           SPM_VERSION: ${{ inputs.version }}
           SPM_HOSTING_REPO: ${{ env.HOSTING_REPO }}
