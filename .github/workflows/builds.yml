@@ -182,12 +182,20 @@ jobs:
         if: ${{ !contains(matrix.target, 'android') }}
         run: |
           set -euo pipefail
-          FLAGS=$(python3 .github/scripts/platform_features.py --surface core-modules)
-          cargo build --release -p livekit-ffi --target ${{ matrix.target }} $FLAGS
+          # Not a platform build: this gate only checks that the
+          # core-modules surface still compiles. Platform builds take their
+          # flags from [package.metadata.platform-features] in
+          # livekit-ffi/Cargo.toml.
+          cargo build --release -p livekit-ffi --target ${{ matrix.target }} \
+            --no-default-features --features core-modules
 
       - name: Build (Android, livekit-ffi core-modules)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
           set -euo pipefail
-          FLAGS=$(python3 .github/scripts/platform_features.py --surface core-modules)
-          cargo ndk --target ${{ matrix.target }} build --release -p livekit-ffi $FLAGS
+          # Not a platform build: this gate only checks that the
+          # core-modules surface still compiles. Platform builds take their
+          # flags from [package.metadata.platform-features] in
+          # livekit-ffi/Cargo.toml.
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit-ffi \
+            --no-default-features --features core-modules
