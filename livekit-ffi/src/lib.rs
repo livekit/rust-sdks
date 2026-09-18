@@ -40,6 +40,12 @@ mod room_apis;
 #[cfg(feature = "room-apis")]
 pub use room_apis::*;
 
+// `conversion` is not part of the public API, so the glob above does not reach
+// it. Re-export it for this crate, which keeps the `crate::conversion` paths
+// that the surface used before it moved into `room_apis`.
+#[cfg(feature = "room-apis")]
+pub(crate) use room_apis::conversion;
+
 #[cfg(feature = "core-modules")]
 mod core_modules;
 #[cfg(feature = "core-modules")]
