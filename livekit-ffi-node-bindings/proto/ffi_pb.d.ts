@@ -28,7 +28,7 @@ import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, Registe
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
 import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
-import type { CaptureSourceEvent, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
+import type { CaptureSourceEvent, ListCaptureDevicesCallback, ListCaptureDevicesRequest, ListCaptureDevicesResponse, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } from "./capture_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -646,6 +646,12 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: StopCaptureRequest;
     case: "stopCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.ListCaptureDevicesRequest list_capture_devices = 92;
+     */
+    value: ListCaptureDevicesRequest;
+    case: "listCaptureDevices";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1242,6 +1248,12 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: StopCaptureResponse;
     case: "stopCapture";
+  } | {
+    /**
+     * @generated from field: livekit.proto.ListCaptureDevicesResponse list_capture_devices = 92;
+     */
+    value: ListCaptureDevicesResponse;
+    case: "listCaptureDevices";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1564,6 +1576,12 @@ export declare class FfiEvent extends Message<FfiEvent> {
      */
     value: CaptureSourceEvent;
     case: "captureSourceEvent";
+  } | {
+    /**
+     * @generated from field: livekit.proto.ListCaptureDevicesCallback list_capture_devices = 49;
+     */
+    value: ListCaptureDevicesCallback;
+    case: "listCaptureDevices";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);
