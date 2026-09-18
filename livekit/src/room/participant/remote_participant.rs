@@ -112,6 +112,15 @@ impl RemoteParticipant {
         self.inner.track_publications.read().clone()
     }
 
+    /// Test-only: returns a probe that reports whether this participant's internals have
+    /// been dropped. Each of its publications registers callbacks that hold the
+    /// participant, so teardown has to unregister them; `Drop` alone never runs.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
+    }
+
     pub(crate) async fn add_subscribed_media_track(
         &self,
         sid: TrackSid,
