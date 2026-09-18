@@ -30,12 +30,15 @@ PUBSPEC_PUBLISH_TO = "none"
 # `/v<version>/build-<triple>.zip` (and a `.sha256` sidecar).
 CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/rust-sdks/releases/download/livekit-ffi"
 
-# Cargo flags selecting livekit-ffi/core-modules, resolved from
-# [package.metadata.platform-features] in Cargo.toml so the packaging here and
-# the CI workflows cannot drift apart. Every cargo invocation below relies on
-# the working directory rather than -p, so each one needs these: without them
-# it would build the default livekit-ffi/room-apis and all of libwebrtc.
-LK_CORE_FEATURE_ARGS = { script = ["python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py --surface core-modules"] }
+# Every cargo invocation below relies on the working directory rather than -p,
+# so each one must say which feature set to build. Each task names a platform
+# in LK_PLATFORM, and the build resolves its flags from the
+# [package.metadata.platform-features] table in Cargo.toml. A new bindgen thus
+# needs a row in that table and nothing else.
+#
+# LK_PLATFORM has to be set on a task that drives the work through `run_task`,
+# not on one that `extend`s another: a task's own env is not in scope while its
+# dependencies run, and `build` is a dependency.
 
 [env.release]
 PUBSPEC_PUBLISH_TO = ""
@@ -56,14 +59,19 @@ script_runner = "@duckscript"
 script = """
 echo "TARGET: ${TARGET}"
 
+echo "PLATFORM: ${LK_PLATFORM}"
+
+# `set -e` matters: if the resolver fails, the assignment fails and the shell
+# stops. Without it the flags would be empty and cargo would quietly build the
+# default feature set, which is the wrong surface for most callers.
 if not ${TIER_3}
     # Ensure target is installed
     exec rustup target add ${TARGET}
-    exec sh -c "cargo build --release ${LK_CORE_FEATURE_ARGS} --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py ${LK_PLATFORM}); cargo build --release $FLAGS --target ${TARGET}"
 else
     # Ensure nightly toolchain is installed
     exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
-    exec sh -c "cargo +nightly build -Zbuild-std=std,panic_abort --release ${LK_CORE_FEATURE_ARGS} --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py ${LK_PLATFORM}); cargo +nightly build -Zbuild-std=std,panic_abort --release $FLAGS --target ${TARGET}"
 end
 """
 
@@ -93,26 +101,29 @@ if [ "${CARGO_MAKE_PROFILE}" = "release" ]; then
   export RUSTFLAGS="-C force-unwind-tables=no"
 fi
 
-cargo ndk --target "${TARGET}" build ${LK_CORE_FEATURE_ARGS} ${release_flag}
+# Named here and not in env for the same reason as the profile switch above.
+FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py" android)
+
+cargo ndk --target "${TARGET}" build ${FLAGS} ${release_flag}
 """
 
 # MARK: - Build, specific platforms
 
 [tasks.build-windows-x64]
 extend = "build"
-env = { TARGET = "x86_64-pc-windows-msvc" }
+env = { TARGET = "x86_64-pc-windows-msvc", LK_PLATFORM = "dart" }
 
 [tasks.build-windows-aarch64]
 extend = "build"
-env = { TARGET = "aarch64-pc-windows-msvc" }
+env = { TARGET = "aarch64-pc-windows-msvc", LK_PLATFORM = "dart" }
 
 [tasks.build-linux-aarch64]
 extend = "build"
-env = { TARGET = "aarch64-unknown-linux-gnu" }
+env = { TARGET = "aarch64-unknown-linux-gnu", LK_PLATFORM = "dart" }
 
 [tasks.build-linux-x64]
 extend = "build"
-env = { TARGET = "x86_64-unknown-linux-gnu" }
+env = { TARGET = "x86_64-unknown-linux-gnu", LK_PLATFORM = "dart" }
 
 [tasks.build-android-aarch64]
 private = false
@@ -201,15 +212,18 @@ dependencies = [
 
 [tasks.bindgen-kotlin]
 private = false
-extend = "uniffi-bindgen"
-env = { LANG = "kotlin" }
+env = { LANG = "kotlin", LK_PLATFORM = "android" }
+run_task = "uniffi-bindgen"
 
 # MARK: - Python
 
 [tasks.bindgen-python]
 private = false
-extend = "uniffi-bindgen"
-env = { LANG = "python" }
+# The Python SDK consumes the room-apis release archive, so these bindings are
+# generated from that surface. This is the local equivalent of the Python
+# bindings step in .github/workflows/ffi-builds.yml.
+env = { LANG = "python", LK_PLATFORM = "python" }
+run_task = "uniffi-bindgen"
 
 # MARK: - Swift
 #
@@ -268,9 +282,11 @@ for p in ${SPM_PLATFORMS}; do
   platform_flags="$platform_flags --platforms $p"
 done
 
+FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py" "${LK_PLATFORM}")
+
 cargo swift package \
 --accept-all \
-${LK_CORE_FEATURE_ARGS} \
+${FLAGS} \
 --name ${SPM_NAME} \
 $platform_flags \
 --lib-type dynamic \
@@ -423,7 +439,7 @@ dependencies = [
 
 [tasks.swift-package]
 description = "Generate Swift package using cargo-swift"
-env = { LANG = "swift" }
+env = { LANG = "swift", LK_PLATFORM = "swift" }
 run_task = "swift-package-flow"
 
 # Same flow as `swift-package`, restricted to macos by default — a debug
@@ -437,6 +453,7 @@ run_task = "swift-package-flow"
 
 [tasks.swift-package-debug.env]
 LANG = "swift"
+LK_PLATFORM = "swift"
 SPM_PLATFORMS = { value = "macos", condition = { env_not_set = ["SPM_PLATFORMS"] } }
 
 [tasks.swift-package-debug]
@@ -545,7 +562,7 @@ echo "AAR: ${out_dir}/${ANDROID_AAR_BASENAME}.aar"
 # only applies once its dependencies run, hence run_task.
 [tasks.android-bindgen-kotlin]
 private = true
-env = { TARGET = "${CARGO_MAKE_RUST_TARGET_TRIPLE}", CARGO_PROFILE_RELEASE_STRIP = "false" }
+env = { TARGET = "${CARGO_MAKE_RUST_TARGET_TRIPLE}", LK_PLATFORM = "android", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "bindgen-kotlin"
 
 [tasks.android-package-flow]
@@ -598,7 +615,7 @@ description = "Generate Dart bindings"
 # The env must be in scope while the `build` dependency compiles, but a task's
 # own env only applies after its dependencies have run; so set it on this
 # wrapper and drive the work through run_task (same pattern as dart-package).
-env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+env = { LANG = "dart", LK_PLATFORM = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "bindgen-dart-flow"
 
 [tasks.bindgen-dart-flow]
@@ -717,5 +734,5 @@ dependencies = [
 [tasks.dart-package]
 description = "Build a consumable Dart package with bindings, hook, and (dev) native lib"
 # See bindgen-dart: keep symbols so library-mode bindgen can read metadata.
-env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+env = { LANG = "dart", LK_PLATFORM = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "dart-package-flow"
