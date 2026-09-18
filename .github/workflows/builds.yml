@@ -180,8 +180,8 @@ jobs:
       # livekit-uniffi merge that coverage came free from the separate crate.)
       - name: Build (Cargo, livekit-ffi core-modules)
         if: ${{ !contains(matrix.target, 'android') }}
+        shell: bash
         run: |
-          set -euo pipefail
           # Not a platform build: this gate only checks that the
           # core-modules surface still compiles. Platform builds take their
           # flags from [package.metadata.platform-features] in
@@ -191,8 +191,8 @@ jobs:
 
       - name: Build (Android, livekit-ffi core-modules)
         if: ${{ contains(matrix.target, 'android') }}
+        shell: bash
         run: |
-          set -euo pipefail
           # Not a platform build: this gate only checks that the
           # core-modules surface still compiles. Platform builds take their
           # flags from [package.metadata.platform-features] in
