@@ -24,6 +24,23 @@ import type { TrackPublishOptions } from "./room_pb.js";
 import type { FfiOwnedHandle } from "./handle_pb.js";
 
 /**
+ * Bitrate unit expected by a GStreamer encoder property.
+ *
+ * @generated from enum livekit.proto.GstreamerBitrateUnit
+ */
+export declare enum GstreamerBitrateUnit {
+  /**
+   * @generated from enum value: GSTREAMER_BITRATE_UNIT_BPS = 0;
+   */
+  BPS = 0,
+
+  /**
+   * @generated from enum value: GSTREAMER_BITRATE_UNIT_KBPS = 1;
+   */
+  KBPS = 1,
+}
+
+/**
  * Test patterns built into livekit-capture.
  *
  * @generated from enum livekit.proto.Pattern
@@ -84,6 +101,104 @@ export declare enum CaptureExit {
    * @generated from enum value: CAPTURE_EXIT_END_OF_STREAM = 1;
    */
   END_OF_STREAM = 1,
+}
+
+/**
+ * Binding from WebRTC rate-control targets to a GStreamer encoder property.
+ *
+ * @generated from message livekit.proto.GstreamerRateControl
+ */
+export declare class GstreamerRateControl extends Message<GstreamerRateControl> {
+  /**
+   * Name of the encoder element in the pipeline (e.g. `lk_encoder`).
+   *
+   * @generated from field: required string element = 1;
+   */
+  element?: string;
+
+  /**
+   * Bitrate property to set on the element (e.g. `bitrate` for x264enc,
+   * `target-bitrate` for vp8enc/vp9enc).
+   *
+   * @generated from field: required string property = 2;
+   */
+  property?: string;
+
+  /**
+   * Unit the property expects.
+   *
+   * @generated from field: required livekit.proto.GstreamerBitrateUnit unit = 3;
+   */
+  unit?: GstreamerBitrateUnit;
+
+  constructor(data?: PartialMessage<GstreamerRateControl>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GstreamerRateControl";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GstreamerRateControl;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GstreamerRateControl;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GstreamerRateControl;
+
+  static equals(a: GstreamerRateControl | PlainMessage<GstreamerRateControl> | undefined, b: GstreamerRateControl | PlainMessage<GstreamerRateControl> | undefined): boolean;
+}
+
+/**
+ * Encoded ingest from a GStreamer pipeline.
+ *
+ * @generated from message livekit.proto.GstreamerVideoSourceConfig
+ */
+export declare class GstreamerVideoSourceConfig extends Message<GstreamerVideoSourceConfig> {
+  /**
+   * GStreamer launch description for the encoded producer pipeline.
+   * Must contain `appsink name=lk_appsink`, or leave exactly one encoded
+   * video source pad unlinked for the source to attach one to.
+   *
+   * @generated from field: required string pipeline = 1;
+   */
+  pipeline?: string;
+
+  /**
+   * Codec expected from the pipeline; inferred from pipeline caps when
+   * omitted.
+   *
+   * @generated from field: optional livekit.proto.VideoCodec codec = 2;
+   */
+  codec?: VideoCodec;
+
+  /**
+   * Encoded frame resolution. When omitted, it is discovered from the
+   * pipeline's negotiated caps; when set, the pipeline output is verified
+   * against it.
+   *
+   * @generated from field: optional livekit.proto.VideoSourceResolution resolution = 3;
+   */
+  resolution?: VideoSourceResolution;
+
+  /**
+   * Forwards WebRTC rate-control targets to an encoder element's bitrate
+   * property. Without this, the pipeline encodes at a fixed bitrate.
+   *
+   * @generated from field: optional livekit.proto.GstreamerRateControl rate_control = 4;
+   */
+  rateControl?: GstreamerRateControl;
+
+  constructor(data?: PartialMessage<GstreamerVideoSourceConfig>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GstreamerVideoSourceConfig";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GstreamerVideoSourceConfig;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GstreamerVideoSourceConfig;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GstreamerVideoSourceConfig;
+
+  static equals(a: GstreamerVideoSourceConfig | PlainMessage<GstreamerVideoSourceConfig> | undefined, b: GstreamerVideoSourceConfig | PlainMessage<GstreamerVideoSourceConfig> | undefined): boolean;
 }
 
 /**
@@ -262,6 +377,12 @@ export declare class NewCaptureSourceRequest extends Message<NewCaptureSourceReq
    * @generated from oneof livekit.proto.NewCaptureSourceRequest.config
    */
   config: {
+    /**
+     * @generated from field: livekit.proto.GstreamerVideoSourceConfig gstreamer = 1;
+     */
+    value: GstreamerVideoSourceConfig;
+    case: "gstreamer";
+  } | {
     /**
      * @generated from field: livekit.proto.PatternVideoSourceConfig pattern = 2;
      */
