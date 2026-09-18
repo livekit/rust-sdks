@@ -190,8 +190,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FLAGS=$(python3 .github/scripts/platform_features.py --surface core-modules)
-          cargo test --verbose --target ${{ matrix.target }} -p livekit-ffi $FLAGS
+          # Not a platform build: this gate only checks that the
+          # core-modules surface still passes its tests. Platform builds take their
+          # flags from [package.metadata.platform-features] in
+          # livekit-ffi/Cargo.toml.
+          cargo test --verbose --target ${{ matrix.target }} -p livekit-ffi \
+            --no-default-features --features core-modules
 
       - name: Test RPC seam (livekit-rpc)
         shell: bash
