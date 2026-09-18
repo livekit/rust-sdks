@@ -164,6 +164,31 @@ export declare enum DegradationPreference {
 }
 
 /**
+ * @generated from enum livekit.proto.FecProtection
+ */
+export declare enum FecProtection {
+  /**
+   * @generated from enum value: FEC_PROTECTION_DISABLED = 0;
+   */
+  DISABLED = 0,
+
+  /**
+   * @generated from enum value: FEC_PROTECTION_LOW = 1;
+   */
+  LOW = 1,
+
+  /**
+   * @generated from enum value: FEC_PROTECTION_MEDIUM = 2;
+   */
+  MEDIUM = 2,
+
+  /**
+   * @generated from enum value: FEC_PROTECTION_HIGH = 3;
+   */
+  HIGH = 3,
+}
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 export declare enum IceTransportType {
@@ -1917,6 +1942,11 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
    */
   degradationPreference?: DegradationPreference;
 
+  /**
+   * @generated from field: optional livekit.proto.FecProtection fec = 14;
+   */
+  fec?: FecProtection;
+
   constructor(data?: PartialMessage<TrackPublishOptions>);
 
   static readonly runtime: typeof proto2;
@@ -2115,6 +2145,11 @@ export declare class RoomOptions extends Message<RoomOptions> {
    * @generated from field: optional string other_sdks = 11;
    */
   otherSdks?: string;
+
+  /**
+   * @generated from field: optional bool fec_enabled = 12;
+   */
+  fecEnabled?: boolean;
 
   constructor(data?: PartialMessage<RoomOptions>);
 
