@@ -4019,6 +4019,7 @@ dependencies = [
  "gstreamer-rtsp-server",
  "http-auth",
  "image",
+ "libargus-sys",
  "libc",
  "livekit",
  "log",
