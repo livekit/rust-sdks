@@ -257,6 +257,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.9.2 (2026-09-18)
+
+### Fixes
+
+- Stop answering a server-initiated Leave (room deleted, duplicate identity) with a client Leave. The server has already ended the session and is closing the signalling socket, so the reply only ever produced the warning "dropping pass-through signal — no stream available" on every such disconnect.
+
+#### Report the reconnect reason to the server when resuming.
+
+Resumes previously sent no reason, so server-side telemetry could not attribute why Rust
+clients reconnect — every resume looked like `RR_UNKNOWN`. The engine now records what caused
+the episode (signal disconnected, publisher failed, subscriber failed) and reports it on each
+resume attempt. The v0 signalling path was also missing the `reconnect_reason` query parameter
+entirely, so it would not have been reported even if a reason had been supplied.
+
+#### Fix resume reporting success for a PeerConnection that had not recovered.
+
+A resume decided recovery from `PeerConnectionState`, which keeps reading `Connected` for tens
+of seconds after the far end goes away. A resume could therefore emit `Resumed` — and so
+`RoomEvent::Reconnected` with `ConnectionState::Connected` — for a session whose subscriber
+transport was dead, leaving applications with no signal that they had stopped receiving media.
+A resume now requires each transport to have entered `Connected` since the resume began, or to
+have held it throughout, rather than trusting the state it currently reports.
+
+#### `VideoGrants` gains the `agent` grant and `Claims` the `kind` claim (with
+
+`AccessToken::with_kind`), which the Go, Python and JS SDKs already carry. An
+agent worker's token is `VideoGrants { agent: true }` and a simulated job's
+participant token is `kind: "agent"`; neither could be minted from Rust before.
+`livekit-uniffi` exposes both: `TokenOptions.kind`, `Claims.kind`, and `agent`
+on its `VideoGrants` record.
+
+**Breaking:** the four grants the server infers when absent -- `can_publish`,
+`can_subscribe`, `can_publish_data`, `can_update_own_metadata` -- are now
+`Option<bool>`, as in the Go and JS SDKs. `None` leaves the decision to the
+server, and the new getters (`can_publish()`, `can_subscribe()`,
+`can_publish_data()`, `can_update_own_metadata()`) read a token the way the
+server does, `can_publish_data` falling back to `can_publish` included. Code
+that set these fields writes `Some(..)`; code that read them uses the getters.
+The same fields are optional on the `livekit-uniffi` record, and
+`livekit-api` re-exports the crate as `livekit_api::access_token`, so both
+carry the change.
+
+Nothing at its default is written into the token any more: unset claims and
+grants are omitted, as the server's own `omitempty` grants are. Verification
+of existing tokens is unchanged.
+
 ## 0.9.1 (2026-09-09)
 
 ### Features
