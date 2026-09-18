@@ -23,20 +23,12 @@ back here so a platform cannot silently drift onto the wrong surface.
     $ platform_features.py swift
     --no-default-features --features core-modules
 
-    $ platform_features.py --surface core-modules
-    --no-default-features --features core-modules
-
-`--surface` is for build sites that are not platform builds and so have no
-platform to name: the per-commit compile/test gates in builds.yml and
-tests.yml, and the shared host cdylib in livekit-ffi/Makefile.toml that the
-bindgens read UniFFI metadata from. Anything that builds an artifact for a
-platform names that platform instead.
-
     $ platform_features.py --list
     android        --no-default-features --features core-modules
     ...
 
-Used by the uniffi-* workflows and by livekit-ffi/Makefile.toml.
+Every build site that produces an artifact names its platform. Used by
+livekit-ffi/Makefile.toml and by the uniffi-* workflows.
 """
 
 import argparse
@@ -97,55 +89,15 @@ def flags_for(entry, platform):
     return " ".join(flags)
 
 
-def flags_for_surface(table, surface):
-    """Flags shared by every platform on `surface`.
-
-    For callers with no platform to name -- the per-commit gates in builds.yml
-    and tests.yml, and the shared host build in livekit-ffi/Makefile.toml that
-    serves the swift, android and dart flows at once. A caller that builds an
-    artifact for one platform should name that platform instead.
-
-    Every platform on the surface must agree, otherwise there is no single
-    answer and the caller has to name a platform. That holds for core-modules
-    and deliberately does not for room-apis, where the TLS backend varies by
-    target.
-    """
-    resolved = {
-        name: flags_for(entry, name)
-        for name, entry in table.items()
-        if surface in (entry.get("features") or [])
-    }
-    if not resolved:
-        sys.exit(f"no platform declares the '{surface}' surface")
-    distinct = set(resolved.values())
-    if len(distinct) != 1:
-        detail = "\n".join(f"  {n}: {f}" for n, f in sorted(resolved.items()))
-        sys.exit(
-            f"platforms on the '{surface}' surface do not share one feature "
-            f"set, so it cannot be resolved by surface:\n{detail}"
-        )
-    return distinct.pop()
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("platform", nargs="?", help="platform key to resolve")
-    ap.add_argument(
-        "--surface",
-        choices=["room-apis", "core-modules"],
-        help="flags shared by every platform on this surface; for build "
-        "sites that are not platform builds (see the module docstring)",
-    )
     ap.add_argument(
         "--list", action="store_true", help="print every platform and its flags"
     )
     args = ap.parse_args()
 
     table = load_table()
-
-    if args.surface:
-        print(flags_for_surface(table, args.surface))
-        return
 
     if args.list:
         width = max(len(k) for k in table)
@@ -154,7 +106,7 @@ def main():
         return
 
     if not args.platform:
-        ap.error("a platform key is required (or --surface / --list)")
+        ap.error("a platform key is required (or --list)")
 
     if args.platform not in table:
         sys.exit(
