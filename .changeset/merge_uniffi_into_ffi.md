@@ -1,10 +1,14 @@
 ---
 livekit-ffi: major
+livekit: patch
+livekit-api: patch
+livekit-capture: patch
 livekit-common: patch
 livekit-data-stream: patch
 livekit-datatrack: patch
 livekit-net: patch
 livekit-rpc: patch
+livekit-signaling: patch
 livekit-token-source: patch
 ---
 
