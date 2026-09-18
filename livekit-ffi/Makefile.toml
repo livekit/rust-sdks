@@ -219,9 +219,6 @@ run_task = "uniffi-bindgen"
 
 [tasks.bindgen-python]
 private = false
-# The Python SDK consumes the room-apis release archive, so these bindings are
-# generated from that surface. This is the local equivalent of the Python
-# bindings step in .github/workflows/ffi-builds.yml.
 env = { LANG = "python", LK_PLATFORM = "python" }
 run_task = "uniffi-bindgen"
 
@@ -598,9 +595,6 @@ description = "Build Android AAR with native libs and Kotlin bindings; publish t
 dependencies = ["android-package-flow"]
 run_task = "android-publish-maven-local"
 
-# Add other bindgen tasks here, following the same pattern
-# as above for the task name (e.g., "bindgen-<lang>").
-
 # MARK: - Dart
 
 # uniffi-dart has no standalone CLI, so the `uniffi-bindgen-dart` bin drives its
@@ -736,3 +730,6 @@ description = "Build a consumable Dart package with bindings, hook, and (dev) na
 # See bindgen-dart: keep symbols so library-mode bindgen can read metadata.
 env = { LANG = "dart", LK_PLATFORM = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "dart-package-flow"
+
+# Add other bindgen tasks here, following the same pattern
+# as above for the task name (e.g., "bindgen-<lang>").
