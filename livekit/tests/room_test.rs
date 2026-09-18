@@ -14,12 +14,16 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{Ok, Result},
+    anyhow::{anyhow, Ok, Result},
     chrono::{TimeDelta, TimeZone, Utc},
-    common::test_rooms,
+    common::{
+        test_rooms,
+        video::{SolidColorParams, SolidColorTrack},
+    },
     libwebrtc::prelude::PeerConnectionState,
-    livekit::{ConnectionState, ParticipantKind, RoomEvent},
-    std::time::Duration,
+    livekit::{options::VideoCodec, ConnectionState, ParticipantKind, RoomEvent},
+    livekit_api::services::room::RoomClient,
+    std::{env, sync::Arc, time::Duration},
     tokio::time::{self, timeout},
 };
 
@@ -138,5 +142,78 @@ async fn test_close_releases_room_session() -> Result<()> {
     drop(room);
 
     assert!(session_dropped(), "room callbacks retained the room session after close");
+    Ok(())
+}
+
+/// An unpublish that cannot reach the transport must still complete its local cleanup.
+///
+/// `unpublish_track` removes the publication from the participant, then asks the engine to
+/// remove the RTP sender with `?`. On an abnormal disconnect the publisher transport has
+/// already been closed by the time teardown runs, so that call fails and `?` skips
+/// everything after it — including `publication.set_track(None)`, the only thing that
+/// unregisters the track's mute callbacks. Those callbacks hold the publication while the
+/// publication holds the track, so the pair keeps itself alive along with the transceiver
+/// and the peer connection behind it.
+///
+/// The same failure happens on every full reconnect, where the sender belongs to the
+/// previous session. `close()` discards the error, so nothing ever surfaces it.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_unpublish_cleans_up_when_transport_is_gone() -> Result<()> {
+    let (room, mut events) = test_rooms(1).await?.pop().unwrap();
+    let room_name = room.name();
+    let room = Arc::new(room);
+
+    let mut solid_track =
+        SolidColorTrack::new(room.clone(), SolidColorParams { width: 320, height: 240, luma: 128 });
+    solid_track.publish(VideoCodec::VP8, false).await?;
+
+    let publication = room
+        .local_participant()
+        .track_publications()
+        .into_values()
+        .next()
+        .ok_or_else(|| anyhow!("the track was never published"))?;
+    let publication_dropped = publication.drop_probe();
+    drop(publication);
+
+    // Delete the room server-side. The engine closes its transports before reporting
+    // Disconnected, so the room's teardown runs against an already-closed publisher —
+    // which is exactly when removing the sender fails.
+    let api_key = env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| "devkey".into());
+    let api_secret = env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| "secret".into());
+    let server_url = env::var("LIVEKIT_URL").unwrap_or_else(|_| "ws://localhost:7880".into());
+    let http_url = server_url.replacen("ws", "http", 1);
+    RoomClient::with_api_key(&http_url, &api_key, &api_secret).delete_room(&room_name).await?;
+
+    timeout(Duration::from_secs(15), async {
+        loop {
+            match events.recv().await {
+                Some(RoomEvent::Disconnected { .. }) => break Ok(()),
+                Some(_) => continue,
+                None => break Err(anyhow!("event stream ended before the room disconnected")),
+            }
+        }
+    })
+    .await??;
+
+    // Drop every reference held outside the SDK, so anything still alive is held only by
+    // the publication <-> track cycle.
+    drop(events);
+    drop(solid_track);
+    drop(room);
+
+    let released = timeout(Duration::from_secs(10), async {
+        while !publication_dropped() {
+            time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .is_ok();
+
+    assert!(
+        released,
+        "local publication retained after an unpublish that could not reach the transport"
+    );
     Ok(())
 }
