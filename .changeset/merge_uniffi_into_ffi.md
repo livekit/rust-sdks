@@ -1,5 +1,11 @@
 ---
-livekit-ffi: minor
+livekit-ffi: major
+livekit-common: patch
+livekit-data-stream: patch
+livekit-datatrack: patch
+livekit-net: patch
+livekit-rpc: patch
+livekit-token-source: patch
 ---
 
 Merge `livekit-uniffi` into `livekit-ffi`.
