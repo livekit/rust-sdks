@@ -146,11 +146,10 @@ livekit-token = { workspace = true }
 #
 #     $ .github/scripts/platform_features.py --list
 #
-# A build site that produces an artifact for a platform names that platform.
-# The script also answers `--surface <feature>` for the few sites that are not
-# platform builds at all -- the per-commit gates in builds.yml and tests.yml,
-# and the shared host build in Makefile.toml that the bindgens read metadata
-# from.
+# Every build site that produces an artifact names its platform and takes its
+# flags from the row below, so adding a bindgen or a package means adding a
+# row. The per-commit gates in builds.yml and tests.yml build no artifact for
+# any platform and state their flags directly.
 #
 [package.metadata.platform-features]
 # room-apis -- SDKs with no WebRTC stack of their own. These consume the C ABI
