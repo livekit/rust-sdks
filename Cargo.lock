@@ -3595,11 +3595,9 @@ name = "livekit"
 version = "0.9.1"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "bmrng",
  "bytes",
  "chrono",
- "flate2",
  "futures-util",
  "http 1.4.2",
  "lazy_static",
@@ -6162,7 +6160,6 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "prost 0.14.4",
- "prost-types 0.14.4",
  "tokio",
 ]
 
@@ -8399,7 +8396,6 @@ dependencies = [
  "cc",
  "cxx",
  "cxx-build",
- "env_logger 0.11.11",
  "glob",
  "log",
  "pkg-config",
