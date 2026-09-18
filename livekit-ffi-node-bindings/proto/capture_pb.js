@@ -107,6 +107,25 @@ const GstreamerVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * Encoded ingest from an RTSP server over TCP-interleaved RTP.
+ *
+ * @generated from message livekit.proto.RtspVideoSourceConfig
+ */
+const RtspVideoSourceConfig = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.RtspVideoSourceConfig",
+  () => [
+    { no: 1, name: "url", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "username", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 3, name: "password", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 4, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), opt: true },
+    { no: 5, name: "resolution", kind: "message", T: VideoSourceResolution, opt: true },
+    { no: 6, name: "connect_timeout_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 7, name: "idle_timeout_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 8, name: "accept_invalid_tls_certs", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+  ],
+);
+
+/**
  * Test pattern rendered on the GPU.
  *
  * @generated from message livekit.proto.PatternVideoSourceConfig
@@ -174,6 +193,7 @@ const NewCaptureSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "gstreamer", kind: "message", T: GstreamerVideoSourceConfig, oneof: "config" },
     { no: 2, name: "pattern", kind: "message", T: PatternVideoSourceConfig, oneof: "config" },
     { no: 5, name: "clock", kind: "message", T: ClockVideoSourceConfig, oneof: "config" },
+    { no: 6, name: "rtsp", kind: "message", T: RtspVideoSourceConfig, oneof: "config" },
     { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
@@ -289,6 +309,7 @@ exports.CaptureSourceKind = CaptureSourceKind;
 exports.CaptureExit = CaptureExit;
 exports.GstreamerRateControl = GstreamerRateControl;
 exports.GstreamerVideoSourceConfig = GstreamerVideoSourceConfig;
+exports.RtspVideoSourceConfig = RtspVideoSourceConfig;
 exports.PatternVideoSourceConfig = PatternVideoSourceConfig;
 exports.ClockVideoSourceConfig = ClockVideoSourceConfig;
 exports.CaptureSourceInfo = CaptureSourceInfo;
