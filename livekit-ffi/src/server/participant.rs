@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use livekit::prelude::*;
 use std::time::Duration;
@@ -100,12 +100,27 @@ impl FfiParticipant {
         };
 
         let local_participant_handle = self.handle.clone();
-        let room: Arc<RoomInner> = self.room.clone();
+        // Weak, not strong: the handler is stored on this room's own RPC server
+        // (`RoomInner` -> `Room` -> `RoomSession` -> handler map), so capturing the room
+        // strongly closes a cycle onto the object that stores the handler. Nothing
+        // unregisters the method during teardown, so that cycle survives both
+        // `FfiRoom::close` and `FfiServer::dispose`, keeping the room — and with it the
+        // engine, its peer connections and the WebRTC runtime — alive for the rest of the
+        // process. Upgrading per invocation also makes a call that arrives while the room
+        // is going away fail cleanly instead of resurrecting it.
+        let room: Weak<RoomInner> = Arc::downgrade(&self.room);
         local.register_rpc_method(method.clone(), move |data| {
             Box::pin({
                 let room = room.clone();
                 let method = method.clone();
                 async move {
+                    let Some(room) = room.upgrade() else {
+                        return Err(RpcError {
+                            code: RpcErrorCode::ApplicationError as u32,
+                            message: "The room has been closed".to_string(),
+                            data: None,
+                        });
+                    };
                     forward_rpc_method_invocation(
                         server,
                         room,
@@ -318,7 +333,15 @@ async fn forward_rpc_method_invocation(
     let (tx, rx) = oneshot::channel();
     let invocation_id = server.next_id();
 
-    room.store_rpc_method_invocation_waiter(invocation_id, tx);
+    if !room.store_rpc_method_invocation_waiter(invocation_id, tx) {
+        // The room is being torn down, so the client can no longer answer. Fail now rather
+        // than park on a waiter nothing will complete, which would keep the room alive.
+        return Err(RpcError {
+            code: RpcErrorCode::ApplicationError as u32,
+            message: "The room has been closed".to_string(),
+            data: None,
+        });
+    }
 
     let _ = server.send_event(
         proto::RpcMethodInvocationEvent {

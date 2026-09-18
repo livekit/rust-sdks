@@ -57,6 +57,9 @@ mod tests;
 #[cfg(test)]
 mod audio_filter_tests;
 
+#[cfg(all(test, feature = "__lk-e2e-test"))]
+mod rpc_lifecycle_tests;
+
 #[derive(Clone)]
 pub struct FfiConfig {
     pub callback_fn: Arc<dyn Fn(FfiEvent) + Send + Sync>,

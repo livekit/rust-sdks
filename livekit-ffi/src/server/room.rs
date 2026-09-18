@@ -85,10 +85,21 @@ pub struct RoomInner {
     local_publication_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
 
     // Used to forward RPC method invocation to the FfiClient and collect their results
-    rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
+    rpc_method_invocation_waiters: Mutex<RpcMethodInvocationWaiters>,
 
     // ws url associated with this room
     url: String,
+}
+
+/// Pending RPC invocations waiting on a response from the FFI client.
+///
+/// `closed` is held under the same lock as `pending` so teardown can drain the map and refuse
+/// later arrivals in one step. Without it a handler that upgraded the room just before the
+/// drain could insert a waiter afterwards and park on it forever, holding the room open.
+#[derive(Default)]
+struct RpcMethodInvocationWaiters {
+    closed: bool,
+    pending: HashMap<u64, oneshot::Sender<Result<String, RpcError>>>,
 }
 
 const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -128,6 +139,15 @@ struct FfiSipDtmfPacket {
 }
 
 impl FfiRoom {
+    /// Test-only: returns a probe that reports whether the room's internals have been
+    /// dropped. Callbacks the room installs on the SDK can hold it back, and such a cycle
+    /// silently prevents `Drop` from ever running, so lifecycle tests assert on this.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
+    }
+
     pub fn connect(
         server: &'static FfiServer,
         connect: proto::ConnectRequest,
@@ -370,6 +390,26 @@ impl FfiRoom {
         }
 
         let _ = self.inner.room.close_with_reason(reason.into()).await;
+
+        // Fail any RPC invocation still waiting on a response from the FFI client. Each
+        // waiting handler holds an `Arc<RoomInner>` it upgraded from the weak capture in
+        // `register_rpc_method`, and it parks on the matching receiver with no timeout. The
+        // client can no longer answer once its handles are gone, so without this the handler
+        // stays pending forever and keeps the room — and the WebRTC graph behind it — alive
+        // past `dispose()`. Drained after the room is closed, so the SDK is no longer
+        // delivering invocations that could repopulate the map.
+        let waiters = {
+            let mut waiters = self.inner.rpc_method_invocation_waiters.lock();
+            waiters.closed = true;
+            std::mem::take(&mut waiters.pending)
+        };
+        for (_, waiter) in waiters {
+            let _ = waiter.send(Err(RpcError {
+                code: RpcErrorCode::ApplicationError as u32,
+                message: "The room has been closed".to_string(),
+                data: None,
+            }));
+        }
 
         let handle = self.handle.lock().await.take();
         if let Some(handle) = handle {
@@ -864,19 +904,30 @@ impl RoomInner {
         proto::SendStreamTrailerResponse { async_id }
     }
 
+    /// Registers a waiter for an RPC invocation, unless the room is already closing.
+    ///
+    /// Returns `false` once teardown has drained the waiters. Incoming RPCs run on detached
+    /// tasks that `RoomSession::close` does not join, so one can reach the handler and upgrade
+    /// the room after the drain; a waiter stored then would never be answered, because the FFI
+    /// client's handles are gone, and the handler would hold the room open indefinitely.
     pub fn store_rpc_method_invocation_waiter(
         &self,
         invocation_id: u64,
         waiter: oneshot::Sender<Result<String, RpcError>>,
-    ) {
-        self.rpc_method_invocation_waiters.lock().insert(invocation_id, waiter);
+    ) -> bool {
+        let mut waiters = self.rpc_method_invocation_waiters.lock();
+        if waiters.closed {
+            return false;
+        }
+        waiters.pending.insert(invocation_id, waiter);
+        true
     }
 
     pub fn take_rpc_method_invocation_waiter(
         &self,
         invocation_id: u64,
     ) -> Option<oneshot::Sender<Result<String, RpcError>>> {
-        return self.rpc_method_invocation_waiters.lock().remove(&invocation_id);
+        return self.rpc_method_invocation_waiters.lock().pending.remove(&invocation_id);
     }
 
     pub fn set_data_channel_buffered_amount_low_threshold(

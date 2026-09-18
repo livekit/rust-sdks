@@ -3744,6 +3744,7 @@ dependencies = [
  "parking_lot",
  "prost 0.14.4",
  "prost-build 0.14.4",
+ "serial_test",
  "soxr-sys",
  "thiserror 2.0.19",
  "tokio",
