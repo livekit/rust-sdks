@@ -326,7 +326,7 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=Security");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
             println!("cargo:rustc-link-lib=framework=AudioToolbox");
-            println!("cargo:rustc-link-lib=framework=Appkit");
+            println!("cargo:rustc-link-lib=framework=AppKit");
             println!("cargo:rustc-link-lib=framework=CoreMedia");
             println!("cargo:rustc-link-lib=framework=CoreGraphics");
             println!("cargo:rustc-link-lib=framework=VideoToolbox");
