@@ -14,5 +14,6 @@ refuses `RemoveTrack` on a closed PeerConnection and never releases the sender's
 every local track of a server-ended room stayed alive for the life of the process — for a
 local audio track, one `AudioSourceCapture` thread per room. The engine now detaches every
 publisher sender before closing the PeerConnection, `unpublish_track` completes its
-bookkeeping even when the engine has already closed the transport, and
-`RtpSender::track()` returns `None` for a detached sender instead of dereferencing null.
+bookkeeping when the engine has already closed the transport (while still returning any
+other removal failure to the caller), and `RtpSender::track()` returns `None` for a
+detached sender instead of dereferencing null.
