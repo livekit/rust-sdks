@@ -667,7 +667,14 @@ impl LocalParticipant {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
-            self.inner.rtc_engine.remove_track(sender)?;
+            // Do not abort on failure: after a server-ended disconnect the publisher
+            // PeerConnection is already closed and libwebrtc answers RemoveTrack with
+            // INVALID_STATE. The bookkeeping below (transceiver, unpublished event,
+            // publication track) must still run so the publication drops its reference
+            // to the local track instead of stranding it.
+            if let Err(err) = self.inner.rtc_engine.remove_track(sender) {
+                log::warn!("failed to remove track {} from rtc engine: {:?}", sid, err);
+            }
             track.set_transceiver(None);
 
             if let Some(local_track_unpublished) =
