@@ -161,8 +161,18 @@ impl PeerTransport {
     /// The offer is stored as pending and will be applied when the server's answer arrives.
     ///
     /// In single PC mode, this initial offer is sent with the JoinRequest before any track
-    /// is published. We apply both `inactive→recvonly` munging and `x-google-start-bitrate`
-    /// munging when a target bitrate is known.
+    /// is published, so only the `inactive→recvonly` munging applies.
+    ///
+    /// It deliberately carries no `x-google-start-bitrate`. The hint is derived from
+    /// `max_send_bitrate_bps`, which only `SessionInner::create_sender` sets, when a track is
+    /// published — always after this runs — so there is never a target to write here. Writing
+    /// one would also have to consume the one-shot latch before the offer becomes the local
+    /// description, which happens later in `set_remote_description`, and the offer can be
+    /// dropped without ever being applied: when the server declines single PC mode,
+    /// `RtcSession` calls `clear_pending_initial_offer` and reuses this transport for the rest
+    /// of the session. The latch would then be spent on an offer that never existed, silently
+    /// skipping the hint for the life of the connection. `create_and_send_offer` owns the hint
+    /// and latches only once `set_local_description` has succeeded.
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
         let inner = self.inner.lock().await;
         if !inner.single_pc_mode {
@@ -171,58 +181,17 @@ impl PeerTransport {
         drop(inner);
 
         let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let mut sdp = offer.to_string();
+        let sdp = offer.to_string();
 
         // Apply inactive→recvonly munging for single PC mode
         let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
         if recvonly_munged != sdp {
             if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
                 offer = parsed;
-                sdp = recvonly_munged;
-            }
-        }
-
-        // Apply x-google-start-bitrate munging for video codecs if we have a target bitrate.
-        // In initial offers (before track is published), max_send_bitrate_bps is None,
-        // so no munging is applied and WebRTC uses its default conservative start bitrate.
-        let has_video = sdp.contains(" VP8/90000")
-            || sdp.contains(" VP9/90000")
-            || sdp.contains(" AV1/90000")
-            || sdp.contains(" H264/90000")
-            || sdp.contains(" H265/90000");
-        let mut applied_start_bitrate = false;
-        if has_video {
-            let start_kbps = {
-                let inner = self.inner.lock().await;
-                if inner.start_bitrate_applied {
-                    None
-                } else {
-                    Self::compute_start_bitrate_kbps(
-                        inner.max_send_bitrate_bps,
-                        inner.max_send_bitrate_is_screen_share,
-                    )
-                }
-            };
-            if let Some(start_kbps) = start_kbps {
-                log::info!("Initial offer: applying x-google-start-bitrate={} kbps", start_kbps);
-
-                let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
-                if munged != sdp {
-                    if let Ok(parsed) = SessionDescription::parse(&munged, offer.sdp_type()) {
-                        offer = parsed;
-                        applied_start_bitrate = true;
-                    }
-                }
             }
         }
 
         let mut inner = self.inner.lock().await;
-        // The initial offer is applied as the local description when the server's answer
-        // arrives, so consuming the one-shot hint here is what keeps the later offers from
-        // rewriting it.
-        if applied_start_bitrate {
-            inner.start_bitrate_applied = true;
-        }
         inner.pending_initial_offer = Some(offer.clone());
         Ok(Some(offer))
     }
