@@ -17,7 +17,13 @@ use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_signaling::{SignalError, SignalOptions};
 use parking_lot::{RwLock, RwLockReadGuard};
-use std::{borrow::Cow, collections::HashSet, fmt::Debug, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    fmt::Debug,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
@@ -328,6 +334,15 @@ impl RtcEngine {
         self.inner.close(reason).await
     }
 
+    /// Test-only: returns a probe that reports whether the engine internals have been
+    /// dropped. `Drop` running is not observable from the outside, and a reference cycle
+    /// would silently prevent it, so lifecycle tests assert on this instead.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
+    }
+
     pub async fn publish_data(
         &self,
         data: proto::DataPacket,
@@ -517,8 +532,11 @@ impl EngineInner {
 
                     // Start initial tasks
                     let (close_tx, close_rx) = oneshot::channel();
-                    let session_task =
-                        tokio::spawn(Self::engine_task(inner.clone(), session_events, close_rx));
+                    let session_task = tokio::spawn(Self::engine_task(
+                        Arc::downgrade(&inner),
+                        session_events,
+                        close_rx,
+                    ));
                     inner.running_handle.write().engine_task = Some((session_task, close_tx));
 
                     Ok((inner, join_response, engine_rx))
@@ -556,16 +574,26 @@ impl EngineInner {
         Err(last_error.unwrap())
     }
 
+    /// Forwards session events to the engine for as long as the engine is alive.
+    ///
+    /// Takes a [`Weak`] reference because the engine owns this task: its `JoinHandle` and
+    /// stop signal live in [`EngineHandle`], inside the very [`EngineInner`] this task would
+    /// otherwise hold. A strong reference makes the two keep each other alive, so nothing
+    /// but an explicit `close()` can release them, and merely dropping the engine leaks the
+    /// session, both peer connections, and the signal client with its open websocket.
+    /// Upgrading per event also lets the task stop on its own once the engine is gone.
     async fn engine_task(
-        self: Arc<Self>,
+        this: Weak<Self>,
         mut session_events: SessionEvents,
         mut close_rx: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
                 Some(event) = session_events.recv() => {
+                    let Some(inner) = this.upgrade() else {
+                        break;
+                    };
                     let debug = format!("{:?}", event);
-                    let inner = self.clone();
                     let (tx, rx) = oneshot::channel();
                     let task = tokio::spawn(async move {
                         if let Err(err) = inner.on_session_event(event).await {
@@ -1106,7 +1134,7 @@ impl EngineInner {
         handle.full_reconnect = false;
 
         let (close_tx, close_rx) = oneshot::channel();
-        let task = tokio::spawn(self.clone().engine_task(session_events, close_rx));
+        let task = tokio::spawn(Self::engine_task(Arc::downgrade(self), session_events, close_rx));
         handle.engine_task = Some((task, close_tx));
 
         Ok(())
