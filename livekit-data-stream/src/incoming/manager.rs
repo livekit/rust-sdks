@@ -452,6 +452,11 @@ impl Manager {
         }
 
         // --- Uncompressed (v1) stream: contiguous chunks, content delivered as-is. ---
+        // Duplicate index (reconnect replay): drop with a warning.
+        if chunk.chunk_index < descriptor.progress.chunk_index {
+            log::warn!("Dropping duplicate chunk {} for stream '{}'", chunk.chunk_index, id);
+            return;
+        }
         if descriptor.progress.chunk_index != chunk.chunk_index {
             inner.close_stream_with_error(&id, StreamError::MissedChunk);
             return;
@@ -1399,6 +1404,29 @@ mod tests {
                 encryption_type: EncryptionType::None,
             });
             assert!(matches!(read_text(reader).await, Err(StreamError::LengthExceeded)));
+        }
+
+        #[tokio::test]
+        async fn v1_duplicate_chunk_dropped() {
+            let mut h = Harness::new();
+            h.send_packet(Packet::Header {
+                header: text_header("s1", Some(10), HashMap::new(), None, CompressionType::None),
+                encryption_type: EncryptionType::None,
+            });
+            let (reader, _) = h.next_opened().await;
+            for (i, piece) in [b"hello", b"hello", b"world"].iter().enumerate() {
+                // The replayed chunk keeps its original index, so the second "hello" is a duplicate.
+                let index = if i == 0 { 0 } else { i as u64 - 1 };
+                h.send_packet(Packet::Chunk {
+                    chunk: chunk("s1", index, piece.to_vec()),
+                    encryption_type: EncryptionType::None,
+                });
+            }
+            h.send_packet(Packet::Trailer {
+                trailer: trailer("s1"),
+                encryption_type: EncryptionType::None,
+            });
+            assert_eq!(read_text(reader).await.unwrap(), "helloworld");
         }
 
         #[tokio::test]
