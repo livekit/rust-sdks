@@ -108,10 +108,6 @@ impl Handle {
         // Signal cooperative shutdown first.
         let _ = self.close_tx.send(());
 
-        // room.sid() may never resolve if the room closes before the server
-        // assigns a SID, so explicitly cancel its waiter.
-        self.sid_handle.abort();
-
         // Wait for every room-owned task to finish.
         let _ = self.sid_handle.await;
         let _ = self.event_handle.await;
@@ -290,16 +286,16 @@ impl FfiRoom {
                     // ready handshake so the RoomSidChanged event is never
                     // delivered before the client is ready to receive it.
                     let room_handle = inner.handle_id.clone();
+                    let mut sid_close_rx = close_rx.resubscribe();
                     let sid_handle = server.async_runtime.spawn(async move {
+                        let sid = tokio::select! {
+                            sid = ffi_room.inner.room.sid() => sid.into(),
+                            _ = sid_close_rx.recv() => return,
+                        };
                         let _ = server.send_event(
                             proto::RoomEvent {
                                 room_handle,
-                                message: Some(
-                                    proto::RoomSidChanged {
-                                        sid: ffi_room.inner.room.sid().await.into(),
-                                    }
-                                    .into(),
-                                ),
+                                message: Some(proto::RoomSidChanged { sid }.into()),
                             }
                             .into(),
                         );
