@@ -3852,7 +3852,7 @@ dependencies = [
  "livekit-token",
  "log",
  "once_cell",
- "prost 0.12.6",
+ "prost 0.14.4",
  "thiserror 2.0.19",
  "tokio",
  "tokio-util",

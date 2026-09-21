@@ -6,6 +6,7 @@ livekit-common: patch
 livekit-data-stream: patch
 livekit-datatrack: patch
 livekit-ffi: patch
+livekit-uniffi: patch
 livekit-protocol: major
 livekit-rpc: patch
 livekit-signaling: patch
