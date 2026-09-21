@@ -1681,10 +1681,15 @@ mod tests {
             let weak_room_state = Arc::downgrade(&room_state);
             let (sid_tx, sid_rx) = oneshot::channel::<()>();
             let (started_tx, started_rx) = oneshot::channel();
+            let (close_tx, _) = broadcast::channel(1);
+            let mut sid_close_rx = close_tx.subscribe();
             let sid_handle = tokio::spawn(async move {
                 started_tx.send(()).unwrap();
                 // Model room.sid() retaining the room until the SID arrives.
-                let _ = sid_rx.await;
+                tokio::select! {
+                    _ = sid_rx => {}
+                    _ = sid_close_rx.recv() => {}
+                }
                 drop(room_state);
             });
             started_rx.await.unwrap();
@@ -1701,7 +1706,6 @@ mod tests {
                 .expect("SID task should finish once its SID arrives");
             }
 
-            let (close_tx, _) = broadcast::channel(1);
             let spawn_room_task = || {
                 let mut close_rx = close_tx.subscribe();
                 tokio::spawn(async move {
