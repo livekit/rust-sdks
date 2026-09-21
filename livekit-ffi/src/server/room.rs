@@ -105,11 +105,15 @@ struct Handle {
 impl Handle {
     /// Stop and join all tasks associated with the room.
     async fn close(self) {
-        // A room can close before the server assigns its SID. In that case
-        // room.sid() never resolves, so the waiter must not outlive the room.
-        self.sid_handle.abort();
-        let _ = self.sid_handle.await;
+        // Signal cooperative shutdown first.
         let _ = self.close_tx.send(());
+
+        // room.sid() may never resolve if the room closes before the server
+        // assigns a SID, so explicitly cancel its waiter.
+        self.sid_handle.abort();
+
+        // Wait for every room-owned task to finish.
+        let _ = self.sid_handle.await;
         let _ = self.event_handle.await;
         let _ = self.data_handle.await;
         let _ = self.transcription_handle.await;
