@@ -6,6 +6,6 @@ publish = false
 
 [dependencies]
 livekit-telemetry = { workspace = true, features = ["net"] }
-livekit-net = { workspace = true, features = ["native"] }
+livekit-net = { workspace = true, features = ["native", "rustls-tls-native-roots"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 env_logger = { workspace = true }

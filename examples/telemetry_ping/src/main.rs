@@ -14,7 +14,7 @@
 
 //! Sends a single `lk.ping` event to an OTLP/HTTP collector (default: local grafana/otel-lgtm).
 
-use std::{env, sync::Arc};
+use std::{collections::HashMap, env, sync::Arc};
 
 use livekit_telemetry::{Attribute, NetTransport, Telemetry, TelemetryConfig, TelemetryEvent};
 
@@ -29,6 +29,10 @@ async fn main() {
     config.resource.push(Attribute::new("os.name", env::consts::OS));
     // Optional on-disk cache: run once with the collector down, once with it up.
     config.storage_dir = env::var("LK_TELEMETRY_DIR").ok();
+    // LiveKit Cloud wants a bearer token carrying an `observability` write grant.
+    config.headers = env::var("LK_OTLP_TOKEN")
+        .ok()
+        .map(|token| HashMap::from([("Authorization".to_owned(), format!("Bearer {token}"))]));
     let transport = NetTransport::from_registry().expect("livekit-net has no HTTP client");
 
     let (telemetry, exporter) = Telemetry::new(config, Arc::new(transport));
