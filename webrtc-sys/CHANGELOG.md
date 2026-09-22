@@ -165,6 +165,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.46 (2026-09-22)
+
+### Fixes
+
+- Correct the AppKit framework name so macOS linking works with case-sensitive SDK filesystems.
+- Cleanup unused dependencies
+
 ## 0.3.45 (2026-09-09)
 
 ### Fixes

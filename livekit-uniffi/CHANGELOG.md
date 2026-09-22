@@ -1,3 +1,51 @@
+## 0.2.0 (2026-09-22)
+
+### Breaking Changes
+
+#### `VideoGrants` gains the `agent` grant and `Claims` the `kind` claim (with
+
+`AccessToken::with_kind`), which the Go, Python and JS SDKs already carry. An
+agent worker's token is `VideoGrants { agent: true }` and a simulated job's
+participant token is `kind: "agent"`; neither could be minted from Rust before.
+`livekit-uniffi` exposes both: `TokenOptions.kind`, `Claims.kind`, and `agent`
+on its `VideoGrants` record.
+
+**Breaking:** the four grants the server infers when absent -- `can_publish`,
+`can_subscribe`, `can_publish_data`, `can_update_own_metadata` -- are now
+`Option<bool>`, as in the Go and JS SDKs. `None` leaves the decision to the
+server, and the new getters (`can_publish()`, `can_subscribe()`,
+`can_publish_data()`, `can_update_own_metadata()`) read a token the way the
+server does, `can_publish_data` falling back to `can_publish` included. Code
+that set these fields writes `Some(..)`; code that read them uses the getters.
+The same fields are optional on the `livekit-uniffi` record, and
+`livekit-api` re-exports the crate as `livekit_api::access_token`, so both
+carry the change.
+
+Nothing at its default is written into the token any more: unset claims and
+grants are omitted, as the server's own `omitempty` grants are. Verification
+of existing tokens is unchanged.
+
+### Features
+
+#### `EncryptionError::Failed` and `DecryptionError::Failed` carry a `reason` string and are no longer `flat_error`,
+
+so a foreign `EncryptionProvider` or `DecryptionProvider` returning an error no longer aborts the process with
+"Can't lift flat errors" -- a failed data track decrypt (no E2EE manager, key mismatch, corrupt frame) now 
+drops the frame and leaves the room connected.
+
+### Fixes
+
+- Cleanup unused dependencies
+- Fix reliable data channel replay: keep the full retry buffer across resumes, drop duplicate reliable packets, and ignore replayed chunks on uncompressed streams instead of failing with `MissedChunk`.
+
+#### Report the reconnect reason to the server when resuming.
+
+Resumes previously sent no reason, so server-side telemetry could not attribute why Rust
+clients reconnect — every resume looked like `RR_UNKNOWN`. The engine now records what caused
+the episode (signal disconnected, publisher failed, subscriber failed) and reports it on each
+resume attempt. The v0 signalling path was also missing the `reconnect_reason` query parameter
+entirely, so it would not have been reported even if a reason had been supplied.
+
 ## 0.1.12 (2026-09-10)
 
 ### Fixes

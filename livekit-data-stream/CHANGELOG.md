@@ -1,3 +1,9 @@
+## 0.1.6 (2026-09-22)
+
+### Fixes
+
+- Fix reliable data channel replay: keep the full retry buffer across resumes, drop duplicate reliable packets, and ignore replayed chunks on uncompressed streams instead of failing with `MissedChunk`.
+
 ## 0.1.5 (2026-09-09)
 
 ### Fixes
