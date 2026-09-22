@@ -15,6 +15,7 @@ native-tls-vendored = ["livekit/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit/__rustls-tls"]
+__lk-e2e-test = [] # end-to-end testing with a LiveKit server
 
 # Enable tokio-console to debug tasks
 tracing = ["tokio/tracing", "console-subscriber"]
@@ -59,6 +60,9 @@ webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]
 livekit-token = { workspace = true }
+# The FFI server is a process-wide singleton, so tests that set it up and dispose it
+# must not run concurrently with each other.
+serial_test = "3.0"
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
