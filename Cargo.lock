@@ -3820,6 +3820,7 @@ dependencies = [
  "livekit-region",
  "livekit-token",
  "log",
+ "objc2 0.6.4",
  "os_info",
  "parking_lot",
  "prost 0.12.6",

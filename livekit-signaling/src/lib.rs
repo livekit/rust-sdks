@@ -925,8 +925,21 @@ fn get_livekit_url(
         }
     }
 
-    let os_info = os_info::get();
-    let device_model = device_info::device_info().map(|info| info.model).unwrap_or_default();
+    // These platform queries use autoreleased Foundation objects on Apple, while Tokio worker
+    // threads do not provide an autorelease pool. Drain those objects after each connection.
+    #[cfg(target_vendor = "apple")]
+    let (os_type, os_version, device_model) = objc2::rc::autoreleasepool(|_| {
+        let os_info = os_info::get();
+        let device_model = device_info::device_info().map(|info| info.model).unwrap_or_default();
+        (os_info.os_type().to_string(), os_info.version().to_string(), device_model.to_string())
+    });
+
+    #[cfg(not(target_vendor = "apple"))]
+    let (os_type, os_version, device_model) = {
+        let os_info = os_info::get();
+        let device_model = device_info::device_info().map(|info| info.model).unwrap_or_default();
+        (os_info.os_type().to_string(), os_info.version().to_string(), device_model.to_string())
+    };
 
     if use_v1_path {
         // For v1 path (single PC mode): only join_request param
@@ -936,9 +949,9 @@ fn get_livekit_url(
             reconnect,
             reconnect_reason,
             participant_sid,
-            os_info.os_type().to_string(),
-            os_info.version().to_string(),
-            device_model.to_string(),
+            os_type,
+            os_version,
+            device_model,
             publisher_offer,
         );
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
@@ -947,9 +960,9 @@ fn get_livekit_url(
         lk_url
             .query_pairs_mut()
             .append_pair("sdk", options.sdk_options.sdk.as_str())
-            .append_pair("os", os_info.os_type().to_string().as_str())
-            .append_pair("os_version", os_info.version().to_string().as_str())
-            .append_pair("device_model", device_model.to_string().as_str())
+            .append_pair("os", &os_type)
+            .append_pair("os_version", &os_version)
+            .append_pair("device_model", &device_model)
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
             .append_pair(
                 "client_protocol",

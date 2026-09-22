@@ -46,6 +46,9 @@ os_info = "3.14.0"
 prost = "0.12"
 url = "2.3"
 
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = "0.6.4"
+
 [dev-dependencies]
 # The signal_* integration tests mint an access token to connect with.
 livekit-token = { workspace = true }
