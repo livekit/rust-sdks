@@ -28,7 +28,7 @@
 /// until `livekit_ffi_drop_handle` or `take_ffi_handle_id` releases it. A struct that never publishes
 /// a handle is owned by the uniffi side alone and drops with its last `Arc`.
 ///
-/// The FFI system and uniffi system can be interchanged, however, once removed (via [take_ffi_handle_id] or 
+/// The FFI system and uniffi system can be interchanged, however, once removed (via [take_ffi_handle_id] or
 /// [livekit_ffi_drop_handle]), the FFI system cannot easily be used again for that handle id.
 #[macro_export]
 macro_rules! migrate_from_ffi {
