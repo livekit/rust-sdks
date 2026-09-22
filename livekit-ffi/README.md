@@ -26,9 +26,9 @@ Mode specific source lives in `src/room_apis/`.
 Core business logic exposed purely over
 [UniFFI](https://mozilla.github.io/uniffi-rs/latest/): access tokens, log
 forwarding, data tracks and data streams v2. Used by the SDKs that already ship
-their own WebRTC stack, so this build depends on none of `livekit`,
-`libwebrtc`, `soxr-sys` or `imgproc` — which is what lets it target visionOS,
-tvOS and Mac Catalyst:
+their own WebRTC stack. This build therefore depends on none of `livekit`,
+`libwebrtc`, `soxr-sys` or `imgproc`, so an application does not ship two
+WebRTC stacks:
 
 - [Swift](https://github.com/livekit/client-sdk-swift)
 - [Android](https://github.com/livekit/client-sdk-android)
