@@ -71,9 +71,9 @@ When reviewing changed code, search for `Arc::clone`, `.clone()` inside `move` c
 
 ## UniFFI integration
 
-Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `livekit-uniffi`, plus `livekit-common`, `livekit-datatrack`, and `livekit-net`, each carrying its own `uniffi.toml`. The Kotlin bindgen has sharp edges that `cargo build`, `cargo test`, and the Swift/Node/Python bindings do **not** catch: they surface only when the generated Kotlin is compiled, and one bad name fails the entire generated file.
+Several crates export items to Swift/Kotlin/Python through UniFFI — `livekit-ffi` (its `core-modules` feature), plus `livekit-common`, `livekit-datatrack`, and `livekit-net`, each carrying its own `uniffi.toml`. The Kotlin bindgen has sharp edges that `cargo build`, `cargo test`, and the Swift/Node/Python bindings do **not** catch: they surface only when the generated Kotlin is compiled, and one bad name fails the entire generated file.
 
-- Verify any change to UniFFI-exported API by actually generating and compiling the Kotlin bindings (`cargo make android-package` from `livekit-uniffi/`) — a green `cargo build` proves nothing here
+- Verify any change to UniFFI-exported API by actually generating and compiling the Kotlin bindings (`cargo make android-package` from `livekit-ffi/`) — a green `cargo build` proves nothing here
 - **Never export a method named `close`**
   - UniFFI gives every object a non-`suspend` `close()` to satisfy `AutoCloseable`. An exported Rust method also called `close` differs from it only by `suspend`, which Kotlin rejects as conflicting overloads — see [mozilla/uniffi-rs#2955](https://github.com/mozilla/uniffi-rs/issues/2955)
   - Work around it with a Kotlin-only rename, so the Rust source and the Swift/Node/Python bindings keep the original name:
@@ -81,17 +81,17 @@ Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `live
     [bindings.kotlin.rename]
     "ByteStreamWriter.close" = "close_stream"
     ```
-  - The rename must go in the `uniffi.toml` of the crate that **declares** the item, not in `livekit-uniffi/uniffi.toml`: a rename table only reaches items from the crate that owns it. `WsConnection.close` is renamed in `livekit-net/uniffi.toml` for exactly this reason
+  - The rename must go in the `uniffi.toml` of the crate that **declares** the item, not in `livekit-ffi/uniffi.toml`: a rename table only reaches items from the crate that owns it. `WsConnection.close` is renamed in `livekit-net/uniffi.toml` for exactly this reason
 - **Never name a field of an exported enum or record `message`**
   - For an error variant carrying a `message` field, UniFFI emits a constructor property `message` next to an `override val message` inherited from `Throwable` in one class body, which does not compile — and their types differ (`String` vs `String?`), so they cannot be merged into a single override. See [mozilla/uniffi-rs#2938](https://github.com/mozilla/uniffi-rs/issues/2938), closed without a fix
   - Unlike `close`, this **cannot** be renamed away: UniFFI keys the rename table by crate name but looks up enum and record members by the item's full module path, so a rename for anything declared in a submodule is silently ignored (method renames use the crate name and do work)
-  - Name the field `reason` in Rust instead — see `DataStreamError` in `livekit-uniffi/src/data_stream/common.rs`
+  - Name the field `reason` in Rust instead — see `DataStreamError` in `livekit-ffi/src/core_modules/data_stream/common.rs`
 - A new crate that exports UniFFI items needs its own `uniffi.toml`, including `omit_checksums = true` under `[bindings.kotlin]`
-  - The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; the full explanation lives in `livekit-uniffi/uniffi.toml` and the root `Cargo.toml`
+  - The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; the full explanation lives in `livekit-ffi/uniffi.toml` and the root `Cargo.toml`
 - **Never use `uniffi(flat_error)` on an error that foreign code can return**
   - Flat errors lower (Rust → foreign) but cannot be lifted: the derived `Lift` exists only to satisfy trait bounds, and its `try_read`/`try_lift` are `panic!("Can't lift flat errors")`. In an FFI callback that panic has nowhere to unwind to, so the host process aborts — and nothing catches it earlier, since the build, bindings generation, and Kotlin compilation all pass
   - Applies to the error type of any `#[uniffi::export(with_foreign)]` trait or callback interface, since foreign code implements the method. `flat_error` is correct only for an error that travels Rust → foreign exclusively, e.g. `PublishError` in `livekit-datatrack/src/local/mod.rs`
-  - Give a host-thrown error a single `Failed { reason: String }` variant plus `From<uniffi::UnexpectedUniFFICallbackError>`, so an undeclared exception surfaces as an error rather than aborting — see `PacketDeliveryError` in `livekit-uniffi/src/data_stream/common.rs`
+  - Give a host-thrown error a single `Failed { reason: String }` variant plus `From<uniffi::UnexpectedUniFFICallbackError>`, so an undeclared exception surfaces as an error rather than aborting — see `PacketDeliveryError` in `livekit-ffi/src/core_modules/data_stream/common.rs`
 
 ## Feature combinations
 
@@ -115,7 +115,7 @@ check = [
 ]
 ```
 
-A crate with no such table is not feature-checked at all. Today eleven crates are `"powerset"`, `livekit` and `livekit-api` are `"curated"`, and `livekit-ffi`/`livekit-uniffi` deliberately declare nothing.
+A crate with no such table is not feature-checked at all. Today eleven crates are `"powerset"`, `livekit` and `livekit-api` are `"curated"`, and `livekit-ffi` deliberately declares nothing.
 
 - **When adding a workspace crate**, give it `mode = "powerset"` and stop there
   - Its features are then picked up automatically as they are added, and no CI file changes
@@ -138,7 +138,7 @@ A crate with no such table is not feature-checked at all. Today eleven crates ar
 - The workflow validates the tables before running anything and fails on a typo'd `mode`, a `"curated"` crate with an empty `check`, a `"powerset"` crate carrying a `check` list that would be silently ignored, or either package set resolving to empty. A malformed table fails the job rather than quietly dropping a crate from CI
 - Keep `--depth 2`. `livekit` alone goes from 67 combinations to 232 at depth 3, and pairwise interactions are where these bugs actually live
 - A feature that pulls in `openssl-sys` cannot build for the three Android targets — there is no Android OpenSSL to link against. Add it to their `exclude_features` in the workflow matrix rather than trying to make it work; Android ships rustls (see `ffi-builds.yml`). It is honoured by both halves of the job
-- `livekit-ffi` and `livekit-uniffi` declare no table on purpose: their combinations cost more than everything else in the job combined, because each TLS change rebuilds `livekit` underneath them. Their shipped configurations are covered by `builds.yml` and `ffi-builds.yml` instead
+- `livekit-ffi` declares no table on purpose: its combinations cost more than everything else in the job combined, because each TLS change rebuilds `livekit` underneath it. Its two surfaces are mutually exclusive and cannot be combined anyway; the shipped configurations are declared in `[package.metadata.platform-features]` and covered by `builds.yml`, `ffi-builds.yml` and `uniffi-cdylib.yml` instead
 
 ## Documenting changes
 

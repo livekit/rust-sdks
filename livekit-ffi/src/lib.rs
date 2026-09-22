@@ -12,40 +12,57 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
+// `room-apis` and `core-modules` are two distinct FFI surfaces that ship as
+// separate artifacts to different SDKs, and each sets up its own UniFFI
+// scaffolding below. Selecting both is always a build-configuration mistake.
+#[cfg(all(feature = "room-apis", feature = "core-modules"))]
+compile_error!(
+    "the `room-apis` and `core-modules` features are mutually exclusive. \
+     Build livekit-ffi/core-modules with \
+     `--no-default-features --features core-modules`."
+);
 
-use lazy_static::lazy_static;
-use livekit::prelude::*;
-use thiserror::Error;
+// Both surfaces export `build_version` through the scaffolding below, which
+// only exists when a surface is selected. Failing here beats failing inside
+// the uniffi macro expansion.
+#[cfg(not(any(feature = "room-apis", feature = "core-modules")))]
+compile_error!(
+    "exactly one FFI surface must be selected: enable either `room-apis` \
+     (the default) or `core-modules`."
+);
 
-mod conversion;
+// Each surface owns everything specific to it, including its own types and
+// statics; the globs republish it at the crate root. That keeps the public API
+// (`livekit_ffi::{cabi, proto, server, FfiError, FFI_SERVER, ...}`) and the
+// crate-internal `crate::` paths identical to before the modules existed.
+#[cfg(feature = "room-apis")]
+mod room_apis;
+#[cfg(feature = "room-apis")]
+pub use room_apis::*;
 
+// `conversion` is not part of the public API, so the glob above does not reach
+// it. Re-export it for this crate, which keeps the `crate::conversion` paths
+// that the surface used before it moved into `room_apis`.
+#[cfg(feature = "room-apis")]
+pub(crate) use room_apis::conversion;
+
+#[cfg(feature = "core-modules")]
+mod core_modules;
+#[cfg(feature = "core-modules")]
+pub use core_modules::*;
+
+/// Information about the build such as version.
+///
+/// Shared by both surfaces, and unconditional for that reason: a
+/// room-apis-only build would otherwise ship a UniFFI component with no
+/// exports at all (ffi-builds.yml greps the generated Python for it).
 pub mod build_info;
-pub mod cabi;
-pub mod proto;
-pub mod server;
 
-uniffi::setup_scaffolding!();
-
-#[derive(Error, Debug)]
-pub enum FfiError {
-    #[error("the server is not configured")]
-    NotConfigured,
-    #[error("the server is already initialized")]
-    AlreadyInitialized,
-    #[error("room error {0}")]
-    Room(#[from] RoomError),
-    #[error("invalid request: {0}")]
-    InvalidRequest(Cow<'static, str>),
-}
-
-/// # SAFTEY: The "C" callback must be threadsafe and not block
-pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
-pub type FfiResult<T> = Result<T, FfiError>;
-pub type FfiHandleId = u64;
-
-pub const INVALID_HANDLE: FfiHandleId = 0;
-
-lazy_static! {
-    pub static ref FFI_SERVER: server::FfiServer = server::FfiServer::default();
-}
+// Must sit at the crate root: this defines `crate::UniFfiTag`, which every
+// `#[uniffi::export]` in the surface modules resolves against. Only one call
+// may exist per crate, which is why the two surfaces are mutually exclusive;
+// they are kept separate so either can pin its own namespace later.
+#[cfg(feature = "room-apis")]
+uniffi::setup_scaffolding!("livekit_ffi");
+#[cfg(feature = "core-modules")]
+uniffi::setup_scaffolding!("livekit_uniffi");

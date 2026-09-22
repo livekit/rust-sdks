@@ -18,7 +18,6 @@ SUPPORT_DIR = "./support"
 LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
-NPM_NAME = "@livekit/uniffi"
 DART_PACKAGE_NAME = "livekit_uniffi"
 # Rendered into pubspec.yaml by dart-generate-manifest. Fail closed: every
 # profile gets `publish_to: none` (dev packages embed a host dylib and must
@@ -29,7 +28,17 @@ PUBSPEC_PUBLISH_TO = "none"
 # Per-release directory holding the cdylib archives published by
 # .github/workflows/uniffi-cdylib.yml. Downloaders append
 # `/v<version>/build-<triple>.zip` (and a `.sha256` sidecar).
-CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/rust-sdks/releases/download/livekit-uniffi"
+CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/rust-sdks/releases/download/livekit-ffi"
+
+# Every cargo invocation below relies on the working directory rather than -p,
+# so each one must say which feature set to build. Each task names a platform
+# in LK_PLATFORM, and the build resolves its flags from the
+# [package.metadata.platform-features] table in Cargo.toml. A new bindgen thus
+# needs a row in that table and nothing else.
+#
+# LK_PLATFORM has to be set on a task that drives the work through `run_task`,
+# not on one that `extend`s another: a task's own env is not in scope while its
+# dependencies run, and `build` is a dependency.
 
 [env.release]
 PUBSPEC_PUBLISH_TO = ""
@@ -50,14 +59,19 @@ script_runner = "@duckscript"
 script = """
 echo "TARGET: ${TARGET}"
 
+echo "PLATFORM: ${LK_PLATFORM}"
+
+# `set -e` matters: if the resolver fails, the assignment fails and the shell
+# stops. Without it the flags would be empty and cargo would quietly build the
+# default feature set, which is the wrong surface for most callers.
 if not ${TIER_3}
     # Ensure target is installed
     exec rustup target add ${TARGET}
-    exec cargo build --release --target ${TARGET}
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo build --release $FLAGS --target ${TARGET}"
 else
     # Ensure nightly toolchain is installed
     exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
-    exec cargo +nightly build -Zbuild-std=std,panic_abort --release --target ${TARGET}
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly build -Zbuild-std=std,panic_abort --release $FLAGS --target ${TARGET}"
 end
 """
 
@@ -87,26 +101,29 @@ if [ "${CARGO_MAKE_PROFILE}" = "release" ]; then
   export RUSTFLAGS="-C force-unwind-tables=no"
 fi
 
-cargo ndk --target "${TARGET}" build ${release_flag}
+# Named here and not in env for the same reason as the profile switch above.
+FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py" android)
+
+cargo ndk --target "${TARGET}" build ${FLAGS} ${release_flag}
 """
 
 # MARK: - Build, specific platforms
 
 [tasks.build-windows-x64]
 extend = "build"
-env = { TARGET = "x86_64-pc-windows-msvc" }
+env = { TARGET = "x86_64-pc-windows-msvc", LK_PLATFORM = "dart" }
 
 [tasks.build-windows-aarch64]
 extend = "build"
-env = { TARGET = "aarch64-pc-windows-msvc" }
+env = { TARGET = "aarch64-pc-windows-msvc", LK_PLATFORM = "dart" }
 
 [tasks.build-linux-aarch64]
 extend = "build"
-env = { TARGET = "aarch64-unknown-linux-gnu" }
+env = { TARGET = "aarch64-unknown-linux-gnu", LK_PLATFORM = "dart" }
 
 [tasks.build-linux-x64]
 extend = "build"
-env = { TARGET = "x86_64-unknown-linux-gnu" }
+env = { TARGET = "x86_64-unknown-linux-gnu", LK_PLATFORM = "dart" }
 
 [tasks.build-android-aarch64]
 private = false
@@ -168,9 +185,7 @@ dependencies = ["build", "locate-lib"]
 script_runner = "@duckscript"
 script = """
 out_dir = join_path ${PACKAGES_DIR} ${LANG}
-# `--features cli` builds the bindgen bin (gated off library builds so the
-# shipped cdylib/staticlib don't carry uniffi's CLI machinery).
-exec cargo run --features cli --bin uniffi-bindgen generate \
+exec cargo run -p bindgens --bin uniffi-bindgen -- generate \
     --language ${LANG} \
     --out-dir ${out_dir} \
     --library ${LIB_PATH}
@@ -197,99 +212,15 @@ dependencies = [
 
 [tasks.bindgen-kotlin]
 private = false
-extend = "uniffi-bindgen"
-env = { LANG = "kotlin" }
+env = { LANG = "kotlin", LK_PLATFORM = "android" }
+run_task = "uniffi-bindgen"
 
 # MARK: - Python
 
 [tasks.bindgen-python]
 private = false
-extend = "uniffi-bindgen"
-env = { LANG = "python" }
-
-# MARK: - Node
-
-[tasks.node-bindgen]
-private = true
-dependencies = ["build", "locate-lib"]
-env = { CARGO_NET_GIT_FETCH_WITH_CLI = true }
-install_crate = { crate_name = "uniffi-bindgen-node", binary = "uniffi-bindgen-node", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/livekit/uniffi-bindgen-node.git"]
-command = "uniffi-bindgen-node"
-args = [
-    "--out-dir", "${PACKAGES_DIR}/${LANG}",
-    "--out-dirname-api", "import-meta-url",
-    "--out-node-version", "^18",
-    "--out-verbose-logs",
-    "--crate-name", "${CARGO_MAKE_CRATE_FS_NAME}",
-    "${LIB_PATH}"
-]
-
-[tasks.node-format]
-private = true
-command = "npx"
-args = [
-    "--yes",
-    "prettier",
-    "--write", "${PACKAGES_DIR}/${LANG}"
-]
-
-[tasks.node-move-code-into-src]
-private = true
-script_runner = "@shell"
-script = """
-mkdir -p ${PACKAGES_DIR}/${LANG}/src
-mv ${PACKAGES_DIR}/${LANG}/*.ts ${PACKAGES_DIR}/${LANG}/src
-"""
-
-[tasks.node-generate-manifest]
-private = true
-extend = "tera"
-args = [
-    "--env",
-    "-t", "${SUPPORT_DIR}/${LANG}/package.json.tera",
-    "-o", "${PACKAGES_DIR}/${LANG}/package.json",
-    "${PACKAGES_DIR}/${LANG}/package.json"
-    # Provide original package.json as input
-]
-
-[tasks.node-copy-support-files]
-private = true
-script_runner = "@shell"
-script = """
-cp ${SUPPORT_DIR}/${LANG}/tsconfig.json ${PACKAGES_DIR}/${LANG}/tsconfig.json
-cp ${SUPPORT_DIR}/${LANG}/tsup.config.ts ${PACKAGES_DIR}/${LANG}/tsup.config.ts
-"""
-
-[tasks.node-generate-downloader]
-private = true
-condition = { profiles = ["release"] }
-extend = "tera"
-args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/download-lib.ts.tera", "-o", "${PACKAGES_DIR}/${LANG}/download-lib.ts"]
-
-[tasks.node-link-lib]
-private = true
-condition = { profiles = ["development"] }
-script_runner = "@shell"
-script = """
-ln -sf ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/src
-"""
-
-[tasks.node-package-flow]
-private = true
-dependencies = [
-    "node-bindgen",
-    "node-move-code-into-src",
-    "node-generate-manifest",
-    "node-generate-downloader",
-    "node-copy-support-files",
-    "node-format",
-    "node-link-lib"
-]
-
-[tasks.node-package]
-env = { LANG = "node" }
-run_task = "node-package-flow"
+env = { LANG = "python", LK_PLATFORM = "python" }
+run_task = "uniffi-bindgen"
 
 # MARK: - Swift
 #
@@ -348,8 +279,11 @@ for p in ${SPM_PLATFORMS}; do
   platform_flags="$platform_flags --platforms $p"
 done
 
+FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py" "${LK_PLATFORM}")
+
 cargo swift package \
 --accept-all \
+${FLAGS} \
 --name ${SPM_NAME} \
 $platform_flags \
 --lib-type dynamic \
@@ -502,7 +436,7 @@ dependencies = [
 
 [tasks.swift-package]
 description = "Generate Swift package using cargo-swift"
-env = { LANG = "swift" }
+env = { LANG = "swift", LK_PLATFORM = "swift" }
 run_task = "swift-package-flow"
 
 # Same flow as `swift-package`, restricted to macos by default — a debug
@@ -516,6 +450,7 @@ run_task = "swift-package-flow"
 
 [tasks.swift-package-debug.env]
 LANG = "swift"
+LK_PLATFORM = "swift"
 SPM_PLATFORMS = { value = "macos", condition = { env_not_set = ["SPM_PLATFORMS"] } }
 
 [tasks.swift-package-debug]
@@ -624,7 +559,7 @@ echo "AAR: ${out_dir}/${ANDROID_AAR_BASENAME}.aar"
 # only applies once its dependencies run, hence run_task.
 [tasks.android-bindgen-kotlin]
 private = true
-env = { TARGET = "${CARGO_MAKE_RUST_TARGET_TRIPLE}", CARGO_PROFILE_RELEASE_STRIP = "false" }
+env = { TARGET = "${CARGO_MAKE_RUST_TARGET_TRIPLE}", LK_PLATFORM = "android", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "bindgen-kotlin"
 
 [tasks.android-package-flow]
@@ -660,9 +595,6 @@ description = "Build Android AAR with native libs and Kotlin bindings; publish t
 dependencies = ["android-package-flow"]
 run_task = "android-publish-maven-local"
 
-# Add other bindgen tasks here, following the same pattern
-# as above for the task name (e.g., "bindgen-<lang>").
-
 # MARK: - Dart
 
 # uniffi-dart has no standalone CLI, so the `uniffi-bindgen-dart` bin drives its
@@ -677,7 +609,7 @@ description = "Generate Dart bindings"
 # The env must be in scope while the `build` dependency compiles, but a task's
 # own env only applies after its dependencies have run; so set it on this
 # wrapper and drive the work through run_task (same pattern as dart-package).
-env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+env = { LANG = "dart", LK_PLATFORM = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "bindgen-dart-flow"
 
 [tasks.bindgen-dart-flow]
@@ -686,7 +618,7 @@ dependencies = ["build", "locate-lib"]
 script_runner = "@duckscript"
 script = """
 out_dir = join_path ${PACKAGES_DIR} ${LANG}
-exec cargo run --features dart-bindgen --bin uniffi-bindgen-dart -- \
+exec cargo run -p bindgens --features dart-bindgen --bin uniffi-bindgen-dart -- \
     --library ${LIB_PATH} \
     --out-dir ${out_dir}
 """
@@ -796,5 +728,8 @@ dependencies = [
 [tasks.dart-package]
 description = "Build a consumable Dart package with bindings, hook, and (dev) native lib"
 # See bindgen-dart: keep symbols so library-mode bindgen can read metadata.
-env = { LANG = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
+env = { LANG = "dart", LK_PLATFORM = "dart", CARGO_PROFILE_RELEASE_STRIP = "false" }
 run_task = "dart-package-flow"
+
+# Add other bindgen tasks here, following the same pattern
+# as above for the task name (e.g., "bindgen-<lang>").
