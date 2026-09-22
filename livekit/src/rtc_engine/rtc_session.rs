@@ -20,7 +20,7 @@ use std::{
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bytes::Bytes;
@@ -60,9 +60,22 @@ use crate::{
         peer_transport::PeerTransport,
         rtc_events::{RtcEvent, RtcEvents},
     },
-    track::LocalTrack,
+    track::{LocalTrack, TrackSource},
     DataPacketKind,
 };
+
+/// Connection-state transition counts per transport, sampled before a resume begins.
+///
+/// A resume compares against these to tell a transport that actually reconnected from one
+/// still reporting a `Connected` that predates the failure. See
+/// [`SessionInner::wait_pc_reconnected_with_snapshot`].
+#[derive(Debug, Clone, Copy)]
+pub struct PcGenerationSnapshot {
+    publisher_connected: u32,
+    publisher_disconnect: u32,
+    subscriber_connected: u32,
+    subscriber_disconnect: u32,
+}
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -187,6 +200,10 @@ pub enum SessionEvent {
     Close {
         source: String,
         reason: DisconnectReason,
+        /// Cause reported to the server on the next resume, so it can attribute
+        /// client reconnects. Distinct from `reason`, which is the disconnect
+        /// reason used if recovery ultimately fails.
+        reconnect_reason: proto::ReconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
     },
@@ -359,7 +376,9 @@ struct SessionInner {
     fast_publish: AtomicBool,
 
     publisher_pc: PeerTransport,
-    /// In single peer connection mode, this is None and publisher_pc handles both send/receive
+    /// `Some` exactly when [`Self::single_pc_mode`] is false, where publisher_pc handles both
+    /// send and receive. `wait_pc_connection_inner` relies on that equivalence, reading absence
+    /// as "no second transport to wait for".
     subscriber_pc: Option<PeerTransport>,
     /// Whether single peer connection mode is active
     single_pc_mode: bool,
@@ -822,8 +841,11 @@ impl RtcSession {
         self.inner.publish_data(data, kind, is_raw_packet).await
     }
 
-    pub async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
-        self.inner.restart().await
+    pub async fn restart(
+        &self,
+        reason: proto::ReconnectReason,
+    ) -> EngineResult<proto::ReconnectResponse> {
+        self.inner.restart(reason).await
     }
 
     pub async fn restart_publisher(&self) -> EngineResult<()> {
@@ -859,14 +881,22 @@ impl RtcSession {
         self.inner.wait_pc_connection().await
     }
 
-    /// Wait for PCs to be connected on the resume path.
-    ///
-    /// Sleeps `settle_delay` before polling, giving the just-issued ICE
-    /// restart offer/answer round-trip a chance to take effect when the
-    /// failure was signal-only (PCs may still report `Connected` immediately
-    /// after a WS hiccup, even though the new ufrag/pwd hasn't propagated yet).
-    pub async fn wait_pc_reconnected(&self, settle_delay: Duration) -> EngineResult<()> {
-        self.inner.wait_pc_connection_with_delay(settle_delay).await
+    /// Sample each transport's connection-state transition counts. Must be taken *before* the
+    /// resume touches the signalling link, so anything the resume causes shows up as a change.
+    pub fn pc_generation_snapshot(&self) -> PcGenerationSnapshot {
+        self.inner.pc_generation_snapshot()
+    }
+
+    /// Wait for the PeerConnections to have reconnected, judged against `snapshot` rather
+    /// than against the current `PeerConnectionState`, which stays `Connected` for tens of
+    /// seconds after a far end goes away. `settle_delay` bounds only the ambiguous
+    /// never-dropped case. See [`SessionInner::wait_pc_reconnected_with_snapshot`].
+    pub async fn wait_pc_reconnected(
+        &self,
+        snapshot: PcGenerationSnapshot,
+        settle_delay: Duration,
+    ) -> EngineResult<()> {
+        self.inner.wait_pc_reconnected_with_snapshot(snapshot, settle_delay).await
     }
 
     /// Ensure the publisher peer connection is connected and the data channel is open.
@@ -1129,6 +1159,7 @@ impl SessionInner {
                                 self.on_session_disconnected(
                                     format!("signal client closed: {:?}", reason).as_str(),
                                     DisconnectReason::UnknownReason,
+                                    proto::ReconnectReason::RrSignalDisconnected,
                                     proto::leave_request::Action::Resume,
                                     false,
                                 );
@@ -1235,7 +1266,7 @@ impl SessionInner {
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                                     self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
-                                    retry_queue.trim(sent as usize);
+                                    retry_queue.trim(reliable_buffered_amount as usize);
                                 }
                             }
                         }
@@ -1320,9 +1351,10 @@ impl SessionInner {
     }
 
     /// Updates the packet receive state (TTL map) for reliable packets.
-    fn update_packet_rx_state(&self, packet: &proto::DataPacket) {
+    /// Returns `false` if the packet is a duplicate and must be dropped.
+    fn update_packet_rx_state(&self, packet: &proto::DataPacket) -> bool {
         if packet.sequence <= 0 || packet.participant_sid.is_empty() {
-            return;
+            return true;
         };
         let mut rx_state = self.packet_rx_state.lock();
         if rx_state
@@ -1330,9 +1362,10 @@ impl SessionInner {
             .is_some_and(|&last_sequence| packet.sequence <= last_sequence)
         {
             log::warn!("Ignoring duplicate/out-of-order reliable data message");
-            return;
+            return false;
         }
         rx_state.set(&packet.participant_sid, Some(packet.sequence));
+        true
     }
 
     async fn on_signal_event(
@@ -1428,6 +1461,8 @@ impl SessionInner {
                 self.on_session_disconnected(
                     "server request to leave",
                     leave.reason(),
+                    // The server initiated this and already knows why.
+                    proto::ReconnectReason::RrUnknown,
                     leave.action(),
                     true,
                 );
@@ -1592,6 +1627,18 @@ impl SessionInner {
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
 
+                // Durably record leaving `Connected` before waking waiters: a resume that
+                // polls after this point must be able to see that the transport broke, even
+                // though it may since have returned to `Connected`.
+                if target == SignalTarget::Publisher {
+                    self.publisher_pc.note_connection_state(state);
+                }
+                if target == SignalTarget::Subscriber {
+                    if let Some(ref sub_pc) = self.subscriber_pc {
+                        sub_pc.note_connection_state(state);
+                    }
+                }
+
                 self.pc_state_notify.notify_waiters();
 
                 if state == PeerConnectionState::Failed {
@@ -1599,6 +1646,10 @@ impl SessionInner {
                     self.on_session_disconnected(
                         "pc_state failed",
                         DisconnectReason::UnknownReason,
+                        match target {
+                            SignalTarget::Subscriber => proto::ReconnectReason::RrSubscriberFailed,
+                            SignalTarget::Publisher => proto::ReconnectReason::RrPublisherFailed,
+                        },
                         proto::leave_request::Action::Resume,
                         false,
                     );
@@ -1659,8 +1710,8 @@ impl SessionInner {
                 let mut packet = proto::DataPacket::decode(&*data).map_err(|err| {
                     EngineError::Internal(format!("failed to decode data packet: {}", err).into())
                 })?;
-                if kind == DataPacketKind::Reliable {
-                    self.update_packet_rx_state(&packet);
+                if kind == DataPacketKind::Reliable && !self.update_packet_rx_state(&packet) {
+                    return Ok(());
                 }
                 if let Some(detail) = packet.value.take() {
                     let participant_sid: Option<ParticipantSid> =
@@ -1939,7 +1990,8 @@ impl SessionInner {
                 let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
                 (sum > 0).then_some(sum)
             };
-            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps).await;
+            let is_screen_share = options.source == TrackSource::Screenshare;
+            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
         }
 
         let init = RtpTransceiverInit {
@@ -1996,6 +2048,7 @@ impl SessionInner {
         &self,
         source: &str,
         reason: DisconnectReason,
+        reconnect_reason: proto::ReconnectReason,
         action: proto::leave_request::Action,
         retry_now: bool,
     ) {
@@ -2007,6 +2060,7 @@ impl SessionInner {
         let _ = self.emitter.send(SessionEvent::Close {
             source: source.to_owned(),
             reason,
+            reconnect_reason,
             action,
             retry_now,
         });
@@ -2232,12 +2286,15 @@ impl SessionInner {
 
     /// This reconnection if more seemless compared to the full reconnection implemented in
     /// ['RTCEngine']
-    async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
+    async fn restart(
+        &self,
+        reason: proto::ReconnectReason,
+    ) -> EngineResult<proto::ReconnectResponse> {
         // Start accumulating before the signal client reconnects: once
         // `restart` returns, the resumed stream immediately delivers events
         // (including the post-resume participant snapshot) on a concurrent task.
         *self.resume_seen_identities.lock() = Some(HashSet::new());
-        let reconnect_response = self.signal_client.restart().await?;
+        let reconnect_response = self.signal_client.restart(reason).await?;
         log::debug!("received reconnect response: {:?}", reconnect_response);
 
         let rtc_config =
@@ -2258,6 +2315,21 @@ impl SessionInner {
         Ok(reconnect_response)
     }
 
+    fn pc_generation_snapshot(&self) -> PcGenerationSnapshot {
+        let (subscriber_connected, subscriber_disconnect) = self
+            .subscriber_pc
+            .as_ref()
+            .map(|pc| (pc.connected_generation(), pc.disconnect_generation()))
+            .unwrap_or((0, 0));
+
+        PcGenerationSnapshot {
+            publisher_connected: self.publisher_pc.connected_generation(),
+            publisher_disconnect: self.publisher_pc.disconnect_generation(),
+            subscriber_connected,
+            subscriber_disconnect,
+        }
+    }
+
     async fn restart_publisher(&self) -> EngineResult<()> {
         // In single-PC mode the publisher is the only transport, so always restart its ICE
         // even if the user hasn't explicitly published a track yet. Otherwise only restart
@@ -2270,18 +2342,48 @@ impl SessionInner {
         Ok(())
     }
 
-    /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
+    /// Wait for the transports to connect, timing out after [`ICE_CONNECT_TIMEOUT`].
+    ///
+    /// For the initial connect, where transports start from `New`: reaching `Connected` is
+    /// itself the proof, since there is no earlier connection to confuse it with.
     async fn wait_pc_connection(&self) -> EngineResult<()> {
-        self.wait_pc_connection_with_delay(Duration::ZERO).await
+        self.wait_pc_connection_inner(None, Duration::ZERO).await
     }
 
-    /// Like [`Self::wait_pc_connection`] but sleeps `settle_delay` before polling.
-    async fn wait_pc_connection_with_delay(&self, settle_delay: Duration) -> EngineResult<()> {
-        let wait_connected = async move {
-            if !settle_delay.is_zero() {
-                tokio::time::sleep(settle_delay).await;
-            }
+    /// Wait for the transports to have *reconnected*, which a resume cannot establish by
+    /// reading `PeerConnectionState`.
+    ///
+    /// That state is a level, and the level is identical for a transport that reconnected and
+    /// one whose far end has vanished: ICE holds `Connected` until its receiving timeout, and
+    /// only reaches `Failed` after consent expiry tens of seconds later. Trusting it let a
+    /// resume declare success while the subscriber was dead, emitting `Resumed` — and so
+    /// `RoomEvent::Reconnected` — for a session that received no further media.
+    ///
+    /// So compare against the transition counts taken before the resume started. A transport
+    /// counts as reconnected when it is `Connected` *and* either:
+    ///   - it entered `Connected` since the snapshot, meaning ICE and DTLS completed on this
+    ///     attempt; or
+    ///   - it never left `Connected` for the whole settle window, so the pre-existing
+    ///     connection is still good (the signal-only failure, where media never broke).
+    ///
+    /// A transport that dropped and has not reconnected since is not recovered, whatever it
+    /// reports now.
+    async fn wait_pc_reconnected_with_snapshot(
+        &self,
+        snapshot: PcGenerationSnapshot,
+        settle_delay: Duration,
+    ) -> EngineResult<()> {
+        self.wait_pc_connection_inner(Some(snapshot), settle_delay).await
+    }
 
+    async fn wait_pc_connection_inner(
+        &self,
+        snapshot: Option<PcGenerationSnapshot>,
+        settle_delay: Duration,
+    ) -> EngineResult<()> {
+        let started = Instant::now();
+
+        let wait_connected = async move {
             loop {
                 let notified = self.pc_state_notify.notified();
 
@@ -2289,11 +2391,37 @@ impl SessionInner {
                     return Err(EngineError::Connection("closed".into()));
                 }
 
-                let publisher_connected = self.publisher_pc.is_connected();
-                let subscriber_connected = if self.single_pc_mode || !self.subscriber_primary {
-                    true // No subscriber in single PC mode or if PC is publisher primary
-                } else {
-                    self.subscriber_pc.as_ref().map(|pc| pc.is_connected()).unwrap_or(true)
+                // The settle window gates only the "nothing ever broke" branch; a transport
+                // that reconnected is accepted as soon as it does.
+                let settled = started.elapsed() >= settle_delay;
+
+                let publisher_ok = Self::transport_recovered(
+                    &self.publisher_pc,
+                    snapshot.as_ref().map(|s| (s.publisher_connected, s.publisher_disconnect)),
+                    settled,
+                );
+
+                // The subscriber transport exists exactly when this is not single-PC mode
+                // (see `RtcSession::connect`), where the publisher is the only transport and
+                // there is nothing else to wait for.
+                let subscriber_ok = match self.subscriber_pc.as_ref() {
+                    None => {
+                        debug_assert!(
+                            self.single_pc_mode,
+                            "subscriber_pc absent outside single-PC mode"
+                        );
+                        self.single_pc_mode
+                    }
+                    // Present, but a publisher-primary connection does not carry media on it,
+                    // so it is not on the critical path for this wait.
+                    Some(_) if !self.subscriber_primary => true,
+                    Some(pc) => Self::transport_recovered(
+                        pc,
+                        snapshot
+                            .as_ref()
+                            .map(|s| (s.subscriber_connected, s.subscriber_disconnect)),
+                        settled,
+                    ),
                 };
 
                 // In single-PC mode the publisher is the only transport, so it must always
@@ -2301,7 +2429,7 @@ impl SessionInner {
                 let need_publisher =
                     self.single_pc_mode || self.has_published.load(Ordering::Acquire);
 
-                if subscriber_connected && (!need_publisher || publisher_connected) {
+                if subscriber_ok && (!need_publisher || publisher_ok) {
                     break;
                 }
 
@@ -2318,6 +2446,22 @@ impl SessionInner {
                 Err(err)
             }
         }
+    }
+
+    /// `generations` carries the `(connected, disconnect)` counts sampled before the resume,
+    /// or `None` on the initial connect. See [`Self::wait_pc_reconnected_with_snapshot`].
+    fn transport_recovered(
+        pc: &PeerTransport,
+        generations: Option<(u32, u32)>,
+        settled: bool,
+    ) -> bool {
+        recovery_decision(
+            pc.is_connected(),
+            pc.connected_generation(),
+            pc.disconnect_generation(),
+            generations,
+            settled,
+        )
     }
 
     /// Start publisher negotiation
@@ -2588,6 +2732,41 @@ pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<S
     dc.on_message(on_message.into());
 }
 
+/// Whether a transport counts as recovered, split out from the transport so the rule can be
+/// exercised without a PeerConnection. See
+/// [`SessionInner::wait_pc_reconnected_with_snapshot`] for why the current state is not enough.
+///
+/// `generations` is the `(connected, disconnect)` pair sampled before the resume began, or
+/// `None` on the initial connect.
+fn recovery_decision(
+    connected: bool,
+    connected_generation: u32,
+    disconnect_generation: u32,
+    generations: Option<(u32, u32)>,
+    settled: bool,
+) -> bool {
+    if !connected {
+        return false;
+    }
+
+    let Some((snap_connected, snap_disconnect)) = generations else {
+        return true; // initial connect: reaching Connected is the whole contract
+    };
+
+    if connected_generation != snap_connected {
+        return true; // entered Connected on this attempt, so ICE and DTLS completed
+    }
+
+    if disconnect_generation != snap_disconnect {
+        return false; // dropped and not back since; the current state is stale
+    }
+
+    // Never dropped, never re-entered: either the media plane was fine throughout (a
+    // signal-only failure) or the far end is gone and ICE has not noticed. Indistinguishable
+    // until the settle window gives ICE time to time out.
+    settled
+}
+
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
         fn $fncname(value: $proto, mut config: RtcConfiguration) -> RtcConfiguration {
@@ -2617,7 +2796,69 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, DEFAULT_MAX_MESSAGE_SIZE};
+    use super::{parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE};
+
+    /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
+    const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));
+
+    /// A subscriber left dead by a node failure keeps reporting `Connected` until ICE times
+    /// out. Accepting that reports a recovery that did not happen — `Resumed`, and so
+    /// `RoomEvent::Reconnected` with `ConnectionState::Connected`, for a session receiving no
+    /// media. The dropped-and-not-back-since history has to win over the current state, and
+    /// no amount of settling may override it.
+    #[test]
+    fn stale_connected_after_a_drop_is_not_recovery() {
+        assert!(!recovery_decision(
+            /* connected= */ true,
+            /* connected_generation= */ 7, // unchanged: never re-entered Connected
+            /* disconnect_generation= */ 4, // bumped: it dropped at some point
+            SNAPSHOT, /* settled= */ true,
+        ));
+    }
+
+    /// Re-entering `Connected` means ICE and DTLS completed on this attempt, so it is accepted
+    /// straight away and a real reconnection never pays the settle delay.
+    ///
+    /// Note this must be evidence of *connecting*, not of negotiating: the server sends its
+    /// subscriber offer while the old transport can still read `Connected`, so accepting a
+    /// completed negotiation here would reproduce the defect above.
+    #[test]
+    fn reconnection_is_accepted_immediately() {
+        assert!(recovery_decision(
+            /* connected= */ true,
+            /* connected_generation= */ 8, // entered Connected since the snapshot
+            /* disconnect_generation= */ 4, // it did drop — irrelevant, it is back
+            SNAPSHOT, /* settled= */ false, // still inside the settle window
+        ));
+    }
+
+    /// A signal-only failure leaves the media plane untouched, so the existing connection is
+    /// still good — but that is indistinguishable from a far end that vanished until ICE has
+    /// had time to notice.
+    #[test]
+    fn untouched_connection_is_accepted_only_after_settling() {
+        let untouched = |settled| recovery_decision(true, 7, 3, SNAPSHOT, settled);
+
+        assert!(!untouched(false), "must not accept before ICE could notice a dead path");
+        assert!(untouched(true));
+    }
+
+    #[test]
+    fn transport_not_currently_connected_is_never_recovered() {
+        for connected_generation in [7, 8] {
+            for settled in [false, true] {
+                assert!(!recovery_decision(false, connected_generation, 3, SNAPSHOT, settled));
+            }
+        }
+    }
+
+    /// The initial connect has no earlier connection to confuse `Connected` with, so it is
+    /// taken at face value rather than gated on a transition.
+    #[test]
+    fn initial_connect_takes_connected_at_face_value() {
+        assert!(recovery_decision(true, 0, 0, None, false));
+        assert!(!recovery_decision(false, 0, 0, None, true));
+    }
 
     #[test]
     fn parses_max_message_size_from_application_section() {

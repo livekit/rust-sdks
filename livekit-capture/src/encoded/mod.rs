@@ -32,6 +32,7 @@ use livekit::{
     },
 };
 
+pub mod h26x;
 mod pump;
 pub use pump::EncodedVideoPump;
 
