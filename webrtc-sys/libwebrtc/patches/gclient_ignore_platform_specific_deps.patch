@@ -1,0 +1,14 @@
+diff --git a/gclient.py b/gclient.py
+index 58d5aee..8d798b2 100755
+--- a/gclient.py
++++ b/gclient.py
+@@ -1134,6 +1134,9 @@ class Dependency(gclient_utils.WorkItem, DependencySettings):
+             hooks_cwd = self.root.root_dir
+ 
+         for dep in deps_to_add:
++            if '${arch}' in dep.name or '${platform}' in dep.name:
++                print("WARN: ignoring platform-specific dep:", dep.name)
++                continue
+             if dep.verify_validity():
+                 self.add_dependency(dep)
+         self._mark_as_parsed([
