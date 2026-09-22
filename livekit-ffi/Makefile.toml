@@ -67,11 +67,11 @@ echo "PLATFORM: ${LK_PLATFORM}"
 if not ${TIER_3}
     # Ensure target is installed
     exec rustup target add ${TARGET}
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py ${LK_PLATFORM}); cargo build --release $FLAGS --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo build --release $FLAGS --target ${TARGET}"
 else
     # Ensure nightly toolchain is installed
     exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
-    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py ${LK_PLATFORM}); cargo +nightly build -Zbuild-std=std,panic_abort --release $FLAGS --target ${TARGET}"
+    exec sh -c "set -e; FLAGS=$(python3 ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py ${LK_PLATFORM}); cargo +nightly build -Zbuild-std=std,panic_abort --release $FLAGS --target ${TARGET}"
 end
 """
 
@@ -102,7 +102,7 @@ if [ "${CARGO_MAKE_PROFILE}" = "release" ]; then
 fi
 
 # Named here and not in env for the same reason as the profile switch above.
-FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py" android)
+FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py" android)
 
 cargo ndk --target "${TARGET}" build ${FLAGS} ${release_flag}
 """
@@ -279,7 +279,7 @@ for p in ${SPM_PLATFORMS}; do
   platform_flags="$platform_flags --platforms $p"
 done
 
-FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/platform_features.py" "${LK_PLATFORM}")
+FLAGS=$(python3 "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/.github/scripts/ffi_features.py" "${LK_PLATFORM}")
 
 cargo swift package \
 --accept-all \
