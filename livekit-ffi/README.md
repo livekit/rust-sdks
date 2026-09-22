@@ -62,10 +62,6 @@ single source of truth, and CI resolves its build flags from it:
   linker, and panics on any target it does not recognise — visionOS, tvOS and
   Mac Catalyst among them. That gate is what makes the core-modules Apple
   builds possible.
-- **`prost` is split.** `prost` is 0.14, for this crate's own generated protos;
-  `prost_012` is 0.12, for the `livekit-protocol` types used in
-  `src/core_modules/`. The surfaces are mutually exclusive, so the two versions
-  never compile together.
 - **Verify UniFFI API changes by compiling the Kotlin bindings**
   (`cargo make android-package`). A green `cargo build` proves nothing there;
   see the UniFFI section of the root [AGENTS.md](../AGENTS.md) for the specific
