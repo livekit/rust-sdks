@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FLAGS=$(python3 .github/scripts/platform_features.py dart)
+          FLAGS=$(python3 .github/scripts/ffi_features.py dart)
           cargo build --release --target ${{ matrix.target }} -p livekit-ffi $FLAGS
 
       # Linux: build inside a manylinux_2_28 container so the shared library
@@ -119,7 +119,7 @@ jobs:
           BUILD_IMAGE: ${{ matrix.build_image }}
         run: |
           set -euo pipefail
-          export FLAGS=$(python3 .github/scripts/platform_features.py dart)
+          export FLAGS=$(python3 .github/scripts/ffi_features.py dart)
           docker run --rm -e TARGET -e FLAGS -v "$PWD:/workspace" -w /workspace "$BUILD_IMAGE" bash -euo pipefail -c '
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
             export PATH="/root/.cargo/bin:$PATH"
@@ -146,7 +146,7 @@ jobs:
         if: ${{ matrix.platform == 'android' }}
         run: |
           set -euo pipefail
-          FLAGS=$(python3 .github/scripts/platform_features.py dart)
+          FLAGS=$(python3 .github/scripts/ffi_features.py dart)
           cargo ndk --target ${{ matrix.target }} build --release -p livekit-ffi $FLAGS
 
       # macOS/Linux: zip + shasum are available.

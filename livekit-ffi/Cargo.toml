@@ -130,12 +130,12 @@ livekit-token = { workspace = true }
 # Which FFI mode each downstream package build is configured to use: room-apis or core-modules.
 #
 # This is the single source of truth: CI and Makefile.toml resolve their build
-# flags from here via .github/scripts/platform_features.py, so a platform
+# flags from here via .github/scripts/ffi_features.py, so a platform
 # cannot silently drift onto the wrong surface. Every entry turns the default
 # features off and lists the whole set it wants, so a change to `default`
 # cannot move a platform onto another surface.
 #
-#     $ .github/scripts/platform_features.py --list
+#     $ .github/scripts/ffi_features.py --list
 #
 # Every build site that produces an artifact names its platform and takes its
 # flags from the row below, so adding a bindgen or a package means adding a
