@@ -1,5 +1,5 @@
 ---
-livekit-datatrack: minor
+livekit-datatrack: major
 livekit-uniffi: minor
 livekit: patch
 livekit-ffi: patch
