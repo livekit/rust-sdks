@@ -46,7 +46,7 @@ Mode specific source lives in `src/core_modules/`.
 single source of truth, and CI resolves its build flags from it:
 
 ```sh
-.github/scripts/platform_features.py --list
+.github/scripts/ffi_features.py --list
 ```
 
 ## Things that bite

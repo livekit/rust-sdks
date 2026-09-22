@@ -20,10 +20,10 @@
 in `[package.metadata.platform-features]` in livekit-ffi/Cargo.toml, and read
 back here so a platform cannot silently drift onto the wrong surface.
 
-    $ platform_features.py swift
+    $ ffi_features.py swift
     --no-default-features --features core-modules
 
-    $ platform_features.py --list
+    $ ffi_features.py --list
     android        --no-default-features --features core-modules
     ...
 
