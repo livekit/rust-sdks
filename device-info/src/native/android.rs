@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{DeviceInfo, DeviceInfoError, DeviceType};
-use jni::objects::{GlobalRef, JObject, JValue};
 use jni::JavaVM;
+use jni::objects::{GlobalRef, JObject, JValue};
 use std::sync::OnceLock;
 
 static ANDROID_VM: OnceLock<JavaVM> = OnceLock::new();

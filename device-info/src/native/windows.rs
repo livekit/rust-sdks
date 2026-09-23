@@ -16,7 +16,7 @@ use crate::{DeviceInfo, DeviceInfoError, DeviceType};
 use windows_sys::Win32::System::{
     Power::GetSystemPowerStatus,
     Registry::{
-        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY_LOCAL_MACHINE, KEY_READ, REG_SZ,
+        HKEY_LOCAL_MACHINE, KEY_READ, REG_SZ, RegCloseKey, RegOpenKeyExW, RegQueryValueExW,
     },
     SystemInformation::GetComputerNameExW,
 };
