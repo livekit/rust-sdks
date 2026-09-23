@@ -21,7 +21,7 @@
 
 use livekit_net::{Header, HttpMethod, HttpResponse, TransportError};
 use livekit_token_source::{
-    endpoint, TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions,
+    TokenSourceConfigurable, TokenSourceError, TokenSourceFetchOptions, endpoint,
 };
 use std::collections::HashMap;
 use std::sync::{Mutex, Once};
