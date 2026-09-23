@@ -1,7 +1,7 @@
 [package]
 name = "webrtc-sys"
 version = "0.3.46"
-edition.workspace = true
+edition = "2024"
 homepage = "https://livekit.io"
 license.workspace = true
 description = "Unsafe bindings to libwebrtc"

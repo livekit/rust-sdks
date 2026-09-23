@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use cxx::type_id;
 use cxx::ExternType;
+use cxx::type_id;
 use std::any::Any;
 use std::sync::Arc;
 

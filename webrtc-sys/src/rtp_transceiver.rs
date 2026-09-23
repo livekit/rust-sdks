@@ -66,7 +66,7 @@ pub mod ffi {
             self: &RtpTransceiver,
         ) -> Vec<RtpHeaderExtensionCapability>;
         fn negotiated_header_extensions(self: &RtpTransceiver)
-            -> Vec<RtpHeaderExtensionCapability>;
+        -> Vec<RtpHeaderExtensionCapability>;
         fn set_header_extensions_to_negotiate(
             self: &RtpTransceiver,
             headers: Vec<RtpHeaderExtensionCapability>,

@@ -218,7 +218,9 @@ fn main() {
                         ["va", "va-drm"].map(String::from).to_vec(),
                     );
                 } else {
-                    println!("cargo:warning=libva not found; building without hardware accelerated video codecs");
+                    println!(
+                        "cargo:warning=libva not found; building without hardware accelerated video codecs"
+                    );
                 }
             }
 
@@ -310,7 +312,9 @@ fn main() {
                         ["cuda", "nvcuvid"].map(String::from).to_vec(),
                     );
                 } else {
-                    println!("cargo:warning=cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs");
+                    println!(
+                        "cargo:warning=cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs"
+                    );
                 }
             }
 
