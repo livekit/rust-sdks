@@ -23,8 +23,8 @@ use resampler::{Attenuation, Latency, ResamplerFir, SampleRate};
 use crate::embedding::EmbeddingModel;
 use crate::melspectrogram::MelspectrogramModel;
 use crate::{
-    build_session_from_file, to_resampler_rate, WakeWordError, EMBEDDING_STRIDE, EMBEDDING_WINDOW,
-    MIN_EMBEDDINGS,
+    EMBEDDING_STRIDE, EMBEDDING_WINDOW, MIN_EMBEDDINGS, WakeWordError, build_session_from_file,
+    to_resampler_rate,
 };
 
 struct Resampler {
