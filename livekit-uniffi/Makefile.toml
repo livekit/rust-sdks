@@ -367,10 +367,6 @@ ${SWIFT_RELEASE_FLAG}
 private = true
 script_runner = "@shell"
 script = """
-if ! command -v swiftformat >/dev/null 2>&1; then
-  echo "swift-format-bindings: swiftformat unavailable, skipping (brew install swiftformat)."
-  exit 0
-fi
 swiftformat ${SPM_NAME}/Sources --swiftversion 6.0 --quiet
 """
 
