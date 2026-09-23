@@ -56,6 +56,17 @@ impl VideoEncoderBackend {
     pub fn list_available() -> impl IntoIterator<Item = VideoEncoderBackend> {
         imp_rs::video_encoder_backend_list()
     }
+
+    /// SDP codec names (`VP8`, `VP9`, `AV1`, `H264`, `H265`) that this backend
+    /// can produce on the current host.
+    ///
+    /// `Auto` is the union of every real encoder available here, which is also
+    /// the set a sender falls back to when its requested backend is missing.
+    /// `PreEncoded` lists the codecs the pass-through can forward, and does not
+    /// depend on any real encoder being present.
+    pub fn supported_codecs(self) -> impl IntoIterator<Item = String> {
+        imp_rs::video_encoder_backend_codecs(self)
+    }
 }
 
 #[derive(Clone)]
