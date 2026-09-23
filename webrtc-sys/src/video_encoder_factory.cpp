@@ -393,25 +393,19 @@ VideoEncoderFactory::InternalFactory::GetSupportedFormats() const {
                    supported_formats.end());
   }
 
-  // The pass-through factory would otherwise advertise codecs no real
-  // encoder implements (e.g. H265 on desktops); a normal session
-  // negotiating such a codec would end up with a sender that cannot create
-  // an encoder. Only advertise pass-through formats for codecs some real
-  // encoder already supports.
-  const size_t real_format_count = formats.size();
+  // Advertise pass-through formats unconditionally: a pre-encoded publisher
+  // supplies its own bitstream, so it must be able to negotiate codecs no
+  // local encoder implements (e.g. H265 on machines without a hardware
+  // encoder). The pass-through backend is never selected automatically (it
+  // is excluded from automatic fallback and only used on an explicit publish
+  // request), and Create() fails loudly rather than falling back when a
+  // pre-encoded sender cannot be built.
   for (const auto& backend_factory : factories_) {
     if (backend_factory.backend != VideoEncoderBackend::PreEncoded) {
       continue;
     }
     for (const auto& format : backend_factory.factory->GetSupportedFormats()) {
-      const bool codec_available = std::any_of(
-          formats.begin(), formats.begin() + real_format_count,
-          [&](const webrtc::SdpVideoFormat& existing) {
-            return IsSameCodecName(existing.name, format.name);
-          });
-      if (codec_available) {
-        formats.push_back(format);
-      }
+      formats.push_back(format);
     }
   }
   return formats;
