@@ -14,13 +14,13 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{anyhow, Ok, Result},
-    common::{test_rooms, test_rooms_with_options, TestRoomOptions},
+    anyhow::{Ok, Result, anyhow},
+    common::{TestRoomOptions, test_rooms, test_rooms_with_options},
     futures_util::StreamExt,
     livekit::{
+        SimulateScenario,
         data_track::{DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSchemaId},
         prelude::*,
-        SimulateScenario,
     },
     livekit_token::VideoGrants,
     std::time::{Duration, Instant},
@@ -201,11 +201,11 @@ async fn test_publish_with_schema_metadata(
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_e2ee() -> Result<()> {
-    use livekit::e2ee::{
-        key_provider::{KeyProvider, KeyProviderOptions},
-        EncryptionType,
-    };
     use livekit::E2eeOptions;
+    use livekit::e2ee::{
+        EncryptionType,
+        key_provider::{KeyProvider, KeyProviderOptions},
+    };
 
     const SHARED_SECRET: &[u8] = b"password";
     const PAYLOAD: &[u8] = &[0xFA; 196_608];

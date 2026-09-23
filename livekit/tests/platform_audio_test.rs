@@ -340,7 +340,7 @@ async fn test_platform_audio_standalone_device_selection() -> Result<()> {
 #[serial]
 #[cfg(not(any(target_os = "ios", target_os = "android")))]
 async fn test_platform_audio_invalid_device_id_returns_device_not_found() -> Result<()> {
-    use livekit::{reset_platform_audio, PlayoutDeviceId, RecordingDeviceId};
+    use livekit::{PlayoutDeviceId, RecordingDeviceId, reset_platform_audio};
 
     reset_platform_audio();
 
@@ -366,9 +366,9 @@ async fn test_platform_audio_invalid_device_id_returns_device_not_found() -> Res
 #[test_log::test(tokio::test)]
 #[serial]
 async fn test_platform_audio_standalone_processing_config() -> Result<()> {
-    use livekit::reset_platform_audio;
     use livekit::AudioProcessingOptions;
     use livekit::AudioProcessingType;
+    use livekit::reset_platform_audio;
 
     reset_platform_audio();
 
@@ -691,8 +691,8 @@ async fn test_platform_audio_release() -> Result<()> {
 #[serial]
 async fn test_platform_audio_with_native_source() -> Result<()> {
     use livekit::reset_platform_audio;
-    use livekit::webrtc::audio_source::native::NativeAudioSource;
     use livekit::webrtc::audio_source::AudioSourceOptions;
+    use livekit::webrtc::audio_source::native::NativeAudioSource;
 
     reset_platform_audio();
 
@@ -948,8 +948,8 @@ async fn test_reset_platform_audio() -> Result<()> {
 #[test_log::test(tokio::test)]
 #[serial]
 async fn test_platform_audio_hardware_availability() -> Result<()> {
-    use livekit::reset_platform_audio;
     use livekit::AudioProcessingType;
+    use livekit::reset_platform_audio;
 
     reset_platform_audio();
 
@@ -996,8 +996,8 @@ async fn test_platform_audio_hardware_availability() -> Result<()> {
 #[test_log::test(tokio::test)]
 #[serial]
 async fn test_platform_audio_configure_processing() -> Result<()> {
-    use livekit::reset_platform_audio;
     use livekit::AudioProcessingOptions;
+    use livekit::reset_platform_audio;
 
     reset_platform_audio();
 
@@ -1089,8 +1089,8 @@ async fn test_platform_audio_individual_controls() -> Result<()> {
 #[test_log::test(tokio::test)]
 #[serial]
 async fn test_platform_audio_processing_with_room() -> Result<()> {
-    use livekit::reset_platform_audio;
     use livekit::AudioProcessingOptions;
+    use livekit::reset_platform_audio;
 
     reset_platform_audio();
 
@@ -1381,7 +1381,9 @@ async fn test_adm_proxy_playout_mode_switching() -> Result<()> {
         log::info!("start_playout() result: {}", start_result);
         log::info!("playout_is_initialized: {}", pcf.playout_is_initialized());
     } else {
-        log::info!("Playout not available on this environment, testing mode switches without active playout");
+        log::info!(
+            "Playout not available on this environment, testing mode switches without active playout"
+        );
     }
 
     log::info!("=== Phase 2: Switch to synthetic mode ===");

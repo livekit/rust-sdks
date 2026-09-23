@@ -14,11 +14,10 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{anyhow, Result},
+    anyhow::{Result, anyhow},
     common::{
-        test_rooms_with_options,
+        TestRoomOptions, test_rooms_with_options,
         video::{SolidColorParams, SolidColorTrack},
-        TestRoomOptions,
     },
     livekit::{
         options::VideoCodec,

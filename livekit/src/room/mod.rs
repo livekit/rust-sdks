@@ -16,10 +16,10 @@ pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::StreamExt;
 use libwebrtc::{
+    RtcError,
     native::frame_cryptor::EncryptionState,
     prelude::{MediaStream, MediaStreamTrack, RtcConfiguration},
     rtp_transceiver::RtpTransceiver,
-    RtcError,
 };
 use livekit_data_stream::backend as ds;
 use livekit_datatrack::{
@@ -28,10 +28,10 @@ use livekit_datatrack::{
 };
 use livekit_protocol as proto;
 use livekit_rpc::backend::{
-    HandleRequestOptions, RpcClientManager, RpcServerManager, RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC,
+    HandleRequestOptions, RPC_REQUEST_TOPIC, RPC_RESPONSE_TOPIC, RpcClientManager, RpcServerManager,
 };
 use livekit_signaling::{
-    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT,
+    CLIENT_PROTOCOL_DEFAULT, SIGNAL_CONNECT_TIMEOUT, SignalOptions, SignalSdkOptions,
 };
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -44,15 +44,15 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::{
-    broadcast,
+    Mutex as AsyncMutex, broadcast,
     mpsc::{self, UnboundedReceiver},
-    oneshot, Mutex as AsyncMutex,
+    oneshot,
 };
 use tokio::task::JoinHandle;
 
 pub use self::{
     data_stream::api::*,
-    e2ee::{manager::E2eeManager, E2eeOptions},
+    e2ee::{E2eeOptions, manager::E2eeManager},
     participant::{ClientCapability, ParticipantKind, ParticipantKindDetail, ParticipantState},
 };
 pub use crate::rtc_engine::SimulateScenario;
@@ -62,8 +62,8 @@ use crate::{
     prelude::*,
     registered_audio_filter_plugins,
     rtc_engine::{
-        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
-        SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult,
+        INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD, RtcEngine, SessionStats,
     },
     utils::{observer::Dispatcher, promise::Promise},
 };
@@ -1904,10 +1904,10 @@ impl RoomSession {
         let participant = self.get_local_or_remote_participant(&participant_identity);
         let track_sid: TrackSid = track_sid.to_owned().try_into().unwrap();
         let track_publication: Option<TrackPublication> = match &participant {
-            Some(Participant::Local(ref participant)) => {
+            Some(Participant::Local(participant)) => {
                 participant.get_track_publication(&track_sid).map(TrackPublication::Local)
             }
-            Some(Participant::Remote(ref participant)) => {
+            Some(Participant::Remote(participant)) => {
                 participant.get_track_publication(&track_sid).map(TrackPublication::Remote)
             }
             None => None,
@@ -2073,16 +2073,25 @@ impl RoomSession {
             log::info!(
                 "dynacast: SFU quality update for {}: subscribed_codecs={:?}, looking for codec '{}'",
                 track_sid,
-                update.subscribed_codecs.iter().map(|sc| {
-                    let qs: Vec<String> = sc.qualities.iter().map(|q| {
-                        format!(
-                            "{:?}={}",
-                            crate::options::video_quality_from_i32_or_default(q.quality),
-                            q.enabled
-                        )
-                    }).collect();
-                    format!("{}:[{}]", sc.codec, qs.join(", "))
-                }).collect::<Vec<_>>().join("; "),
+                update
+                    .subscribed_codecs
+                    .iter()
+                    .map(|sc| {
+                        let qs: Vec<String> = sc
+                            .qualities
+                            .iter()
+                            .map(|q| {
+                                format!(
+                                    "{:?}={}",
+                                    crate::options::video_quality_from_i32_or_default(q.quality),
+                                    q.enabled
+                                )
+                            })
+                            .collect();
+                        format!("{}:[{}]", sc.codec, qs.join(", "))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; "),
                 codec,
             );
             update

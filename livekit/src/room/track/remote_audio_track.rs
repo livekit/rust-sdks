@@ -17,7 +17,7 @@ use std::{fmt::Debug, sync::Arc};
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol::{self as proto, AudioTrackFeature};
 
-use super::{remote_track, TrackInner};
+use super::{TrackInner, remote_track};
 use crate::prelude::*;
 
 #[derive(Clone)]

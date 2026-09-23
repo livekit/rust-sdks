@@ -338,11 +338,7 @@ pub fn compute_default_simulcast_presets(
 }
 
 pub fn landscape_aspect_ratio(width: u32, height: u32) -> f32 {
-    if width > height {
-        width as f32 / height as f32
-    } else {
-        height as f32 / width as f32
-    }
+    if width > height { width as f32 / height as f32 } else { height as f32 / width as f32 }
 }
 
 /// Presets must be ordered
@@ -556,8 +552,8 @@ pub mod screenshare {
 #[cfg(test)]
 mod tests {
     use super::{
-        get_default_degradation_preference, DegradationPreference, TrackPublishOptions,
-        VideoEncoderBackend,
+        DegradationPreference, TrackPublishOptions, VideoEncoderBackend,
+        get_default_degradation_preference,
     };
     use crate::prelude::TrackSource;
 

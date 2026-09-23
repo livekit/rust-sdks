@@ -16,7 +16,7 @@
 use {
     anyhow::{Context, Result},
     common::test_rooms,
-    livekit::{prelude::PerformRpcData, RoomEvent},
+    livekit::{RoomEvent, prelude::PerformRpcData},
     std::time::Duration,
     tokio::sync::mpsc::UnboundedReceiver,
 };

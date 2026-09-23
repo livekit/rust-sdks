@@ -18,7 +18,7 @@ use libwebrtc::enum_dispatch;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
 
-use super::{track_dispatch, TrackInner};
+use super::{TrackInner, track_dispatch};
 use crate::prelude::*;
 
 #[derive(Clone, Debug)]

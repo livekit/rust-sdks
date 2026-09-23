@@ -15,8 +15,8 @@
 use std::{
     fmt::{Debug, Formatter},
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicU32, Ordering},
     },
 };
 

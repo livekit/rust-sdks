@@ -29,7 +29,7 @@ use libwebrtc::{
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
-use tokio_stream::{wrappers::BroadcastStream, Stream};
+use tokio_stream::{Stream, wrappers::BroadcastStream};
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};

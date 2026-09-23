@@ -26,13 +26,15 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::{
-    mpsc, oneshot, Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard,
+    Notify, RwLock as AsyncRwLock, RwLockReadGuard as AsyncRwLockReadGuard, mpsc, oneshot,
 };
 use tokio::task::JoinHandle;
 
-pub use self::rtc_session::{SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
+pub use self::rtc_session::{INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD, SessionStats};
 use crate::prelude::ParticipantIdentity;
+use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 use crate::{
+    DataPacketKind,
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::LocalTrack,
@@ -41,9 +43,7 @@ use crate::{
         lk_runtime::LkRuntime,
         rtc_session::{RtcSession, SessionEvent, SessionEvents},
     },
-    DataPacketKind,
 };
-use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 
 mod dc_sender;
 pub mod lk_runtime;
@@ -400,8 +400,8 @@ impl RtcEngine {
         // We don't need to wait for the reconnection
         let session = self.inner.running_handle.read().session.clone();
         session.remove_track(sender) // TODO(theomonnom): Ignore errors where this
-                                     // RtpSender is bound to the old session. (Can
-                                     // happen on bad timing and it is safe to ignore)
+        // RtpSender is bound to the old session. (Can
+        // happen on bad timing and it is safe to ignore)
     }
 
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
@@ -442,7 +442,7 @@ impl RtcEngine {
         // Also on full_reconnect, every message is OK to ignore (Since this is another RtcSession)
         let session = self.inner.running_handle.read().session.clone();
         session.signal_client().send(msg).await // Returns () and automatically queues the message
-                                                // on fail
+        // on fail
     }
 
     pub async fn get_response(&self, request_id: u32) -> proto::RequestResponse {

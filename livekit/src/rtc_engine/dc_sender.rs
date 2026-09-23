@@ -16,7 +16,7 @@ use bytes::Bytes;
 use libwebrtc::{self as rtc, data_channel::DataChannel};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use tokio::sync::{mpsc, watch, Notify};
+use tokio::sync::{Notify, mpsc, watch};
 
 /// A single application-level frame's worth of serialized packets.
 ///

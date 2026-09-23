@@ -14,7 +14,7 @@
 
 use std::{
     collections::HashMap,
-    ffi::{c_char, c_void, CString},
+    ffi::{CString, c_char, c_void},
     pin::Pin,
     sync::{Arc, LazyLock},
     task::{Context, Poll},
@@ -211,11 +211,7 @@ impl AudioFilterPlugin {
         let on_load_fn: OnLoadFn = unsafe { std::mem::transmute(self.on_load_fn_ptr) };
 
         let res = unsafe { on_load_fn(options.as_ptr()) };
-        if res == 0 {
-            Ok(())
-        } else {
-            Err(PluginError::OnLoad(res))
-        }
+        if res == 0 { Ok(()) } else { Err(PluginError::OnLoad(res)) }
     }
 
     pub fn update_token(&self, url: String, token: String) {

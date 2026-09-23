@@ -14,8 +14,8 @@
 
 use libwebrtc::native::frame_cryptor as fc;
 use std::sync::{
-    atomic::{AtomicI32, Ordering},
     Arc,
+    atomic::{AtomicI32, Ordering},
 };
 
 use crate::id::ParticipantIdentity;

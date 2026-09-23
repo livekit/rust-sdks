@@ -37,7 +37,7 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{anyhow, bail, Result},
+    anyhow::{Result, anyhow, bail},
     common::test_rooms,
     libwebrtc::native::create_random_uuid,
     livekit::{ConnectionState, Room, RoomEvent, RoomOptions, SimulateScenario},

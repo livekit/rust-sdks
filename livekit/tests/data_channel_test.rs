@@ -93,7 +93,7 @@ async fn test_reliable_retry() -> Result<()> {
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_oversized_data_message_rejected() -> Result<()> {
-    use anyhow::{ensure, Context};
+    use anyhow::{Context, ensure};
 
     // Comfortably larger than any plausible negotiated max-message-size
     // (LiveKit/pion advertises ~64 KiB; libwebrtc's default is 256 KiB).
