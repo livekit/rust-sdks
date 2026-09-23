@@ -2006,6 +2006,37 @@ impl SessionInner {
         if track.kind() == TrackKind::Video {
             transceiver.sender().set_video_encoder_backend(options.video_encoder);
 
+            // The encoder factory advertises every pass-through codec so that
+            // pre-encoded publishing works without a real encoder for it. A
+            // normal session must still only negotiate a codec some real
+            // encoder can produce; otherwise the sender would negotiate a codec
+            // it cannot encode. A pre-encoded sender must negotiate exactly the
+            // codec of its frames, since the pass-through cannot transcode.
+            let requested_codec = options.video_codec.as_str();
+            let producing_backend = if options.video_encoder == VideoEncoderBackend::PreEncoded {
+                VideoEncoderBackend::PreEncoded
+            } else {
+                VideoEncoderBackend::Auto
+            };
+            let codec_producible = producing_backend
+                .supported_codecs()
+                .into_iter()
+                .any(|codec| codec.eq_ignore_ascii_case(requested_codec));
+            if !codec_producible {
+                if producing_backend == VideoEncoderBackend::PreEncoded {
+                    return Err(EngineError::Internal(
+                        format!(
+                            "pre-encoded video publishing cannot forward codec {requested_codec}"
+                        )
+                        .into(),
+                    ));
+                }
+                log::warn!(
+                    "no video encoder on this host can produce {requested_codec}; \
+                     falling back to the default codec"
+                );
+            }
+
             let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
                 match track.kind() {
                     TrackKind::Video => MediaType::Video,
@@ -2019,7 +2050,7 @@ impl SessionInner {
 
             for codec in capabilities.codecs {
                 let mime_type = codec.mime_type.to_lowercase();
-                if mime_type == format!("video/{}", options.video_codec.as_str()) {
+                if codec_producible && mime_type == format!("video/{requested_codec}") {
                     if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
                         // for h264 codecs that have sdpFmtpLine available, use only if the
                         // profile-level-id is 42e01f for cross-browser compatibility
