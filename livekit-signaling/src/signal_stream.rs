@@ -21,6 +21,10 @@ use tokio::sync::{mpsc, oneshot};
 
 use super::{SignalError, SignalResult};
 
+/// Upper bound for the writer to flush its Close frame during `close`; a peer
+/// that never answers must not hold the stream lock hostage.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
+
 #[derive(Debug)]
 enum InternalMessage {
     Signal {
@@ -73,22 +77,41 @@ impl SignalStream {
         .map_err(|_| SignalError::Timeout("signal connection timed out".into()))??
         .connection;
 
+        Ok(Self::from_connection(conn))
+    }
+
+    /// Drives an already-established connection: one task writes, one reads.
+    pub(crate) fn from_connection(
+        conn: Arc<dyn livekit_net::WsConnection>,
+    ) -> (Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>) {
         let (emitter, events) = mpsc::unbounded_channel();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
         let write_handle = tokio::spawn(Self::write_task(internal_rx, conn.clone()));
         let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), conn, emitter));
-
-        Ok((Self { internal_tx, read_handle, write_handle }, events))
+        (Self { internal_tx, read_handle, write_handle }, events)
     }
 
     /// Close the websocket.
-    /// It sends a Close message before closing.
+    /// It sends a Close message before closing when `notify_close` is set.
+    ///
+    /// Never waits on the peer. The read task may be parked in `recv()` on a
+    /// half-open socket that will never deliver another byte, and the write
+    /// task only exits once every sender is gone, so both are bounded here:
+    /// otherwise a dead link stalls the resume that needs the stream lock this
+    /// close is called under, and `Room::close` with it.
     pub async fn close(self, notify_close: bool) {
+        let Self { internal_tx, read_handle, mut write_handle } = self;
         if notify_close {
-            let _ = self.internal_tx.send(InternalMessage::Close).await;
+            let _ = internal_tx.send(InternalMessage::Close).await;
         }
-        let _ = self.write_handle.await;
-        let _ = self.read_handle.await;
+        // Dropping our sender lets the writer exit by channel closure even when
+        // no Close was requested; the reader's clone goes away with the abort.
+        drop(internal_tx);
+        read_handle.abort();
+        let _ = read_handle.await;
+        if tokio::time::timeout(CLOSE_TIMEOUT, &mut write_handle).await.is_err() {
+            write_handle.abort();
+        }
     }
 
     /// Send a SignalRequest to the websocket.
@@ -161,6 +184,39 @@ impl SignalStream {
                     break;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use livekit_net::{TransportError, WsConnection};
+
+    /// A half-open socket: writes succeed, the peer never sends another byte
+    /// and never closes.
+    struct HalfOpenConn;
+
+    #[async_trait::async_trait]
+    impl WsConnection for HalfOpenConn {
+        async fn send(&self, _frame: Vec<u8>) -> Result<(), TransportError> {
+            Ok(())
+        }
+        async fn recv(&self) -> Result<Option<Vec<u8>>, TransportError> {
+            std::future::pending().await
+        }
+        async fn close(&self) {}
+    }
+
+    #[tokio::test]
+    async fn close_returns_on_a_half_open_socket() {
+        for notify in [true, false] {
+            let (stream, _events) = SignalStream::from_connection(Arc::new(HalfOpenConn));
+            tokio::time::timeout(Duration::from_secs(5), stream.close(notify))
+                .await
+                .unwrap_or_else(|_| {
+                    panic!("close(notify_close={notify}) hung on a half-open socket")
+                });
         }
     }
 }
