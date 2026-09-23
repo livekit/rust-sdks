@@ -358,6 +358,22 @@ $platform_flags \
 ${SWIFT_RELEASE_FLAG}
 """
 
+# Format the generated bindings with swiftformat's default rules. UniFFI's
+# templates leave stray whitespace and dangling `)` lines, and its own format
+# step never modifies the files (mozilla/uniffi-rs#2535). Keep --swiftversion
+# at Package.swift's tools version: 6.1+ adds call-site trailing commas that
+# Swift 6.0 cannot parse.
+[tasks.swift-format-bindings]
+private = true
+script_runner = "@shell"
+script = """
+if ! command -v swiftformat >/dev/null 2>&1; then
+  echo "swift-format-bindings: swiftformat unavailable, skipping (brew install swiftformat)."
+  exit 0
+fi
+swiftformat ${SPM_NAME}/Sources --swiftversion 6.0 --quiet
+"""
+
 # Print a size breakdown of the iPhone-arm64 framework binary (the slice that
 # actually ships to end users) using bloaty. Runs right before the size gate
 # so a failing gate ends with the diagnostic already in the log — no need to
@@ -493,6 +509,7 @@ mv "${SPM_NAME}" "${out_dir}"
 private = true
 dependencies = [
     "swift-xcframework",
+    "swift-format-bindings",
     "swift-bloat",
     "swift-check-size",
     "swift-zip-xcframework",
