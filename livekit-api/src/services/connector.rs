@@ -16,10 +16,10 @@ use livekit_protocol as proto;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use super::{LIVEKIT_PACKAGE, ServiceBase, ServiceResult};
 use crate::services::dial_timeout::DEFAULT_RINGING_TIMEOUT;
 use crate::services::twirp_client::TwirpClient;
-use livekit_token::{get_env_keys, VideoGrants};
+use livekit_token::{VideoGrants, get_env_keys};
 
 const SVC: &str = "Connector";
 

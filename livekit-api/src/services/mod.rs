@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 
-use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use http::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use thiserror::Error;
 
 use livekit_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};

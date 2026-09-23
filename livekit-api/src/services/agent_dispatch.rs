@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{twirp_client::TwirpClient, ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use super::{LIVEKIT_PACKAGE, ServiceBase, ServiceResult, twirp_client::TwirpClient};
 use http::header::HeaderMap;
 use livekit_protocol as proto;
-use livekit_token::{get_env_keys, AccessTokenError, VideoGrants};
+use livekit_token::{AccessTokenError, VideoGrants, get_env_keys};
 
 const SVC: &str = "AgentDispatchService";
 
