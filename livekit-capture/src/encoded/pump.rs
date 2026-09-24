@@ -18,13 +18,13 @@
 use crate::{
     encoded::{EncodedFrameType, EncodedVideoCodec, EncodedVideoSource, OwnedEncodedAccessUnit},
     error::SourceError,
-    pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
+    pump::{PumpError, PumpExit, PumpStats, PumpStop, RunningPump, spawn_pump},
 };
 use livekit::{
     options::{TrackPublishOptions, VideoEncoderBackend},
     webrtc::{
         video_frame::{EncodedVideoFrame, FrameMetadata},
-        video_source::{native::NativeVideoSource, RtcVideoSource},
+        video_source::{RtcVideoSource, native::NativeVideoSource},
     },
 };
 use std::{fmt, io};

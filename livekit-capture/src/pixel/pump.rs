@@ -16,13 +16,13 @@
 
 use crate::{
     pixel::PixelVideoSource,
-    pump::{spawn_pump, PumpError, PumpExit, PumpStats, PumpStop, RunningPump},
+    pump::{PumpError, PumpExit, PumpStats, PumpStop, RunningPump, spawn_pump},
 };
 use livekit::{
     options::TrackPublishOptions,
     webrtc::{
         video_frame::{BoxVideoFrame, FrameMetadata},
-        video_source::{native::NativeVideoSource, RtcVideoSource},
+        video_source::{RtcVideoSource, native::NativeVideoSource},
     },
 };
 use std::{fmt, io};

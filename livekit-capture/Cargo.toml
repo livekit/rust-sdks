@@ -5,7 +5,7 @@ version = "0.1.2"
 readme = "README.md"
 categories = ["multimedia::video"]
 license.workspace = true
-edition.workspace = true
+edition = "2024"
 repository.workspace = true
 
 [dependencies]
