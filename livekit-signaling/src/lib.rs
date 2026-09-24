@@ -32,7 +32,7 @@ use livekit_protocol as proto;
 use parking_lot::Mutex;
 use prost::Message;
 use thiserror::Error;
-use tokio::sync::{mpsc, RwLock as AsyncRwLock};
+use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use tokio::{
     task::JoinHandle,
     time::{interval, sleep, Instant},
@@ -311,9 +311,10 @@ struct SignalInner {
     // The write lock is held across reconnects to avoid transportless gaps
     state: AsyncRwLock<SignalState>,
     token: Mutex<String>, // Token can be refreshed
-    /// Session-scoped signals held while no confirmed transport can carry them. A sync lock that
-    /// is never held across an await, so it cannot deadlock against `state`.
-    queue: Mutex<Vec<proto::signal_request::Message>>,
+    /// Session-scoped signals held while no confirmed transport can carry them. Always taken
+    /// under `state`, so the lock order is fixed, and held across a drain so a concurrent
+    /// sender cannot slip a newer signal between two held ones.
+    queue: AsyncMutex<Vec<proto::signal_request::Message>>,
     url: String,
     options: SignalOptions,
     join_response: proto::JoinResponse,
@@ -770,25 +771,26 @@ impl SignalInner {
         match stream {
             Some(stream) => {
                 if stream.send(signal.clone()).await.is_err() {
-                    self.hold_or_drop(signal, "send failed");
+                    self.hold_or_drop(signal, "send failed").await;
                 }
             }
-            None => self.hold_or_drop(signal, "no confirmed transport"),
+            None => self.hold_or_drop(signal, "no confirmed transport").await,
         }
     }
 
-    fn hold_or_drop(&self, signal: proto::signal_request::Message, why: &str) {
+    async fn hold_or_drop(&self, signal: proto::signal_request::Message, why: &str) {
         if is_pass_through(&signal) {
             log::warn!("dropping pass-through signal: {why}");
         } else {
-            self.queue.lock().push(signal);
+            self.queue.lock().await.push(signal);
         }
     }
 
-    /// Send every held signal over `stream`, in the order it was held.
+    /// Send every held signal over `stream`, in the order it was held. The queue stays locked
+    /// for the whole drain: a concurrent `Connected` send waits here instead of overtaking.
     async fn flush_queue(&self, stream: &SignalStream) {
-        let queued = std::mem::take(&mut *self.queue.lock());
-        for signal in queued {
+        let mut queue = self.queue.lock().await;
+        for signal in queue.drain(..) {
             if let Err(err) = stream.send(signal).await {
                 log::error!("failed to send queued signal: {}", err); // Lost message
             }
@@ -1285,10 +1287,11 @@ mod tests {
     }
 
     /// The sids of the queued mute requests, in queue order.
-    fn queued_sids(inner: &Arc<SignalInner>) -> Vec<String> {
+    async fn queued_sids(inner: &Arc<SignalInner>) -> Vec<String> {
         inner
             .queue
             .lock()
+            .await
             .iter()
             .filter_map(|signal| match signal {
                 proto::signal_request::Message::Mute(m) => Some(m.sid.clone()),
@@ -1340,7 +1343,11 @@ mod tests {
             }))
             .await;
 
-        assert_eq!(inner.queue.lock().len(), 3, "all three queueable signals should be buffered");
+        assert_eq!(
+            inner.queue.lock().await.len(),
+            3,
+            "all three queueable signals should be buffered"
+        );
     }
 
     #[tokio::test]
@@ -1363,7 +1370,7 @@ mod tests {
             .await;
         inner.send(proto::signal_request::Message::Leave(proto::LeaveRequest::default())).await;
 
-        let queued = inner.queue.lock().len();
+        let queued = inner.queue.lock().await.len();
         assert_eq!(queued, 0, "pass-through signals must not be queued, got {queued}");
     }
 
@@ -1375,12 +1382,70 @@ mod tests {
         *inner.state.write().await = SignalState::Reconnecting(Some(mock_stream().await));
 
         inner.send(mute("held-during-resume")).await;
-        assert_eq!(queued_sids(&inner), vec!["held-during-resume"]);
+        assert_eq!(queued_sids(&inner).await, vec!["held-during-resume"]);
 
         inner.set_reconnected().await;
 
         assert!(matches!(*inner.state.read().await, SignalState::Connected(_)));
-        assert!(inner.queue.lock().is_empty(), "the queue must drain on confirmation");
+        assert!(inner.queue.lock().await.is_empty(), "the queue must drain on confirmation");
+    }
+
+    /// A connection that records what was sent and never ends, so the stream's write task stays
+    /// alive and every `send` genuinely awaits its acknowledgement.
+    struct RecordingConn {
+        sent: Mutex<Vec<Vec<u8>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl livekit_net::WsConnection for RecordingConn {
+        async fn send(&self, frame: Vec<u8>) -> Result<(), livekit_net::TransportError> {
+            self.sent.lock().push(frame);
+            Ok(())
+        }
+        async fn recv(&self) -> Result<Option<Vec<u8>>, livekit_net::TransportError> {
+            std::future::pending().await
+        }
+        async fn close(&self) {}
+    }
+
+    /// The mute sids the connection saw, in wire order.
+    fn sent_sids(conn: &RecordingConn) -> Vec<String> {
+        conn.sent
+            .lock()
+            .iter()
+            .filter_map(|frame| {
+                match proto::SignalRequest::decode(frame.as_slice()).ok()?.message {
+                    Some(proto::signal_request::Message::Mute(m)) => Some(m.sid),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
+    /// Held signals are older than anything a concurrent sender has, so they must all reach
+    /// the wire before it. The read lock is shared, so only the queue lock can enforce that.
+    #[tokio::test]
+    async fn a_concurrent_send_cannot_overtake_the_held_batch() {
+        let conn = Arc::new(RecordingConn { sent: Mutex::new(Vec::new()) });
+        let (stream, _events) = SignalStream::spawn(conn.clone());
+        let inner = make_stub_inner();
+        *inner.state.write().await = SignalState::Connected(stream);
+        inner.queue.lock().await.extend([mute("held-1"), mute("held-2")]);
+
+        let a = tokio::spawn({
+            let inner = inner.clone();
+            async move { inner.send(mute("a")).await }
+        });
+        let b = tokio::spawn({
+            let inner = inner.clone();
+            async move { inner.send(mute("b")).await }
+        });
+        a.await.unwrap();
+        b.await.unwrap();
+
+        let order = sent_sids(&conn);
+        assert_eq!(&order[..2], ["held-1", "held-2"], "held batch was interleaved: {order:?}");
+        assert_eq!(order.len(), 4);
     }
 
     /// The queue is FIFO, and the release order is the send order. The existing
@@ -1393,7 +1458,7 @@ mod tests {
         inner.send(mute("second")).await;
         inner.send(mute("third")).await;
 
-        assert_eq!(queued_sids(&inner), vec!["first", "second", "third"]);
+        assert_eq!(queued_sids(&inner).await, vec!["first", "second", "third"]);
     }
 
     /// A resume is not complete when the transport comes back — the engine calls
@@ -1414,7 +1479,7 @@ mod tests {
         inner.send(mute("issued-while-catching-up")).await;
 
         assert_eq!(
-            queued_sids(&inner),
+            queued_sids(&inner).await,
             vec!["held-during-resume", "issued-while-catching-up"],
             "a live transport must not let a later send overtake a held one"
         );
