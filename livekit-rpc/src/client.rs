@@ -17,8 +17,8 @@ use crate::constants::{
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
 use crate::transport::{RpcTransport, RpcTransportError};
-use crate::types::{PerformRpcData, RpcError, RpcErrorCode, MAX_V1_PAYLOAD_BYTES};
-use livekit_common::{ParticipantIdentity, CLIENT_PROTOCOL_DATA_STREAM_RPC};
+use crate::types::{MAX_V1_PAYLOAD_BYTES, PerformRpcData, RpcError, RpcErrorCode};
+use livekit_common::{CLIENT_PROTOCOL_DATA_STREAM_RPC, ParticipantIdentity};
 use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
