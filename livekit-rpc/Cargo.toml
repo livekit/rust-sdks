@@ -4,7 +4,7 @@ description = "RPC core logic for LiveKit"
 version = "0.1.2"
 readme = "README.md"
 license.workspace = true
-edition = "2024"
+edition.workspace = true
 repository.workspace = true
 
 [dependencies]

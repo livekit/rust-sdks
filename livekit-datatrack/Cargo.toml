@@ -4,7 +4,7 @@ description = "Data track core for LiveKit"
 version = "0.2.0"
 readme = "README.md"
 license.workspace = true
-edition = "2024"
+edition.workspace = true
 repository.workspace = true
 
 [dependencies]

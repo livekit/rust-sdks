@@ -3,7 +3,7 @@ name = "livekit-api"
 version = "0.8.0"
 license.workspace = true
 description = "Rust Server SDK for LiveKit"
-edition = "2024"
+edition.workspace = true
 repository.workspace = true
 readme = "README.md"
 

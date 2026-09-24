@@ -2,7 +2,7 @@
 name = "device-info"
 version = "0.1.1"
 description = "Cross-platform device information"
-edition = "2024"
+edition.workspace = true
 repository.workspace = true
 license.workspace = true
 
