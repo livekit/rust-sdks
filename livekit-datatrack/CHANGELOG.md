@@ -1,4 +1,29 @@
 # Changelog
+## 0.2.0 (2026-09-22)
+
+### Breaking Changes
+
+#### `EncryptionError::Failed` and `DecryptionError::Failed` carry a `reason` string and are no longer `flat_error`,
+
+so a foreign `EncryptionProvider` or `DecryptionProvider` returning an error no longer aborts the process with
+"Can't lift flat errors" -- a failed data track decrypt (no E2EE manager, key mismatch, corrupt frame) now 
+drops the frame and leaves the room connected.
+
+### Fixes
+
+- Cleanup unused dependencies
+
+## 0.1.15 (2026-09-08)
+
+### Features
+
+- Removes livekit-runtime and converts this package to be tokio only again - #1375 (@1egoman)
+
+### Fixes
+
+- Add data streams v2 to exposed uniffi interface - #1286 (@1egoman)
+- Add the `PASSTHROUGH` encoding preset and remove the unused `UpdateEgressRequest` from the generated protocol
+
 ## 0.1.14 (2026-08-25)
 
 ### Fixes

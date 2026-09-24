@@ -343,3 +343,83 @@ fn publish_video_track() {
         })
 }
 */
+
+use std::sync::{
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    Arc,
+};
+
+use super::{FfiConfig, FfiHandle};
+use crate::{FfiHandleId, FFI_SERVER};
+
+struct DropsHandle {
+    handle: FfiHandleId,
+    did_attempt_drop: Arc<AtomicBool>,
+    drop_count: Arc<AtomicUsize>,
+}
+
+impl FfiHandle for DropsHandle {}
+
+impl Drop for DropsHandle {
+    fn drop(&mut self) {
+        self.did_attempt_drop.store(true, Ordering::SeqCst);
+        self.drop_count.fetch_add(1, Ordering::SeqCst);
+        let _ = FFI_SERVER.drop_handle(self.handle);
+    }
+}
+
+#[test]
+fn dispose_cleans_up_resources() {
+    let did_attempt_drop = Arc::new(AtomicBool::new(false));
+    let drop_count = Arc::new(AtomicUsize::new(0));
+    let child_handle = FFI_SERVER.next_id();
+    let first_parent_handle = FFI_SERVER.next_id();
+    let second_parent_handle = FFI_SERVER.next_id();
+
+    // Configure the server so disposal must also clear its callback state.
+    FFI_SERVER.setup(FfiConfig {
+        callback_fn: Arc::new(|_| {}),
+        capture_logs: false,
+        sdk: "livekit-ffi-test".to_owned(),
+        sdk_version: "test".to_owned(),
+    });
+    assert!(FFI_SERVER.is_setup());
+
+    // Parent drops re-enter drop_handle for this child, matching nested FFI
+    // resource cleanup during shutdown.
+    FFI_SERVER.store_handle(child_handle, ());
+    let mut child_dropped_rx = FFI_SERVER.watch_handle_dropped(child_handle);
+    FFI_SERVER.store_handle(
+        first_parent_handle,
+        DropsHandle {
+            handle: child_handle,
+            did_attempt_drop: did_attempt_drop.clone(),
+            drop_count: drop_count.clone(),
+        },
+    );
+    FFI_SERVER.store_handle(
+        second_parent_handle,
+        DropsHandle {
+            handle: child_handle,
+            did_attempt_drop: did_attempt_drop.clone(),
+            drop_count: drop_count.clone(),
+        },
+    );
+
+    // Dispose must release handles, cancel their watchers, and clear config.
+    FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
+
+    assert!(did_attempt_drop.load(Ordering::SeqCst));
+    assert_eq!(drop_count.load(Ordering::SeqCst), 2);
+    assert!(FFI_SERVER.ffi_handles.is_empty());
+    assert!(!FFI_SERVER.is_setup());
+    assert!(matches!(
+        child_dropped_rx.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+    ));
+
+    // A repeated shutdown is a no-op after the first cleanup.
+    FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
+    assert!(FFI_SERVER.ffi_handles.is_empty());
+    assert!(!FFI_SERVER.is_setup());
+}

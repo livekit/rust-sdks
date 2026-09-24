@@ -23,13 +23,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const { proto2 } = require("@bufbuild/protobuf");
 const { ConnectCallback, ConnectRequest, ConnectResponse, DisconnectCallback, DisconnectRequest, DisconnectResponse, EditChatMessageRequest, GetSessionStatsCallback, GetSessionStatsRequest, GetSessionStatsResponse, PublishDataCallback, PublishDataRequest, PublishDataResponse, PublishSipDtmfCallback, PublishSipDtmfRequest, PublishSipDtmfResponse, PublishTrackCallback, PublishTrackRequest, PublishTrackResponse, PublishTranscriptionCallback, PublishTranscriptionRequest, PublishTranscriptionResponse, ReadyForRoomEventRequest, ReadyForRoomEventResponse, RoomEvent, SendChatMessageCallback, SendChatMessageRequest, SendChatMessageResponse, SendStreamChunkCallback, SendStreamChunkRequest, SendStreamChunkResponse, SendStreamHeaderCallback, SendStreamHeaderRequest, SendStreamHeaderResponse, SendStreamTrailerCallback, SendStreamTrailerRequest, SendStreamTrailerResponse, SetDataChannelBufferedAmountLowThresholdRequest, SetDataChannelBufferedAmountLowThresholdResponse, SetLocalAttributesCallback, SetLocalAttributesRequest, SetLocalAttributesResponse, SetLocalMetadataCallback, SetLocalMetadataRequest, SetLocalMetadataResponse, SetLocalNameCallback, SetLocalNameRequest, SetLocalNameResponse, SetSubscribedRequest, SetSubscribedResponse, SimulateScenarioCallback, SimulateScenarioRequest, SimulateScenarioResponse, UnpublishTrackCallback, UnpublishTrackRequest, UnpublishTrackResponse } = require("./room_pb.js");
 const { CreateAudioTrackRequest, CreateAudioTrackResponse, CreateVideoTrackRequest, CreateVideoTrackResponse, EnableRemoteTrackRequest, EnableRemoteTrackResponse, GetStatsCallback, GetStatsRequest, GetStatsResponse, LocalTrackMuteRequest, LocalTrackMuteResponse, SetTrackSubscriptionPermissionsRequest, SetTrackSubscriptionPermissionsResponse, TrackEvent } = require("./track_pb.js");
-const { CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } = require("./video_frame_pb.js");
+const { CaptureEncodedVideoFrameRequest, CaptureEncodedVideoFrameResponse, CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, TakeEncodedVideoSourceFeedbackRequest, TakeEncodedVideoSourceFeedbackResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } = require("./video_frame_pb.js");
 const { ApmProcessReverseStreamRequest, ApmProcessReverseStreamResponse, ApmProcessStreamRequest, ApmProcessStreamResponse, ApmSetStreamDelayRequest, ApmSetStreamDelayResponse, AudioStreamEvent, AudioStreamFromParticipantRequest, AudioStreamFromParticipantResponse, CaptureAudioFrameCallback, CaptureAudioFrameRequest, CaptureAudioFrameResponse, ClearAudioBufferRequest, ClearAudioBufferResponse, FlushSoxResamplerRequest, FlushSoxResamplerResponse, GetAudioDevicesRequest, GetAudioDevicesResponse, LoadAudioFilterPluginRequest, LoadAudioFilterPluginResponse, NewApmRequest, NewApmResponse, NewAudioResamplerRequest, NewAudioResamplerResponse, NewAudioSourceRequest, NewAudioSourceResponse, NewAudioStreamRequest, NewAudioStreamResponse, NewPlatformAudioRequest, NewPlatformAudioResponse, NewSoxResamplerRequest, NewSoxResamplerResponse, PushSoxResamplerRequest, PushSoxResamplerResponse, RemixAndResampleRequest, RemixAndResampleResponse, SetPlayoutDeviceRequest, SetPlayoutDeviceResponse, SetRecordingDeviceRequest, SetRecordingDeviceResponse, StartRecordingRequest, StartRecordingResponse, StopRecordingRequest, StopRecordingResponse } = require("./audio_frame_pb.js");
 const { E2eeRequest, E2eeResponse } = require("./e2ee_pb.js");
 const { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } = require("./rpc_pb.js");
 const { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } = require("./track_publication_pb.js");
 const { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } = require("./data_stream_pb.js");
 const { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, DefineSchemaCallback, DefineSchemaRequest, DefineSchemaResponse, GetSchemaCallback, GetSchemaRequest, GetSchemaResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, RemoteDataTrackSetPipelineOptionsRequest, RemoteDataTrackSetPipelineOptionsResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } = require("./data_track_pb.js");
+const { CaptureSourceEvent, NewCaptureSourceCallback, NewCaptureSourceRequest, NewCaptureSourceResponse, StartCaptureRequest, StartCaptureResponse, StopCaptureRequest, StopCaptureResponse } = require("./capture_pb.js");
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -131,6 +132,8 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 84, name: "remote_data_track_set_pipeline_options", kind: "message", T: RemoteDataTrackSetPipelineOptionsRequest, oneof: "message" },
     { no: 85, name: "define_schema", kind: "message", T: DefineSchemaRequest, oneof: "message" },
     { no: 86, name: "get_schema", kind: "message", T: GetSchemaRequest, oneof: "message" },
+    { no: 87, name: "capture_encoded_video_frame", kind: "message", T: CaptureEncodedVideoFrameRequest, oneof: "message" },
+    { no: 88, name: "take_encoded_video_source_feedback", kind: "message", T: TakeEncodedVideoSourceFeedbackRequest, oneof: "message" },
     { no: 76, name: "simulate_scenario", kind: "message", T: SimulateScenarioRequest, oneof: "message" },
     { no: 77, name: "new_platform_audio", kind: "message", T: NewPlatformAudioRequest, oneof: "message" },
     { no: 78, name: "get_audio_devices", kind: "message", T: GetAudioDevicesRequest, oneof: "message" },
@@ -139,6 +142,9 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 81, name: "start_recording", kind: "message", T: StartRecordingRequest, oneof: "message" },
     { no: 82, name: "stop_recording", kind: "message", T: StopRecordingRequest, oneof: "message" },
     { no: 83, name: "ready_for_room_event", kind: "message", T: ReadyForRoomEventRequest, oneof: "message" },
+    { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceRequest, oneof: "message" },
+    { no: 89, name: "start_capture", kind: "message", T: StartCaptureRequest, oneof: "message" },
+    { no: 90, name: "stop_capture", kind: "message", T: StopCaptureRequest, oneof: "message" },
   ],
 );
 
@@ -226,6 +232,8 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 84, name: "remote_data_track_set_pipeline_options", kind: "message", T: RemoteDataTrackSetPipelineOptionsResponse, oneof: "message" },
     { no: 85, name: "define_schema", kind: "message", T: DefineSchemaResponse, oneof: "message" },
     { no: 86, name: "get_schema", kind: "message", T: GetSchemaResponse, oneof: "message" },
+    { no: 87, name: "capture_encoded_video_frame", kind: "message", T: CaptureEncodedVideoFrameResponse, oneof: "message" },
+    { no: 88, name: "take_encoded_video_source_feedback", kind: "message", T: TakeEncodedVideoSourceFeedbackResponse, oneof: "message" },
     { no: 75, name: "simulate_scenario", kind: "message", T: SimulateScenarioResponse, oneof: "message" },
     { no: 76, name: "new_platform_audio", kind: "message", T: NewPlatformAudioResponse, oneof: "message" },
     { no: 77, name: "get_audio_devices", kind: "message", T: GetAudioDevicesResponse, oneof: "message" },
@@ -234,6 +242,9 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 80, name: "start_recording", kind: "message", T: StartRecordingResponse, oneof: "message" },
     { no: 81, name: "stop_recording", kind: "message", T: StopRecordingResponse, oneof: "message" },
     { no: 82, name: "ready_for_room_event", kind: "message", T: ReadyForRoomEventResponse, oneof: "message" },
+    { no: 91, name: "new_capture_source", kind: "message", T: NewCaptureSourceResponse, oneof: "message" },
+    { no: 89, name: "start_capture", kind: "message", T: StartCaptureResponse, oneof: "message" },
+    { no: 90, name: "stop_capture", kind: "message", T: StopCaptureResponse, oneof: "message" },
   ],
 );
 
@@ -292,6 +303,8 @@ const FfiEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 44, name: "simulate_scenario", kind: "message", T: SimulateScenarioCallback, oneof: "message" },
     { no: 45, name: "define_schema", kind: "message", T: DefineSchemaCallback, oneof: "message" },
     { no: 46, name: "get_schema", kind: "message", T: GetSchemaCallback, oneof: "message" },
+    { no: 47, name: "new_capture_source", kind: "message", T: NewCaptureSourceCallback, oneof: "message" },
+    { no: 48, name: "capture_source_event", kind: "message", T: CaptureSourceEvent, oneof: "message" },
   ],
 );
 

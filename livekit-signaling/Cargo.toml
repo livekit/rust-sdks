@@ -1,6 +1,6 @@
 [package]
 name = "livekit-signaling"
-version = "0.1.0"
+version = "0.1.3"
 license.workspace = true
 description = "Internal LiveKit signalling client, blind to the transport backend"
 edition.workspace = true
@@ -23,6 +23,11 @@ rustls-tls-native-roots = ["livekit-net/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-net/rustls-tls-webpki-roots"]
 __rustls-tls            = ["livekit-net/__rustls-tls"]
 
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
+
 [dependencies]
 livekit-net = { workspace = true }
 livekit-protocol = { workspace = true }
@@ -38,7 +43,7 @@ base64 = { version = "0.21", features = ["std"] }
 flate2 = "1"
 http = "1.1"
 os_info = "3.14.0"
-prost = "0.12"
+prost = { workspace = true }
 url = "2.3"
 
 [dev-dependencies]

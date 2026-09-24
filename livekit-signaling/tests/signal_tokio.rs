@@ -218,7 +218,10 @@ async fn reconnect_response() {
     let (client, _join, _events) =
         connect(&base, &token("happy"), false).await.expect("initial connect should succeed");
 
-    client.restart().await.expect("restart should yield a ReconnectResponse");
+    client
+        .restart(proto::ReconnectReason::RrUnknown)
+        .await
+        .expect("restart should yield a ReconnectResponse");
 
     client.close().await;
 }
@@ -235,7 +238,10 @@ async fn leave_during_reconnect() {
         .await
         .expect("initial (non-reconnect) connect should succeed");
 
-    let err = client.restart().await.expect_err("restart should surface the server's LeaveRequest");
+    let err = client
+        .restart(proto::ReconnectReason::RrUnknown)
+        .await
+        .expect_err("restart should surface the server's LeaveRequest");
     match err {
         SignalError::LeaveRequest { reason, action } => {
             assert_eq!(reason, proto::DisconnectReason::ServerShutdown);

@@ -49,6 +49,20 @@
   - Isolate only the unsafe operations
   - Every unsafe block should have a `// SAFETY:` comment explaining why the operation is actually safe (e.g., verifying pointers are non-null)
 
+## Memory lifecycle
+
+Rust memory safety does not prevent leaks: `Arc` cycles, stored callbacks, detached tasks, unbounded channels, and native handles can retain resources indefinitely.
+
+- Treat every `Arc::clone`, `Rc::clone`, callback capture, observer registration, and spawned task as an ownership edge. If an owner transitively stores the callback/task, the callback/task must not strongly capture that owner.
+- Use `Weak` for non-owning back-references. A strong back-reference is allowed only when teardown explicitly unregisters or clears it before releasing the owner, and a lifecycle regression test proves cleanup.
+- A callback stored by an object must not capture a strong clone of that same object. Reviewers must flag `move` closures capturing `Arc` when the receiver can retain the callback.
+- Every task, thread, subscription, FFI handle, observer, timer, and channel must have a named owner and deterministic shutdown path. Tasks/threads must be cancelled and joined; observers must be unregistered; channels and queues must be bounded or explicitly justified.
+- For lifecycle-sensitive changes, test observable destruction: `Weak::upgrade() == None`, FFI handle maps empty, task completion, and thread/FD counts returning near baseline. `Drop` code alone is not evidence that destruction occurs because reference cycles prevent it from running.
+- Any new FFI handle must add a repeated `initialize → use → disconnect/drop → shutdown` workload. Include success, failure/cancellation, and partial-initialization teardown where applicable.
+- Review ownership changes by sketching the strong-reference graph. Every cycle must contain a weak edge or an explicit, tested unlink operation.
+
+When reviewing changed code, search for `Arc::clone`, `.clone()` inside `move` closures, `tokio::spawn`, unbounded channels, callback setters, listener registration, and FFI `store_handle`. Report lifecycle risks even when the code is type-safe.
+
 ## Style guidelines
 
 - Always format using `cargo fmt`
@@ -74,6 +88,57 @@ Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `live
   - Name the field `reason` in Rust instead — see `DataStreamError` in `livekit-uniffi/src/data_stream/common.rs`
 - A new crate that exports UniFFI items needs its own `uniffi.toml`, including `omit_checksums = true` under `[bindings.kotlin]`
   - The Kotlin checksum test is broken on ARM in every UniFFI release this workspace can use; the full explanation lives in `livekit-uniffi/uniffi.toml` and the root `Cargo.toml`
+- **Never use `uniffi(flat_error)` on an error that foreign code can return**
+  - Flat errors lower (Rust → foreign) but cannot be lifted: the derived `Lift` exists only to satisfy trait bounds, and its `try_read`/`try_lift` are `panic!("Can't lift flat errors")`. In an FFI callback that panic has nowhere to unwind to, so the host process aborts — and nothing catches it earlier, since the build, bindings generation, and Kotlin compilation all pass
+  - Applies to the error type of any `#[uniffi::export(with_foreign)]` trait or callback interface, since foreign code implements the method. `flat_error` is correct only for an error that travels Rust → foreign exclusively, e.g. `PublishError` in `livekit-datatrack/src/local/mod.rs`
+  - Give a host-thrown error a single `Failed { reason: String }` variant plus `From<uniffi::UnexpectedUniFFICallbackError>`, so an undeclared exception surfaces as an error rather than aborting — see `PacketDeliveryError` in `livekit-uniffi/src/data_stream/common.rs`
+
+## Feature combinations
+
+`.github/workflows/feature-combinations-curated.yml` is the only job in CI that exercises features in *combination*. A `dep:` that one feature pulls in but the code uses unconditionally, or a `?/` forward that silently no-ops, compiles fine under default features and breaks only for the caller who picks a particular set — nothing else catches that.
+
+**The workflow lists no crate names.** Each crate declares how it wants to be checked, in its own `Cargo.toml` directly below its `[features]` table, and the workflow reads those declarations with `cargo metadata`:
+
+```toml
+[package.metadata.feature-combinations]
+mode = "powerset"   # cargo hack --feature-powerset --depth 2
+```
+
+```toml
+[package.metadata.feature-combinations]
+mode = "curated"    # only the combinations listed below
+check = [
+    ["default"],                    # a plain `cargo check`
+    [],                             # --no-default-features
+    ["native", "rustls-tls-webpki-roots"],
+    ["default", "rustls-tls-webpki-roots"],   # defaults *plus* one
+]
+```
+
+A crate with no such table is not feature-checked at all. Today eleven crates are `"powerset"`, `livekit` and `livekit-api` are `"curated"`, and `livekit-ffi`/`livekit-uniffi` deliberately declare nothing.
+
+- **When adding a workspace crate**, give it `mode = "powerset"` and stop there
+  - Its features are then picked up automatically as they are added, and no CI file changes
+  - Reach for `"curated"` only when the powerset is genuinely too expensive — that is a real loss of coverage, so it needs a reason recorded next to the table
+  - cargo-hack only varies the features of packages it is given. A crate with no table still gets built as a dependency, which makes it easy to assume it is covered when it is not
+- **When adding a feature to a `"curated"` crate** (`livekit`, `livekit-api`), add the configurations a user would plausibly select to that crate's `check` list
+  - A curated crate's new feature is invisible to this job until it is listed there — this is the standing cost of `"curated"`
+  - Each entry is a complete feature set, run as `--no-default-features --features <entry joined by commas>`. Spell defaults as `"default"`, since a bare `[]` already means "no features at all"
+  - Pair the feature with what it realistically ships alongside (a TLS backend together with `native`, say) rather than listing it on its own
+  - Do not add combinations nobody can select — internal `__lk-*` flags and two-TLS-backends-at-once are deliberately absent, and were most of what made the full powerset expensive
+- **Check any change to these tables without building anything.** This prints exactly what CI will do:
+  ```bash
+  cargo metadata --no-deps --format-version 1 | jq -r '
+    .packages[] | .name as $c | .metadata["feature-combinations"] as $fc
+    | select($fc != null)
+    | if $fc.mode == "curated" then ($fc.check[] | "curated  \($c) \(join(","))")
+      else "powerset \($c)" end' | tr -d '\r'
+  ```
+  For a `"powerset"` crate, `cargo hack -p <crate> --feature-powerset --depth 2 --print-command-list check` enumerates the combinations cargo-hack would run
+- The workflow validates the tables before running anything and fails on a typo'd `mode`, a `"curated"` crate with an empty `check`, a `"powerset"` crate carrying a `check` list that would be silently ignored, or either package set resolving to empty. A malformed table fails the job rather than quietly dropping a crate from CI
+- Keep `--depth 2`. `livekit` alone goes from 67 combinations to 232 at depth 3, and pairwise interactions are where these bugs actually live
+- A feature that pulls in `openssl-sys` cannot build for the three Android targets — there is no Android OpenSSL to link against. Add it to their `exclude_features` in the workflow matrix rather than trying to make it work; Android ships rustls (see `ffi-builds.yml`). It is honoured by both halves of the job
+- `livekit-ffi` and `livekit-uniffi` declare no table on purpose: their combinations cost more than everything else in the job combined, because each TLS change rebuilds `livekit` underneath them. Their shipped configurations are covered by `builds.yml` and `ffi-builds.yml` instead
 
 ## Documenting changes
 
@@ -81,3 +146,8 @@ Several crates export items to Swift/Kotlin/Node/Python through UniFFI — `live
 - Every PR needs a changeset
 - Changeset must list any crates which need to be bumped stemming from the change
 - Document changes interactively from the CLI with `knope document-change` or create manually in `/.changeset`
+- Write the changeset summary as a single unwrapped line of plain prose
+  - knope renders a one-line summary as a changelog bullet. A summary spanning more than one line is instead promoted to a `####` heading, with everything after the first line left as loose body text below it — that mix of bullets and headings is what makes the release page look inconsistent
+  - A hard line wrap alone triggers this, with no Markdown involved: a summary wrapped at 80 columns produced the heading `#### Add agent guidance for detecting and preventing memory-lifecycle regressions in`, stranding the rest of the sentence underneath it
+  - So no Markdown blocks — headings, bullet lists, tables, code fences, blockquotes, or bold-led paragraphs. Inline backticks are fine and render correctly
+  - Keep it to a sentence or two written for someone reading the release notes; rationale, alternatives, and migration detail belong in the PR description

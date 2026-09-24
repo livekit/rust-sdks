@@ -122,3 +122,21 @@ async fn test_cancelled_close_still_closes_peer_connections() -> Result<()> {
     );
     Ok(())
 }
+
+/// Closing and dropping a room must release the internal room session.
+///
+/// Stored callbacks owned by the room must not strongly capture the room session. Such a
+/// reference cycle prevents the session, RTC engine, and WebRTC runtime from being destroyed.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_close_releases_room_session() -> Result<()> {
+    let (room, events) = test_rooms(1).await?.pop().unwrap();
+    let session_dropped = room.drop_probe();
+
+    drop(events);
+    room.close().await?;
+    drop(room);
+
+    assert!(session_dropped(), "room callbacks retained the room session after close");
+    Ok(())
+}

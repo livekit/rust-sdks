@@ -1,6 +1,6 @@
 [package]
 name = "livekit-token"
-version = "0.1.1"
+version = "0.2.0"
 license.workspace = true
 description = "Core logic for generating LiveKit tokens"
 edition.workspace = true
@@ -18,3 +18,11 @@ sha2 = "0.10"
 jsonwebtoken = { version = "10", default-features = false }
 hmac = "0.12"
 signature = "2"
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"

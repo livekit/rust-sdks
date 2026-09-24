@@ -1,3 +1,13 @@
-# Generated from the LiveKit protocol definitions; do not edit by hand.
-livekit-protocol/src/livekit.rs linguist-generated=true
-livekit-protocol/src/livekit.serde.rs linguist-generated=true
+# Vendored third-party sources
+webrtc-sys/src/nvidia/NvCodec/** linguist-vendored
+soxr-sys/src/*.c linguist-vendored
+soxr-sys/src/*.h linguist-vendored
+
+# Generated code; do not edit by hand
+livekit-protocol/src/livekit.rs linguist-generated
+livekit-protocol/src/livekit.serde.rs linguist-generated
+livekit-ffi-node-bindings/proto/*_pb.js linguist-generated
+livekit-ffi-node-bindings/proto/*_pb.d.ts linguist-generated
+soxr-sys/src/soxr.rs linguist-generated
+webrtc-sys/src/lazy_load_deps_for/**/*.c linguist-generated
+webrtc-sys/src/lazy_load_deps_for/**/*.S linguist-generated

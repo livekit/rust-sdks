@@ -14,7 +14,10 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
 };
 
 use libwebrtc::prelude::*;
@@ -33,6 +36,12 @@ struct TransportInner {
     single_pc_mode: bool,
     // Publish-side target bitrate (bps) for offer munging
     max_send_bitrate_bps: Option<u64>,
+    // Whether the target above belongs to a screen share, which is exempt from the
+    // start bitrate cap.
+    max_send_bitrate_is_screen_share: bool,
+    // Whether an offer carrying `x-google-start-bitrate` has been accepted locally. The
+    // hint is written once per peer connection; see `compute_start_bitrate_kbps`.
+    start_bitrate_applied: bool,
     pending_initial_offer: Option<SessionDescription>,
 }
 
@@ -41,6 +50,12 @@ pub struct PeerTransport {
     peer_connection: PeerConnection,
     on_offer_handler: Mutex<Option<OnOfferCreated>>,
     inner: Arc<AsyncMutex<TransportInner>>,
+
+    /// Counts entries into `Connected`; see [`Self::note_connection_state`].
+    connected_generation: AtomicU32,
+
+    /// Counts exits from `Connected`; see [`Self::note_connection_state`].
+    disconnect_generation: AtomicU32,
 }
 
 impl Debug for PeerTransport {
@@ -65,13 +80,42 @@ impl PeerTransport {
                 restarting_ice: false,
                 single_pc_mode,
                 max_send_bitrate_bps: None,
+                max_send_bitrate_is_screen_share: false,
+                start_bitrate_applied: false,
                 pending_initial_offer: None,
             })),
+            connected_generation: AtomicU32::new(0),
+            disconnect_generation: AtomicU32::new(0),
         }
     }
 
     pub fn is_connected(&self) -> bool {
         self.peer_connection.connection_state() == PeerConnectionState::Connected
+    }
+
+    pub fn connected_generation(&self) -> u32 {
+        self.connected_generation.load(Ordering::Acquire)
+    }
+
+    pub fn disconnect_generation(&self) -> u32 {
+        self.disconnect_generation.load(Ordering::Acquire)
+    }
+
+    /// Record a connection-state transition, so a later observer can tell what the transport
+    /// has *done* rather than only what it currently reports.
+    ///
+    /// Both counters exist because `PeerConnectionState` is a level, and a level cannot
+    /// distinguish a transport that recovered from one whose far end vanished: ICE keeps
+    /// reporting `Connected` until its receiving timeout, and only reaches `Failed` after
+    /// consent expiry tens of seconds later. Comparing these against a snapshot taken before
+    /// a resume gives that history. Called for every `RtcEvent::ConnectionChange`, so a
+    /// transport that drops and returns between two polls is still visible as having dropped.
+    pub fn note_connection_state(&self, state: PeerConnectionState) {
+        if state == PeerConnectionState::Connected {
+            self.connected_generation.fetch_add(1, Ordering::AcqRel);
+        } else {
+            self.disconnect_generation.fetch_add(1, Ordering::AcqRel);
+        }
     }
 
     pub fn peer_connection(&self) -> PeerConnection {
@@ -119,8 +163,23 @@ impl PeerTransport {
 
         self.peer_connection.set_remote_description(remote_description).await?;
 
+        // Apply every queued candidate, even if one fails. A candidate can be rejected on its
+        // own merits — a malformed or stale line from the server — and that must not abort the
+        // replay: `drain`'s `Drop` clears the whole range however far iteration got, so an early
+        // return discards the untried candidates instead of leaving them queued. It would also
+        // skip the `restarting_ice` reset below, leaving the transport queuing every future
+        // candidate forever. The remote description is already applied at this point, so there
+        // is nothing to unwind — the failure is per-candidate and the rest still stand.
         for ic in inner.pending_candidates.drain(..) {
-            self.peer_connection.add_ice_candidate(ic).await?;
+            let candidate = ic.to_string();
+            if let Err(err) = self.peer_connection.add_ice_candidate(ic).await {
+                log::warn!(
+                    "{:?}: failed to add pending ice candidate {}: {:?}",
+                    self.signal_target,
+                    candidate,
+                    err
+                );
+            }
         }
 
         inner.restarting_ice = false;
@@ -153,8 +212,18 @@ impl PeerTransport {
     /// The offer is stored as pending and will be applied when the server's answer arrives.
     ///
     /// In single PC mode, this initial offer is sent with the JoinRequest before any track
-    /// is published. We apply both `inactive→recvonly` munging and `x-google-start-bitrate`
-    /// munging when a target bitrate is known.
+    /// is published, so only the `inactive→recvonly` munging applies.
+    ///
+    /// It deliberately carries no `x-google-start-bitrate`. The hint is derived from
+    /// `max_send_bitrate_bps`, which only `SessionInner::create_sender` sets, when a track is
+    /// published — always after this runs — so there is never a target to write here. Writing
+    /// one would also have to consume the one-shot latch before the offer becomes the local
+    /// description, which happens later in `set_remote_description`, and the offer can be
+    /// dropped without ever being applied: when the server declines single PC mode,
+    /// `RtcSession` calls `clear_pending_initial_offer` and reuses this transport for the rest
+    /// of the session. The latch would then be spent on an offer that never existed, silently
+    /// skipping the hint for the life of the connection. `create_and_send_offer` owns the hint
+    /// and latches only once `set_local_description` has succeeded.
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
         let inner = self.inner.lock().await;
         if !inner.single_pc_mode {
@@ -163,39 +232,13 @@ impl PeerTransport {
         drop(inner);
 
         let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let mut sdp = offer.to_string();
+        let sdp = offer.to_string();
 
         // Apply inactive→recvonly munging for single PC mode
         let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
         if recvonly_munged != sdp {
             if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
                 offer = parsed;
-                sdp = recvonly_munged;
-            }
-        }
-
-        // Apply x-google-start-bitrate munging for video codecs if we have a target bitrate.
-        // In initial offers (before track is published), max_send_bitrate_bps is None,
-        // so no munging is applied and WebRTC uses its default conservative start bitrate.
-        let has_video = sdp.contains(" VP8/90000")
-            || sdp.contains(" VP9/90000")
-            || sdp.contains(" AV1/90000")
-            || sdp.contains(" H264/90000")
-            || sdp.contains(" H265/90000");
-        if has_video {
-            let start_kbps = {
-                let inner = self.inner.lock().await;
-                Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps)
-            };
-            if let Some(start_kbps) = start_kbps {
-                log::info!("Initial offer: applying x-google-start-bitrate={} kbps", start_kbps);
-
-                let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
-                if munged != sdp {
-                    if let Ok(parsed) = SessionDescription::parse(&munged, offer.sdp_type()) {
-                        offer = parsed;
-                    }
-                }
             }
         }
 
@@ -209,30 +252,44 @@ impl PeerTransport {
         inner.pending_initial_offer = None;
     }
 
-    pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>) {
+    pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>, is_screen_share: bool) {
         let mut inner = self.inner.lock().await;
         inner.max_send_bitrate_bps = bps;
+        inner.max_send_bitrate_is_screen_share = is_screen_share;
     }
 
     /// Maximum x-google-start-bitrate (kbps).
     /// 1 Mbps is a reasonable ceiling that prevents BWE from starting too aggressively.
     const MAX_START_BITRATE_KBPS: u32 = 1000;
 
+    /// Minimum target bitrate (kbps) worth hinting. Below this, seeding above the real
+    /// capacity costs more than the ramp it saves, so libwebrtc's default is left alone.
+    const MIN_TARGET_BITRATE_KBPS: u32 = 300;
+
     /// Compute the x-google-start-bitrate value for SDP munging.
     ///
-    /// Returns min(90% of target, 1 Mbps). Returns None if no target bitrate is set
-    /// (initial offer before track publish) or if the target is too low.
-    fn compute_start_bitrate_kbps(target_bps: Option<u64>) -> Option<u32> {
+    /// 90% of the target leaves ~10% headroom for the estimator to settle. The same
+    /// multiplier is used for every codec because the target already reflects the codec's
+    /// efficiency. Camera is capped at [`Self::MAX_START_BITRATE_KBPS`] so the estimator does
+    /// not open too aggressively on a high-bitrate track; screen share is exempt, because its
+    /// content needs the bitrate immediately to stay legible.
+    ///
+    /// Returns None if no target bitrate is set (initial offer before track publish) or if
+    /// the target is below [`Self::MIN_TARGET_BITRATE_KBPS`].
+    fn compute_start_bitrate_kbps(target_bps: Option<u64>, is_screen_share: bool) -> Option<u32> {
         let target_bps = target_bps?;
         let target_kbps = (target_bps / 1000) as u32;
 
-        if target_kbps == 0 || target_kbps < 300 {
+        if target_kbps < Self::MIN_TARGET_BITRATE_KBPS {
             return None;
         }
 
-        // Use 90% of target bitrate as start bitrate, capped at 1 Mbps
         let start_kbps = (target_kbps as f64 * 0.9).round() as u32;
-        Some(start_kbps.min(target_kbps).min(Self::MAX_START_BITRATE_KBPS))
+        if is_screen_share {
+            Some(start_kbps.min(target_kbps))
+        } else {
+            Some(start_kbps.min(target_kbps).min(Self::MAX_START_BITRATE_KBPS))
+        }
     }
 
     /// Munge SDP to change a=inactive to a=recvonly for RTP media m-lines in single PC mode.
@@ -511,14 +568,29 @@ impl PeerTransport {
         }
 
         // Apply x-google-start-bitrate for all video codecs to improve initial quality.
-        // Uses min(90% of target, 1 Mbps) to prevent BWE from starting too aggressively.
+        //
+        // The same value goes on every video codec, and only on the first offer that carries
+        // local video. libwebrtc reads this fmtp parameter per m-section but applies it to the
+        // shared Call (`WebRtcVideoSendChannel::ApplyChangedParams` -> `SetSdpBitrateParameters`),
+        // where `RtpBitrateConfigurator` keeps one config for the whole peer connection: it
+        // retains `start_bitrate_bps` and re-applies it on network route changes, so rewriting
+        // it later is at best a no-op and at worst restarts a converged bandwidth estimator. A
+        // full reconnect builds a new peer connection and seeds the new estimator again.
+        //
+        // x-google-max-bitrate is deliberately never written: the same Call-level promotion
+        // would turn a per-track cap into a ceiling on total send bandwidth, starving concurrent
+        // tracks. Per-track and per-layer caps belong in the encodings' max_bitrate.
+        let mut applied_start_bitrate = false;
         let has_video = sdp.contains(" VP8/90000")
             || sdp.contains(" VP9/90000")
             || sdp.contains(" AV1/90000")
             || sdp.contains(" H264/90000")
             || sdp.contains(" H265/90000");
-        if has_video {
-            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps) {
+        if has_video && !inner.start_bitrate_applied {
+            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(
+                inner.max_send_bitrate_bps,
+                inner.max_send_bitrate_is_screen_share,
+            ) {
                 log::info!(
                     "Applying x-google-start-bitrate={} kbps (target_bps={:?})",
                     start_kbps,
@@ -529,7 +601,10 @@ impl PeerTransport {
                 if munged != sdp {
                     log::debug!("SDP munged successfully for video codec");
                     match SessionDescription::parse(&munged, offer.sdp_type()) {
-                        Ok(parsed) => offer = parsed,
+                        Ok(parsed) => {
+                            offer = parsed;
+                            applied_start_bitrate = true;
+                        }
                         Err(e) => log::warn!(
                             "Failed to parse munged SDP, falling back to original offer: {e}"
                         ),
@@ -541,6 +616,11 @@ impl PeerTransport {
         }
 
         self.peer_connection.set_local_description(offer.clone()).await?;
+
+        // Only consume the one-shot hint once the offer carrying it is accepted locally.
+        if applied_start_bitrate {
+            inner.start_bitrate_applied = true;
+        }
 
         if let Some(handler) = self.on_offer_handler.lock().as_mut() {
             handler(offer);
@@ -650,6 +730,45 @@ mod tests {
         assert_eq!(transport.peer_connection().signaling_state(), SignalingState::HaveLocalOffer);
     }
 
+    /// The two counters are the whole basis on which a resume decides a transport recovered,
+    /// so each transition must land on exactly one of them, and a transport that drops and
+    /// returns must leave both marks rather than looking untouched.
+    #[test]
+    fn connection_state_transitions_are_counted_separately() {
+        use libwebrtc::prelude::*;
+        use livekit_protocol as proto;
+
+        let factory = PeerConnectionFactory::default();
+        let mut config = RtcConfiguration::default();
+        config.continual_gathering_policy = ContinualGatheringPolicy::GatherOnce;
+        config.ice_transport_type = IceTransportsType::All;
+        let pc = factory.create_peer_connection(config).unwrap();
+
+        let transport = PeerTransport::new(
+            pc,
+            proto::SignalTarget::Subscriber,
+            /* single_pc_mode= */ false,
+        );
+        let counters = || (transport.connected_generation(), transport.disconnect_generation());
+
+        assert_eq!(counters(), (0, 0));
+
+        transport.note_connection_state(PeerConnectionState::Connecting);
+        assert_eq!(counters(), (0, 1));
+
+        transport.note_connection_state(PeerConnectionState::Connected);
+        assert_eq!(counters(), (1, 1));
+
+        // Dropping and returning must move both counters: a resume needs to see that it broke
+        // *and* that it came back, and a poll sampling only the current state sees neither.
+        transport.note_connection_state(PeerConnectionState::Disconnected);
+        transport.note_connection_state(PeerConnectionState::Connected);
+        assert_eq!(counters(), (2, 2));
+
+        transport.note_connection_state(PeerConnectionState::Failed);
+        assert_eq!(counters(), (2, 3));
+    }
+
     #[test]
     fn no_video_codec_is_noop() {
         // Audio-only SDP should not be modified
@@ -662,6 +781,49 @@ a=rtpmap:111 opus/48000/2\n\
 a=fmtp:111 minptime=10;useinbandfec=1\n";
         let out = PeerTransport::munge_x_google_start_bitrate(sdp, 3200);
         assert_eq!(out, sdp, "should not change SDP if no video codec present");
+    }
+
+    #[test]
+    fn start_bitrate_is_ninety_percent_of_target() {
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(1_000_000), false),
+            Some(900),
+            "should be 90% of a 1 Mbps target"
+        );
+    }
+
+    #[test]
+    fn start_bitrate_caps_camera_but_not_screen_share() {
+        // 90% of 3 Mbps is 2700, above the 1 Mbps camera ceiling.
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(3_000_000), false),
+            Some(PeerTransport::MAX_START_BITRATE_KBPS),
+            "camera should be capped"
+        );
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(3_000_000), true),
+            Some(2700),
+            "screen share should not be capped; its content needs the bitrate to stay legible"
+        );
+    }
+
+    #[test]
+    fn start_bitrate_skipped_below_target_floor() {
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(299_000), false),
+            None,
+            "below the floor libwebrtc's own default is left in place"
+        );
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(300_000), false),
+            Some(270),
+            "at the floor the hint applies"
+        );
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(None, false),
+            None,
+            "no target means no hint (initial offer before any publish)"
+        );
     }
 
     #[test]

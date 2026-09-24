@@ -335,6 +335,8 @@ enum VideoEncoderBackend {
   ENCODER_BACKEND_NVENC = 3;
   ENCODER_BACKEND_VAAPI = 4;
   ENCODER_BACKEND_VIDEOTOOLBOX = 5;
+  // Pre-encoded passthrough: the application supplies encoded frames.
+  ENCODER_BACKEND_PRE_ENCODED = 6;
 }
 
 // Controls how the encoder degrades quality when bandwidth is constrained.

@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.46"
+version = "0.3.49"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true
@@ -15,6 +15,11 @@ default = []
 # wish to use screensharing, and you do not already have a GLib event loop
 # running in your application.
 glib-main-loop = [ "dep:glib" ]
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
 
 [dependencies]
 log = { workspace = true }

@@ -1,6 +1,6 @@
 [package]
 name = "webrtc-sys"
-version = "0.3.43"
+version = "0.3.46"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true
@@ -9,6 +9,11 @@ repository.workspace = true
 
 [features]
 default = []
+
+# How CI checks this crate's features, read by
+# `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.
+[package.metadata.feature-combinations]
+mode = "powerset"
 
 [dependencies]
 cxx = "1.0"
@@ -23,6 +28,3 @@ pkg-config = "0.3.22"
 
 [target.'cfg(target_os = "linux")'.build-dependencies]
 pkg-config = "0.3.22"
-
-[dev-dependencies]
-env_logger = { workspace = true }
