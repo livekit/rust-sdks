@@ -22,9 +22,9 @@ use std::{
 use parking_lot::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 
-use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
+use livekit_region::{Cached, RegionCache, RegionsResponse, is_cloud_host, parse_max_age};
 
-use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
+use super::{REGION_FETCH_TIMEOUT, SignalError, SignalResult};
 use livekit_net::HttpClientExt;
 
 /// Process-wide region cache for the signaling path. Persisting it here (rather
