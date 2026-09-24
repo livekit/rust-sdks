@@ -1,3 +1,9 @@
+## 0.1.4 (2026-09-24)
+
+### Fixes
+
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
 ## 0.1.3 (2026-09-08)
 
 ### Fixes
