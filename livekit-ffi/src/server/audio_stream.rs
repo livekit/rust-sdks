@@ -21,14 +21,14 @@ use livekit::webrtc::{
     audio_stream::native::{NativeAudioStream, NativeAudioStreamOptions},
     prelude::*,
 };
-use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
+use livekit::{AudioFilterAudioStream, AudioFilterStreamInfo, registered_audio_filter_plugin};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::audio_plugin::AudioStreamKind;
 use super::room::FfiRoom;
-use super::{room::FfiTrack, FfiHandle};
+use super::{FfiHandle, room::FfiTrack};
 use crate::server::utils;
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+use crate::{FfiError, FfiHandleId, FfiResult, proto, server};
 
 pub struct FfiAudioStream {
     pub handle_id: FfiHandleId,
@@ -129,7 +129,9 @@ impl FfiAudioStream {
                             info.as_ref().map(|i| i.stream_info.clone()).unwrap(),
                         );
                         if session.is_none() {
-                            log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
+                            log::error!(
+                                "failed to initialize the audio filter. it will not be enabled for this session."
+                            );
                         }
                         session
                     }
@@ -327,7 +329,9 @@ impl FfiAudioStream {
                                 info.stream_info.clone(),
                             );
                             if session.is_none() {
-                                log::error!("failed to initialize the audio filter. it will not be enabled for this session.");
+                                log::error!(
+                                    "failed to initialize the audio filter. it will not be enabled for this session."
+                                );
                             }
                             (session, Some(info))
                         }

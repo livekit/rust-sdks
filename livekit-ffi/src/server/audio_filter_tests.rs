@@ -37,9 +37,8 @@ use livekit::prelude::DisconnectReason;
 use livekit_token::{AccessToken, VideoGrants};
 
 use crate::{
-    proto,
+    FFI_SERVER, proto,
     server::{requests, room::FfiRoom},
-    FFI_SERVER,
 };
 
 /// A minimal audio-filter plugin. Its `on_load` appends the options JSON it
@@ -123,7 +122,9 @@ fn on_load_runs_for_plugin_registered_after_connect() {
     let tmp = std::env::temp_dir().join(format!("lk_af_late_reg_{}", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let log_path = tmp.join("on_load.log");
-    std::env::set_var("LK_TEST_ONLOAD_LOG", &log_path);
+    // SAFETY: this test is ignored by default and run on its own, so no other test thread
+    // touches the environment; the plugin reads the variable only after it is set.
+    unsafe { std::env::set_var("LK_TEST_ONLOAD_LOG", &log_path) };
     let plugin_path = build_test_plugin(&tmp);
 
     let token = AccessToken::with_api_key(&api_key, &api_secret)

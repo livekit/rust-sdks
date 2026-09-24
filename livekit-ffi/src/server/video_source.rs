@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{colorcvt, FfiHandle};
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+use super::{FfiHandle, colorcvt};
+use crate::{FfiError, FfiHandleId, FfiResult, proto, server};
 use livekit::webrtc::{
     prelude::*,
     video_frame::{
@@ -111,7 +111,7 @@ impl FfiVideoSource {
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(ref source) => {
-                let buffer = colorcvt::to_libwebrtc_buffer(capture.buffer.clone());
+                let buffer = unsafe { colorcvt::to_libwebrtc_buffer(capture.buffer.clone()) };
                 let frame = VideoFrame {
                     rotation: capture.rotation().into(),
                     timestamp_us: capture.timestamp_us,

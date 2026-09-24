@@ -15,23 +15,23 @@
 use std::{
     error::Error,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     thread,
     time::Duration,
 };
 
-use dashmap::{mapref::one::MappedRef, DashMap};
-use downcast_rs::{impl_downcast, Downcast};
+use dashmap::{DashMap, mapref::one::MappedRef};
+use downcast_rs::{Downcast, impl_downcast};
 use livekit::prelude::DisconnectReason;
 use livekit::webrtc::{
     native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
 };
-use parking_lot::{deadlock, Mutex};
+use parking_lot::{Mutex, deadlock};
 use tokio::{sync::oneshot, task::JoinHandle};
 
-use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
+use crate::{FfiError, FfiHandleId, FfiResult, INVALID_HANDLE, proto, proto::FfiEvent};
 
 pub mod audio_plugin;
 pub mod audio_source;
@@ -121,18 +121,20 @@ impl Default for FfiServer {
         console_subscriber::init();
 
         // Create a background thread which checks for deadlocks every 10s
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(10));
-            let deadlocks = deadlock::check_deadlock();
-            if deadlocks.is_empty() {
-                continue;
-            }
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_secs(10));
+                let deadlocks = deadlock::check_deadlock();
+                if deadlocks.is_empty() {
+                    continue;
+                }
 
-            log::error!("{} deadlocks detected", deadlocks.len());
-            for (i, threads) in deadlocks.iter().enumerate() {
-                log::error!("Deadlock #{}", i);
-                for t in threads {
-                    log::error!("Thread Id {:#?}: \n{:#?}", t.thread_id(), t.backtrace());
+                log::error!("{} deadlocks detected", deadlocks.len());
+                for (i, threads) in deadlocks.iter().enumerate() {
+                    log::error!("Deadlock #{}", i);
+                    for t in threads {
+                        log::error!("Thread Id {:#?}: \n{:#?}", t.thread_id(), t.backtrace());
+                    }
                 }
             }
         });

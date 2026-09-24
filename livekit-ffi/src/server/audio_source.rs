@@ -17,7 +17,7 @@ use std::{borrow::Cow, slice};
 use livekit::webrtc::prelude::*;
 
 use super::FfiHandle;
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+use crate::{FfiError, FfiHandleId, FfiResult, proto, server};
 
 pub struct FfiAudioSource {
     pub handle_id: FfiHandleId,
@@ -53,7 +53,7 @@ impl FfiAudioSource {
                 // PlatformAudio must be created first to enable ADM recording
 
                 // If options and platform_audio_handle are provided, configure audio processing
-                if let (Some(ref options), Some(handle)) =
+                if let (Some(options), Some(handle)) =
                     (&new_source.options, new_source.platform_audio_handle)
                 {
                     if let Ok(ffi_audio) =

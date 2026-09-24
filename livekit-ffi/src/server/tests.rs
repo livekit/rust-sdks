@@ -345,12 +345,12 @@ fn publish_video_track() {
 */
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use super::{FfiConfig, FfiHandle};
-use crate::{FfiHandleId, FFI_SERVER};
+use crate::{FFI_SERVER, FfiHandleId};
 
 struct DropsHandle {
     handle: FfiHandleId,

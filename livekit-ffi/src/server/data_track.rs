@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use super::{FfiHandle, FfiServer};
-use crate::{proto, FfiHandleId, FfiResult};
+use crate::{FfiHandleId, FfiResult, proto};
 use futures_util::StreamExt;
 use livekit::data_track::{
     DataTrackFrame, DataTrackStream, DataTrackSubscribeError, DataTrackSubscribeOptions,
     LocalDataTrack, RemoteDataTrack,
 };
 use std::sync::{Arc, OnceLock};
-use tokio::sync::{oneshot, Notify};
+use tokio::sync::{Notify, oneshot};
 
 /// FFI wrapper around [`LocalDataTrack`].
 #[derive(Clone)]

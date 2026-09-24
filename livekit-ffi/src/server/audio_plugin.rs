@@ -19,8 +19,8 @@ use std::{
 
 use futures_util::Stream;
 use livekit::{
-    webrtc::{audio_stream::native::NativeAudioStream, prelude::AudioFrame},
     AudioFilterAudioStream,
+    webrtc::{audio_stream::native::NativeAudioStream, prelude::AudioFrame},
 };
 
 pub trait AudioStream: Stream<Item = AudioFrame<'static>> + Send + Sync + Unpin {

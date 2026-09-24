@@ -16,21 +16,21 @@ use std::{slice, sync::Arc};
 
 use colorcvt::cvtimpl;
 use livekit::{
+    AudioFilterPlugin, SimulateScenario,
     prelude::*,
     register_audio_filter_plugin,
     webrtc::{native::apm, native::audio_resampler, prelude::*},
-    AudioFilterPlugin, SimulateScenario,
 };
 use parking_lot::Mutex;
 
 #[cfg(feature = "capture")]
 use super::capture;
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream, data_track,
+    FfiError, FfiResult, FfiServer, audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
     platform_audio, resampler,
     room::{self, FfiPublication, FfiTrack},
-    video_source, video_stream, FfiError, FfiResult, FfiServer,
+    video_source, video_stream,
 };
 use crate::proto;
 
@@ -518,7 +518,7 @@ unsafe fn on_capture_video_frame(
     push: proto::CaptureVideoFrameRequest,
 ) -> FfiResult<proto::CaptureVideoFrameResponse> {
     let source = server.retrieve_handle::<video_source::FfiVideoSource>(push.source_handle)?;
-    source.capture_frame(server, push)?;
+    unsafe { source.capture_frame(server, push) }?;
     Ok(proto::CaptureVideoFrameResponse::default())
 }
 
@@ -579,7 +579,7 @@ unsafe fn on_video_convert(
     let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
-    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false)) {
+    match unsafe { cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false)) } {
         Ok((buffer, info)) => {
             let id = server.next_id();
             server.store_handle(id, buffer);

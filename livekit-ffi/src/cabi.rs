@@ -19,9 +19,8 @@ use std::os::raw::c_char;
 use std::{panic, sync::Arc};
 
 use crate::{
-    proto,
+    FFI_SERVER, FfiError, FfiHandleId, INVALID_HANDLE, proto,
     server::{self, FfiConfig},
-    FfiError, FfiHandleId, FFI_SERVER, INVALID_HANDLE,
 };
 
 /// # SAFTEY: The "C" callback must be threadsafe and not block
@@ -30,7 +29,7 @@ pub type FfiCallbackFn = unsafe extern "C" fn(*const u8, usize);
 /// # Safety
 ///
 /// The foreign language must only provide valid pointers
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn livekit_ffi_initialize(
     cb: FfiCallbackFn,
     capture_logs: bool,
@@ -40,11 +39,11 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
     FFI_SERVER.setup(FfiConfig {
         callback_fn: Arc::new(move |event| {
             let data = event.encode_to_vec();
-            cb(data.as_ptr(), data.len());
+            unsafe { cb(data.as_ptr(), data.len()) };
         }),
         capture_logs,
-        sdk: CStr::from_ptr(sdk).to_string_lossy().into_owned(),
-        sdk_version: CStr::from_ptr(sdk_version).to_string_lossy().into_owned(),
+        sdk: unsafe { CStr::from_ptr(sdk) }.to_string_lossy().into_owned(),
+        sdk_version: unsafe { CStr::from_ptr(sdk_version) }.to_string_lossy().into_owned(),
     });
 
     log::debug!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
@@ -53,7 +52,7 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
 /// # Safety
 ///
 /// The foreign language must only provide valid pointers
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn livekit_ffi_request(
     data: *const u8,
     len: usize,
@@ -103,12 +102,12 @@ pub unsafe extern "C" fn livekit_ffi_request(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     FFI_SERVER.drop_handle(handle_id)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn livekit_ffi_dispose() {
     FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
 }
@@ -116,9 +115,9 @@ pub extern "C" fn livekit_ffi_dispose() {
 #[cfg(target_os = "android")]
 pub mod android {
     use jni::{
-        objects::JObject,
-        sys::{jint, jobject, JNI_VERSION_1_6},
         JavaVM,
+        objects::JObject,
+        sys::{JNI_VERSION_1_6, jint, jobject},
     };
     use std::os::raw::c_void;
     use std::sync::atomic::{AtomicBool, Ordering};

@@ -1,7 +1,7 @@
 [package]
 name = "livekit-ffi"
 version = "0.12.80"
-edition.workspace = true
+edition = "2024"
 license.workspace = true
 description = "FFI interface for bindings in other languages"
 repository.workspace = true
@@ -28,7 +28,7 @@ capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 [dependencies]
 livekit = { workspace = true }
-livekit-capture = { workspace = true, optional = true, default-features = false }
+livekit-capture = { workspace = true, optional = true }
 webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }
