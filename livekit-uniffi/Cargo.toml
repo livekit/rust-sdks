@@ -21,7 +21,7 @@ livekit-data-stream = { workspace = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns", "tokio"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread"] }
-tokio-util =  "0.7.18"
+tokio-util = { workspace = true }
 prost = { workspace = true }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 bytes = { workspace = true }

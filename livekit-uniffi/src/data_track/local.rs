@@ -25,7 +25,7 @@ use livekit_datatrack::{
 use livekit_protocol as proto;
 use prost::Message;
 use std::sync::Arc;
-use tokio_util::sync::{CancellationToken, DropGuard};
+use tokio_util::sync::CancellationToken;
 
 /// Data track published by the local participant.
 #[derive(uniffi::Object)]
@@ -97,7 +97,6 @@ impl From<DataTrackOptions> for livekit_datatrack::api::DataTrackOptions {
 #[derive(uniffi::Object)]
 struct LocalDataTrackManager {
     input: local::ManagerInput,
-    _guard: DropGuard,
 }
 
 /// Delegate for receiving output events from [`LocalDataTrackManager`].
@@ -117,8 +116,6 @@ impl LocalDataTrackManager {
         delegate: Arc<dyn LocalDataTrackManagerDelegate>,
         encryption_provider: Option<Arc<dyn EncryptionProvider>>,
     ) -> Arc<Self> {
-        let token = CancellationToken::new();
-
         let encryption_provider = encryption_provider.map(|p| p as Arc<dyn EncryptionProvider>);
         let manager_options = local::ManagerOptions { encryption_provider };
 
@@ -126,16 +123,13 @@ impl LocalDataTrackManager {
 
         let rt = crate::runtime::runtime();
 
-        // TODO: in a follow-up PR, refactor manager to work with cancellation tokens directly, eliminating the
-        // need for this additional task.
-        rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
-
-        let delegate_forward = DelegateForwardTask { output, delegate, token: token.clone() };
+        let delegate_forward =
+            DelegateForwardTask { output, delegate, token: input.cancellation_token() };
         rt.spawn(delegate_forward.run());
 
         rt.spawn(manager.run());
 
-        Self { input, _guard: token.drop_guard() }.into()
+        Self { input }.into()
     }
 
     /// Publishes a data track with given options.
@@ -238,9 +232,4 @@ impl DelegateForwardTask {
         let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
         self.delegate.on_signal_request(req);
     }
-}
-
-async fn shutdown_forward_task(input: local::ManagerInput, token: CancellationToken) {
-    token.cancelled().await;
-    _ = input.send(local::InputEvent::Shutdown);
 }
