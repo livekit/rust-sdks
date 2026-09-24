@@ -1,8 +1,8 @@
 // Copyright 2026 LiveKit, Inc. (Apache-2.0)
 use livekit_net::{
+    Header, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult, WsConnection,
     has_http_client, has_ws_client, self_test_http_get, self_test_ws_echo, set_http_client,
-    set_ws_client, Header, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult,
-    WsConnection,
+    set_ws_client,
 };
 use std::sync::{Arc, Mutex};
 

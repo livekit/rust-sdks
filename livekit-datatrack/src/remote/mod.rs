@@ -24,7 +24,7 @@ use std::{
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::timeout;
-use tokio_stream::{wrappers::BroadcastStream, Stream};
+use tokio_stream::{Stream, wrappers::BroadcastStream};
 
 pub(crate) mod events;
 pub(crate) mod manager;

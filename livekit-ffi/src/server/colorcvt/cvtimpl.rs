@@ -22,18 +22,20 @@ pub unsafe fn cvt(
     dst_type: proto::VideoBufferType,
     flip_y: bool,
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
-    match buffer.r#type() {
-        proto::VideoBufferType::Rgba => cvt_rgba(buffer, dst_type, flip_y),
-        proto::VideoBufferType::Abgr => cvt_abgr(buffer, dst_type, flip_y),
-        proto::VideoBufferType::Argb => cvt_argb(buffer, dst_type, flip_y),
-        proto::VideoBufferType::Bgra => cvt_bgra(buffer, dst_type, flip_y),
-        proto::VideoBufferType::Rgb24 => cvt_rgb24(buffer, dst_type, flip_y),
-        proto::VideoBufferType::I420 => cvt_i420(buffer, dst_type, flip_y),
-        proto::VideoBufferType::I420a => cvt_i420a(buffer, dst_type, flip_y),
-        proto::VideoBufferType::I422 => cvt_i422(buffer, dst_type, flip_y),
-        proto::VideoBufferType::I444 => cvt_i444(buffer, dst_type, flip_y),
-        proto::VideoBufferType::I010 => cvt_i010(buffer, dst_type, flip_y),
-        proto::VideoBufferType::Nv12 => cvt_nv12(buffer, dst_type, flip_y),
+    unsafe {
+        match buffer.r#type() {
+            proto::VideoBufferType::Rgba => cvt_rgba(buffer, dst_type, flip_y),
+            proto::VideoBufferType::Abgr => cvt_abgr(buffer, dst_type, flip_y),
+            proto::VideoBufferType::Argb => cvt_argb(buffer, dst_type, flip_y),
+            proto::VideoBufferType::Bgra => cvt_bgra(buffer, dst_type, flip_y),
+            proto::VideoBufferType::Rgb24 => cvt_rgb24(buffer, dst_type, flip_y),
+            proto::VideoBufferType::I420 => cvt_i420(buffer, dst_type, flip_y),
+            proto::VideoBufferType::I420a => cvt_i420a(buffer, dst_type, flip_y),
+            proto::VideoBufferType::I422 => cvt_i422(buffer, dst_type, flip_y),
+            proto::VideoBufferType::I444 => cvt_i444(buffer, dst_type, flip_y),
+            proto::VideoBufferType::I010 => cvt_i010(buffer, dst_type, flip_y),
+            proto::VideoBufferType::Nv12 => cvt_nv12(buffer, dst_type, flip_y),
+        }
     }
 }
 
@@ -370,7 +372,7 @@ pub unsafe fn cvt_rgb24(
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("rgb24 to {:?} is not supported", dst_type).into(),
-            ))
+            ));
         }
     }
 }
@@ -401,7 +403,7 @@ pub unsafe fn cvt_i420(
             let stride = width * 4;
 
             macro_rules! cvt {
-                ($rgba:expr, $fnc:ident) => {
+                ($rgba:expr_2021, $fnc:ident) => {
                     if dst_type == $rgba {
                         colorcvt::$fnc(
                             data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
@@ -463,7 +465,7 @@ pub unsafe fn cvt_i420(
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("i420 to {:?} is not supported", dst_type).into(),
-            ))
+            ));
         }
     }
 }
@@ -552,7 +554,7 @@ pub unsafe fn cvt_i420a(
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("i420a to {:?} is not supported", dst_type).into(),
-            ))
+            ));
         }
     }
 }
@@ -582,7 +584,7 @@ pub unsafe fn cvt_i422(
             let stride = buffer.width * 4;
 
             macro_rules! cvt {
-                ($rgba:expr, $fnc:ident) => {
+                ($rgba:expr_2021, $fnc:ident) => {
                     if dst_type == $rgba {
                         colorcvt::$fnc(
                             data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
@@ -659,7 +661,7 @@ pub unsafe fn cvt_i422(
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("i422 to {:?} is not supported", dst_type).into(),
-            ))
+            ));
         }
     }
 }
@@ -687,7 +689,7 @@ pub unsafe fn cvt_i444(
             let stride = buffer.width * 4;
 
             macro_rules! cvt {
-                ($rgba:expr, $fnc:ident) => {
+                ($rgba:expr_2021, $fnc:ident) => {
                     if dst_type == $rgba {
                         imgproc::colorcvt::$fnc(
                             data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
@@ -765,7 +767,7 @@ pub unsafe fn cvt_i444(
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("i444 to {:?} is not supported", dst_type).into(),
-            ))
+            ));
         }
     }
 }
@@ -793,7 +795,7 @@ pub unsafe fn cvt_i010(
             let stride = buffer.width * 4;
 
             macro_rules! cvt {
-                ($rgba:expr, $fnc:ident) => {
+                ($rgba:expr_2021, $fnc:ident) => {
                     if dst_type == $rgba {
                         imgproc::colorcvt::$fnc(
                             data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
@@ -841,7 +843,7 @@ pub unsafe fn cvt_i010(
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("i010 to {:?} is not supported", dst_type).into(),
-            ))
+            ));
         }
     }
 }
@@ -868,7 +870,7 @@ pub unsafe fn cvt_nv12(
             let stride = buffer.width * 4;
 
             macro_rules! cvt {
-                ($rgba:expr, $fnc:ident) => {
+                ($rgba:expr_2021, $fnc:ident) => {
                     if dst_type == $rgba {
                         imgproc::colorcvt::$fnc(
                             data_y, c0.stride, data_uv, c1.stride, &mut dst, stride, width, height,
@@ -942,7 +944,7 @@ pub unsafe fn cvt_nv12(
         _ => {
             return Err(FfiError::InvalidRequest(
                 format!("nv12 to {:?} is not supported", dst_type).into(),
-            ))
+            ));
         }
     }
 }

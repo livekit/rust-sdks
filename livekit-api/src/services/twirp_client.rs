@@ -15,8 +15,8 @@
 use std::{fmt::Display, time::Duration};
 
 use http::{
-    header::{HeaderMap, HeaderValue, CONTENT_TYPE, USER_AGENT},
     StatusCode,
+    header::{CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT},
 };
 use serde::Deserialize;
 use thiserror::Error;

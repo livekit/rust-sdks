@@ -59,7 +59,7 @@ fn detect_device_type() -> DeviceType {
         if let Ok(code) = raw.parse::<u32>() {
             match code {
                 3 | 4 | 5 | 6 | 7 | 11 | 15 | 16 | 24 | 33 | 34 | 35 | 36 => {
-                    return DeviceType::Desktop
+                    return DeviceType::Desktop;
                 }
                 8 | 9 | 10 | 14 | 31 | 32 => return DeviceType::Laptop,
                 30 => return DeviceType::Tablet,

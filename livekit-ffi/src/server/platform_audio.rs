@@ -17,7 +17,7 @@
 use livekit::{PlatformAudio, PlayoutDeviceId, RecordingDeviceId};
 
 use super::{FfiHandle, FfiServer};
-use crate::{proto, FfiResult};
+use crate::{FfiResult, proto};
 
 /// FFI wrapper for PlatformAudio handle.
 pub struct FfiPlatformAudio {
@@ -40,7 +40,9 @@ pub fn on_new_platform_audio(
 
             log::info!(
                 "[PLATFORM_AUDIO_FFI] PlatformAudio created successfully: handle_id={}, recording_devices={}, playout_devices={}",
-                handle_id, recording_count, playout_count
+                handle_id,
+                recording_count,
+                playout_count
             );
 
             let info = proto::PlatformAudioInfo {

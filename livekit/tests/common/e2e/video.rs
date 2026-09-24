@@ -17,9 +17,9 @@ use libwebrtc::{
     video_source::native::NativeVideoSource,
 };
 use livekit::{
+    Room, RoomResult,
     options::{TrackPublishOptions, VideoCodec},
     track::{LocalTrack, LocalVideoTrack},
-    Room, RoomResult,
 };
 use std::sync::Arc;
 use tokio::{sync::oneshot, task::JoinHandle, time};

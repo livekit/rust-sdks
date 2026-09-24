@@ -14,15 +14,15 @@
 
 use crate::{TransportError, WsConnection};
 use futures_util::{
-    stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
+    stream::{SplitSink, SplitStream},
 };
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
 use tokio_tungstenite::{
-    tungstenite::{error::ProtocolError, Error as WsError, Message},
     MaybeTlsStream, WebSocketStream,
+    tungstenite::{Error as WsError, Message, error::ProtocolError},
 };
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -63,17 +63,17 @@ impl WsConnection for NativeConnection {
                 Some(Ok(Message::Text(_))) => continue, // signalling never sends text
                 Some(Ok(Message::Close(_))) | None => return Ok(None),
                 Some(Err(WsError::Protocol(ProtocolError::ResetWithoutClosingHandshake))) => {
-                    return Ok(None)
+                    return Ok(None);
                 }
                 // TLS connection closed without close_notify - treat as normal close.
                 // Happens when the server closes the connection abruptly.
                 Some(Err(WsError::Io(ref io_err)))
                     if io_err.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
-                    return Ok(None)
+                    return Ok(None);
                 }
                 Some(Err(WsError::ConnectionClosed)) | Some(Err(WsError::AlreadyClosed)) => {
-                    return Ok(None)
+                    return Ok(None);
                 }
                 Some(Err(e)) => return Err(TransportError::Connection(e.to_string())),
             }

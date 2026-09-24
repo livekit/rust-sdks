@@ -329,11 +329,7 @@ impl RemoteTrackPublication {
     }
 
     pub fn permission_status(&self) -> PermissionStatus {
-        if self.is_allowed() {
-            PermissionStatus::Allowed
-        } else {
-            PermissionStatus::NotAllowed
-        }
+        if self.is_allowed() { PermissionStatus::Allowed } else { PermissionStatus::NotAllowed }
     }
 
     pub fn is_subscribed(&self) -> bool {

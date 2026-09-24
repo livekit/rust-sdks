@@ -28,7 +28,7 @@ capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 [dependencies]
 livekit = { workspace = true }
-livekit-capture = { workspace = true, optional = true, default-features = false }
+livekit-capture = { workspace = true, optional = true }
 webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }

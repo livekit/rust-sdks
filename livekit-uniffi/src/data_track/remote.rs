@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use super::common::{
-    deserialize_signal_response, DataTrackFrame, DataTrackInfo, HandleSignalResponseError,
+    DataTrackFrame, DataTrackInfo, HandleSignalResponseError, deserialize_signal_response,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
 use livekit_datatrack::{
     api::{DataTrack, DataTrackSid, DataTrackSubscribeError, Remote},
-    backend::{remote, DecryptionProvider},
+    backend::{DecryptionProvider, remote},
 };
 use livekit_protocol as proto;
 use prost::Message;

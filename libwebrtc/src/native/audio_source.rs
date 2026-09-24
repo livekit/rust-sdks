@@ -16,7 +16,7 @@ use cxx::SharedPtr;
 use tokio::sync::oneshot;
 use webrtc_sys::audio_track as sys_at;
 
-use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
+use crate::{RtcError, RtcErrorType, audio_frame::AudioFrame, audio_source::AudioSourceOptions};
 
 #[derive(Clone)]
 pub struct NativeAudioSource {

@@ -80,7 +80,7 @@ impl From<VideoRotation> for vf_sys::ffi::VideoRotation {
 }
 
 macro_rules! recursive_cast {
-    ($ptr:expr $(, $fnc:ident)*) => {
+    ($ptr:expr_2021 $(, $fnc:ident)*) => {
         {
             let ptr = $ptr;
             $(
@@ -152,12 +152,14 @@ impl NativeBuffer {
     pub unsafe fn from_cv_pixel_buffer(
         cv_pixel_buffer: *mut std::ffi::c_void,
     ) -> vf::native::NativeBuffer {
-        vf::native::NativeBuffer {
-            handle: NativeBuffer {
-                sys_handle: vfb_sys::ffi::new_native_buffer_from_platform_image_buffer(
-                    cv_pixel_buffer as *mut _,
-                ),
-            },
+        unsafe {
+            vf::native::NativeBuffer {
+                handle: NativeBuffer {
+                    sys_handle: vfb_sys::ffi::new_native_buffer_from_platform_image_buffer(
+                        cv_pixel_buffer as *mut _,
+                    ),
+                },
+            }
         }
     }
 

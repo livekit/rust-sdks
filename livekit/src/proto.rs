@@ -14,7 +14,7 @@
 
 use livekit_protocol::*;
 
-use crate::{participant, room::ChatMessage as RoomChatMessage, track, DataPacketKind};
+use crate::{DataPacketKind, participant, room::ChatMessage as RoomChatMessage, track};
 
 // Conversions
 impl From<ConnectionQuality> for participant::ConnectionQuality {

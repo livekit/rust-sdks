@@ -1,10 +1,10 @@
 use anyhow::Result;
+use nokhwa::Camera;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraInfo, FrameFormat, RequestedFormat, RequestedFormatType,
     Resolution,
 };
-use nokhwa::Camera;
 use std::collections::BTreeMap;
 
 fn main() -> Result<()> {

@@ -45,10 +45,10 @@ pub type soxr_bufs_t = *const soxr_buf_t;
 pub type soxr_cbufs_t = *const soxr_cbuf_t;
 pub type soxr_in_t = *const ::std::os::raw::c_void;
 pub type soxr_out_t = *mut ::std::os::raw::c_void;
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_version() -> *const ::std::os::raw::c_char;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_create(
         input_rate: f64,
         output_rate: f64,
@@ -59,7 +59,7 @@ extern "C" {
         arg4: *const soxr_runtime_spec_t,
     ) -> soxr_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_process(
         resampler: soxr_t,
         in_: soxr_in_t,
@@ -77,7 +77,7 @@ pub type soxr_input_fn_t = ::std::option::Option<
         requested_len: usize,
     ) -> usize,
 >;
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_set_input_fn(
         resampler: soxr_t,
         arg1: soxr_input_fn_t,
@@ -85,28 +85,28 @@ extern "C" {
         max_ilen: usize,
     ) -> soxr_error_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_output(resampler: soxr_t, data: soxr_out_t, olen: usize) -> usize;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_error(arg1: soxr_t) -> soxr_error_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_num_clips(arg1: soxr_t) -> *mut usize;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_delay(arg1: soxr_t) -> f64;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_engine(arg1: soxr_t) -> *const ::std::os::raw::c_char;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_clear(arg1: soxr_t) -> soxr_error_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_delete(arg1: soxr_t);
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_oneshot(
         input_rate: f64,
         output_rate: f64,
@@ -122,7 +122,7 @@ extern "C" {
         arg3: *const soxr_runtime_spec_t,
     ) -> soxr_error_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_set_io_ratio(arg1: soxr_t, io_ratio: f64, slew_len: usize) -> soxr_error_t;
 }
 pub const soxr_datatype_t_SOXR_FLOAT32: soxr_datatype_t = 0;
@@ -323,21 +323,21 @@ fn bindgen_test_layout_soxr_runtime_spec() {
         concat!("Offset of field: ", stringify!(soxr_runtime_spec), "::", stringify!(flags))
     );
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_quality_spec(
         recipe: ::std::os::raw::c_ulong,
         flags: ::std::os::raw::c_ulong,
     ) -> soxr_quality_spec_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_runtime_spec(num_threads: ::std::os::raw::c_uint) -> soxr_runtime_spec_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_io_spec(itype: soxr_datatype_t, otype: soxr_datatype_t) -> soxr_io_spec_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_set_error(arg1: soxr_t, arg2: soxr_error_t) -> soxr_error_t;
 }
-extern "C" {
+unsafe extern "C" {
     pub fn soxr_set_num_channels(arg1: soxr_t, arg2: ::std::os::raw::c_uint) -> soxr_error_t;
 }

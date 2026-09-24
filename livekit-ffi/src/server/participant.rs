@@ -19,14 +19,13 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 
 use crate::{
-    proto,
+    FfiError, FfiHandleId, FfiResult, proto,
     server::{
+        FfiHandle, FfiServer,
         data_stream::{FfiByteStreamWriter, FfiTextStreamWriter},
         data_track::FfiLocalDataTrack,
         room::RoomInner,
-        FfiHandle, FfiServer,
     },
-    FfiError, FfiHandleId, FfiResult,
 };
 
 #[derive(Clone)]
@@ -95,7 +94,7 @@ impl FfiParticipant {
         let local = match &self.participant {
             Participant::Local(local) => local.clone(),
             Participant::Remote(_) => {
-                return Err(FfiError::InvalidRequest("Expected local participant".into()))
+                return Err(FfiError::InvalidRequest("Expected local participant".into()));
             }
         };
 
@@ -127,7 +126,7 @@ impl FfiParticipant {
         let local = match &self.participant {
             Participant::Local(local) => local.clone(),
             Participant::Remote(_) => {
-                return Err(FfiError::InvalidRequest("Expected local participant".into()))
+                return Err(FfiError::InvalidRequest("Expected local participant".into()));
             }
         };
 

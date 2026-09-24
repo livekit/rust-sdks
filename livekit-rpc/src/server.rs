@@ -17,7 +17,7 @@ use crate::constants::{
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
 use crate::transport::{RpcTransport, RpcTransportError};
-use crate::types::{RpcError, RpcErrorCode, RpcInvocationData, MAX_V1_PAYLOAD_BYTES};
+use crate::types::{MAX_V1_PAYLOAD_BYTES, RpcError, RpcErrorCode, RpcInvocationData};
 use livekit_common::ParticipantIdentity;
 use livekit_data_stream::api::{StreamReader, StreamTextOptions, TextStreamReader};
 use livekit_protocol as proto;
@@ -58,10 +58,12 @@ impl RpcServerManager {
     pub fn register_method(
         &self,
         method: String,
-        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        handler: impl Fn(
+            RpcInvocationData,
+        ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+        + Send
+        + Sync
+        + 'static,
     ) {
         self.handlers.lock().insert(method, Arc::new(handler));
     }

@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use crate::{
     imp::audio_track as imp_at,
-    media_stream_track::{media_stream_track, RtcTrackState},
+    media_stream_track::{RtcTrackState, media_stream_track},
 };
 
 #[derive(Clone)]

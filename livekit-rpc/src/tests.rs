@@ -20,8 +20,8 @@ use crate::types::*;
 use bytes::Bytes;
 use chrono::Utc;
 use livekit_common::{
-    ClientCapability, EncryptionType, ParticipantIdentity, RemoteParticipantRegistry,
-    CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT,
+    CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT, ClientCapability, EncryptionType,
+    ParticipantIdentity, RemoteParticipantRegistry,
 };
 use livekit_data_stream::api::{
     OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
@@ -31,7 +31,7 @@ use parking_lot::{Mutex as ParkingMutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{Notify, mpsc};
 
 // ---------------------------------------------------------------------------
 // Mock transport

@@ -97,7 +97,7 @@ mod client {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     unsafe extern "C" fn test_events_callback(data_ptr: *const u8, len: usize) {
         let data = unsafe { std::slice::from_raw_parts(data_ptr, len) };
         let event = proto::FfiEvent::decode(data).unwrap();
@@ -345,12 +345,12 @@ fn publish_video_track() {
 */
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use super::{FfiConfig, FfiHandle};
-use crate::{FfiHandleId, FFI_SERVER};
+use crate::{FFI_SERVER, FfiHandleId};
 
 struct DropsHandle {
     handle: FfiHandleId,

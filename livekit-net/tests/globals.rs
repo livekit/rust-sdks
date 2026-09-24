@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use livekit_net::{
-    http_client, set_http_client, set_ws_client, ws_client, Header, HttpClientExt, HttpMethod,
-    HttpResponse, TransportError, WsClient, WsConnectResult, WsConnection,
+    Header, HttpClientExt, HttpMethod, HttpResponse, TransportError, WsClient, WsConnectResult,
+    WsConnection, http_client, set_http_client, set_ws_client, ws_client,
 };
 use std::sync::Arc;
 

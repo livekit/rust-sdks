@@ -14,14 +14,14 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    crate::common::{test_rooms, test_rooms_with_options, TestRoomOptions},
-    anyhow::{anyhow, Ok, Result},
+    crate::common::{TestRoomOptions, test_rooms, test_rooms_with_options},
+    anyhow::{Ok, Result, anyhow},
     chrono::{TimeDelta, Utc},
     livekit::{
-        data_stream::backend::pseudo_random_text, RoomDataStreamOptions, RoomEvent, RoomOptions,
-        StreamByteOptions, StreamError, StreamReader, StreamTextOptions,
+        RoomDataStreamOptions, RoomEvent, RoomOptions, StreamByteOptions, StreamError,
+        StreamReader, StreamTextOptions, data_stream::backend::pseudo_random_text,
     },
-    rand::{rngs::StdRng, RngCore, SeedableRng},
+    rand::{RngCore, SeedableRng, rngs::StdRng},
     std::time::Duration,
     tokio::{time::timeout, try_join},
 };

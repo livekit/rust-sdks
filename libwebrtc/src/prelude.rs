@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub use crate::{
+    MediaType, RtcError, RtcErrorType,
     audio_frame::AudioFrame,
     audio_source::{AudioSourceOptions, RtcAudioSource},
     audio_track::RtcAudioTrack,
@@ -39,5 +40,4 @@ pub use crate::{
     },
     video_source::{RtcVideoSource, VideoResolution},
     video_track::RtcVideoTrack,
-    MediaType, RtcError, RtcErrorType,
 };

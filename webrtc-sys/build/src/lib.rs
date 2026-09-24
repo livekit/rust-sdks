@@ -22,7 +22,7 @@ use std::{
     process::Command,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use fs2::FileExt;
 use regex::Regex;
 use reqwest::StatusCode;

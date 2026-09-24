@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use lazy_static::lazy_static;
 use livekit::{
+    Room, RoomOptions,
     options::TrackPublishOptions,
     prelude::*,
     track::{LocalAudioTrack, LocalTrack, RemoteTrack, TrackSource},
@@ -10,7 +11,6 @@ use livekit::{
         audio_stream::native::NativeAudioStream,
         prelude::{AudioSourceOptions, RtcAudioSource},
     },
-    Room, RoomOptions,
 };
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -379,9 +379,9 @@ pub fn disconnect() {
 
 #[cfg(target_os = "ios")]
 pub mod ios {
-    use std::ffi::{c_char, CStr};
+    use std::ffi::{CStr, c_char};
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn livekit_connect(url: *const c_char, token: *const c_char) {
         let (url, token) = unsafe {
             let url = CStr::from_ptr(url).to_str().unwrap().to_owned();
@@ -392,24 +392,24 @@ pub mod ios {
         super::livekit_connect(url, token);
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn livekit_push_audio(samples: *const i16, count: usize) -> usize {
         let slice = unsafe { std::slice::from_raw_parts(samples, count) };
         super::push_audio_capture(slice)
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn livekit_pull_audio(buffer: *mut i16, count: usize) -> usize {
         let slice = unsafe { std::slice::from_raw_parts_mut(buffer, count) };
         super::pull_audio_playback(slice)
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn livekit_disconnect() {
         super::disconnect();
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn livekit_is_connected() -> bool {
         super::is_connected()
     }
@@ -423,9 +423,9 @@ pub mod ios {
 pub mod android {
     use android_logger::Config;
     use jni::{
-        objects::{JClass, JObject, JShortArray, JString},
-        sys::{jboolean, jint, JNI_VERSION_1_6},
         JNIEnv, JavaVM,
+        objects::{JClass, JObject, JShortArray, JString},
+        sys::{JNI_VERSION_1_6, jboolean, jint},
     };
     use log::LevelFilter;
     use std::os::raw::c_void;
@@ -434,7 +434,7 @@ pub mod android {
     static CONTEXT_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
         android_logger::init_once(
             Config::default().with_max_level(LevelFilter::Debug).with_tag("livekit-rustexample"),
@@ -458,7 +458,7 @@ pub mod android {
     /// via WebRTC ADM). If you only use NativeAudioSource (custom audio buffers),
     /// this is not needed.
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn Java_io_livekit_rustexample_App_initializeContextNative(
         env: JNIEnv,
         _: JClass,
@@ -492,7 +492,7 @@ pub mod android {
 
     /// Connect to a LiveKit room
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn Java_io_livekit_rustexample_App_connectNative(
         mut env: JNIEnv,
         _: JClass,
@@ -507,30 +507,26 @@ pub mod android {
 
     /// Disconnect from the room
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn Java_io_livekit_rustexample_App_disconnectNative(_env: JNIEnv, _: JClass) {
         super::disconnect();
     }
 
     /// Check if connected to a room
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn Java_io_livekit_rustexample_App_isConnectedNative(
         _env: JNIEnv,
         _: JClass,
     ) -> jboolean {
-        if super::is_connected() {
-            1
-        } else {
-            0
-        }
+        if super::is_connected() { 1 } else { 0 }
     }
 
     /// Push captured audio samples to LiveKit
     /// Takes a short array (16-bit PCM samples)
     /// Returns the number of samples consumed
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn Java_io_livekit_rustexample_App_pushAudioNative(
         env: JNIEnv,
         _: JClass,
@@ -561,7 +557,7 @@ pub mod android {
     /// Fills the provided short array with PCM samples
     /// Returns the number of actual samples written (rest is silence)
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn Java_io_livekit_rustexample_App_pullAudioNative(
         env: JNIEnv,
         _: JClass,
@@ -592,7 +588,7 @@ pub mod android {
 
     /// Get the number of samples available in the playback buffer
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn Java_io_livekit_rustexample_App_getPlaybackBufferSizeNative(
         _env: JNIEnv,
         _: JClass,

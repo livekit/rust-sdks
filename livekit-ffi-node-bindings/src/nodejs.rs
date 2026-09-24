@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_ffi::{proto, server, FFI_SERVER};
+use livekit_ffi::{FFI_SERVER, proto, server};
 use napi::{
+    Status,
     bindgen_prelude::*,
     threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode},
-    Status,
 };
 use napi_derive::napi;
 use prost::Message;

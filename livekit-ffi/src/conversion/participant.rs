@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::{proto, server::participant::FfiParticipant};
-use livekit::prelude::*;
 use livekit::DisconnectReason;
 use livekit::ParticipantKind;
 use livekit::ParticipantKindDetail;
 use livekit::ParticipantState;
+use livekit::prelude::*;
 use livekit_protocol as livekit_proto;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {

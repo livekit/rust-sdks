@@ -22,7 +22,7 @@
 use crate::{primitive::VideoResolution, pump::PumpStop};
 use livekit::webrtc::video_frame::I420Buffer;
 use std::{
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };

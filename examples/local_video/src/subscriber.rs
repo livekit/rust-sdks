@@ -5,7 +5,7 @@ use eframe::wgpu::{self, util::DeviceExt};
 use egui_wgpu as egui_wgpu_backend;
 use egui_wgpu_backend::CallbackTrait;
 use futures::{FutureExt, StreamExt};
-use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
+use livekit::e2ee::{E2eeOptions, EncryptionType, key_provider::*};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
@@ -17,8 +17,8 @@ use std::{
     env,
     sync::OnceLock,
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -37,7 +37,7 @@ use viewport_aspect::AspectConstrainedViewport;
 mod macos_native_video {
     use std::ffi::c_void;
 
-    use anyhow::{anyhow, Result};
+    use anyhow::{Result, anyhow};
     use eframe::wgpu;
     use metal::MTLPixelFormat;
     use objc2::{rc::Retained, runtime::ProtocolObject};
@@ -762,18 +762,11 @@ fn log_video_jitter_buffer_stats(
     match (window_delay_ms, cumulative_delay_ms, target_delay_ms, minimum_delay_ms) {
         (Some(window), Some(cumulative), Some(target), Some(minimum)) => info!(
             "WebRTC jitter buffer: delay_window_avg={:.1}ms, delay_avg={:.1}ms, target_avg={:.1}ms, minimum_avg={:.1}ms, emitted={}",
-            window,
-            cumulative,
-            target,
-            minimum,
-            current.emitted_count
+            window, cumulative, target, minimum, current.emitted_count
         ),
         (None, Some(cumulative), Some(target), Some(minimum)) => info!(
             "WebRTC jitter buffer: delay_avg={:.1}ms, target_avg={:.1}ms, minimum_avg={:.1}ms, emitted={}",
-            cumulative,
-            target,
-            minimum,
-            current.emitted_count
+            cumulative, target, minimum, current.emitted_count
         ),
         _ => info!(
             "WebRTC jitter buffer: waiting for emitted frames, emitted={}",
@@ -1021,7 +1014,7 @@ async fn handle_track_subscribed(
     subscriber_timing: SubscriberTimingHandle,
 ) {
     // If a participant filter is set, skip others
-    if let Some(ref allow) = allowed_identity {
+    if let Some(allow) = allowed_identity {
         if participant.identity().as_str() != allow {
             debug!("Skipping track from '{}' (filter set to '{}')", participant.identity(), allow);
             return;
@@ -2218,7 +2211,9 @@ impl CallbackTrait for YuvPaintCallback {
                     match macos_native_video::CvMetalTextureCache::new(device) {
                         Ok(cache) => state.native_cache = Some(cache),
                         Err(err) if !state.native_import_failed_logged => {
-                            debug!("Unable to create CVMetalTextureCache, falling back to CPU upload: {err:?}");
+                            debug!(
+                                "Unable to create CVMetalTextureCache, falling back to CPU upload: {err:?}"
+                            );
                             state.native_import_failed_logged = true;
                         }
                         Err(_) => {}
@@ -2270,7 +2265,9 @@ impl CallbackTrait for YuvPaintCallback {
                         }
                         Err(err) => {
                             if !state.native_import_failed_logged {
-                                debug!("Unable to import native video frame, falling back to CPU upload: {err:?}");
+                                debug!(
+                                    "Unable to import native video frame, falling back to CPU upload: {err:?}"
+                                );
                                 state.native_import_failed_logged = true;
                             }
                             // The failed import consumed the native frame. Continue with the

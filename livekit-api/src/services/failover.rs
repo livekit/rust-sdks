@@ -21,10 +21,10 @@
 
 use std::{sync::OnceLock, time::Duration};
 
-use http::header::{HeaderMap, CONTENT_LENGTH, CONTENT_TYPE};
+use http::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap};
 use url::Url;
 
-use livekit_region::{is_cloud_host, parse_max_age, Cached, RegionCache, RegionsResponse};
+use livekit_region::{Cached, RegionCache, RegionsResponse, is_cloud_host, parse_max_age};
 
 /// Total attempts (the original request plus fallback regions) and the base
 /// retry backoff are fixed, not user-configurable, so retries can't be tuned to
@@ -77,11 +77,7 @@ impl FailoverConfig {
 /// Normalizes a region URL to an http(s) scheme (ws -> http, wss -> https),
 /// mirroring the other SDKs and the server.
 fn to_http_url(url: &str) -> String {
-    if let Some(rest) = url.strip_prefix("ws") {
-        format!("http{rest}")
-    } else {
-        url.to_owned()
-    }
+    if let Some(rest) = url.strip_prefix("ws") { format!("http{rest}") } else { url.to_owned() }
 }
 
 /// A stable key identifying a host (including port) for dedup across attempts.

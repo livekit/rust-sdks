@@ -31,10 +31,10 @@ use livekit_capture::sources::clock::ClockVideoSource;
 #[cfg(feature = "capture-pattern")]
 use livekit_capture::sources::pattern::PatternVideoSource;
 
-use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
+use super::{FfiHandle, FfiServer, video_source::FfiVideoSource};
 #[cfg(feature = "capture-pattern")]
 use crate::conversion::capture::pattern_config_from_proto;
-use crate::{conversion::capture::video_codec_to_proto, proto, FfiError, FfiHandleId, FfiResult};
+use crate::{FfiError, FfiHandleId, FfiResult, conversion::capture::video_codec_to_proto, proto};
 
 /// A capture pump of either kind, boxed at the FFI edge.
 enum CapturePump {
@@ -128,7 +128,7 @@ async fn create_capture_source(
         _ => {
             return Err(FfiError::InvalidRequest(
                 "capture source is not enabled in this build".into(),
-            ))
+            ));
         }
     };
 

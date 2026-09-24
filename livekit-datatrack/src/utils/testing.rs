@@ -16,10 +16,10 @@
 /// Other events are silently skipped. Panics if the variant doesn't arrive
 /// within the timeout (default 500ms).
 macro_rules! expect_event {
-    ($output:expr, $variant:path) => {
+    ($output:expr_2021, $variant:path) => {
         expect_event!($output, $variant, std::time::Duration::from_millis(500))
     };
-    ($output:expr, $variant:path, $timeout:expr) => {
+    ($output:expr_2021, $variant:path, $timeout:expr_2021) => {
         tokio::time::timeout($timeout, async {
             loop {
                 match futures_util::StreamExt::next(&mut $output)

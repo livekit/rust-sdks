@@ -15,6 +15,7 @@
 use std::fmt::Debug;
 
 use crate::{
+    MediaType, RtcError,
     data_channel::{DataChannel, DataChannelInit},
     ice_candidate::IceCandidate,
     imp::peer_connection as imp_pc,
@@ -26,7 +27,6 @@ use crate::{
     rtp_transceiver::{RtpTransceiver, RtpTransceiverInit},
     session_description::SessionDescription,
     stats::RtcStats,
-    MediaType, RtcError,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

@@ -19,7 +19,7 @@ use livekit::{
 };
 
 use super::{FfiHandle, FfiServer};
-use crate::{proto, FfiHandleId, FfiResult};
+use crate::{FfiHandleId, FfiResult, proto};
 
 /// FFI wrapper around [ByteStreamReader].
 pub struct FfiByteStreamReader {

@@ -26,7 +26,7 @@ mod tests;
 /// Public API re-exported by client SDKs (surfaced to end users through the `livekit` crate).
 pub mod api {
     pub use crate::types::{
-        PerformRpcData, RpcError, RpcErrorCode, RpcInvocationData, MAX_V1_PAYLOAD_BYTES,
+        MAX_V1_PAYLOAD_BYTES, PerformRpcData, RpcError, RpcErrorCode, RpcInvocationData,
     };
 }
 

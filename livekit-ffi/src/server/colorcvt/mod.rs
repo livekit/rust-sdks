@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{proto, FfiResult};
+use crate::{FfiResult, proto};
 use livekit::webrtc::{prelude::*, video_frame::BoxVideoBuffer};
 use std::slice;
 
@@ -24,11 +24,11 @@ pub unsafe fn to_libwebrtc_buffer(info: proto::VideoBufferInfo) -> BoxVideoBuffe
 
     match r#type {
         // For RGBA-family / RGB24 buffers, fused conversion directly into I420Buffer
-        proto::VideoBufferType::Rgba => cvtimpl::cvt_rgba_to_i420_buffer(info, false),
-        proto::VideoBufferType::Abgr => cvtimpl::cvt_abgr_to_i420_buffer(info, false),
-        proto::VideoBufferType::Argb => cvtimpl::cvt_argb_to_i420_buffer(info, false),
-        proto::VideoBufferType::Bgra => cvtimpl::cvt_bgra_to_i420_buffer(info, false),
-        proto::VideoBufferType::Rgb24 => cvtimpl::cvt_rgb24_to_i420_buffer(info, false),
+        proto::VideoBufferType::Rgba => unsafe { cvtimpl::cvt_rgba_to_i420_buffer(info, false) },
+        proto::VideoBufferType::Abgr => unsafe { cvtimpl::cvt_abgr_to_i420_buffer(info, false) },
+        proto::VideoBufferType::Argb => unsafe { cvtimpl::cvt_argb_to_i420_buffer(info, false) },
+        proto::VideoBufferType::Bgra => unsafe { cvtimpl::cvt_bgra_to_i420_buffer(info, false) },
+        proto::VideoBufferType::Rgb24 => unsafe { cvtimpl::cvt_rgb24_to_i420_buffer(info, false) },
         proto::VideoBufferType::I420 | proto::VideoBufferType::I420a => {
             let (c0, c1, c2) = (&components[0], &components[1], &components[2]);
 

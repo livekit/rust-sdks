@@ -19,8 +19,8 @@ use crate::{
     packet::Packet,
 };
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 /// Options for creating a [`Pipeline`].

@@ -15,8 +15,8 @@
 use bmrng::unbounded::{UnboundedRequestReceiver, UnboundedRequestSender};
 use chrono::Utc;
 use livekit_common::{
-    ClientCapability, ParticipantIdentity, RemoteParticipantRegistry,
-    CLIENT_PROTOCOL_DATA_STREAM_V2,
+    CLIENT_PROTOCOL_DATA_STREAM_V2, ClientCapability, ParticipantIdentity,
+    RemoteParticipantRegistry,
 };
 use livekit_protocol as proto;
 use std::{path::Path, sync::Arc};
@@ -30,10 +30,9 @@ use crate::{
 };
 
 use super::{
-    constants,
+    StreamByteOptions, StreamTextOptions, constants,
     raw_stream::{RawStream, RawStreamOpenOptions},
     stream_writer::{ByteStreamWriter, TextStreamWriter},
-    StreamByteOptions, StreamTextOptions,
 };
 
 /// Generates a random stream identifier (UUID v4).
@@ -640,7 +639,7 @@ mod tests {
 
     /// Uniform random bytes — genuinely incompressible (unlike `pseudo_random_text`'s ascii).
     fn random_bytes(len: usize) -> Vec<u8> {
-        use rand::{rngs::StdRng, Rng, SeedableRng};
+        use rand::{Rng, SeedableRng, rngs::StdRng};
         let mut rng = StdRng::seed_from_u64(0xdead_beef);
         (0..len).map(|_| rng.random::<u8>()).collect()
     }

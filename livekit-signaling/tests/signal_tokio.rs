@@ -40,7 +40,7 @@
 use std::time::Duration;
 
 use livekit_protocol as proto;
-use tokio::time::{timeout, timeout_at, Instant};
+use tokio::time::{Instant, timeout, timeout_at};
 
 use livekit_signaling::{
     SignalClient, SignalError, SignalEvent, SignalEvents, SignalOptions, SignalResult,

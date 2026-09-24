@@ -164,7 +164,7 @@ pub mod native {
 
     use super::*;
     use crate::imp::audio_source::NativeAudioSource as ImpAudioSource;
-    use crate::{audio_frame::AudioFrame, RtcError};
+    use crate::{RtcError, audio_frame::AudioFrame};
 
     #[derive(Clone)]
     pub struct NativeAudioSource {

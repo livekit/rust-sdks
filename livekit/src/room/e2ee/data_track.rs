@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{id::ParticipantIdentity, E2eeManager};
+use crate::{E2eeManager, id::ParticipantIdentity};
 use bytes::Bytes;
 use livekit_datatrack::backend as dt;
 
@@ -40,10 +40,9 @@ impl dt::EncryptionProvider for DataTrackEncryptionProvider {
             .map_err(|e| dt::EncryptionError::Failed { reason: e.to_string() })?;
 
         debug_assert_eq!(
-            encrypted.key_index as u32,
-            key_index,
+            encrypted.key_index as u32, key_index,
             "E2EE key index changed during encryption (possible race or inconsistent key selection)"
-            );
+        );
 
         let payload = encrypted.data.into();
         let iv = encrypted.iv.try_into().map_err(|iv: Vec<u8>| dt::EncryptionError::Failed {

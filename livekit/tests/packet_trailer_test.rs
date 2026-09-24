@@ -27,7 +27,7 @@
 
 mod common;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use common::test_rooms_with_options;
 use futures_util::StreamExt;
 use libwebrtc::{
@@ -36,14 +36,14 @@ use libwebrtc::{
     video_stream::native::NativeVideoStream,
 };
 use livekit::{
+    E2eeOptions, RoomOptions,
     e2ee::{
-        key_provider::{KeyProvider, KeyProviderOptions},
         EncryptionType,
+        key_provider::{KeyProvider, KeyProviderOptions},
     },
     options::{FrameMetadataFeatures, TrackPublishOptions, VideoCodec},
     prelude::*,
     webrtc::video_frame::FrameMetadata,
-    E2eeOptions, RoomOptions,
 };
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::oneshot, task::JoinHandle, time::timeout};

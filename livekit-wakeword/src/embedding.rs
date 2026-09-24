@@ -16,7 +16,7 @@ use ndarray::{Array, Array1};
 use ort::session::Session;
 use ort::value::Tensor;
 
-use crate::{build_session_from_memory, WakeWordError};
+use crate::{WakeWordError, build_session_from_memory};
 
 const MODEL_BYTES: &[u8] = include_bytes!("../onnx/embedding_model.onnx");
 

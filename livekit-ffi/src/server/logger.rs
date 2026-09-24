@@ -21,7 +21,7 @@ use env_logger;
 use log::{self, Log};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{proto, FFI_SERVER};
+use crate::{FFI_SERVER, proto};
 
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 pub const BATCH_SIZE: usize = 32;

@@ -16,6 +16,8 @@ pub use livekit_protocol::{AudioTrackFeature, PacketTrailerFeature};
 pub use livekit_rpc::api::{PerformRpcData, RpcError, RpcErrorCode, RpcInvocationData};
 
 pub use crate::{
+    ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
+    RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
     data_track::{
         DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSid, DataTrackStream,
         DataTrackSubscribeError, DataTrackSubscribeOptions, LocalDataTrack, PublishError,
@@ -33,8 +35,6 @@ pub use crate::{
         SubscribeTimingEventStream, SubscribeTimingStage, Track, TrackDimension, TrackKind,
         TrackSource, VideoTrack,
     },
-    ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
-    RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
 };
 
 // Platform audio device management (native platforms only)

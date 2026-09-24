@@ -18,11 +18,11 @@ use tokio::sync::mpsc;
 
 use super::peer_transport::PeerTransport;
 use crate::{
+    DataPacketKind,
     rtc_engine::{
         peer_transport::OnOfferCreated,
         rtc_session::{LOSSY_DC_LABEL, RELIABLE_DC_LABEL},
     },
-    DataPacketKind,
 };
 
 pub type RtcEmitter = mpsc::UnboundedSender<RtcEvent>;

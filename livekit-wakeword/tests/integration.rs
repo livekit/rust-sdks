@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use livekit_wakeword::{WakeWordModel, SAMPLE_RATE};
+use livekit_wakeword::{SAMPLE_RATE, WakeWordModel};
 
 mod common;
 

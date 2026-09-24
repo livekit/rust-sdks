@@ -16,21 +16,20 @@ use std::collections::HashMap;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
-use livekit::{prelude::*, registered_audio_filter_plugins, PluginError};
 use livekit::{ChatMessage, StreamReader};
+use livekit::{PluginError, prelude::*, registered_audio_filter_plugins};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex, Notify};
+use tokio::sync::{Mutex as AsyncMutex, Notify, broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
 use crate::server::data_track::FfiRemoteDataTrack;
 use crate::{
-    proto,
+    FfiError, FfiHandleId, FfiResult, proto,
     server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
     server::participant::FfiParticipant,
     server::{FfiHandle, FfiServer},
-    FfiError, FfiHandleId, FfiResult,
 };
 
 #[derive(Clone)]
@@ -181,9 +180,15 @@ impl FfiRoom {
                         Ok(Ok(())) => (),
                         Ok(Err(e)) => {
                             let hint = match &e {
-                                PluginError::OnLoad(_) => " — ensure you are connecting to LiveKit Cloud and that the filter is configured correctly",
-                                PluginError::Library(_) => " — the filter dylib could not be loaded",
-                                PluginError::NotImplemented(_) => " — the filter dylib is missing a required entry point",
+                                PluginError::OnLoad(_) => {
+                                    " — ensure you are connecting to LiveKit Cloud and that the filter is configured correctly"
+                                }
+                                PluginError::Library(_) => {
+                                    " — the filter dylib could not be loaded"
+                                }
+                                PluginError::NotImplemented(_) => {
+                                    " — the filter dylib is missing a required entry point"
+                                }
                             };
                             log::error!("audio filter disabled, continuing without it: {e}{hint}");
                         }

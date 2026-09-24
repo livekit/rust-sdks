@@ -177,7 +177,7 @@ impl RemoteParticipant {
             track.enable();
 
             remote_publication.set_track(Some(track)); // This will fire TrackSubscribed on the
-                                                       // publication
+        // publication
         } else {
             log::error!("could not find published track with sid: {:?}", sid);
 
@@ -260,8 +260,8 @@ impl RemoteParticipant {
     pub(crate) fn on_track_subscribed(
         &self,
         track_subscribed: impl Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) {
         *self.remote.events.track_subscribed.lock() = Some(Box::new(track_subscribed));
     }
@@ -269,8 +269,8 @@ impl RemoteParticipant {
     pub(crate) fn on_track_unsubscribed(
         &self,
         track_unsubscribed: impl Fn(RemoteParticipant, RemoteTrackPublication, RemoteTrack)
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) {
         *self.remote.events.track_unsubscribed.lock() = Some(Box::new(track_unsubscribed));
     }

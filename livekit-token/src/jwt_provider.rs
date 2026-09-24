@@ -34,7 +34,7 @@ type HmacSha384 = Hmac<Sha384>;
 type HmacSha512 = Hmac<Sha512>;
 
 macro_rules! hmac_signer {
-    ($name:ident, $alg:expr, $hmac:ty) => {
+    ($name:ident, $alg:expr_2021, $hmac:ty) => {
         struct $name($hmac);
 
         impl $name {
@@ -62,7 +62,7 @@ macro_rules! hmac_signer {
 }
 
 macro_rules! hmac_verifier {
-    ($name:ident, $alg:expr, $hmac:ty) => {
+    ($name:ident, $alg:expr_2021, $hmac:ty) => {
         struct $name($hmac);
 
         impl $name {

@@ -88,8 +88,8 @@ pub mod ffi {
         type PeerConnectionFactory;
 
         fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
-        fn create_peer_connection_factory_with_zero_playout_delay(
-        ) -> SharedPtr<PeerConnectionFactory>;
+        fn create_peer_connection_factory_with_zero_playout_delay()
+        -> SharedPtr<PeerConnectionFactory>;
         fn create_peer_connection_factory_with_options(
             zero_playout_delay: bool,
             enable_warp: bool,

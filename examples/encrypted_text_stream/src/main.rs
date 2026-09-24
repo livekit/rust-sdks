@@ -1,11 +1,11 @@
 use futures_util::TryStreamExt;
 use livekit::{
+    SimulateScenario, StreamReader, StreamTextOptions, TextStreamReader,
     e2ee::{
-        key_provider::{KeyProvider, KeyProviderOptions},
         E2eeOptions, EncryptionType,
+        key_provider::{KeyProvider, KeyProviderOptions},
     },
     prelude::*,
-    SimulateScenario, StreamReader, StreamTextOptions, TextStreamReader,
 };
 use livekit_api::access_token;
 use std::{env, error::Error, io::Write};

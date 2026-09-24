@@ -1,13 +1,13 @@
 use clap::Parser;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
-use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit::webrtc::audio_source::AudioSourceOptions;
+use livekit::webrtc::audio_source::native::NativeAudioSource;
 use livekit_api::access_token;
 use std::env;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::signal;
 
@@ -295,7 +295,9 @@ async fn main() {
 
     if let Some(ref audio) = platform_audio {
         if skip_mic_publish {
-            log::warn!("DIAGNOSTIC: PlatformAudio is active (ADM recording enabled) but NOT publishing mic track");
+            log::warn!(
+                "DIAGNOSTIC: PlatformAudio is active (ADM recording enabled) but NOT publishing mic track"
+            );
             log::warn!("If audio still plays at wrong speed, the issue is ADM configuration");
             log::warn!("If audio plays correctly, the issue is the device audio track publishing");
         } else {
@@ -496,7 +498,11 @@ async fn play_wav_file(source: NativeAudioSource, wav: WavData, running: Arc<Ato
                 if frame_count < 10 {
                     log::info!(
                         "Frame {} captured successfully (position={}, sample_rate={}, channels={}, samples_per_ch={})",
-                        frame_count, position, frame.sample_rate, frame.num_channels, frame.samples_per_channel
+                        frame_count,
+                        position,
+                        frame.sample_rate,
+                        frame.num_channels,
+                        frame.samples_per_channel
                     );
                 }
             }

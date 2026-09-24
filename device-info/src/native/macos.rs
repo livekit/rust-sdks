@@ -51,7 +51,7 @@ fn sysctl_model() -> Result<String, DeviceInfoError> {
 }
 
 #[link(name = "SystemConfiguration", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn SCDynamicStoreCopyComputerName(
         store: *const std::ffi::c_void,
         encoding: *mut u32,
@@ -91,7 +91,7 @@ fn parse_device_type(model: &str) -> DeviceType {
 }
 
 #[link(name = "IOKit", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn IOServiceGetMatchingService(main_port: u32, matching: *const std::ffi::c_void) -> u32;
     fn IOServiceMatching(name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
     fn IOObjectRelease(object: u32) -> i32;

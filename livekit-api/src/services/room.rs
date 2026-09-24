@@ -15,9 +15,9 @@
 use livekit_protocol as proto;
 use std::collections::HashMap;
 
-use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use super::{LIVEKIT_PACKAGE, ServiceBase, ServiceResult};
 use crate::services::twirp_client::TwirpClient;
-use livekit_token::{get_env_keys, VideoGrants};
+use livekit_token::{VideoGrants, get_env_keys};
 use rand::Rng;
 
 const SVC: &str = "RoomService";

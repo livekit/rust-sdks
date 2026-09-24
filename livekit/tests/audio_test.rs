@@ -14,7 +14,7 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{anyhow, Ok, Result},
+    anyhow::{Ok, Result, anyhow},
     common::{
         audio::{ChannelIterExt, FreqAnalyzer, SineParameters, SineTrack},
         test_rooms,

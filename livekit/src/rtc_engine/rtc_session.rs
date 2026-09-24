@@ -17,8 +17,8 @@ use std::{
     convert::TryInto,
     fmt::Debug,
     sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -34,13 +34,15 @@ use prost::Message;
 use proto::SignalTarget;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
+    Notify,
     mpsc::{self, WeakUnboundedSender},
-    oneshot, watch, Notify,
+    oneshot, watch,
 };
 use tokio::{task::JoinHandle, time::sleep};
 
-use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
+use super::{EngineError, EngineOptions, EngineResult, SimulateScenario, rtc_events};
 use crate::{
+    ChatMessage, TranscriptionSegment,
     id::ParticipantIdentity,
     rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
     utils::{
@@ -48,20 +50,19 @@ use crate::{
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
     },
-    ChatMessage, TranscriptionSegment,
 };
 use crate::{
+    DataPacketKind,
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::TrackKind,
-    room::{e2ee::manager::E2eeManager, DisconnectReason},
+    room::{DisconnectReason, e2ee::manager::E2eeManager},
     rtc_engine::{
         lk_runtime::LkRuntime,
         peer_transport::PeerTransport,
         rtc_events::{RtcEvent, RtcEvents},
     },
     track::{LocalTrack, TrackSource},
-    DataPacketKind,
 };
 
 /// Connection-state transition counts per transport, sampled before a resume begins.
@@ -2796,7 +2797,7 @@ make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_sdp_max_message_size, recovery_decision, DEFAULT_MAX_MESSAGE_SIZE};
+    use super::{DEFAULT_MAX_MESSAGE_SIZE, parse_sdp_max_message_size, recovery_decision};
 
     /// `(connected, disconnect)` counts as sampled before a resume, for readability below.
     const SNAPSHOT: Option<(u32, u32)> = Some((7, 3));

@@ -35,7 +35,7 @@ use tokio::{
     net::TcpStream as TokioTcpStream,
 };
 
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 use tokio::net::TcpStream;
 
@@ -154,8 +154,8 @@ pub(super) async fn connect_ws(
                     // For WSS, we need to establish TLS over the proxy connection
                     use std::sync::Arc;
                     use tokio_rustls::{
-                        rustls::{self, pki_types::ServerName},
                         TlsConnector,
+                        rustls::{self, pki_types::ServerName},
                     };
 
                     // Load native root certificates

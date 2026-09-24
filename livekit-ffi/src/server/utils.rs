@@ -16,7 +16,7 @@ use livekit::prelude::{RoomEvent, Track, TrackSource};
 use tokio::sync::{broadcast, mpsc};
 
 use super::participant::FfiParticipant;
-use crate::{server, FfiError, FfiHandleId};
+use crate::{FfiError, FfiHandleId, server};
 
 pub async fn track_changed_trigger(
     participant: FfiParticipant,

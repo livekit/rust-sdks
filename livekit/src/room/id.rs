@@ -63,11 +63,7 @@ macro_rules! impl_from_prefix {
             type Error = String;
 
             fn try_from(value: String) -> Result<Self, Self::Error> {
-                if value.starts_with($prefix) {
-                    Ok(Self(value))
-                } else {
-                    Err(value)
-                }
+                if value.starts_with($prefix) { Ok(Self(value)) } else { Err(value) }
             }
         }
     };

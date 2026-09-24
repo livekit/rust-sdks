@@ -18,8 +18,8 @@ use webrtc_sys::{rtc_error as sys_err, rtp_sender as sys_rs, webrtc as sys_webrt
 
 use super::media_stream_track::new_media_stream_track;
 use crate::{
-    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
-    rtp_sender::VideoEncoderBackend, stats::RtcStats, RtcError, RtcErrorType,
+    RtcError, RtcErrorType, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
+    rtp_sender::VideoEncoderBackend, stats::RtcStats,
 };
 
 #[derive(Clone)]
@@ -121,7 +121,7 @@ pub fn video_encoder_backend_list() -> Vec<VideoEncoderBackend> {
 
 #[cfg(test)]
 mod tests {
-    use super::{sys_webrtc, VideoEncoderBackend};
+    use super::{VideoEncoderBackend, sys_webrtc};
 
     #[test]
     fn video_encoder_backend_maps_to_native_enum() {

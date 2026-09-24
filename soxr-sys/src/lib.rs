@@ -18,8 +18,8 @@ mod tests {
 
     #[test]
     fn test_stream() {
-        use std::ffi::c_void;
         use std::ffi::CStr;
+        use std::ffi::c_void;
         use std::ptr;
 
         use hound::{WavReader, WavSpec, WavWriter};

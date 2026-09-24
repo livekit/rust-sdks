@@ -27,17 +27,17 @@ use super::{
     ParticipantState, ParticipantTrackPermission,
 };
 use crate::{
+    ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
     data_stream::api::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
     data_track::{self, DataTrack, DataTrackOptions, DataTrackSchemaId, Local},
     e2ee::EncryptionType,
-    options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
+    options::{self, TrackPublishOptions, compute_video_encodings, video_layers_from_encodings},
     prelude::*,
     rtc_engine::lk_runtime::LkRuntime,
     rtc_engine::{EngineError, EngineResult, RtcEngine},
-    ChatMessage, DataPacket, RoomSession, SipDTMF, Transcription,
 };
 use bytes::Bytes;
 use chrono::Utc;
@@ -915,10 +915,12 @@ impl LocalParticipant {
     pub fn register_rpc_method(
         &self,
         method: String,
-        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+        handler: impl Fn(
+            RpcInvocationData,
+        ) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+        + Send
+        + Sync
+        + 'static,
     ) {
         if let Some(session) = self.session() {
             session.rpc_server.register_method(method, handler);

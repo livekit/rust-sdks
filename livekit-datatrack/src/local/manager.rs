@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::{
+    LocalTrackInner,
     events::*,
     pipeline::{Pipeline, PipelineOptions},
-    LocalTrackInner,
 };
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, DataTrackOptions, InternalError, PublishError},
@@ -23,7 +23,7 @@ use crate::{
     local::LocalDataTrack,
     packet::{self, Handle},
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use futures_core::Stream;
 use std::{
     collections::HashMap,

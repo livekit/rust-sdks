@@ -27,14 +27,14 @@
 
 use std::time::Duration;
 
-use http::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION};
+use http::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
 use livekit_protocol as proto;
 
 use super::egress::{EgressListOptions, EgressOutput};
 use super::failover::FailoverConfig;
 use super::sip::CreateSIPParticipantOptions;
 use super::twirp_client::{ServerError, ServerResult, TwirpClient};
-use super::{LiveKitApi, ServiceError, SipCallError, LIVEKIT_PACKAGE};
+use super::{LIVEKIT_PACKAGE, LiveKitApi, ServiceError, SipCallError};
 use livekit_token::{AccessToken, VideoGrants};
 
 fn base_url() -> String {
@@ -51,7 +51,7 @@ async fn reachable(base: &str) -> bool {
 }
 
 macro_rules! skip_if_offline {
-    ($base:expr) => {
+    ($base:expr_2021) => {
         if !reachable(&$base).await {
             eprintln!("skipping: mock test server not reachable at {}", $base);
             return;

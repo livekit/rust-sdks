@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use crate::{
     imp::video_track as imp_vt,
-    media_stream_track::{media_stream_track, RtcTrackState},
+    media_stream_track::{RtcTrackState, media_stream_track},
 };
 
 #[cfg(not(target_arch = "wasm32"))]

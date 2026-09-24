@@ -17,11 +17,11 @@ use {
     crate::common::test_rooms_with_options,
     anyhow::{Ok, Result},
     livekit::{
-        e2ee::{
-            key_provider::{KeyProvider, KeyProviderOptions},
-            EncryptionType,
-        },
         DataPacket, E2eeOptions, RoomEvent, RoomOptions,
+        e2ee::{
+            EncryptionType,
+            key_provider::{KeyProvider, KeyProviderOptions},
+        },
     },
     std::time::Duration,
     tokio::{time::timeout, try_join},

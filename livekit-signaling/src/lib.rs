@@ -19,23 +19,23 @@ use std::{
     fmt::Debug,
     io::Write,
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use base64::{engine::general_purpose::URL_SAFE as BASE64_URL_SAFE, Engine};
-use flate2::{write::GzEncoder, Compression};
+use base64::{Engine, engine::general_purpose::URL_SAFE as BASE64_URL_SAFE};
+use flate2::{Compression, write::GzEncoder};
 use http::StatusCode;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use prost::Message;
 use thiserror::Error;
-use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, mpsc};
 use tokio::{
     task::JoinHandle,
-    time::{interval, sleep, Instant},
+    time::{Instant, interval, sleep},
 };
 
 use crate::signal_stream::SignalStream;
@@ -292,7 +292,7 @@ impl SignalClient {
                     .await
                     {
                         Ok((inner, join_response, stream_events)) => {
-                            return Ok(handle_success(inner, join_response, stream_events))
+                            return Ok(handle_success(inner, join_response, stream_events));
                         }
                         Err(region_conn_err) => {
                             // This region is unreachable; drop it from the cache
@@ -711,11 +711,11 @@ async fn signal_task(
                 if let Some(signal) = signal {
                     // Received a message from the server
                     match signal.as_ref() {
-                        proto::signal_response::Message::RefreshToken(ref token) => {
+                        proto::signal_response::Message::RefreshToken(token) => {
                             // Refresh the token so the client can still reconnect if the initial join token expired
                             *inner.token.lock() = token.clone();
                         }
-                        proto::signal_response::Message::PongResp(ref pong) => {
+                        proto::signal_response::Message::PongResp(pong) => {
                             // Reset the ping_timeout if we received a pong
                             let now = SystemTime::now()
                                 .duration_since(UNIX_EPOCH)
@@ -1064,7 +1064,7 @@ fn get_validate_url(mut ws_url: url::Url) -> url::Url {
 }
 
 macro_rules! get_async_message {
-    ($fnc:ident, $pattern:pat => $result:expr, $ty:ty) => {
+    ($fnc:ident, $pattern:pat => $result:expr_2021, $ty:ty) => {
         async fn $fnc(
             receiver: &mut mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
         ) -> SignalResult<$ty> {
@@ -1475,7 +1475,9 @@ mod tests {
                 .scheme(),
             "ws"
         );
-        assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "", None).is_err());
+        assert!(
+            get_livekit_url("ftp://localhost:7880", &io, false, false, None, "", None).is_err()
+        );
     }
 
     #[test]

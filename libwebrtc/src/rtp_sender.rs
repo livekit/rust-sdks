@@ -15,8 +15,8 @@
 use std::fmt::Debug;
 
 use crate::{
-    imp::rtp_sender as imp_rs, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
-    stats::RtcStats, RtcError,
+    RtcError, imp::rtp_sender as imp_rs, media_stream_track::MediaStreamTrack,
+    rtp_parameters::RtpParameters, stats::RtcStats,
 };
 
 /// Preferred backend for video encoding on an [`RtpSender`].

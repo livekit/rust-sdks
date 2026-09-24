@@ -283,7 +283,7 @@ impl From<DataTrackSchemaEncoding> for proto::DataTrackSchemaEncoding {
             DataTrackSchemaEncoding::JsonSchema => WellKnown::JsonSchema,
             DataTrackSchemaEncoding::Other => WellKnown::Unspecified,
             DataTrackSchemaEncoding::Custom(name) => {
-                return Self { value: Some(Value::Custom(name)) }
+                return Self { value: Some(Value::Custom(name)) };
             }
         };
         Self { value: Some(Value::WellKnown(well_known as i32)) }
@@ -324,7 +324,7 @@ impl From<DataTrackFrameEncoding> for proto::DataTrackFrameEncoding {
             DataTrackFrameEncoding::Json => WellKnown::Json,
             DataTrackFrameEncoding::Other => WellKnown::Unspecified,
             DataTrackFrameEncoding::Custom(name) => {
-                return Self { value: Some(Value::Custom(name)) }
+                return Self { value: Some(Value::Custom(name)) };
             }
         };
         Self { value: Some(Value::WellKnown(well_known as i32)) }

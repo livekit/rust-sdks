@@ -14,9 +14,10 @@
 
 use crate::{proto, server::room::FfiRoom};
 use livekit::{
+    RoomDataStreamOptions, RoomInfo,
     e2ee::{
-        key_provider::{KeyProvider, KeyProviderOptions},
         E2eeOptions, EncryptionType,
+        key_provider::{KeyProvider, KeyProviderOptions},
     },
     options::{
         AudioEncoding, DegradationPreference, FrameMetadataFeatures, TrackPublishOptions,
@@ -27,7 +28,6 @@ use livekit::{
         native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
-    RoomDataStreamOptions, RoomInfo,
 };
 use std::time::Duration;
 

@@ -27,7 +27,7 @@ use libwebrtc::{
 use livekit_protocol::PacketTrailerFeature;
 use parking_lot::Mutex;
 
-use super::{key_provider::KeyProvider, EncryptionType};
+use super::{EncryptionType, key_provider::KeyProvider};
 use crate::{
     e2ee::E2eeOptions,
     id::{ParticipantIdentity, TrackSid},

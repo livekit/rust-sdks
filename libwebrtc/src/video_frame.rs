@@ -567,7 +567,7 @@ impl NV12Buffer {
 pub mod native {
     use std::fmt::Debug;
 
-    use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
+    use super::{I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType, vf_imp};
     #[cfg(target_os = "linux")]
     use crate::video_source::VideoResolution;
 
@@ -598,7 +598,7 @@ pub mod native {
         /// Safety: The given pointer must be a valid `CVPixelBufferRef`.
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub unsafe fn from_cv_pixel_buffer(cv_pixel_buffer: *mut std::ffi::c_void) -> Self {
-            vf_imp::NativeBuffer::from_cv_pixel_buffer(cv_pixel_buffer)
+            unsafe { vf_imp::NativeBuffer::from_cv_pixel_buffer(cv_pixel_buffer) }
         }
 
         /// Returns the `CVPixelBufferRef` that backs this buffer, or `null` if
