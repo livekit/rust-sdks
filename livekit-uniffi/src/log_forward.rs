@@ -14,7 +14,7 @@
 
 use log::{Level, LevelFilter, Log, Record};
 use once_cell::sync::OnceCell;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 /// Global logger instance.
 static LOGGER: OnceCell<Logger> = OnceCell::new();

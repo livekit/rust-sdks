@@ -52,7 +52,7 @@ fn main() {
     // it so a bare invocation from the crate root picks it up.
     let config = config.unwrap_or_else(|| Utf8PathBuf::from("uniffi.toml"));
 
-    uniffi_dart::gen::generate_dart_bindings(
+    uniffi_dart::r#gen::generate_dart_bindings(
         &config,        // udl_file (unused in library mode once a config override is set)
         Some(&config), // config_file_override: routes through the supplier that reads [bindings.dart]
         Some(&out_dir), // out_dir_override

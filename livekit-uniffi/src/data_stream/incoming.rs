@@ -17,12 +17,12 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use livekit_data_stream::{api as ds_api, backend as ds};
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::common::{
-    decode_data_packet, ByteStreamInfo, DataStreamError, EncryptionType, TextStreamInfo,
+    ByteStreamInfo, DataStreamError, EncryptionType, TextStreamInfo, decode_data_packet,
 };
 use ds_api::StreamReader as _;
 
