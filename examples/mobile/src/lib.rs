@@ -1,6 +1,7 @@
 use futures::StreamExt;
 use lazy_static::lazy_static;
 use livekit::{
+    Room, RoomOptions,
     options::TrackPublishOptions,
     prelude::*,
     track::{LocalAudioTrack, LocalTrack, RemoteTrack, TrackSource},
@@ -10,7 +11,6 @@ use livekit::{
         audio_stream::native::NativeAudioStream,
         prelude::{AudioSourceOptions, RtcAudioSource},
     },
-    Room, RoomOptions,
 };
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -379,7 +379,7 @@ pub fn disconnect() {
 
 #[cfg(target_os = "ios")]
 pub mod ios {
-    use std::ffi::{c_char, CStr};
+    use std::ffi::{CStr, c_char};
 
     #[no_mangle]
     pub extern "C" fn livekit_connect(url: *const c_char, token: *const c_char) {
@@ -423,9 +423,9 @@ pub mod ios {
 pub mod android {
     use android_logger::Config;
     use jni::{
-        objects::{JClass, JObject, JShortArray, JString},
-        sys::{jboolean, jint, JNI_VERSION_1_6},
         JNIEnv, JavaVM,
+        objects::{JClass, JObject, JShortArray, JString},
+        sys::{JNI_VERSION_1_6, jboolean, jint},
     };
     use log::LevelFilter;
     use std::os::raw::c_void;
@@ -519,11 +519,7 @@ pub mod android {
         _env: JNIEnv,
         _: JClass,
     ) -> jboolean {
-        if super::is_connected() {
-            1
-        } else {
-            0
-        }
+        if super::is_connected() { 1 } else { 0 }
     }
 
     /// Push captured audio samples to LiveKit

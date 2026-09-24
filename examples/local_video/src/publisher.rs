@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
+use livekit::e2ee::{E2eeOptions, EncryptionType, key_provider::*};
 use livekit::options::{
-    self, video as video_presets, FrameMetadataFeatures, TrackPublishOptions, VideoCodec,
-    VideoEncoderBackend, VideoEncoding, VideoPreset,
+    self, FrameMetadataFeatures, TrackPublishOptions, VideoCodec, VideoEncoderBackend,
+    VideoEncoding, VideoPreset, video as video_presets,
 };
 use livekit::prelude::*;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
@@ -15,18 +15,18 @@ use livekit_api::access_token;
 use livekit_api::services::room::{CreateRoomOptions, RoomClient};
 use livekit_api::services::{ServiceError, TwirpError, TwirpErrorCode};
 use log::{debug, info};
+use nokhwa::Camera;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
     Resolution,
 };
-use nokhwa::Camera;
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
@@ -42,7 +42,7 @@ mod viewport_aspect;
 
 use test_pattern::TestPattern;
 use timestamp_burn::TimestampOverlay;
-use video_display::{align_up, PublisherTimingSample, SharedYuv};
+use video_display::{PublisherTimingSample, SharedYuv, align_up};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum PublisherCodec {
@@ -718,12 +718,16 @@ mod tests {
         state.record_frame_buffer(1_000, 1_100, Some(7));
 
         assert!(state.display_sample().is_none());
-        assert!(state
-            .record_sdk_event(timing_event(PublishTimingStage::EncoderUpload, 1_000, 1_200))
-            .is_none());
-        assert!(state
-            .record_sdk_event(timing_event(PublishTimingStage::EncoderOutput, 1_000, 1_300))
-            .is_none());
+        assert!(
+            state
+                .record_sdk_event(timing_event(PublishTimingStage::EncoderUpload, 1_000, 1_200))
+                .is_none()
+        );
+        assert!(
+            state
+                .record_sdk_event(timing_event(PublishTimingStage::EncoderOutput, 1_000, 1_300))
+                .is_none()
+        );
         assert!(state.display_sample().is_none());
     }
 
@@ -1509,7 +1513,10 @@ async fn run_capture_loop(
                                     if dec_w != width || dec_h != height {
                                         log::warn!(
                                             "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
-                                            dec_w, dec_h, width, height
+                                            dec_w,
+                                            dec_h,
+                                            width,
+                                            height
                                         );
                                         continue;
                                     }

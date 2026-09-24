@@ -3,7 +3,7 @@ mod audio_mixer;
 mod audio_playback;
 mod db_meter;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use audio_capture::AudioCapture;
 use audio_mixer::AudioMixer;
 use audio_playback::AudioPlayback;
@@ -13,6 +13,7 @@ use cpal::{Device, SampleRate, StreamConfig};
 use db_meter::display_dual_db_meters;
 use futures_util::StreamExt;
 use livekit::{
+    Room, RoomEvent, RoomOptions,
     options::TrackPublishOptions,
     track::{LocalAudioTrack, LocalTrack, TrackSource},
     webrtc::{
@@ -22,7 +23,6 @@ use livekit::{
         native::apm::AudioProcessingModule,
         prelude::{AudioSourceOptions, RtcAudioSource},
     },
-    Room, RoomEvent, RoomOptions,
 };
 use livekit_api::access_token;
 use log::{debug, error, info, warn};
@@ -425,9 +425,14 @@ async fn handle_remote_audio_streams(
                             // Add this participant's audio to the mixer
                             mixer_clone.add_audio_data(audio_frame.data.as_ref());
 
-                            debug!("Received audio frame from {}: {} samples, {} channels, {} Hz, buffer size: {}",
-                                stream_key, audio_frame.data.len(), audio_frame.num_channels,
-                                audio_frame.sample_rate, mixer_clone.buffer_size());
+                            debug!(
+                                "Received audio frame from {}: {} samples, {} channels, {} Hz, buffer size: {}",
+                                stream_key,
+                                audio_frame.data.len(),
+                                audio_frame.num_channels,
+                                audio_frame.sample_rate,
+                                mixer_clone.buffer_size()
+                            );
                         }
 
                         info!("Audio stream ended for participant: {}", stream_key);
@@ -593,9 +598,7 @@ async fn main() -> Result<()> {
 
     info!(
         "Audio processing - Manual echo cancellation: {}, Manual noise suppression: {}, Manual auto gain control: {}",
-        args.echo_cancellation,
-        args.noise_suppression,
-        args.auto_gain_control
+        args.echo_cancellation, args.noise_suppression, args.auto_gain_control
     );
 
     let livekit_source = NativeAudioSource::new(
@@ -631,8 +634,10 @@ async fn main() -> Result<()> {
         args.sample_rate,
     )));
 
-    info!("✅ Created shared APM with echo_cancellation={}, noise_suppression={}, auto_gain_control={}",
-          args.echo_cancellation, args.noise_suppression, args.auto_gain_control);
+    info!(
+        "✅ Created shared APM with echo_cancellation={}, noise_suppression={}, auto_gain_control={}",
+        args.echo_cancellation, args.noise_suppression, args.auto_gain_control
+    );
 
     // Set up audio capture and streaming
     let (audio_tx, audio_rx) = mpsc::unbounded_channel();
@@ -640,7 +645,9 @@ async fn main() -> Result<()> {
     // Set up reference audio channel for echo cancellation
     let (reference_audio_tx, reference_audio_rx) = mpsc::unbounded_channel();
 
-    info!("✅ Set up audio channels: microphone input → forward stream, speaker output → reverse stream");
+    info!(
+        "✅ Set up audio channels: microphone input → forward stream, speaker output → reverse stream"
+    );
 
     // Set up dB meters
     let (mic_db_tx, mic_db_rx) = mpsc::unbounded_channel();
@@ -726,7 +733,9 @@ async fn main() -> Result<()> {
 
         Some(playback)
     } else {
-        warn!("⚠️  Audio playback disabled - echo cancellation will NOT work without reference audio from speakers!");
+        warn!(
+            "⚠️  Audio playback disabled - echo cancellation will NOT work without reference audio from speakers!"
+        );
         warn!("⚠️  Enable playback for full AEC functionality");
         None
     };

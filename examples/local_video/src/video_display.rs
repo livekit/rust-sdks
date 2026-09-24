@@ -5,8 +5,8 @@ use egui_wgpu as egui_wgpu_backend;
 use egui_wgpu_backend::CallbackTrait;
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
 
@@ -272,11 +272,7 @@ fn assert_publisher_timing_lines_are_stable(lines: &[String]) {
 
 fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
     let s = shared.lock();
-    if s.width > 0 && s.height > 0 {
-        Some((s.width, s.height))
-    } else {
-        None
-    }
+    if s.width > 0 && s.height > 0 { Some((s.width, s.height)) } else { None }
 }
 
 fn register_repaint_context(shared: &Arc<Mutex<SharedYuv>>, ctx: &egui::Context) {

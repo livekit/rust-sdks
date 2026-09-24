@@ -1,4 +1,4 @@
-use eframe::{egui, wgpu, Renderer};
+use eframe::{Renderer, egui, wgpu};
 use egui_wgpu as egui_wgpu_backend;
 use std::time::Duration;
 

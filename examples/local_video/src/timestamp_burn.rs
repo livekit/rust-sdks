@@ -48,11 +48,7 @@ impl LatencyDisplay {
             self.last_update = None;
         }
 
-        if self.value.is_empty() {
-            "NA"
-        } else {
-            self.value.as_str()
-        }
+        if self.value.is_empty() { "NA" } else { self.value.as_str() }
     }
 }
 
