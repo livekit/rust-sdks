@@ -9,4 +9,4 @@
 max_width = 100
 use_small_heuristics = "Max"
 # Workaround for https://github.com/rust-lang/rust.vim/issues/464
-edition = "2021"
+edition = "2024"
