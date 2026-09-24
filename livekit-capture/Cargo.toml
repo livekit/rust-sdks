@@ -1,7 +1,7 @@
 [package]
 name = "livekit-capture"
 description = "Ingest pixel frames or pre-encoded access units into LiveKit from any source"
-version = "0.1.1"
+version = "0.1.2"
 readme = "README.md"
 categories = ["multimedia::video"]
 license.workspace = true
@@ -10,11 +10,16 @@ repository.workspace = true
 
 [dependencies]
 bytes = { workspace = true }
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
 livekit = { workspace = true }
+log = { workspace = true }
+pollster = { version = "0.4", optional = true }
 schemars = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt", "sync"] }
+wgpu = { workspace = true, optional = true }
+yuv-sys = { workspace = true, features = ["jpeg"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
@@ -23,3 +28,7 @@ tokio = { workspace = true, features = ["rt", "time", "macros"] }
 default = []
 serde = ["dep:serde"]
 schemars = ["dep:schemars", "serde"]
+
+# Pixel sources
+source-clock = ["dep:chrono", "dep:pollster", "dep:wgpu", "dep:yuv-sys"]
+source-pattern = ["dep:pollster", "dep:wgpu", "dep:yuv-sys"]

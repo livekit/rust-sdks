@@ -60,7 +60,7 @@ use crate::{
         peer_transport::PeerTransport,
         rtc_events::{RtcEvent, RtcEvents},
     },
-    track::LocalTrack,
+    track::{LocalTrack, TrackSource},
     DataPacketKind,
 };
 
@@ -1266,7 +1266,7 @@ impl SessionInner {
                                     }
                                     let threshold = self.reliable_dc_buffered_amount_low_threshold.load(Ordering::Relaxed);
                                     self._send_until_threshold(DataPacketKind::Reliable, threshold, &mut reliable_buffered_amount, &mut reliable_queue, &mut retry_queue);
-                                    retry_queue.trim(sent as usize);
+                                    retry_queue.trim(reliable_buffered_amount as usize);
                                 }
                             }
                         }
@@ -1351,9 +1351,10 @@ impl SessionInner {
     }
 
     /// Updates the packet receive state (TTL map) for reliable packets.
-    fn update_packet_rx_state(&self, packet: &proto::DataPacket) {
+    /// Returns `false` if the packet is a duplicate and must be dropped.
+    fn update_packet_rx_state(&self, packet: &proto::DataPacket) -> bool {
         if packet.sequence <= 0 || packet.participant_sid.is_empty() {
-            return;
+            return true;
         };
         let mut rx_state = self.packet_rx_state.lock();
         if rx_state
@@ -1361,9 +1362,10 @@ impl SessionInner {
             .is_some_and(|&last_sequence| packet.sequence <= last_sequence)
         {
             log::warn!("Ignoring duplicate/out-of-order reliable data message");
-            return;
+            return false;
         }
         rx_state.set(&packet.participant_sid, Some(packet.sequence));
+        true
     }
 
     async fn on_signal_event(
@@ -1708,8 +1710,8 @@ impl SessionInner {
                 let mut packet = proto::DataPacket::decode(&*data).map_err(|err| {
                     EngineError::Internal(format!("failed to decode data packet: {}", err).into())
                 })?;
-                if kind == DataPacketKind::Reliable {
-                    self.update_packet_rx_state(&packet);
+                if kind == DataPacketKind::Reliable && !self.update_packet_rx_state(&packet) {
+                    return Ok(());
                 }
                 if let Some(detail) = packet.value.take() {
                     let participant_sid: Option<ParticipantSid> =
@@ -1988,7 +1990,8 @@ impl SessionInner {
                 let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
                 (sum > 0).then_some(sum)
             };
-            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps).await;
+            let is_screen_share = options.source == TrackSource::Screenshare;
+            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps, is_screen_share).await;
         }
 
         let init = RtpTransceiverInit {

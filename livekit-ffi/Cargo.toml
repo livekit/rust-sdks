@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.79"
+version = "0.12.80"
 edition.workspace = true
 license.workspace = true
 description = "FFI interface for bindings in other languages"
@@ -23,6 +23,8 @@ tracing = ["tokio/tracing", "console-subscriber"]
 # producers. This enables the capture scaffolding only; enable a
 # `capture-*` feature to include a specific source.
 capture = ["dep:livekit-capture"]
+capture-clock = ["capture", "livekit-capture/source-clock"]
+capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 [dependencies]
 livekit = { workspace = true }
@@ -44,7 +46,7 @@ downcast-rs = "1.2"
 console-subscriber = { workspace = true, features = ["parking_lot"], optional = true }
 bytes = { workspace = true }
 from_variants = "1.0.2"
-uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"] }
+uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns", "tokio"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
