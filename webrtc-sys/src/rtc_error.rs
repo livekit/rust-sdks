@@ -86,11 +86,11 @@ impl ffi::RtcError {
         if value.len() < 22 {
             return None;
         }
-        let error_type = u32::from_str_radix(&value[0..8], 16).ok()?;
-        let error_detail = u32::from_str_radix(&value[8..16], 16).ok()?;
-        let has_scp_cause_code = u8::from_str_radix(&value[16..18], 16).ok()?;
-        let sctp_cause_code = u16::from_str_radix(&value[18..22], 16).ok()?;
-        let message = String::from(&value[22..]);
+        let error_type = u32::from_str_radix(value.get(0..8)?, 16).ok()?;
+        let error_detail = u32::from_str_radix(value.get(8..16)?, 16).ok()?;
+        let has_scp_cause_code = u8::from_str_radix(value.get(16..18)?, 16).ok()?;
+        let sctp_cause_code = u16::from_str_radix(value.get(18..22)?, 16).ok()?;
+        let message = String::from(value.get(22..)?);
 
         Some(Self {
             error_type: rtc_error_type_from_u32(error_type),
@@ -193,6 +193,25 @@ mod tests {
         assert!(error.has_sctp_cause_code);
         assert_eq!(error.sctp_cause_code, 24);
         assert_eq!(error.message, "this is not a test, I repeat, this is not a test");
+    }
+
+    /// A non-ASCII byte sequence in the fixed-width header must be rejected without panicking.
+    #[test]
+    fn non_ascii_header_does_not_panic() {
+        for offset in 0..22 {
+            for symbol in ["é", "界", "🦀"] {
+                let input = format!("{}{}{}", "0".repeat(offset), symbol, "0".repeat(24));
+                assert!(RtcError::parse(&input).is_none(), "offset={offset}, symbol={symbol}");
+                // SAFETY: `from` has no caller invariants and must fall back for malformed input.
+                let error = unsafe { RtcError::from(&input) };
+                assert_eq!(error.error_type, RtcErrorType::None);
+                assert_eq!(error.message, input);
+            }
+        }
+
+        let input = format!("{}🦀", "0".repeat(22));
+        let error = RtcError::parse(&input).expect("non-ASCII message should be valid");
+        assert_eq!(error.message, "🦀");
     }
 
     /// On participant disconnect the C++ side sometimes hands us a string
