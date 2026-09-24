@@ -1,7 +1,7 @@
 [package]
 name = "bindgens"
 version = "0.1.0"
-edition.workspace = true
+edition = "2024"
 license.workspace = true
 repository.workspace = true
 description = "Foreign-binding generator CLIs for the LiveKit Rust crates"
