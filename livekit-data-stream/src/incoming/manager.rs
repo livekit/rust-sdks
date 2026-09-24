@@ -636,7 +636,7 @@ mod tests {
         test_utils::pseudo_random_text,
         types::{ByteHeader, StreamId, TextHeader},
     };
-    use futures_util::{io::AsyncReadExt, Stream};
+    use futures_util::{Stream, io::AsyncReadExt};
     use std::collections::HashMap;
 
     const SENDER: &str = "alice";

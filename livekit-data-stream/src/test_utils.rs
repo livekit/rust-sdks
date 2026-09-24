@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 
 /// Fixed RNG seed that keeps output identical on every run.
 const RANDOM_SEED: u64 = 0x1234_5678_9abc_def0;
