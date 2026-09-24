@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::{
-    consts::*, E2eeExt, ExtensionTag, Extensions, FrameMarker, Handle, HandleError, Header, Packet,
-    Timestamp, UserTimestampExt,
+    E2eeExt, ExtensionTag, Extensions, FrameMarker, Handle, HandleError, Header, Packet, Timestamp,
+    UserTimestampExt, consts::*,
 };
 use bytes::{Buf, Bytes};
 use thiserror::Error;
@@ -95,7 +95,7 @@ impl Header {
 }
 
 macro_rules! deserialize_ext {
-    ($ext_type:ty, $raw:expr, $len:expr) => {{
+    ($ext_type:ty, $raw:expr_2021, $len:expr_2021) => {{
         if $raw.remaining() < $len {
             Err(DeserializeError::MalformedExt(<$ext_type>::TAG))?
         }
@@ -181,7 +181,7 @@ mod tests {
     fn test_missing_ext_words() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-                                       // Should have ext word indicator here
+        // Should have ext word indicator here
 
         let packet = Packet::deserialize(raw.freeze());
         assert!(matches!(packet, Err(DeserializeError::MissingExtWords)));

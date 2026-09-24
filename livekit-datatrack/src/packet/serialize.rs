@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, E2eeExt, Extensions, FrameMarker, Header, Packet, UserTimestampExt};
+use super::{E2eeExt, Extensions, FrameMarker, Header, Packet, UserTimestampExt, consts::*};
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 

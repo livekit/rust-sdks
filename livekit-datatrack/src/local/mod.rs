@@ -84,7 +84,7 @@ impl DataTrack<Local> {
     pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameError> {
         match self.inner().publish_state() {
             manager::PublishState::Republishing => {
-                return Err(PushFrameError::new(frame, PushFrameErrorReason::QueueFull))?
+                return Err(PushFrameError::new(frame, PushFrameErrorReason::QueueFull))?;
             }
             manager::PublishState::Unpublished => {
                 return Err(PushFrameError::new(frame, PushFrameErrorReason::TrackUnpublished))?;

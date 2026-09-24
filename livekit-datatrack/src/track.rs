@@ -133,11 +133,7 @@ impl TryFrom<String> for DataTrackSid {
     type Error = DataTrackSidError;
 
     fn try_from(raw_id: String) -> Result<Self, Self::Error> {
-        if raw_id.starts_with(Self::PREFIX) {
-            Ok(Self(raw_id))
-        } else {
-            Err(DataTrackSidError)
-        }
+        if raw_id.starts_with(Self::PREFIX) { Ok(Self(raw_id)) } else { Err(DataTrackSidError) }
     }
 }
 

@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use super::{
+    RemoteDataTrack, RemoteTrackInner,
     events::*,
     pipeline::{Pipeline, PipelineOptions},
-    RemoteDataTrack, RemoteTrackInner,
 };
 use crate::{
     api::{
@@ -25,20 +25,20 @@ use crate::{
     e2ee::DecryptionProvider,
     packet::{Handle, Packet},
 };
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     mem,
     pin::Pin,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     task::{Context as TaskContext, Poll},
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
-use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio_stream::{Stream, wrappers::ReceiverStream};
 
 /// Options for creating a [`Manager`].
 #[derive(Debug)]
@@ -573,7 +573,7 @@ mod tests {
         utils::testing::expect_event,
     };
     use fake::{Fake, Faker};
-    use futures_util::{future::join, StreamExt};
+    use futures_util::{StreamExt, future::join};
     use std::{collections::HashMap, sync::RwLock, time::Duration};
     use test_case::test_case;
     use tokio::time;
