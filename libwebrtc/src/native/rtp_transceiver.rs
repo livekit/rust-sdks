@@ -16,11 +16,11 @@ use cxx::SharedPtr;
 use webrtc_sys::{rtc_error as sys_err, rtp_transceiver as sys_rt, webrtc as sys_webrtc};
 
 use crate::{
+    RtcError,
     imp::{rtp_receiver::RtpReceiver, rtp_sender::RtpSender},
     rtp_parameters::RtpCodecCapability,
     rtp_receiver, rtp_sender,
     rtp_transceiver::{RtpTransceiverDirection, RtpTransceiverInit},
-    RtcError,
 };
 
 impl From<sys_webrtc::ffi::RtpTransceiverDirection> for RtpTransceiverDirection {

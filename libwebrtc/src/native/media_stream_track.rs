@@ -14,8 +14,8 @@
 
 use cxx::SharedPtr;
 use webrtc_sys::{
-    audio_track::ffi::media_to_audio, media_stream_track as sys_mst,
-    video_track::ffi::media_to_video, MEDIA_TYPE_AUDIO, MEDIA_TYPE_VIDEO,
+    MEDIA_TYPE_AUDIO, MEDIA_TYPE_VIDEO, audio_track::ffi::media_to_audio,
+    media_stream_track as sys_mst, video_track::ffi::media_to_video,
 };
 
 use crate::{
@@ -52,7 +52,7 @@ pub fn new_media_stream_track(
 }
 
 macro_rules! impl_media_stream_track {
-    ($cast:expr) => {
+    ($cast:expr_2021) => {
         pub fn id(&self) -> String {
             let ptr = $cast(self.sys_handle.clone());
             ptr.id()

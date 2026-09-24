@@ -15,8 +15,8 @@
 use std::fmt::Debug;
 
 use crate::{
-    imp::peer_connection_factory as imp_pcf, peer_connection::PeerConnection,
-    rtp_parameters::RtpCapabilities, MediaType, RtcError,
+    MediaType, RtcError, imp::peer_connection_factory as imp_pcf, peer_connection::PeerConnection,
+    rtp_parameters::RtpCapabilities,
 };
 
 #[derive(Debug, Clone)]

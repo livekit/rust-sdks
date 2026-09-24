@@ -23,6 +23,7 @@ use webrtc_sys::{
 };
 
 use crate::{
+    MediaType, RtcError, RtcErrorType,
     data_channel::{DataChannel, DataChannelInit},
     ice_candidate::IceCandidate,
     imp::{
@@ -46,7 +47,6 @@ use crate::{
     rtp_transceiver::{RtpTransceiver, RtpTransceiverInit},
     session_description::SessionDescription,
     stats::RtcStats,
-    MediaType, RtcError, RtcErrorType,
 };
 
 impl From<OfferOptions> for sys_pc::ffi::RtcOfferAnswerOptions {

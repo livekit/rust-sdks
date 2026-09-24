@@ -14,8 +14,8 @@
 
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Weak,
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -249,12 +249,12 @@ impl NativeVideoSource {
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     };
     use std::time::Duration;
 
-    use super::{keepalive_should_continue, raw_keepalive_task, NativeVideoSource};
+    use super::{NativeVideoSource, keepalive_should_continue, raw_keepalive_task};
     use crate::video_source::VideoResolution;
 
     #[test]

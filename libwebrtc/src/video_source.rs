@@ -58,12 +58,12 @@ pub mod native {
 
     use super::*;
     use crate::native::packet_trailer::PacketTrailerHandler;
+    use crate::video_frame::{EncodedVideoFrame, VideoBuffer, VideoFrame};
     #[cfg(target_os = "linux")]
     use crate::video_frame::{
-        native::{DmaBufPixelFormat, NativeBuffer},
         FrameMetadata, VideoRotation,
+        native::{DmaBufPixelFormat, NativeBuffer},
     };
-    use crate::video_frame::{EncodedVideoFrame, VideoBuffer, VideoFrame};
 
     #[derive(Clone)]
     pub struct NativeVideoSource {

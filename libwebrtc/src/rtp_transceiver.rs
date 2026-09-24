@@ -15,11 +15,11 @@
 use std::fmt::Debug;
 
 use crate::{
+    RtcError,
     imp::rtp_transceiver as imp_rt,
     rtp_parameters::{RtpCodecCapability, RtpEncodingParameters},
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
-    RtcError,
 };
 
 #[derive(Debug, Clone)]

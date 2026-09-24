@@ -125,11 +125,7 @@ impl From<sys_rp::ffi::RtpCodecCapability> for RtpCodecCapability {
                     })
                     .collect();
 
-                if !parameters.is_empty() {
-                    Some(parameters.join(";"))
-                } else {
-                    None
-                }
+                if !parameters.is_empty() { Some(parameters.join(";")) } else { None }
             },
         }
     }
