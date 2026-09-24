@@ -148,7 +148,7 @@ bool NvidiaVideoDecoderFactory::IsSupported() {
     return false;
   }
 
-  std::cout << "Nvidia Decoder is supported." << std::endl;
+  RTC_LOG(LS_INFO) << "Nvidia Decoder is supported.";
   return true;
 }
 

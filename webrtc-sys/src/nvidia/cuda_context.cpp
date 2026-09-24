@@ -113,6 +113,7 @@ bool CudaContext::IsAvailable() {
 
 bool CudaContext::Initialize() {
   std::lock_guard<std::mutex> lock(cudaMutex());
+  std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
   if (cu_context_ != nullptr) {
     ++ref_count_;
     RTC_LOG(LS_INFO) << "CUDA context already initialized; reusing existing "
@@ -180,6 +181,9 @@ bool CudaContext::Initialize() {
   cu_context_ = context;
   ref_count_ = 1;
   RTC_LOG(LS_INFO) << "CUDA context initialized (refs=1).";
+  std::chrono::steady_clock::time_point end_time = std::chrono::steady_clock::now();
+  auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+  std::cout << "CUDA context initialization time: " << duration_ms.count() << " ms" << std::endl;
 
   return true;
 }
@@ -237,6 +241,7 @@ void CudaContext::Shutdown() {
              "A later Initialize() will create a new context (refs=0).";
     } else {
       RTC_LOG(LS_INFO) << "CUDA context destroyed successfully (refs=0).";
+      std::cout << "CUDA context destroyed successfully (refs=0)." << std::endl;
     }
   }
   if (s_module_ptr) {
