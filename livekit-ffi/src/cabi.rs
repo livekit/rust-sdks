@@ -137,7 +137,7 @@ pub mod android {
     }
 
     #[allow(non_snake_case)]
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
         livekit::webrtc::android::initialize_android(&vm);
         init_device_info(&vm);
@@ -151,7 +151,7 @@ pub mod android {
     //
     // The native method would be:
     //   #[allow(non_snake_case)]
-    //   #[no_mangle]
+    //   #[unsafe(no_mangle)]
     //   pub extern "C" fn Java_livekit_ffi_LiveKitFfi_initializeContext(...)
 
     /// Initialize Android WebRTC with the application context.
@@ -173,7 +173,7 @@ pub mod android {
     /// # Returns
     /// true if context initialization was successful, false otherwise.
     /// Note: JVM initialization always happens regardless of return value.
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn livekit_ffi_initialize_android_context(
         vm_ptr: *mut c_void,
         context_ptr: jobject,

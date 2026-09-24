@@ -97,7 +97,7 @@ mod client {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     unsafe extern "C" fn test_events_callback(data_ptr: *const u8, len: usize) {
         let data = unsafe { std::slice::from_raw_parts(data_ptr, len) };
         let event = proto::FfiEvent::decode(data).unwrap();
