@@ -190,3 +190,80 @@ fn the_handle_map_only_owns_published_resamplers() {
     FFI_SERVER.drop_handle(handle);
     assert!(FFI_SERVER.retrieve_handle::<Arc<SoxResampler>>(handle).is_err());
 }
+
+/// A resampler that has just been fed a loud block is still ringing: pushing
+/// silence into it comes back non-silent until the filter drains. A *different*
+/// resampler, fed the same silence, answers with silence — so this is the probe
+/// for "the two surfaces are driving one object", and it needs a quality recipe
+/// with a filter long enough to ring.
+fn assert_still_ringing(output: &[i16], context: &str) {
+    let peak = output.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
+    assert!(peak > 1000, "{context}: peak is {peak}, expected the tail of the loud block");
+}
+
+/// A resampler created over the FFI can be picked up by the uniffi side: the id
+/// round-trips, and the uniffi side sees the filter state the FFI side left.
+#[test]
+fn a_proto_resampler_is_the_same_object_over_uniffi() {
+    use crate::server::resampler::SoxResampler;
+
+    let quality = proto::SoxQualityRecipe::SoxrQualityVeryhigh;
+    let handle = new_sox_resampler(48000.0, 16000.0, 1, quality);
+    let resampler = SoxResampler::from_ffi_handle_id(handle).expect("handle resolves to an object");
+    assert_eq!(resampler.clone().ffi_handle_id(), handle, "the object keeps the published id");
+
+    push_sox_resampler(handle, &vec![8000i16; 4800]); // 100ms of loud, over the FFI
+    assert_still_ringing(
+        &resampler.push(&vec![0i16; 4800]).unwrap(),
+        "silence pushed over uniffi after a loud block over the FFI",
+    );
+
+    FFI_SERVER.drop_handle(handle);
+}
+
+/// The same trip the other way, and back again: a resampler created over uniffi
+/// publishes a handle the FFI request surface drives, `take_ffi_handle_id` hands
+/// sole ownership back to the uniffi side, and publishing a second time restores
+/// the same id — so a migrating object can cross the seam as often as it needs to.
+#[test]
+fn a_resampler_hands_back_and_forth_across_the_seam() {
+    use crate::{server::resampler::SoxResampler, sox_resampler};
+    use std::sync::Arc;
+
+    let loud = vec![8000i16; 4800]; // 100ms @ 48kHz
+    let silence = vec![0i16; 4800];
+    let resampler =
+        sox_resampler!(48000.0, 16000.0, 1, proto::SoxQualityRecipe::SoxrQualityVeryhigh);
+
+    // uniffi drives it first
+    assert_still_ringing(&resampler.push(&loud).unwrap(), "push over uniffi");
+
+    // published, the FFI side picks up the filter uniffi left behind
+    let handle = resampler.clone().ffi_handle_id();
+    assert_still_ringing(
+        &push_sox_resampler(handle, &silence),
+        "silence pushed over the FFI after a loud block over uniffi",
+    );
+
+    // the FFI side lets go, and the uniffi side carries on alone
+    resampler.take_ffi_handle_id().expect("the FFI side co-owned the resampler");
+    assert!(
+        SoxResampler::from_ffi_handle_id(handle).is_err(),
+        "a released handle is absent from the map until it is published again"
+    );
+    assert_still_ringing(&resampler.push(&loud).unwrap(), "push over uniffi after the take");
+
+    // publishing again restores the handle, id and all
+    assert_eq!(resampler.clone().ffi_handle_id(), handle, "republishing keeps the id");
+    assert_still_ringing(
+        &push_sox_resampler(handle, &silence),
+        "silence pushed over the FFI after republishing",
+    );
+
+    // and the id resolves back to the very same object
+    let same = SoxResampler::from_ffi_handle_id(handle).expect("the republished handle resolves");
+    assert!(Arc::ptr_eq(&same, &resampler), "the handle resolves to the object that published it");
+    same.push(&loud).expect("uniffi still drives it at the end of the round trip");
+
+    FFI_SERVER.drop_handle(handle);
+}

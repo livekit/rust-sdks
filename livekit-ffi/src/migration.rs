@@ -24,12 +24,13 @@
 /// 3) to take ownership of a `&self` from the old FFI system, so the FFI side can release its
 /// ownership of the handle but allow the uniffi side to continue use the struct.
 ///
-/// The FFI server is a second owner: it holds an `Arc<Self>` from the first `ffi_handle_id()` call
+/// The FFI server is a second owner: it holds an `Arc<Self>` from an `ffi_handle_id()` call
 /// until `livekit_ffi_drop_handle` or `take_ffi_handle_id` releases it. A struct that never publishes
 /// a handle is owned by the uniffi side alone and drops with its last `Arc`.
 ///
-/// The FFI system and uniffi system can be interchanged, however, once removed (via [take_ffi_handle_id] or
-/// [livekit_ffi_drop_handle]), the FFI system cannot easily be used again for that handle id.
+/// The FFI system and uniffi system can be interchanged in either direction: once the FFI side has
+/// released a handle (via [take_ffi_handle_id] or [livekit_ffi_drop_handle]), publishing the struct
+/// again restores it to the handle map under the same id.
 #[macro_export]
 macro_rules! migrate_from_ffi {
     ($T:ty) => {
@@ -40,16 +41,12 @@ macro_rules! migrate_from_ffi {
             /// Publishes this struct to the FFI handle map and returns the id the FFI side
             /// knows it by.
             ///
-            /// The first call hands the FFI side co-ownership; later calls return the same id
-            /// without republishing. An id whose handle the FFI side has already released is
-            /// stale, and passing it back over the FFI fails with "handle not found".
+            /// Every call hands the FFI side co-ownership, under the id minted by the first one,
+            /// so a struct the FFI side has released can be published again and keep its id.
             pub fn ffi_handle_id(self: ::std::sync::Arc<Self>) -> crate::FfiHandleId {
-                let handle_id = *self.handle_id.get_or_init(|| {
-                    let handle_id = crate::FFI_SERVER.next_id();
-                    // the FFI side co-owns from here; released by livekit_ffi_drop_handle
-                    crate::FFI_SERVER.store_handle(handle_id, ::std::sync::Arc::clone(&self));
-                    handle_id
-                });
+                let handle_id = *self.handle_id.get_or_init(|| crate::FFI_SERVER.next_id());
+                // the FFI side co-owns from here; released by livekit_ffi_drop_handle
+                crate::FFI_SERVER.store_handle(handle_id, ::std::sync::Arc::clone(&self));
                 handle_id
             }
 
@@ -69,8 +66,9 @@ macro_rules! migrate_from_ffi {
             /// Takes the FFI side's ownership of this struct, leaving the uniffi side as the
             /// only owner. The FFI side calls this when it is done with the handle.
             ///
-            /// The release is final: the handle id is not reusable, a second call errors, and
-            /// so does a call on a struct that was never published.
+            /// The id outlives the release: [ffi_handle_id] publishes the struct again under it.
+            /// Until then the handle is absent from the map, so a second call errors, as does a
+            /// call on a struct that was never published.
             pub fn take_ffi_handle_id(
                 &self,
             ) -> ::std::result::Result<::std::sync::Arc<Self>, crate::migration::MigrationError>
