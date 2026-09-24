@@ -202,6 +202,10 @@ mod tests {
             for symbol in ["é", "界", "🦀"] {
                 let input = format!("{}{}{}", "0".repeat(offset), symbol, "0".repeat(24));
                 assert!(RtcError::parse(&input).is_none(), "offset={offset}, symbol={symbol}");
+                // SAFETY: `from` has no caller invariants and must fall back for malformed input.
+                let error = unsafe { RtcError::from(&input) };
+                assert_eq!(error.error_type, RtcErrorType::None);
+                assert_eq!(error.message, input);
             }
         }
 
