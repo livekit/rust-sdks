@@ -1,3 +1,12 @@
+## 0.1.3 (2026-09-24)
+
+### Fixes
+
+- Avoid panics when malformed RTC error headers contain non-ASCII text.
+- Java version in libwebrtc was bumped by Google, downgrade it again for Unity 2022 build compatibility - #1456 (@MaxHeimbrock)
+- refactor(signaling): explicit signal lifecycle state machine - #1402 (@lukasIO)
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
 ## 0.1.2 (2026-09-22)
 
 ### Features

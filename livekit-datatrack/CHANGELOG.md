@@ -1,4 +1,10 @@
 # Changelog
+## 0.2.1 (2026-09-24)
+
+### Fixes
+
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
 ## 0.2.0 (2026-09-22)
 
 ### Breaking Changes
