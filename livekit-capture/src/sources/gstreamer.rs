@@ -425,6 +425,31 @@ impl GStreamerVideoSource {
                 });
             }
         }
+        // Framing (e.g. H.264 `byte-stream` vs `avc3`) changes the payload
+        // representation without changing the codec. Conversion is
+        // per-sample stateless and both framings emit Annex-B, so a
+        // same-codec framing switch updates in place instead of failing.
+        match sample_format_from_negotiated_caps(caps) {
+            Ok(new_format) => {
+                if new_format != self.sample_format {
+                    if new_format.codec() != self.sample_format.codec() {
+                        return Err(GStreamerVideoSourceError::Renegotiated {
+                            from: format!("{:?}", self.sample_format),
+                            to: format!("{new_format:?}"),
+                        });
+                    }
+                    self.sample_format = new_format;
+                }
+            }
+            Err(err) => {
+                // Fail fast for video caps with unsupported framing rather
+                // than parsing with the wrong parser; ignore non-video caps
+                // as before.
+                if caps.iter().any(|s| codec_from_caps_name(s.name()).is_some()) {
+                    return Err(GStreamerVideoSourceError::Layout(err));
+                }
+            }
+        }
         if let Some(frame_interval_us) = frame_interval_from_caps(caps) {
             self.frame_interval_us = frame_interval_us;
         }
@@ -1033,12 +1058,17 @@ fn sample_format_from_caps_structure(
         EncodedVideoCodec::H264 => {
             let stream_format = structure.get::<String>("stream-format").ok();
             match stream_format.as_deref() {
-                Some("avc") | Some("avc3") => Ok(Some(GStreamerSampleFormat::H264Avc {
+                // `avc` carries SPS/PPS out-of-band in `codec_data`, which
+                // we do not inline yet; emitting its IDRs without parameter
+                // sets yields undecodable keyframes. Reject it until the
+                // converter prepends them. `avc3` carries parameter sets
+                // in-band, so length-prefix conversion alone suffices.
+                Some("avc3") => Ok(Some(GStreamerSampleFormat::H264Avc {
                     nal_length_size: h264_avc_nal_length_size_from_caps(structure),
                 })),
                 Some("byte-stream") | None => Ok(Some(GStreamerSampleFormat::H264AnnexB)),
                 Some(stream_format) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
-                    "H.264 stream-format '{stream_format}'; expected byte-stream or avc"
+                    "H.264 stream-format '{stream_format}'; expected byte-stream or avc3"
                 ))),
             }
         }
