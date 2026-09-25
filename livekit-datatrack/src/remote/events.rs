@@ -40,6 +40,15 @@ pub enum InputEvent {
     /// tracks are subscribed to locally.
     ///
     ResendSubscriptionUpdates,
+    /// Shutdown the manager, ending any subscriptions.
+    ///
+    /// This is retained for source compatibility. Unlike other input events,
+    /// [`ManagerInput::send`] handles it out of band so a saturated input
+    /// channel cannot delay shutdown.
+    ///
+    /// [`ManagerInput::send`]: super::manager::ManagerInput::send
+    #[deprecated(note = "use ManagerInput::shutdown instead")]
+    Shutdown,
 }
 
 /// An event produced by [`Manager`](super::manager::Manager) requiring external action.

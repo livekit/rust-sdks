@@ -39,7 +39,7 @@ use std::{
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 /// Options for creating a [`Manager`].
 #[derive(Debug)]
@@ -136,6 +136,8 @@ impl Manager {
             InputEvent::SetPipelineOptions(event) => self.on_set_pipeline_options(event),
             InputEvent::PacketReceived(bytes) => self.on_packet_received(bytes),
             InputEvent::ResendSubscriptionUpdates => self.on_resend_subscription_updates().await,
+            #[allow(deprecated)]
+            InputEvent::Shutdown => self.token.cancel(),
         }
     }
 
@@ -150,7 +152,7 @@ impl Manager {
         match &mut descriptor.subscription {
             SubscriptionState::None => {
                 let update_event = SfuUpdateSubscription { sid: event.sid, subscribe: true };
-                _ = self.event_out_tx.send(update_event.into()).await;
+                _ = Self::send_output(&self.token, &self.event_out_tx, update_event).await;
                 descriptor.subscription = SubscriptionState::Pending {
                     result_txs: vec![event.result_tx],
                     buffer_size: event.options.buffer_size,
@@ -180,7 +182,7 @@ impl Manager {
         self.sub_handles.remove(&sub_handle);
 
         let event = SfuUpdateSubscription { sid: event.sid, subscribe: false };
-        _ = self.event_out_tx.send(event.into()).await;
+        _ = Self::send_output(&self.token, &self.event_out_tx, event).await;
     }
 
     async fn on_sfu_publication_updates(&mut self, event: SfuPublicationUpdates) {
@@ -248,7 +250,7 @@ impl Manager {
             publisher_identity,
         };
         let track = RemoteDataTrack::new(info, inner);
-        _ = self.event_out_tx.send(TrackPublished { track }.into()).await;
+        _ = Self::send_output(&self.token, &self.event_out_tx, TrackPublished { track }).await;
     }
 
     /// Detects and handles SID reassignment, which occurs when the publisher
@@ -297,7 +299,7 @@ impl Manager {
                 // The SFU does not carry subscriptions across a publisher's full
                 // reconnect; re-request the subscription under the new SID.
                 let event = SfuUpdateSubscription { sid: new_sid.clone(), subscribe: true };
-                _ = self.event_out_tx.send(event.into()).await;
+                _ = Self::send_output(&self.token, &self.event_out_tx, event).await;
             }
         }
         if let SubscriptionState::Active { sub_handle, .. } = &descriptor.subscription {
@@ -326,7 +328,7 @@ impl Manager {
             self.sub_handles.remove(&sub_handle);
         };
         _ = descriptor.published_tx.send(false);
-        _ = self.event_out_tx.send(TrackUnpublished { sid }.into()).await;
+        _ = Self::send_output(&self.token, &self.event_out_tx, TrackUnpublished { sid }).await;
     }
 
     fn on_sfu_subscriber_handles(&mut self, event: SfuSubscriberHandles) {
@@ -434,7 +436,7 @@ impl Manager {
                 }
             });
         for event in update_events {
-            _ = self.event_out_tx.send(event.into()).await;
+            _ = Self::send_output(&self.token, &self.event_out_tx, event).await;
         }
     }
 
@@ -454,10 +456,28 @@ impl Manager {
             }
         }
 
-        // Track tasks observe the parent cancellation token via child tokens and
-        // skip their final unsubscribe request, so joining alone is sufficient.
+        // Track tasks observe the parent cancellation token via child tokens.
+        // A final unsubscribe send also races that token, so joining cannot
+        // block on a full input queue.
         for task_handle in task_handles {
             let _ = task_handle.await;
+        }
+    }
+
+    /// Enqueues `event` unless shutdown wins.
+    ///
+    /// A full output queue would otherwise leave the manager blocked in
+    /// `send().await` after [`ManagerInput::shutdown`], and [`Self::shutdown`]
+    /// would never run.
+    async fn send_output(
+        token: &CancellationToken,
+        event_out_tx: &mpsc::Sender<OutputEvent>,
+        event: impl Into<OutputEvent>,
+    ) -> bool {
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => false,
+            result = event_out_tx.send(event.into()) => result.is_ok(),
         }
     }
 
@@ -525,9 +545,14 @@ impl TrackTask {
                 },
                 _ = self.frame_tx.closed() => {
                     // Manager-wide shutdown already owns cleanup.
+                    // The send races cancellation so a full input queue cannot outlive shutdown.
                     if !self.token.is_cancelled() {
                         let event = UnsubscribeRequest { sid: self.info.sid() };
-                        _ = self.event_in_tx.send(event.into()).await;
+                        tokio::select! {
+                            biased;
+                            _ = self.token.cancelled() => {}
+                            _ = self.event_in_tx.send(event.into()) => {}
+                        }
                     }
                     break;  // No more subscribers
                 },
@@ -554,9 +579,8 @@ impl TrackTask {
 #[derive(Debug, Clone)]
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
-    token: CancellationToken,
     /// Cancels the manager when the last [`ManagerInput`] is dropped.
-    _drop_guard: Arc<CancelOnDrop>,
+    shutdown_guard: Arc<DropGuard>,
 }
 
 /// Stream of [`OutputEvent`]s produced by [`Manager`].
@@ -571,19 +595,9 @@ impl Stream for ManagerOutput {
     }
 }
 
-/// Cancels a [`CancellationToken`] when dropped.
-#[derive(Debug)]
-struct CancelOnDrop(CancellationToken);
-
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        self.0.cancel();
-    }
-}
-
 impl ManagerInput {
     fn new(event_in_tx: mpsc::Sender<InputEvent>, token: CancellationToken) -> Self {
-        Self { event_in_tx, token: token.clone(), _drop_guard: Arc::new(CancelOnDrop(token)) }
+        Self { event_in_tx, shutdown_guard: Arc::new(token.drop_guard()) }
     }
 
     /// Shuts down the manager, ending all event processing.
@@ -592,17 +606,24 @@ impl ManagerInput {
     /// cannot be dropped when the channel is saturated.
     ///
     pub fn shutdown(&self) {
-        self.token.cancel();
+        self.shutdown_guard.token().cancel();
     }
 
     /// Returns a clone of the manager's cancellation token.
     pub fn cancellation_token(&self) -> CancellationToken {
-        self.token.clone()
+        self.shutdown_guard.token().clone()
     }
 
     /// Sends an input event to the manager's task to be processed.
+    #[allow(deprecated)]
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
-        Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
+        match event {
+            InputEvent::Shutdown => {
+                self.shutdown();
+                Ok(())
+            }
+            event => Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?),
+        }
     }
 }
 
@@ -643,6 +664,55 @@ mod tests {
         input.shutdown();
 
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_deprecated_shutdown_with_saturated_event_channel() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, _output) = Manager::new(options);
+
+        for _ in 0..Manager::EVENT_BUFFER_COUNT {
+            input.send(InputEvent::PacketReceived(Bytes::new())).unwrap();
+        }
+        #[allow(deprecated)]
+        input.send(InputEvent::Shutdown).unwrap();
+
+        let join_handle = tokio::spawn(manager.run());
+        time::timeout(Duration::from_secs(1), join_handle).await.unwrap().unwrap();
+    }
+
+    /// Shutdown must finish while the manager is blocked sending to a full output queue.
+    #[tokio::test]
+    async fn test_shutdown_unblocks_full_output_queue() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, output) = Manager::new(options);
+        // Keep the receiver alive so sends block instead of failing closed.
+        let _output = output;
+        let mut join_handle = tokio::spawn(manager.run());
+
+        let tracks: Vec<_> = (0..=Manager::EVENT_BUFFER_COUNT)
+            .map(|index| DataTrackInfo {
+                sid: RwLock::new(Faker.fake()).into(),
+                pub_handle: Faker.fake(),
+                name: format!("track-{index}"),
+                uses_e2ee: false,
+                schema: None,
+                frame_encoding: None,
+            })
+            .collect();
+        input
+            .send(SfuPublicationUpdates { updates: HashMap::from([("id".into(), tracks)]) }.into())
+            .unwrap();
+
+        tokio::select! {
+            _ = &mut join_handle => panic!("manager finished while output queue was full"),
+            _ = time::sleep(Duration::from_millis(200)) => {}
+        }
+        input.shutdown();
+        time::timeout(Duration::from_secs(1), join_handle)
+            .await
+            .expect("shutdown blocked on full output queue")
+            .unwrap();
     }
 
     #[test_case(true; "via_unpublish")]

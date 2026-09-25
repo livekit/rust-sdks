@@ -845,14 +845,12 @@ impl Room {
         ));
 
         let local_dt_task = tokio::spawn(local_dt_manager.run());
-        let local_dt_forward_task = tokio::spawn(
-            inner.clone().local_dt_forward_task(local_dt_output, close_rx.resubscribe()),
-        );
+        let local_dt_forward_task =
+            tokio::spawn(inner.clone().local_dt_forward_task(local_dt_output));
 
         let remote_dt_task = tokio::spawn(remote_dt_manager.run());
-        let remote_dt_forward_task = tokio::spawn(
-            inner.clone().remote_dt_forward_task(remote_dt_output, close_rx.resubscribe()),
-        );
+        let remote_dt_forward_task =
+            tokio::spawn(inner.clone().remote_dt_forward_task(remote_dt_output));
 
         let room_handle = tokio::spawn(inner.clone().room_task(engine_events, close_rx));
 
@@ -1181,6 +1179,13 @@ impl RoomSession {
 
     async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
+
+        // Cancel data-track managers before closing the engine. A forwarder may
+        // already be inside an RTC output (signal send or reconnection), so it
+        // cannot be relied on to observe the close broadcast and shut the
+        // manager down. Output sends race this same cancellation.
+        self.local_dt_input.shutdown();
+        self.remote_dt_input.shutdown();
 
         // remove published tracks
         for (sid, _) in self.local_participant.track_publications().iter() {
@@ -2337,49 +2342,57 @@ impl RoomSession {
     }
 
     /// Task for handling output events from the local data track manager.
-    async fn local_dt_forward_task(
-        self: Arc<Self>,
-        mut events: dt::local::ManagerOutput,
-        mut close_rx: broadcast::Receiver<()>,
-    ) {
+    async fn local_dt_forward_task(self: Arc<Self>, mut events: dt::local::ManagerOutput) {
+        let shutdown = self.local_dt_input.cancellation_token();
         loop {
             tokio::select! {
-                event = events.next() => match event {
-                    Some(event) => _ = self.rtc_engine.handle_local_data_track_output(event).await,
-                    None => break,
-                },
-                _ = close_rx.recv() => {
-                    self.local_dt_input.shutdown();
-                    break;
-                },
+                biased;
+                _ = shutdown.cancelled() => break,
+                event = events.next() => {
+                    let Some(event) = event else { break };
+                    // The RTC call can block in a signal send or in
+                    // `wait_reconnection`. Race it so shutdown is not stuck
+                    // behind that await, which also holds the reconnect lock.
+                    tokio::select! {
+                        biased;
+                        _ = shutdown.cancelled() => break,
+                        _ = self.rtc_engine.handle_local_data_track_output(event) => {}
+                    }
+                }
             }
         }
     }
 
     /// Task for handling output events from the remote data track manager.
-    async fn remote_dt_forward_task(
-        self: Arc<Self>,
-        mut events: dt::remote::ManagerOutput,
-        mut close_rx: broadcast::Receiver<()>,
-    ) {
+    async fn remote_dt_forward_task(self: Arc<Self>, mut events: dt::remote::ManagerOutput) {
+        let shutdown = self.remote_dt_input.cancellation_token();
         loop {
             tokio::select! {
-                event = events.next() => match event {
-                    Some(event) => match event {
+                biased;
+                _ = shutdown.cancelled() => break,
+                event = events.next() => {
+                    let Some(event) = event else { break };
+                    let rtc_event = match event {
                         dt::remote::OutputEvent::TrackPublished(event) => {
-                            _ = self.dispatcher.dispatch(&RoomEvent::DataTrackPublished(event.track));
+                            _ = self
+                                .dispatcher
+                                .dispatch(&RoomEvent::DataTrackPublished(event.track));
+                            continue;
                         }
                         dt::remote::OutputEvent::TrackUnpublished(event) => {
-                            _ = self.dispatcher.dispatch(&RoomEvent::DataTrackUnpublished(event.sid));
+                            _ = self
+                                .dispatcher
+                                .dispatch(&RoomEvent::DataTrackUnpublished(event.sid));
+                            continue;
                         }
-                        other => _ = self.rtc_engine.handle_remote_data_track_output(other).await
-                    },
-                    None => break,
-                },
-                _ = close_rx.recv() => {
-                    self.remote_dt_input.shutdown();
-                    break;
-                },
+                        other => other,
+                    };
+                    tokio::select! {
+                        biased;
+                        _ = shutdown.cancelled() => break,
+                        _ = self.rtc_engine.handle_remote_data_track_output(rtc_event) => {}
+                    }
+                }
             }
         }
     }

@@ -5,7 +5,4 @@ livekit-uniffi: patch
 livekit: patch
 ---
 
-Fix a data track manager deadlock during room disconnect. Shutdown is now signaled
-via a `CancellationToken` (with child tokens for track tasks) instead of the bounded
-event channel, so it cannot be dropped when in-flight track events saturate the
-channel. `InputEvent::Shutdown` is removed; use [`ManagerInput::shutdown`].
+Fix a data-track shutdown deadlock on room disconnect by cancelling both managers at the start of close, and by racing their output sends and in-flight RTC forwarding against that cancellation so shutdown cannot wait on a full queue or a stuck signal or reconnection.

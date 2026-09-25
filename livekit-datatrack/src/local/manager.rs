@@ -34,7 +34,7 @@ use std::{
 };
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 /// Options for creating a [`Manager`].
 #[derive(Debug)]
@@ -121,6 +121,8 @@ impl Manager {
             InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
             InputEvent::SfuUnpublishResponse(event) => self.on_sfu_unpublish_response(event).await,
             InputEvent::RepublishTracks => self.on_republish_tracks().await,
+            #[allow(deprecated)]
+            InputEvent::Shutdown => self.token.cancel(),
         }
     }
 
@@ -162,7 +164,7 @@ impl Manager {
             schema: event.options.schema,
             frame_encoding: event.options.frame_encoding,
         };
-        _ = self.event_out_tx.send(event.into()).await;
+        _ = Self::send_output(&self.token, &self.event_out_tx, event).await;
     }
 
     /// Task that awaits a pending publish result.
@@ -213,14 +215,19 @@ impl Manager {
         self.remove_descriptor(event.handle);
 
         let event = SfuUnpublishRequest { handle: event.handle };
-        _ = self.event_out_tx.send(event.into()).await;
+        _ = Self::send_output(&self.token, &self.event_out_tx, event).await;
     }
 
     async fn on_sfu_publish_response(&mut self, event: SfuPublishResponse) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             // This can occur if a publish request is cancelled before the SFU responds,
             // send an unpublish request to ensure consistent SFU state.
-            _ = self.event_out_tx.send(SfuUnpublishRequest { handle: event.handle }.into()).await;
+            _ = Self::send_output(
+                &self.token,
+                &self.event_out_tx,
+                SfuUnpublishRequest { handle: event.handle },
+            )
+            .await;
             return;
         };
         match descriptor {
@@ -320,7 +327,7 @@ impl Manager {
                         frame_encoding: info.frame_encoding.clone(),
                     };
                     _ = state_tx.send(PublishState::Republishing);
-                    _ = self.event_out_tx.send(event.into()).await;
+                    _ = Self::send_output(&self.token, &self.event_out_tx, event).await;
                     self.descriptors.insert(handle, descriptor);
                 }
             }
@@ -344,10 +351,28 @@ impl Manager {
             }
         }
 
-        // Track tasks observe the parent cancellation token via child tokens and
-        // skip their final unpublish request, so joining alone is sufficient.
+        // Track tasks observe the parent cancellation token via child tokens.
+        // A final unpublish send also races that token, so joining cannot block
+        // on a full input queue.
         for task_handle in task_handles {
             let _ = task_handle.await;
+        }
+    }
+
+    /// Enqueues `event` unless shutdown wins.
+    ///
+    /// A full output queue would otherwise leave the manager blocked in
+    /// `send().await` after [`ManagerInput::shutdown`], and [`Self::shutdown`]
+    /// would never run.
+    async fn send_output(
+        token: &CancellationToken,
+        event_out_tx: &mpsc::Sender<OutputEvent>,
+        event: impl Into<OutputEvent>,
+    ) -> bool {
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => false,
+            result = event_out_tx.send(event.into()) => result.is_ok(),
         }
     }
 
@@ -393,9 +418,14 @@ impl TrackTask {
         }
 
         // Manager-wide shutdown already owns cleanup; only notify for per-track unpublish.
+        // The send races cancellation so a full input queue cannot outlive shutdown.
         if !self.token.is_cancelled() {
             let event = UnpublishRequest { handle: self.info.pub_handle };
-            _ = self.event_in_tx.send(event.into()).await;
+            tokio::select! {
+                biased;
+                _ = self.token.cancelled() => {}
+                _ = self.event_in_tx.send(event.into()) => {}
+            }
         }
 
         log::debug!("Track task ended: sid={}", sid);
@@ -450,9 +480,8 @@ pub(crate) enum PublishState {
 #[derive(Debug, Clone)]
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
-    token: CancellationToken,
     /// Cancels the manager when the last [`ManagerInput`] is dropped.
-    _drop_guard: Arc<CancelOnDrop>,
+    shutdown_guard: Arc<DropGuard>,
 }
 
 /// Stream of [`OutputEvent`]s produced by [`Manager`].
@@ -467,19 +496,9 @@ impl Stream for ManagerOutput {
     }
 }
 
-/// Cancels a [`CancellationToken`] when dropped.
-#[derive(Debug)]
-struct CancelOnDrop(CancellationToken);
-
-impl Drop for CancelOnDrop {
-    fn drop(&mut self) {
-        self.0.cancel();
-    }
-}
-
 impl ManagerInput {
     fn new(event_in_tx: mpsc::Sender<InputEvent>, token: CancellationToken) -> Self {
-        Self { event_in_tx, token: token.clone(), _drop_guard: Arc::new(CancelOnDrop(token)) }
+        Self { event_in_tx, shutdown_guard: Arc::new(token.drop_guard()) }
     }
 
     /// Shuts down the manager, ending all event processing.
@@ -488,17 +507,26 @@ impl ManagerInput {
     /// cannot be dropped when the channel is saturated.
     ///
     pub fn shutdown(&self) {
-        self.token.cancel();
+        self.shutdown_guard.token().cancel();
     }
 
     /// Returns a clone of the manager's cancellation token.
     pub fn cancellation_token(&self) -> CancellationToken {
-        self.token.clone()
+        self.shutdown_guard.token().clone()
     }
 
     /// Sends an input event to the manager's task to be processed.
+    #[allow(deprecated)]
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
-        Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
+        match event {
+            InputEvent::Shutdown => {
+                self.shutdown();
+                Ok(())
+            }
+            event => {
+                Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
+            }
+        }
     }
 
     /// Publishes a data track with given options.
@@ -577,7 +605,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_task_shutdown_with_saturated_event_channel() {
+    async fn test_deprecated_shutdown_with_saturated_event_channel() {
         let options = ManagerOptions { encryption_provider: None };
         let (manager, input, _output) = Manager::new(options);
 
@@ -587,10 +615,80 @@ mod tests {
             let (result_tx, _result_rx) = oneshot::channel();
             input.send(QueryPublished { result_tx }.into()).unwrap();
         }
-        input.shutdown();
+        #[allow(deprecated)]
+        input.send(InputEvent::Shutdown).unwrap();
 
         let join_handle = tokio::spawn(manager.run());
         timeout(Duration::from_secs(1), join_handle).await.unwrap().unwrap();
+    }
+
+    /// Shutdown must finish while the manager is blocked sending to a full output queue.
+    #[tokio::test]
+    async fn test_shutdown_unblocks_full_output_queue() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, output) = Manager::new(options);
+        // Keep the receiver alive so sends block instead of failing closed.
+        let _output = output;
+        let mut join_handle = tokio::spawn(manager.run());
+
+        for _ in 0..Manager::EVENT_BUFFER_COUNT {
+            input.send(UnpublishRequest { handle: Faker.fake() }.into()).unwrap();
+        }
+        // Completes only after those unpublish events have filled the output queue.
+        assert!(input.query_tracks().await.is_empty());
+
+        input.send(UnpublishRequest { handle: Faker.fake() }.into()).unwrap();
+        tokio::select! {
+            _ = &mut join_handle => panic!("manager finished while output queue was full"),
+            _ = sleep(Duration::from_millis(200)) => {}
+        }
+
+        input.shutdown();
+        timeout(Duration::from_secs(1), join_handle)
+            .await
+            .expect("shutdown blocked on full output queue")
+            .unwrap();
+    }
+
+    /// A track task already blocked in its final unpublish send must still exit on cancellation.
+    #[tokio::test]
+    async fn test_track_task_unpublish_send_observes_cancellation() {
+        let mut info: DataTrackInfo = Faker.fake();
+        info.uses_e2ee = false;
+        let info = Arc::new(info);
+
+        let pipeline =
+            Pipeline::new(PipelineOptions { info: info.clone(), encryption_provider: None });
+        let (state_tx, state_rx) = watch::channel(PublishState::Published);
+        let (_frame_tx, frame_rx) = mpsc::channel(1);
+        let (event_in_tx, _event_in_rx) = mpsc::channel(1);
+        let (event_out_tx, _event_out_rx) = mpsc::channel(1);
+        let (result_tx, _result_rx) = oneshot::channel();
+        event_in_tx.try_send(QueryPublished { result_tx }.into()).unwrap();
+
+        let token = CancellationToken::new();
+        let task = TrackTask {
+            info,
+            pipeline,
+            state_rx,
+            frame_rx,
+            event_in_tx,
+            event_out_tx,
+            token: token.clone(),
+        };
+        let mut task_handle = tokio::spawn(task.run());
+        sleep(Duration::from_millis(50)).await;
+        state_tx.send(PublishState::Unpublished).unwrap();
+
+        tokio::select! {
+            _ = &mut task_handle => panic!("track task finished while unpublish send was blocked"),
+            _ = sleep(Duration::from_millis(200)) => {}
+        }
+        token.cancel();
+        timeout(Duration::from_secs(1), task_handle)
+            .await
+            .expect("unpublish send ignored cancellation")
+            .unwrap();
     }
 
     #[tokio::test]
