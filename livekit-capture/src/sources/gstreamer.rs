@@ -343,11 +343,6 @@ impl GStreamerVideoSource {
         }
     }
 
-    /// Returns the GStreamer pipeline.
-    pub fn pipeline(&self) -> &gst::Pipeline {
-        &self.pipeline
-    }
-
     /// Returns a pending pipeline bus error, if any.
     fn check_bus(&self) -> Result<(), GStreamerVideoSourceError> {
         while let Some(message) = self.bus.pop_filtered(&[gst::MessageType::Error]) {
@@ -686,7 +681,7 @@ fn clock_time_to_timestamp_us(start_timestamp_us: i64, timestamp: gst::ClockTime
 }
 
 /// Name of the appsink element the pipeline helpers look up or create.
-pub const ENCODED_APPSINK_NAME: &str = "lk_appsink";
+const ENCODED_APPSINK_NAME: &str = "lk_appsink";
 
 /// Error returned by the GStreamer pipeline helpers.
 #[derive(Debug, Error)]
@@ -725,7 +720,7 @@ pub enum GStreamerPipelineError {
 }
 
 /// Returns the appsink caps for a codec as a launch-string fragment.
-pub fn encoded_caps_string(codec: EncodedVideoCodec) -> &'static str {
+fn encoded_caps_string(codec: EncodedVideoCodec) -> &'static str {
     match codec {
         EncodedVideoCodec::H264 => "video/x-h264,stream-format=byte-stream,alignment=au",
         EncodedVideoCodec::H265 => "video/x-h265,stream-format=byte-stream,alignment=au",
@@ -736,7 +731,7 @@ pub fn encoded_caps_string(codec: EncodedVideoCodec) -> &'static str {
 }
 
 /// Returns the appsink caps for a codec.
-pub fn encoded_caps(codec: EncodedVideoCodec) -> Result<gst::Caps, GStreamerPipelineError> {
+fn encoded_caps(codec: EncodedVideoCodec) -> Result<gst::Caps, GStreamerPipelineError> {
     encoded_caps_string(codec)
         .parse::<gst::Caps>()
         .map_err(|err| GStreamerPipelineError::Pipeline(format!("invalid encoded caps: {err}")))
@@ -755,7 +750,7 @@ fn sample_format_for_codec(codec: EncodedVideoCodec) -> GStreamerSampleFormat {
 
 /// Returns the GStreamer parser element name for a codec, when one is
 /// needed.
-pub fn parser_name(codec: EncodedVideoCodec) -> Option<&'static str> {
+fn parser_name(codec: EncodedVideoCodec) -> Option<&'static str> {
     match codec {
         EncodedVideoCodec::H264 => Some("h264parse"),
         EncodedVideoCodec::H265 => Some("h265parse"),
