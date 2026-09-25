@@ -264,7 +264,7 @@ impl GStreamerVideoSource {
             .downcast::<gst::Pipeline>()
             .map_err(|_| SourceError::new(GStreamerVideoSourceError::NotAPipeline))?;
 
-        let (appsink, sample_format) = ensure_encoded_appsink(&pipeline, config.codec)
+        let (appsink, maybe_sample_format) = ensure_encoded_appsink(&pipeline, config.codec)
             .map_err(|err| SourceError::new(GStreamerVideoSourceError::Layout(err)))?;
 
         let rate_control = config
@@ -290,27 +290,65 @@ impl GStreamerVideoSource {
             )))
         })?;
 
+        let start_timestamp_us = wall_clock_now_us();
+        let mut sample_format = maybe_sample_format;
+        let mut pending_sample: Option<gst::Sample> = None;
+        let mut negotiated_caps: Option<gst::Caps> = None;
+        let mut resolution = config.resolution.unwrap_or_default();
+        let mut frame_interval_us = DEFAULT_FRAME_INTERVAL_US;
+
+        // When pre-playback caps were inconclusive and no codec was
+        // configured, discover the sample format from the first negotiated
+        // sample rather than guessing. The sample is buffered so no
+        // keyframe is lost, and the codec stays known at construction for
+        // `codec()` / publish options.
+        if sample_format.is_none() {
+            let sample = wait_first_sample_on(&appsink, &bus).map_err(SourceError::new)?;
+            let caps = sample
+                .caps()
+                .ok_or(GStreamerVideoSourceError::MissingResolutionCaps)
+                .map_err(SourceError::new)?;
+            let discovered = sample_format_from_negotiated_caps(caps)
+                .map_err(|err| SourceError::new(GStreamerVideoSourceError::Layout(err)))?;
+            if config.resolution.is_none() {
+                resolution = resolution_from_caps(caps)
+                    .ok_or(GStreamerVideoSourceError::MissingResolutionCaps)
+                    .map_err(SourceError::new)?;
+            }
+            if let Some(interval_us) = frame_interval_from_caps(caps) {
+                frame_interval_us = interval_us;
+            }
+            negotiated_caps = Some(caps.to_owned());
+            pending_sample = Some(sample);
+            sample_format = Some(discovered);
+        }
+        let Some(sample_format) = sample_format else {
+            return Err(SourceError::new(GStreamerVideoSourceError::Pipeline(
+                "pipeline caps discovery did not yield a sample format".to_owned(),
+            )));
+        };
+
         let mut source = Self {
             pipeline,
             bus,
             appsink,
             sample_format,
-            resolution: config.resolution.unwrap_or_default(),
-            frame_interval_us: DEFAULT_FRAME_INTERVAL_US,
-            start_timestamp_us: wall_clock_now_us(),
-            next_fallback_timestamp_us: 0,
+            resolution,
+            frame_interval_us,
+            start_timestamp_us,
+            next_fallback_timestamp_us: start_timestamp_us,
             rate_control,
             keyframe_count: 0,
-            negotiated_caps: None,
-            pending_sample: None,
+            negotiated_caps,
+            pending_sample,
         };
-        source.next_fallback_timestamp_us = source.start_timestamp_us;
 
-        // Without a declared resolution, discover the stream settings from
-        // the first sample's negotiated caps; the sample is buffered so no
-        // keyframe is lost. A declared resolution skips the wait and is
-        // verified lazily against the first sample instead.
-        if config.resolution.is_none() {
+        // Without a declared resolution (and no discovery sample yet),
+        // discover the stream settings from the first sample's negotiated
+        // caps; the sample is buffered so no keyframe is lost. A declared
+        // resolution skips the wait and is verified lazily against the
+        // first sample instead.
+        if config.resolution.is_none() && source.pending_sample.is_none() {
             let sample = source.wait_first_sample().map_err(SourceError::new)?;
             let caps = sample
                 .caps()
@@ -338,34 +376,12 @@ impl GStreamerVideoSource {
     /// Blocks until the pipeline produces its first sample, a bus error
     /// arrives, or the discovery timeout expires.
     fn wait_first_sample(&self) -> Result<gst::Sample, GStreamerVideoSourceError> {
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(DISCOVERY_TIMEOUT.seconds());
-        loop {
-            self.check_bus()?;
-            if let Some(sample) = self.appsink.try_pull_sample(SAMPLE_WAIT) {
-                return Ok(sample);
-            }
-            if self.appsink.is_eos() {
-                return Err(GStreamerVideoSourceError::EndedBeforeFirstSample);
-            }
-            if std::time::Instant::now() >= deadline {
-                return Err(GStreamerVideoSourceError::DiscoveryTimeout);
-            }
-        }
+        wait_first_sample_on(&self.appsink, &self.bus)
     }
 
     /// Returns a pending pipeline bus error, if any.
     fn check_bus(&self) -> Result<(), GStreamerVideoSourceError> {
-        while let Some(message) = self.bus.pop_filtered(&[gst::MessageType::Error]) {
-            if let gst::MessageView::Error(error) = message.view() {
-                return Err(GStreamerVideoSourceError::Pipeline(format!(
-                    "{} ({})",
-                    error.error(),
-                    error.debug().map(|s| s.to_string()).unwrap_or_default(),
-                )));
-            }
-        }
-        Ok(())
+        check_bus_on(&self.bus)
     }
 
     /// Validates a sample's caps against the established stream settings.
@@ -527,6 +543,39 @@ impl EncodedVideoSource for GStreamerVideoSource {
             control.update(rate_control);
         }
     }
+}
+
+fn wait_first_sample_on(
+    appsink: &gst_app::AppSink,
+    bus: &gst::Bus,
+) -> Result<gst::Sample, GStreamerVideoSourceError> {
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(DISCOVERY_TIMEOUT.seconds());
+    loop {
+        check_bus_on(bus)?;
+        if let Some(sample) = appsink.try_pull_sample(SAMPLE_WAIT) {
+            return Ok(sample);
+        }
+        if appsink.is_eos() {
+            return Err(GStreamerVideoSourceError::EndedBeforeFirstSample);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(GStreamerVideoSourceError::DiscoveryTimeout);
+        }
+    }
+}
+
+fn check_bus_on(bus: &gst::Bus) -> Result<(), GStreamerVideoSourceError> {
+    while let Some(message) = bus.pop_filtered(&[gst::MessageType::Error]) {
+        if let gst::MessageView::Error(error) = message.view() {
+            return Err(GStreamerVideoSourceError::Pipeline(format!(
+                "{} ({})",
+                error.error(),
+                error.debug().map(|s| s.to_string()).unwrap_or_default(),
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn set_integer_property(element: &gst::Element, property: &str, value: u64) -> bool {
@@ -794,7 +843,7 @@ fn parser_name(codec: EncodedVideoCodec) -> Option<&'static str> {
 fn ensure_encoded_appsink(
     pipeline: &gst::Pipeline,
     requested_codec: Option<EncodedVideoCodec>,
-) -> Result<(gst_app::AppSink, GStreamerSampleFormat), GStreamerPipelineError> {
+) -> Result<(gst_app::AppSink, Option<GStreamerSampleFormat>), GStreamerPipelineError> {
     if let Some(appsink) = pipeline.by_name(ENCODED_APPSINK_NAME) {
         let sample_format = match sample_format_from_element_sink_caps(&appsink)? {
             Some(sample_format) => {
@@ -807,9 +856,13 @@ fn ensure_encoded_appsink(
                         });
                     }
                 }
-                sample_format
+                Some(sample_format)
             }
-            None => sample_format_for_codec(requested_codec.unwrap_or(EncodedVideoCodec::H264)),
+            // Pre-playback caps are inconclusive (e.g. a bare appsink with
+            // `ANY` caps). With an explicit codec we can proceed; otherwise
+            // defer format selection until the first negotiated sample
+            // rather than guessing.
+            None => requested_codec.map(sample_format_for_codec),
         };
         let appsink = appsink
             .downcast::<gst_app::AppSink>()
@@ -905,7 +958,7 @@ fn ensure_encoded_appsink(
 
     let appsink =
         appsink.downcast::<gst_app::AppSink>().map_err(|_| GStreamerPipelineError::NotAnAppSink)?;
-    Ok((appsink, sample_format))
+    Ok((appsink, Some(sample_format)))
 }
 
 fn parser_element_for_codec(
@@ -943,6 +996,22 @@ fn sample_format_from_pad_caps(
         }
     }
     Ok(None)
+}
+
+/// Infers the appsink sample format from negotiated caps, which carry a
+/// definite stream format (unlike pre-playback `query_caps`, which may be
+/// `ANY` or list multiple formats).
+fn sample_format_from_negotiated_caps(
+    caps: &gst::CapsRef,
+) -> Result<GStreamerSampleFormat, GStreamerPipelineError> {
+    for structure in caps.iter() {
+        if let Some(sample_format) = sample_format_from_caps_structure(structure)? {
+            return Ok(sample_format);
+        }
+    }
+    Err(GStreamerPipelineError::UnsupportedCaps(format!(
+        "negotiated caps '{caps:?}' advertise no supported encoded video format"
+    )))
 }
 
 /// Infers the appsink sample format from a caps structure.
