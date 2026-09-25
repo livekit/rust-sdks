@@ -363,9 +363,10 @@ async fn test_reconnect_exhaustion_disconnects() -> Result<()> {
         bail!("event stream ended before the room reported Disconnected");
     };
 
-    // Generous timeout: the engine works through its full bounded backoff before
-    // giving up.
-    let _reason = timeout(Duration::from_secs(90), observe).await??;
+    // The engine waits out its full backoff schedule (~44 s plus up to 8 s of
+    // jitter) and each refused attempt takes its own time on top, a few seconds
+    // apiece on Windows, before giving up.
+    let _reason = timeout(Duration::from_secs(150), observe).await??;
 
     assert_eq!(
         room.connection_state(),
