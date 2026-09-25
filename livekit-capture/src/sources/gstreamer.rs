@@ -207,6 +207,11 @@ pub struct GStreamerVideoSource {
     sample_format: GStreamerSampleFormat,
     resolution: VideoResolution,
     frame_interval_us: i64,
+    // Wall-clock anchor added to pipeline-relative PTS/DTS so emitted
+    // timestamps are non-zero Unix-epoch microseconds. A zero timestamp
+    // is treated as missing downstream and replaced with wall-clock time,
+    // which would jump backwards against later near-zero values.
+    start_timestamp_us: i64,
     next_fallback_timestamp_us: i64,
     rate_control: Option<GStreamerEncoderRateControl>,
     // Caps the stream was validated against; a pointer change on a later
@@ -289,11 +294,13 @@ impl GStreamerVideoSource {
             sample_format,
             resolution: config.resolution.unwrap_or_default(),
             frame_interval_us: DEFAULT_FRAME_INTERVAL_US,
+            start_timestamp_us: wall_clock_now_us(),
             next_fallback_timestamp_us: 0,
             rate_control,
             negotiated_caps: None,
             pending_sample: None,
         };
+        source.next_fallback_timestamp_us = source.start_timestamp_us;
 
         // Without a declared resolution, discover the stream settings from
         // the first sample's negotiated caps; the sample is buffered so no
@@ -442,7 +449,7 @@ impl GStreamerVideoSource {
 
     fn timestamp_us(&mut self, buffer: &gst::BufferRef) -> i64 {
         if let Some(timestamp) = buffer.pts().or_else(|| buffer.dts()) {
-            let timestamp_us = clock_time_to_timestamp_us(0, timestamp);
+            let timestamp_us = clock_time_to_timestamp_us(self.start_timestamp_us, timestamp);
             self.next_fallback_timestamp_us = timestamp_us.saturating_add(self.frame_interval_us);
             return timestamp_us;
         }
@@ -678,6 +685,16 @@ fn frame_interval_from_caps(caps: &gst::CapsRef) -> Option<i64> {
 fn clock_time_to_timestamp_us(start_timestamp_us: i64, timestamp: gst::ClockTime) -> i64 {
     let timestamp_us = timestamp.useconds().min(i64::MAX as u64) as i64;
     start_timestamp_us.saturating_add(timestamp_us)
+}
+
+/// Returns wall-clock time as Unix-epoch microseconds, guaranteed non-zero
+/// so downstream never mistakes it for a missing timestamp.
+fn wall_clock_now_us() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_micros().min(i64::MAX as u128) as i64)
+        .unwrap_or(0)
+        .max(1)
 }
 
 /// Name of the appsink element the pipeline helpers look up or create.
