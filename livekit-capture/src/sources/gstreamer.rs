@@ -214,6 +214,9 @@ pub struct GStreamerVideoSource {
     start_timestamp_us: i64,
     next_fallback_timestamp_us: i64,
     rate_control: Option<GStreamerEncoderRateControl>,
+    // Upstream force-key-unit sequence number; incremented on each
+    // keyframe request so encoders can distinguish requests.
+    keyframe_count: u32,
     // Caps the stream was validated against; a pointer change on a later
     // sample triggers revalidation.
     negotiated_caps: Option<gst::Caps>,
@@ -297,6 +300,7 @@ impl GStreamerVideoSource {
             start_timestamp_us: wall_clock_now_us(),
             next_fallback_timestamp_us: 0,
             rate_control,
+            keyframe_count: 0,
             negotiated_caps: None,
             pending_sample: None,
         };
@@ -505,11 +509,16 @@ impl EncodedVideoSource for GStreamerVideoSource {
     }
 
     fn request_keyframe(&mut self) {
-        // The `GstForceKeyUnit` custom upstream event is understood by every
-        // GStreamer video encoder (it is what gst-video's force-key-unit
-        // helper builds), so downstream PLI/FIR reaches the producer.
-        let structure =
-            gst::Structure::builder("GstForceKeyUnit").field("all-headers", true).build();
+        // Matches `gst_video_event_new_upstream_force_key_unit` with
+        // `GST_CLOCK_TIME_NONE` (produce ASAP): encoders parse
+        // `running-time`, `all-headers`, and `count`, and ignore the event
+        // when any field is missing.
+        self.keyframe_count = self.keyframe_count.wrapping_add(1);
+        let structure = gst::Structure::builder("GstForceKeyUnit")
+            .field("running-time", gst::ClockTime::NONE)
+            .field("all-headers", true)
+            .field("count", self.keyframe_count)
+            .build();
         let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
     }
 
