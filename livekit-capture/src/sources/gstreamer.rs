@@ -867,6 +867,13 @@ fn ensure_encoded_appsink(
         let appsink = appsink
             .downcast::<gst_app::AppSink>()
             .map_err(|_| GStreamerPipelineError::NotAnAppSink)?;
+        // Bound the queue like the auto-created sink: the pipeline starts
+        // immediately but samples are only consumed once discovery/pumping
+        // begins, so an unbounded named appsink would retain all encoded
+        // data until OOM. Dropped frames create dependency gaps, handled
+        // by dropping until the next keyframe (see `next_access_unit`).
+        appsink.set_property("max-buffers", 8u32);
+        appsink.set_property("drop", true);
         return Ok((appsink, sample_format));
     }
 
