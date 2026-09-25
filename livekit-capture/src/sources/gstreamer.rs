@@ -940,7 +940,15 @@ fn sample_format_from_caps_structure(
                 ))),
             }
         }
-        EncodedVideoCodec::H265 => Ok(Some(GStreamerSampleFormat::H265AnnexB)),
+        EncodedVideoCodec::H265 => {
+            let stream_format = structure.get::<String>("stream-format").ok();
+            match stream_format.as_deref() {
+                Some("byte-stream") | None => Ok(Some(GStreamerSampleFormat::H265AnnexB)),
+                Some(stream_format) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
+                    "H.265 stream-format '{stream_format}'; expected byte-stream"
+                ))),
+            }
+        }
         EncodedVideoCodec::VP8 => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
         EncodedVideoCodec::VP9 => {
             let profile = structure.get::<String>("profile").ok();
