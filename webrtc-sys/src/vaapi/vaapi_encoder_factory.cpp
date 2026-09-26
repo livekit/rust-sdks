@@ -1,7 +1,6 @@
 #include "vaapi_encoder_factory.h"
 
 #include <memory>
-#include <iostream>
 #include <dlfcn.h>
 
 #include "h264_encoder_impl.h"
@@ -64,7 +63,7 @@ bool VAAPIVideoEncoderFactory::IsSupported() {
 
   vaapi_display.Close();
   // If we can open the VAAPI display, we consider it supported.
-  std::cout << "VAAPI is supported." << std::endl;
+  RTC_LOG(LS_INFO) << "VAAPI is supported.";
   return true;
 }
 

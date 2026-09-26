@@ -9,7 +9,6 @@
 #include <dlfcn.h>
 #endif
 
-#include <iostream>
 #include <mutex>
 
 #if defined(WIN32)

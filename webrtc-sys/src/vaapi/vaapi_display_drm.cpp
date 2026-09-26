@@ -41,6 +41,7 @@ static bool check_h264_encoding_support(VADisplay va_display) {
   entrypoints = new VAEntrypoint[num_entrypoints * sizeof(*entrypoints)];
   if (!entrypoints) {
     RTC_LOG(LS_ERROR) << "failed to allocate VA entrypoints";
+    vaTerminate(va_display);
     return false;
   }
 
@@ -75,10 +76,12 @@ static bool check_h264_encoding_support(VADisplay va_display) {
         << "Can't find VAEntrypointEncSlice or VAEntrypointEncSliceLP for "
            "H264 profiles";
     delete[] entrypoints;
+    vaTerminate(va_display);
     return false;
   }
 
   delete[] entrypoints;
+  vaTerminate(va_display);
   return true;
 }
 
