@@ -14,12 +14,15 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{Ok, Result},
+    anyhow::{anyhow, Ok, Result},
     chrono::{TimeDelta, TimeZone, Utc},
-    common::test_rooms,
+    common::{
+        test_rooms,
+        video::{SolidColorParams, SolidColorTrack},
+    },
     libwebrtc::prelude::PeerConnectionState,
-    livekit::{ConnectionState, ParticipantKind, RoomEvent},
-    std::time::Duration,
+    livekit::{options::VideoCodec, ConnectionState, ParticipantKind, RoomEvent},
+    std::{sync::Arc, time::Duration},
     tokio::time::{self, timeout},
 };
 
@@ -138,5 +141,125 @@ async fn test_close_releases_room_session() -> Result<()> {
     drop(room);
 
     assert!(session_dropped(), "room callbacks retained the room session after close");
+    Ok(())
+}
+
+/// `close()` must tear down remote participants, not only the local one.
+///
+/// Every remote publication registers callbacks that hold the participant which owns
+/// them: `on_subscribed`/`on_unsubscribed` capture the `RemoteParticipant`, and
+/// `on_muted`/`on_unmuted` capture it through the publication map. Those are reference
+/// cycles, so a remote participant — and the `Arc<RtcEngine>` it holds — outlives the
+/// room unless teardown unregisters them. Only the disconnect path does that, and
+/// `close()` never walks the remote participants.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_close_releases_remote_participants() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (sub_room, mut sub_events) = rooms.remove(0);
+    let (pub_room, _pub_events) = rooms.remove(0);
+
+    // The cycles only exist once the remote participant has a publication.
+    let mut solid_track = SolidColorTrack::new(
+        Arc::new(pub_room),
+        SolidColorParams { width: 320, height: 240, luma: 128 },
+    );
+    solid_track.publish(VideoCodec::VP8, false).await?;
+
+    timeout(Duration::from_secs(15), async {
+        loop {
+            match sub_events.recv().await {
+                Some(RoomEvent::TrackSubscribed { .. }) => break Ok(()),
+                Some(_) => continue,
+                None => break Err(anyhow!("event stream ended before the track was subscribed")),
+            }
+        }
+    })
+    .await??;
+
+    let remote = sub_room
+        .remote_participants()
+        .into_values()
+        .next()
+        .ok_or_else(|| anyhow!("subscriber never saw the publisher"))?;
+    let remote_dropped = remote.drop_probe();
+    drop(remote);
+
+    // `sub_events` is deliberately kept alive and undrained across the close. Teardown
+    // must not dispatch anything carrying the participant: a queued event holds strong
+    // clones, so a receiver the application has stopped polling would pin the participant
+    // just as effectively as the callbacks did.
+    sub_room.close().await?;
+    drop(sub_room);
+
+    let released = timeout(Duration::from_secs(10), async {
+        while !remote_dropped() {
+            time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .is_ok();
+
+    drop(sub_events);
+
+    assert!(released, "remote participant retained after the room was closed");
+    Ok(())
+}
+
+/// A cancelled `close()` must still release the remote participants.
+///
+/// `close` takes the room handle before it does anything else, so a caller that bounds it
+/// with a timeout and drops the future cannot retry: a later call returns `AlreadyClosed`.
+/// If the participant teardown sits behind the engine shutdown and the task joins, dropping
+/// the future at any of those suspension points skips it permanently, and the publication
+/// callbacks keep holding the participant and its `RtcEngine`.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_cancelled_close_releases_remote_participants() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (sub_room, mut sub_events) = rooms.remove(0);
+    let (pub_room, _pub_events) = rooms.remove(0);
+
+    let mut solid_track = SolidColorTrack::new(
+        Arc::new(pub_room),
+        SolidColorParams { width: 320, height: 240, luma: 128 },
+    );
+    solid_track.publish(VideoCodec::VP8, false).await?;
+
+    timeout(Duration::from_secs(15), async {
+        loop {
+            match sub_events.recv().await {
+                Some(RoomEvent::TrackSubscribed { .. }) => break Ok(()),
+                Some(_) => continue,
+                None => break Err(anyhow!("event stream ended before the track was subscribed")),
+            }
+        }
+    })
+    .await??;
+
+    let remote = sub_room
+        .remote_participants()
+        .into_values()
+        .next()
+        .ok_or_else(|| anyhow!("subscriber never saw the publisher"))?;
+    let remote_dropped = remote.drop_probe();
+    drop(remote);
+
+    // Poll the close exactly once, then drop it, cancelling at the earliest suspension point.
+    let cancelled = timeout(Duration::ZERO, sub_room.close()).await;
+    assert!(cancelled.is_err(), "close should have been cancelled at its first suspension point");
+    drop(sub_room);
+
+    let released = timeout(Duration::from_secs(10), async {
+        while !remote_dropped() {
+            time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .is_ok();
+
+    drop(sub_events);
+
+    assert!(released, "a cancelled close left the remote participant retained");
     Ok(())
 }
