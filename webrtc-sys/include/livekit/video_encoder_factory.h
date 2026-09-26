@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "api/video_codecs/video_encoder.h"
@@ -48,6 +49,8 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
     std::unique_ptr<webrtc::VideoEncoder> Create(
         const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) override;
 
+    std::vector<std::string> BackendCodecs(VideoEncoderBackend backend) const;
+
    private:
     std::vector<VideoEncoderBackendFactory> factories_;
   };
@@ -65,6 +68,12 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
 
   std::unique_ptr<webrtc::VideoEncoder> Create(
       const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) override;
+
+  // SDP codec names (VP8, VP9, AV1, H264, H265) that the given backend can
+  // produce on this host. Auto is the union of every real encoder, which is
+  // also the set Create() falls back to when a requested backend is missing.
+  // PreEncoded lists the codecs the pass-through can forward.
+  std::vector<std::string> BackendCodecs(VideoEncoderBackend backend) const;
 
  private:
   std::unique_ptr<InternalFactory> internal_factory_;

@@ -119,6 +119,10 @@ pub fn video_encoder_backend_list() -> Vec<VideoEncoderBackend> {
     sys_webrtc::ffi::video_encoder_backend_list().into_iter().map(Into::into).collect()
 }
 
+pub fn video_encoder_backend_codecs(backend: VideoEncoderBackend) -> Vec<String> {
+    sys_webrtc::ffi::video_encoder_backend_codecs(backend.into()).into_iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{sys_webrtc, VideoEncoderBackend};
@@ -138,6 +142,40 @@ mod tests {
         for (backend, expected) in cases {
             assert_eq!(sys_webrtc::ffi::VideoEncoderBackend::from(backend), expected);
             assert_eq!(VideoEncoderBackend::from(expected), backend);
+        }
+    }
+
+    fn has_codec(codecs: &[String], name: &str) -> bool {
+        codecs.iter().any(|codec| codec.eq_ignore_ascii_case(name))
+    }
+
+    #[test]
+    fn pre_encoded_backend_forwards_every_codec_on_every_host() {
+        // Pre-encoded publishing must not depend on a real encoder existing
+        // for the codec, so the pass-through set is the same on every host.
+        let codecs = super::video_encoder_backend_codecs(VideoEncoderBackend::PreEncoded);
+        for name in ["VP8", "VP9", "AV1", "H264", "H265"] {
+            assert!(has_codec(&codecs, name), "pass-through is missing {name}: {codecs:?}");
+        }
+        // HEVC is reported under its canonical H265 name only.
+        assert!(!has_codec(&codecs, "HEVC"), "{codecs:?}");
+    }
+
+    #[test]
+    fn software_backend_has_no_h265_encoder() {
+        // libvpx/libaom/OpenH264 never produce H265; the software set is
+        // what a normal session falls back to when no hardware encoder exists.
+        let codecs = super::video_encoder_backend_codecs(VideoEncoderBackend::Software);
+        assert!(has_codec(&codecs, "VP8"), "{codecs:?}");
+        assert!(!has_codec(&codecs, "H265"), "{codecs:?}");
+    }
+
+    #[test]
+    fn auto_backend_is_a_superset_of_software() {
+        let auto = super::video_encoder_backend_codecs(VideoEncoderBackend::Auto);
+        let software = super::video_encoder_backend_codecs(VideoEncoderBackend::Software);
+        for codec in &software {
+            assert!(has_codec(&auto, codec), "auto is missing {codec}: {auto:?}");
         }
     }
 }
