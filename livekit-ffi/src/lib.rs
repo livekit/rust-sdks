@@ -27,6 +27,7 @@ pub mod build_info;
 pub mod cabi;
 pub mod proto;
 pub mod server;
+pub mod uniffi_api;
 
 uniffi::setup_scaffolding!();
 
