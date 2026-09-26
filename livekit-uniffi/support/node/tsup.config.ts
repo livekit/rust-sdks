@@ -7,8 +7,9 @@ export default defineConfig({
   dts: true,
   clean: true,
 
-  // Inline ubrn into the built bundle since it doesn't publish a commonjs compatible build
-  noExternal: ["uniffi-bindgen-react-native"],
+  // @ubjs/node loads a native N-API addon and @ubjs/core is the shared runtime;
+  // both stay external so they resolve from node_modules at runtime.
+  external: ['@ubjs/node', '@ubjs/core'],
 
   // ref: https://stackoverflow.com/a/75868407
   shims: true,

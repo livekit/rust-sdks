@@ -13,6 +13,10 @@ name: UniFFI packages
 # handled by uniffi-dart-publish.yml. That workflow is tag-push triggered, as
 # pub.dev requires, and builds the assets itself so publishing can depend on
 # them directly.
+#
+# Node packages (@livekit/uniffi + per-arch siblings) are shape-tested on one host
+# triple by uniffi-node-test.yml, but are not published yet. Turning publishing on
+# means a `node` job here plus a matrix that packages every per-arch cdylib.
 
 on:
   release:
