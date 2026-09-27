@@ -107,8 +107,10 @@ pub struct FfiServer {
     /// Number of calls into the client callback that have not returned yet.
     callbacks_in_flight: Mutex<usize>,
     callbacks_idle: Condvar,
-    /// Serializes `setup` with the end of `dispose`, so no callback is installed while it drains.
-    lifecycle: Mutex<()>,
+    /// Disposals from outside a callback that have not returned yet. `setup`
+    /// waits for them, so no callback is installed while one drains.
+    disposals: Mutex<usize>,
+    disposals_done: Condvar,
     logger: &'static logger::FfiLogger,
     handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
 }
@@ -159,7 +161,8 @@ impl Default for FfiServer {
             config: Default::default(),
             callbacks_in_flight: Default::default(),
             callbacks_idle: Default::default(),
-            lifecycle: Default::default(),
+            disposals: Default::default(),
+            disposals_done: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
         }
@@ -185,11 +188,38 @@ impl Drop for CallbackInFlight<'_> {
     }
 }
 
+/// Marks a disposal from outside a callback as in progress until dropped, so
+/// `setup` waits for it, including when its handle cleanup panics.
+struct DisposalInProgress<'a>(&'a FfiServer);
+
+impl<'a> DisposalInProgress<'a> {
+    /// Takes the `disposals` count that the caller has locked.
+    fn new(server: &'a FfiServer, disposals: &mut usize) -> Self {
+        *disposals += 1;
+        Self(server)
+    }
+}
+
+impl Drop for DisposalInProgress<'_> {
+    fn drop(&mut self) {
+        *self.0.disposals.lock() -= 1;
+        self.0.disposals_done.notify_all();
+    }
+}
+
 // Using &'static self inside the implementation, not sure if this is really idiomatic
 // It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FfiServer {
     pub fn setup(&self, config: FfiConfig) {
-        let _lifecycle = self.lifecycle.lock();
+        let mut disposals = self.disposals.lock();
+        while *disposals > 0 {
+            if CALLBACKS_ON_THIS_THREAD.get() > 0 {
+                // The disposal is waiting for this callback to return.
+                log::error!("ignoring ffi setup from a callback while the server is disposing");
+                return;
+            }
+            self.disposals_done.wait(&mut disposals);
+        }
         *self.config.lock() = Some(config.clone());
         self.logger.set_capture_logs(config.capture_logs);
 
@@ -214,9 +244,12 @@ impl FfiServer {
     /// Clearing the handle map is required even after rooms are closed because
     /// room handles retain their RTC engines and peer connection factories.
     ///
-    /// Once this returns, the client callback is not running (apart from a
-    /// callback that called dispose itself) and will not be called again, so
-    /// the client may tear down its runtime (e.g. finalize its interpreter).
+    /// Once this returns, the client callback is not running and will not be
+    /// called again, so the client may tear down its runtime (e.g. finalize its
+    /// interpreter). Called from inside a callback, it only stops new calls:
+    /// the calls in progress may be waiting for that callback to return. Nor
+    /// does it hold off `setup` on another thread, so a new callback may be
+    /// installed while its handle cleanup runs.
     pub async fn dispose(&'static self) {
         log::debug!("disposing ffi server");
 
@@ -229,12 +262,17 @@ impl FfiServer {
 
         self.logger.set_capture_logs(false);
 
-        // Stop calling the client, and wait for the calls already running.
-        // Holding the lifecycle lock keeps a concurrent setup from installing
-        // a new callback until dispose returns.
-        let _lifecycle = self.lifecycle.lock();
-        *self.config.lock() = None;
-        self.wait_for_callbacks();
+        // Stop calling the client, and wait for the calls already running
+        // unless this is one of them.
+        let drain = CALLBACKS_ON_THIS_THREAD.get() == 0;
+        let _disposal = {
+            let mut disposals = self.disposals.lock();
+            *self.config.lock() = None;
+            drain.then(|| DisposalInProgress::new(self, &mut disposals))
+        };
+        if drain {
+            self.wait_for_callbacks();
+        }
 
         // Closing rooms does not release resources owned by FFI handles.
         // Cancel handle watchers first, then drop handles one by one so Drop
@@ -261,8 +299,7 @@ impl FfiServer {
         Ok(())
     }
 
-    /// Waits until no call into the client callback is in progress, except
-    /// the calls this thread is inside of (a callback that disposes).
+    /// Waits until no call into the client callback is in progress.
     ///
     /// A client may be unable to run callbacks after dispose returns: CPython,
     /// for instance, terminates a thread with `pthread_exit` when it enters a
@@ -270,12 +307,11 @@ impl FfiServer {
     /// aborts the process when it reaches the Rust thread entry point. So this
     /// does not give up on a slow callback; it warns and keeps waiting.
     fn wait_for_callbacks(&self) {
-        let own = CALLBACKS_ON_THIS_THREAD.get();
         let mut in_flight = self.callbacks_in_flight.lock();
-        while *in_flight > own {
+        while *in_flight > 0 {
             let result = self.callbacks_idle.wait_for(&mut in_flight, CALLBACK_DRAIN_WARN_INTERVAL);
-            if result.timed_out() && *in_flight > own {
-                log::warn!("dispose is waiting for {} ffi callback calls", *in_flight - own);
+            if result.timed_out() && *in_flight > 0 {
+                log::warn!("dispose is waiting for {} ffi callback calls", *in_flight);
             }
         }
     }
