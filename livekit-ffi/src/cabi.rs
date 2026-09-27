@@ -108,6 +108,10 @@ pub extern "C" fn livekit_ffi_drop_handle(handle_id: FfiHandleId) -> bool {
     FFI_SERVER.drop_handle(handle_id)
 }
 
+/// Closes all rooms and releases all handles.
+///
+/// Once this returns, the callback passed to [`livekit_ffi_initialize`] is not
+/// running and will not be called again.
 #[no_mangle]
 pub extern "C" fn livekit_ffi_dispose() {
     FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());

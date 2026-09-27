@@ -28,7 +28,7 @@ use livekit::prelude::DisconnectReason;
 use livekit::webrtc::{
     native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
 };
-use parking_lot::{deadlock, Mutex};
+use parking_lot::{deadlock, Condvar, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
@@ -56,6 +56,9 @@ mod tests;
 
 #[cfg(test)]
 mod audio_filter_tests;
+
+/// How long [`FfiServer::dispose`] waits for callback calls that are in progress.
+const CALLBACK_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub struct FfiConfig {
@@ -95,6 +98,9 @@ pub struct FfiServer {
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
+    /// Number of calls into the client callback that have not returned yet.
+    callbacks_in_flight: Mutex<usize>,
+    callbacks_idle: Condvar,
     logger: &'static logger::FfiLogger,
     handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
 }
@@ -143,8 +149,30 @@ impl Default for FfiServer {
             async_runtime,
             audio_runtime,
             config: Default::default(),
+            callbacks_in_flight: Default::default(),
+            callbacks_idle: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
+        }
+    }
+}
+
+/// Marks a call into the client callback as in progress until dropped.
+struct CallbackInFlight<'a>(&'a FfiServer);
+
+impl<'a> CallbackInFlight<'a> {
+    fn new(server: &'a FfiServer) -> Self {
+        *server.callbacks_in_flight.lock() += 1;
+        Self(server)
+    }
+}
+
+impl Drop for CallbackInFlight<'_> {
+    fn drop(&mut self) {
+        let mut in_flight = self.0.callbacks_in_flight.lock();
+        *in_flight -= 1;
+        if *in_flight == 0 {
+            self.0.callbacks_idle.notify_all();
         }
     }
 }
@@ -176,6 +204,10 @@ impl FfiServer {
     ///
     /// Clearing the handle map is required even after rooms are closed because
     /// room handles retain their RTC engines and peer connection factories.
+    ///
+    /// Once this returns, the client callback is not running and will not be
+    /// called again, so the client may tear down its runtime (e.g. finalize its
+    /// interpreter).
     pub async fn dispose(&'static self) {
         log::debug!("disposing ffi server");
 
@@ -188,10 +220,13 @@ impl FfiServer {
 
         self.logger.set_capture_logs(false);
 
+        // Stop calling the client, and wait for the calls already running.
+        *self.config.lock() = None;
+        self.wait_for_callbacks();
+
         // Closing rooms does not release resources owned by FFI handles.
         // Cancel handle watchers first, then drop handles one by one so Drop
         // impls can call drop_handle without re-entering DashMap::clear().
-        *self.config.lock() = None;
         self.handle_dropped_txs.clear();
         let leftover: Vec<_> = self.ffi_handles.iter().map(|entry| *entry.key()).collect();
         for id in leftover {
@@ -200,14 +235,33 @@ impl FfiServer {
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
-        let cb = self
-            .config
-            .lock()
-            .as_ref()
-            .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn.clone()))?;
+        let (cb, _in_flight) = {
+            let config = self.config.lock();
+            let Some(config) = config.as_ref() else {
+                return Err(FfiError::NotConfigured);
+            };
+            // Counted while the config is locked, so dispose either waits for
+            // this call or clears the callback before it can start.
+            (config.callback_fn.clone(), CallbackInFlight::new(self))
+        };
 
         cb(proto::FfiEvent { message: Some(message) });
         Ok(())
+    }
+
+    /// Waits until no call into the client callback is in progress.
+    ///
+    /// A client may be unable to run callbacks after dispose returns: CPython,
+    /// for instance, terminates a thread with `pthread_exit` when it enters a
+    /// callback while the interpreter is finalizing, and that forced unwind
+    /// aborts the process when it reaches the Rust thread entry point.
+    fn wait_for_callbacks(&self) {
+        let mut in_flight = self.callbacks_in_flight.lock();
+        let result =
+            self.callbacks_idle.wait_while_for(&mut in_flight, |n| *n > 0, CALLBACK_DRAIN_TIMEOUT);
+        if result.timed_out() {
+            log::warn!("{} ffi callback calls still running after dispose", *in_flight);
+        }
     }
 
     pub fn next_id(&self) -> FfiHandleId {
