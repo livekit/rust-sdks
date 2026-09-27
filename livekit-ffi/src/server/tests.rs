@@ -491,3 +491,91 @@ fn dispose_waits_for_callback_in_progress() {
     ));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
+
+fn test_config(callback: impl Fn(proto::FfiEvent) + Send + Sync + 'static) -> FfiConfig {
+    FfiConfig {
+        callback_fn: Arc::new(callback),
+        capture_logs: false,
+        sdk: "livekit-ffi-test".to_owned(),
+        sdk_version: "test".to_owned(),
+    }
+}
+
+/// Configures the server with a callback that blocks until released, and
+/// sends one event from another thread. Returns once that callback is running.
+fn start_blocking_callback() -> mpsc::Sender<()> {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    FFI_SERVER.setup(test_config(move |_| {
+        let _ = entered_tx.send(());
+        let _ = release_rx.lock().recv();
+    }));
+    thread::spawn(|| FFI_SERVER.send_event(proto::Panic { message: "blocking".to_owned() }.into()));
+    entered_rx.recv_timeout(Duration::from_secs(5)).expect("callback was not called");
+    release_tx
+}
+
+fn spawn_dispose() -> mpsc::Receiver<()> {
+    let (disposed_tx, disposed_rx) = mpsc::channel();
+    thread::spawn(move || {
+        FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose());
+        let _ = disposed_tx.send(());
+    });
+    disposed_rx
+}
+
+#[test]
+fn dispose_keeps_waiting_for_a_slow_callback() {
+    let _dispose = DISPOSE_LOCK.lock();
+    let release_tx = start_blocking_callback();
+    let disposed_rx = spawn_dispose();
+
+    // Past the point where dispose warns, it is still waiting.
+    let past_warning = super::CALLBACK_DRAIN_WARN_INTERVAL + Duration::from_secs(1);
+    assert!(disposed_rx.recv_timeout(past_warning).is_err());
+
+    release_tx.send(()).unwrap();
+    disposed_rx.recv_timeout(Duration::from_secs(5)).expect("dispose did not return");
+}
+
+#[test]
+fn dispose_from_inside_a_callback_does_not_wait_for_itself() {
+    let _dispose = DISPOSE_LOCK.lock();
+    FFI_SERVER.setup(test_config(|_| FFI_SERVER.async_runtime.block_on(FFI_SERVER.dispose())));
+
+    let (sent_tx, sent_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let result = FFI_SERVER.send_event(proto::Panic { message: "dispose".to_owned() }.into());
+        let _ = sent_tx.send(result.is_ok());
+    });
+
+    let sent = sent_rx.recv_timeout(Duration::from_secs(2)).expect("dispose waited for itself");
+    assert!(sent);
+    assert!(!FFI_SERVER.is_setup());
+}
+
+#[test]
+fn setup_waits_until_dispose_returns() {
+    let _dispose = DISPOSE_LOCK.lock();
+    let release_tx = start_blocking_callback();
+    let disposed_rx = spawn_dispose();
+
+    // Dispose has cleared the callback and is waiting for the one in progress.
+    while FFI_SERVER.is_setup() {
+        thread::sleep(Duration::from_millis(1));
+    }
+    let (setup_tx, setup_rx) = mpsc::channel();
+    thread::spawn(move || {
+        FFI_SERVER.setup(test_config(|_| {}));
+        let _ = setup_tx.send(());
+    });
+
+    assert!(setup_rx.recv_timeout(Duration::from_millis(500)).is_err());
+    assert!(!FFI_SERVER.is_setup());
+
+    release_tx.send(()).unwrap();
+    disposed_rx.recv_timeout(Duration::from_secs(5)).expect("dispose did not return");
+    setup_rx.recv_timeout(Duration::from_secs(5)).expect("setup did not return");
+    assert!(FFI_SERVER.is_setup());
+}

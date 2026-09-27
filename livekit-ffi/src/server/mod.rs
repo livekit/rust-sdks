@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    cell::Cell,
     error::Error,
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -57,8 +58,13 @@ mod tests;
 #[cfg(test)]
 mod audio_filter_tests;
 
-/// How long [`FfiServer::dispose`] waits for callback calls that are in progress.
-const CALLBACK_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often [`FfiServer::dispose`] warns while it waits for callback calls to return.
+const CALLBACK_DRAIN_WARN_INTERVAL: Duration = Duration::from_secs(5);
+
+thread_local! {
+    /// Calls into the client callback that are in progress on this thread.
+    static CALLBACKS_ON_THIS_THREAD: Cell<usize> = const { Cell::new(0) };
+}
 
 #[derive(Clone)]
 pub struct FfiConfig {
@@ -101,6 +107,8 @@ pub struct FfiServer {
     /// Number of calls into the client callback that have not returned yet.
     callbacks_in_flight: Mutex<usize>,
     callbacks_idle: Condvar,
+    /// Serializes `setup` with the end of `dispose`, so no callback is installed while it drains.
+    lifecycle: Mutex<()>,
     logger: &'static logger::FfiLogger,
     handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
 }
@@ -151,6 +159,7 @@ impl Default for FfiServer {
             config: Default::default(),
             callbacks_in_flight: Default::default(),
             callbacks_idle: Default::default(),
+            lifecycle: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
         }
@@ -163,17 +172,16 @@ struct CallbackInFlight<'a>(&'a FfiServer);
 impl<'a> CallbackInFlight<'a> {
     fn new(server: &'a FfiServer) -> Self {
         *server.callbacks_in_flight.lock() += 1;
+        CALLBACKS_ON_THIS_THREAD.set(CALLBACKS_ON_THIS_THREAD.get() + 1);
         Self(server)
     }
 }
 
 impl Drop for CallbackInFlight<'_> {
     fn drop(&mut self) {
-        let mut in_flight = self.0.callbacks_in_flight.lock();
-        *in_flight -= 1;
-        if *in_flight == 0 {
-            self.0.callbacks_idle.notify_all();
-        }
+        CALLBACKS_ON_THIS_THREAD.set(CALLBACKS_ON_THIS_THREAD.get() - 1);
+        *self.0.callbacks_in_flight.lock() -= 1;
+        self.0.callbacks_idle.notify_all();
     }
 }
 
@@ -181,6 +189,7 @@ impl Drop for CallbackInFlight<'_> {
 // It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FfiServer {
     pub fn setup(&self, config: FfiConfig) {
+        let _lifecycle = self.lifecycle.lock();
         *self.config.lock() = Some(config.clone());
         self.logger.set_capture_logs(config.capture_logs);
 
@@ -205,9 +214,9 @@ impl FfiServer {
     /// Clearing the handle map is required even after rooms are closed because
     /// room handles retain their RTC engines and peer connection factories.
     ///
-    /// Once this returns, the client callback is not running and will not be
-    /// called again, so the client may tear down its runtime (e.g. finalize its
-    /// interpreter).
+    /// Once this returns, the client callback is not running (apart from a
+    /// callback that called dispose itself) and will not be called again, so
+    /// the client may tear down its runtime (e.g. finalize its interpreter).
     pub async fn dispose(&'static self) {
         log::debug!("disposing ffi server");
 
@@ -221,6 +230,9 @@ impl FfiServer {
         self.logger.set_capture_logs(false);
 
         // Stop calling the client, and wait for the calls already running.
+        // Holding the lifecycle lock keeps a concurrent setup from installing
+        // a new callback until dispose returns.
+        let _lifecycle = self.lifecycle.lock();
         *self.config.lock() = None;
         self.wait_for_callbacks();
 
@@ -249,18 +261,22 @@ impl FfiServer {
         Ok(())
     }
 
-    /// Waits until no call into the client callback is in progress.
+    /// Waits until no call into the client callback is in progress, except
+    /// the calls this thread is inside of (a callback that disposes).
     ///
     /// A client may be unable to run callbacks after dispose returns: CPython,
     /// for instance, terminates a thread with `pthread_exit` when it enters a
     /// callback while the interpreter is finalizing, and that forced unwind
-    /// aborts the process when it reaches the Rust thread entry point.
+    /// aborts the process when it reaches the Rust thread entry point. So this
+    /// does not give up on a slow callback; it warns and keeps waiting.
     fn wait_for_callbacks(&self) {
+        let own = CALLBACKS_ON_THIS_THREAD.get();
         let mut in_flight = self.callbacks_in_flight.lock();
-        let result =
-            self.callbacks_idle.wait_while_for(&mut in_flight, |n| *n > 0, CALLBACK_DRAIN_TIMEOUT);
-        if result.timed_out() {
-            log::warn!("{} ffi callback calls still running after dispose", *in_flight);
+        while *in_flight > own {
+            let result = self.callbacks_idle.wait_for(&mut in_flight, CALLBACK_DRAIN_WARN_INTERVAL);
+            if result.timed_out() && *in_flight > own {
+                log::warn!("dispose is waiting for {} ffi callback calls", *in_flight - own);
+            }
         }
     }
 
