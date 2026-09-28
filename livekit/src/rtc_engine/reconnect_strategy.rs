@@ -14,42 +14,49 @@
 
 //! Reconnect backoff schedule.
 //!
-//! Computes the delay between reconnect attempts as exponential backoff with
-//! full jitter. This replaces a previously fixed reconnect interval: it recovers
-//! faster from transient blips and spreads retries to avoid synchronised
-//! reconnect storms across many clients after a server hiccup.
+//! Matches livekit-client's `DefaultReconnectPolicy`: after the `n`-th failed
+//! attempt the engine waits `min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * n^2)`
+//! (0.3 s, 1.2 s, 2.7 s, 4.8 s, then 7 s), plus up to 1 s of jitter from the
+//! second wait on. The waits add up to at least ~44 s, so a client rides out an
+//! outage of that length before giving up; the previous full-jitter schedule
+//! sampled each wait from `[0, nominal]` and could spend every attempt within a
+//! few seconds.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Maximum number of reconnect attempts before the engine gives up and closes.
 pub const RECONNECT_ATTEMPTS: u32 = 10;
 
-/// Exponential-backoff-with-full-jitter parameters for spacing reconnect
-/// attempts. The per-attempt delay is sampled uniformly from
-/// `[0, min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))]`.
+/// First wait of the schedule; later waits grow with the square of the attempt.
 pub const RECONNECT_BASE_DELAY: Duration = Duration::from_millis(300);
+/// Kept for API compatibility; the schedule grows quadratically, as in JS.
 pub const RECONNECT_BACKOFF_MULTIPLIER: u64 = 2;
+/// Cap on any single wait, before jitter.
 pub const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(7);
 
-/// Un-jittered backoff ceiling for the given 1-based reconnect attempt:
-/// `min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * MULTIPLIER^(attempt-1))`,
-/// floored at 1ms. Grows geometrically until it saturates at the cap.
+/// Maximum jitter added to every wait after the first.
+const RECONNECT_JITTER: Duration = Duration::from_secs(1);
+
+/// Un-jittered wait after the given 1-based failed attempt:
+/// `min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * attempt^2)`.
 pub(super) fn nominal(attempt: u32) -> Duration {
     let base = RECONNECT_BASE_DELAY.as_millis() as u64;
     let cap = RECONNECT_MAX_DELAY.as_millis() as u64;
-    let exp = RECONNECT_BACKOFF_MULTIPLIER.saturating_pow(attempt.saturating_sub(1));
-    Duration::from_millis(base.saturating_mul(exp).min(cap).max(1))
+    let n = attempt.max(1) as u64;
+    Duration::from_millis(base.saturating_mul(n.saturating_mul(n)).min(cap))
 }
 
-/// Full-jitter backoff delay for the given 1-based reconnect attempt: sampled
-/// uniformly from `[0, nominal(attempt)]`. A dependency-free pseudo-random
-/// source from the system clock is sufficient — backoff jitter does not need
-/// cryptographic quality, only de-correlation across clients.
+/// Wait after the given 1-based failed attempt: `nominal(attempt)` plus, from
+/// the second attempt on, jitter uniform in `[0, RECONNECT_JITTER)`. A
+/// dependency-free pseudo-random source from the system clock is sufficient;
+/// jitter only has to de-correlate clients.
 pub(super) fn delay(attempt: u32) -> Duration {
-    let nominal = nominal(attempt).as_millis() as u64;
+    if attempt <= 1 {
+        return nominal(attempt);
+    }
     let seed =
         SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
-    Duration::from_millis(seed % (nominal + 1))
+    nominal(attempt) + Duration::from_millis(seed % RECONNECT_JITTER.as_millis() as u64)
 }
 
 #[cfg(test)]
@@ -57,43 +64,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn backoff_nominal_grows_geometrically_then_caps() {
-        // attempt 1 == base, then x2 each step, until it saturates at the cap.
-        assert_eq!(nominal(1), RECONNECT_BASE_DELAY);
-        assert_eq!(nominal(2), RECONNECT_BASE_DELAY * RECONNECT_BACKOFF_MULTIPLIER as u32);
-        assert_eq!(
-            nominal(3),
-            RECONNECT_BASE_DELAY
-                * (RECONNECT_BACKOFF_MULTIPLIER * RECONNECT_BACKOFF_MULTIPLIER) as u32
-        );
-
-        // Monotonic non-decreasing and never above the cap.
-        let mut prev = Duration::ZERO;
-        for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal_duration = nominal(attempt);
-            assert!(nominal_duration >= prev, "backoff must not decrease (attempt {attempt})");
-            assert!(nominal_duration <= RECONNECT_MAX_DELAY, "backoff must not exceed the cap");
-            prev = nominal_duration;
+    fn schedule_matches_the_js_default_reconnect_policy() {
+        // livekit-client DEFAULT_RETRY_DELAYS_IN_MS after the first attempt.
+        let js = [300, 1200, 2700, 4800, 7000, 7000, 7000, 7000, 7000];
+        for (i, want) in js.iter().enumerate() {
+            assert_eq!(nominal(i as u32 + 1), Duration::from_millis(*want), "attempt {}", i + 1);
         }
-
-        // Late attempts are pinned to the cap, and large attempt indices don't
-        // overflow into a wrapped-around small value.
-        assert_eq!(nominal(RECONNECT_ATTEMPTS), RECONNECT_MAX_DELAY);
         assert_eq!(nominal(u32::MAX), RECONNECT_MAX_DELAY);
     }
 
     #[test]
-    fn backoff_delay_stays_within_nominal_jitter_window() {
-        // Full jitter: every sample must land within [0, nominal(attempt)].
-        for attempt in 1..=RECONNECT_ATTEMPTS {
-            let nominal_duration = nominal(attempt);
-            for _ in 0..1000 {
-                let delay_duration = delay(attempt);
-                assert!(
-                    delay_duration <= nominal_duration,
-                    "jittered delay {delay_duration:?} exceeded nominal {nominal_duration:?} (attempt {attempt})"
-                );
+    fn jitter_stays_within_one_second_and_skips_the_first_wait() {
+        for _ in 0..1000 {
+            assert_eq!(delay(1), nominal(1));
+            for attempt in 2..=RECONNECT_ATTEMPTS {
+                let d = delay(attempt);
+                assert!(d >= nominal(attempt) && d < nominal(attempt) + RECONNECT_JITTER);
             }
         }
+    }
+
+    #[test]
+    fn budget_outlasts_a_fifteen_second_outage() {
+        let floor: Duration = (1..RECONNECT_ATTEMPTS).map(nominal).sum();
+        assert!(floor >= Duration::from_secs(40), "minimum reconnect budget is only {floor:?}");
     }
 }
