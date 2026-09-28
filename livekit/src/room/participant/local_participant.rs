@@ -667,16 +667,28 @@ impl LocalParticipant {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
-            self.inner.rtc_engine.remove_track(sender)?;
+            // Removing the sender fails whenever the publisher transport is no longer the
+            // one this sender belongs to: an abnormal disconnect closes the transport
+            // before teardown runs, and a full reconnect replaces it outright. The local
+            // publication still has to be torn down in both cases, so the failure must not
+            // short-circuit the cleanup below — `set_track(None)` is the only thing that
+            // unregisters the track's mute callbacks, and without it the publication and
+            // its track hold each other, keeping the transceiver and its peer connection
+            // alive with them. Report the failure once the local state is consistent.
+            let removed = self.inner.rtc_engine.remove_track(sender);
             track.set_transceiver(None);
 
-            if let Some(local_track_unpublished) =
-                self.local.events.local_track_unpublished.lock().as_ref()
-            {
-                local_track_unpublished(self.clone(), publication.clone());
+            if removed.is_ok() {
+                if let Some(local_track_unpublished) =
+                    self.local.events.local_track_unpublished.lock().as_ref()
+                {
+                    local_track_unpublished(self.clone(), publication.clone());
+                }
             }
 
             publication.set_track(None);
+
+            removed?;
             self.inner.rtc_engine.publisher_negotiation_needed();
 
             Ok(publication)
