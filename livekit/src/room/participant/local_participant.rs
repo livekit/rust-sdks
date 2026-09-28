@@ -45,6 +45,7 @@ use libwebrtc::{
     native::{create_random_uuid, packet_trailer},
     rtp_parameters::RtpEncodingParameters,
     video_source::RtcVideoSource,
+    RtcError, RtcErrorType,
 };
 use livekit_protocol as proto;
 use livekit_signaling::SignalError;
@@ -667,7 +668,22 @@ impl LocalParticipant {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
-            self.inner.rtc_engine.remove_track(sender)?;
+            // After a server-ended disconnect the publisher PeerConnection is already
+            // closed: the engine detached the sender in `SessionInner::close`, and
+            // libwebrtc answers RemoveTrack with INVALID_STATE. That is the expected
+            // outcome there, not a failure. Any other error means the sender may still
+            // be attached to an open transport, so it is reported to the caller — but
+            // only after the bookkeeping below (transceiver, unpublished event,
+            // publication track) has run, so the publication drops its reference to
+            // the local track instead of stranding it.
+            let removed = self.inner.rtc_engine.remove_track(sender).or_else(|err| {
+                if is_closed_peer_connection_error(&err) {
+                    log::debug!("track {} unpublished after the publisher pc closed: {}", sid, err);
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            });
             track.set_transceiver(None);
 
             if let Some(local_track_unpublished) =
@@ -677,6 +693,7 @@ impl LocalParticipant {
             }
 
             publication.set_track(None);
+            removed?;
             self.inner.rtc_engine.publisher_negotiation_needed();
 
             Ok(publication)
@@ -1170,10 +1187,38 @@ impl LocalParticipant {
     }
 }
 
+/// Whether a `remove_track` failure only says the publisher PeerConnection is
+/// already closed.
+///
+/// libwebrtc's `RemoveTrackOrError` reports exactly one condition as
+/// `INVALID_STATE`: "PeerConnection is closed" (`api/peer_connection_interface.h`).
+/// A sender it does not know is not an error (Unified Plan returns OK), so every
+/// other failure is a real one on an open transport.
+fn is_closed_peer_connection_error(err: &EngineError) -> bool {
+    matches!(err, EngineError::Rtc(RtcError { error_type: RtcErrorType::InvalidState, .. }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::options::FrameMetadataFeatures;
+
+    fn rtc_error(error_type: RtcErrorType) -> EngineError {
+        EngineError::Rtc(RtcError { error_type, message: "test".into() })
+    }
+
+    #[test]
+    fn closed_peer_connection_is_the_only_suppressed_removal_error() {
+        assert!(is_closed_peer_connection_error(&rtc_error(RtcErrorType::InvalidState)));
+
+        assert!(!is_closed_peer_connection_error(&rtc_error(RtcErrorType::Internal)));
+        assert!(!is_closed_peer_connection_error(&rtc_error(RtcErrorType::InvalidSdp)));
+        assert!(!is_closed_peer_connection_error(&EngineError::Connection(
+            "engine is closed".into()
+        )));
+        assert!(!is_closed_peer_connection_error(&EngineError::Internal("bug".into())));
+        assert!(!is_closed_peer_connection_error(&EngineError::Signal(SignalError::SendError)));
+    }
 
     #[test]
     fn timing_subscribers_request_video_sender_transformer_without_frame_metadata() {
