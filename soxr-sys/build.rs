@@ -15,6 +15,7 @@
 use std::env;
 
 fn main() {
+    println!("cargo:rerun-if-changed=src");
     let mut build = cc::Build::new();
 
     build.include("src");
