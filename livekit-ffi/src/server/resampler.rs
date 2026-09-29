@@ -152,6 +152,14 @@ impl SoxResamplerInner {
                 "invalid sample rates: input_rate={input_rate}, output_rate={output_rate}"
             ));
         }
+        // Both quotients must stay usable: finite rates can still underflow one of them to zero
+        // and overflow the other to infinity.
+        let ratios = [input_rate / output_rate, output_rate / input_rate];
+        if !ratios.iter().all(|ratio| ratio.is_finite() && *ratio > 0.0) {
+            return Err(format!(
+                "sample rate ratio out of range: input_rate={input_rate}, output_rate={output_rate}"
+            ));
+        }
         if num_channels == 0 {
             return Err("num_channels must be greater than zero".to_string());
         }
@@ -456,6 +464,9 @@ mod migration_tests {
         assert!(try_new(-16000.0, 24000.0, 1).is_err(), "negative input rate");
         assert!(try_new(f64::NAN, 24000.0, 1).is_err(), "NaN input rate");
         assert!(try_new(16000.0, f64::INFINITY, 1).is_err(), "infinite output rate");
+        assert!(try_new(1e-320, 16000.0, 1).is_err(), "input/output ratio underflows to zero");
+        assert!(try_new(16000.0, 1e-320, 1).is_err(), "output/input ratio underflows to zero");
+        assert!(try_new(1e300, 1e-300, 1).is_err(), "input/output ratio overflows");
         assert!(try_new(16000.0, 24000.0, 0).is_err(), "zero channels");
         assert!(try_new(16000.0, 24000.0, 1).is_ok(), "valid parameters");
     }
