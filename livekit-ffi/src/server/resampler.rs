@@ -145,7 +145,18 @@ impl SoxResamplerInner {
         quality_spec: QualitySpec,
         runtime_spec: RuntimeSpec,
     ) -> Result<Self, String> {
-        let error: *mut *const c_char = std::ptr::null_mut();
+        if !(input_rate.is_finite() && input_rate > 0.0)
+            || !(output_rate.is_finite() && output_rate > 0.0)
+        {
+            return Err(format!(
+                "invalid sample rates: input_rate={input_rate}, output_rate={output_rate}"
+            ));
+        }
+        if num_channels == 0 {
+            return Err("num_channels must be greater than zero".to_string());
+        }
+
+        let mut error: *const c_char = std::ptr::null();
 
         let soxr_ptr = unsafe {
             let io_spec =
@@ -162,16 +173,19 @@ impl SoxResamplerInner {
                 input_rate,
                 output_rate,
                 num_channels,
-                error,
+                &mut error,
                 &io_spec,
                 &quality_spec,
                 &runtime_spec,
             )
         };
 
-        if !error.is_null() {
-            let error_msg = unsafe { std::ffi::CStr::from_ptr(*error) };
-            return Err(error_msg.to_string_lossy().to_string());
+        if soxr_ptr.is_null() {
+            return Err(if error.is_null() {
+                "failed to create the resampler".to_string()
+            } else {
+                unsafe { std::ffi::CStr::from_ptr(error) }.to_string_lossy().to_string()
+            });
         }
 
         Ok(Self {
@@ -409,5 +423,40 @@ mod migration_tests {
             assert!(out_frame[0] > 7000, "frame {i} left is {}, expected ~8000", out_frame[0]);
             assert!(out_frame[1] < -7000, "frame {i} right is {}, expected ~-8000", out_frame[1]);
         }
+    }
+
+    fn try_new(
+        input_rate: f64,
+        output_rate: f64,
+        num_channels: u32,
+    ) -> Result<(), crate::server::resampler::SoxResamplerError> {
+        crate::server::resampler::SoxResampler::new_with_options(
+            input_rate,
+            output_rate,
+            num_channels,
+            crate::server::resampler::IOSpec {
+                input_type: proto::SoxResamplerDataType::SoxrDatatypeInt16i.into(),
+                output_type: proto::SoxResamplerDataType::SoxrDatatypeInt16i.into(),
+            },
+            crate::server::resampler::QualitySpec {
+                quality: proto::SoxQualityRecipe::SoxrQualityQuick.into(),
+                flags: 0,
+            },
+            crate::server::resampler::RuntimeSpec { num_threads: 1 },
+        )
+        .map(|_| ())
+    }
+
+    /// Parameters soxr cannot resample with are rejected at construction. Before,
+    /// they produced a resampler that panicked or dereferenced null on first push.
+    #[test]
+    fn invalid_parameters_are_rejected() {
+        assert!(try_new(0.0, 24000.0, 1).is_err(), "zero input rate");
+        assert!(try_new(16000.0, 0.0, 1).is_err(), "zero output rate");
+        assert!(try_new(-16000.0, 24000.0, 1).is_err(), "negative input rate");
+        assert!(try_new(f64::NAN, 24000.0, 1).is_err(), "NaN input rate");
+        assert!(try_new(16000.0, f64::INFINITY, 1).is_err(), "infinite output rate");
+        assert!(try_new(16000.0, 24000.0, 0).is_err(), "zero channels");
+        assert!(try_new(16000.0, 24000.0, 1).is_ok(), "valid parameters");
     }
 }
