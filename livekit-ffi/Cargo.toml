@@ -28,6 +28,12 @@ capture-pattern = ["capture", "livekit-capture/source-pattern"]
 
 [dependencies]
 livekit = { workspace = true }
+# Direct dependency so the `uniffi` feature can be enabled; the types reach this
+# crate through the `livekit` facade and cargo unifies the two into one build.
+livekit-datatrack = { workspace = true, features = ["uniffi"] }
+# Direct dependency so `use_remote_type!` can name the crate that owns the
+# shared `bytes::Bytes` registration; it arrives anyway via livekit-datatrack.
+livekit-common = { workspace = true, features = ["uniffi"] }
 livekit-capture = { workspace = true, optional = true, default-features = false }
 webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
