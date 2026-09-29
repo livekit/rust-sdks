@@ -667,7 +667,11 @@ impl LocalParticipant {
             let track = publication.track().unwrap();
             let sender = track.transceiver().unwrap().sender();
 
-            self.inner.rtc_engine.remove_track(sender)?;
+            let remove_result = self.inner.rtc_engine.remove_track(sender);
+
+            // The peer connection may already be closed after a server-initiated
+            // disconnect. Always release the local publication/track graph even
+            // when removing its sender is no longer possible.
             track.set_transceiver(None);
 
             if let Some(local_track_unpublished) =
@@ -677,7 +681,11 @@ impl LocalParticipant {
             }
 
             publication.set_track(None);
-            self.inner.rtc_engine.publisher_negotiation_needed();
+            if remove_result.is_ok() {
+                self.inner.rtc_engine.publisher_negotiation_needed();
+            }
+
+            remove_result?;
 
             Ok(publication)
         } else {
