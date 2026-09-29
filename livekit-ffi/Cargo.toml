@@ -59,6 +59,7 @@ webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]
 livekit-token = { workspace = true }
+serial_test = "3.0"
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
