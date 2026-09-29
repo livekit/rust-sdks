@@ -31,6 +31,31 @@
 /// The FFI system and uniffi system can be interchanged in either direction: once the FFI side has
 /// released a handle (via [take_ffi_handle_id] or [livekit_ffi_drop_handle]), publishing the struct
 /// again restores it to the handle map under the same id.
+///
+/// # Naming, and the one step cutover still costs
+///
+/// A migrating struct is scaffolding: the permanent object belongs in the crate that owns the
+/// domain type, and this one goes away with the protobuf path. It carries the permanent object's
+/// name anyway — `LocalDataTrack`, not `FfiLocalDataTrack` — so foreign SDK source keeps compiling
+/// across the swap. The livekit types it wraps come in under a module alias to leave the name free.
+///
+/// The namespace is what the rename cannot reach. A uniffi object belongs to the crate that
+/// *defines* it, not the one that hands it out, so a struct migrated here reaches an SDK as
+/// `livekit_ffi.LocalDataTrack` and its permanent replacement, defined alongside the domain type,
+/// as `livekit_datatrack.LocalDataTrack`. Cutting over is therefore exactly one import change per
+/// SDK — a Python import, a Kotlin package, a Swift module — and nothing below it.
+///
+/// Two things are worth knowing before trying to remove that step.
+///
+/// Renaming through `#[uniffi(name = "...")]` does not work here: it leaves the foreign name out of
+/// step with the `Arc<Self>` that [from_ffi_handle_id] returns, and bindgen rejects the pair with
+/// "Constructor return type must be Self or Arc<Self>". Renaming the Rust struct is the only route.
+///
+/// Removing the import change means not defining the object here at all: the permanent object goes
+/// into its owning crate up front, and this crate exports only free functions turning a handle id
+/// into one. That works — a `#[uniffi::export]` fn here can return an object another crate defines
+/// — but it makes every migration wait on its crate's uniffi surface landing first, which is the
+/// coupling this macro exists to avoid. The import change buys each type the right to migrate alone.
 #[macro_export]
 macro_rules! migrate_from_ffi {
     ($T:ty) => {
@@ -88,6 +113,13 @@ macro_rules! migrate_from_ffi {
         }
     };
 }
+
+/// Everything holding a migrating type onto the protobuf path, one file per type, kept
+/// apart from the type itself so that each goes in one piece when its path does.
+///
+/// What cannot live here is the `handle_id` field the bridge needs, and the `pub(crate)`
+/// on whatever internals these files reach. Both go the same way.
+mod data_track;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MigrationError {
