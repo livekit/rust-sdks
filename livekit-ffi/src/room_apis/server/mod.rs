@@ -47,7 +47,7 @@ pub mod platform_audio;
 pub mod requests;
 pub mod resampler;
 pub mod room;
-mod utils;
+pub(crate) mod utils;
 pub mod video_source;
 pub mod video_stream;
 
