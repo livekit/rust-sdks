@@ -31,7 +31,6 @@ mod rtc;
 
 /// Spans: one attempt at an operation, with explicit handles across the FFI.
 mod scope;
-#[cfg_attr(test, allow(dead_code))] // `Spans::open_count` serves the device contract tests
 mod span;
 
 /// Batch exporter actor: timer, OTLP encoding, retry policy.
@@ -74,6 +73,8 @@ pub use transport::*;
 /// The backend and device contracts, one test per row of their tables.
 #[cfg(test)]
 mod backend_tests;
+#[cfg(test)]
+mod device_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
