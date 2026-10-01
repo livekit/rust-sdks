@@ -295,7 +295,6 @@ thread_local! {
 /// Limits on what an app hands over: long enough for any real identifier, short enough that one
 /// app cannot bloat every record. Over-long input is rejected and counted, never truncated — a
 /// truncated id silently collides with another.
-#[expect(dead_code, reason = "enforced by the pipeline, not in place yet")]
 pub(crate) const MAX_NAME_BYTES: usize = 128;
 /// The longest attribute key an app may hand over, in bytes.
 pub(crate) const MAX_KEY_BYTES: usize = 128;

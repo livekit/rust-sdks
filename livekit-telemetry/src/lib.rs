@@ -18,57 +18,26 @@
 mod event;
 
 /// Bounded in-memory queue between `emit` and the exporter.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod store;
 
 /// Pipeline health counters and the `lk.telemetry.report` event.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod stats;
 
 /// Host-reported device state and the cadence policy derived from it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-    )
-)]
 mod device;
 
 /// RTC stats samples and their on-device windowing.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-    )
-)]
 mod rtc;
 
 /// Session identity: the trace id, attributes and route of one Room.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod scope;
 /// Spans: one attempt at an operation, with explicit handles across the FFI.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod span;
 
+/// Batch exporter actor: timer, OTLP encoding, retry policy.
+mod exporter;
+
 /// OTLP/HTTP protobuf encoding of a batch.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod otlp;
 
 /// Queue of encoded batches between the exporter and the transport (memory or disk).
@@ -78,29 +47,26 @@ mod cache;
 mod proto;
 
 /// Transport seam: how encoded batches leave the device.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-    )
-)]
 mod transport;
 
 /// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
-#[expect(
-    dead_code,
-    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
-)]
 mod destination;
+
+/// Entry point and configuration.
+mod telemetry;
+mod trace;
 
 pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use destination::ENDPOINT_OVERRIDE_ENV;
 pub use device::*;
 pub use event::*;
+pub use exporter::Exporter;
 pub use rtc::{RtcStat, RtcStatsSample, StreamDirection, TrackKind};
+pub use scope::{DisconnectReason, RoomIdentity, Scope};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
+pub use telemetry::*;
+pub use trace::*;
 #[cfg(feature = "net")]
 pub use transport::NetTransport;
 pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};
