@@ -31,6 +31,23 @@ mod store;
 )]
 mod stats;
 
+/// Host-reported device state and the cadence policy derived from it.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+    )
+)]
+mod device;
+
+/// RTC stats samples and their on-device windowing.
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
+mod rtc;
+
 /// Session identity: the trace id, attributes and route of one Room.
 #[expect(
     dead_code,
@@ -76,7 +93,9 @@ mod destination;
 
 pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use destination::ENDPOINT_OVERRIDE_ENV;
+pub use device::*;
 pub use event::*;
+pub use rtc::{RtcStat, RtcStatsSample, StreamDirection, TrackKind};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
 #[cfg(feature = "net")]
