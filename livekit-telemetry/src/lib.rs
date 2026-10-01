@@ -53,7 +53,7 @@ mod transport;
 mod destination;
 
 /// Entry point and configuration.
-#[allow(dead_code)] // `weak_commands` serves `global`; test hooks serve the pipeline tests
+#[allow(dead_code)] // `weak_commands` serves the process-wide pipeline (`global`)
 mod telemetry;
 mod trace;
 
