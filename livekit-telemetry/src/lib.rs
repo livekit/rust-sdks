@@ -70,5 +70,9 @@ pub use telemetry::*;
 pub use trace::*;
 pub use transport::*;
 
+/// The backend and device contracts, one test per row of their tables.
+#[cfg(test)]
+mod backend_tests;
+
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
