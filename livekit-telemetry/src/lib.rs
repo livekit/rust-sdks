@@ -31,6 +31,9 @@ mod span;
 /// OTLP/HTTP protobuf encoding of a batch.
 mod otlp;
 
+/// Queue of encoded batches between the exporter and the transport (memory or disk).
+mod cache;
+
 /// OTLP protobuf types (re-exported from `opentelemetry-proto`).
 mod proto;
 
@@ -40,6 +43,7 @@ mod transport;
 /// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
 mod destination;
 
+pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use destination::ENDPOINT_OVERRIDE_ENV;
 pub use event::*;
 pub use span::SpanOutcome;
