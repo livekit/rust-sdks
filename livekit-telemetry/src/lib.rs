@@ -52,8 +52,9 @@ mod transport;
 /// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
 mod destination;
 
+/// The process pipeline: [`global::install`] once, then reach it anywhere.
+pub mod global;
 /// Entry point and configuration.
-#[allow(dead_code)] // `weak_commands` serves the process-wide pipeline (`global`)
 mod telemetry;
 mod trace;
 
