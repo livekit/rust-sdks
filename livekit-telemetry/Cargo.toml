@@ -8,16 +8,33 @@ edition.workspace = true
 repository.workspace = true
 
 [dependencies]
+tokio = { workspace = true, default-features = false, features = ["macros", "sync", "time"] }
 log = { workspace = true }
+thiserror = { workspace = true }
+async-trait = "0.1"
 prost = { workspace = true }
+# `google.protobuf.Any`/`Duration` for the `google.rpc.Status` error body (RetryInfo).
+prost-types = { workspace = true }
 rand = { workspace = true }
+# Unverified JWT claims (observability grant, expiry); both already linked by livekit-api.
+base64 = "0.22"
+serde_json = { workspace = true }
+# Server URLs are parsed, never string-matched, before a token may follow them.
+url = "2.3"
 # OTLP message types only (`gen-tonic-messages` = prost structs, no tonic). Same prost as
 # livekit-protocol so a single prost is linked.
 opentelemetry-proto = { version = "0.32", default-features = false, features = ["logs", "trace", "gen-tonic-messages"] }
+livekit-net = { workspace = true, optional = true }
 uniffi = { workspace = true, features = ["scaffolding-ffi-buffer-fns"], optional = true }
 
 [features]
+# Default HTTP transport over the pluggable `livekit-net` client (native backend, or one
+# the host registered with `livekit_net::set_http_client`).
+net = ["dep:livekit-net"]
 uniffi = ["dep:uniffi"]
+
+[dev-dependencies]
+tokio = { workspace = true, default-features = false, features = ["rt", "rt-multi-thread", "macros", "sync", "time", "test-util", "net", "io-util"] }
 
 # How CI checks this crate's features, read by
 # `.github/workflows/feature-combinations-curated.yml` via `cargo metadata`.

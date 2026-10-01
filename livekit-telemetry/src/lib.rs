@@ -51,9 +51,28 @@ mod otlp;
 /// OTLP protobuf types (re-exported from `opentelemetry-proto`).
 mod proto;
 
+/// Transport seam: how encoded batches leave the device.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+    )
+)]
+mod transport;
+
+/// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
+mod destination;
+
+pub use destination::ENDPOINT_OVERRIDE_ENV;
 pub use event::*;
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
+pub use transport::*;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
