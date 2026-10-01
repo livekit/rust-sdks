@@ -76,6 +76,8 @@ pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTranspo
 /// The backend contract, end to end through the pipeline.
 #[cfg(test)]
 mod backend_tests;
+#[cfg(test)]
+mod device_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
