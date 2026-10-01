@@ -415,7 +415,7 @@ never. Only plain records at or above `log_severity` (default `warn`) leave the 
 are dropped in `emit`.
 
 The core's own warnings and errors (Rust `log` records from `livekit*` targets, never
-`livekit_telemetry*`) reach the pipeline by themselves through `livekit-uniffi`'s log forwarder:
+`livekit_telemetry*`) reach the pipeline by themselves through `livekit-ffi`'s log forwarder:
 it copies them as `ffi` records — every JWT-shaped substring (`eyJ…` `.` … `.` …) masked as
 `<jwt>`, so a token quoted in an error never leaves the device — and forwards the console entry
 unchanged. The copy is active wherever the platform calls `log_forward_bootstrap` (Swift's
