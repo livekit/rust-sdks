@@ -42,6 +42,7 @@ members = [
     "examples/rpc",
     "examples/save_to_disk",
     "examples/screensharing",
+    "examples/telemetry_ping",
     "examples/token_source",
     "examples/webhooks",
 ]
