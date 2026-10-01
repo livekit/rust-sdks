@@ -71,6 +71,10 @@ pub use trace::{ReconnectReason, Span, SpanName, SpanStep, SpanTrack, TraceConte
 pub use transport::NetTransport;
 pub use transport::{ExportError, ExportRequest, ExportResponse, TelemetryTransport};
 
+/// The backend and device contracts, one test per row of their tables.
+#[cfg(test)]
+mod backend_tests;
+
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
