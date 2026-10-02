@@ -237,6 +237,8 @@ pub enum SessionEvent {
     SubscribedQualityUpdate {
         update: proto::SubscribedQualityUpdate,
     },
+    /// A publisher answer was applied; dynacast layers must be re-applied.
+    RefreshPublishingLayers,
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -1401,6 +1403,7 @@ impl SessionInner {
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
                 self.publisher_pc.set_remote_description(answer).await?;
+                let _ = self.emitter.send(SessionEvent::RefreshPublishingLayers);
 
                 if self.single_pc_mode {
                     self.process_remote_track_addition(&self.publisher_pc.peer_connection());

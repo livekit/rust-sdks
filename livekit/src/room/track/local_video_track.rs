@@ -107,6 +107,8 @@ pub struct LocalVideoTrack {
     source: RtcVideoSource,
     packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
     publish_timing_tx: Arc<Mutex<Option<broadcast::Sender<PublishTimingEvent>>>>,
+    /// Last qualities requested by dynacast, re-applied after renegotiation.
+    subscribed_qualities: Arc<Mutex<Option<Vec<proto::SubscribedQuality>>>>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -152,6 +154,7 @@ impl LocalVideoTrack {
             source,
             packet_trailer_handler: Arc::new(Mutex::new(None)),
             publish_timing_tx: Arc::new(Mutex::new(None)),
+            subscribed_qualities: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -356,6 +359,19 @@ impl LocalVideoTrack {
         &self,
         qualities: &[proto::SubscribedQuality],
     ) -> RoomResult<()> {
+        *self.subscribed_qualities.lock() = Some(qualities.to_vec());
+        self.apply_publishing_layers(qualities)
+    }
+
+    /// Re-applies the last dynacast qualities, since renegotiation re-enables paused layers.
+    pub(crate) fn refresh_publishing_layers(&self) -> RoomResult<()> {
+        let Some(qualities) = self.subscribed_qualities.lock().clone() else {
+            return Ok(());
+        };
+        self.apply_publishing_layers(&qualities)
+    }
+
+    fn apply_publishing_layers(&self, qualities: &[proto::SubscribedQuality]) -> RoomResult<()> {
         let transceiver = self.transceiver().ok_or_else(|| {
             RoomError::Internal("cannot set publishing layers: no transceiver".into())
         })?;
