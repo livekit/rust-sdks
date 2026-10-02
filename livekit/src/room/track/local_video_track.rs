@@ -327,6 +327,8 @@ impl LocalVideoTrack {
 
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
         self.inner.info.write().transceiver = transceiver;
+        // A new publication starts without any dynacast state.
+        *self.subscribed_qualities.lock() = None;
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
@@ -359,7 +361,7 @@ impl LocalVideoTrack {
         &self,
         qualities: &[proto::SubscribedQuality],
     ) -> RoomResult<()> {
-        *self.subscribed_qualities.lock() = Some(qualities.to_vec());
+        merge_qualities(self.subscribed_qualities.lock().get_or_insert_with(Vec::new), qualities);
         self.apply_publishing_layers(qualities)
     }
 
@@ -439,5 +441,40 @@ impl LocalVideoTrack {
             })
             .collect();
         self.set_publishing_layers(&qualities)
+    }
+}
+
+/// Merges `update` into `cached` by quality, like [`LocalVideoTrack::apply_publishing_layers`],
+/// which leaves qualities missing from an update untouched.
+fn merge_qualities(
+    cached: &mut Vec<proto::SubscribedQuality>,
+    update: &[proto::SubscribedQuality],
+) {
+    for quality in update {
+        match cached.iter_mut().find(|q| q.quality == quality.quality) {
+            Some(existing) => existing.enabled = quality.enabled,
+            None => cached.push(*quality),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn quality(quality: proto::VideoQuality, enabled: bool) -> proto::SubscribedQuality {
+        proto::SubscribedQuality { quality: quality as i32, enabled }
+    }
+
+    #[test]
+    fn merge_qualities_keeps_earlier_layers() {
+        let mut cached = Vec::new();
+        merge_qualities(&mut cached, &[quality(proto::VideoQuality::Medium, false)]);
+        merge_qualities(&mut cached, &[quality(proto::VideoQuality::High, false)]);
+        merge_qualities(&mut cached, &[quality(proto::VideoQuality::Medium, true)]);
+        assert_eq!(
+            cached,
+            [quality(proto::VideoQuality::Medium, true), quality(proto::VideoQuality::High, false)]
+        );
     }
 }
