@@ -20,7 +20,7 @@
 //! the `handle_id` field on the struct, and the `pub(crate)` these reach through.
 
 use livekit::{
-    prelude::Track,
+    track as lk,
     webrtc::{
         prelude::*,
         video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
@@ -29,6 +29,7 @@ use livekit::{
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
+use crate::server::room::Track;
 use crate::server::utils;
 use crate::server::video_stream::{
     VideoBuffer, VideoBufferType, VideoFrame, VideoStream, VideoStreamError,
@@ -115,7 +116,7 @@ impl VideoStream {
     ///
     /// It is possible that the client receives a VideoFrame after the task is closed. The
     /// client musts ignore it.
-    pub fn from_track(
+    pub fn from_track_ffi(
         server: &'static server::FfiServer,
         new_stream: proto::NewVideoStreamRequest,
     ) -> FfiResult<proto::OwnedVideoStream> {
@@ -124,8 +125,8 @@ impl VideoStream {
         }
 
         let track_handle = new_stream.track_handle;
-        let stream = Self::from_track_handle(
-            track_handle,
+        let stream = Self::from_track(
+            Track::of_handle(server, track_handle)?,
             new_stream.format.map(|_| new_stream.format().into()),
             new_stream.normalize_stride.unwrap_or(true),
             new_stream.queue_size_frames,
@@ -199,8 +200,8 @@ impl VideoStream {
 
         let track_source = request.track_source();
         let queue_size_frames = request.queue_size_frames.map(|capacity| capacity as usize);
-        let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
-        let (track_finished_tx, _track_finished_rx) = broadcast::channel::<Track>(1);
+        let (track_tx, mut track_rx) = mpsc::channel::<lk::Track>(1);
+        let (track_finished_tx, _track_finished_rx) = broadcast::channel::<lk::Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
             ffi_participant,
             track_source.into(),
@@ -322,7 +323,7 @@ mod migration_tests {
     use super::*;
     use crate::proto;
     use crate::server::video_stream::VideoBufferComponent;
-    use crate::{server::room::FfiTrack, FFI_SERVER};
+    use crate::FFI_SERVER;
     use livekit::prelude::LocalVideoTrack;
     use livekit::webrtc::{
         video_frame::{self as rtc, I420Buffer},
@@ -333,19 +334,14 @@ mod migration_tests {
     const WIDTH: u32 = 64;
     const HEIGHT: u32 = 32;
 
-    /// A track fed by a source the test drives directly, published as an FFI handle the
-    /// way `create_video_track` publishes one.
-    fn video_track() -> (NativeVideoSource, FfiHandleId) {
+    /// A track fed by a source the test drives directly, the way `create_video_track`
+    /// builds one.
+    fn video_track() -> (NativeVideoSource, Arc<Track>) {
         let source =
             NativeVideoSource::new(VideoResolution { width: WIDTH, height: HEIGHT }, false);
         let track =
             LocalVideoTrack::create_video_track("probe", RtcVideoSource::Native(source.clone()));
-        let handle = FFI_SERVER.next_id();
-        FFI_SERVER.store_handle(
-            handle,
-            FfiTrack { handle, track: Track::LocalVideo(track), room_handle: None },
-        );
-        (source, handle)
+        (source, Arc::new(Track::over(lk::Track::LocalVideo(track), None)))
     }
 
     /// A frame of flat luma, tagged so it can be told apart from its neighbours — and from
@@ -388,14 +384,10 @@ mod migration_tests {
     #[test]
     fn a_video_stream_hands_back_and_forth_across_the_seam() {
         FFI_SERVER.async_runtime.block_on(async {
-            let (source, track_handle) = video_track();
-            let stream = VideoStream::from_track_handle(
-                track_handle,
-                Some(VideoBufferType::I420),
-                true,
-                None,
-            )
-            .expect("the track handle resolves to a video track");
+            let (source, track) = video_track();
+            let stream =
+                VideoStream::from_track(track.clone(), Some(VideoBufferType::I420), true, None)
+                    .expect("the track is a video track");
             assert_eq!(Arc::strong_count(&stream), 1, "an unpublished stream has no other owner");
 
             let handle = stream.clone().ffi_handle_id();
@@ -403,13 +395,9 @@ mod migration_tests {
             assert!(Arc::ptr_eq(&same, &stream), "the id resolves to the object that published it");
 
             // A second stream over the same track, to show the check below discriminates.
-            let rival = VideoStream::from_track_handle(
-                track_handle,
-                Some(VideoBufferType::I420),
-                true,
-                None,
-            )
-            .expect("a second stream over the same track");
+            let rival =
+                VideoStream::from_track(track.clone(), Some(VideoBufferType::I420), true, None)
+                    .expect("a second stream over the same track");
 
             // One frame, and the two Arcs go looking for it. Being one object they share the
             // one NativeVideoStream, so the pull through `stream` takes the frame out from
@@ -442,7 +430,6 @@ mod migration_tests {
             assert_eq!(next_tagged(&republished).await.buffer.data[0], 40);
 
             FFI_SERVER.drop_handle(handle);
-            FFI_SERVER.drop_handle(track_handle);
         });
     }
 

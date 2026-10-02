@@ -30,7 +30,7 @@ use livekit::{
 use tokio::sync::Mutex;
 
 use super::audio_plugin::AudioStreamKind;
-use super::room::{FfiRoom, FfiTrack};
+use super::room::{FfiRoom, Track};
 use crate::FfiHandleId;
 
 /// Interleaved PCM samples, and the format describing them.
@@ -100,18 +100,14 @@ pub struct AudioStream {
 
 #[uniffi::export(async_runtime = "tokio")]
 impl AudioStream {
-    /// Opens a stream over an audio track the FFI side owns.
-    ///
-    /// The track arrives as a handle id rather than an object because `Track` has not
-    /// migrated yet. An inbound handle is the cheap direction: it costs one untyped
-    /// parameter, re-signed when `Track` lands.
+    /// Opens a stream over an audio track.
     ///
     /// `frame_size_ms` re-cuts the sink's frames to that length; without it they arrive
     /// as the sink produced them. `audio_filter_module_id` names a plugin loaded over the
     /// protobuf path, which is still the only way to load one.
     #[uniffi::constructor]
-    pub fn from_track_handle(
-        track_handle: FfiHandleId,
+    pub fn from_track(
+        track: Arc<Track>,
         sample_rate: Option<u32>,
         num_channels: Option<u32>,
         frame_size_ms: Option<u32>,
@@ -119,12 +115,7 @@ impl AudioStream {
         audio_filter_module_id: Option<String>,
         audio_filter_options: Option<String>,
     ) -> Result<Arc<Self>, AudioStreamError> {
-        let ffi_track = crate::FFI_SERVER
-            .retrieve_handle::<FfiTrack>(track_handle)
-            .map_err(|err| AudioStreamError::InvalidTrack(err.to_string()))?
-            .clone();
-
-        let MediaStreamTrack::Audio(rtc_track) = ffi_track.track.rtc_track() else {
+        let MediaStreamTrack::Audio(rtc_track) = track.inner.rtc_track() else {
             return Err(AudioStreamError::InvalidTrack("not an audio track".into()));
         };
 
@@ -132,7 +123,7 @@ impl AudioStream {
             Some(module_id) => Some(AudioFilterSetup::over_room(
                 &module_id,
                 audio_filter_options.unwrap_or_default(),
-                ffi_track.room_handle,
+                track.room_handle,
                 rtc_track.id(),
             )?),
             None => None,
@@ -142,7 +133,7 @@ impl AudioStream {
         let num_channels = num_channels.unwrap_or(1);
         let inner = AudioStreamInner::over(
             rtc_track,
-            ffi_track.track.codec_clock_rate(),
+            track.inner.codec_clock_rate(),
             sample_rate,
             num_channels,
             queue_size_frames,

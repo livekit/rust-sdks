@@ -20,7 +20,7 @@
 //! the `handle_id` field on the struct, and the `pub(crate)` these reach through.
 
 use livekit::{
-    prelude::*, registered_audio_filter_plugin, webrtc::prelude::*, AudioFilterStreamInfo,
+    registered_audio_filter_plugin, track as lk, webrtc::prelude::*, AudioFilterStreamInfo,
 };
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -29,6 +29,7 @@ use crate::server::audio_stream::{
     AudioFilterInfo, AudioFilterSetup, AudioFrameBuffer, AudioStream, AudioStreamError,
     AudioStreamInner,
 };
+use crate::server::room::Track;
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
@@ -95,7 +96,7 @@ impl AudioStream {
     ///
     /// It is possible that the client receives an AudioFrame after the task is closed. The
     /// client musts ignore it.
-    pub fn from_track(
+    pub fn from_track_ffi(
         server: &'static server::FfiServer,
         new_stream: proto::NewAudioStreamRequest,
     ) -> FfiResult<proto::OwnedAudioStream> {
@@ -104,8 +105,8 @@ impl AudioStream {
         }
 
         let track_handle = new_stream.track_handle;
-        let stream = Self::from_track_handle(
-            track_handle,
+        let stream = Self::from_track(
+            Track::of_handle(server, track_handle)?,
             new_stream.sample_rate,
             new_stream.num_channels,
             new_stream.frame_size_ms,
@@ -184,8 +185,8 @@ impl AudioStream {
         };
 
         let track_source = request.track_source();
-        let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
-        let (track_finished_tx, _track_finished_rx) = broadcast::channel::<Track>(1);
+        let (track_tx, mut track_rx) = mpsc::channel::<lk::Track>(1);
+        let (track_finished_tx, _track_finished_rx) = broadcast::channel::<lk::Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
             ffi_participant.clone(),
             track_source.into(),
@@ -349,7 +350,7 @@ fn send_eos_event(server: &'static server::FfiServer, stream_handle: FfiHandleId
 #[cfg(test)]
 mod migration_tests {
     use super::*;
-    use crate::{server::room::FfiTrack, FFI_SERVER};
+    use crate::FFI_SERVER;
     use livekit::prelude::LocalAudioTrack;
     use livekit::webrtc::audio_source::{
         native::NativeAudioSource, AudioSourceOptions, RtcAudioSource,
@@ -361,18 +362,13 @@ mod migration_tests {
     /// 10ms of mono, which is the frame size the WebRTC sink works in.
     const FRAME_SAMPLES: usize = SAMPLE_RATE as usize / 100;
 
-    /// A track fed by a source the test drives directly, published as an FFI handle the
-    /// way `create_audio_track` publishes one.
-    fn audio_track() -> (NativeAudioSource, FfiHandleId) {
+    /// A track fed by a source the test drives directly, the way `create_audio_track`
+    /// builds one.
+    fn audio_track() -> (NativeAudioSource, Arc<Track>) {
         let source = NativeAudioSource::new(AudioSourceOptions::default(), SAMPLE_RATE, 1, 1000);
         let track =
             LocalAudioTrack::create_audio_track("probe", RtcAudioSource::Native(source.clone()));
-        let handle = FFI_SERVER.next_id();
-        FFI_SERVER.store_handle(
-            handle,
-            FfiTrack { handle, track: Track::LocalAudio(track), room_handle: None },
-        );
-        (source, handle)
+        (source, Arc::new(Track::over(lk::Track::LocalAudio(track), None)))
     }
 
     /// Captures one 10ms frame at a steady level, tagged so it can be told apart from the
@@ -402,9 +398,9 @@ mod migration_tests {
         .expect("timed out waiting for a tagged frame")
     }
 
-    fn stream_over(track_handle: FfiHandleId, frame_size_ms: Option<u32>) -> Arc<AudioStream> {
-        AudioStream::from_track_handle(
-            track_handle,
+    fn stream_over(track: &Arc<Track>, frame_size_ms: Option<u32>) -> Arc<AudioStream> {
+        AudioStream::from_track(
+            track.clone(),
             Some(SAMPLE_RATE),
             Some(1),
             frame_size_ms,
@@ -412,7 +408,7 @@ mod migration_tests {
             None,
             None,
         )
-        .expect("the track handle resolves to an audio track")
+        .expect("the track is an audio track")
     }
 
     /// A stream created over uniffi publishes a handle, the handle resolves back to the
@@ -423,8 +419,8 @@ mod migration_tests {
     #[test]
     fn an_audio_stream_hands_back_and_forth_across_the_seam() {
         FFI_SERVER.async_runtime.block_on(async {
-            let (source, track_handle) = audio_track();
-            let stream = stream_over(track_handle, None);
+            let (source, track) = audio_track();
+            let stream = stream_over(&track, None);
             assert_eq!(Arc::strong_count(&stream), 1, "an unpublished stream has no other owner");
 
             let handle = stream.clone().ffi_handle_id();
@@ -432,7 +428,7 @@ mod migration_tests {
             assert!(Arc::ptr_eq(&same, &stream), "the id resolves to the object that published it");
 
             // A second stream over the same track, to show the check below discriminates.
-            let rival = stream_over(track_handle, None);
+            let rival = stream_over(&track, None);
 
             // One frame, and the two Arcs go looking for it. Being one object they share
             // the one sink, so the pull through `stream` takes the frame out from under
@@ -467,7 +463,6 @@ mod migration_tests {
             assert_eq!(next_tagged(&republished).await.data[0], 40);
 
             FFI_SERVER.drop_handle(handle);
-            FFI_SERVER.drop_handle(track_handle);
         });
     }
 
@@ -477,9 +472,9 @@ mod migration_tests {
     #[test]
     fn frames_are_recut_to_the_size_asked_for() {
         FFI_SERVER.async_runtime.block_on(async {
-            let (source, track_handle) = audio_track();
-            let as_is = stream_over(track_handle, None);
-            let in_thirties = stream_over(track_handle, Some(30));
+            let (source, track) = audio_track();
+            let as_is = stream_over(&track, None);
+            let in_thirties = stream_over(&track, Some(30));
 
             for level in 1..=6 {
                 capture(&source, level).await;
@@ -493,8 +488,6 @@ mod migration_tests {
             assert_eq!(frame.data.len(), FRAME_SAMPLES * 3, "three of the sink's frames");
             assert_eq!(frame.samples_per_channel, FRAME_SAMPLES as u32 * 3);
             assert_eq!(frame.sample_rate, SAMPLE_RATE);
-
-            FFI_SERVER.drop_handle(track_handle);
         });
     }
 
