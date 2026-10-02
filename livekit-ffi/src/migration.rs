@@ -122,6 +122,7 @@ macro_rules! migrate_from_ffi {
 mod audio_resampler;
 mod audio_stream;
 mod data_track;
+mod track;
 mod video_stream;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
