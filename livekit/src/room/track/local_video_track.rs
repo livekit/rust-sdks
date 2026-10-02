@@ -446,8 +446,7 @@ impl LocalVideoTrack {
     }
 }
 
-/// Merges `update` into `cached` by quality, like [`LocalVideoTrack::apply_publishing_layers`],
-/// which leaves qualities missing from an update untouched.
+/// Merges `update` into `cached` by quality, leaving qualities missing from an update untouched.
 fn merge_qualities(
     cached: &mut Vec<proto::SubscribedQuality>,
     update: &[proto::SubscribedQuality],
