@@ -326,9 +326,11 @@ impl LocalVideoTrack {
     }
 
     pub(crate) fn set_transceiver(&self, transceiver: Option<RtpTransceiver>) {
+        // clear subscribed qualities on unpublish
+        if transceiver.is_none() {
+            *self.subscribed_qualities.lock() = None;
+        }
         self.inner.info.write().transceiver = transceiver;
-        // A new publication starts without any dynacast state.
-        *self.subscribed_qualities.lock() = None;
     }
 
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
