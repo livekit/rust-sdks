@@ -3577,7 +3577,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3612,7 +3612,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "base64 0.21.7",
  "http 1.4.2",
@@ -3635,7 +3635,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-capture"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "bytes",
  "chrono",
@@ -3705,7 +3705,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.81"
+version = "0.12.82"
 dependencies = [
  "bytes",
  "console-subscriber",
