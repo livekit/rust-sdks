@@ -1168,6 +1168,16 @@ impl RoomSession {
             EngineEvent::SubscribedQualityUpdate { update } => {
                 self.handle_subscribed_quality_update(update);
             }
+            EngineEvent::RefreshPublishingLayers => {
+                if self.options.dynacast {
+                    for publication in self.local_participant.track_publications().values() {
+                        let Some(LocalTrack::Video(track)) = publication.track() else { continue };
+                        if let Err(e) = track.refresh_publishing_layers() {
+                            log::warn!("dynacast: failed to refresh publishing layers: {}", e);
+                        }
+                    }
+                }
+            }
             EngineEvent::LocalDataTrackInput(event) => {
                 _ = self.local_dt_input.send(event);
             }
