@@ -1,0 +1,7 @@
+# {{ NPM_NAME }}-{{ NODE_TRIPLE }}
+
+Prebuilt `livekit-uniffi` native library for `{{ TARGET }}`.
+
+This package is an implementation detail of [`{{ NPM_NAME }}`]({{ NPM_NAME }}) and
+is installed automatically as an optional dependency on matching platforms. Do
+not depend on it directly.
