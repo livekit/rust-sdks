@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
@@ -14,7 +14,7 @@ use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
 use livekit_api::services::room::{CreateRoomOptions, RoomClient};
 use livekit_api::services::{ServiceError, TwirpError, TwirpErrorCode};
-use log::{debug, info};
+use log::{debug, info, warn};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
@@ -24,6 +24,8 @@ use nokhwa::Camera;
 use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
 use std::env;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -34,15 +36,18 @@ use yuv_sys;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 mod argus;
 mod codec_display;
+mod frame_log;
 mod test_pattern;
 mod timestamp_burn;
 mod user_data;
 mod video_display;
 mod viewport_aspect;
 
-use test_pattern::TestPattern;
+use test_pattern::{TestPattern, TestPatternMode};
 use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
+
+use frame_log::{create_csv, CsvFloat, CsvLatency, CsvOption, FrameLogRange};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum PublisherCodec {
@@ -177,9 +182,14 @@ struct Args {
     #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
     format: CaptureFormat,
 
-    /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_encoders"])]
-    test_pattern: bool,
+    /// Generate test video instead of using a camera: 0=static, 1=animated
+    #[arg(
+        long,
+        value_enum,
+        value_name = "n",
+        conflicts_with_all = ["list_cameras", "list_encoders"]
+    )]
+    test_pattern: Option<TestPatternMode>,
 
     /// Desired width
     #[arg(long, default_value_t = 1280)]
@@ -255,18 +265,30 @@ struct Args {
 
     /// Attach keyboard-controlled 6-channel data (6x int16 fixed-point, 12 bytes)
     /// as the per-frame user_data trailer field. Control the channels from the
-    /// preview window: Q/A=CH1, W/S=CH2, E/D=CH3, R/F=CH4, T/G=CH5, Y/H=CH6.
-    /// Requires --display-video (the window provides keyboard focus).
+    /// diagnostics window: Q/A=CH1, W/S=CH2, E/D=CH3, R/F=CH4, T/G=CH5, Y/H=CH6.
+    /// Requires --display-video (the diagnostics window provides keyboard focus).
     #[arg(long, default_value_t = false, requires = "display_video")]
     attach_user_data: bool,
 
-    /// Open a window that displays the video frames being published
+    /// Open video preview and publisher diagnostics windows
     #[arg(long, default_value_t = false)]
     display_video: bool,
 
-    /// Burn publisher timing metrics into the local preview window
+    /// Show publisher timing metrics in the diagnostics window
     #[arg(long, default_value_t = false, requires = "display_video")]
     display_timing: bool,
+
+    /// Write one row of publisher timing metrics per packetized frame to this CSV file
+    #[arg(long, value_name = "PATH")]
+    log_csv: Option<PathBuf>,
+
+    /// Start CSV logging at this frame ID (inclusive)
+    #[arg(long, requires = "log_csv")]
+    log_start_frame_id: Option<u32>,
+
+    /// Stop the process after this packetized frame ID is written to CSV (inclusive)
+    #[arg(long, requires = "log_csv")]
+    log_end_frame_id: Option<u32>,
 
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
@@ -582,11 +604,109 @@ fn format_timing_line(timings: &PublisherTimingSummary) -> String {
 
 const MAX_PUBLISH_TIMING_SAMPLES: usize = 300;
 
+const PUBLISHER_CSV_HEADER: &str = "sample,elapsed_ms,frame_id,capture_timestamp_us,frame_buffer_timestamp_us,encoder_upload_timestamp_us,encoder_output_timestamp_us,webrtc_packetize_timestamp_us,capture_to_buffer_ms,buffer_to_encoder_ms,encode_ms,encoder_to_packetize_ms,capture_to_packetize_ms,frame_id_gap,packetize_interval_ms";
+
+struct PublisherCsvLogger {
+    writer: BufWriter<std::fs::File>,
+    range: FrameLogRange,
+    first_packetize_timestamp_us: Option<u64>,
+    previous_packetize_timestamp_us: Option<u64>,
+    previous_frame_id: Option<u32>,
+    sample_count: u64,
+    last_flush: Instant,
+}
+
+impl PublisherCsvLogger {
+    fn new(path: &Path, range: FrameLogRange) -> std::io::Result<Self> {
+        Ok(Self {
+            writer: create_csv(path, PUBLISHER_CSV_HEADER)?,
+            range,
+            first_packetize_timestamp_us: None,
+            previous_packetize_timestamp_us: None,
+            previous_frame_id: range.previous_to_start(),
+            sample_count: 0,
+            last_flush: Instant::now(),
+        })
+    }
+
+    fn record(&mut self, sample: PublisherTimingSample) -> std::io::Result<bool> {
+        let Some(frame_id) = sample.frame_id else {
+            return Ok(false);
+        };
+        if !self.range.contains(frame_id) {
+            return Ok(false);
+        }
+        let Some(frame_buffer_timestamp_us) = sample.got_frame_buffer_timestamp_us else {
+            return Ok(false);
+        };
+        let Some(encoder_upload_timestamp_us) = sample.encoder_upload_timestamp_us else {
+            return Ok(false);
+        };
+        let Some(encoder_output_timestamp_us) = sample.encoder_output_timestamp_us else {
+            return Ok(false);
+        };
+        let Some(packetize_timestamp_us) = sample.webrtc_packetize_timestamp_us else {
+            return Ok(false);
+        };
+
+        let first_packetize_timestamp_us =
+            *self.first_packetize_timestamp_us.get_or_insert(packetize_timestamp_us);
+        let frame_id_gap = self
+            .previous_frame_id
+            .and_then(|previous| frame_id.checked_sub(previous))
+            .and_then(|delta| delta.checked_sub(1));
+        let packetize_interval_ms = self
+            .previous_packetize_timestamp_us
+            .and_then(|previous| packetize_timestamp_us.checked_sub(previous))
+            .map(|interval_us| interval_us as f64 / 1_000.0);
+        self.sample_count += 1;
+
+        writeln!(
+            self.writer,
+            "{},{:.3},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+            self.sample_count,
+            packetize_timestamp_us.saturating_sub(first_packetize_timestamp_us) as f64 / 1_000.0,
+            frame_id,
+            sample.sensor_exposure_timestamp_us,
+            frame_buffer_timestamp_us,
+            encoder_upload_timestamp_us,
+            encoder_output_timestamp_us,
+            packetize_timestamp_us,
+            CsvLatency::between(
+                Some(sample.sensor_exposure_timestamp_us),
+                Some(frame_buffer_timestamp_us),
+            ),
+            CsvLatency::between(Some(frame_buffer_timestamp_us), Some(encoder_upload_timestamp_us),),
+            CsvLatency::between(
+                Some(encoder_upload_timestamp_us),
+                Some(encoder_output_timestamp_us),
+            ),
+            CsvLatency::between(Some(encoder_output_timestamp_us), Some(packetize_timestamp_us),),
+            CsvLatency::between(
+                Some(sample.sensor_exposure_timestamp_us),
+                Some(packetize_timestamp_us),
+            ),
+            CsvOption(frame_id_gap),
+            CsvFloat(packetize_interval_ms),
+        )?;
+
+        self.previous_frame_id = Some(frame_id);
+        self.previous_packetize_timestamp_us = Some(packetize_timestamp_us);
+        if self.range.reaches_end(frame_id) || self.last_flush.elapsed() >= Duration::from_secs(1) {
+            self.writer.flush()?;
+            self.last_flush = Instant::now();
+        }
+        Ok(self.range.reaches_end(frame_id))
+    }
+}
+
 #[derive(Default)]
 struct PublisherTimingState {
     samples: HashMap<u64, PublisherTimingSample>,
     order: VecDeque<u64>,
     latest_complete_sample: Option<PublisherTimingSample>,
+    frame_log: Option<PublisherCsvLogger>,
+    completed_log_frame_id: Option<u32>,
 }
 
 impl PublisherTimingState {
@@ -624,6 +744,16 @@ impl PublisherTimingState {
 
         if updated_sample.is_complete() {
             self.latest_complete_sample = Some(updated_sample);
+            if let Some(frame_log) = self.frame_log.as_mut() {
+                match frame_log.record(updated_sample) {
+                    Ok(true) => self.completed_log_frame_id = updated_sample.frame_id,
+                    Ok(false) => {}
+                    Err(error) => {
+                        warn!("Publisher CSV logging disabled after write failure: {error}");
+                        self.frame_log = None;
+                    }
+                }
+            }
             Some(updated_sample)
         } else {
             None
@@ -632,6 +762,10 @@ impl PublisherTimingState {
 
     fn display_sample(&self) -> Option<PublisherTimingSample> {
         self.latest_complete_sample
+    }
+
+    fn take_completed_log_frame_id(&mut self) -> Option<u32> {
+        self.completed_log_frame_id.take()
     }
 
     fn get_or_insert_sample(
@@ -805,6 +939,81 @@ mod tests {
 
         assert_eq!(selected, 950);
     }
+
+    #[test]
+    fn publisher_test_pattern_modes_parse() {
+        let static_args = Args::try_parse_from(["publisher", "--test-pattern", "0"])
+            .expect("static test pattern should parse");
+        let animated_args = Args::try_parse_from(["publisher", "--test-pattern", "1"])
+            .expect("animated test pattern should parse");
+
+        assert_eq!(static_args.test_pattern, Some(TestPatternMode::Static));
+        assert_eq!(animated_args.test_pattern, Some(TestPatternMode::Animated));
+    }
+
+    #[test]
+    fn publisher_test_pattern_rejects_unknown_mode() {
+        assert!(Args::try_parse_from(["publisher", "--test-pattern", "2"]).is_err());
+        assert!(Args::try_parse_from(["publisher", "--test-pattern"]).is_err());
+    }
+
+    #[test]
+    fn publisher_frame_log_flags_parse_inclusive_bounds() {
+        let args = Args::try_parse_from([
+            "publisher",
+            "--log-csv",
+            "publisher.csv",
+            "--log-start-frame-id",
+            "301",
+            "--log-end-frame-id",
+            "1200",
+        ])
+        .expect("frame log flags should parse");
+        assert_eq!(args.log_csv, Some(PathBuf::from("publisher.csv")));
+        assert_eq!(args.log_start_frame_id, Some(301));
+        assert_eq!(args.log_end_frame_id, Some(1200));
+    }
+
+    #[test]
+    fn publisher_frame_log_bounds_require_csv_path() {
+        assert!(Args::try_parse_from(["publisher", "--log-start-frame-id", "301"]).is_err());
+    }
+
+    #[test]
+    fn publisher_frame_log_writes_complete_samples_in_range() {
+        let path = std::env::temp_dir()
+            .join(format!("local-video-publisher-frame-log-{}.csv", std::process::id()));
+        let range = FrameLogRange::new(Some(301), Some(302)).expect("range should be valid");
+        let mut logger = PublisherCsvLogger::new(&path, range).expect("log should be created");
+        let sample = PublisherTimingSample {
+            frame_id: Some(301),
+            sensor_exposure_timestamp_us: 1_000,
+            got_frame_buffer_timestamp_us: Some(1_100),
+            encoder_upload_timestamp_us: Some(1_200),
+            encoder_output_timestamp_us: Some(1_300),
+            webrtc_packetize_timestamp_us: Some(1_400),
+        };
+        assert!(!logger.record(sample).expect("sample should be written"));
+        let end_sample = PublisherTimingSample {
+            frame_id: Some(302),
+            sensor_exposure_timestamp_us: 35_000,
+            got_frame_buffer_timestamp_us: Some(35_100),
+            encoder_upload_timestamp_us: Some(35_200),
+            encoder_output_timestamp_us: Some(35_300),
+            webrtc_packetize_timestamp_us: Some(35_400),
+        };
+        assert!(logger.record(end_sample).expect("end sample should be written"));
+
+        let contents = std::fs::read_to_string(&path).expect("log should be readable");
+        drop(logger);
+        let lines: Vec<_> = contents.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].split(',').count(), lines[1].split(',').count());
+        assert_eq!(lines[0].split(',').count(), lines[2].split(',').count());
+        assert!(lines[1].starts_with("1,0.000,301,"));
+        assert!(lines[2].starts_with("2,34.000,302,"));
+        std::fs::remove_file(path).expect("temporary log should be removable");
+    }
 }
 
 fn list_cameras() -> Result<()> {
@@ -876,6 +1085,11 @@ async fn main() -> Result<()> {
 }
 
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
+    let log_range = FrameLogRange::new(args.log_start_frame_id, args.log_end_frame_id)?;
+    let logging_enabled = args.log_csv.is_some();
+    let attach_timestamp = args.attach_timestamp || logging_enabled;
+    let attach_frame_id = args.attach_frame_id || logging_enabled;
+
     if args.list_cameras {
         return list_cameras();
     }
@@ -978,7 +1192,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         SourceKind::Argus => {
             #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
             {
-                if args.test_pattern {
+                if args.test_pattern.is_some() {
                     anyhow::bail!("--test-pattern is not supported with --source argus");
                 }
                 if args.display_video {
@@ -1014,15 +1228,22 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         }
         SourceKind::Uvc => {
-            if args.test_pattern {
+            if let Some(test_pattern_mode) = args.test_pattern {
                 let width = args.width;
                 let height = args.height;
                 let fps = args.fps;
                 info!(
-                    "Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps",
-                    width, height, fps
+                    "Test pattern enabled: {} at {}x{} @ {} fps",
+                    test_pattern_mode.description(),
+                    width,
+                    height,
+                    fps
                 );
-                (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
+                (
+                    width,
+                    height,
+                    VideoInput::TestPattern(TestPattern::new(width, height, test_pattern_mode)),
+                )
             } else {
                 // Setup camera
                 let index = CameraIndex::Index(args.camera_index as u32);
@@ -1111,20 +1332,52 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let track =
         LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
     let display_shared = args.display_video.then(|| Arc::new(Mutex::new(SharedYuv::default())));
-    let publish_timing_state =
-        args.display_timing.then(|| Arc::new(Mutex::new(PublisherTimingState::default())));
+    let publisher_log = args
+        .log_csv
+        .as_deref()
+        .map(|path| PublisherCsvLogger::new(path, log_range))
+        .transpose()
+        .with_context(|| {
+            format!(
+                "failed to create publisher frame log at {}",
+                args.log_csv.as_deref().expect("log path should be present").display()
+            )
+        })?;
+    if let Some(path) = &args.log_csv {
+        info!(
+            "Writing publisher per-frame metrics to {} (frame-ID bounds are inclusive)",
+            path.display()
+        );
+    }
+    let publish_timing_state = (args.display_timing || logging_enabled).then(|| {
+        Arc::new(Mutex::new(PublisherTimingState {
+            frame_log: publisher_log,
+            ..PublisherTimingState::default()
+        }))
+    });
 
     if let Some(timing_state) = publish_timing_state.as_ref() {
         let timing_state = timing_state.clone();
         let display_shared_for_timing = display_shared.clone();
+        let shutdown_on_log_end = ctrl_c_received.clone();
         let mut events = track.publish_timing_events();
         tokio::spawn(async move {
             use tokio_stream::StreamExt;
 
             while let Some(event) = events.next().await {
-                let sample = timing_state.lock().record_sdk_event(event);
+                let (sample, completed_frame_id) = {
+                    let mut timing_state = timing_state.lock();
+                    let sample = timing_state.record_sdk_event(event);
+                    let completed_frame_id = timing_state.take_completed_log_frame_id();
+                    (sample, completed_frame_id)
+                };
                 if let Some(sample) = sample {
                     update_shared_timing_sample(display_shared_for_timing.as_ref(), sample);
+                }
+                if let Some(frame_id) = completed_frame_id {
+                    info!("Publisher completed --log-end-frame-id {frame_id}; shutting down...");
+                    shutdown_on_log_end.store(true, Ordering::Release);
+                    break;
                 }
             }
         });
@@ -1189,8 +1442,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     }
 
     let mut frame_metadata_features = FrameMetadataFeatures::default();
-    frame_metadata_features.user_timestamp = args.attach_timestamp;
-    frame_metadata_features.frame_id = args.attach_frame_id;
+    frame_metadata_features.user_timestamp = attach_timestamp;
+    frame_metadata_features.frame_id = attach_frame_id;
     frame_metadata_features.user_data = args.attach_user_data;
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
@@ -1224,16 +1477,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         info!("Published camera track");
         requested_codec
     };
-
     let capture_config = CaptureConfig {
         fps: args.fps,
-        attach_timestamp: args.attach_timestamp,
+        attach_timestamp,
         burn_timestamp: args.burn_timestamp,
-        attach_frame_id: args.attach_frame_id,
+        attach_frame_id,
         display_timing: args.display_timing,
     };
 
-    // Shared keyboard-controlled channel values, written by the preview window
+    // Shared keyboard-controlled channel values, written by the diagnostics window
     // and read by the capture loop to fill the user_data trailer.
     let user_data_channels =
         args.attach_user_data.then(|| Arc::new(Mutex::new([0.0f32; user_data::NUM_CHANNELS])));
@@ -1251,6 +1503,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 session,
                 width,
                 height,
+                publish_timing_state.clone(),
                 user_data_channels.clone(),
             )
             .await;
@@ -1725,6 +1978,7 @@ async fn run_argus_capture_loop(
     session: argus::ArgusCaptureSession,
     width: u32,
     height: u32,
+    publish_timing_state: Option<Arc<Mutex<PublisherTimingState>>>,
     user_data_channels: Option<Arc<Mutex<[f32; user_data::NUM_CHANNELS]>>>,
 ) -> Result<()> {
     let capture_handle = std::thread::Builder::new()
@@ -1842,6 +2096,13 @@ async fn run_argus_capture_loop(
                 } else {
                     None
                 };
+                if let Some(timing_state) = publish_timing_state.as_ref() {
+                    timing_state.lock().record_frame_buffer(
+                        capture_wall_time_us,
+                        fallback_wall_time_us,
+                        fid,
+                    );
+                }
                 let user_data =
                     user_data_channels.as_ref().map(|targets| user_data::encode(&targets.lock()));
                 let frame_metadata = if user_ts.is_some() || fid.is_some() || user_data.is_some() {
