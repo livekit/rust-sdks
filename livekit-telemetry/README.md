@@ -59,6 +59,24 @@ println!("{}", telemetry.stats()); // drops by reason, uploads, cached batches
 
 Event names, attributes, cadences and the upload policy are defined in [`SPEC.md`](SPEC.md).
 
+## Local testing
+
+Set `LK_TELEMETRY_ENDPOINT` in the process environment to send every upload to an OpenTelemetry
+backend of your own instead of LiveKit Cloud — the test-only override, not part of any platform
+API. A base URL gets the standard OTLP paths (`/v1/logs`, `/v1/traces`).
+
+```sh
+docker run -d --name lk-lgtm -p 3000:3000 -p 4318:4318 grafana/otel-lgtm   # OTLP/HTTP :4318, UI :3000
+LK_TELEMETRY_ENDPOINT=http://localhost:4318 cargo run -p telemetry_ping        # prints the trace id
+```
+
+`telemetry_ping` records a small session (an `lk.connect` span with its checkpoints, an
+`lk.publish`, an `lk.subscribe` ended by first media, a custom event). In the UI
+(http://localhost:3000 → Explore): Loki `{service_name="telemetry_ping"}` for the log records,
+Tempo with the printed trace id for the spans. Add `LK_TELEMETRY_DIR=/tmp/lk-telemetry` to use
+the file cache: stop the container, run once, start it again and run once more to watch the
+cached batches replay. Platform end-to-end tests set the same variable before the SDK starts.
+
 ## Design notes
 
 - **The room decides the destination.** A platform passes only the server URL and the token
