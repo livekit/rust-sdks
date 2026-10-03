@@ -24,6 +24,12 @@ mod store;
 /// Pipeline health counters and the `lk.telemetry.report` event.
 mod stats;
 
+/// Host-reported device state and the cadence policy derived from it.
+mod device;
+
+/// RTC stats samples and their on-device windowing.
+mod rtc;
+
 /// Spans: one attempt at an operation, with explicit handles across the FFI.
 mod scope;
 mod span;
@@ -45,7 +51,9 @@ mod destination;
 
 pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use destination::ENDPOINT_OVERRIDE_ENV;
+pub use device::*;
 pub use event::*;
+pub use rtc::{RtcStat, RtcStatsSample, StreamDirection, TrackKind};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
 pub use transport::*;
