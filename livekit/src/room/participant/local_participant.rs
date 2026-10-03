@@ -401,6 +401,16 @@ impl LocalParticipant {
         req.packet_trailer_features =
             options.frame_metadata_features.to_proto().into_iter().map(|f| f as i32).collect();
 
+        // Without TF_STEREO the server negotiates mono Opus, and the encoder
+        // downmixes a 2-channel source to identical L and R. Mirrors the JS
+        // SDK, which sets both flags for a 2-channel track.
+        if let LocalTrack::Audio(audio_track) = &track {
+            if audio_track.rtc_source().num_channels() == 2 {
+                req.audio_features.push(proto::AudioTrackFeature::TfStereo as i32);
+                req.stereo = true;
+            }
+        }
+
         let mut encodings = Vec::default();
         match &track {
             LocalTrack::Video(video_track) => {
