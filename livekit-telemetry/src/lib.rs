@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Internals the pipeline (`Telemetry`, `Exporter`) consumes once it is in place.
-#![allow(dead_code)]
+#![doc = include_str!("../README.md")]
 
 /// Event data model: what SDKs push in.
 mod event;
@@ -32,7 +31,11 @@ mod rtc;
 
 /// Spans: one attempt at an operation, with explicit handles across the FFI.
 mod scope;
+#[cfg_attr(test, allow(dead_code))] // `Spans::open_count` serves the device contract tests
 mod span;
+
+/// Batch exporter actor: timer, OTLP encoding, retry policy.
+mod exporter;
 
 /// OTLP/HTTP protobuf encoding of a batch.
 mod otlp;
@@ -49,13 +52,22 @@ mod transport;
 /// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
 mod destination;
 
+/// Entry point and configuration.
+#[allow(dead_code)] // `weak_commands` serves `global`; test hooks serve the pipeline tests
+mod telemetry;
+mod trace;
+
 pub use cache::{BatchCache, FileCache, MemoryCache};
 pub use destination::ENDPOINT_OVERRIDE_ENV;
 pub use device::*;
 pub use event::*;
+pub use exporter::Exporter;
 pub use rtc::{RtcStat, RtcStatsSample, StreamDirection, TrackKind};
+pub use scope::{DisconnectReason, RoomIdentity, Scope};
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
+pub use telemetry::*;
+pub use trace::*;
 pub use transport::*;
 
 #[cfg(feature = "uniffi")]
