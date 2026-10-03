@@ -86,7 +86,11 @@ pub(super) fn parse_sdp_session(
                     .filter_map(|rtpmap| rtpmap.split_whitespace().nth(1))
                     .filter_map(|encoding| encoding.split('/').next())
                     .collect();
-                if codecs.is_empty() { "?".to_owned() } else { codecs.join("+") }
+                if codecs.is_empty() {
+                    "?".to_owned()
+                } else {
+                    codecs.join("+")
+                }
             })
             .collect::<Vec<_>>()
             .join(", ");
@@ -102,13 +106,11 @@ pub(super) fn parse_sdp_session(
         if media.media != "video" {
             continue;
         }
-        let rtp_maps: Vec<SdpRtpMap> = attribute_values(&media.attributes, "rtpmap")
-            .filter_map(parse_rtpmap)
-            .collect();
+        let rtp_maps: Vec<SdpRtpMap> =
+            attribute_values(&media.attributes, "rtpmap").filter_map(parse_rtpmap).collect();
 
         for payload_type in media.fmt.split_whitespace().filter_map(|pt| pt.parse::<u8>().ok()) {
-            let Some(rtp_map) = rtp_maps.iter().find(|map| map.payload_type == payload_type)
-            else {
+            let Some(rtp_map) = rtp_maps.iter().find(|map| map.payload_type == payload_type) else {
                 continue;
             };
             if let Some(expected) = expected_codec {
@@ -305,7 +307,8 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=1\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
+        let session =
+            parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
 
         assert_eq!(session.video.codec, EncodedVideoCodec::H264);
         assert_eq!(session.video.payload_type, 96);
@@ -347,7 +350,8 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=1\r\n\
 a=rtpmap:96 VP9/90000\r\n";
 
-        let err = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::AV1)).unwrap_err();
+        let err =
+            parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::AV1)).unwrap_err();
 
         match err {
             RtspVideoSourceError::CodecMismatch { expected, offered } => {
@@ -367,7 +371,8 @@ a=control:trackID=1\r\n\
 a=rtpmap:98 H265/90000\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
+        let session =
+            parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
 
         assert_eq!(session.video.codec, EncodedVideoCodec::H264);
         assert_eq!(session.video.payload_type, 96);
@@ -384,7 +389,8 @@ m=video 0 RTP/AVP 96\r\n\
 a=control:trackID=2\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let session = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
+        let session =
+            parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::H264)).unwrap();
 
         assert_eq!(session.video.codec, EncodedVideoCodec::H264);
         assert_eq!(session.video.control_url, "rtsp://camera.example/live/trackID=2");
@@ -399,7 +405,8 @@ a=control:trackID=1\r\n\
 a=rtpmap:98 H265/90000\r\n\
 a=rtpmap:96 H264/90000\r\n";
 
-        let err = parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::VP8)).unwrap_err();
+        let err =
+            parse_sdp_session(BASE_URL, sdp.as_bytes(), Some(EncodedVideoCodec::VP8)).unwrap_err();
 
         match err {
             RtspVideoSourceError::CodecMismatch { expected, offered } => {

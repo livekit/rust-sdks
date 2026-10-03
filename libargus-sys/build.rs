@@ -31,9 +31,7 @@ fn find_tegra_lib_dir() -> Option<PathBuf> {
         ],
     };
 
-    candidates
-        .into_iter()
-        .find(|dir| REQUIRED_LIBS.iter().all(|lib| dir.join(lib).exists()))
+    candidates.into_iter().find(|dir| REQUIRED_LIBS.iter().all(|lib| dir.join(lib).exists()))
 }
 
 fn main() {
