@@ -433,8 +433,10 @@ impl RoomClient {
         data: Vec<u8>,
         options: SendDataOptions,
     ) -> ServiceResult<()> {
-        let mut rng = rand::rng();
-        let nonce: Vec<u8> = (0..16).map(|_| rng.random::<u8>()).collect();
+        let nonce: Vec<u8> = {
+            let mut rng = rand::rng();
+            (0..16).map(|_| rng.random::<u8>()).collect()
+        };
         #[allow(deprecated)]
         self.client
             .request(
