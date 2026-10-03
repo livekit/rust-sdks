@@ -890,3 +890,1073 @@ fn add_sdk_resource(resource: &mut Vec<Attribute>, sdk: Option<&TelemetryResourc
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use crate::span::SpanKind;
+    use crate::{ReconnectReason, RoomIdentity, SpanName, SpanStep};
+    use std::{collections::VecDeque, fs, path::Path, sync::Mutex};
+
+    #[tokio::test(start_paused = true)]
+    async fn typed_spans_hold_uploads_while_connecting_and_export_when_ended() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let session = telemetry.begin_scope();
+        let span = session
+            .start(SpanName::Reconnect { reason: ReconnectReason::SignalDisconnected }, None);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert!(transport.sent().is_empty(), "an open reconnect holds uploads");
+        span.step(SpanStep::Attempt { number: 1, full: false });
+        span.end(SpanOutcome::Ok, None);
+        assert!(span.context().is_some_and(|c| c.trace_id == session.trace_id()));
+        telemetry.flush().await;
+        assert!(transport.sent().iter().any(|r| r.url.contains("traces")), "the span is exported");
+    }
+
+    pub(crate) fn exported_spans(
+        transport: &FakeTransport,
+    ) -> Vec<crate::proto::opentelemetry::proto::trace::v1::Span> {
+        transport
+            .sent()
+            .iter()
+            .filter(|r| r.url.contains("traces"))
+            .flat_map(|r| {
+                ExportTraceServiceRequest::decode(&gunzip(&r.body)[..])
+                    .expect("otlp")
+                    .resource_spans
+                    .into_iter()
+                    .flat_map(|rs| rs.scope_spans.into_iter().flat_map(|ss| ss.spans))
+            })
+            .collect()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_subscribe_span_is_owned_by_the_core() {
+        use crate::{SpanTrack, TrackSource};
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let session = telemetry.begin_scope();
+        let track = |sid: &str| SpanTrack {
+            sid: Some(sid.into()),
+            kind: TrackKind::Video,
+            source: TrackSource::Camera,
+            remote_identity: Some("bob".into()),
+        };
+        // Intent, confirmation, then the first inbound reading with bytes: ok.
+        session.subscribe_started(track("TR_a"));
+        session.subscribed(track("TR_a"));
+        let mut empty = RtcStatsSample::new("TR_a", TrackKind::Video, StreamDirection::Inbound);
+        empty.bytes = Some(0);
+        session.record_stats(empty);
+        let mut media = RtcStatsSample::new("TR_a", TrackKind::Video, StreamDirection::Inbound);
+        media.bytes = Some(1_500);
+        session.record_stats(media);
+        // A second one nobody hears from — not a single reading, no other activity: the core's own
+        // clock times it out. A third: unpublished before media.
+        session.subscribe_started(track("TR_b"));
+        session.subscribe_started(track("TR_c"));
+        session.track_ended("TR_c");
+        tokio::time::sleep(Scope::SUBSCRIBE_TIMEOUT + Duration::from_secs(1)).await;
+        telemetry.flush().await;
+
+        let spans = exported_spans(&transport);
+        let by_sid = |sid: &str| {
+            spans
+                .iter()
+                .find(|s| {
+                    s.attributes.iter().any(|kv| {
+                        kv.key == "lk.track.sid"
+                            && kv.value.as_ref().and_then(|v| v.value.clone())
+                                == Some(Value::StringValue(sid.into()))
+                    })
+                })
+                .unwrap_or_else(|| panic!("span for {sid}"))
+        };
+        let ok = by_sid("TR_a");
+        assert_eq!(ok.name, "lk.subscribe");
+        assert_eq!(
+            ok.events.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["subscribed", "first_media"]
+        );
+        assert!(ok.attributes.iter().any(|kv| kv.key == "lk.outcome"
+            && kv.value.as_ref().and_then(|v| v.value.clone())
+                == Some(Value::StringValue("ok".into()))));
+        let timed_out = by_sid("TR_b");
+        assert_eq!(
+            timed_out.status.as_ref().map(|s| s.code),
+            Some(status::StatusCode::Error as i32)
+        );
+        assert!(timed_out.attributes.iter().any(|kv| kv.key == "error.type"
+            && kv.value.as_ref().and_then(|v| v.value.clone())
+                == Some(Value::StringValue("timed_out".into()))));
+        assert!(
+            spans.iter().filter(|s| s.name == "lk.subscribe").count() >= 3,
+            "cancelled exports too"
+        );
+        assert!(
+            !spans.iter().any(|s| s.attributes.iter().any(|kv| kv.key == "lk.track.sid"
+                && kv.value.as_ref().and_then(|v| v.value.clone())
+                    == Some(Value::StringValue("TR_d".into())))),
+            "still open"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn room_identity_and_resource_are_typed() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = test_config();
+        config.sdk = Some(TelemetryResource {
+            sdk: Sdk::Swift,
+            sdk_version: "2.16.0".into(),
+            os_name: "iOS".into(),
+            os_version: "19.0".into(),
+            device_model: Some("iPhone17,1".into()),
+        });
+        let telemetry = start(config, transport.clone());
+        let session = telemetry.begin_scope();
+        session.set_room(RoomIdentity {
+            sid: Some("RM_a".into()),
+            name: Some("telemetry".into()),
+            ..Default::default()
+        });
+        session.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.device_event(DeviceEvent::AudioInterruption { began: true });
+        telemetry.flush().await;
+        let sent = transport.sent();
+        let logs: Vec<LogRecord> = sent.iter().flat_map(records).collect();
+        let with_room =
+            logs.iter().find(|r| attribute(r, "lk.room.sid").is_some()).expect("room record");
+        assert_eq!(attribute(with_room, "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+        assert!(logs.iter().any(|r| r.body.as_ref().and_then(|b| b.value.clone())
+            == Some(Value::StringValue("audio interruption began".into()))));
+        let decoded =
+            ExportLogsServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("valid OTLP");
+        let resource = decoded.resource_logs[0].resource.as_ref().expect("resource");
+        let value = |key: &str| {
+            resource
+                .attributes
+                .iter()
+                .find(|kv| kv.key == key)
+                .and_then(|kv| kv.value.as_ref())
+                .and_then(|v| v.value.clone())
+        };
+        assert_eq!(value("service.name"), Some(Value::StringValue("livekit-client-swift".into())));
+        assert_eq!(value("device.model.identifier"), Some(Value::StringValue("iPhone17,1".into())));
+        assert!(value("telemetry.sdk.name").is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn log_records_apply_the_source_floor_and_carry_code_attributes() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let line = |source, severity, logger: &str| crate::LogRecord {
+            severity,
+            source,
+            body: "boom".into(),
+            logger: Some(logger.into()),
+            function: Some("connect()".into()),
+            file: Some("Room.swift".into()),
+            line: Some(42),
+            timestamp_ns: None,
+            span_id: None,
+        };
+        telemetry.log(line(LogSource::WebRtc, Severity::Warn, "sctp.cc"));
+        telemetry.log(line(LogSource::Sdk, Severity::Info, "Room"));
+        telemetry.log(line(LogSource::Ffi, Severity::Error, "livekit_telemetry::exporter"));
+        telemetry.log(line(LogSource::Sdk, Severity::Warn, "Room"));
+        telemetry.log(line(LogSource::WebRtc, Severity::Error, "sctp.cc"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        let logs = records(&sent[0]);
+        assert_eq!(logs.len(), 2, "sdk warn + webrtc error; not webrtc warn, sdk info, own module");
+        let sdk = &logs[0];
+        assert_eq!(attribute(sdk, "lk.log.source"), Some(Value::StringValue("sdk".into())));
+        assert_eq!(attribute(sdk, "lk.log.logger"), Some(Value::StringValue("Room".into())));
+        assert_eq!(
+            attribute(sdk, "code.function.name"),
+            Some(Value::StringValue("connect()".into()))
+        );
+        assert_eq!(attribute(sdk, "code.line.number"), Some(Value::IntValue(42)));
+        assert_eq!(
+            sdk.body.as_ref().and_then(|b| b.value.clone()),
+            Some(Value::StringValue("boom".into()))
+        );
+        assert_eq!(attribute(&logs[1], "lk.log.source"), Some(Value::StringValue("webrtc".into())));
+    }
+
+    use prost::Message;
+
+    use super::*;
+    use crate::{
+        cache::temp_dir,
+        proto::opentelemetry::proto::{
+            collector::{logs::v1::ExportLogsServiceRequest, trace::v1::ExportTraceServiceRequest},
+            common::v1::any_value::Value,
+            logs::v1::LogRecord,
+            trace::v1::{span, status},
+        },
+        AppState, ExportError, ExportRequest, ExportResponse, SpanOutcome, StreamDirection,
+        ThermalState, TrackKind,
+    };
+
+    #[derive(Default)]
+    pub(crate) struct FakeTransport {
+        requests: Mutex<Vec<ExportRequest>>,
+        script: Mutex<VecDeque<Result<ExportResponse, ExportError>>>,
+    }
+
+    impl FakeTransport {
+        pub(crate) fn scripted(
+            results: impl IntoIterator<Item = Result<ExportResponse, ExportError>>,
+        ) -> Arc<Self> {
+            Arc::new(Self {
+                script: Mutex::new(results.into_iter().collect()),
+                ..Default::default()
+            })
+        }
+        pub(crate) fn sent(&self) -> Vec<ExportRequest> {
+            self.requests.lock().expect("lock").clone()
+        }
+
+        /// Queue more answers.
+        pub(crate) fn then(
+            &self,
+            results: impl IntoIterator<Item = Result<ExportResponse, ExportError>>,
+        ) {
+            self.script.lock().expect("lock").extend(results);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for FakeTransport {
+        async fn send(&self, request: ExportRequest) -> Result<ExportResponse, ExportError> {
+            self.requests.lock().expect("lock").push(request);
+            let scripted = self.script.lock().expect("lock").pop_front();
+            scripted.unwrap_or_else(|| Ok(ExportResponse::accepted()))
+        }
+    }
+
+    /// An HTTP answer with this status, headers and body.
+    pub(crate) fn answer(
+        status: u16,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Result<ExportResponse, ExportError> {
+        Ok(ExportResponse {
+            status,
+            headers: headers.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            body: body.to_vec(),
+        })
+    }
+
+    /// The old defaults (1 s export, 15 s windows): the pipeline mechanics tests reason in
+    /// those; the conservative production defaults have their own tests.
+    pub(crate) fn test_config() -> TelemetryConfig {
+        TelemetryConfig { flush_interval_ms: 1000, stats_window_ms: 15_000, ..Default::default() }
+    }
+
+    pub(crate) fn gunzip(body: &[u8]) -> Vec<u8> {
+        use std::io::Read;
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(body).read_to_end(&mut out).expect("gzip body");
+        out
+    }
+
+    pub(crate) fn offline() -> Result<ExportResponse, ExportError> {
+        Err(ExportError::Retryable { reason: "offline".into(), retry_after_ms: None })
+    }
+
+    pub(crate) fn offline_forever() -> impl Iterator<Item = Result<ExportResponse, ExportError>> {
+        std::iter::repeat_with(offline).take(64)
+    }
+
+    pub(crate) fn pipeline(transport: Arc<FakeTransport>) -> Telemetry {
+        start(test_config(), transport)
+    }
+
+    pub(crate) fn persisted_pipeline(transport: Arc<FakeTransport>, dir: &Path) -> Telemetry {
+        let mut config = test_config();
+        config.storage_dir = Some(dir.to_string_lossy().into_owned());
+        start(config, transport)
+    }
+
+    /// A running pipeline whose uploads all go to `http://collector` (the test override).
+    pub(crate) fn start(config: TelemetryConfig, transport: Arc<FakeTransport>) -> Telemetry {
+        let telemetry = start_cloud(config, transport);
+        telemetry.override_endpoint("http://collector");
+        telemetry
+    }
+
+    /// A running pipeline with LiveKit Cloud routing: nothing uploads before `set_server`.
+    pub(crate) fn start_cloud(config: TelemetryConfig, transport: Arc<FakeTransport>) -> Telemetry {
+        let (telemetry, exporter) = Telemetry::new(config, transport);
+        tokio::spawn(exporter.run());
+        telemetry
+    }
+
+    pub(crate) fn files_in(dir: &Path) -> usize {
+        fs::read_dir(dir).map(|d| d.count()).unwrap_or(0)
+    }
+
+    pub(crate) fn records(request: &ExportRequest) -> Vec<LogRecord> {
+        let decoded =
+            ExportLogsServiceRequest::decode(&gunzip(&request.body)[..]).expect("valid OTLP");
+        decoded.resource_logs[0].scope_logs[0].log_records.clone()
+    }
+
+    pub(crate) fn event_names(request: &ExportRequest) -> Vec<String> {
+        records(request).iter().map(|r| r.event_name.clone()).collect()
+    }
+
+    pub(crate) fn attribute(record: &LogRecord, key: &str) -> Option<Value> {
+        record.attributes.iter().find(|kv| kv.key == key)?.value.as_ref()?.value.clone()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn batches_events_into_one_otlp_request() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        for _ in 0..3 {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+        }
+        telemetry.flush().await;
+
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].url, "http://collector/v1/logs");
+        assert_eq!(sent[0].headers["Content-Type"], "application/x-protobuf");
+        assert_eq!(event_names(&sent[0]), ["lk.ping"; 3]);
+        let decoded =
+            ExportLogsServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("valid OTLP");
+        let resource = decoded.resource_logs[0].resource.as_ref().expect("resource");
+        assert!(resource.attributes.iter().any(|kv| kv.key == "telemetry.sdk.name"));
+        assert_eq!(telemetry.stats().dropped, 0);
+        assert_eq!(telemetry.stats().uploads_sent, 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failed_upload_waits_in_memory_and_is_retried_after_backoff() {
+        let transport = FakeTransport::scripted([offline()]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "one attempt: retrying is the backoff's job");
+        assert_eq!(telemetry.stats().dropped, 0, "kept in the memory cache, not dropped");
+        assert_eq!(telemetry.stats().upload_failures, 1);
+        assert_eq!(telemetry.stats().cached_batches, 1);
+
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "backoff: no upload right away");
+
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert_eq!(transport.sent().len(), 2, "retried once the backoff elapsed, before the tick");
+        assert_eq!(event_names(&transport.sent()[1]), ["lk.ping"]);
+        assert_eq!(telemetry.stats().cached_batches, 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn self_telemetry_report_rides_along_after_problems() {
+        let transport = FakeTransport::scripted([offline(), offline(), offline()]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        tokio::time::sleep(Duration::from_secs(61)).await; // backoff over, batch uploads
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        let last = &sent[sent.len() - 1];
+        assert_eq!(event_names(last), ["lk.ping", "lk.telemetry.report"]);
+        let report = &records(last)[1];
+        assert_eq!(attribute(report, "lk.telemetry.uploads.failed"), Some(Value::IntValue(3)));
+        assert_eq!(attribute(report, "lk.telemetry.uploads.sent"), Some(Value::IntValue(1)));
+        assert_eq!(attribute(report, "lk.telemetry.cache.batches"), Some(Value::IntValue(0)));
+        assert_eq!(attribute(report, "lk.telemetry.dropped.queue_full"), None, "zeros omitted");
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(event_names(&sent[sent.len() - 1]), ["lk.ping"], "nothing new to report");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn queue_overflow_is_counted_by_reason() {
+        let mut config = test_config();
+        config.max_queue_size = 1;
+        let telemetry = start(config, FakeTransport::scripted([]));
+        for _ in 0..3 {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+        }
+        let stats = telemetry.stats();
+        assert_eq!(stats.dropped_queue_full, 2);
+        assert_eq!(stats.dropped, 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rejected_batch_is_dropped_without_retry() {
+        let transport =
+            FakeTransport::scripted([Err(ExportError::Rejected { reason: "400".into() })]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+
+        assert_eq!(transport.sent().len(), 1);
+        assert_eq!(telemetry.stats().dropped_rejected, 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn batch_is_written_before_upload_and_replayed_on_next_start() {
+        let dir = temp_dir("replay");
+        let first_transport = FakeTransport::scripted(offline_forever());
+        let first = persisted_pipeline(first_transport.clone(), &dir);
+        first.emit(TelemetryEvent::new("lk.ping"));
+        first.flush().await;
+        assert_eq!(first_transport.sent().len(), 1);
+        assert_eq!(first.stats().dropped, 0);
+        assert_eq!(files_in(&dir), 1, "written before the first attempt, kept after failure");
+
+        let second_transport = FakeTransport::scripted([]);
+        let second = persisted_pipeline(second_transport.clone(), &dir);
+        second.flush().await;
+        let sent = second_transport.sent();
+        assert_eq!(sent.len(), 1, "replayed on start");
+        assert_eq!(event_names(&sent[0]), ["lk.ping"]);
+        assert_eq!(files_in(&dir), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn throttling_holds_uploads_and_keeps_collecting() {
+        let dir = temp_dir("throttle");
+        let throttled =
+            Err(ExportError::Retryable { reason: "429".into(), retry_after_ms: Some(5_000) });
+        let transport = FakeTransport::scripted([throttled]);
+        let telemetry = persisted_pipeline(transport.clone(), &dir);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "no retries on Retry-After");
+        assert_eq!(files_in(&dir), 1, "the throttled batch stays cached");
+        assert_eq!(telemetry.stats().dropped, 0);
+
+        // A hold pauses uploads, not collection: what happens during the quiet window is the
+        // part an operator most wants afterwards.
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(files_in(&dir), 2, "events inside the window are cached too");
+        assert_eq!(telemetry.stats().dropped, 0, "and nothing is thrown away");
+
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(transport.sent().len(), 3, "both cached batches upload after Retry-After");
+        assert_eq!(files_in(&dir), 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The cache is the floor under a hold: outlast it and the oldest batches go, counted apart
+    /// from an ordinary overflow so the report says *why* the session has a hole.
+    #[tokio::test(start_paused = true)]
+    async fn a_hold_longer_than_the_cache_reports_what_it_cost() {
+        let dir = temp_dir("throttle-overflow");
+        let throttled =
+            Err(ExportError::Retryable { reason: "429".into(), retry_after_ms: Some(60_000) });
+        let transport = FakeTransport::scripted([throttled]);
+        let mut config = test_config();
+        config.storage_dir = Some(dir.to_string_lossy().into_owned());
+        config.max_cache_bytes = 700; // a couple of batches, so the hold overruns it quickly
+        let telemetry = start(config, transport.clone());
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(telemetry.stats().dropped, 0, "the first batch is cached, not dropped");
+
+        for _ in 0..8 {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+            telemetry.flush().await;
+        }
+        let stats = telemetry.stats();
+        assert!(stats.dropped_throttled > 0, "evictions inside a hold are attributed to it");
+        assert_eq!(stats.dropped, stats.dropped_throttled, "and to nothing else");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_offline_keeps_queue_on_disk() {
+        let dir = temp_dir("spill");
+        let transport = FakeTransport::scripted(offline_forever());
+        let telemetry = persisted_pipeline(transport.clone(), &dir);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.shutdown().await;
+
+        // One file, or two when the first tick shipped the ping before shutdown added the summary.
+        let files = files_in(&dir);
+        assert!(
+            (1..=2).contains(&files),
+            "cached before the network was tried, kept after: {files}"
+        );
+        assert_eq!(telemetry.stats().dropped, 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn custom_cache_is_used_as_is() {
+        let cache = Arc::new(MemoryCache::new(1 << 20));
+        let transport = FakeTransport::scripted(offline_forever());
+        let (telemetry, exporter) = Telemetry::with_cache(test_config(), transport, cache.clone());
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let pending = cache.pending();
+        assert_eq!(pending.len(), 1);
+        assert!(pending[0].contains("-1-l-"), "id carries count and signal: {}", pending[0]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn device_state_emits_change_events_and_stretches_cadence() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.set_device_state(DeviceState {
+            thermal: ThermalState::Critical,
+            ..DeviceState::default()
+        });
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1);
+        let names = event_names(&sent[0]);
+        assert!(names.contains(&"lk.device.thermal.changed".to_owned()), "{names:?}");
+        assert_eq!(
+            names.len(),
+            4,
+            "initial value for every known field (battery, low power unknown)"
+        );
+        let thermal = records(&sent[0])
+            .into_iter()
+            .find(|r| r.event_name == "lk.device.thermal.changed")
+            .expect("thermal event");
+        assert_eq!(
+            attribute(&thermal, "lk.device.thermal.state"),
+            Some(Value::StringValue("critical".into()))
+        );
+
+        // 1 s base interval × 4 under critical thermal pressure.
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(transport.sent().len(), 1, "not yet: cadence stretched to 4 s");
+        tokio::time::sleep(Duration::from_millis(2_500)).await;
+        assert_eq!(transport.sent().len(), 2, "exported on the stretched tick");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn requests_are_gzipped_and_low_priority() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent[0].headers["Content-Encoding"], "gzip");
+        assert_eq!(sent[0].headers["Priority"], "u=7");
+        assert_eq!(event_names(&sent[0]), ["lk.ping"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn uploads_hold_while_connecting_but_never_beyond_the_cap() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let connect = telemetry.begin_span("lk.connect", SpanKind::Client, None);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert!(transport.sent().is_empty(), "the uplink belongs to signaling and ICE");
+        assert_eq!(telemetry.stats().cached_batches, 1, "…but the batch is safely cached");
+
+        tokio::time::sleep(Duration::from_secs(301)).await;
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "held 5 min: one batch goes out regardless");
+        assert_eq!(telemetry.stats().holds_capped, 1, "…and the starvation is counted");
+
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.end_span(connect, SpanOutcome::Ok, None, Vec::new());
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 3, "connected: the ping and the connect span ship");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn bandwidth_limitation_does_not_hold_uploads() {
+        // WebRTC reports `bandwidth` for minutes during ramp-up and for as long as an encoder
+        // stalls; holding on it starved a real device of uploads for 8 minutes.
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let limited = |ms| RtcStatsSample {
+            quality_limitation_bandwidth_ms: Some(ms),
+            ..RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Outbound)
+        };
+        telemetry.record_stats(limited(0));
+        telemetry.record_stats(limited(800));
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 1, "yielding to media is the transport's job");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn device_holds_uploads_and_a_backlog_replays_within_the_budget() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = test_config();
+        config.max_batches_per_upload = 2;
+        let telemetry = start(config, transport.clone());
+        let call = telemetry.begin_scope();
+        call.set_server("wss://p.livekit.cloud", "token"); // the budget applies next to a call
+        telemetry.set_device_state(DeviceState { network_constrained: true, ..Default::default() });
+        for _ in 0..5 {
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+            telemetry.flush().await;
+        }
+        assert!(transport.sent().is_empty(), "Low Data Mode: record, do not upload");
+        assert_eq!(telemetry.stats().cached_batches, 5);
+
+        // Back to normal: the change wakes the exporter, which replays within the budget.
+        telemetry.set_device_state(DeviceState::default());
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        assert_eq!(transport.sent().len(), 2, "two batches per pass next to a live call");
+        tokio::time::sleep(Duration::from_millis(1000)).await; // the next tick
+        assert_eq!(transport.sent().len(), 4);
+        // An explicit flush drains the rest (the change event made a sixth batch).
+        telemetry.flush().await;
+        assert_eq!(transport.sent().len(), 6, "flush has no per-pass budget");
+        telemetry.shutdown().await;
+        assert_eq!(transport.sent().len(), 7, "shutdown drains too (+ the summary)");
+    }
+
+    struct Hanging;
+
+    #[async_trait::async_trait]
+    impl TelemetryTransport for Hanging {
+        async fn send(&self, _: ExportRequest) -> Result<ExportResponse, ExportError> {
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_queue_flushes_before_the_tick() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = test_config();
+        config.flush_interval_ms = 60_000;
+        config.flush_threshold_bytes = 10_000;
+        let telemetry = start(config, transport.clone());
+        tokio::time::sleep(Duration::from_millis(1)).await; // the immediate first tick passes
+        for _ in 0..3 {
+            telemetry.emit(TelemetryEvent::new("big").with_body("x".repeat(4_000)));
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await; // the wake-up is processed
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1, "exported on crossing the byte threshold, a minute early");
+        assert_eq!(records(&sent[0]).len(), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn requests_stay_under_the_byte_cap() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = test_config();
+        config.max_batch_bytes = 10_000;
+        config.max_batches_per_upload = 10;
+        let telemetry = start(config, transport.clone());
+        for _ in 0..5 {
+            telemetry.emit(TelemetryEvent::new("big").with_body("x".repeat(4_000)));
+        }
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 3, "5 × ~4 KB under a 10 KB cap: 2 + 2 + 1");
+        assert!(sent.iter().all(|request| records(request).len() <= 2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn custom_events_are_namespaced() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit_custom("acme.checkout", vec![Attribute::new("acme.step", 3i64)]);
+        telemetry.emit_custom("custom.already", Vec::new());
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(event_names(&sent[0]), ["custom.acme.checkout", "custom.already"]);
+        let record = records(&sent[0]).remove(0);
+        assert_eq!(attribute(&record, "acme.step"), Some(Value::IntValue(3)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_leaves_a_session_summary() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        telemetry.shutdown().await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 2, "the summary is its own batch when nothing else is queued");
+        let report = records(&sent[1]).remove(0);
+        assert_eq!(report.event_name, "lk.telemetry.report");
+        assert_eq!(attribute(&report, "lk.telemetry.uploads.sent"), Some(Value::IntValue(1)));
+        assert!(
+            matches!(attribute(&report, "lk.telemetry.uploads.bytes"), Some(Value::IntValue(n)) if n > 0),
+            "bytes on the wire are reported"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cache_eviction_is_counted_as_a_drop() {
+        let transport = FakeTransport::scripted([offline(), offline(), offline()]);
+        // Room for exactly one batch: a second push evicts the first.
+        let (telemetry, exporter) =
+            Telemetry::with_cache(test_config(), transport.clone(), Arc::new(MemoryCache::new(1)));
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await; // fails: cached, upload paused
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        let stats = telemetry.stats();
+        assert_eq!(stats.cached_batches, 1);
+        assert_eq!(stats.dropped_cache_full, 1, "the evicted ping is counted, not silently lost");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn timeouts_are_counted_apart_from_failures() {
+        let (telemetry, exporter) = Telemetry::new(test_config(), Arc::new(Hanging));
+        telemetry.override_endpoint("http://collector");
+        tokio::spawn(exporter.run());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await; // one attempt, bounded by export_timeout under paused time
+        let stats = telemetry.stats();
+        assert_eq!(stats.upload_timeouts, 1);
+        assert_eq!(stats.status, TelemetryStatus::Paused, "backing off");
+        assert_eq!(stats.upload_failures, 0);
+        assert_eq!(stats.cached_batches, 1, "kept for the next attempt");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn sessions_have_their_own_trace_and_attributes() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.set_attribute("acme.tenant", Some("t1".into()));
+        let a = telemetry.begin_scope();
+        let b = telemetry.begin_scope();
+        assert_ne!(a.trace_id(), b.trace_id());
+        assert_ne!(a.trace_id(), telemetry.trace_id(), "the process has its own session");
+        a.set_room(RoomIdentity { sid: Some("RM_a".into()), ..Default::default() });
+        b.set_room(RoomIdentity { sid: Some("RM_b".into()), ..Default::default() });
+        let span = a.start(SpanName::Connect, None);
+        let span_id = span.context().expect("bound").span_id;
+        a.emit(TelemetryEvent::new("lk.ping"));
+        b.emit(TelemetryEvent::new("lk.ping"));
+        // A warn record from the SDK logger, inside room A's connect: no session handle, just
+        // the ambient span id — the core files it under A.
+        telemetry.emit(
+            TelemetryEvent::new("").with_severity(Severity::Warn).with_body("hmm").in_span(span_id),
+        );
+        telemetry.emit(TelemetryEvent::new("lk.device.thermal.changed"));
+        span.end(SpanOutcome::Ok, None);
+        telemetry.flush().await;
+
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 4, "a batch per owner: A's span, A's logs, B's, the process's");
+        let logs: Vec<LogRecord> =
+            sent.iter().filter(|r| r.url.ends_with("logs")).flat_map(records).collect();
+        assert_eq!(logs.len(), 4);
+        assert_eq!(hex(&logs[0].trace_id), a.trace_id());
+        assert_eq!(attribute(&logs[0], "lk.room.sid"), Some(Value::StringValue("RM_a".into())));
+        assert_eq!(attribute(&logs[0], "session.id"), Some(Value::StringValue(a.trace_id())));
+        assert_eq!(hex(&logs[1].trace_id), a.trace_id(), "resolved through the span");
+        assert_eq!(hex(&logs[2].trace_id), b.trace_id());
+        assert_eq!(attribute(&logs[2], "lk.room.sid"), Some(Value::StringValue("RM_b".into())));
+        assert_eq!(hex(&logs[3].trace_id), telemetry.trace_id(), "device state: process session");
+        assert_eq!(attribute(&logs[3], "lk.room.sid"), None);
+        assert!(
+            logs.iter()
+                .all(|r| attribute(r, "acme.tenant") == Some(Value::StringValue("t1".into()))),
+            "a pipeline-wide attribute reaches every session"
+        );
+        let traces_request = sent.iter().find(|r| r.url.ends_with("traces")).expect("traces");
+        let traces =
+            ExportTraceServiceRequest::decode(&gunzip(&traces_request.body)[..]).expect("otlp");
+        let otlp_span = &traces.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(hex(&otlp_span.trace_id), a.trace_id());
+        assert!(otlp_span.attributes.iter().any(|a| a.key == "lk.room.sid"));
+
+        // A record that names a span which has already ended — and been exported — is still that
+        // session's: the SDK's log path hops threads, the span does not wait for it.
+        telemetry.emit(
+            TelemetryEvent::new("")
+                .with_severity(Severity::Error)
+                .with_body("late")
+                .in_span(span_id),
+        );
+        telemetry.flush().await;
+        let late = &records(transport.sent().last().expect("sent"))[0];
+        assert_eq!(hex(&late.trace_id), a.trace_id(), "filed under the ended span's session");
+        assert_eq!(late.span_id, span_id.to_be_bytes().to_vec());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn uploads_wait_for_a_destination() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = start_cloud(test_config(), transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        tokio::time::sleep(Duration::from_secs(600)).await;
+        assert!(transport.sent().is_empty(), "no destination: nothing leaves, no hold cap either");
+        assert_eq!(telemetry.stats().cached_batches, 1);
+        assert_eq!(telemetry.stats().status, TelemetryStatus::Waiting);
+
+        let token = crate::destination::tests::granted(3600);
+        let session = telemetry.begin_scope();
+        session.set_server("wss://x.livekit.cloud", &token);
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1, "cached batches ship as soon as the destination is known");
+        assert_eq!(sent[0].url, "https://x.livekit.cloud/observability/client/logs/otlp/v0");
+        assert_eq!(sent[0].headers["Authorization"], format!("Bearer {token}"));
+        session.start(SpanName::Publish, None).end(SpanOutcome::Ok, None);
+        telemetry.flush().await;
+        assert_eq!(
+            transport.sent()[1].url,
+            "https://x.livekit.cloud/observability/client/traces/otlp/v0"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn debug_and_info_logs_never_leave_the_device() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("").with_severity(Severity::Info).with_body("noise"));
+        telemetry.emit(TelemetryEvent::new("").with_severity(Severity::Error).with_body("boom"));
+        telemetry.flush().await;
+
+        let sent = transport.sent();
+        let records = records(&sent[0]);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].event_name, "", "a log line, not an event");
+        assert_eq!(records[0].severity_text, "ERROR");
+        assert_eq!(
+            records[0].body.as_ref().and_then(|b| b.value.clone()),
+            Some(Value::StringValue("boom".into()))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn flood_guard_caps_events_but_not_stats_windows() {
+        let mut config = test_config();
+        config.max_events_per_10min = 1;
+        config.stats_window_ms = 1_000;
+        let transport = FakeTransport::scripted([]);
+        let telemetry = start(config, transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.record_stats(RtcStatsSample::new(
+            "TR_1",
+            TrackKind::Audio,
+            StreamDirection::Inbound,
+        ));
+        assert_eq!(telemetry.stats().dropped_rate_limited, 1);
+
+        tokio::time::sleep(Duration::from_millis(1_100)).await; // stats window closes
+        telemetry.flush().await;
+        let names: Vec<String> = transport.sent().iter().flat_map(event_names).collect();
+        assert_eq!(names.iter().filter(|n| *n == "lk.ping").count(), 1);
+        assert!(names.contains(&"lk.rtc.stats.sample".to_owned()), "{names:?}");
+        assert!(names.contains(&"lk.telemetry.report".to_owned()), "rate limiting is reported");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn stats_readings_are_windowed_into_one_event() {
+        let mut config = test_config();
+        config.stats_window_ms = 2_000;
+        let transport = FakeTransport::scripted([]);
+        let telemetry = start(config, transport.clone());
+        for (bytes, jitter) in [(100, 1.0), (200, 3.0), (300, 2.0)] {
+            let mut sample =
+                RtcStatsSample::new("TR_1", TrackKind::Video, StreamDirection::Inbound);
+            sample.bytes = Some(bytes);
+            sample.jitter_ms = Some(jitter);
+            sample.codec = Some("video/VP8".into());
+            telemetry.record_stats(sample);
+        }
+        telemetry.flush().await;
+        assert!(transport.sent().is_empty(), "windows do not flush early");
+
+        tokio::time::sleep(Duration::from_millis(2_100)).await;
+        telemetry.flush().await;
+        let sent = transport.sent();
+        let window = records(&sent[0])
+            .into_iter()
+            .find(|r| r.event_name == "lk.rtc.stats.sample")
+            .expect("window");
+        assert_eq!(attribute(&window, "lk.track.kind"), Some(Value::StringValue("video".into())));
+        assert_eq!(
+            attribute(&window, "lk.rtc.codec"),
+            Some(Value::StringValue("video/VP8".into()))
+        );
+        assert_eq!(attribute(&window, "lk.rtc.bytes"), Some(Value::IntValue(300)));
+        assert_eq!(attribute(&window, "lk.rtc.samples"), Some(Value::IntValue(3)));
+        assert_eq!(attribute(&window, "lk.rtc.jitter_ms.avg"), Some(Value::DoubleValue(2.0)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_closes_open_stats_windows() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.record_stats(RtcStatsSample::new(
+            "TR_1",
+            TrackKind::Audio,
+            StreamDirection::Outbound,
+        ));
+        telemetry.shutdown().await;
+        let names: Vec<String> = transport.sent().iter().flat_map(event_names).collect();
+        assert_eq!(
+            names,
+            ["lk.rtc.stats.sample", "lk.telemetry.report"],
+            "window + shutdown summary"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn session_attributes_are_attached_to_every_record() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.set_attribute("lk.room.sid", Some("RM_1".into()));
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.emit(TelemetryEvent::new("lk.ping").with_attribute("lk.room.sid", "RM_override"));
+        telemetry.flush().await;
+        let first = records(&transport.sent()[0]);
+        assert_eq!(attribute(&first[0], "lk.room.sid"), Some(Value::StringValue("RM_1".into())));
+        assert_eq!(
+            attribute(&first[1], "lk.room.sid"),
+            Some(Value::StringValue("RM_override".into())),
+            "an explicit attribute wins"
+        );
+        telemetry.set_attribute("lk.room.sid", None);
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.flush().await;
+        assert_eq!(attribute(&records(&transport.sent()[1])[0], "lk.room.sid"), None);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn spans_export_as_traces_under_the_session_trace_id() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = start(test_config(), transport.clone());
+        telemetry.override_endpoint("http://c/observability/client/logs/otlp/v0");
+        let connect = telemetry.begin_span("lk.connect", SpanKind::Client, None);
+        telemetry.add_span_event(connect, "ws_open", vec![]);
+        telemetry.emit(
+            TelemetryEvent::new("")
+                .with_severity(Severity::Error)
+                .with_body("boom")
+                .in_span(connect),
+        );
+        telemetry.end_span(
+            connect,
+            SpanOutcome::Error,
+            Some("timeout".into()),
+            vec![Attribute::new("lk.connect.attempt", 1i64)],
+        );
+        telemetry.flush().await;
+
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 2, "one logs batch, one traces batch");
+        let traces =
+            sent.iter().find(|r| r.url.ends_with("/traces/otlp/v0")).expect("traces request");
+        assert_eq!(
+            traces.url, "http://c/observability/client/traces/otlp/v0",
+            "derived from logs endpoint"
+        );
+        let decoded =
+            ExportTraceServiceRequest::decode(&gunzip(&traces.body)[..]).expect("valid OTLP");
+        let otlp_span = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(otlp_span.name, "lk.connect");
+        assert_eq!(otlp_span.kind, span::SpanKind::Client as i32);
+        assert_eq!(hex(&otlp_span.trace_id), telemetry.trace_id());
+        assert_eq!(otlp_span.span_id, connect.to_be_bytes().to_vec());
+        assert!(otlp_span.parent_span_id.is_empty());
+        assert!(otlp_span.end_time_unix_nano >= otlp_span.start_time_unix_nano);
+        assert_eq!(otlp_span.events[0].name, "ws_open");
+        assert_eq!(
+            otlp_span.status.as_ref().map(|s| s.code),
+            Some(status::StatusCode::Error as i32)
+        );
+        assert_eq!(otlp_span.status.as_ref().map(|s| s.message.as_str()), Some("timeout"));
+        let attr = |key: &str| {
+            otlp_span
+                .attributes
+                .iter()
+                .find(|kv| kv.key == key)
+                .and_then(|kv| kv.value.as_ref()?.value.clone())
+        };
+        assert_eq!(attr("lk.outcome"), Some(Value::StringValue("error".into())));
+        assert_eq!(attr("error.type"), Some(Value::StringValue("timeout".into())));
+        assert_eq!(attr("lk.connect.attempt"), Some(Value::IntValue(1)));
+
+        let logs = sent.iter().find(|r| r.url.ends_with("/logs/otlp/v0")).expect("logs request");
+        let record = &records(logs)[0];
+        assert_eq!(hex(&record.trace_id), telemetry.trace_id(), "every record carries the trace");
+        assert_eq!(
+            record.span_id,
+            connect.to_be_bytes().to_vec(),
+            "and the span it was emitted in"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_spans_keep_status_unset() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        let publish = telemetry.begin_span("lk.publish", SpanKind::Internal, None);
+        telemetry.end_span(publish, SpanOutcome::Cancelled, None, vec![]);
+        telemetry.flush().await;
+        let sent = transport.sent();
+        assert_eq!(sent[0].url, "http://collector/v1/traces");
+        let decoded =
+            ExportTraceServiceRequest::decode(&gunzip(&sent[0].body)[..]).expect("valid OTLP");
+        let otlp_span = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(
+            otlp_span.status.as_ref().map(|s| s.code),
+            Some(status::StatusCode::Unset as i32)
+        );
+        let outcome = otlp_span
+            .attributes
+            .iter()
+            .find(|kv| kv.key == "lk.outcome")
+            .and_then(|kv| kv.value.as_ref()?.value.clone());
+        assert_eq!(outcome, Some(Value::StringValue("cancelled".into())));
+    }
+
+    pub(crate) fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn entering_background_flushes_immediately() {
+        let transport = FakeTransport::scripted([]);
+        let telemetry = pipeline(transport.clone());
+        telemetry.emit(TelemetryEvent::new("lk.ping"));
+        telemetry.set_device_state(DeviceState {
+            app_state: AppState::Background,
+            ..DeviceState::default()
+        });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let sent = transport.sent();
+        assert_eq!(sent.len(), 1, "flushed on the state change, not on the tick");
+        assert!(event_names(&sent[0]).contains(&"lk.ping".to_owned()));
+    }
+
+    /// Finding 12: more finished spans than one batch holds all reach the cache (and the wire)
+    /// at shutdown; none stay behind in memory uncounted.
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_drains_every_finished_span_batch() {
+        let transport = FakeTransport::scripted([]);
+        let mut config = test_config();
+        config.max_batch_size = 2;
+        let telemetry = start(config, transport.clone());
+        tokio::time::sleep(Duration::from_millis(10)).await; // the start-up tick is behind us
+        let session = telemetry.begin_scope();
+        for _ in 0..5 {
+            session.start(SpanName::Publish, None).end(SpanOutcome::Ok, None);
+        }
+        telemetry.shutdown().await;
+        assert_eq!(exported_spans(&transport).len(), 5, "three batches: 2 + 2 + 1");
+        assert_eq!(telemetry.stats().dropped, 0);
+    }
+}
