@@ -31,7 +31,6 @@ mod rtc;
 
 /// Spans: one attempt at an operation, with explicit handles across the FFI.
 mod scope;
-#[cfg_attr(test, allow(dead_code))] // `Spans::open_count` serves the device contract tests
 mod span;
 
 /// Batch exporter actor: timer, OTLP encoding, retry policy.
@@ -52,8 +51,9 @@ mod transport;
 /// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
 mod destination;
 
+/// The process pipeline: [`global::install`] once, then reach it anywhere.
+pub mod global;
 /// Entry point and configuration.
-#[allow(dead_code)] // `weak_commands` serves the process-wide pipeline (`global`)
 mod telemetry;
 mod trace;
 
@@ -73,6 +73,8 @@ pub use transport::*;
 /// The backend and device contracts, one test per row of their tables.
 #[cfg(test)]
 mod backend_tests;
+#[cfg(test)]
+mod device_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
