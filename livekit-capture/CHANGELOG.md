@@ -1,3 +1,10 @@
+## 0.1.4 (2026-10-03)
+
+### Fixes
+
+- Scale the `x-google-start-bitrate` hint by connection setup time: the 1 Mbps camera cap now applies to connections that set up within 1.5 s and ramps linearly down to 300 kbps at 3.5 s or slower, with screen share capped the same way once the cap is below 1 Mbps.
+- RoomClient::send_data now returns a Send future by dropping its RNG before awaiting.
+
 ## 0.1.3 (2026-09-24)
 
 ### Fixes
