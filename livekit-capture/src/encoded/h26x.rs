@@ -44,7 +44,7 @@ pub enum H26xParseError {
 const ANNEX_B_START_CODE: [u8; 4] = [0, 0, 0, 1];
 
 /// Upper bound on bytes buffered while waiting for an access-unit boundary.
-const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_PENDING_ACCESS_UNIT_BYTES: usize = 32 * 1024 * 1024;
 
 /// Byte-stream access-unit parser shared by the encoded ingest sources.
 ///
@@ -454,9 +454,9 @@ fn is_keyframe_nalus(
     nal_units: &[&[u8]],
 ) -> Result<bool, H26xParseError> {
     match codec {
-        EncodedVideoCodec::H264 => {
-            nal_units.iter().try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == 5))
-        }
+        EncodedVideoCodec::H264 => nal_units
+            .iter()
+            .try_fold(false, |is_key, nal| Ok(is_key || h264_nal_type(nal)? == H264_NAL_IDR)),
         EncodedVideoCodec::H265 => {
             let mut has_vps = false;
             let mut has_sps = false;
@@ -465,10 +465,10 @@ fn is_keyframe_nalus(
 
             for nal in nal_units {
                 match h265_nal_type(nal)? {
-                    32 => has_vps = true,
-                    33 => has_sps = true,
-                    34 => has_pps = true,
-                    19 | 20 => has_idr = true,
+                    H265_NAL_VPS => has_vps = true,
+                    H265_NAL_SPS => has_sps = true,
+                    H265_NAL_PPS => has_pps = true,
+                    H265_NAL_IDR_W_RADL | H265_NAL_IDR_N_LP => has_idr = true,
                     _ => {}
                 }
             }
@@ -481,12 +481,26 @@ fn is_keyframe_nalus(
     }
 }
 
-fn h264_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
+/// H.264 NAL unit types (ITU-T H.264 table 7-1).
+pub(crate) const H264_NAL_IDR: u8 = 5;
+pub(crate) const H264_NAL_SPS: u8 = 7;
+pub(crate) const H264_NAL_PPS: u8 = 8;
+
+/// H.265 NAL unit types (ITU-T H.265 table 7-1).
+pub(crate) const H265_NAL_IDR_W_RADL: u8 = 19;
+pub(crate) const H265_NAL_IDR_N_LP: u8 = 20;
+pub(crate) const H265_NAL_VPS: u8 = 32;
+pub(crate) const H265_NAL_SPS: u8 = 33;
+pub(crate) const H265_NAL_PPS: u8 = 34;
+
+/// Extracts the type of an H.264 NAL unit from its header.
+pub(crate) fn h264_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
     let header = nal.first().ok_or(H26xParseError::EmptyPayload)?;
     Ok(header & 0x1f)
 }
 
-fn h265_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
+/// Extracts the type of an H.265 NAL unit from its header.
+pub(crate) fn h265_nal_type(nal: &[u8]) -> Result<u8, H26xParseError> {
     if nal.is_empty() {
         return Err(H26xParseError::EmptyPayload);
     }
@@ -635,7 +649,9 @@ fn find_start_code(bytes: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
-fn avc_nalus(payload: &[u8], nal_length_size: u8) -> Result<Vec<&[u8]>, H26xParseError> {
+/// Splits a sequence of length-prefixed NAL units, as used by AVC-format
+/// access units and, with a 2-byte length, RTP aggregation packets.
+pub(crate) fn avc_nalus(payload: &[u8], nal_length_size: u8) -> Result<Vec<&[u8]>, H26xParseError> {
     let ranges = avc_nal_ranges(payload, nal_length_size, true)?;
     if ranges.is_empty() {
         return Err(H26xParseError::EmptyPayload);
