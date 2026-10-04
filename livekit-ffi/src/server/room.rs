@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::Duration;
 use std::{collections::HashSet, slice, sync::Arc};
 
+use livekit::track::{self as lk, LocalAudioTrack, LocalVideoTrack};
 use livekit::{prelude::*, registered_audio_filter_plugins, PluginError};
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
@@ -24,7 +26,9 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex, Notify};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
+use crate::server::audio_source::FfiAudioSource;
 use crate::server::data_track::RemoteDataTrack;
+use crate::server::video_source::FfiVideoSource;
 use crate::{
     proto,
     server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
@@ -39,16 +43,164 @@ pub struct FfiPublication {
     pub publication: TrackPublication,
 }
 
-#[derive(Clone)]
-pub struct FfiTrack {
-    pub handle: FfiHandleId,
-    pub track: Track,
-    pub room_handle: Option<FfiHandleId>,
-}
-
-impl FfiHandle for FfiTrack {}
 impl FfiHandle for FfiPublication {}
 impl FfiHandle for FfiRoom {}
+
+/// Whether a track carries audio or video.
+#[uniffi::remote(Enum)]
+pub enum TrackKind {
+    Audio,
+    Video,
+}
+
+/// Whether media is currently flowing on a track.
+#[uniffi::remote(Enum)]
+pub enum StreamState {
+    Active,
+    Paused,
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum TrackError {
+    #[error("{0}")]
+    InvalidSource(String),
+    #[error("{0}")]
+    WrongTrackKind(String),
+}
+
+/// FFI wrapper around [`lk::Track`].
+#[derive(uniffi::Object)]
+pub struct Track {
+    pub(crate) inner: lk::Track,
+    /// The room the track was subscribed in; absent on a track created from a local
+    /// source. The audio stream reaches it to describe the room to a filter plugin.
+    pub(crate) room_handle: Option<FfiHandleId>,
+    /// Reached by [`crate::migration::track`], which is where the rest of the protobuf
+    /// path lives. Goes when that file does.
+    pub(crate) handle_id: OnceLock<FfiHandleId>,
+}
+
+#[uniffi::export]
+impl Track {
+    /// Creates a local video track over a source the FFI side owns.
+    ///
+    /// The source arrives as a handle id rather than an object because `VideoSource` has
+    /// not migrated yet. An inbound handle is the cheap direction: it costs one untyped
+    /// parameter, re-signed when the source lands.
+    #[uniffi::constructor]
+    pub fn from_video_source(
+        name: String,
+        source_handle: FfiHandleId,
+    ) -> Result<Arc<Self>, TrackError> {
+        let source = crate::FFI_SERVER
+            .retrieve_handle::<FfiVideoSource>(source_handle)
+            .map_err(|err| TrackError::InvalidSource(err.to_string()))?
+            .source
+            .clone();
+        let track = LocalVideoTrack::create_video_track(&name, source);
+        Ok(Arc::new(Self::over(lk::Track::LocalVideo(track), None)))
+    }
+
+    /// Creates a local audio track over a source the FFI side owns.
+    #[uniffi::constructor]
+    pub fn from_audio_source(
+        name: String,
+        source_handle: FfiHandleId,
+    ) -> Result<Arc<Self>, TrackError> {
+        let source = crate::FFI_SERVER
+            .retrieve_handle::<FfiAudioSource>(source_handle)
+            .map_err(|err| TrackError::InvalidSource(err.to_string()))?
+            .source
+            .clone();
+        let track = LocalAudioTrack::create_audio_track(&name, source);
+        Ok(Arc::new(Self::over(lk::Track::LocalAudio(track), None)))
+    }
+
+    pub fn sid(&self) -> String {
+        self.inner.sid().to_string()
+    }
+
+    pub fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    pub fn kind(&self) -> TrackKind {
+        self.inner.kind()
+    }
+
+    pub fn stream_state(&self) -> StreamState {
+        self.inner.stream_state()
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.inner.is_muted()
+    }
+
+    pub fn is_remote(&self) -> bool {
+        self.inner.is_remote()
+    }
+
+    /// Mutes or unmutes a local track, reporting what it settled on.
+    ///
+    /// Muting is the publisher's to do, so this errors on a remote track.
+    pub fn set_muted(&self, muted: bool) -> Result<bool, TrackError> {
+        match &self.inner {
+            lk::Track::LocalAudio(track) => {
+                if muted {
+                    track.mute()
+                } else {
+                    track.unmute()
+                }
+                Ok(track.is_muted())
+            }
+            lk::Track::LocalVideo(track) => {
+                if muted {
+                    track.mute()
+                } else {
+                    track.unmute()
+                }
+                Ok(track.is_muted())
+            }
+            lk::Track::RemoteAudio(_) | lk::Track::RemoteVideo(_) => {
+                Err(TrackError::WrongTrackKind("track is not a local track".into()))
+            }
+        }
+    }
+
+    /// Enables or disables a remote track, reporting what it settled on.
+    ///
+    /// Whether to receive a track is the subscriber's to decide, so this errors on a
+    /// local one.
+    pub fn set_enabled(&self, enabled: bool) -> Result<bool, TrackError> {
+        match &self.inner {
+            lk::Track::RemoteAudio(track) => {
+                if enabled {
+                    track.enable()
+                } else {
+                    track.disable()
+                }
+                Ok(track.is_enabled())
+            }
+            lk::Track::RemoteVideo(track) => {
+                if enabled {
+                    track.enable()
+                } else {
+                    track.disable()
+                }
+                Ok(track.is_enabled())
+            }
+            lk::Track::LocalAudio(_) | lk::Track::LocalVideo(_) => {
+                Err(TrackError::WrongTrackKind("track is not a remote track".into()))
+            }
+        }
+    }
+}
+
+impl Track {
+    pub(crate) fn over(inner: lk::Track, room_handle: Option<FfiHandleId>) -> Self {
+        Self { inner, room_handle, handle_id: OnceLock::new() }
+    }
+}
 
 #[derive(Clone)]
 pub struct FfiRoom {
@@ -522,9 +674,9 @@ impl RoomInner {
         let inner = self.clone();
         server.async_runtime.spawn(async move {
             let publish_res = async {
-                let ffi_track = server.retrieve_handle::<FfiTrack>(publish.track_handle)?.clone();
+                let ffi_track = Track::of_handle(server, publish.track_handle)?;
 
-                let track = LocalTrack::try_from(ffi_track.track.clone())
+                let track = LocalTrack::try_from(ffi_track.inner.clone())
                     .map_err(|_| FfiError::InvalidRequest("track is not a LocalTrack".into()))?;
 
                 let publication = inner
@@ -1263,25 +1415,14 @@ async fn forward_event(
             );
         }
         RoomEvent::TrackSubscribed { track, publication: _, participant } => {
-            let handle_id = server.next_id();
             let track_sid = track.sid();
-            let ffi_track = FfiTrack {
-                handle: handle_id,
-                track: track.into(),
-                room_handle: Some(inner.handle_id),
-            };
-
-            let track_info = proto::TrackInfo::from(&ffi_track);
-            server.store_handle(ffi_track.handle, ffi_track);
-            inner.track_handle_lookup.lock().insert(track_sid, handle_id);
+            let owned = Arc::new(Track::over(track.into(), Some(inner.handle_id))).into_owned_ffi();
+            inner.track_handle_lookup.lock().insert(track_sid, owned.handle.id);
 
             let _ = send_event(
                 proto::TrackSubscribed {
                     participant_identity: participant.identity().to_string(),
-                    track: proto::OwnedTrack {
-                        handle: proto::FfiOwnedHandle { id: handle_id },
-                        info: track_info,
-                    },
+                    track: owned,
                 }
                 .into(),
             );
