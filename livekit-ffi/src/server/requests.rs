@@ -1325,8 +1325,8 @@ fn on_local_data_track_is_published(
     request: proto::LocalDataTrackIsPublishedRequest,
 ) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
     let track =
-        server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
-    track.is_published(server, request)
+        server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
+    track.is_published_ffi(request)
 }
 
 fn on_local_data_track_unpublish(
@@ -1334,8 +1334,8 @@ fn on_local_data_track_unpublish(
     request: proto::LocalDataTrackUnpublishRequest,
 ) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
     let track =
-        server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
-    track.unpublish(server, request)
+        server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
+    track.unpublish_ffi(request)
 }
 
 fn on_local_data_track_try_push(
@@ -1343,8 +1343,8 @@ fn on_local_data_track_try_push(
     request: proto::LocalDataTrackTryPushRequest,
 ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
     let track =
-        server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
-    track.try_push(server, request)
+        server.retrieve_handle::<Arc<data_track::LocalDataTrack>>(request.track_handle)?.clone();
+    track.try_push_ffi(request)
 }
 
 fn on_subscribe_local_data_track(
@@ -1352,7 +1352,7 @@ fn on_subscribe_local_data_track(
     request: proto::SubscribeDataTrackRequest,
 ) -> FfiResult<proto::SubscribeDataTrackResponse> {
     let track =
-        server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
+        server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
     track.subscribe(server, request)
 }
 
@@ -1361,8 +1361,8 @@ fn on_remote_data_track_is_published(
     request: proto::RemoteDataTrackIsPublishedRequest,
 ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
     let track =
-        server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
-    track.is_published(server, request)
+        server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
+    track.is_published_ffi(request)
 }
 
 fn on_remote_data_track_set_pipeline_options(
@@ -1370,15 +1370,16 @@ fn on_remote_data_track_set_pipeline_options(
     request: proto::RemoteDataTrackSetPipelineOptionsRequest,
 ) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
     let track =
-        server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
-    track.set_pipeline_options(server, request)
+        server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
+    track.set_pipeline_options_ffi(request)
 }
 
 fn on_data_track_stream_read(
     server: &'static FfiServer,
     request: proto::DataTrackStreamReadRequest,
 ) -> FfiResult<proto::DataTrackStreamReadResponse> {
-    let stream = server.retrieve_handle::<data_track::FfiDataTrackStream>(request.stream_handle)?;
+    let stream =
+        server.retrieve_handle::<Arc<data_track::DataTrackStream>>(request.stream_handle)?;
     Ok(stream.read(request))
 }
 
