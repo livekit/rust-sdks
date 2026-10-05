@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <vector>
+
 #ifdef IN_LIBVA
 #include "va/drm/va_drm.h"
 #else
@@ -18,32 +20,21 @@ static bool check_h264_encoding_support(VADisplay va_display) {
                               VAProfileH264ConstrainedBaseline};
 
   VAProfile h264_profile = VAProfileH264ConstrainedBaseline;
-  VAEntrypoint* entrypoints;
-  int num_entrypoints, slice_entrypoint;
+  int slice_entrypoint;
   bool support_encode = false;
   int selected_entrypoint = -1;
-  int major_ver, minor_ver;
-  VAStatus va_status;
   uint32_t i;
 
   if (!va_display) {
     return false;
   }
 
-  va_status = vaInitialize(va_display, &major_ver, &minor_ver);
-
-  if (major_ver < 0 || minor_ver < 0 || va_status != VA_STATUS_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "vaInitialize failed";
+  const int max_entrypoints = vaMaxNumEntrypoints(va_display);
+  if (max_entrypoints <= 0) {
+    RTC_LOG(LS_ERROR) << "VAAPI reported no entrypoints";
     return false;
   }
-
-  num_entrypoints = vaMaxNumEntrypoints(va_display);
-  entrypoints = new VAEntrypoint[num_entrypoints * sizeof(*entrypoints)];
-  if (!entrypoints) {
-    RTC_LOG(LS_ERROR) << "failed to allocate VA entrypoints";
-    vaTerminate(va_display);
-    return false;
-  }
+  std::vector<VAEntrypoint> entrypoints(max_entrypoints);
 
   /* use the highest profile */
   for (i = 0; i < sizeof(profile_list) / sizeof(profile_list[0]); i++) {
@@ -51,7 +42,8 @@ static bool check_h264_encoding_support(VADisplay va_display) {
       continue;
 
     h264_profile = profile_list[i];
-    vaQueryConfigEntrypoints(va_display, h264_profile, entrypoints,
+    int num_entrypoints = max_entrypoints;
+    vaQueryConfigEntrypoints(va_display, h264_profile, entrypoints.data(),
                              &num_entrypoints);
     for (slice_entrypoint = 0; slice_entrypoint < num_entrypoints;
          slice_entrypoint++) {
@@ -75,13 +67,9 @@ static bool check_h264_encoding_support(VADisplay va_display) {
     RTC_LOG(LS_ERROR)
         << "Can't find VAEntrypointEncSlice or VAEntrypointEncSliceLP for "
            "H264 profiles";
-    delete[] entrypoints;
-    vaTerminate(va_display);
     return false;
   }
 
-  delete[] entrypoints;
-  vaTerminate(va_display);
   return true;
 }
 
@@ -97,11 +85,25 @@ static VADisplay va_open_display_drm(int* drm_fd) {
       continue;
 
     va_dpy = vaGetDisplayDRM(*drm_fd);
+    if (!va_dpy) {
+      close(*drm_fd);
+      *drm_fd = -1;
+      continue;
+    }
+
     vaSetErrorCallback(va_dpy, NULL, NULL);
     vaSetInfoCallback(va_dpy, NULL, NULL);
-    if (va_dpy && check_h264_encoding_support(va_dpy))
-      return va_dpy;
 
+    int major_ver = 0;
+    int minor_ver = 0;
+    VAStatus va_status = vaInitialize(va_dpy, &major_ver, &minor_ver);
+    if (va_status == VA_STATUS_SUCCESS && check_h264_encoding_support(va_dpy)) {
+      RTC_LOG(LS_INFO) << "Initialized VAAPI successfully with version " << major_ver << "." << minor_ver;
+      return va_dpy;
+    }
+    RTC_LOG(LS_ERROR) << "Failed to initialize VAAPI with status: "
+                      << vaErrorStr(va_status);
+    vaTerminate(va_dpy);
     close(*drm_fd);
     *drm_fd = -1;
   }
@@ -110,7 +112,12 @@ static VADisplay va_open_display_drm(int* drm_fd) {
 
 namespace livekit_ffi {
 
+VaapiDisplayDrm::~VaapiDisplayDrm() {
+  Close();
+}
+
 bool VaapiDisplayDrm::Open() {
+  Close();
   va_display_ = va_open_display_drm(&drm_fd_);
   if (!va_display_) {
     RTC_LOG(LS_ERROR) << "Failed to open VA drm display. Maybe the AMD video "
@@ -126,12 +133,12 @@ bool VaapiDisplayDrm::isOpen() const {
 
 void VaapiDisplayDrm::Close() {
   if (va_display_) {
-    if (drm_fd_ < 0)
-      return;
-
+    vaTerminate(va_display_);
+    va_display_ = nullptr;
+  }
+  if (drm_fd_ >= 0) {
     close(drm_fd_);
     drm_fd_ = -1;
-    va_display_ = nullptr;
   }
 }
 
