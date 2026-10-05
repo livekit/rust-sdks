@@ -374,6 +374,10 @@ struct SessionInner {
     signal_client: Arc<SignalClient>,
     has_published: AtomicBool,
     fast_publish: AtomicBool,
+    /// When this connection attempt began, taken at the top of [`RtcSession::connect`] before
+    /// the peer connections or the signal client exist. Every session is one attempt, so a
+    /// full restart or a join retry times itself from scratch.
+    connect_started: Instant,
 
     publisher_pc: PeerTransport,
     /// `Some` exactly when [`Self::single_pc_mode`] is false, where publisher_pc handles both
@@ -519,6 +523,7 @@ impl RtcSession {
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
+        let connect_started = Instant::now();
         let (emitter, session_events) = mpsc::unbounded_channel();
 
         let lk_runtime = LkRuntime::instance();
@@ -640,6 +645,7 @@ impl RtcSession {
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
+            connect_started,
             signal_client,
             publisher_pc,
             subscriber_pc,
@@ -2346,8 +2352,18 @@ impl SessionInner {
     ///
     /// For the initial connect, where transports start from `New`: reaching `Connected` is
     /// itself the proof, since there is no earlier connection to confuse it with.
+    ///
+    /// This is also where connection setup time is known: from [`Self::connect_started`] to
+    /// the transports reporting connected. It is handed to the publisher transport, which
+    /// lowers the start bitrate hint for a slow connection before the first video offer is
+    /// created. Resumes go through [`Self::wait_pc_reconnected_with_snapshot`] instead and
+    /// keep the estimator they have.
     async fn wait_pc_connection(&self) -> EngineResult<()> {
-        self.wait_pc_connection_inner(None, Duration::ZERO).await
+        self.wait_pc_connection_inner(None, Duration::ZERO).await?;
+        let setup = self.connect_started.elapsed();
+        log::info!("connection setup took {} ms", setup.as_millis());
+        self.publisher_pc.set_connection_setup_time(setup).await;
+        Ok(())
     }
 
     /// Wait for the transports to have *reconnected*, which a resume cannot establish by

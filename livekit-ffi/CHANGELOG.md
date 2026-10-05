@@ -316,6 +316,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.81 (2026-09-24)
+
+### Fixes
+
+- Avoid panics when malformed RTC error headers contain non-ASCII text.
+- Java version in libwebrtc was bumped by Google, downgrade it again for Unity 2022 build compatibility - #1456 (@MaxHeimbrock)
+- refactor(signaling): explicit signal lifecycle state machine - #1402 (@lukasIO)
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
+#### Export SoxResampler through UniFFI
+
+`SoxResampler` is now a UniFFI object, so foreign hosts can construct one and
+drive `push` / `flush` directly, receiving the resampled samples by value.
+
+The FFI request surface is unchanged: `NewSoxResampler`, `PushSoxResampler` and
+`FlushSoxResampler` still hand back a pointer into the resampler's own buffer,
+readable until the next call on that resampler. Both paths are covered by new
+tests that drive them with the same input and compare the results.
+
 ## 0.12.80 (2026-09-22)
 
 ### Features
