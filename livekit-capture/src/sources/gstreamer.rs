@@ -217,6 +217,11 @@ pub struct GStreamerVideoSource {
     // Upstream force-key-unit sequence number; incremented on each
     // keyframe request so encoders can distinguish requests.
     keyframe_count: u32,
+    // Timestamp of the last returned access unit, for detecting queue
+    // drops (`drop=true`) via timestamp jumps. While set after a gap,
+    // deltas are discarded until a fresh keyframe restores the chain.
+    last_timestamp_us: Option<i64>,
+    recovering_from_gap: bool,
     // Caps the stream was validated against; a pointer change on a later
     // sample triggers revalidation.
     negotiated_caps: Option<gst::Caps>,
@@ -339,6 +344,8 @@ impl GStreamerVideoSource {
             next_fallback_timestamp_us: start_timestamp_us,
             rate_control,
             keyframe_count: 0,
+            last_timestamp_us: None,
+            recovering_from_gap: false,
             negotiated_caps,
             pending_sample,
         };
@@ -504,6 +511,54 @@ impl GStreamerVideoSource {
             self.next_fallback_timestamp_us.saturating_add(self.frame_interval_us);
         timestamp_us
     }
+
+    /// Tracks emitted timestamps to repair `drop=true` queue overflows.
+    ///
+    /// Returns `false` when the unit must be discarded: a timestamp jump of
+    /// at least two frame intervals implies dropped references, so deltas
+    /// are dropped until a keyframe arrives and a keyframe is requested
+    /// once per gap.
+    fn observe_access_unit(&mut self, unit: &OwnedEncodedAccessUnit) -> bool {
+        if let Some(last) = self.last_timestamp_us {
+            let threshold = self.frame_interval_us.saturating_mul(2);
+            if threshold > 0 && unit.timestamp_us >= last.saturating_add(threshold) {
+                if !self.recovering_from_gap {
+                    log::warn!(
+                        "GStreamer appsink dropped buffers (timestamp jump {} -> {}); requesting keyframe",
+                        last,
+                        unit.timestamp_us,
+                    );
+                    self.recovering_from_gap = true;
+                    self.request_keyframe_inherent();
+                }
+            }
+        }
+        if self.recovering_from_gap {
+            if unit.frame_type != EncodedFrameType::Delta {
+                self.recovering_from_gap = false;
+            } else {
+                return false;
+            }
+        }
+        self.last_timestamp_us = Some(unit.timestamp_us);
+        true
+    }
+
+    /// Sends the upstream force-key-unit event shared by the trait
+    /// `request_keyframe` and gap recovery.
+    fn request_keyframe_inherent(&mut self) {
+        // Matches `gst_video_event_new_upstream_force_key_unit` with
+        // `GST_CLOCK_TIME_NONE` (produce ASAP): encoders parse
+        // `running-time`, `all-headers`, and `count`, and ignore the event
+        // when any field is missing.
+        self.keyframe_count = self.keyframe_count.wrapping_add(1);
+        let structure = gst::Structure::builder("GstForceKeyUnit")
+            .field("running-time", gst::ClockTime::NONE)
+            .field("all-headers", true)
+            .field("count", self.keyframe_count)
+            .build();
+        let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
+    }
 }
 
 impl Drop for GStreamerVideoSource {
@@ -528,11 +583,16 @@ impl EncodedVideoSource for GStreamerVideoSource {
         stop: &PumpStop,
     ) -> Result<Option<OwnedEncodedAccessUnit>, SourceError> {
         if let Some(sample) = self.pending_sample.take() {
-            return self.process_sample(&sample).map(Some).map_err(SourceError::new);
+            let unit = self.process_sample(&sample).map_err(SourceError::new)?;
+            self.observe_access_unit(&unit);
+            return Ok(Some(unit));
         }
 
         // Bounded waits keep the stop token observed within `SAMPLE_WAIT`
-        // even while the pipeline produces nothing.
+        // even while the pipeline produces nothing. With `drop=true` the
+        // appsink discards the oldest buffers when full; timestamp jumps
+        // reveal those drops, and deltas are discarded until a fresh
+        // keyframe restores the prediction chain (low latency over loss).
         loop {
             if stop.is_stopped() {
                 return Ok(None);
@@ -541,7 +601,11 @@ impl EncodedVideoSource for GStreamerVideoSource {
 
             match self.appsink.try_pull_sample(SAMPLE_WAIT) {
                 Some(sample) => {
-                    return self.process_sample(&sample).map(Some).map_err(SourceError::new);
+                    let unit = self.process_sample(&sample).map_err(SourceError::new)?;
+                    if !self.observe_access_unit(&unit) {
+                        continue;
+                    }
+                    return Ok(Some(unit));
                 }
                 None if self.appsink.is_eos() => return Ok(None),
                 None => {}
@@ -550,17 +614,7 @@ impl EncodedVideoSource for GStreamerVideoSource {
     }
 
     fn request_keyframe(&mut self) {
-        // Matches `gst_video_event_new_upstream_force_key_unit` with
-        // `GST_CLOCK_TIME_NONE` (produce ASAP): encoders parse
-        // `running-time`, `all-headers`, and `count`, and ignore the event
-        // when any field is missing.
-        self.keyframe_count = self.keyframe_count.wrapping_add(1);
-        let structure = gst::Structure::builder("GstForceKeyUnit")
-            .field("running-time", gst::ClockTime::NONE)
-            .field("all-headers", true)
-            .field("count", self.keyframe_count)
-            .build();
-        let _ = self.appsink.send_event(gst::event::CustomUpstream::new(structure));
+        self.request_keyframe_inherent();
     }
 
     fn update_rate_control(&mut self, rate_control: EncodedRateControl) {
@@ -895,8 +949,10 @@ fn ensure_encoded_appsink(
         // Bound the queue like the auto-created sink: the pipeline starts
         // immediately but samples are only consumed once discovery/pumping
         // begins, so an unbounded named appsink would retain all encoded
-        // data until OOM. Dropped frames create dependency gaps, handled
-        // by dropping until the next keyframe (see `next_access_unit`).
+        // data until OOM. `drop=true` keeps glass-to-glass latency bounded
+        // by discarding the oldest buffers when full; dependency gaps from
+        // those drops are repaired by dropping deltas until the next
+        // keyframe (see `next_access_unit`).
         appsink.set_property("max-buffers", 8u32);
         appsink.set_property("drop", true);
         return Ok((appsink, sample_format));
@@ -936,6 +992,8 @@ fn ensure_encoded_appsink(
     let appsink = gst::ElementFactory::make("appsink")
         .name(ENCODED_APPSINK_NAME)
         .property("sync", false)
+        // Bounded lossy queue: prefer dropping stale buffers over adding
+        // glass-to-glass latency; gaps are repaired drop-until-keyframe.
         .property("max-buffers", 8u32)
         .property("drop", true)
         .build()
