@@ -1104,7 +1104,24 @@ fn sample_format_from_negotiated_caps(
     )))
 }
 
+/// Reads a string caps field as definite-or-missing.
+///
+/// Returns `Err(())` when the field exists but is not a single string
+/// (e.g. a list of options in pre-negotiation `query_caps`); callers
+/// treat that as inconclusive and defer instead of guessing.
+fn definite_string_field(structure: &gst::StructureRef, field: &str) -> Result<Option<String>, ()> {
+    match structure.get::<String>(field) {
+        Ok(value) => Ok(Some(value)),
+        Err(_) if structure.has_field(field) => Err(()),
+        Err(_) => Ok(None),
+    }
+}
+
 /// Infers the appsink sample format from a caps structure.
+///
+/// A field holding a list of options (pre-negotiation `query_caps`)
+/// yields `Ok(None)` so format selection defers to the first negotiated
+/// sample instead of guessing; callers try the next structure or defer.
 fn sample_format_from_caps_structure(
     structure: &gst::StructureRef,
 ) -> Result<Option<GStreamerSampleFormat>, GStreamerPipelineError> {
@@ -1114,7 +1131,10 @@ fn sample_format_from_caps_structure(
 
     match codec {
         EncodedVideoCodec::H264 => {
-            let stream_format = structure.get::<String>("stream-format").ok();
+            let stream_format = match definite_string_field(structure, "stream-format") {
+                Ok(value) => value,
+                Err(()) => return Ok(None),
+            };
             match stream_format.as_deref() {
                 // `avc` carries SPS/PPS out-of-band in `codec_data`, which
                 // we do not inline yet; emitting its IDRs without parameter
@@ -1131,7 +1151,10 @@ fn sample_format_from_caps_structure(
             }
         }
         EncodedVideoCodec::H265 => {
-            let stream_format = structure.get::<String>("stream-format").ok();
+            let stream_format = match definite_string_field(structure, "stream-format") {
+                Ok(value) => value,
+                Err(()) => return Ok(None),
+            };
             match stream_format.as_deref() {
                 Some("byte-stream") | None => Ok(Some(GStreamerSampleFormat::H265AnnexB)),
                 Some(stream_format) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
@@ -1141,7 +1164,10 @@ fn sample_format_from_caps_structure(
         }
         EncodedVideoCodec::VP8 => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
         EncodedVideoCodec::VP9 => {
-            let profile = structure.get::<String>("profile").ok();
+            let profile = match definite_string_field(structure, "profile") {
+                Ok(value) => value,
+                Err(()) => return Ok(None),
+            };
             match profile.as_deref() {
                 Some("0") | None => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
                 Some(profile) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
@@ -1150,7 +1176,10 @@ fn sample_format_from_caps_structure(
             }
         }
         EncodedVideoCodec::AV1 => {
-            let stream_format = structure.get::<String>("stream-format").ok();
+            let stream_format = match definite_string_field(structure, "stream-format") {
+                Ok(value) => value,
+                Err(()) => return Ok(None),
+            };
             match stream_format.as_deref() {
                 Some("obu-stream") | None => Ok(Some(GStreamerSampleFormat::AccessUnit { codec })),
                 Some(stream_format) => Err(GStreamerPipelineError::UnsupportedCaps(format!(
