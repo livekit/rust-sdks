@@ -18,6 +18,7 @@ use std::{
         atomic::{AtomicU32, Ordering},
         Arc,
     },
+    time::Duration,
 };
 
 use libwebrtc::prelude::*;
@@ -36,6 +37,15 @@ struct TransportInner {
     single_pc_mode: bool,
     // Publish-side target bitrate (bps) for offer munging
     max_send_bitrate_bps: Option<u64>,
+    // Whether the target above belongs to a screen share, which is exempt from the
+    // start bitrate cap.
+    max_send_bitrate_is_screen_share: bool,
+    // How long this peer connection took to set up, set once the initial connect succeeds.
+    // `compute_start_bitrate_kbps` lowers the hint for slow connections.
+    connection_setup_time: Option<Duration>,
+    // Whether an offer carrying `x-google-start-bitrate` has been accepted locally. The
+    // hint is written once per peer connection; see `compute_start_bitrate_kbps`.
+    start_bitrate_applied: bool,
     pending_initial_offer: Option<SessionDescription>,
 }
 
@@ -74,6 +84,9 @@ impl PeerTransport {
                 restarting_ice: false,
                 single_pc_mode,
                 max_send_bitrate_bps: None,
+                max_send_bitrate_is_screen_share: false,
+                connection_setup_time: None,
+                start_bitrate_applied: false,
                 pending_initial_offer: None,
             })),
             connected_generation: AtomicU32::new(0),
@@ -204,8 +217,18 @@ impl PeerTransport {
     /// The offer is stored as pending and will be applied when the server's answer arrives.
     ///
     /// In single PC mode, this initial offer is sent with the JoinRequest before any track
-    /// is published. We apply both `inactive→recvonly` munging and `x-google-start-bitrate`
-    /// munging when a target bitrate is known.
+    /// is published, so only the `inactive→recvonly` munging applies.
+    ///
+    /// It deliberately carries no `x-google-start-bitrate`. The hint is derived from
+    /// `max_send_bitrate_bps`, which only `SessionInner::create_sender` sets, when a track is
+    /// published — always after this runs — so there is never a target to write here. Writing
+    /// one would also have to consume the one-shot latch before the offer becomes the local
+    /// description, which happens later in `set_remote_description`, and the offer can be
+    /// dropped without ever being applied: when the server declines single PC mode,
+    /// `RtcSession` calls `clear_pending_initial_offer` and reuses this transport for the rest
+    /// of the session. The latch would then be spent on an offer that never existed, silently
+    /// skipping the hint for the life of the connection. `create_and_send_offer` owns the hint
+    /// and latches only once `set_local_description` has succeeded.
     pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
         let inner = self.inner.lock().await;
         if !inner.single_pc_mode {
@@ -214,39 +237,13 @@ impl PeerTransport {
         drop(inner);
 
         let mut offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
-        let mut sdp = offer.to_string();
+        let sdp = offer.to_string();
 
         // Apply inactive→recvonly munging for single PC mode
         let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
         if recvonly_munged != sdp {
             if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
                 offer = parsed;
-                sdp = recvonly_munged;
-            }
-        }
-
-        // Apply x-google-start-bitrate munging for video codecs if we have a target bitrate.
-        // In initial offers (before track is published), max_send_bitrate_bps is None,
-        // so no munging is applied and WebRTC uses its default conservative start bitrate.
-        let has_video = sdp.contains(" VP8/90000")
-            || sdp.contains(" VP9/90000")
-            || sdp.contains(" AV1/90000")
-            || sdp.contains(" H264/90000")
-            || sdp.contains(" H265/90000");
-        if has_video {
-            let start_kbps = {
-                let inner = self.inner.lock().await;
-                Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps)
-            };
-            if let Some(start_kbps) = start_kbps {
-                log::info!("Initial offer: applying x-google-start-bitrate={} kbps", start_kbps);
-
-                let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
-                if munged != sdp {
-                    if let Ok(parsed) = SessionDescription::parse(&munged, offer.sdp_type()) {
-                        offer = parsed;
-                    }
-                }
             }
         }
 
@@ -260,30 +257,86 @@ impl PeerTransport {
         inner.pending_initial_offer = None;
     }
 
-    pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>) {
+    pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>, is_screen_share: bool) {
         let mut inner = self.inner.lock().await;
         inner.max_send_bitrate_bps = bps;
+        inner.max_send_bitrate_is_screen_share = is_screen_share;
     }
 
     /// Maximum x-google-start-bitrate (kbps).
     /// 1 Mbps is a reasonable ceiling that prevents BWE from starting too aggressively.
     const MAX_START_BITRATE_KBPS: u32 = 1000;
 
+    /// Minimum x-google-start-bitrate (kbps): libwebrtc's own default starting estimate. A
+    /// target below this gets no hint, since seeding above the real capacity costs more than
+    /// the ramp it saves, and a slow connection is seeded no higher than this.
+    const MIN_TARGET_BITRATE_KBPS: u32 = 300;
+
+    /// Connection setup times bounding the ramp in [`Self::compute_start_bitrate_kbps`]: at
+    /// or below the first the hint is capped at [`Self::MAX_START_BITRATE_KBPS`], at or above
+    /// the second at [`Self::MIN_TARGET_BITRATE_KBPS`]. Measured on shaped links (CLT-3380):
+    /// healthy links set up in under 860 ms, a 1 Mbps link with 150 ms RTT took 1.1–1.7 s,
+    /// a 500 kbps link ~2.3 s at the median, and a 300 kbps link never under 3 s. The first
+    /// sits above the 1 Mbps link, which a lower seed only slows down, and the second above
+    /// the 500 kbps link's median, so only links that cannot carry more land at the floor.
+    const SETUP_TIME_FOR_MAX_BITRATE: Duration = Duration::from_millis(1500);
+    const SETUP_TIME_FOR_MIN_BITRATE: Duration = Duration::from_millis(3500);
+
+    /// Record how long this peer connection took to set up. Called once, after the initial
+    /// connect succeeds; resumes and ICE restarts keep the estimator and never call this.
+    pub async fn set_connection_setup_time(&self, setup: Duration) {
+        self.inner.lock().await.connection_setup_time = Some(setup);
+    }
+
     /// Compute the x-google-start-bitrate value for SDP munging.
     ///
-    /// Returns min(90% of target, 1 Mbps). Returns None if no target bitrate is set
-    /// (initial offer before track publish) or if the target is too low.
-    fn compute_start_bitrate_kbps(target_bps: Option<u64>) -> Option<u32> {
+    /// 90% of the target leaves ~10% headroom for the estimator to settle. The same
+    /// multiplier is used for every codec because the target already reflects the codec's
+    /// efficiency. Camera is capped at [`Self::MAX_START_BITRATE_KBPS`] so the estimator does
+    /// not open too aggressively on a high-bitrate track; screen share is exempt, because its
+    /// content needs the bitrate immediately to stay legible.
+    ///
+    /// Connection setup time (signaling join plus ICE/DTLS) is the only network signal there
+    /// is before the first video offer, since libwebrtc cannot probe the path until a video
+    /// sender exists. It grows with round-trip time and loss, which also mark the links where
+    /// a 1 Mbps seed overshoots, so the cap ramps linearly from
+    /// [`Self::MAX_START_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MAX_BITRATE`] down to
+    /// [`Self::MIN_TARGET_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MIN_BITRATE`]. Once the
+    /// cap is below the 1 Mbps ceiling it applies to screen share too: a connection that slow
+    /// cannot carry an uncapped screen-share seed either. Without a setup time (an offer
+    /// before the initial connect completed) the cap stays at the 1 Mbps ceiling.
+    ///
+    /// Returns None if no target bitrate is set (initial offer before track publish) or if
+    /// the target is below [`Self::MIN_TARGET_BITRATE_KBPS`].
+    fn compute_start_bitrate_kbps(
+        target_bps: Option<u64>,
+        is_screen_share: bool,
+        setup_time: Option<Duration>,
+    ) -> Option<u32> {
         let target_bps = target_bps?;
         let target_kbps = (target_bps / 1000) as u32;
 
-        if target_kbps == 0 || target_kbps < 300 {
+        if target_kbps < Self::MIN_TARGET_BITRATE_KBPS {
             return None;
         }
 
-        // Use 90% of target bitrate as start bitrate, capped at 1 Mbps
-        let start_kbps = (target_kbps as f64 * 0.9).round() as u32;
-        Some(start_kbps.min(target_kbps).min(Self::MAX_START_BITRATE_KBPS))
+        let cap_kbps = match setup_time {
+            None => Self::MAX_START_BITRATE_KBPS,
+            Some(setup) => {
+                let fast = Self::SETUP_TIME_FOR_MAX_BITRATE.as_secs_f64();
+                let slow = Self::SETUP_TIME_FOR_MIN_BITRATE.as_secs_f64();
+                let ramp = ((setup.as_secs_f64() - fast) / (slow - fast)).clamp(0.0, 1.0);
+                let range = (Self::MAX_START_BITRATE_KBPS - Self::MIN_TARGET_BITRATE_KBPS) as f64;
+                (Self::MAX_START_BITRATE_KBPS as f64 - ramp * range).round() as u32
+            }
+        };
+
+        let start_kbps = ((target_kbps as f64 * 0.9).round() as u32).min(target_kbps);
+        if is_screen_share && cap_kbps >= Self::MAX_START_BITRATE_KBPS {
+            Some(start_kbps)
+        } else {
+            Some(start_kbps.min(cap_kbps))
+        }
     }
 
     /// Munge SDP to change a=inactive to a=recvonly for RTP media m-lines in single PC mode.
@@ -562,25 +615,45 @@ impl PeerTransport {
         }
 
         // Apply x-google-start-bitrate for all video codecs to improve initial quality.
-        // Uses min(90% of target, 1 Mbps) to prevent BWE from starting too aggressively.
+        //
+        // The same value goes on every video codec, and only on the first offer that carries
+        // local video. libwebrtc reads this fmtp parameter per m-section but applies it to the
+        // shared Call (`WebRtcVideoSendChannel::ApplyChangedParams` -> `SetSdpBitrateParameters`),
+        // where `RtpBitrateConfigurator` keeps one config for the whole peer connection: it
+        // retains `start_bitrate_bps` and re-applies it on network route changes, so rewriting
+        // it later is at best a no-op and at worst restarts a converged bandwidth estimator. A
+        // full reconnect builds a new peer connection and seeds the new estimator again.
+        //
+        // x-google-max-bitrate is deliberately never written: the same Call-level promotion
+        // would turn a per-track cap into a ceiling on total send bandwidth, starving concurrent
+        // tracks. Per-track and per-layer caps belong in the encodings' max_bitrate.
+        let mut applied_start_bitrate = false;
         let has_video = sdp.contains(" VP8/90000")
             || sdp.contains(" VP9/90000")
             || sdp.contains(" AV1/90000")
             || sdp.contains(" H264/90000")
             || sdp.contains(" H265/90000");
-        if has_video {
-            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps) {
+        if has_video && !inner.start_bitrate_applied {
+            if let Some(start_kbps) = Self::compute_start_bitrate_kbps(
+                inner.max_send_bitrate_bps,
+                inner.max_send_bitrate_is_screen_share,
+                inner.connection_setup_time,
+            ) {
                 log::info!(
-                    "Applying x-google-start-bitrate={} kbps (target_bps={:?})",
+                    "Applying x-google-start-bitrate={} kbps (target_bps={:?}, connection_setup_ms={:?})",
                     start_kbps,
-                    inner.max_send_bitrate_bps
+                    inner.max_send_bitrate_bps,
+                    inner.connection_setup_time.map(|t| t.as_millis())
                 );
 
                 let munged = Self::munge_x_google_start_bitrate(&sdp, start_kbps);
                 if munged != sdp {
                     log::debug!("SDP munged successfully for video codec");
                     match SessionDescription::parse(&munged, offer.sdp_type()) {
-                        Ok(parsed) => offer = parsed,
+                        Ok(parsed) => {
+                            offer = parsed;
+                            applied_start_bitrate = true;
+                        }
                         Err(e) => log::warn!(
                             "Failed to parse munged SDP, falling back to original offer: {e}"
                         ),
@@ -593,6 +666,11 @@ impl PeerTransport {
 
         self.peer_connection.set_local_description(offer.clone()).await?;
 
+        // Only consume the one-shot hint once the offer carrying it is accepted locally.
+        if applied_start_bitrate {
+            inner.start_bitrate_applied = true;
+        }
+
         if let Some(handler) = self.on_offer_handler.lock().as_mut() {
             handler(offer);
         }
@@ -603,6 +681,8 @@ impl PeerTransport {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::PeerTransport;
 
     /// Reproduces the publisher-transport self-deadlock.
@@ -752,6 +832,104 @@ a=rtpmap:111 opus/48000/2\n\
 a=fmtp:111 minptime=10;useinbandfec=1\n";
         let out = PeerTransport::munge_x_google_start_bitrate(sdp, 3200);
         assert_eq!(out, sdp, "should not change SDP if no video codec present");
+    }
+
+    #[test]
+    fn start_bitrate_is_ninety_percent_of_target() {
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(1_000_000), false, None),
+            Some(900),
+            "should be 90% of a 1 Mbps target"
+        );
+    }
+
+    #[test]
+    fn start_bitrate_caps_camera_but_not_screen_share() {
+        // 90% of 3 Mbps is 2700, above the 1 Mbps camera ceiling.
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(3_000_000), false, None),
+            Some(PeerTransport::MAX_START_BITRATE_KBPS),
+            "camera should be capped"
+        );
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(3_000_000), true, None),
+            Some(2700),
+            "screen share should not be capped; its content needs the bitrate to stay legible"
+        );
+    }
+
+    #[test]
+    fn start_bitrate_skipped_below_target_floor() {
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(299_000), false, None),
+            None,
+            "below the floor libwebrtc's own default is left in place"
+        );
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(Some(300_000), false, None),
+            Some(270),
+            "at the floor the hint applies"
+        );
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(None, false, None),
+            None,
+            "no target means no hint (initial offer before any publish)"
+        );
+    }
+
+    #[test]
+    fn start_bitrate_ramps_down_with_connection_setup_time() {
+        // A 3 Mbps camera target, so only the cap moves.
+        let camera = |ms| {
+            PeerTransport::compute_start_bitrate_kbps(
+                Some(3_000_000),
+                false,
+                Some(Duration::from_millis(ms)),
+            )
+        };
+        assert_eq!(camera(0), Some(1000), "instant setup keeps the ceiling");
+        assert_eq!(camera(471), Some(1000), "unshaped baseline keeps the ceiling");
+        assert_eq!(camera(1273), Some(1000), "1 Mbps link median keeps the ceiling");
+        assert_eq!(camera(1500), Some(1000), "the fast anchor keeps the ceiling");
+        assert_eq!(camera(1724), Some(922), "1 Mbps link slow attempt barely moves");
+        assert_eq!(camera(2334), Some(708), "500 kbps link median lands mid-ramp");
+        assert_eq!(camera(2500), Some(650), "midpoint of the ramp");
+        assert_eq!(camera(3093), Some(442), "300 kbps link fastest attempt");
+        assert_eq!(camera(3500), Some(300), "the slow anchor reaches the floor");
+        assert_eq!(camera(18_131), Some(300), "anything slower stays at the floor");
+
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(
+                Some(500_000),
+                false,
+                Some(Duration::from_millis(2500))
+            ),
+            Some(450),
+            "90% of the target still wins when it is lower than the cap"
+        );
+        assert_eq!(
+            PeerTransport::compute_start_bitrate_kbps(
+                Some(300_000),
+                false,
+                Some(Duration::from_millis(3500))
+            ),
+            Some(270),
+            "the hint is still written at the floor rather than skipped"
+        );
+    }
+
+    #[test]
+    fn slow_connection_setup_caps_screen_share_too() {
+        let screen_share = |ms| {
+            PeerTransport::compute_start_bitrate_kbps(
+                Some(3_000_000),
+                true,
+                Some(Duration::from_millis(ms)),
+            )
+        };
+        assert_eq!(screen_share(1273), Some(2700), "a fast setup leaves screen share uncapped");
+        assert_eq!(screen_share(2500), Some(650), "below the ceiling the cap applies to it too");
+        assert_eq!(screen_share(4061), Some(300), "the slowest setups seed it at the floor");
     }
 
     #[test]

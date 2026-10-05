@@ -139,6 +139,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.50 (2026-09-24)
+
+### Fixes
+
+- Avoid panics when malformed RTC error headers contain non-ASCII text.
+- Java version in libwebrtc was bumped by Google, downgrade it again for Unity 2022 build compatibility - #1456 (@MaxHeimbrock)
+
+## 0.3.49 (2026-09-22)
+
+### Fixes
+
+- Correct the AppKit framework name so macOS linking works with case-sensitive SDK filesystems.
+- Cleanup unused dependencies
+
 ## 0.3.48 (2026-09-09)
 
 ### Fixes

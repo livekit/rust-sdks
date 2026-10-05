@@ -1,3 +1,15 @@
+## 0.1.7 (2026-09-24)
+
+### Fixes
+
+- Upgrade to prost 0.14 across the whole project - #1447 (@1egoman)
+
+## 0.1.6 (2026-09-22)
+
+### Fixes
+
+- Fix reliable data channel replay: keep the full retry buffer across resumes, drop duplicate reliable packets, and ignore replayed chunks on uncompressed streams instead of failing with `MissedChunk`.
+
 ## 0.1.5 (2026-09-09)
 
 ### Fixes

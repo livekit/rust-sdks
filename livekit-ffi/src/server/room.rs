@@ -94,11 +94,27 @@ pub struct RoomInner {
 const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(15);
 
 struct Handle {
+    sid_handle: JoinHandle<()>,
     event_handle: JoinHandle<()>,
     data_handle: JoinHandle<()>,
     transcription_handle: JoinHandle<()>,
     sip_dtmf_handle: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
+}
+
+impl Handle {
+    /// Stop and join all tasks associated with the room.
+    async fn close(self) {
+        // Signal cooperative shutdown first.
+        let _ = self.close_tx.send(());
+
+        // Wait for every room-owned task to finish.
+        let _ = self.sid_handle.await;
+        let _ = self.event_handle.await;
+        let _ = self.data_handle.await;
+        let _ = self.transcription_handle.await;
+        let _ = self.sip_dtmf_handle.await;
+    }
 }
 
 struct FfiDataPacket {
@@ -270,16 +286,16 @@ impl FfiRoom {
                     // ready handshake so the RoomSidChanged event is never
                     // delivered before the client is ready to receive it.
                     let room_handle = inner.handle_id.clone();
-                    server.async_runtime.spawn(async move {
+                    let mut sid_close_rx = close_rx.resubscribe();
+                    let sid_handle = server.async_runtime.spawn(async move {
+                        let sid = tokio::select! {
+                            sid = ffi_room.inner.room.sid() => sid.into(),
+                            _ = sid_close_rx.recv() => return,
+                        };
                         let _ = server.send_event(
                             proto::RoomEvent {
                                 room_handle,
-                                message: Some(
-                                    proto::RoomSidChanged {
-                                        sid: ffi_room.inner.room.sid().await.into(),
-                                    }
-                                    .into(),
-                                ),
+                                message: Some(proto::RoomSidChanged { sid }.into()),
                             }
                             .into(),
                         );
@@ -325,6 +341,7 @@ impl FfiRoom {
                         )));
 
                     *handle = Some(Handle {
+                        sid_handle,
                         event_handle,
                         data_handle,
                         transcription_handle,
@@ -373,11 +390,7 @@ impl FfiRoom {
 
         let handle = self.handle.lock().await.take();
         if let Some(handle) = handle {
-            let _ = handle.close_tx.send(());
-            let _ = handle.event_handle.await;
-            let _ = handle.data_handle.await;
-            let _ = handle.transcription_handle.await;
-            let _ = handle.sip_dtmf_handle.await;
+            handle.close().await;
         }
     }
 }
@@ -1660,6 +1673,69 @@ fn build_initial_states(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Check that shutdown releases task-owned state with or without a resolved SID.
+    async fn check_sid_task_shutdown(sid_resolved: bool) {
+        for _ in 0..10 {
+            let room_state = Arc::new(());
+            let weak_room_state = Arc::downgrade(&room_state);
+            let (sid_tx, sid_rx) = oneshot::channel::<()>();
+            let (started_tx, started_rx) = oneshot::channel();
+            let (close_tx, _) = broadcast::channel(1);
+            let mut sid_close_rx = close_tx.subscribe();
+            let sid_handle = tokio::spawn(async move {
+                started_tx.send(()).unwrap();
+                // Model room.sid() retaining the room until the SID arrives.
+                tokio::select! {
+                    _ = sid_rx => {}
+                    _ = sid_close_rx.recv() => {}
+                }
+                drop(room_state);
+            });
+            started_rx.await.unwrap();
+            assert!(weak_room_state.upgrade().is_some());
+
+            if sid_resolved {
+                sid_tx.send(()).unwrap();
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    while !sid_handle.is_finished() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .expect("SID task should finish once its SID arrives");
+            }
+
+            let spawn_room_task = || {
+                let mut close_rx = close_tx.subscribe();
+                tokio::spawn(async move {
+                    close_rx.recv().await.unwrap();
+                })
+            };
+            let handle = Handle {
+                sid_handle,
+                event_handle: spawn_room_task(),
+                data_handle: spawn_room_task(),
+                transcription_handle: spawn_room_task(),
+                sip_dtmf_handle: spawn_room_task(),
+                close_tx,
+            };
+            tokio::time::timeout(Duration::from_secs(1), handle.close())
+                .await
+                .expect("room task shutdown must not wait for a missing SID");
+            assert!(weak_room_state.upgrade().is_none(), "SID task retained the room after close");
+        }
+    }
+
+    #[tokio::test]
+    async fn close_releases_pending_sid_task() {
+        check_sid_task_shutdown(false).await;
+    }
+
+    #[tokio::test]
+    async fn close_joins_completed_sid_task() {
+        check_sid_task_shutdown(true).await;
+    }
 
     #[tokio::test]
     async fn closed_event_channel_ends_room_event_stream() {

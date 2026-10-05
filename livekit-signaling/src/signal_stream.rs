@@ -33,11 +33,17 @@ enum InternalMessage {
 /// SignalStream holds the WebSocket connection (via `WsConnection`).
 ///
 /// It is replaced by [SignalClient] at each reconnection.
-#[derive(Debug)]
 pub(super) struct SignalStream {
     internal_tx: mpsc::Sender<InternalMessage>,
     read_handle: JoinHandle<()>,
     write_handle: JoinHandle<()>,
+}
+
+/// Terse: this appears inside `SignalState` in logs and tests.
+impl std::fmt::Debug for SignalStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SignalStream")
+    }
 }
 
 impl SignalStream {
@@ -73,12 +79,19 @@ impl SignalStream {
         .map_err(|_| SignalError::Timeout("signal connection timed out".into()))??
         .connection;
 
+        Ok(Self::spawn(conn))
+    }
+
+    /// Run the read and write tasks over an open connection.
+    pub(super) fn spawn(
+        conn: Arc<dyn livekit_net::WsConnection>,
+    ) -> (Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>) {
         let (emitter, events) = mpsc::unbounded_channel();
         let (internal_tx, internal_rx) = mpsc::channel::<InternalMessage>(8);
         let write_handle = tokio::spawn(Self::write_task(internal_rx, conn.clone()));
         let read_handle = tokio::spawn(Self::read_task(internal_tx.clone(), conn, emitter));
 
-        Ok((Self { internal_tx, read_handle, write_handle }, events))
+        (Self { internal_tx, read_handle, write_handle }, events)
     }
 
     /// Close the websocket.

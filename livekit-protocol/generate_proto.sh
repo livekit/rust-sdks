@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# dependencies: cargo install protoc-gen-prost@0.3.1 protoc-gen-prost-serde@0.3.1
+# dependencies: cargo install protoc-gen-prost@0.5.0 protoc-gen-prost-serde@0.4.0
 
 
 PROTOCOL=protocol/protobufs
@@ -24,8 +24,10 @@ protoc \
     --prost_out=$OUT_RUST \
     --prost_opt=compile_well_known_types \
     --prost_opt=extern_path=.google.protobuf=::pbjson_types \
+    --prost_opt=flat_output_dir \
     --prost-serde_out=$OUT_RUST \
     --prost-serde_opt=ignore_unknown_fields \
+    --prost-serde_opt=flat_output_dir \
     $PROTOCOL/livekit_egress.proto \
     $PROTOCOL/livekit_rtc.proto \
     $PROTOCOL/livekit_room.proto \
