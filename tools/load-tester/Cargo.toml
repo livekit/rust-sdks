@@ -1,0 +1,18 @@
+[package]
+name = "load-tester"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ramps participants into a LiveKit room and scores audio and video quality from WebRTC stats"
+publish = false
+
+[dependencies]
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+
+[package.metadata.feature-combinations]
+mode = "powerset"

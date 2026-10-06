@@ -3876,6 +3876,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "load-tester"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "livekit",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "local_audio"
 version = "0.1.0"
 dependencies = [

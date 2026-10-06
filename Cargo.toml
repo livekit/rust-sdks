@@ -19,6 +19,7 @@ members = [
     "livekit-signaling",
     "livekit-wakeword",
     "tools/bindgens",
+    "tools/load-tester",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
@@ -129,3 +130,8 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 debug = false
+
+[profile.load-test]
+inherits = "release"
+opt-level = 3
+panic = "unwind"
