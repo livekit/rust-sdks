@@ -360,8 +360,10 @@ pub mod dictionaries {
         pub total_inter_frame_delay: f64,
         pub total_squared_inter_frame_delay: f64,
         pub pause_count: u32,
+        #[serde(rename = "totalPausesDuration")]
         pub total_pause_duration: f64,
         pub freeze_count: u32,
+        #[serde(rename = "totalFreezesDuration")]
         pub total_freeze_duration: f64,
         pub last_packet_received_timestamp: f64,
         pub header_bytes_received: u64,
@@ -441,6 +443,7 @@ pub mod dictionaries {
         pub encoder_implementation: String,
         pub power_efficient_encoder: bool,
         pub active: bool,
+        #[serde(rename = "scalabilityMode")]
         pub scalibility_mode: String,
     }
 
