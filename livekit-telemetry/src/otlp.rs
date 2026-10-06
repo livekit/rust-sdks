@@ -157,10 +157,7 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
         span_id: record.span_id.to_be_bytes().to_vec(),
         parent_span_id: record.parent_span_id.map(|p| p.to_be_bytes().to_vec()).unwrap_or_default(),
         name: record.name,
-        kind: match record.kind {
-            SpanKind::Internal => span::SpanKind::Internal,
-            SpanKind::Client => span::SpanKind::Client,
-        } as i32,
+        kind: span::SpanKind::from(record.kind) as i32,
         start_time_unix_nano: record.start_ns,
         end_time_unix_nano: record.end_ns,
         attributes,
@@ -184,6 +181,16 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
             message: record.error_type.unwrap_or_default(),
         }),
         ..Default::default()
+    }
+}
+
+impl From<SpanKind> for span::SpanKind {
+    /// The OTLP value of a span kind.
+    fn from(kind: SpanKind) -> Self {
+        match kind {
+            SpanKind::Internal => Self::Internal,
+            SpanKind::Client => Self::Client,
+        }
     }
 }
 
@@ -286,9 +293,11 @@ mod tests {
         spans.end(id, SpanOutcome::Error, Some("timeout".into()), own);
         let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
         let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
-        let span = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        let exported = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        assert_eq!(exported.kind, span::SpanKind::Client as i32);
         let values = |key: &str| -> Vec<_> {
-            span.attributes
+            exported
+                .attributes
                 .iter()
                 .filter(|kv| kv.key == key)
                 .filter_map(|kv| kv.value.clone()?.value)

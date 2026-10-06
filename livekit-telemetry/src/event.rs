@@ -87,12 +87,19 @@ impl TelemetryEvent {
         Self { attributes, body: Some(name.clone()), ..Self::new(name) }
     }
 
-    /// Rough encoded size — strings plus a fixed overhead per field. Drives the byte bounds on
-    /// queue flushing and request size; cheaper than encoding and close enough for both.
+    /// Rough encoded size in bytes — strings plus a fixed overhead per field. Drives the byte
+    /// bounds on queue flushing and request size; cheaper than encoding and close enough for both.
     pub fn size_hint(&self) -> usize {
         32 + self.name.len()
             + self.body.as_ref().map_or(0, String::len)
             + self.attributes.iter().map(|a| 4 + a.key.len() + a.value.size_hint()).sum::<usize>()
+    }
+}
+
+impl Default for TelemetryEvent {
+    /// An unnamed `Info` record: a plain log record once it has a body (see `SPEC.md`).
+    fn default() -> Self {
+        Self::new("")
     }
 }
 
@@ -156,7 +163,7 @@ pub struct LogRecord {
 
 impl From<LogRecord> for TelemetryEvent {
     fn from(record: LogRecord) -> Self {
-        let mut event = TelemetryEvent::new("")
+        let mut event = TelemetryEvent::default()
             .with_severity(record.severity)
             .with_body(record.body)
             .with_attribute("lk.log.source", record.source.as_str());
