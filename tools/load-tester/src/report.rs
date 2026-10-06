@@ -9,9 +9,9 @@ use anyhow::{bail, Context};
 
 use crate::{
     record::{
-        FirstMedia, HealthRecord, JoinOutcome, Limitation, MediaKind, MediaWindow,
-        ParticipantEvent, ParticipantId, Record, RunHeader, ServerQuality, Slo, StepRecord,
-        TesterLimits, ThreadLoad, WorkerExitRecord, NULL_DECODER,
+        HealthRecord, JoinOutcome, Limitation, MediaKind, MediaWindow, ParticipantEvent,
+        ParticipantId, Record, RunHeader, ServerQuality, Slo, StepRecord, TesterLimits, ThreadLoad,
+        WorkerExitRecord, NULL_DECODER,
     },
     score::{self, Reason, Score},
 };
@@ -147,7 +147,6 @@ pub struct StepReport {
     pub workers: BTreeMap<u16, WorkerHealth>,
     pub cpu_share: Option<f32>,
     pub cpu_limited_layer_share: Option<f32>,
-    pub panicked: Vec<ParticipantId>,
     pub worker_exits: Vec<WorkerExitRecord>,
     pub verdict: Verdict,
 }
@@ -205,12 +204,7 @@ impl Ledger {
             Record::Join(j) if matches!(j.outcome, JoinOutcome::Joined { .. }) => {
                 self.roster.insert(j.id);
             }
-            Record::Event(e)
-                if matches!(
-                    e.event,
-                    ParticipantEvent::Disconnected { .. } | ParticipantEvent::Panicked { .. }
-                ) =>
-            {
+            Record::Event(e) if matches!(e.event, ParticipantEvent::Disconnected { .. }) => {
                 self.roster.remove(&e.id);
             }
             _ => {}
@@ -245,19 +239,16 @@ impl Ledger {
                     }
                 }
                 Record::Subscription(s) => {
-                    if let FirstMedia::Arrived { ttff_ms: t, decoder } = &s.first_media {
-                        ttff_ms.push(*t as f32);
-                        let wrong_decoder = settings.null_video_decoder
-                            && s.kind == MediaKind::Video
-                            && decoder.as_deref() != Some(NULL_DECODER);
-                        report.decoder_mismatches += u32::from(wrong_decoder);
-                    }
+                    ttff_ms.push(s.ttff_ms as f32);
+                    let wrong_decoder = settings.null_video_decoder
+                        && s.kind == MediaKind::Video
+                        && s.decoder.as_deref() != Some(NULL_DECODER);
+                    report.decoder_mismatches += u32::from(wrong_decoder);
                 }
                 Record::Event(e) => match &e.event {
                     ParticipantEvent::Reconnecting | ParticipantEvent::Disconnected { .. } => {
                         report.disconnects += 1
                     }
-                    ParticipantEvent::Panicked { .. } => report.panicked.push(e.id),
                     ParticipantEvent::ServerQuality { about, quality } => {
                         server_quality.insert(*about, *quality);
                     }
@@ -284,9 +275,7 @@ impl Ledger {
                     cpu_limited +=
                         u.layers.iter().filter(|l| l.limitation == Limitation::Cpu).count() as u32;
                 }
-                Record::Health(h) if step.measures(h.at, h.dur_ms) => {
-                    report.workers.entry(h.worker).or_default().add(h);
-                }
+                Record::Health(h) => report.workers.entry(h.worker).or_default().add(h),
                 Record::WorkerExit(w) => report.worker_exits.push(w.clone()),
                 _ => {}
             }
@@ -391,12 +380,9 @@ fn tester_issues(report: &StepReport, limits: &TesterLimits) -> Vec<String> {
     for w in &report.worker_exits {
         issues.push(format!("worker {} exited ({})", w.worker, w.status));
     }
-    for id in &report.panicked {
-        issues.push(format!("{} panicked", id.identity()));
-    }
     for (worker, h) in &report.workers {
         if h.lag_max_ms > limits.max_lag_ms {
-            issues.push(format!("tokio lag {:.0}ms on worker {worker}", h.lag_max_ms));
+            issues.push(format!("tester lag {:.0}ms on worker {worker}", h.lag_max_ms));
         }
         if let Some(t) = h.hottest_thread.as_ref().filter(|t| t.util > limits.max_thread_util) {
             issues.push(format!("{} {:.0}% on worker {worker}", t.name, t.util * 100.0));

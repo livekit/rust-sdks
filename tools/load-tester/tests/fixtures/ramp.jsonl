@@ -3,8 +3,8 @@
 {"t":"join","at":1760000100150,"id":1,"outcome":{"status":"joined","connect_ms":391}}
 {"t":"join","at":1760000100300,"id":2,"outcome":{"status":"joined","connect_ms":402}}
 {"t":"join","at":1760000100450,"id":3,"outcome":{"status":"joined","connect_ms":413}}
-{"t":"subscription","at":1760000103000,"sub":0,"publ":1,"track":"TR_A1","kind":"audio","first_media":{"state":"arrived","ttff_ms":520,"decoder":null}}
-{"t":"subscription","at":1760000103000,"sub":0,"publ":1,"track":"TR_V1","kind":"video","first_media":{"state":"arrived","ttff_ms":520,"decoder":"NullVideoDecoder"}}
+{"t":"subscription","at":1760000103000,"sub":0,"publ":1,"track":"TR_A1","kind":"audio","ttff_ms":520,"decoder":null}
+{"t":"subscription","at":1760000103000,"sub":0,"publ":1,"track":"TR_V1","kind":"video","ttff_ms":520,"decoder":"NullVideoDecoder"}
 {"t":"window","at":1760000149000,"dur_ms":5000,"sub":0,"publ":1,"rtt_ms":38.0,"track":"TR_A1","media":{"kind":"audio","packets_received":250,"packets_lost":0,"samples":240000,"concealed":360,"concealment_events":0,"jb_delay_s":10800.0,"jb_emitted":240000}}
 {"t":"window","at":1760000149000,"dur_ms":5000,"sub":0,"publ":1,"rtt_ms":38.0,"track":"TR_V1","media":{"kind":"video","packets_received":1200,"packets_lost":0,"bytes":1500000,"frames_decoded":150,"frames_dropped":0,"freeze_count":0,"stalled_ms":0,"height":720,"expected_height":720,"layer_fps":30.0,"layers_below":0,"jb_delay_s":9.0,"jb_emitted":150,"nacks":0,"plis":0}}
 {"t":"window","at":1760000149000,"dur_ms":5000,"sub":1,"publ":0,"rtt_ms":38.0,"track":"TR_A0","media":{"kind":"audio","packets_received":250,"packets_lost":0,"samples":240000,"concealed":90,"concealment_events":0,"jb_delay_s":10800.0,"jb_emitted":240000}}
@@ -25,8 +25,8 @@
 {"t":"join","at":1760000200150,"id":5,"outcome":{"status":"joined","connect_ms":435}}
 {"t":"join","at":1760000200300,"id":6,"outcome":{"status":"joined","connect_ms":446}}
 {"t":"join","at":1760000200450,"id":7,"outcome":{"status":"joined","connect_ms":457}}
-{"t":"subscription","at":1760000203160,"sub":4,"publ":0,"track":"TR_A0","kind":"audio","first_media":{"state":"arrived","ttff_ms":620,"decoder":null}}
-{"t":"subscription","at":1760000203160,"sub":4,"publ":0,"track":"TR_V0","kind":"video","first_media":{"state":"arrived","ttff_ms":620,"decoder":"NullVideoDecoder"}}
+{"t":"subscription","at":1760000203160,"sub":4,"publ":0,"track":"TR_A0","kind":"audio","ttff_ms":620,"decoder":null}
+{"t":"subscription","at":1760000203160,"sub":4,"publ":0,"track":"TR_V0","kind":"video","ttff_ms":620,"decoder":"NullVideoDecoder"}
 {"t":"window","at":1760000249000,"dur_ms":5000,"sub":0,"publ":1,"rtt_ms":38.0,"track":"TR_A1","media":{"kind":"audio","packets_received":250,"packets_lost":0,"samples":240000,"concealed":360,"concealment_events":0,"jb_delay_s":10800.0,"jb_emitted":240000}}
 {"t":"window","at":1760000249000,"dur_ms":5000,"sub":0,"publ":1,"rtt_ms":38.0,"track":"TR_V1","media":{"kind":"video","packets_received":1200,"packets_lost":0,"bytes":1500000,"frames_decoded":150,"frames_dropped":0,"freeze_count":0,"stalled_ms":0,"height":720,"expected_height":720,"layer_fps":30.0,"layers_below":0,"jb_delay_s":9.0,"jb_emitted":150,"nacks":0,"plis":0}}
 {"t":"window","at":1760000249000,"dur_ms":5000,"sub":1,"publ":0,"rtt_ms":38.0,"track":"TR_A0","media":{"kind":"audio","packets_received":250,"packets_lost":0,"samples":240000,"concealed":90,"concealment_events":0,"jb_delay_s":10800.0,"jb_emitted":240000}}
@@ -66,8 +66,8 @@
 {"t":"join","at":1760000300150,"id":9,"outcome":{"status":"joined","connect_ms":479}}
 {"t":"join","at":1760000300300,"id":10,"outcome":{"status":"joined","connect_ms":490}}
 {"t":"join","at":1760000300450,"id":11,"outcome":{"status":"joined","connect_ms":501}}
-{"t":"subscription","at":1760000303320,"sub":8,"publ":0,"track":"TR_A0","kind":"audio","first_media":{"state":"arrived","ttff_ms":720,"decoder":null}}
-{"t":"subscription","at":1760000303320,"sub":8,"publ":0,"track":"TR_V0","kind":"video","first_media":{"state":"arrived","ttff_ms":720,"decoder":"NullVideoDecoder"}}
+{"t":"subscription","at":1760000303320,"sub":8,"publ":0,"track":"TR_A0","kind":"audio","ttff_ms":720,"decoder":null}
+{"t":"subscription","at":1760000303320,"sub":8,"publ":0,"track":"TR_V0","kind":"video","ttff_ms":720,"decoder":"NullVideoDecoder"}
 {"t":"window","at":1760000349000,"dur_ms":5000,"sub":0,"publ":1,"rtt_ms":38.0,"track":"TR_A1","media":{"kind":"audio","packets_received":250,"packets_lost":0,"samples":240000,"concealed":360,"concealment_events":0,"jb_delay_s":10800.0,"jb_emitted":240000}}
 {"t":"window","at":1760000349000,"dur_ms":5000,"sub":0,"publ":1,"rtt_ms":38.0,"track":"TR_V1","media":{"kind":"video","packets_received":1200,"packets_lost":0,"bytes":1500000,"frames_decoded":150,"frames_dropped":0,"freeze_count":0,"stalled_ms":0,"height":720,"expected_height":720,"layer_fps":30.0,"layers_below":0,"jb_delay_s":9.0,"jb_emitted":150,"nacks":0,"plis":0}}
 {"t":"window","at":1760000349000,"dur_ms":5000,"sub":1,"publ":0,"rtt_ms":38.0,"track":"TR_A0","media":{"kind":"audio","packets_received":250,"packets_lost":0,"samples":240000,"concealed":90,"concealment_events":0,"jb_delay_s":10800.0,"jb_emitted":240000}}

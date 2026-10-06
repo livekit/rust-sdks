@@ -3881,9 +3881,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "futures",
+ "libc",
  "livekit",
+ "livekit-token",
+ "parking_lot",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

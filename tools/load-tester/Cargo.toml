@@ -9,10 +9,15 @@ publish = false
 
 [dependencies]
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-clap = { workspace = true, features = ["derive"] }
+livekit-token = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+clap = { workspace = true, features = ["derive", "env"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
+futures = { workspace = true }
+parking_lot = { workspace = true }
+libc = "0.2"
 
 [package.metadata.feature-combinations]
 mode = "powerset"

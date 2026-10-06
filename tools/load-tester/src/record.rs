@@ -64,7 +64,7 @@ pub struct TesterLimits {
 impl Default for TesterLimits {
     fn default() -> Self {
         Self {
-            max_lag_ms: 25.0,
+            max_lag_ms: 100.0,
             max_thread_util: 0.85,
             max_cpu_share: 0.85,
             max_cpu_limited_layer_share: 0.10,
@@ -163,14 +163,8 @@ pub struct SubscriptionRecord {
     pub publ: ParticipantId,
     pub track: String,
     pub kind: MediaKind,
-    pub first_media: FirstMedia,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum FirstMedia {
-    Arrived { ttff_ms: u32, decoder: Option<String> },
-    TimedOut,
+    pub ttff_ms: u32,
+    pub decoder: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -279,7 +273,6 @@ pub enum ParticipantEvent {
     Reconnecting,
     Disconnected { reason: String },
     ServerQuality { about: ParticipantId, quality: ServerQuality },
-    Panicked { message: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

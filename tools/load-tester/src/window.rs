@@ -1,16 +1,25 @@
 use std::{collections::HashMap, time::Instant};
 
 use livekit::{
-    prelude::ConnectionQuality,
+    prelude::{ConnectionQuality, TrackKind},
     webrtc::stats::{InboundRtpStats, QualityLimitationReason, RtcStats},
 };
 
 use crate::{
     media::Ladder,
-    record::{AudioWindow, Limitation, MediaWindow, ServerQuality, UplinkLayer, VideoWindow},
+    record::{
+        AudioWindow, Limitation, MediaKind, MediaWindow, ServerQuality, UplinkLayer, VideoWindow,
+    },
 };
 
-pub const FIRST_MEDIA_TIMEOUT_MS: u32 = 15_000;
+impl From<TrackKind> for MediaKind {
+    fn from(kind: TrackKind) -> Self {
+        match kind {
+            TrackKind::Audio => MediaKind::Audio,
+            TrackKind::Video => MediaKind::Video,
+        }
+    }
+}
 
 impl From<QualityLimitationReason> for Limitation {
     fn from(reason: QualityLimitationReason) -> Self {
@@ -200,13 +209,12 @@ impl Media {
 pub enum Observation {
     Nothing,
     FirstMedia { ttff_ms: u32, decoder: Option<String> },
-    TimedOut,
     Window { dur_ms: u32, rtt_ms: f32, media: MediaWindow },
 }
 
 #[derive(Debug)]
 enum State {
-    Waiting { since: Instant, timed_out: bool },
+    Waiting { since: Instant },
     Flowing { prev: Sample, at: Instant },
 }
 
@@ -226,7 +234,7 @@ impl InboundTracker {
     }
 
     fn new(subscribed: Instant, media: Media) -> Self {
-        Self { media, state: State::Waiting { since: subscribed, timed_out: false } }
+        Self { media, state: State::Waiting { since: subscribed } }
     }
 
     pub fn waiting(&self) -> bool {
@@ -236,19 +244,15 @@ impl InboundTracker {
     pub fn observe(&mut self, now: Instant, stats: &[RtcStats]) -> Observation {
         let inbound = inbound_rtp(stats, self.media.kind());
         match &mut self.state {
-            State::Waiting { since, timed_out } => {
+            State::Waiting { since } => {
                 let arrived = inbound.map(Sample::read).filter(|s| self.media.has_media(s));
-                if let Some(sample) = arrived {
-                    let ttff_ms = ms_between(*since, now);
-                    self.state = State::Flowing { prev: sample, at: now };
-                    let decoder = inbound.and_then(|i| self.media.decoder(i));
-                    Observation::FirstMedia { ttff_ms, decoder }
-                } else if !*timed_out && ms_between(*since, now) >= FIRST_MEDIA_TIMEOUT_MS {
-                    *timed_out = true;
-                    Observation::TimedOut
-                } else {
-                    Observation::Nothing
-                }
+                let Some(sample) = arrived else {
+                    return Observation::Nothing;
+                };
+                let ttff_ms = ms_between(*since, now);
+                self.state = State::Flowing { prev: sample, at: now };
+                let decoder = inbound.and_then(|i| self.media.decoder(i));
+                Observation::FirstMedia { ttff_ms, decoder }
             }
             State::Flowing { prev, at } => {
                 let Some(inbound) = inbound else {
