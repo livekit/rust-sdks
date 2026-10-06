@@ -301,10 +301,9 @@ impl PeerTransport {
     /// sender exists. It grows with round-trip time and loss, which also mark the links where
     /// a 1 Mbps seed overshoots, so the cap ramps linearly from
     /// [`Self::MAX_START_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MAX_BITRATE`] down to
-    /// [`Self::MIN_TARGET_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MIN_BITRATE`]. Once the
-    /// cap is below the 1 Mbps ceiling it applies to screen share too: a connection that slow
-    /// cannot carry an uncapped screen-share seed either. Without a setup time (an offer
-    /// before the initial connect completed) the cap stays at the 1 Mbps ceiling.
+    /// [`Self::MIN_TARGET_BITRATE_KBPS`] at [`Self::SETUP_TIME_FOR_MIN_BITRATE`]. Screen
+    /// share is exempt from this ramp as well, however slow the setup. Without a setup time
+    /// (an offer before the initial connect completed) the cap stays at the 1 Mbps ceiling.
     ///
     /// Returns None if no target bitrate is set (initial offer before track publish) or if
     /// the target is below [`Self::MIN_TARGET_BITRATE_KBPS`].
@@ -332,7 +331,7 @@ impl PeerTransport {
         };
 
         let start_kbps = ((target_kbps as f64 * 0.9).round() as u32).min(target_kbps);
-        if is_screen_share && cap_kbps >= Self::MAX_START_BITRATE_KBPS {
+        if is_screen_share {
             Some(start_kbps)
         } else {
             Some(start_kbps.min(cap_kbps))
@@ -919,7 +918,7 @@ a=fmtp:111 minptime=10;useinbandfec=1\n";
     }
 
     #[test]
-    fn slow_connection_setup_caps_screen_share_too() {
+    fn slow_connection_setup_leaves_screen_share_uncapped() {
         let screen_share = |ms| {
             PeerTransport::compute_start_bitrate_kbps(
                 Some(3_000_000),
@@ -927,9 +926,9 @@ a=fmtp:111 minptime=10;useinbandfec=1\n";
                 Some(Duration::from_millis(ms)),
             )
         };
-        assert_eq!(screen_share(1273), Some(2700), "a fast setup leaves screen share uncapped");
-        assert_eq!(screen_share(2500), Some(650), "below the ceiling the cap applies to it too");
-        assert_eq!(screen_share(4061), Some(300), "the slowest setups seed it at the floor");
+        assert_eq!(screen_share(1273), Some(2700), "a fast setup");
+        assert_eq!(screen_share(2500), Some(2700), "mid-ramp");
+        assert_eq!(screen_share(4061), Some(2700), "past the slow anchor");
     }
 
     #[test]
