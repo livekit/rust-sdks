@@ -103,7 +103,8 @@ impl SignalStream {
     ///
     /// Never waits on the peer. The read task may be parked in `recv()` on a
     /// half-open socket that will never deliver another byte, and the write
-    /// task only exits once every sender is gone, so both are bounded here:
+    /// task only exits once every sender is gone, so both are bounded here,
+    /// and both are joined, so no task still holds the old socket on return:
     /// otherwise a dead link stalls the resume that needs the stream lock this
     /// close is called under, and `Room::close` with it.
     pub async fn close(self, notify_close: bool) {
@@ -118,6 +119,7 @@ impl SignalStream {
         let _ = read_handle.await;
         if tokio::time::timeout(CLOSE_TIMEOUT, &mut write_handle).await.is_err() {
             write_handle.abort();
+            let _ = write_handle.await;
         }
     }
 
@@ -213,6 +215,34 @@ mod tests {
             std::future::pending().await
         }
         async fn close(&self) {}
+    }
+
+    /// A peer that never finishes closing: the writer stalls in `close()`.
+    struct StalledCloseConn;
+
+    #[async_trait::async_trait]
+    impl WsConnection for StalledCloseConn {
+        async fn send(&self, _frame: Vec<u8>) -> Result<(), TransportError> {
+            Ok(())
+        }
+        async fn recv(&self) -> Result<Option<Vec<u8>>, TransportError> {
+            std::future::pending().await
+        }
+        async fn close(&self) {
+            std::future::pending::<()>().await
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn close_releases_the_connection_before_returning() {
+        let conn = Arc::new(StalledCloseConn);
+        let (stream, _events) = SignalStream::spawn(conn.clone());
+        tokio::time::timeout(CLOSE_TIMEOUT + Duration::from_secs(2), stream.close(true))
+            .await
+            .expect("close hung on a writer stalled in close()");
+        // Both tasks are gone, so nothing still holds the old socket when the
+        // caller dials a replacement.
+        assert_eq!(Arc::strong_count(&conn), 1, "a stream task still holds the connection");
     }
 
     #[tokio::test]
