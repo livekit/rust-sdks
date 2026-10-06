@@ -8,9 +8,9 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use load_tester::{
-    media::{Codec, VideoProfile},
-    record::{now_ms, Settings, Slo, TesterLimits, WorkerInit},
-    report::{self, SloOverrides},
+    config,
+    record::{now_ms, WorkerInit},
+    report,
 };
 use tokio::runtime::Builder;
 
@@ -32,73 +32,51 @@ struct Cli {
 enum Cmd {
     /// Ramp participants in steps and report the largest step where every SLO held.
     Run(Box<RunArgs>),
-    /// Re-score the JSONL file of an earlier run, optionally with different SLOs.
+    /// Re-score the JSONL file of an earlier run; --config and --set re-judge it with other
+    /// [slo], [limits] and [scoring] values, and the file's other sections are ignored.
     Report(ReportArgs),
     #[command(hide = true)]
     Worker(WorkerArgs),
 }
 
 #[derive(Args)]
+struct ConfigArgs {
+    /// TOML config file; load-test.example.toml lists every key with its default.
+    #[arg(long = "config", value_name = "FILE")]
+    path: Option<PathBuf>,
+    /// Set one config key to a TOML value, applied after the file. Repeatable:
+    /// --set steps=[10,20,40] --set video.codec=av1 --set slo.audio_mos_floor=3.8
+    #[arg(long, value_name = "KEY=VALUE")]
+    set: Vec<String>,
+}
+
+impl ConfigArgs {
+    fn file(&self) -> anyhow::Result<Option<toml::Table>> {
+        self.path.as_deref().map(config::read).transpose()
+    }
+}
+
+#[derive(Args)]
 struct RunArgs {
-    /// Server URL (ws:// or wss://).
+    #[command(flatten)]
+    config: ConfigArgs,
+    /// Server URL (ws:// or wss://); beats the config file and --set.
     #[arg(long, env = "LIVEKIT_URL")]
-    url: String,
+    url: Option<String>,
     #[arg(long, env = "LIVEKIT_API_KEY", hide_env_values = true)]
     api_key: String,
     #[arg(long, env = "LIVEKIT_API_SECRET", hide_env_values = true)]
     api_secret: String,
-    #[arg(long, default_value = "load-test")]
-    room: String,
-    /// Participants 0..N publish a mic and a camera; they join first.
-    #[arg(long, default_value_t = 4)]
-    publishers: u32,
-    /// Participants per step, strictly increasing.
-    #[arg(long, value_delimiter = ',', default_value = "10,20,30,40,50,60,70,80,90,100")]
-    steps: Vec<u32>,
-    /// Camera width.
-    #[arg(long, default_value_t = 1280, value_parser = clap::value_parser!(u32).range(1..))]
-    width: u32,
-    /// Camera height.
-    #[arg(long, default_value_t = 720, value_parser = clap::value_parser!(u32).range(1..))]
-    height: u32,
-    /// Camera frame rate.
-    #[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u32).range(1..))]
-    fps: u32,
-    #[arg(long, value_enum, default_value_t = Codec::Vp8)]
-    codec: Codec,
-    /// Each participant watches video from the first N publishers.
-    #[arg(long, default_value_t = 9)]
-    tiles: u32,
-    /// Height the subscriber asks the SFU for. Default: the camera height.
-    #[arg(long)]
-    tile_height: Option<u32>,
-    /// Skip video decoding in workers so one machine holds more subscribers.
-    #[arg(long)]
-    null_decoder: bool,
-    /// Worker processes, each with its own WebRTC runtime. Default: cores / 4, at least 1.
-    #[arg(long, default_value_t = default_workers(), value_parser = clap::value_parser!(u16).range(1..))]
-    workers: u16,
-    /// Joins per second.
-    #[arg(long, default_value_t = 5.0)]
-    join_rate: f32,
-    /// Seconds between the last join of a step and the start of measurement.
-    #[arg(long, default_value_t = 10)]
-    settle_s: u32,
-    /// Seconds each step is measured.
-    #[arg(long, default_value_t = 30)]
-    hold_s: u32,
     /// JSONL output file. Default: load-test-<unix seconds>.jsonl
     #[arg(long)]
     out: Option<PathBuf>,
-    #[command(flatten)]
-    slo: SloOverrides,
 }
 
 #[derive(Args)]
 struct ReportArgs {
     file: PathBuf,
     #[command(flatten)]
-    slo: SloOverrides,
+    config: ConfigArgs,
 }
 
 #[derive(Args)]
@@ -109,53 +87,16 @@ struct WorkerArgs {
 
 impl RunArgs {
     fn into_config(self) -> anyhow::Result<RunConfig> {
-        let increasing = self.steps.windows(2).all(|w| w[0] < w[1]);
-        anyhow::ensure!(
-            self.steps.first().is_some_and(|&first| first > 0) && increasing,
-            "--steps must be positive and strictly increasing"
-        );
-        anyhow::ensure!(
-            self.publishers <= self.steps[0],
-            "--publishers {} must fit in the first step ({})",
-            self.publishers,
-            self.steps[0]
-        );
-        anyhow::ensure!(self.join_rate > 0.0, "--join-rate must be positive");
-        let video = VideoProfile {
-            width: self.width,
-            height: self.height,
-            fps: self.fps,
-            codec: self.codec,
-        };
+        let settings = config::run_settings(self.config.file()?, &self.config.set, self.url)?;
         Ok(RunConfig {
             api_key: self.api_key,
             api_secret: self.api_secret,
             out: self
                 .out
                 .unwrap_or_else(|| PathBuf::from(format!("load-test-{}.jsonl", now_ms() / 1000))),
-            settings: Settings {
-                url: self.url,
-                room: self.room,
-                publishers: self.publishers,
-                steps: self.steps,
-                video,
-                tiles: self.tiles,
-                tile_height: self.tile_height.unwrap_or(video.height),
-                null_video_decoder: self.null_decoder,
-                workers: self.workers,
-                join_rate: self.join_rate,
-                settle_s: self.settle_s,
-                hold_s: self.hold_s,
-                slo: self.slo.apply(Slo::default()),
-                limits: TesterLimits::default(),
-            },
+            settings,
         })
     }
-}
-
-fn default_workers() -> u16 {
-    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-    (cores / 4).clamp(1, u16::MAX as usize) as u16
 }
 
 fn main() -> anyhow::Result<()> {
@@ -165,7 +106,15 @@ fn main() -> anyhow::Result<()> {
             Builder::new_current_thread().enable_all().build()?.block_on(run::run(cfg))
         }
         Cmd::Report(args) => {
-            print!("{}", report::read_file(&args.file, &args.slo)?);
+            let file = args.config.file()?;
+            let report =
+                report::read_file(&args.file, |s| config::rejudge(s, file, &args.config.set))?;
+            let path = args.config.path.iter().map(|p| p.display().to_string());
+            let overrides: Vec<String> = path.chain(args.config.set.iter().cloned()).collect();
+            if !overrides.is_empty() {
+                println!("judged with {} over the run's recorded criteria\n", overrides.join(", "));
+            }
+            print!("{report}");
             Ok(())
         }
         Cmd::Worker(args) => {

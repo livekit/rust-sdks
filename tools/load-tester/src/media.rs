@@ -30,6 +30,7 @@ const TONE_HZ: f32 = 500.0;
 const TONE_AMPLITUDE: f32 = 0.3 * i16::MAX as f32;
 const RING_FRAMES: usize = 16;
 const RING_SHIFT: usize = 256 / RING_FRAMES;
+const SVC_MODE: &str = "L3T3_KEY";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -38,6 +39,12 @@ pub enum Codec {
     H264,
     Vp9,
     Av1,
+}
+
+impl Codec {
+    fn is_svc(self) -> bool {
+        matches!(self, Codec::Vp9 | Codec::Av1)
+    }
 }
 
 impl fmt::Display for Codec {
@@ -58,11 +65,29 @@ impl From<Codec> for VideoCodec {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VideoProfile {
     pub width: u32,
     pub height: u32,
     pub fps: u32,
     pub codec: Codec,
+    pub layered: bool,
+}
+
+impl Default for VideoProfile {
+    fn default() -> Self {
+        Self { width: 1280, height: 720, fps: 30, codec: Codec::Vp8, layered: true }
+    }
+}
+
+impl VideoProfile {
+    pub(crate) fn layering(&self) -> &'static str {
+        match (self.layered, self.codec.is_svc()) {
+            (false, _) => "single layer",
+            (true, false) => "simulcast",
+            (true, true) => "svc",
+        }
+    }
 }
 
 impl fmt::Display for VideoProfile {
@@ -71,11 +96,36 @@ impl fmt::Display for VideoProfile {
     }
 }
 
-pub fn publish_options(profile: &VideoProfile) -> TrackPublishOptions {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AudioProfile {
+    pub red: bool,
+    pub dtx: bool,
+}
+
+impl Default for AudioProfile {
+    fn default() -> Self {
+        let sdk = TrackPublishOptions::default();
+        Self { red: sdk.red, dtx: sdk.dtx }
+    }
+}
+
+pub fn audio_options(profile: &AudioProfile) -> TrackPublishOptions {
+    TrackPublishOptions {
+        source: TrackSource::Microphone,
+        red: profile.red,
+        dtx: profile.dtx,
+        ..Default::default()
+    }
+}
+
+pub fn video_options(profile: &VideoProfile) -> TrackPublishOptions {
+    let svc = profile.layered && profile.codec.is_svc();
     TrackPublishOptions {
         source: TrackSource::Camera,
-        simulcast: true,
         video_codec: profile.codec.into(),
+        simulcast: profile.layered,
+        scalability_mode: svc.then(|| SVC_MODE.to_string()),
         ..Default::default()
     }
 }
@@ -91,21 +141,24 @@ pub struct Ladder(Vec<Layer>);
 
 impl Ladder {
     pub fn of(profile: &VideoProfile) -> Self {
-        let max_fps = profile.fps as f32;
-        let encodings =
-            compute_video_encodings(profile.width, profile.height, &publish_options(profile));
-        let mut layers: Vec<Layer> =
-            video_layers_from_encodings(profile.width, profile.height, &encodings)
+        let options = video_options(profile);
+        let encodings = compute_video_encodings(profile.width, profile.height, &options);
+        let heights = video_layers_from_encodings(profile.width, profile.height, &encodings);
+        let capped = |max_framerate: Option<f64>| {
+            let max_fps = profile.fps as f32;
+            max_framerate.map_or(max_fps, |f| (f as f32).min(max_fps))
+        };
+        let mut layers: Vec<Layer> = if options.scalability_mode.is_some() {
+            // every spatial layer rides in the one encoding, so they all run at its frame rate
+            let fps = capped(encodings.first().and_then(|e| e.max_framerate));
+            heights.iter().map(|l| Layer { height: l.height, fps }).collect()
+        } else {
+            heights
                 .iter()
                 .zip(&encodings)
-                .map(|(layer, encoding)| Layer {
-                    height: layer.height,
-                    fps: encoding.max_framerate.map_or(max_fps, |f| (f as f32).min(max_fps)),
-                })
-                .collect();
-        if layers.is_empty() {
-            layers.push(Layer { height: profile.height, fps: max_fps });
-        }
+                .map(|(l, e)| Layer { height: l.height, fps: capped(e.max_framerate) })
+                .collect()
+        };
         layers.sort_by_key(|l| Reverse(l.height));
         Self(layers)
     }
@@ -246,12 +299,27 @@ fn skip_past(mut next: Instant, period: Duration, now: Instant) -> Instant {
 
 #[cfg(test)]
 pub(crate) fn test_profile(height: u32, fps: u32) -> VideoProfile {
-    VideoProfile { width: height * 16 / 9, height, fps, codec: Codec::Vp8 }
+    VideoProfile { width: height * 16 / 9, height, fps, ..Default::default() }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn svc_codecs_publish_one_encoding_whose_spatial_layers_share_its_frame_rate() {
+        for codec in [Codec::Vp9, Codec::Av1] {
+            let profile = VideoProfile { codec, ..test_profile(720, 30) };
+            assert_eq!(profile.layering(), "svc");
+            let options = video_options(&profile);
+            assert_eq!(options.scalability_mode.as_deref(), Some(SVC_MODE));
+            assert_eq!(compute_video_encodings(1280, 720, &options).len(), 1, "{codec}");
+            let ladder = Ladder::of(&profile);
+            let heights: Vec<u32> = ladder.0.iter().map(|l| l.height).collect();
+            assert_eq!(heights, [720, 360, 180], "{codec}");
+            assert!(ladder.0.iter().all(|l| l.fps == 30.0), "{codec}: {:?}", ladder.0);
+        }
+    }
 
     #[test]
     fn rungs_are_ladder_steps_not_height_halvings() {

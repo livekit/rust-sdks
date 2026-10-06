@@ -10,44 +10,13 @@ use anyhow::{bail, Context};
 use crate::{
     record::{
         HealthRecord, JoinOutcome, Limitation, MediaKind, MediaWindow, ParticipantEvent,
-        ParticipantId, Record, RunHeader, ServerQuality, Slo, StepRecord, TesterLimits, ThreadLoad,
-        WorkerExitRecord, NULL_DECODER,
+        ParticipantId, Record, RunHeader, ServerQuality, Settings, Slo, StepRecord, TesterLimits,
+        ThreadLoad, WorkerExitRecord, NULL_DECODER,
     },
     score::{self, Reason, Score},
 };
 
 const WORST_LISTED: usize = 5;
-
-#[derive(Clone, Debug, Default, clap::Args)]
-pub struct SloOverrides {
-    /// Join failures tolerated per step.
-    #[arg(long)]
-    pub slo_join_failures: Option<u32>,
-    /// Join latency p95 ceiling in milliseconds.
-    #[arg(long)]
-    pub slo_join_p95_ms: Option<u32>,
-    /// Time-to-first-media p95 ceiling in milliseconds.
-    #[arg(long)]
-    pub slo_ttff_p95_ms: Option<u32>,
-    /// Audio MOS floor that 95% of windows must reach.
-    #[arg(long)]
-    pub slo_audio_mos: Option<f32>,
-    /// Stalled share of a window that 95% of video windows must stay under (0.05 = 5%).
-    #[arg(long)]
-    pub slo_video_stall: Option<f32>,
-}
-
-impl SloOverrides {
-    pub fn apply(&self, base: Slo) -> Slo {
-        Slo {
-            max_join_failures: self.slo_join_failures.unwrap_or(base.max_join_failures),
-            join_p95_ms: self.slo_join_p95_ms.unwrap_or(base.join_p95_ms),
-            ttff_p95_ms: self.slo_ttff_p95_ms.unwrap_or(base.ttff_p95_ms),
-            audio_mos_floor: self.slo_audio_mos.unwrap_or(base.audio_mos_floor),
-            video_stall_ceiling: self.slo_video_stall.unwrap_or(base.video_stall_ceiling),
-        }
-    }
-}
 
 enum Tail {
     Low,
@@ -140,6 +109,7 @@ pub struct StepReport {
     pub audio: Option<ScoreRollup>,
     pub video: Option<ScoreRollup>,
     pub stalled_share: Option<Rollup>,
+    pub one_way_delay_ms: Option<Rollup>,
     pub participants: Vec<ParticipantRollup>,
     pub server_poor: u32,
     pub server_lost: u32,
@@ -175,7 +145,6 @@ pub struct RunReport {
 
 pub struct Ledger {
     header: RunHeader,
-    slo: Slo,
     roster: BTreeSet<ParticipantId>,
     pending: Vec<Record>,
     steps: Vec<StepReport>,
@@ -188,9 +157,8 @@ struct Scores {
 }
 
 impl Ledger {
-    pub fn new(header: RunHeader, overrides: &SloOverrides) -> Self {
-        let slo = overrides.apply(header.settings.slo);
-        Self { header, slo, roster: BTreeSet::new(), pending: Vec::new(), steps: Vec::new() }
+    pub fn new(header: RunHeader) -> Self {
+        Self { header, roster: BTreeSet::new(), pending: Vec::new(), steps: Vec::new() }
     }
 
     pub fn push(&mut self, record: Record) -> Option<&StepReport> {
@@ -227,6 +195,7 @@ impl Ledger {
         let mut server_quality = BTreeMap::new();
         let mut scores: BTreeMap<ParticipantId, Scores> = BTreeMap::new();
         let mut stalled = Vec::new();
+        let mut delays = Vec::new();
         let mut delivered = BTreeSet::new();
         let (mut cpu_limited, mut uplink_layers) = (0u32, 0u32);
 
@@ -254,7 +223,8 @@ impl Ledger {
                     }
                 },
                 Record::Window(w) if step.measures(w.at, w.dur_ms) => {
-                    let scored = score::score(w);
+                    let scored = settings.scoring.score(w);
+                    delays.push(score::one_way_delay_ms(w));
                     let of_sub = scores.entry(w.sub).or_default();
                     match &w.media {
                         MediaWindow::Audio(_) => {
@@ -307,6 +277,7 @@ impl Ledger {
         report.join_ms = Rollup::of(&mut join_ms, Tail::High);
         report.ttff_ms = Rollup::of(&mut ttff_ms, Tail::High);
         report.stalled_share = Rollup::of(&mut stalled, Tail::High);
+        report.one_way_delay_ms = Rollup::of(&mut delays, Tail::High);
         report.server_poor = count_quality(&server_quality, ServerQuality::Poor);
         report.server_lost = count_quality(&server_quality, ServerQuality::Lost);
         let cores = self.header.cores.max(1) as f32;
@@ -320,7 +291,7 @@ impl Ledger {
         report.verdict = if !issues.is_empty() {
             Verdict::Invalid(issues)
         } else {
-            let found = breaches(&report, &self.slo);
+            let found = breaches(&report, &settings.slo);
             if found.is_empty() {
                 Verdict::Pass
             } else {
@@ -343,11 +314,14 @@ fn breaches(report: &StepReport, slo: &Slo) -> Vec<String> {
             report.join_failures, slo.max_join_failures
         ));
     }
-    if report.disconnects > 0 {
-        found.push(format!("{} disconnects", report.disconnects));
+    if report.disconnects > slo.max_disconnects {
+        found.push(format!("{} disconnects > {} allowed", report.disconnects, slo.max_disconnects));
     }
-    if report.missing_subscriptions > 0 {
-        found.push(format!("{} subscriptions never delivered media", report.missing_subscriptions));
+    if report.missing_subscriptions > slo.max_missing_subscriptions {
+        found.push(format!(
+            "{} subscriptions never delivered media > {} allowed",
+            report.missing_subscriptions, slo.max_missing_subscriptions
+        ));
     }
     if let Some(tail) = report.join_ms.map(|r| r.tail).filter(|t| *t > slo.join_p95_ms as f32) {
         found.push(format!("join p95 {} > {}", secs(tail), secs(slo.join_p95_ms as f32)));
@@ -360,6 +334,11 @@ fn breaches(report: &StepReport, slo: &Slo) -> Vec<String> {
     {
         found.push(format!("audio MOS p95 {mos:.2} < {:.2}", slo.audio_mos_floor));
     }
+    if let (Some(floor), Some(video)) = (slo.video_score_floor, &report.video) {
+        if video.score.tail < floor {
+            found.push(format!("video score p95 {:.0} < {floor:.0}", video.score.tail));
+        }
+    }
     if let Some(tail) =
         report.stalled_share.map(|r| r.tail).filter(|t| *t > slo.video_stall_ceiling)
     {
@@ -368,6 +347,11 @@ fn breaches(report: &StepReport, slo: &Slo) -> Vec<String> {
             tail * 100.0,
             slo.video_stall_ceiling * 100.0
         ));
+    }
+    if let (Some(ceiling), Some(delay)) = (slo.delay_ceiling_ms, report.one_way_delay_ms) {
+        if delay.tail > ceiling {
+            found.push(format!("one-way delay p95 {:.0}ms > {ceiling:.0}ms", delay.tail));
+        }
     }
     found
 }
@@ -572,14 +556,15 @@ impl fmt::Display for RunReport {
         let s = &self.header.settings;
         writeln!(
             f,
-            "workers {} ({} video decoder)  publishers {} x {} {} simulcast  tiles {} @ {}p  hold {}s",
+            "workers {} ({} video decoder)  publishers {} x {} {} {}  tiles {} @ {}p  hold {}s",
             s.workers,
             if s.null_video_decoder { "null" } else { "real" },
             s.publishers,
             s.video,
             s.video.codec,
+            s.video.layering(),
             s.tiles,
-            s.tile_height,
+            s.tile_height(),
             s.hold_s
         )?;
         writeln!(f)?;
@@ -615,17 +600,22 @@ impl fmt::Display for RunReport {
     }
 }
 
-pub fn read_file(path: &Path, overrides: &SloOverrides) -> anyhow::Result<RunReport> {
+/// Re-scores a run's JSONL file after `rejudge` adjusts the settings recorded in its header.
+pub fn read_file(
+    path: &Path,
+    rejudge: impl FnOnce(&mut Settings) -> anyhow::Result<()>,
+) -> anyhow::Result<RunReport> {
     let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut records =
         serde_json::Deserializer::from_reader(BufReader::new(file)).into_iter::<Record>();
-    let header = match records.next() {
+    let mut header = match records.next() {
         Some(Ok(Record::Run(header))) => header,
         Some(Ok(_)) | None => bail!("{}: line 1 must be the run header", path.display()),
         Some(Err(e)) => bail!("{}:{}: {e}", path.display(), e.line()),
     };
 
-    let mut ledger = Ledger::new(header, overrides);
+    rejudge(&mut header.settings)?;
+    let mut ledger = Ledger::new(header);
     for record in records {
         match record {
             Ok(record) => {

@@ -15,7 +15,7 @@ use load_tester::{
         now_ms, JoinCommand, ParticipantId, Record, RunHeader, Settings, StepRecord,
         WorkerExitRecord, WorkerInit,
     },
-    report::{self, Ledger, RunReport, SloOverrides, StepReport, Verdict},
+    report::{self, Ledger, RunReport, StepReport, Verdict},
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -119,7 +119,7 @@ struct Recorder {
 impl Recorder {
     fn create(path: &Path, header: RunHeader) -> anyhow::Result<Self> {
         let file = File::create(path).with_context(|| format!("creating {}", path.display()))?;
-        let ledger = Ledger::new(header.clone(), &SloOverrides::default());
+        let ledger = Ledger::new(header.clone());
         let mut recorder = Self { file: BufWriter::new(file), ledger };
         recorder.write(&Record::Run(header))?;
         Ok(recorder)

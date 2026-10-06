@@ -1,0 +1,83 @@
+# Every key at its default; url has none and workers and tile_height are derived, so those three are commented out.
+
+# required unless --url or LIVEKIT_URL gives it
+# url = "wss://your-project.livekit.cloud"
+room = "load-test"
+# participants 0..publishers publish a mic and a camera; they join first
+publishers = 4
+# participants per step, strictly increasing
+steps = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+# each participant watches video from the first N publishers; other video stays subscribed but unforwarded
+tiles = 9
+# height the subscriber asks the SFU for; derived from the camera height
+# tile_height = 720
+# skip video decoding in workers so one machine holds more subscribers
+null_video_decoder = false
+# worker processes, each with its own WebRTC runtime; derived as cores / 4, at least 1
+# workers = 2
+# joins per second
+join_rate = 5.0
+# seconds between the last join of a step and the start of measurement
+settle_s = 10
+# seconds each step is measured
+hold_s = 30
+
+[video]
+width = 1280
+height = 720
+fps = 30
+# vp8 | h264 | vp9 | av1
+codec = "vp8"
+# vp8 and h264 publish simulcast, 3 encodings when max(width, height) >= 960, 2 from 480, 1 below;
+# vp9 and av1 publish one L3T3_KEY SVC encoding; false publishes a single layer
+layered = true
+
+[audio]
+# redundant audio (RFC 2198) and discontinuous transmission, at the SDK's defaults
+red = true
+dtx = true
+
+# a step passes when every SLO holds
+[slo]
+max_join_failures = 0
+max_disconnects = 0
+max_missing_subscriptions = 0
+# p95 join and time-to-first-media latency, at most
+join_p95_ms = 5000
+ttff_p95_ms = 3000
+# 95% of audio windows reach at least this MOS
+audio_mos_floor = 3.5
+# 95% of video windows spend at most this share of their duration stalled (0.05 is 5%)
+video_stall_ceiling = 0.05
+# off unless set: 95% of video windows score at least this, 0 to 100
+# video_score_floor = 80.0
+# off unless set: 95% of audio and video windows have at most this one-way delay in ms,
+# rtt / 2 plus the mean jitter-buffer delay
+# delay_ceiling_ms = 400.0
+
+# a step is invalid, not failed, when the tester itself crosses one of these
+[limits]
+max_lag_ms = 100.0
+max_thread_util = 0.85
+max_cpu_share = 0.85
+max_cpu_limited_layer_share = 0.1
+
+# points taken off a window's 0..100 score; (sfu) marks the SFU's connection-quality defaults.
+# video_loss_weight, layer_step_penalty, fps_step_penalty and freeze_weight shape only the video
+# score, which judges a step only when slo.video_score_floor is set.
+[scoring]
+# (sfu) per 1% of audio samples concealed
+audio_concealment_weight = 8.0
+# (sfu) per 1% of video packets lost
+video_loss_weight = 10.0
+# (sfu) per layer below the one the subscriber asked for
+layer_step_penalty = 35.0
+# per halving of the received layer's frame rate
+fps_step_penalty = 35.0
+# per 1% of the window spent stalled
+freeze_weight = 4.0
+# (sfu) one-way delay costs a point per delay_ms_per_point_below_knee ms up to the knee, then a
+# point per delay_ms_per_point_above_knee ms beyond it
+delay_knee_ms = 160.0
+delay_ms_per_point_below_knee = 40.0
+delay_ms_per_point_above_knee = 10.0

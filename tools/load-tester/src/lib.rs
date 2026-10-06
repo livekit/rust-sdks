@@ -1,3 +1,4 @@
+pub mod config;
 pub mod media;
 pub mod record;
 pub mod report;

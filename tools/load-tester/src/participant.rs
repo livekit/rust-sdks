@@ -5,7 +5,6 @@ use std::{
 };
 
 use livekit::{
-    options::TrackPublishOptions,
     prelude::*,
     webrtc::{
         audio_source::{native::NativeAudioSource, AudioSourceOptions},
@@ -76,7 +75,6 @@ impl Participant {
 
     async fn join(id: ParticipantId, token: &str, ctx: &Arc<Ctx>) -> anyhow::Result<(Self, u32)> {
         let mut options = RoomOptions::default();
-        options.auto_subscribe = false;
         options.dynacast = true;
         let started = Instant::now();
         let (room, events) = Room::connect(&ctx.settings.url, token, options).await?;
@@ -87,11 +85,6 @@ impl Participant {
             if let Err(e) = participant.publish().await {
                 participant.close().await;
                 return Err(e.into());
-            }
-        }
-        for remote in participant.room.remote_participants().values() {
-            for publication in remote.track_publications().values() {
-                participant.subscribe_if_wanted(remote, publication);
             }
         }
         Ok((participant, connect_ms))
@@ -108,14 +101,10 @@ impl Participant {
         let camera =
             LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(video.clone()));
         let local = self.room.local_participant();
+        let audio_options = media::audio_options(&self.ctx.settings.audio);
+        local.publish_track(LocalTrack::Audio(mic.clone()), audio_options).await?;
         local
-            .publish_track(
-                LocalTrack::Audio(mic.clone()),
-                TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
-            )
-            .await?;
-        local
-            .publish_track(LocalTrack::Video(camera.clone()), media::publish_options(&profile))
+            .publish_track(LocalTrack::Video(camera.clone()), media::video_options(&profile))
             .await?;
         self.ctx.publishers.add(self.id, audio, video);
         self.uplinks = vec![
@@ -123,19 +112,6 @@ impl Participant {
             Uplink { track: LocalTrack::Video(camera), tracker: Default::default() },
         ];
         Ok(())
-    }
-
-    fn subscribe_if_wanted(
-        &self,
-        participant: &RemoteParticipant,
-        publication: &RemoteTrackPublication,
-    ) {
-        let settings = &self.ctx.settings;
-        let wanted = ParticipantId::parse(&participant.identity().0)
-            .is_some_and(|publ| settings.wants(self.id, publ, publication.kind().into()));
-        if wanted {
-            publication.set_subscribed(true);
-        }
     }
 
     async fn serve(mut self) {
@@ -166,9 +142,6 @@ impl Participant {
 
     async fn on_event(&mut self, event: RoomEvent) -> bool {
         match event {
-            RoomEvent::TrackPublished { publication, participant } => {
-                self.subscribe_if_wanted(&participant, &publication);
-            }
             RoomEvent::TrackSubscribed { track, publication, participant } => {
                 self.subscribed(track, &publication, &participant);
             }
@@ -197,14 +170,20 @@ impl Participant {
         publication: &RemoteTrackPublication,
         participant: &RemoteParticipant,
     ) {
-        let Some(publ) = ParticipantId::parse(&participant.identity().0) else {
+        let settings = &self.ctx.settings;
+        let kind = MediaKind::from(track.kind());
+        let wanted = ParticipantId::parse(&participant.identity().0)
+            .filter(|&publ| settings.wants(self.id, publ, kind));
+        let Some(publ) = wanted else {
+            if kind == MediaKind::Video {
+                keep_subscribed_but_unforwarded(publication);
+            }
             return;
         };
-        let settings = &self.ctx.settings;
-        let tracker = match MediaKind::from(track.kind()) {
+        let tracker = match kind {
             MediaKind::Audio => InboundTracker::audio(Instant::now()),
             MediaKind::Video => {
-                let tile_height = settings.tile_height;
+                let tile_height = settings.tile_height();
                 if tile_height != settings.video.height {
                     let tile_width = tile_height * settings.video.width / settings.video.height;
                     publication.update_video_dimensions(TrackDimension(tile_width, tile_height));
@@ -275,4 +254,8 @@ impl Participant {
         let record = Record::Event(EventRecord { at: now_ms(), id: self.id, event });
         let _ = self.ctx.out.send(record).await;
     }
+}
+
+fn keep_subscribed_but_unforwarded(publication: &RemoteTrackPublication) {
+    publication.set_enabled(false);
 }

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use load_tester::report::{read_file, Capacity, SloOverrides, Verdict};
+use load_tester::report::{read_file, Capacity, Verdict};
 
 fn fixture() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ramp.jsonl"))
@@ -8,7 +8,7 @@ fn fixture() -> &'static Path {
 
 #[test]
 fn ramp_fixture_yields_pass_then_fail_then_invalid() {
-    let report = read_file(fixture(), &SloOverrides::default()).expect("fixture parses");
+    let report = read_file(fixture(), |_| Ok(())).expect("fixture parses");
     assert_eq!(report.steps.len(), 3);
 
     assert!(matches!(report.steps[0].verdict, Verdict::Pass), "{:?}", report.steps[0].verdict);
