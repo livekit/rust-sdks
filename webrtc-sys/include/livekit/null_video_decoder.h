@@ -34,6 +34,7 @@ class NullVideoDecoder : public webrtc::VideoDecoder {
 
  private:
   webrtc::DecodedImageCallback* callback_ = nullptr;
+  webrtc::VideoCodecType codec_type_ = webrtc::kVideoCodecGeneric;
   // Only keyframes carry a size; delta frames reuse the last one seen.
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer_;
 };

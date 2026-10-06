@@ -13,10 +13,7 @@
 // limitations under the License.
 
 #[cfg(feature = "__lk-e2e-test")]
-use {
-    anyhow::Result,
-    common::decode_stats::{assert_inbound_tracks_outbound, stream_with_capture_gap},
-};
+use {anyhow::Result, common::decode_stats::run_codec_matrix};
 
 mod common;
 
@@ -24,8 +21,5 @@ mod common;
 #[test_log::test(tokio::test)]
 async fn null_video_decoder_keeps_inbound_stats() -> Result<()> {
     livekit::webrtc::enable_null_video_decoder()?;
-    let (outbound, inbound) = stream_with_capture_gap().await?;
-    assert_eq!(inbound.inbound.decoder_implementation, "NullVideoDecoder");
-    assert_inbound_tracks_outbound(&outbound, &inbound);
-    Ok(())
+    run_codec_matrix(|decoder| decoder == "NullVideoDecoder").await
 }

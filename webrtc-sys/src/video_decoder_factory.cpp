@@ -71,8 +71,13 @@ bool IsInternalH264DecoderAvailable() {
 }  // namespace
 
 VideoDecoderFactory::VideoDecoderFactory(bool null_decoder)
-    : internal_h264_decoder_works_(IsInternalH264DecoderAvailable()),
+    : use_internal_h264_decoder_(!null_decoder &&
+                                 IsInternalH264DecoderAvailable()),
       null_decoder_(null_decoder) {
+  if (null_decoder_) {
+    return;
+  }
+
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
 #endif
@@ -87,7 +92,7 @@ VideoDecoderFactory::VideoDecoderFactory(bool null_decoder)
   }
 #endif
 
-  if (!internal_h264_decoder_works_) {
+  if (!use_internal_h264_decoder_) {
     RTC_LOG(LS_WARNING) << "Internal H264 decoder is unavailable, "
                            "not advertising its formats";
   }
@@ -107,7 +112,7 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
   for (const webrtc::SdpVideoFormat& format :
        webrtc::SupportedVP9DecoderCodecs())
     formats.push_back(format);
-  if (internal_h264_decoder_works_) {
+  if (null_decoder_ || use_internal_h264_decoder_) {
     for (const webrtc::SdpVideoFormat& h264_format :
          webrtc::SupportedH264DecoderCodecs()) {
       formats.push_back(h264_format);
@@ -175,7 +180,7 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
   if (absl::EqualsIgnoreCase(format.name, webrtc::kVp9CodecName))
     return webrtc::VP9Decoder::Create();
   if (absl::EqualsIgnoreCase(format.name, webrtc::kH264CodecName) &&
-      internal_h264_decoder_works_)
+      use_internal_h264_decoder_)
     return webrtc::H264Decoder::Create();
 
 

@@ -16,7 +16,7 @@
 use {
     anyhow::{anyhow, Ok, Result},
     common::{
-        decode_stats::{assert_inbound_tracks_outbound, stream_with_capture_gap},
+        decode_stats::run_codec_matrix,
         test_rooms,
         video::{SolidColorParams, SolidColorTrack},
     },
@@ -136,11 +136,7 @@ async fn test_video_with(params: VideoTestParams) -> Result<()> {
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn real_video_decoder_inbound_stats() -> Result<()> {
-    let (outbound, inbound) = stream_with_capture_gap().await?;
-    assert_ne!(inbound.inbound.decoder_implementation, "NullVideoDecoder");
-    assert!(!inbound.inbound.decoder_implementation.is_empty(), "no decoder reported");
-    assert_inbound_tracks_outbound(&outbound, &inbound);
-    Ok(())
+    run_codec_matrix(|decoder| !decoder.is_empty() && decoder != "NullVideoDecoder").await
 }
 
 #[cfg(feature = "__lk-e2e-test")]

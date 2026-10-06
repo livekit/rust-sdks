@@ -35,7 +35,7 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
 
  private:
   std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
-  const bool internal_h264_decoder_works_;
+  const bool use_internal_h264_decoder_;
   const bool null_decoder_;
 };
 }  // namespace livekit_ffi
