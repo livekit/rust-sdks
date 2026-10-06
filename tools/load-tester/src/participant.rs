@@ -26,7 +26,7 @@ use load_tester::{
 };
 use tokio::{
     sync::{mpsc, watch},
-    task::JoinSet,
+    task::{self, JoinSet},
     time::{interval_at, timeout, MissedTickBehavior},
 };
 
@@ -51,7 +51,7 @@ pub struct Participant {
     published_at: HashMap<TrackSid, Instant>,
     subs: HashMap<TrackSid, Subscription>,
     uplinks: Vec<Uplink>,
-    first_frames: JoinSet<(TrackSid, Option<Instant>)>,
+    first_frames: JoinSet<Option<Instant>>,
 }
 
 struct Subscription {
@@ -59,6 +59,7 @@ struct Subscription {
     kind: MediaKind,
     publ: ParticipantId,
     tracker: InboundTracker,
+    sink: task::Id,
 }
 
 struct Uplink {
@@ -143,9 +144,9 @@ impl Participant {
                     Some(event) => if !self.on_event(event).await { break },
                     None => break,
                 },
-                Some(done) = self.first_frames.join_next() => {
-                    if let Ok((sid, Some(frame))) = done {
-                        if let Some(sub) = self.subs.get_mut(&sid) {
+                Some(done) = self.first_frames.join_next_with_id() => {
+                    if let Ok((sink, Some(frame))) = done {
+                        if let Some(sub) = self.subs.values_mut().find(|sub| sub.sink == sink) {
                             sub.tracker.first_frame(frame);
                             tick.reset_after(BASELINE_AFTER_FIRST_FRAME);
                         }
@@ -222,8 +223,8 @@ impl Participant {
         };
         let wait = Duration::from_secs((settings.settle_s + settings.hold_s).into());
         let rtc_id = track.rtc_track().id();
-        self.first_frames.spawn(first_frame(track, wait));
-        self.subs.insert(sid, Subscription { rtc_id, kind, publ, tracker });
+        let sink = self.first_frames.spawn(first_frame(track, wait)).id();
+        self.subs.insert(sid, Subscription { rtc_id, kind, publ, tracker, sink });
     }
 
     async fn sample(&mut self) {
@@ -288,7 +289,7 @@ fn keep_subscribed_but_unforwarded(publication: &RemoteTrackPublication) {
     publication.set_enabled(false);
 }
 
-async fn first_frame(track: RemoteTrack, wait: Duration) -> (TrackSid, Option<Instant>) {
+async fn first_frame(track: RemoteTrack, wait: Duration) -> Option<Instant> {
     let frame = async {
         match &track {
             // playout pulls zeroed frames before the first decode, and the tester's tone is never all zeros
@@ -303,5 +304,5 @@ async fn first_frame(track: RemoteTrack, wait: Duration) -> (TrackSid, Option<In
         }
     };
     let arrived = timeout(wait, frame).await.unwrap_or(false);
-    (track.sid(), arrived.then(Instant::now))
+    arrived.then(Instant::now)
 }
