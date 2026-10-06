@@ -32,31 +32,33 @@ lazy_static! {
 #[derive(Default)]
 struct LkRuntimeState {
     runtime: Weak<LkRuntime>,
-    zero_playout_delay: bool,
+    options: PeerConnectionFactoryOptions,
 }
 
+type OptionField = fn(&mut PeerConnectionFactoryOptions) -> &mut bool;
+
 impl LkRuntimeState {
-    fn enable_zero_playout_delay(
+    fn enable(
         &mut self,
-        active_runtime_zero_playout_delay: Option<bool>,
+        option: OptionField,
+        runtime_alive: bool,
     ) -> Result<(), WebRtcRuntimeInitializedError> {
-        if active_runtime_zero_playout_delay == Some(false) {
+        let field = option(&mut self.options);
+        if runtime_alive && !*field {
             return Err(WebRtcRuntimeInitializedError);
         }
-
-        self.zero_playout_delay = true;
+        *field = true;
         Ok(())
     }
 }
 
-/// Returned when zero playout delay is requested after the default WebRTC runtime is active.
+/// Returned when a runtime option is requested while a WebRTC runtime built without it is active.
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
-#[error("the WebRTC runtime is already initialized without zero playout delay")]
+#[error("the WebRTC runtime is already initialized without the requested option")]
 pub struct WebRtcRuntimeInitializedError;
 
 pub struct LkRuntime {
     pc_factory: PeerConnectionFactory,
-    zero_playout_delay: bool,
 }
 
 impl Debug for LkRuntime {
@@ -66,11 +68,18 @@ impl Debug for LkRuntime {
 }
 
 impl LkRuntime {
-    pub(crate) fn enable_zero_playout_delay() -> Result<(), WebRtcRuntimeInitializedError> {
+    fn enable(option: OptionField) -> Result<(), WebRtcRuntimeInitializedError> {
         let mut state = LK_RUNTIME.lock();
-        let active_runtime_zero_playout_delay =
-            state.runtime.upgrade().map(|runtime| runtime.zero_playout_delay);
-        state.enable_zero_playout_delay(active_runtime_zero_playout_delay)
+        let runtime_alive = state.runtime.strong_count() > 0;
+        state.enable(option, runtime_alive)
+    }
+
+    pub(crate) fn enable_zero_playout_delay() -> Result<(), WebRtcRuntimeInitializedError> {
+        Self::enable(|options| &mut options.zero_playout_delay)
+    }
+
+    pub(crate) fn enable_null_video_decoder() -> Result<(), WebRtcRuntimeInitializedError> {
+        Self::enable(|options| &mut options.null_video_decoder)
     }
 
     pub fn instance() -> Arc<LkRuntime> {
@@ -79,17 +88,18 @@ impl LkRuntime {
             lk_runtime
         } else {
             log::debug!("LkRuntime::new()");
-            let zero_playout_delay = state.zero_playout_delay;
             // WARP (SPED + SNAP) is always enabled. SPED is the factory field
             // trial enabled here; SNAP is carried on the RtcConfiguration (set
-            // in RtcSession). zero_playout_delay is independent and composed
+            // in RtcSession). The stored options are independent and composed
             // alongside WARP. Whether WARP actually engages is negotiated with
             // the server — it degrades to plain DTLS/SCTP if the peer opts out.
+            let mut options = state.options;
+            options.enable_warp = true;
             #[cfg(not(target_arch = "wasm32"))]
-            let pc_factory = PeerConnectionFactory::with_options(zero_playout_delay, true);
+            let pc_factory = PeerConnectionFactory::new(options);
             #[cfg(target_arch = "wasm32")]
             let pc_factory = PeerConnectionFactory::default();
-            let new_runtime = Arc::new(Self { pc_factory, zero_playout_delay });
+            let new_runtime = Arc::new(Self { pc_factory });
             state.runtime = Arc::downgrade(&new_runtime);
             new_runtime
         }
@@ -323,26 +333,26 @@ impl LkRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::{LkRuntimeState, WebRtcRuntimeInitializedError};
+    use super::*;
 
     #[test]
-    fn zero_playout_delay_can_be_enabled_early_and_repeated() {
+    fn option_can_be_enabled_early_and_repeated() {
         let mut state = LkRuntimeState::default();
 
-        assert_eq!(state.enable_zero_playout_delay(None), Ok(()));
-        assert!(state.zero_playout_delay);
-        assert_eq!(state.enable_zero_playout_delay(Some(true)), Ok(()));
+        assert_eq!(state.enable(|options| &mut options.null_video_decoder, false), Ok(()));
+        assert!(state.options.null_video_decoder);
+        assert_eq!(state.enable(|options| &mut options.null_video_decoder, true), Ok(()));
     }
 
     #[test]
-    fn zero_playout_delay_rejects_late_enable_on_default_runtime() {
+    fn option_rejects_late_enable_on_runtime_built_without_it() {
         let mut state = LkRuntimeState::default();
 
         assert_eq!(
-            state.enable_zero_playout_delay(Some(false)),
+            state.enable(|options| &mut options.zero_playout_delay, true),
             Err(WebRtcRuntimeInitializedError)
         );
-        assert!(!state.zero_playout_delay);
+        assert!(!state.options.zero_playout_delay);
     }
 }
 

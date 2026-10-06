@@ -143,20 +143,10 @@ webrtc::Environment CreateEnvironment(bool zero_playout_delay,
 class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
-    std::shared_ptr<RtcRuntime> rtc_runtime)
-    : PeerConnectionFactory(std::move(rtc_runtime), false, false) {}
-
-PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    bool zero_playout_delay)
-    : PeerConnectionFactory(std::move(rtc_runtime), zero_playout_delay, false) {}
-
-PeerConnectionFactory::PeerConnectionFactory(
-    std::shared_ptr<RtcRuntime> rtc_runtime,
-    bool zero_playout_delay,
-    bool enable_warp)
+    PeerConnectionFactoryOptions options)
     : rtc_runtime_(rtc_runtime),
-      env_(CreateEnvironment(zero_playout_delay, enable_warp)) {
+      env_(CreateEnvironment(options.zero_playout_delay, options.enable_warp)) {
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
@@ -165,15 +155,20 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
   dependencies.env = env_;
 
-  if (zero_playout_delay) {
+  if (options.zero_playout_delay) {
     RTC_LOG(LS_INFO) << "WebRTC zero playout delay enabled with field trial: "
                      << kForcePlayoutDelayFieldTrial;
   }
 
-  if (enable_warp) {
+  if (options.enable_warp) {
     RTC_LOG(LS_INFO) << "WebRTC WARP: SPED enabled via field trial "
                         "WebRTC-IceHandshakeDtls/Enabled/ (SNAP via "
                         "RtcConfiguration.enable_sctp_snap)";
+  }
+
+  if (options.null_video_decoder) {
+    RTC_LOG(LS_INFO) << "WebRTC null video decoder enabled: received video "
+                        "is not decoded";
   }
 
   // Create AdmProxy - it creates and initializes Platform ADM internally
@@ -189,7 +184,8 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.video_encoder_factory =
       std::move(std::make_unique<livekit_ffi::VideoEncoderFactory>());
   dependencies.video_decoder_factory =
-      std::move(std::make_unique<livekit_ffi::VideoDecoderFactory>());
+      std::make_unique<livekit_ffi::VideoDecoderFactory>(
+          options.null_video_decoder);
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
@@ -286,20 +282,19 @@ bool PeerConnectionFactory::zero_playout_delay_enabled() const {
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
-  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
+  return create_peer_connection_factory_with_options({});
 }
 
 std::shared_ptr<PeerConnectionFactory>
 create_peer_connection_factory_with_zero_playout_delay() {
-  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(), true);
+  return create_peer_connection_factory_with_options(
+      {.zero_playout_delay = true});
 }
 
 std::shared_ptr<PeerConnectionFactory>
-create_peer_connection_factory_with_options(bool zero_playout_delay,
-                                            bool enable_warp) {
-  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(),
-                                                 zero_playout_delay,
-                                                 enable_warp);
+create_peer_connection_factory_with_options(
+    PeerConnectionFactoryOptions options) {
+  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create(), options);
 }
 
 }  // namespace livekit_ffi

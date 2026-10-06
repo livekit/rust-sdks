@@ -24,6 +24,12 @@ use crate::{
 
 #[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
+    pub struct PeerConnectionFactoryOptions {
+        pub zero_playout_delay: bool,
+        pub enable_warp: bool,
+        pub null_video_decoder: bool,
+    }
+
     pub struct CandidatePair {
         local: SharedPtr<Candidate>,
         remote: SharedPtr<Candidate>,
@@ -91,8 +97,7 @@ pub mod ffi {
         fn create_peer_connection_factory_with_zero_playout_delay(
         ) -> SharedPtr<PeerConnectionFactory>;
         fn create_peer_connection_factory_with_options(
-            zero_playout_delay: bool,
-            enable_warp: bool,
+            options: PeerConnectionFactoryOptions,
         ) -> SharedPtr<PeerConnectionFactory>;
 
         fn zero_playout_delay_enabled(self: &PeerConnectionFactory) -> bool;

@@ -24,7 +24,7 @@ use crate::{
     audio_track::RtcAudioTrack,
     imp::{audio_track as imp_at, peer_connection as imp_pc, video_track as imp_vt},
     peer_connection::PeerConnection,
-    peer_connection_factory::RtcConfiguration,
+    peer_connection_factory::{PeerConnectionFactoryOptions, RtcConfiguration},
     rtp_parameters::RtpCapabilities,
     video_source::native::NativeVideoSource,
     video_track::RtcVideoTrack,
@@ -42,6 +42,16 @@ fn ensure_log_sink() {
             let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
             log::debug!(target: "libwebrtc", "{}", msg);
         }));
+    }
+}
+
+impl From<PeerConnectionFactoryOptions> for sys_pcf::ffi::PeerConnectionFactoryOptions {
+    fn from(options: PeerConnectionFactoryOptions) -> Self {
+        Self {
+            zero_playout_delay: options.zero_playout_delay,
+            enable_warp: options.enable_warp,
+            null_video_decoder: options.null_video_decoder,
+        }
     }
 }
 
@@ -66,17 +76,9 @@ impl PeerConnectionFactory {
         Self { sys_handle }
     }
 
-    /// Creates a [`PeerConnectionFactory`] with the given runtime options.
-    /// `zero_playout_delay` enables the WebRTC-ForcePlayoutDelay field trial;
-    /// `enable_warp` enables WARP (SPED via the WebRTC-IceHandshakeDtls field
-    /// trial; SNAP is carried on the RtcConfiguration, not a field trial). The
-    /// two are independent and may be combined.
-    pub fn with_options(zero_playout_delay: bool, enable_warp: bool) -> Self {
+    pub fn new(options: PeerConnectionFactoryOptions) -> Self {
         ensure_log_sink();
-        let sys_handle = sys_pcf::ffi::create_peer_connection_factory_with_options(
-            zero_playout_delay,
-            enable_warp,
-        );
+        let sys_handle = sys_pcf::ffi::create_peer_connection_factory_with_options(options.into());
         Self { sys_handle }
     }
 

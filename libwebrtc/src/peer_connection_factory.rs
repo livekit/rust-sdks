@@ -72,6 +72,27 @@ impl Default for RtcConfiguration {
     }
 }
 
+/// Options fixed for the lifetime of a [`PeerConnectionFactory`].
+///
+/// The type is `#[non_exhaustive]`, so build it from [`Default`] and set fields:
+/// ```
+/// # use libwebrtc::peer_connection_factory::PeerConnectionFactoryOptions;
+/// let mut options = PeerConnectionFactoryOptions::default();
+/// options.null_video_decoder = true;
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PeerConnectionFactoryOptions {
+    /// Renders received video as soon as possible (the WebRTC-ForcePlayoutDelay field trial).
+    pub zero_playout_delay: bool,
+    /// Enables WARP: SPED through a field trial here, SNAP through
+    /// [`RtcConfiguration::enable_sctp_snap`].
+    pub enable_warp: bool,
+    /// Replaces every video decoder with one that emits a black frame at the encoded size,
+    /// so inbound video stats stay populated while decode cost drops to near zero.
+    pub null_video_decoder: bool,
+}
+
 #[derive(Clone, Default)]
 pub struct PeerConnectionFactory {
     pub(crate) handle: imp_pcf::PeerConnectionFactory,
@@ -90,14 +111,22 @@ impl PeerConnectionFactory {
         Self { handle: imp_pcf::PeerConnectionFactory::with_zero_playout_delay() }
     }
 
+    /// Creates a native peer connection factory with the given options.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(options: PeerConnectionFactoryOptions) -> Self {
+        Self { handle: imp_pcf::PeerConnectionFactory::new(options) }
+    }
+
     /// Creates a native peer connection factory with the given runtime options.
     /// `zero_playout_delay` and `enable_warp` (SPED + SNAP) are independent and
     /// may be combined.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_options(zero_playout_delay: bool, enable_warp: bool) -> Self {
-        Self {
-            handle: imp_pcf::PeerConnectionFactory::with_options(zero_playout_delay, enable_warp),
-        }
+        Self::new(PeerConnectionFactoryOptions {
+            zero_playout_delay,
+            enable_warp,
+            ..Default::default()
+        })
     }
 
     pub fn create_peer_connection(

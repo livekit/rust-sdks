@@ -44,12 +44,8 @@ webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
 
 class PeerConnectionFactory {
  public:
-  explicit PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime);
   PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
-                        bool zero_playout_delay);
-  PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
-                        bool zero_playout_delay,
-                        bool enable_warp);
+                        PeerConnectionFactoryOptions options);
   ~PeerConnectionFactory();
 
   std::shared_ptr<PeerConnection> create_peer_connection(
@@ -93,6 +89,6 @@ std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
 std::shared_ptr<PeerConnectionFactory>
 create_peer_connection_factory_with_zero_playout_delay();
 std::shared_ptr<PeerConnectionFactory>
-create_peer_connection_factory_with_options(bool zero_playout_delay,
-                                            bool enable_warp);
+create_peer_connection_factory_with_options(
+    PeerConnectionFactoryOptions options);
 }  // namespace livekit_ffi

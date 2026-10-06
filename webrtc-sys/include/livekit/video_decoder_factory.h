@@ -23,7 +23,7 @@
 namespace livekit_ffi {
 class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
  public:
-  VideoDecoderFactory();
+  explicit VideoDecoderFactory(bool null_decoder);
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
 
@@ -36,5 +36,6 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
  private:
   std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
   const bool internal_h264_decoder_works_;
+  const bool null_decoder_;
 };
 }  // namespace livekit_ffi

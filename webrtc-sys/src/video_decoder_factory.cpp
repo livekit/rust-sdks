@@ -20,6 +20,7 @@
 #include "api/environment/environment.h"
 #include "api/video_codecs/av1_profile.h"
 #include "api/video_codecs/sdp_video_format.h"
+#include "livekit/null_video_decoder.h"
 #include "livekit/objc_video_factory.h"
 #include "media/base/media_constants.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
@@ -69,8 +70,9 @@ bool IsInternalH264DecoderAvailable() {
 }
 }  // namespace
 
-VideoDecoderFactory::VideoDecoderFactory()
-    : internal_h264_decoder_works_(IsInternalH264DecoderAvailable()) {
+VideoDecoderFactory::VideoDecoderFactory(bool null_decoder)
+    : internal_h264_decoder_works_(IsInternalH264DecoderAvailable()),
+      null_decoder_(null_decoder) {
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
 #endif
@@ -136,6 +138,10 @@ VideoDecoderFactory::CodecSupport VideoDecoderFactory::QueryCodecSupport(
 
 std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
     const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
+  if (null_decoder_) {
+    return std::make_unique<NullVideoDecoder>();
+  }
+
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format))

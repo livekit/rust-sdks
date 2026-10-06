@@ -25,6 +25,8 @@ use tokio::{
 };
 
 pub mod audio;
+#[allow(dead_code)]
+pub mod decode_stats;
 pub mod video;
 
 struct TestEnvironment {

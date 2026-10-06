@@ -26,7 +26,7 @@ pub use crate::{
     },
     peer_connection_factory::{
         ContinualGatheringPolicy, IceServer, IceTransportsType, PeerConnectionFactory,
-        RtcConfiguration,
+        PeerConnectionFactoryOptions, RtcConfiguration,
     },
     rtp_parameters::*,
     rtp_receiver::RtpReceiver,

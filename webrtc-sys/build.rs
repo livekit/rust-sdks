@@ -88,6 +88,7 @@ fn main() {
         "src/video_encoder_factory.cpp",
         "src/passthrough_video_encoder.cpp",
         "src/video_decoder_factory.cpp",
+        "src/null_video_decoder.cpp",
         "src/synthetic_audio_device.cpp",
         "src/adm_proxy.cpp",
         "src/audio_resampler.cpp",

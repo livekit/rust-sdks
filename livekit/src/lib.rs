@@ -34,6 +34,13 @@ pub mod webrtc {
     pub fn enable_zero_playout_delay() -> Result<(), WebRtcRuntimeInitializedError> {
         crate::rtc_engine::lk_runtime::LkRuntime::enable_zero_playout_delay()
     }
+
+    /// Makes native video receivers skip decoding and report each frame as black at its encoded
+    /// size, for load testing. Same call rules as [`enable_zero_playout_delay`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_null_video_decoder() -> Result<(), WebRtcRuntimeInitializedError> {
+        crate::rtc_engine::lk_runtime::LkRuntime::enable_null_video_decoder()
+    }
 }
 
 pub use room::*;
