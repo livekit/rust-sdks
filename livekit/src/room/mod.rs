@@ -1179,7 +1179,7 @@ impl RoomSession {
         Ok(())
     }
 
-    async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
+    async fn close(self: &Arc<Self>, reason: DisconnectReason) -> RoomResult<()> {
         let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
 
         // remove published tracks
@@ -1188,6 +1188,7 @@ impl RoomSession {
         }
 
         self.rtc_engine.close(reason).await;
+        self.handle_disconnected(reason);
         self.e2ee_manager.cleanup();
         self.rpc_client.fail_all_pending();
 
