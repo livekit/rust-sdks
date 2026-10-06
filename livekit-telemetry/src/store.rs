@@ -20,7 +20,7 @@ use std::{
     },
 };
 
-use crate::{scope::ScopeState, stats::Counters, TelemetryEvent};
+use crate::{event::now_unix_nanos, scope::ScopeState, stats::Counters, TelemetryEvent};
 
 /// An event waiting for export, filed under the session whose trace id and attributes it
 /// will carry.
@@ -35,8 +35,10 @@ pub(crate) struct Queued {
 
 impl Queued {
     /// Capture a record for `session`, with its owner as of now: the session's project and its
-    /// correlation attributes (the record's own win).
+    /// correlation attributes (the record's own win). An unstamped record is stamped here, so
+    /// time spent queued never shifts it to its export time.
     pub fn new(mut event: TelemetryEvent, session: Arc<ScopeState>) -> Self {
+        event.timestamp_ns.get_or_insert_with(now_unix_nanos);
         let route = session.route();
         session.snapshot_custom(&mut event.attributes);
         Self { event, session, route }
@@ -67,7 +69,7 @@ pub(crate) struct Store {
 struct Queue {
     events: VecDeque<Queued>,
     bytes: usize,
-    /// The first eviction of an episode logs; the rest are counted.
+    /// The first drop since the last drain logs a warning; the rest are only counted.
     full_warned: bool,
 }
 

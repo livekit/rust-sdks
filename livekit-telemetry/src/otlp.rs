@@ -122,6 +122,7 @@ pub(crate) fn split_spans(encoded: &[u8]) -> Halves {
 
 fn log_record(Queued { mut event, session, .. }: Queued, global: &[Attribute]) -> LogRecord {
     session.decorate(&mut event.attributes, global);
+    // `Queued::new` stamps capture time; this fallback covers only a `Queued` built by hand.
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
     // Events carry a display body (OTel: "a string display message of the event"); the name is
     // the last resort so no event ever renders as an empty line. `otel.event.name` (semconv 1.39)
@@ -255,6 +256,24 @@ mod tests {
             record.attributes[0].value.as_ref().and_then(|v| v.value.clone()),
             Some(any_value::Value::IntValue(7))
         );
+    }
+
+    #[test]
+    fn queued_records_carry_their_capture_time_not_their_export_time() {
+        const HOUR_NS: u64 = 3_600_000_000_000;
+        let store = crate::store::Store::new(10, usize::MAX, Default::default());
+        let session = crate::scope::ScopeState::new();
+        let captured = now_unix_nanos();
+        store.push(Queued::new(TelemetryEvent::new("unstamped"), session.clone()));
+        let own = TelemetryEvent { timestamp_ns: Some(7), ..TelemetryEvent::new("stamped") };
+        store.push(Queued::new(own, session));
+        // An hour in the queue (an outage) before the exporter encodes the batch.
+        crate::event::CLOCK_JUMP_NS.with(|jump| jump.set(HOUR_NS as i64));
+        let bytes = encode_logs(&[], &[], store.drain(10, usize::MAX));
+        let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let records = &decoded.resource_logs[0].scope_logs[0].log_records;
+        assert!((captured..captured + HOUR_NS).contains(&records[0].time_unix_nano));
+        assert_eq!(records[1].time_unix_nano, 7, "a caller's own timestamp is kept");
     }
 
     #[test]

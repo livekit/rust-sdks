@@ -97,25 +97,31 @@ pub(crate) struct Spans {
     /// log record that arrives after its span ended (a warning logged right before a failing
     /// publish ends, delivered a hop later) is still filed under the right session.
     sessions: HashMap<u64, Arc<ScopeState>>,
+    /// Spans that ended or were abandoned, oldest first. Only these age out of `sessions`: an
+    /// open span keeps its session however many spans start after it.
     session_order: VecDeque<u64>,
     next_id: u64,
     pub dropped: u64,
+    /// The first drop since the last drain logs a warning; the rest are only counted.
+    full_warned: bool,
     /// The opt-out, checked under the lock that guards the registry (see `Store`).
     revoked: Arc<std::sync::atomic::AtomicBool>,
 }
 
-/// Spans whose session stays resolvable after they ended.
-// ponytail: a fixed ring; a time-based expiry if a long session ever opens more spans than this
+/// Ended spans whose session stays resolvable.
+// ponytail: a fixed ring; a time-based expiry if a long session ever ends more spans than this
 // between a log and its export.
 const REMEMBERED_SPANS: usize = 1024;
 
 impl Spans {
+    /// A registry keeping at most `finished_capacity` finished spans for the exporter (at least
+    /// one: zero is treated as one).
     pub fn new(finished_capacity: usize) -> Self {
         Self {
             open: HashMap::new(),
             open_order: VecDeque::new(),
             finished: Vec::new(),
-            finished_capacity,
+            finished_capacity: finished_capacity.max(1),
             sessions: HashMap::new(),
             session_order: VecDeque::new(),
             // Span ids must be non-zero (OTLP treats all-zero as absent); start at 1 and mix in
@@ -123,6 +129,7 @@ impl Spans {
             // platform whose integers are signed (Dart) must be able to hand an id back.
             next_id: (rand::random::<u64>() >> 1) | 1,
             dropped: 0,
+            full_warned: false,
             revoked: Arc::default(),
         }
     }
@@ -153,16 +160,11 @@ impl Spans {
         if self.open.len() >= MAX_OPEN_SPANS {
             if let Some(oldest) = self.open_order.pop_front() {
                 self.open.remove(&oldest);
-                self.dropped += 1;
+                self.retire(oldest);
+                self.count_drop("open", MAX_OPEN_SPANS);
             }
         }
         self.sessions.insert(id, session.clone());
-        self.session_order.push_back(id);
-        if self.session_order.len() > REMEMBERED_SPANS {
-            if let Some(old) = self.session_order.pop_front() {
-                self.sessions.remove(&old);
-            }
-        }
         let record = SpanRecord {
             span_id: id,
             parent_span_id: parent.filter(|p| *p != 0),
@@ -240,17 +242,40 @@ impl Spans {
         span.route = span.session.route();
         attributes.truncate(MAX_ATTRIBUTES_PER_SPAN);
         span.attributes = attributes;
+        self.retire(id);
         if self.finished.len() >= self.finished_capacity {
             self.finished.remove(0);
-            self.dropped += 1;
+            self.count_drop("finished", self.finished_capacity);
         }
         self.finished.push(span);
+    }
+
+    /// A span ended or was abandoned: its session stays resolvable until [`REMEMBERED_SPANS`]
+    /// more have.
+    fn retire(&mut self, id: u64) {
+        self.session_order.push_back(id);
+        if self.session_order.len() > REMEMBERED_SPANS {
+            if let Some(old) = self.session_order.pop_front() {
+                self.sessions.remove(&old);
+            }
+        }
+    }
+
+    /// Count a span dropped from a full buffer.
+    /// The first drop since the last drain logs a warning; the rest are only counted.
+    fn count_drop(&mut self, buffer: &str, capacity: usize) {
+        self.dropped += 1;
+        if !self.full_warned {
+            self.full_warned = true;
+            log::warn!("{buffer} spans full ({capacity}): dropping the oldest");
+        }
     }
 
     /// Take the finished spans, oldest first.
     /// At most `max` spans and about `max_bytes` (always at least one, so an oversized span
     /// still ships).
     pub fn drain(&mut self, max: usize, max_bytes: usize) -> Vec<SpanRecord> {
+        self.full_warned = false;
         let (mut n, mut bytes) = (0, 0);
         for span in self.finished.iter().take(max) {
             let size = span.size_hint();
@@ -332,6 +357,50 @@ mod tests {
         assert_eq!(finished[1].error_type.as_deref(), Some("timeout"));
         assert!(finished[1].end_ns >= finished[1].start_ns);
         assert_eq!(spans.take_dropped(), 0);
+    }
+
+    #[test]
+    fn open_spans_keep_their_session_however_many_spans_end_after_them() {
+        let mut spans = Spans::new(REMEMBERED_SPANS + 1);
+        let room = ScopeState::new();
+        let connect = spans.begin_in("lk.connect", SpanKind::Client, None, room.clone());
+        let first = spans.begin("lk.publish", SpanKind::Internal, None);
+        spans.end(first, SpanOutcome::Ok, None, vec![]);
+        for _ in 0..REMEMBERED_SPANS {
+            let id = spans.begin("lk.publish", SpanKind::Internal, None);
+            spans.end(id, SpanOutcome::Ok, None, vec![]);
+        }
+        assert!(spans.scope_of(first).is_none(), "ended spans age out");
+        assert_eq!(spans.scope_of(connect), Some(room.clone()));
+        spans.end(connect, SpanOutcome::Error, Some("timeout".into()), vec![]);
+        assert_eq!(spans.scope_of(connect), Some(room), "and stays resolvable once it ended");
+        assert_eq!(spans.sessions.len(), REMEMBERED_SPANS);
+    }
+
+    #[test]
+    fn abandoned_spans_are_counted_warned_once_and_age_out() {
+        let mut spans = Spans::new(8);
+        let ids: Vec<_> = (0..MAX_OPEN_SPANS + REMEMBERED_SPANS + 1)
+            .map(|_| spans.begin("lk.publish", SpanKind::Internal, None))
+            .collect();
+        assert_eq!(spans.open_count(), MAX_OPEN_SPANS);
+        assert_eq!(spans.take_dropped(), REMEMBERED_SPANS as u64 + 1);
+        assert!(spans.full_warned, "the first drop logged, the rest only counted");
+        assert!(spans.scope_of(ids[0]).is_none());
+        assert_eq!(spans.sessions.len(), MAX_OPEN_SPANS + REMEMBERED_SPANS);
+        spans.drain(10, usize::MAX);
+        assert!(!spans.full_warned, "a drain starts a new episode");
+    }
+
+    #[test]
+    fn zero_finished_capacity_keeps_one_span_instead_of_panicking() {
+        let mut spans = Spans::new(0);
+        for _ in 0..2 {
+            let id = spans.begin("lk.publish", SpanKind::Internal, None);
+            spans.end(id, SpanOutcome::Ok, None, vec![]);
+        }
+        assert_eq!(spans.drain(10, usize::MAX).len(), 1);
+        assert_eq!(spans.take_dropped(), 1);
     }
 
     #[test]

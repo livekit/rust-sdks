@@ -28,7 +28,8 @@ pub struct TelemetryEvent {
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub body: Option<String>,
     pub attributes: Vec<Attribute>,
-    /// Wall-clock time in nanoseconds since the Unix epoch. `None` stamps the event at emit time.
+    /// Wall-clock time in nanoseconds since the Unix epoch. `None` is stamped when the record is
+    /// queued, never at export.
     #[cfg_attr(feature = "uniffi", uniffi(default))]
     pub timestamp_ns: Option<u64>,
     /// The in-flight span this record belongs to (a handle from `begin_span`), if any. The trace
