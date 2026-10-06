@@ -78,6 +78,13 @@ pub struct OfferOptions {
 #[derive(Debug, Clone, Default)]
 pub struct AnswerOptions {}
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BitrateSettings {
+    pub min_bitrate_bps: Option<u64>,
+    pub start_bitrate_bps: Option<u64>,
+    pub max_bitrate_bps: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct IceCandidateError {
     pub address: String,
@@ -113,6 +120,20 @@ pub struct PeerConnection {
 impl PeerConnection {
     pub fn set_configuration(&self, config: RtcConfiguration) -> Result<(), RtcError> {
         self.handle.set_configuration(config)
+    }
+
+    /// Sets the send bitrate limits for all RTP streams of this connection combined, in bits per
+    /// second. Limits from the SDP, such as `b=AS`, still apply. A start bitrate resets the
+    /// bandwidth estimate to that value, clamped to the limits. Values above `i32::MAX` are
+    /// treated as `i32::MAX`.
+    ///
+    /// Each call replaces the limits from the previous call, so an omitted min or max is cleared
+    /// rather than kept.
+    ///
+    /// Returns an error if the start bitrate is outside min to max, if max is below min, or if
+    /// the connection is closed.
+    pub fn set_bitrate(&self, settings: BitrateSettings) -> Result<(), RtcError> {
+        self.handle.set_bitrate(settings)
     }
 
     pub async fn create_offer(
