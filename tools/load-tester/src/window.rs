@@ -60,7 +60,7 @@ pub struct StatsByTrack<'a> {
 #[derive(Clone, Copy, Debug)]
 pub struct Inbound<'a> {
     rtp: &'a InboundRtpStats,
-    rtt_ms: f32,
+    rtt_ms: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -114,7 +114,7 @@ impl<'a> StatsByTrack<'a> {
             match stats {
                 RtcStats::InboundRtp(rtp) => {
                     let pair = selected_pairs.get(rtp.stream.transport_id.as_str());
-                    let rtt_ms = pair.and_then(|id| rtts.get(id)).copied().unwrap_or(0.0);
+                    let rtt_ms = pair.and_then(|id| rtts.get(id)).copied();
                     let track = rtp.inbound.track_identifier.as_str();
                     self.inbound.entry(track).or_insert(Inbound { rtp, rtt_ms });
                 }
@@ -293,6 +293,7 @@ enum State {
 pub struct InboundTracker {
     media: Media,
     state: State,
+    rtt_ms: f32,
 }
 
 impl InboundTracker {
@@ -305,7 +306,7 @@ impl InboundTracker {
     }
 
     fn new(since: Instant, media: Media) -> Self {
-        Self { media, state: State::Waiting { since } }
+        Self { media, state: State::Waiting { since }, rtt_ms: 0.0 }
     }
 
     pub fn first_frame(&mut self, frame: Instant) {
@@ -318,6 +319,7 @@ impl InboundTracker {
         let Some(Inbound { rtp, rtt_ms }) = inbound else {
             return Observation::Nothing;
         };
+        self.rtt_ms = rtt_ms.unwrap_or(self.rtt_ms);
         match &mut self.state {
             State::Waiting { .. } => Observation::Nothing,
             State::Arrived { frame, ttff_ms } => {
@@ -337,7 +339,7 @@ impl InboundTracker {
                 let media = self.media.window(prev, &sample, rtp, dur_ms);
                 *prev = sample;
                 *at = now;
-                Observation::Window { dur_ms, rtt_ms, media }
+                Observation::Window { dur_ms, rtt_ms: self.rtt_ms, media }
             }
         }
     }
@@ -443,7 +445,7 @@ mod tests {
     }
 
     fn seen(i: &InboundRtpStats) -> Option<Inbound<'_>> {
-        Some(Inbound { rtp: i, rtt_ms: 40.0 })
+        Some(Inbound { rtp: i, rtt_ms: Some(40.0) })
     }
 
     fn expectation() -> VideoExpectation {
@@ -561,7 +563,8 @@ mod tests {
         let mic = tracks.inbound("remote-mic").expect("routed by trackIdentifier");
         assert_eq!(mic.rtp.stream.ssrc, 42);
         assert_eq!(
-            mic.rtt_ms, 50.0,
+            mic.rtt_ms,
+            Some(50.0),
             "the subscriber's selected CP1, not the earlier nominated CP0 or the publisher's CP1"
         );
         let camera: Vec<(&str, bool)> = tracks
