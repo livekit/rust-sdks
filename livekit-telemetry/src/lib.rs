@@ -53,7 +53,7 @@ mod transport;
 mod destination;
 
 /// Entry point and configuration.
-#[allow(dead_code)] // `weak_commands` serves `global`; test hooks serve the pipeline tests
+#[allow(dead_code)] // `weak_commands` serves the process-wide pipeline (`global`)
 mod telemetry;
 mod trace;
 
@@ -69,6 +69,10 @@ pub use stats::{TelemetryStats, TelemetryStatus};
 pub use telemetry::*;
 pub use trace::*;
 pub use transport::*;
+
+/// The backend and device contracts, one test per row of their tables.
+#[cfg(test)]
+mod backend_tests;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
