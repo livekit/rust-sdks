@@ -148,6 +148,8 @@ fn log_record(Queued { mut event, session, .. }: Queued, global: &[Attribute]) -
 fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
     let session = record.session.clone();
     session.decorate(&mut record.attributes, global);
+    // The outcome is the core's, as `session.id` is: a span's own copies never ship.
+    record.attributes.retain(|a| a.key != "lk.outcome" && a.key != "error.type");
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
     attributes.extend(record.outcome_attributes().iter().map(KeyValue::from));
     Span {
@@ -274,6 +276,26 @@ mod tests {
         let records = &decoded.resource_logs[0].scope_logs[0].log_records;
         assert!((captured..captured + HOUR_NS).contains(&records[0].time_unix_nano));
         assert_eq!(records[1].time_unix_nano, 7, "a caller's own timestamp is kept");
+    }
+
+    #[test]
+    fn spans_carry_the_cores_outcome_and_error_type_once() {
+        let mut spans = crate::span::Spans::new(1);
+        let id = spans.begin("lk.connect", SpanKind::Client, None);
+        let own = vec![Attribute::new("lk.outcome", "ok"), Attribute::new("error.type", "spoof")];
+        spans.end(id, SpanOutcome::Error, Some("timeout".into()), own);
+        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
+        let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let span = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        let values = |key: &str| -> Vec<_> {
+            span.attributes
+                .iter()
+                .filter(|kv| kv.key == key)
+                .filter_map(|kv| kv.value.clone()?.value)
+                .collect()
+        };
+        assert_eq!(values("lk.outcome"), [any_value::Value::StringValue("error".into())]);
+        assert_eq!(values("error.type"), [any_value::Value::StringValue("timeout".into())]);
     }
 
     #[test]

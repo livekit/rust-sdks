@@ -258,9 +258,9 @@ pub(crate) const MAX_VALUE_BYTES: usize = 1024;
 pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 64;
 
 /// Keys the SDK owns: an app can neither set nor override them (`lk.*` — room, participant,
-/// track, outcome — and the session id).
+/// track, outcome —, `session.id` and `error.type`).
 pub(crate) fn reserved(key: &str) -> bool {
-    key.starts_with("lk.") || key == "session.id"
+    key.starts_with("lk.") || key == "session.id" || key == "error.type"
 }
 
 /// Whether an app-provided attribute is within the limits and outside the SDK's namespace.

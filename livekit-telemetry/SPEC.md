@@ -188,7 +188,7 @@ every span and log record. Spans are exported when they end — never a long-liv
 | Names | `lk.connect`, `lk.reconnect`, `lk.publish`, `lk.subscribe` — verbs, never ids |
 | Kind | `CLIENT` for connect/reconnect (a call to the SFU), `INTERNAL` otherwise |
 | Status | OTel `Unset` on success **and** cancellation, `Error` (+ `error.type`, message) on failure |
-| `lk.outcome` | always present: `ok` \| `error` \| `cancelled` — rollups read this, never the status |
+| `lk.outcome` | always present: `ok` \| `error` \| `cancelled` — rollups read this, never the status. The core writes it and `error.type` from how the span ended; a span attribute of either name is dropped, so each appears once |
 | `error.type` | platform-defined, a type name (≤ 128 bytes), never a message: e.g. Swift sends `LiveKitError.<numeric code>`, `CancellationError` or the Swift error type; dashboards group by it per `service.name` |
 | Checkpoints | span events in the span's envelope (`ws_open`, `join_recv`, `pc_connected`, `attempt 2 full`, …); real events stay log records pointing at the span via `span_id` |
 | Limits | 128 events and 128 attributes per span (OTel defaults); 256 open spans per pipeline |

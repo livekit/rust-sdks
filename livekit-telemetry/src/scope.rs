@@ -88,27 +88,24 @@ impl ScopeState {
         }
     }
 
-    /// Set or remove an app correlation attribute. `false` when rejected: over the limits, in
-    /// the SDK's namespace, or one attribute too many.
-    /// Whether `set_custom(key, value)` would be accepted: within the limits, outside the
-    /// SDK's namespace, not one attribute too many.
+    /// Whether `set_custom(key, value)` would be accepted right now: within the limits, outside
+    /// the SDK's namespace, not one attribute too many.
     pub fn accepts_custom(&self, key: &str, value: Option<&AttributeValue>) -> bool {
-        if !crate::event::valid_custom(key, value) {
-            return false;
-        }
-        let custom = self.custom.lock().unwrap_or_else(|e| e.into_inner());
-        value.is_none()
-            || custom.iter().any(|a| a.key == key)
-            || custom.len() < crate::event::MAX_CUSTOM_ATTRIBUTES
+        crate::event::valid_custom(key, value)
+            && fits(&self.custom.lock().unwrap_or_else(|e| e.into_inner()), key, value)
     }
 
     /// Set or remove an app correlation attribute; `false` when rejected (see
-    /// [`accepts_custom`](Self::accepts_custom)).
+    /// [`accepts_custom`](Self::accepts_custom)). The capacity check and the write share one
+    /// lock, so concurrent writers cannot overshoot the limit.
     pub fn set_custom(&self, key: &str, value: Option<AttributeValue>) -> bool {
-        if !self.accepts_custom(key, value.as_ref()) {
+        if !crate::event::valid_custom(key, value.as_ref()) {
             return false;
         }
         let mut custom = self.custom.lock().unwrap_or_else(|e| e.into_inner());
+        if !fits(&custom, key, value.as_ref()) {
+            return false;
+        }
         custom.retain(|a| a.key != key);
         if let Some(value) = value {
             custom.push(Attribute::new(key, value));
@@ -152,6 +149,13 @@ impl ScopeState {
     }
 }
 
+/// Whether `custom` has room for `key`: a removal or a replacement always fits.
+fn fits(custom: &[Attribute], key: &str, value: Option<&AttributeValue>) -> bool {
+    value.is_none()
+        || custom.iter().any(|a| a.key == key)
+        || custom.len() < crate::event::MAX_CUSTOM_ATTRIBUTES
+}
+
 impl PartialEq for ScopeState {
     fn eq(&self, other: &Self) -> bool {
         self.trace_id == other.trace_id
@@ -161,5 +165,54 @@ impl PartialEq for ScopeState {
 impl fmt::Debug for ScopeState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Scope({})", self.hex())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::MAX_CUSTOM_ATTRIBUTES;
+
+    #[test]
+    fn custom_attributes_reject_sdk_keys_and_fit_replacements_at_capacity() {
+        for key in ["lk.room.sid", "session.id", "error.type"] {
+            assert!(!crate::event::valid_custom(key, None), "{key} is the SDK's");
+        }
+        let scope = ScopeState::new();
+        for i in 0..MAX_CUSTOM_ATTRIBUTES {
+            assert!(scope.set_custom(&format!("key.{i}"), Some(1i64.into())));
+        }
+        assert!(!scope.set_custom("extra", Some(1i64.into())));
+        assert!(scope.set_custom("key.0", Some(2i64.into())), "replacing an existing key fits");
+        assert!(scope.custom_snapshot().contains(&Attribute::new("key.0", 2i64)));
+        assert!(scope.set_custom("key.0", None));
+        assert!(scope.set_custom("extra", Some(1i64.into())));
+        assert_eq!(scope.custom_snapshot().len(), MAX_CUSTOM_ATTRIBUTES);
+    }
+
+    #[test]
+    fn concurrent_custom_insertions_respect_capacity() {
+        const WRITERS: usize = 16;
+        for _ in 0..64 {
+            let scope = ScopeState::new();
+            for i in 0..MAX_CUSTOM_ATTRIBUTES - 1 {
+                assert!(scope.set_custom(&format!("key.{i}"), Some(1i64.into())));
+            }
+            let barrier = std::sync::Barrier::new(WRITERS);
+            let accepted = std::thread::scope(|threads| {
+                let handles: Vec<_> = (0..WRITERS)
+                    .map(|i| {
+                        let (scope, barrier) = (&scope, &barrier);
+                        threads.spawn(move || {
+                            barrier.wait();
+                            scope.set_custom(&format!("race.{i}"), Some(1i64.into()))
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap()).filter(|a| *a).count()
+            });
+            assert_eq!(accepted, 1, "one slot left, one writer wins");
+            assert_eq!(scope.custom_snapshot().len(), MAX_CUSTOM_ATTRIBUTES);
+        }
     }
 }
