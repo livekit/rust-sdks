@@ -139,23 +139,22 @@ fn thread_times() -> HashMap<u32, ThreadTime> {
     HashMap::new()
 }
 
-// the tables list every socket in the network namespace, so keep the ones this process holds
 #[cfg(target_os = "linux")]
 fn own_udp_drops() -> Option<HashMap<u64, u64>> {
-    let own: std::collections::HashSet<u64> = std::fs::read_dir("/proc/self/fd")
-        .ok()?
-        .flatten()
-        .filter_map(|fd| {
-            let target = std::fs::read_link(fd.path()).ok()?;
-            target.to_str()?.strip_prefix("socket:[")?.strip_suffix(']')?.parse().ok()
-        })
-        .collect();
-    let mut drops = HashMap::new();
-    for table in ["/proc/self/net/udp", "/proc/self/net/udp6"] {
-        let text = std::fs::read_to_string(table).unwrap_or_default();
-        drops.extend(drops_by_inode(&text).filter(|(inode, _)| own.contains(inode)));
-    }
-    Some(drops)
+    use std::os::unix::fs::MetadataExt;
+    const DROPS: usize = libc::SK_MEMINFO_DROPS as usize;
+    let fds = std::fs::read_dir("/proc/self/fd").ok()?;
+    let drops = fds.flatten().filter_map(|entry| {
+        let fd = entry.file_name().to_str()?.parse().ok()?;
+        let [protocol] = socket_option(fd, SocketOption::Protocol)?;
+        if protocol != libc::IPPROTO_UDP as u32 {
+            return None;
+        }
+        let inode = std::fs::metadata(entry.path()).ok()?.ino();
+        let meminfo: [u32; DROPS + 1] = socket_option(fd, SocketOption::MemInfo)?;
+        Some((inode, meminfo[DROPS].into()))
+    });
+    Some(drops.collect())
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -163,28 +162,56 @@ fn own_udp_drops() -> Option<HashMap<u64, u64>> {
     None
 }
 
-#[cfg(any(target_os = "linux", test))]
-fn drops_by_inode(table: &str) -> impl Iterator<Item = (u64, u64)> + '_ {
-    table.lines().skip(1).filter_map(|row| {
-        let mut columns = row.split_whitespace();
-        let inode = columns.nth(9)?.parse().ok()?;
-        let drops = columns.nth(2)?.parse().ok()?;
-        Some((inode, drops))
-    })
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy)]
+enum SocketOption {
+    Protocol = libc::SO_PROTOCOL as isize,
+    MemInfo = libc::SO_MEMINFO as isize,
 }
 
-#[cfg(test)]
+#[cfg(target_os = "linux")]
+fn socket_option<const N: usize>(fd: libc::c_int, option: SocketOption) -> Option<[u32; N]> {
+    let mut value = [0u32; N];
+    let mut len = std::mem::size_of_val(&value) as libc::socklen_t;
+    let buf = value.as_mut_ptr().cast();
+    let name = option as libc::c_int;
+    // SAFETY: for SO_PROTOCOL and SO_MEMINFO the kernel copies at most `len` bytes into `value`,
+    // and any bytes form valid u32s.
+    let ok = unsafe { libc::getsockopt(fd, libc::SOL_SOCKET, name, buf, &mut len) } == 0;
+    ok.then_some(value)
+}
+
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
+    use std::{
+        net::UdpSocket,
+        os::{fd::AsRawFd, unix::fs::MetadataExt},
+    };
+
     use super::*;
 
     #[test]
-    fn drops_column_is_read_per_socket_inode() {
-        let udp = "\
-   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
- 1090: 0100007F:9291 00000000:0000 07 00000000:00034500 00:00000000 00000000     0        0 1548516 2 000000005412b34b 19907
- 2734: 0100007F:E8FD 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 1548517 2 0000000016fa28f7 0
-";
-        let rows: Vec<(u64, u64)> = drops_by_inode(udp).collect();
-        assert_eq!(rows, [(1548516, 19907), (1548517, 0)]);
+    fn a_full_receive_buffer_counts_each_further_datagram_as_a_drop() {
+        let sink = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let tiny: libc::c_int = 4096;
+        let opt = (&tiny as *const libc::c_int).cast();
+        let len = std::mem::size_of_val(&tiny) as libc::socklen_t;
+        // SAFETY: `opt` points at a live c_int of `len` bytes, which setsockopt only reads.
+        let set = unsafe {
+            libc::setsockopt(sink.as_raw_fd(), libc::SOL_SOCKET, libc::SO_RCVBUF, opt, len)
+        };
+        assert_eq!(set, 0);
+        let path = format!("/proc/self/fd/{}", sink.as_raw_fd());
+        let inode = std::fs::metadata(path).unwrap().ino();
+        let source = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let to = sink.local_addr().unwrap();
+        let send = |n| (0..n).for_each(|_| assert_eq!(source.send_to(&[7; 64], to).unwrap(), 64));
+        let drops = || own_udp_drops().unwrap()[&inode];
+
+        send(100);
+        let full = drops();
+        assert!(full > 0, "100 unread datagrams overflow a tiny receive buffer");
+        send(100);
+        assert_eq!(drops() - full, 100, "a full buffer drops every further datagram");
     }
 }
