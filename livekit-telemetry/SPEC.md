@@ -18,6 +18,15 @@ Set once per pipeline (`TelemetryConfig.resource`):
 
 ## Pipeline, scopes and destination
 
+One pipeline per process — started at SDK init, so audio pre-initialization, permission failures
+and connect attempts that never reach a server are captured — and one **scope** per room (one
+call). A scope is a trace id plus the attributes attached to its records (`lk.room.sid`,
+`lk.participant.identity`, …); spans, RTC windows and events are filed under the scope that
+produced them, and `session.id` (OTel semconv) is written on every record as an attribute. A log
+record emitted inside a room's span is filed under that room's scope; anything emitted outside
+a scope — device state, pre-room errors, self-telemetry — belongs to the pipeline's own process
+scope. Scopes are not ended: a room's last record is simply its last.
+
 ### Destination and credentials
 
 The platform passes exactly two things per room, through `Scope::set_server(url, token)`: the
@@ -228,6 +237,104 @@ judgement and `qualityLimitationReason` is WebRTC's. The core also paces the pla
 `getStats()` polling (`Scope::stats_poll_interval_ms`): every second while a subscribe waits for
 its first media, else twice per (stretched) window — 30 s by default.
 
+## Upload policy — telemetry never wins over media
+
+Uploads are shaped, not just batched:
+
+- **One request in flight**, oldest batch first, polled by the exporter's loop: commands, ticks,
+  subscribe deadlines and wake-ups are served while it is out. Each answer is classified by the
+  core (see *Collector answers*); a transport returns status, headers and body and fails only
+  without a response. A pause stops uploads **to that destination** — other projects carry on —
+  never collection: records keep landing in the cache and ship when it lifts.
+- **Retry:** local backoff starts at 1 s and doubles per consecutive failure up to 60 s, with
+  full jitter (a uniform wait in `[0, backoff]`). A delay the server names — `Retry-After`
+  (delay-seconds or HTTP-date, RFC 9110 §10.2.3) or `RetryInfo.retry_delay` — is honored in
+  full even when longer, validated (garbage ignored, negative → now, overflow ignored) and
+  clamped only to the 24 h age limit; neither shutdown nor a hold's escape cuts it short.
+  Running out of patience never deletes: only the cache's age and size bound what is kept.
+- **Budget:** while a Room is in a call (it has a server and has not disconnected), at most
+  `max_batches_per_upload` (default 4) requests per flush interval — an allowance refilled at
+  each tick, 413 halves included, each request at most `max_batch_bytes` of protobuf before gzip
+  — however many wake-ups happen; a backlog (offline period, previous launch) waits its turn
+  oldest first. With no Room in a call nothing is metered: each pass sends the whole cache. A new
+  batch is encoded only at the tick, when the queue crosses `flush_threshold_bytes`, or when the
+  app enters the background; a lifted route, token or hold only re-runs a pass over what is
+  cached (within the allowance); a subscribe or a cadence change only re-reads deadlines.
+  Entering the background and an explicit `flush()` drain the whole cache without the allowance,
+  within every hold and pause. `shutdown` drains without the budget within
+  `export_timeout_ms`, then cancels the request on the wire and stops the exporter; what did not
+  go out stays cached.
+- **Holds** — nothing is sent, everything keeps flowing into the write-ahead cache. The policy is
+  evaluated before every request, not once per pass, and a hold changing (or the app entering the
+  background, or the cadence changing) wakes the exporter:
+  - *hard* (no escape, for as long as they last): the device is offline; no usable token
+    (missing, expired, grant-less, refused); the project disabled data recording; the opt-out.
+  - *soft* (at most 60 s, on its own clock rather than the next tick, then one batch goes out and
+    the hold starts over — the cap that bounds the policy when its signals lie): an `lk.connect` or `lk.reconnect` span is open (signaling
+    and ICE/DTLS own the uplink); Low Data Mode / Data Saver; battery ≤ 10 % unplugged. The cap is
+    not scheduled while a hard hold is on; it resumes when the hard hold lifts.
+  `qualityLimitationDurations.bandwidth` is deliberately *not* a hold: WebRTC reports it for
+  minutes during a normal ramp-up and for as long as an encoder stalls.
+- **Bytes:** bodies are gzipped (level 1, `Content-Encoding: gzip`) when cached, so a batch is
+  5–10× smaller on disk and on the wire and a replay costs no CPU; a cached batch is CRC-checked
+  before it is sent. A request never carries more than `max_batch_size` (512) records, nor more
+  than `max_batch_bytes` (1 MiB) of encoded protobuf — checked on the encoded body, session
+  attributes and the self-report included (the report takes one of the `max_batch_size`
+  places); a batch over it is halved until it fits, and a single record over it is dropped and
+  counted as `oversized`. Caller strings a span or scope retains are bounded: names, keys and
+  error types ≤ 128 bytes, values and Room identities ≤ 1 KiB (anything longer is not kept and
+  is counted as `invalid`). When the queue reaches
+  `flush_threshold_bytes` (256 KiB) it is exported at once instead of at the next tick.
+- **Backlog:** nested bounds, every eviction counted — the queue (`max_queue_size`, 2048
+  records), the cache's size (`max_cache_bytes`, 4 MiB compressed) and file count (512
+  batches), and age (24 h, enforced at start and while running; the monotonic clock must agree
+  for this launch's own batches, so a clock set forward cannot expire them). Oldest goes first.
+- **Durability:** a batch is committed when the cache's `push` returns: `FileCache` writes a
+  `.tmp`, `fsync`s it, renames it into place and `fsync`s the directory (on Unix; elsewhere a
+  directory cannot be synced and that step is skipped). If any step fails the file is removed
+  and the batch is kept in memory instead (counted as a write error) — never claimed committed.
+  A 413 split is journaled (halves written, synced and renamed to `<parent>@<half>.pend`,
+  directory synced, parent deleted = commit point, halves published); an interrupted split is
+  finished or rolled back when the cache opens, before anything is evicted, so every record is
+  there exactly once. A split that fails after its commit point has succeeded: its halves wait in
+  the journal and the next listing of the cache publishes them (so they upload, and an opt-out
+  purges and counts them). Splits and recovery share a process-wide lock, so a reconfigure's
+  cache on the same directory never sees the draining pipeline's split half-done; stray files
+  are swept only when a cache opens. A crash loses what was not committed yet — records since the last tick
+  (≤ one flush interval, ≤ 2048 queued), open spans, open RTC windows. Duplicates: a crash
+  between an answer and its delete sends that one batch again at the next launch; a delete that
+  fails without a crash leaves the batch pending deletion (never sent again in this launch, but
+  sent once more after a restart if it is still there). A disk that refuses writes gets batches
+  kept in memory (bounded by `max_cache_bytes`, oldest evicted and counted), which survive
+  failures but not the process. A batch that exists but cannot be read right now (file
+  protection, permissions) is kept, not counted corrupt.
+- **Priority:** every request carries `Priority: u=7` (RFC 9218, lowest urgency) for HTTP/2+
+  hops that implement it.
+- **Redirects:** a 3xx the transport returns drops the batch. Transports must not forward
+  `Authorization` across origins; the `livekit-net` native client strips it when a redirect
+  changes the host or the port (tested). A scheme-only change on the same explicit port is not
+  covered by those tests.
+- **Threads:** pipeline work runs on the SDK's runtime; none of it is on a media or UI thread and
+  `emit`/`record_stats` never block on it.
+
+### Collector answers
+
+| Answer | Batch | Pipeline |
+|---|---|---|
+| 2xx | removed | — |
+| 2xx with OTLP `partial_success` | removed; rejected records counted, never retried | — |
+| 400, 3xx, other 4xx | dropped, counted `rejected` | — |
+| 413 | replaced by two halves in one cache transaction (both committed where the batch was, on disk stays on disk, nothing evicted in between) and retried at once, down to one record; if the cache cannot take the halves the batch stays whole; a lone oversized record is dropped, counted `oversized` | — |
+| 401/403 "data recording is disabled by owner" | purged with the project's whole cache | project silent for the process |
+| other 401/403 | kept | that token is never sent again; the project's batches wait for the next token |
+| 404 | purged with the project's cache | project silent until its next token (a new connect or refresh) |
+| 429 | kept | paused for `Retry-After`, else `RetryInfo`, else 60 s |
+| 503 with `Retry-After`/`RetryInfo` | kept | paused for that long |
+| 502, 503, 504; any error with `RetryInfo` (Cloud's retryable 500) | kept | paused for the named delay, else backoff |
+| other 5xx | dropped, counted `rejected` | — |
+| no answer: timeout, connection, DNS, TLS | kept | backoff; never a capability decision |
+| invalid request (transport-side) | dropped, counted `rejected` | — |
+
 ## Log records
 
 A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without `event_name`):
@@ -249,6 +356,105 @@ forwarder the core's records go nowhere. Platforms must not feed forwarded Rust 
 (what `log_forward_receive` returns) to `telemetry_log` / `log(record)`: the core already copied
 them, so they would be counted twice. `telemetry_log` is for the platform's own and WebRTC's
 lines.
+
+## App API: custom events, correlation attributes, opt-out
+
+Three things an app can do; everything else is the SDK's.
+
+- **Custom events** are room-scoped: `Scope::emit_custom(name, attributes)` (Swift:
+  `room.emitTelemetryEvent(_:attributes:)`). The core prefixes the name with `custom.`
+  (`checkout` → `custom.checkout`), so a custom event can never collide with, or spoof, an
+  `lk.*` event and the backend can filter or quota the namespace as a whole. Severity is `info`;
+  custom events count against the flood guard like any discrete event.
+- **Correlation attributes** are room-scoped too: `Scope::set_attribute(key, value | nil)` —
+  `app.call_id`, `enduser.id` — inherited by the room's subsequent logs, spans, events and RTC
+  windows. Values are snapshotted when a record is captured: a later change never rewrites what
+  is queued, and a change closes the Room's open RTC windows first, so a window never mixes
+  readings taken under two values. A custom event's own attributes override the room's. There is no public
+  process-wide attribute (a mutable global would leak across simultaneous rooms); the
+  process-level set is internal, for SDK metadata.
+- **Limits:** names and keys ≤ 128 UTF-8 bytes, string values ≤ 1024 bytes, ≤ 64 attributes per
+  room and per event. SDK-owned keys are reserved: `lk.*` (room, participant, track, outcome …)
+  and `session.id`. Anything else is rejected — never truncated, a truncated id collides — and
+  counted as `lk.telemetry.dropped.invalid`.
+- **Opt-out** is process-wide and synchronous: when `telemetry_disable()` returns, no scope is
+  handed out, every existing scope and instrument captures nothing and later configures are
+  refused; the purge — cancel scheduled work, delete everything not yet sent (queue, open spans
+  and windows, every cached batch on disk) — then runs on the core's runtime
+  (`telemetry_shutdown` / `telemetry_flush` await it; `global::disable()` returns it as a
+  future).
+  Install, instrument start/stop and the opt-out run under one lifecycle lock, so an instrument
+  never starts after the opt-out stopped it. Every pipeline generation still alive (one replaced
+  but still draining included) is revoked — the flag is checked under the lock of every structure
+  that commits data (queue, spans, RTC windows, the cache's write gate), which the purge also
+  takes, so nothing lands after it — then its exporter's request on the wire is cancelled and
+  the exporter awaited, and later configures in the process are refused. The pull queue never
+  hands out a request its exporter gave up on, whether the host awaits `next()` or polls
+  `try_next()` (Dart, from a timer: no Rust future ever holds a continuation of an isolate that
+  may die; such hosts pass no instruments either, so Rust never calls into them). Data already sent cannot be recalled: at most the
+  one batch per generation already on the wire, or already handed to a pull-queue host. If the
+  storage refuses a delete the purge is reported incomplete (logged; `global::disable` and
+  `Telemetry::purge` return `false`; the exported `telemetry_disable` returns nothing). Platforms
+  mark the call TODO pending the token discussion.
+
+## Flood guard
+
+Discrete events (`emit`) are capped at `max_events_per_10min` (default 300, design doc); what
+exceeds it is dropped and reported as `lk.telemetry.dropped.rate_limited`. `lk.rtc.stats.sample`
+windows and `lk.telemetry.report` are exempt.
+
+```yaml
+event: lk.rtc.stats.sample
+area: rtc
+severity: info
+cadence: one per track and direction per stats window (default 60 s, stretched by the cadence
+         factor); closed early on background, when the track leaves (`track_ended`), at
+         disconnect and at shutdown. Produced by the core from raw readings — one getStats()
+         report per peer connection (`record_peer_stats`), polled when the core says
+         (`stats_poll_interval_ms`). Keyed by session and track: two rooms receiving the same
+         track keep two windows.
+attributes:
+  lk.track.sid: string
+  lk.track.kind: enum(audio | video)
+  lk.track.direction: enum(inbound | outbound)
+  lk.rtc.codec: string                      # mimeType, when known
+  lk.rtc.window_ms: int                     # actual window length
+  lk.rtc.samples: int                       # readings in the window
+  # cumulative counters — the last reading's value, monotonic (W3C webrtc-stats model)
+  lk.rtc.bytes: int
+  lk.rtc.packets: int
+  lk.rtc.packets_lost: int                  # inbound
+  lk.rtc.freeze_count: int                  # inbound video
+  lk.rtc.freezes_duration_ms: int           # inbound video
+  lk.rtc.concealed_samples: int             # inbound audio
+  lk.rtc.concealment_events: int            # inbound audio
+  lk.rtc.jitter_buffer_delay_ms: int        # inbound
+  lk.rtc.jitter_buffer_emitted_count: int   # inbound
+  lk.rtc.quality_limitation.bandwidth_ms: int   # outbound video
+  lk.rtc.quality_limitation.cpu_ms: int         # outbound video
+  lk.rtc.quality_limitation.other_ms: int       # outbound video
+  lk.rtc.pause_count: int                   # inbound video
+  lk.rtc.pauses_duration_ms: int            # inbound video
+  lk.rtc.silent_concealed_samples: int      # inbound audio
+  lk.rtc.interruption_count: int            # inbound audio
+  lk.rtc.interruptions_duration_ms: int     # inbound audio
+  # gauges — min / max / avg over the window
+  lk.rtc.jitter_ms.{min,max,avg}: double
+  lk.rtc.rtt_ms.{min,max,avg}: double       # remote-inbound RTT for outbound, candidate-pair for inbound
+  lk.rtc.fps.{min,max,avg}: double          # video
+  lk.rtc.audio_level.{min,max,avg}: double  # audio
+platforms: all
+```
+
+```yaml
+event: lk.room.disconnected
+area: session
+severity: info (client_initiated) | warn (anything else)
+cadence: once, when the Room leaves connected for good — never on a reconnect
+attributes:
+  lk.disconnect.reason: enum(client_initiated | duplicate_identity | server_shutdown | participant_removed | room_deleted | state_mismatch | join_failure | migration | signal_close | room_closed | user_unavailable | user_rejected | sip_trunk_failure | connection_timeout | media_failure | agent_error | reconnect_failed | unknown)   # the protocol's DisconnectReason, plus the client giving up
+platforms: all
+```
 
 ## Spans
 
@@ -325,3 +531,39 @@ attributes:
   lk.participant.remote_identity: string
 checkpoints: subscribed, first_media
 ```
+
+## Typed surface
+
+Everything the SDKs have in common enters the core typed; the core owns the keys, the bodies and
+the policy. `Attribute { key, value }` survives only as the open bag: `emit_custom`,
+`set_attribute`, and `Span::set_attribute` for app-defined spans.
+
+| Platform calls | The core produces |
+|---|---|
+| `Scope::set_server(url, token)` — at connect and on every token refresh | the room's destination: `https://<host>/observability/client/{logs,traces}/otlp/v0` for Cloud hosts, the token's grant and expiry read, its batches routed to its project with its own token |
+| `Scope::emit_custom(name, attributes)`, `Scope::set_attribute(key, value)` | `custom.<name>` events and correlation attributes, validated and snapshotted (see *App API*) |
+| `telemetry_disable()` | the opt-out, in effect when it returns: capture stops; everything unsent is then deleted |
+| `TelemetryConfig.sdk: TelemetryResource { sdk: Sdk, sdk_version, os_name, os_version, device_model }` | `service.name = livekit-client-<sdk>`, `service.version`, `os.*`, `device.model.identifier`, plus `telemetry.sdk.*` |
+| `log(LogRecord { severity, source: LogSource, body, logger, function, file, line, timestamp_ns, span_id })` | a record with `code.function.name`, `code.file.path`, `code.line.number`, `lk.log.source`, `lk.log.logger`; the per-source floor (WebRTC at `error`, own module never) |
+| `Scope::set_room(RoomIdentity { sid, name, participant_sid, participant_identity })` | `lk.room.*`, `lk.participant.*` on every record of the scope |
+| `Scope::start(SpanName, parent) -> Span`; `Span::detached(name)` | an OTLP span (`lk.connect` / `lk.reconnect` are `client`, the rest `internal`); `Reconnect { reason }` sets `lk.reconnect.reason` |
+| `Span::step(SpanStep)` | a span event named `ws_open` … `room_connected`, `subscribed`, `first_media`, `attempt N quick|full` (which also sets `lk.reconnect.attempts` / `.mode`) |
+| `Span::set_track(SpanTrack { sid, kind, source, remote_identity })` | `lk.track.sid`, `lk.track.kind`, `lk.track.source`, `lk.participant.remote_identity` |
+| `Span::end(outcome, error)` / `fail(error)` / `cancel()` | status, `error.type`, `lk.outcome`; ending twice is a no-op |
+| `Span::describe()` | `lk.connect: ws_open +1.49s, signal +0.03s, total 1.83s, ok` — the console line, identical on every platform |
+| `Span::context()` | `TraceContext { trace_id, span_id }` for log correlation; `None` when detached |
+| `device_event(DeviceEvent::{AudioRouteChanged, AudioInterruption, CaptureFailed})` | `lk.device.audio_route.changed`, `lk.device.audio.interruption`, `lk.device.capture.failed` with display bodies; every value is a shared enum (`AudioOutput`, `CaptureDevice`, `CaptureFailure`) |
+| `Scope::subscribe_started(SpanTrack)`, `subscribed(SpanTrack)`, `subscribe_failed(sid, error_type)` | the `lk.subscribe` span, ended by the core at the first inbound reading with bytes, or `timed_out` after 30 s; tracks already in the room at join: `subscribe_started` at connect (a lone `subscribed` still opens the span, as a fallback) |
+| `Scope::track_ended(sid)` | a pending subscribe ends (`cancelled`, or `timed_out` past its deadline); the track's last RTC window ships; its per-track state is retired |
+| `Scope::record_peer_stats(Vec<RtcStat>, tracks: {MediaStreamTrack id → sid}, ts)` | one peer connection's raw `getStats()` report → the core finds each track's RTP streams (`trackIdentifier`, or the `media-source` an `outbound-rtp` names), resolves codec / RTT, converts seconds to ms and records one sample per stream |
+| `Scope::stats_poll_interval_ms()` | when to poll `getStats()` next: 1 s while a subscribe awaits first media, else half the stretched window |
+| `Scope::record_stats_report(sid, kind, direction, Vec<RtcStat>, ts)` | the same mapping for one track's report (platforms that poll per track) |
+| `DisconnectReason::from_proto(i32)`, `ReconnectReason::from_proto(i32)` | the protocol numbers → the shared enums |
+| `Scope::log(LogRecord)` | a record filed under the session without an ambient span (Dart has no task-local outside a zone); same floor and filters as `Telemetry::log` |
+| `Scope::disconnected(DisconnectReason)` | `lk.room.disconnected` with `lk.disconnect.reason` — info when the client hung up, warn otherwise; pending subscribes end, the session's RTC windows ship and its state is retired |
+| `RtcStatsSample.layer` (rid, ssrc or stats id) | simulcast layers folded into one monotonic series per track before windowing |
+
+Timing rule: span calls are synchronous and stamp the clock inside the core, so the only skew is
+the FFI call. Anything that may cross an executor hop before reaching the core (a log record) carries
+its own `timestamp_ns` from capture. Context propagation — the "current" span — stays with the
+platform runtime (task-local, coroutine context, zone); that is the one piece a core cannot own.
