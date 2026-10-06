@@ -4,6 +4,11 @@ Source of truth for event names, attributes and cadences emitted by LiveKit clie
 Additive-only by convention; LiveKit-defined names carry the `lk.` prefix, everything else
 follows [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions).
 
+Every record carries a wall-clock timestamp: one without `timestamp_ns` is stamped when it is
+captured (queued), never at export; an explicit `timestamp_ns` is kept. Attribute keys the SDK
+owns are `lk.*`, `session.id` and `error.type`: an app's attributes and custom events cannot set
+them, and on a span only the core writes `lk.outcome` and `error.type` (see [Spans](#spans)).
+
 ## Resource attributes
 
 Set once per pipeline (`TelemetryConfig.resource`):
@@ -188,7 +193,7 @@ every span and log record. Spans are exported when they end — never a long-liv
 | Names | `lk.connect`, `lk.reconnect`, `lk.publish`, `lk.subscribe` — verbs, never ids |
 | Kind | `CLIENT` for connect/reconnect (a call to the SFU), `INTERNAL` otherwise |
 | Status | OTel `Unset` on success **and** cancellation, `Error` (+ `error.type`, message) on failure |
-| `lk.outcome` | always present: `ok` \| `error` \| `cancelled` — rollups read this, never the status. The core writes it and `error.type` from how the span ended; a span attribute of either name is dropped, so each appears once |
+| `lk.outcome` | exactly once on every span: `ok` \| `error` \| `cancelled` — rollups read this, never the status. The core writes it and `error.type` from how the span ended, dropping span attributes of either name; `error.type` appears at most once, only when the span ended with an error type |
 | `error.type` | platform-defined, a type name (≤ 128 bytes), never a message: e.g. Swift sends `LiveKitError.<numeric code>`, `CancellationError` or the Swift error type; dashboards group by it per `service.name` |
 | Checkpoints | span events in the span's envelope (`ws_open`, `join_recv`, `pc_connected`, `attempt 2 full`, …); real events stay log records pointing at the span via `span_id` |
 | Limits | 128 events and 128 attributes per span (OTel defaults); 256 open spans per pipeline |
