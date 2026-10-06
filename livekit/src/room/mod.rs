@@ -39,7 +39,10 @@ use proto::SignalTarget;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 use thiserror::Error;
@@ -538,6 +541,8 @@ pub(crate) struct RoomSession {
     pub(crate) rpc_client: RpcClientManager,
     pub(crate) rpc_server: RpcServerManager,
     handle: AsyncMutex<Option<Handle>>,
+    /// Set once the room reaches `Disconnected`, which is final from then on.
+    disconnected: AtomicBool,
 }
 
 struct Handle {
@@ -758,6 +763,7 @@ impl Room {
             rpc_client: RpcClientManager::new(),
             rpc_server: RpcServerManager::new(),
             handle: Default::default(),
+            disconnected: AtomicBool::new(false),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
 
@@ -1211,8 +1217,11 @@ impl RoomSession {
     /// Returns true if the state changed
     fn update_connection_state(&self, state: ConnectionState) -> bool {
         let mut info = self.info.write();
-        if info.state == state {
+        if info.state == state || self.disconnected.load(Ordering::Relaxed) {
             return false;
+        }
+        if state == ConnectionState::Disconnected {
+            self.disconnected.store(true, Ordering::Relaxed);
         }
 
         info.state = state;
@@ -1677,8 +1686,9 @@ impl RoomSession {
     }
 
     fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        self.update_connection_state(ConnectionState::Connected);
-        self.dispatcher.dispatch(&RoomEvent::Reconnected);
+        if self.update_connection_state(ConnectionState::Connected) {
+            self.dispatcher.dispatch(&RoomEvent::Reconnected);
+        }
 
         let _ = tx.send(());
 
@@ -1786,8 +1796,9 @@ impl RoomSession {
 
                 local_participant.update_track_subscription_permissions().await;
 
-                session.update_connection_state(ConnectionState::Connected);
-                session.dispatcher.dispatch(&RoomEvent::Reconnected);
+                if session.update_connection_state(ConnectionState::Connected) {
+                    session.dispatcher.dispatch(&RoomEvent::Reconnected);
+                }
             }
         });
     }
