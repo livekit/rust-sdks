@@ -50,6 +50,7 @@ struct Baseline {
     at: Instant,
     cpu: Duration,
     threads: HashMap<u32, ThreadTime>,
+    udp_drops: Option<HashMap<u64, u64>>,
 }
 
 struct ThreadTime {
@@ -59,8 +60,9 @@ struct ThreadTime {
 
 impl Baseline {
     async fn take() -> Self {
-        let threads = tokio::task::spawn_blocking(thread_times).await.unwrap_or_default();
-        Self { at: Instant::now(), cpu: process_cpu(), threads }
+        let scan = || (thread_times(), own_udp_drops());
+        let (threads, udp_drops) = tokio::task::spawn_blocking(scan).await.unwrap_or_default();
+        Self { at: Instant::now(), cpu: process_cpu(), threads, udp_drops }
     }
 
     fn until(&self, now: &Self, worker: u16, lag_max: Duration) -> HealthRecord {
@@ -77,6 +79,15 @@ impl Baseline {
                 })
             })
             .max_by(|a, b| a.util.total_cmp(&b.util));
+        let udp_drops = match (&self.udp_drops, &now.udp_drops) {
+            (Some(before), Some(after)) => Some(
+                after
+                    .iter()
+                    .map(|(inode, d)| d.saturating_sub(*before.get(inode).unwrap_or(&0)))
+                    .sum(),
+            ),
+            _ => None,
+        };
         HealthRecord {
             at: now_ms(),
             dur_ms: wall.as_millis() as u32,
@@ -84,6 +95,7 @@ impl Baseline {
             cpu_cores: util(now.cpu.saturating_sub(self.cpu)),
             lag_max_ms: lag_max.as_secs_f32() * 1000.0,
             hottest_thread,
+            udp_drops,
         }
     }
 }
@@ -125,4 +137,54 @@ fn thread_times() -> HashMap<u32, ThreadTime> {
 #[cfg(not(target_os = "linux"))]
 fn thread_times() -> HashMap<u32, ThreadTime> {
     HashMap::new()
+}
+
+// the tables list every socket in the network namespace, so keep the ones this process holds
+#[cfg(target_os = "linux")]
+fn own_udp_drops() -> Option<HashMap<u64, u64>> {
+    let own: std::collections::HashSet<u64> = std::fs::read_dir("/proc/self/fd")
+        .ok()?
+        .flatten()
+        .filter_map(|fd| {
+            let target = std::fs::read_link(fd.path()).ok()?;
+            target.to_str()?.strip_prefix("socket:[")?.strip_suffix(']')?.parse().ok()
+        })
+        .collect();
+    let mut drops = HashMap::new();
+    for table in ["/proc/self/net/udp", "/proc/self/net/udp6"] {
+        let text = std::fs::read_to_string(table).unwrap_or_default();
+        drops.extend(drops_by_inode(&text).filter(|(inode, _)| own.contains(inode)));
+    }
+    Some(drops)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn own_udp_drops() -> Option<HashMap<u64, u64>> {
+    None
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn drops_by_inode(table: &str) -> impl Iterator<Item = (u64, u64)> + '_ {
+    table.lines().skip(1).filter_map(|row| {
+        let mut columns = row.split_whitespace();
+        let inode = columns.nth(9)?.parse().ok()?;
+        let drops = columns.nth(2)?.parse().ok()?;
+        Some((inode, drops))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn drops_column_is_read_per_socket_inode() {
+        let udp = "\
+   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
+ 1090: 0100007F:9291 00000000:0000 07 00000000:00034500 00:00000000 00000000     0        0 1548516 2 000000005412b34b 19907
+ 2734: 0100007F:E8FD 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 1548517 2 0000000016fa28f7 0
+";
+        let rows: Vec<(u64, u64)> = drops_by_inode(udp).collect();
+        assert_eq!(rows, [(1548516, 19907), (1548517, 0)]);
+    }
 }

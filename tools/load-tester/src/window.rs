@@ -2,7 +2,11 @@ use std::{collections::HashMap, time::Instant};
 
 use livekit::{
     prelude::{ConnectionQuality, TrackKind},
-    webrtc::stats::{InboundRtpStats, QualityLimitationReason, RtcStats},
+    rtc_engine::SessionStats,
+    webrtc::stats::{
+        dictionaries::RemoteInboundRtpStreamStats, InboundRtpStats, OutboundRtpStats,
+        QualityLimitationReason, RtcStats,
+    },
 };
 
 use crate::{
@@ -45,6 +49,86 @@ impl From<ConnectionQuality> for ServerQuality {
 
 fn ms_between(earlier: Instant, later: Instant) -> u32 {
     later.saturating_duration_since(earlier).as_millis() as u32
+}
+
+#[derive(Debug, Default)]
+pub struct StatsByTrack<'a> {
+    inbound: HashMap<&'a str, Inbound<'a>>,
+    outbound: HashMap<&'a str, Vec<Outbound<'a>>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Inbound<'a> {
+    rtp: &'a InboundRtpStats,
+    rtt_ms: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Outbound<'a> {
+    rtp: &'a OutboundRtpStats,
+    remote: Option<&'a RemoteInboundRtpStreamStats>,
+}
+
+impl<'a> StatsByTrack<'a> {
+    /// Indexes each peer connection's report separately, since stats ids repeat across them.
+    pub fn new(stats: &'a SessionStats) -> Self {
+        let mut tracks = Self::default();
+        tracks.add(&stats.publisher_stats);
+        tracks.add(&stats.subscriber_stats);
+        tracks
+    }
+
+    pub fn inbound(&self, rtc_id: &str) -> Option<Inbound<'a>> {
+        self.inbound.get(rtc_id).copied()
+    }
+
+    pub fn outbound(&self, rtc_id: &str) -> &[Outbound<'a>] {
+        self.outbound.get(rtc_id).map_or(&[], Vec::as_slice)
+    }
+
+    fn add(&mut self, report: &'a [RtcStats]) {
+        let mut selected_pairs = HashMap::new();
+        let mut rtts = HashMap::new();
+        let mut sources = HashMap::new();
+        let mut remotes = HashMap::new();
+        for stats in report {
+            match stats {
+                RtcStats::Transport(t) => {
+                    selected_pairs
+                        .insert(t.rtc.id.as_str(), t.transport.selected_candidate_pair_id.as_str());
+                }
+                RtcStats::CandidatePair(p) => {
+                    let rtt_ms = (p.candidate_pair.current_round_trip_time * 1000.0) as f32;
+                    rtts.insert(p.rtc.id.as_str(), rtt_ms);
+                }
+                RtcStats::MediaSource(m) => {
+                    sources.insert(m.rtc.id.as_str(), m.source.track_identifier.as_str());
+                }
+                RtcStats::RemoteInboundRtp(r) => {
+                    remotes.insert(r.remote_inbound.local_id.as_str(), &r.remote_inbound);
+                }
+                _ => {}
+            }
+        }
+        for stats in report {
+            match stats {
+                RtcStats::InboundRtp(rtp) => {
+                    let pair = selected_pairs.get(rtp.stream.transport_id.as_str());
+                    let rtt_ms = pair.and_then(|id| rtts.get(id)).copied().unwrap_or(0.0);
+                    let track = rtp.inbound.track_identifier.as_str();
+                    self.inbound.entry(track).or_insert(Inbound { rtp, rtt_ms });
+                }
+                RtcStats::OutboundRtp(rtp) => {
+                    let Some(&track) = sources.get(rtp.outbound.media_source_id.as_str()) else {
+                        continue;
+                    };
+                    let remote = remotes.get(rtp.rtc.id.as_str()).copied();
+                    self.outbound.entry(track).or_default().push(Outbound { rtp, remote });
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -120,20 +204,6 @@ enum Media {
 }
 
 impl Media {
-    fn kind(&self) -> &'static str {
-        match self {
-            Media::Audio => "audio",
-            Media::Video { .. } => "video",
-        }
-    }
-
-    fn has_media(&self, sample: &Sample) -> bool {
-        match self {
-            Media::Audio => sample.packets_received > 0,
-            Media::Video { .. } => sample.frames_decoded > 0,
-        }
-    }
-
     fn decoder(&self, inbound: &InboundRtpStats) -> Option<String> {
         match self {
             Media::Audio => None,
@@ -208,13 +278,14 @@ impl Media {
 #[derive(Debug)]
 pub enum Observation {
     Nothing,
-    FirstMedia { ttff_ms: u32, decoder: Option<String> },
+    FirstMedia { frame: Instant, ttff_ms: u32, decoder: Option<String> },
     Window { dur_ms: u32, rtt_ms: f32, media: MediaWindow },
 }
 
 #[derive(Debug)]
 enum State {
     Waiting { since: Instant },
+    Arrived { frame: Instant, ttff_ms: u32 },
     Flowing { prev: Sample, at: Instant },
 }
 
@@ -225,40 +296,37 @@ pub struct InboundTracker {
 }
 
 impl InboundTracker {
-    pub fn audio(subscribed: Instant) -> Self {
-        Self::new(subscribed, Media::Audio)
+    pub fn audio(since: Instant) -> Self {
+        Self::new(since, Media::Audio)
     }
 
-    pub fn video(subscribed: Instant, expect: VideoExpectation) -> Self {
-        Self::new(subscribed, Media::Video { expect, unreported_stall_ms: 0 })
+    pub fn video(since: Instant, expect: VideoExpectation) -> Self {
+        Self::new(since, Media::Video { expect, unreported_stall_ms: 0 })
     }
 
-    fn new(subscribed: Instant, media: Media) -> Self {
-        Self { media, state: State::Waiting { since: subscribed } }
+    fn new(since: Instant, media: Media) -> Self {
+        Self { media, state: State::Waiting { since } }
     }
 
-    pub fn waiting(&self) -> bool {
-        matches!(self.state, State::Waiting { .. })
+    pub fn first_frame(&mut self, frame: Instant) {
+        if let State::Waiting { since } = self.state {
+            self.state = State::Arrived { frame, ttff_ms: ms_between(since, frame) };
+        }
     }
 
-    pub fn observe(&mut self, now: Instant, stats: &[RtcStats]) -> Observation {
-        let inbound = inbound_rtp(stats, self.media.kind());
+    pub fn observe(&mut self, now: Instant, inbound: Option<Inbound>) -> Observation {
+        let Some(Inbound { rtp, rtt_ms }) = inbound else {
+            return Observation::Nothing;
+        };
         match &mut self.state {
-            State::Waiting { since } => {
-                let arrived = inbound.map(Sample::read).filter(|s| self.media.has_media(s));
-                let Some(sample) = arrived else {
-                    return Observation::Nothing;
-                };
-                let ttff_ms = ms_between(*since, now);
-                self.state = State::Flowing { prev: sample, at: now };
-                let decoder = inbound.and_then(|i| self.media.decoder(i));
-                Observation::FirstMedia { ttff_ms, decoder }
+            State::Waiting { .. } => Observation::Nothing,
+            State::Arrived { frame, ttff_ms } => {
+                let (frame, ttff_ms) = (*frame, *ttff_ms);
+                self.state = State::Flowing { prev: Sample::read(rtp), at: now };
+                Observation::FirstMedia { frame, ttff_ms, decoder: self.media.decoder(rtp) }
             }
             State::Flowing { prev, at } => {
-                let Some(inbound) = inbound else {
-                    return Observation::Nothing;
-                };
-                let sample = Sample::read(inbound);
+                let sample = Sample::read(rtp);
                 if sample.is_reset_from(prev) {
                     self.media.reset();
                     *prev = sample;
@@ -266,33 +334,13 @@ impl InboundTracker {
                     return Observation::Nothing;
                 }
                 let dur_ms = ms_between(*at, now);
-                let media = self.media.window(prev, &sample, inbound, dur_ms);
+                let media = self.media.window(prev, &sample, rtp, dur_ms);
                 *prev = sample;
                 *at = now;
-                Observation::Window { dur_ms, rtt_ms: rtt_ms(stats), media }
+                Observation::Window { dur_ms, rtt_ms, media }
             }
         }
     }
-}
-
-fn inbound_rtp<'a>(stats: &'a [RtcStats], kind: &str) -> Option<&'a InboundRtpStats> {
-    stats.iter().find_map(|s| match s {
-        RtcStats::InboundRtp(i) if i.stream.kind == kind => Some(i),
-        _ => None,
-    })
-}
-
-// a receiver-scoped report includes the selected candidate pair
-fn rtt_ms(stats: &[RtcStats]) -> f32 {
-    stats
-        .iter()
-        .find_map(|s| match s {
-            RtcStats::CandidatePair(p) if p.candidate_pair.nominated => {
-                Some((p.candidate_pair.current_round_trip_time * 1000.0) as f32)
-            }
-            _ => None,
-        })
-        .unwrap_or(0.0)
 }
 
 #[derive(Debug, PartialEq)]
@@ -307,22 +355,13 @@ pub struct UplinkTracker {
 }
 
 impl UplinkTracker {
-    pub fn observe(&mut self, now: Instant, stats: &[RtcStats]) -> Option<UplinkWindow> {
-        let (at, before) = self.prev.replace((now, bytes_by_rid(stats)))?;
+    pub fn observe(&mut self, now: Instant, outbound: &[Outbound]) -> Option<UplinkWindow> {
+        let bytes = outbound.iter().map(|o| (o.rtp.outbound.rid.clone(), o.rtp.sent.bytes_sent));
+        let (at, before) = self.prev.replace((now, bytes.collect()))?;
         let dur_ms = ms_between(at, now);
-        let layers = stats
+        let layers = outbound
             .iter()
-            .filter_map(|s| match s {
-                RtcStats::OutboundRtp(out) => Some(out),
-                _ => None,
-            })
-            .map(|out| {
-                let remote = stats.iter().find_map(|s| match s {
-                    RtcStats::RemoteInboundRtp(r) if r.remote_inbound.local_id == out.rtc.id => {
-                        Some(&r.remote_inbound)
-                    }
-                    _ => None,
-                });
+            .map(|&Outbound { rtp: out, remote }| {
                 let sent = before
                     .get(&out.outbound.rid)
                     .map_or(0, |b| out.sent.bytes_sent.saturating_sub(*b));
@@ -345,21 +384,14 @@ impl UplinkTracker {
     }
 }
 
-fn bytes_by_rid(stats: &[RtcStats]) -> HashMap<String, u64> {
-    stats
-        .iter()
-        .filter_map(|s| match s {
-            RtcStats::OutboundRtp(o) => Some((o.outbound.rid.clone(), o.sent.bytes_sent)),
-            _ => None,
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use livekit::webrtc::stats::{dictionaries, CandidatePairStats};
+    use livekit::webrtc::stats::{
+        dictionaries, CandidatePairStats, MediaSourceStats, OutboundRtpStats,
+        RemoteInboundRtpStats, TransportStats,
+    };
 
     use super::*;
     use crate::record::NULL_DECODER;
@@ -401,19 +433,17 @@ mod tests {
         i
     }
 
-    fn pair(nominated: bool, rtt_s: f64) -> RtcStats {
-        RtcStats::CandidatePair(CandidatePairStats {
-            candidate_pair: dictionaries::CandidatePairStats {
-                nominated,
-                current_round_trip_time: rtt_s,
-                ..Default::default()
-            },
-            ..Default::default()
-        })
+    fn audio(ssrc: u32, packets: u64, samples: u64, concealed: u64) -> InboundRtpStats {
+        let mut i = inbound("audio", ssrc);
+        i.received.packets_received = packets;
+        i.inbound.total_samples_received = samples;
+        i.inbound.jitter_buffer_emitted_count = samples;
+        i.inbound.concealed_samples = concealed;
+        i
     }
 
-    fn report(i: InboundRtpStats) -> Vec<RtcStats> {
-        vec![RtcStats::InboundRtp(i), pair(true, 0.04)]
+    fn seen(i: &InboundRtpStats) -> Option<Inbound<'_>> {
+        Some(Inbound { rtp: i, rtt_ms: 40.0 })
     }
 
     fn expectation() -> VideoExpectation {
@@ -425,7 +455,8 @@ mod tests {
 
     fn flowing_video(clock: &Clock) -> InboundTracker {
         let mut t = InboundTracker::video(clock.at(0), expectation());
-        let first = t.observe(clock.at(500), &report(video(1, 10, 5)));
+        t.first_frame(clock.at(400));
+        let first = t.observe(clock.at(500), seen(&video(1, 10, 5)));
         assert!(matches!(first, Observation::FirstMedia { .. }), "{first:?}");
         t
     }
@@ -442,11 +473,11 @@ mod tests {
         let clock = Clock::new();
         let mut t = flowing_video(&clock);
 
-        let (dur, w1) = video_window(t.observe(clock.at(5_500), &report(video(1, 500, 155))));
+        let (dur, w1) = video_window(t.observe(clock.at(5_500), seen(&video(1, 500, 155))));
         assert_eq!(dur, 5_000);
         assert_eq!(w1.stalled_ms, 0);
 
-        let (_, w2) = video_window(t.observe(clock.at(10_500), &report(video(1, 500, 155))));
+        let (_, w2) = video_window(t.observe(clock.at(10_500), seen(&video(1, 500, 155))));
         assert_eq!(
             w2.stalled_ms, 5_000,
             "a window with no new frames is stalled for its whole duration"
@@ -454,7 +485,7 @@ mod tests {
         assert_eq!(w2.frames_decoded, 0);
 
         let resumed = with_freeze(video(1, 600, 200), 6.2, 0.0);
-        let (_, w3) = video_window(t.observe(clock.at(15_500), &report(resumed)));
+        let (_, w3) = video_window(t.observe(clock.at(15_500), seen(&resumed)));
         assert_eq!(w3.stalled_ms, 1_200, "libwebrtc reports 6.2s; 5s was already charged");
         assert_eq!(w3.freeze_count, 1);
     }
@@ -463,12 +494,82 @@ mod tests {
     fn ssrc_change_resets_without_emitting_a_window() {
         let clock = Clock::new();
         let mut t = flowing_video(&clock);
-        let obs = t.observe(clock.at(5_500), &report(video(2, 3, 1)));
+        let obs = t.observe(clock.at(5_500), seen(&video(2, 3, 1)));
         assert!(matches!(obs, Observation::Nothing), "{obs:?}");
-        let (dur, w) = video_window(t.observe(clock.at(10_500), &report(video(2, 253, 151))));
+        let (dur, w) = video_window(t.observe(clock.at(10_500), seen(&video(2, 253, 151))));
         assert_eq!(dur, 5_000, "the next window starts at the reset sample");
         assert_eq!(w.frames_decoded, 150);
-        let obs = t.observe(clock.at(15_500), &report(video(2, 3, 1)));
+        let obs = t.observe(clock.at(15_500), seen(&video(2, 3, 1)));
         assert!(matches!(obs, Observation::Nothing), "counters went backwards: {obs:?}");
+    }
+
+    #[test]
+    fn stats_join_only_within_their_own_peer_connection_report() {
+        let transport = |id: &str, selected: &str| {
+            let mut t = TransportStats::default();
+            t.rtc.id = id.into();
+            t.transport.selected_candidate_pair_id = selected.into();
+            RtcStats::Transport(t)
+        };
+        let pair = |id: &str, rtt_s: f64| {
+            let mut p = CandidatePairStats::default();
+            p.rtc.id = id.into();
+            p.candidate_pair.nominated = true;
+            p.candidate_pair.current_round_trip_time = rtt_s;
+            RtcStats::CandidatePair(p)
+        };
+        let source = |id: &str, rtc_id: &str| {
+            let mut m = MediaSourceStats::default();
+            m.rtc.id = id.into();
+            m.source.track_identifier = rtc_id.into();
+            RtcStats::MediaSource(m)
+        };
+        let outbound = |id: &str, source: &str, rid: &str| {
+            let mut o = OutboundRtpStats::default();
+            o.rtc.id = id.into();
+            o.outbound.media_source_id = source.into();
+            o.outbound.rid = rid.into();
+            RtcStats::OutboundRtp(o)
+        };
+        let mut remote = RemoteInboundRtpStats::default();
+        remote.remote_inbound.local_id = "OT01V1".into();
+        let mut received = audio(42, 9, 480, 0);
+        received.inbound.track_identifier = "remote-mic".into();
+        received.stream.transport_id = "T01".into();
+
+        let stats = SessionStats {
+            publisher_stats: vec![
+                transport("T01", "CP2"),
+                pair("CP1", 0.09),
+                pair("CP2", 0.07),
+                source("SA1", "mic"),
+                source("SV2", "camera"),
+                outbound("OT01A1", "SA1", ""),
+                outbound("OT01V1", "SV2", "f"),
+                outbound("OT01V2", "SV2", "q"),
+                RtcStats::RemoteInboundRtp(remote),
+            ],
+            subscriber_stats: vec![
+                transport("T01", "CP1"),
+                pair("CP0", 0.3),
+                pair("CP1", 0.05),
+                RtcStats::InboundRtp(received),
+            ],
+        };
+        let tracks = StatsByTrack::new(&stats);
+
+        let mic = tracks.inbound("remote-mic").expect("routed by trackIdentifier");
+        assert_eq!(mic.rtp.stream.ssrc, 42);
+        assert_eq!(
+            mic.rtt_ms, 50.0,
+            "the subscriber's selected CP1, not the earlier nominated CP0 or the publisher's CP1"
+        );
+        let camera: Vec<(&str, bool)> = tracks
+            .outbound("camera")
+            .iter()
+            .map(|o| (o.rtp.outbound.rid.as_str(), o.remote.is_some()))
+            .collect();
+        assert_eq!(camera, [("f", true), ("q", false)], "remote-inbound joined by localId");
+        assert_eq!(tracks.outbound("mic").len(), 1);
     }
 }

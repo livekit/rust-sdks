@@ -61,6 +61,8 @@ max_lag_ms = 100.0
 max_thread_util = 0.85
 max_cpu_share = 0.85
 max_cpu_limited_layer_share = 0.1
+# datagrams the kernel dropped on one worker's own UDP sockets in one 5 s window, Linux only
+max_udp_drops = 0
 
 # points taken off a window's 0..100 score; (sfu) marks the SFU's connection-quality defaults.
 # video_loss_weight, layer_step_penalty, fps_step_penalty and freeze_weight shape only the video

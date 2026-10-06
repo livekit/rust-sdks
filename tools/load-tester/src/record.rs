@@ -72,6 +72,7 @@ pub struct TesterLimits {
     pub max_thread_util: f32,
     pub max_cpu_share: f32,
     pub max_cpu_limited_layer_share: f32,
+    pub max_udp_drops: u64,
 }
 
 impl Default for TesterLimits {
@@ -81,6 +82,7 @@ impl Default for TesterLimits {
             max_thread_util: 0.85,
             max_cpu_share: 0.85,
             max_cpu_limited_layer_share: 0.10,
+            max_udp_drops: 0,
         }
     }
 }
@@ -334,6 +336,7 @@ pub struct HealthRecord {
     pub cpu_cores: f32,
     pub lag_max_ms: f32,
     pub hottest_thread: Option<ThreadLoad>,
+    pub udp_drops: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -82,6 +82,7 @@ pub struct WorkerHealth {
     pub mean_cpu_cores: f32,
     pub lag_max_ms: f32,
     pub hottest_thread: Option<ThreadLoad>,
+    pub udp_drops: Option<u64>,
 }
 
 impl WorkerHealth {
@@ -89,6 +90,7 @@ impl WorkerHealth {
         self.samples += 1;
         self.mean_cpu_cores += (h.cpu_cores - self.mean_cpu_cores) / self.samples as f32;
         self.lag_max_ms = self.lag_max_ms.max(h.lag_max_ms);
+        self.udp_drops = self.udp_drops.max(h.udp_drops);
         if let Some(t) = &h.hottest_thread {
             if self.hottest_thread.as_ref().is_none_or(|hot| t.util > hot.util) {
                 self.hottest_thread = Some(t.clone());
@@ -370,6 +372,9 @@ fn tester_issues(report: &StepReport, limits: &TesterLimits) -> Vec<String> {
         }
         if let Some(t) = h.hottest_thread.as_ref().filter(|t| t.util > limits.max_thread_util) {
             issues.push(format!("{} {:.0}% on worker {worker}", t.name, t.util * 100.0));
+        }
+        if let Some(drops) = h.udp_drops.filter(|d| *d > limits.max_udp_drops) {
+            issues.push(format!("{drops} UDP receive drops in 5s on worker {worker}"));
         }
     }
     if let Some(share) = report.cpu_share.filter(|s| *s > limits.max_cpu_share) {
