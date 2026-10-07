@@ -1,3 +1,14 @@
+## 0.1.4 (2026-10-07)
+
+### Fixes
+
+- Scale the `x-google-start-bitrate` hint by connection setup time: the 1 Mbps camera cap now applies to connections that set up within 1.5 s and ramps linearly down to 300 kbps at 3.5 s or slower; screen share stays uncapped.
+- Increase the local and remote data track event buffers so a burst of track lifecycle events cannot fill the channel and deadlock room disconnect.
+- Manage VAAPI displays across capability probes and encoder lifecycles so driver resources and threads are released without invalidating active encoders.
+- Release local published tracks when a server-initiated room closure has already closed the peer connection.
+- RoomClient::send_data now returns a Send future by dropping its RNG before awaiting.
+- Never wait on the peer when closing a signal stream: a half-open socket (no FIN/RST) left the reader parked in `recv()` forever, so the resume never dialled and `Room::close` hung. `SignalStream::close` now aborts the parked reader and bounds the writer's Close flush.
+
 ## 0.1.3 (2026-09-24)
 
 ### Fixes

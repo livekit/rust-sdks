@@ -1,3 +1,9 @@
+## 0.2.2 (2026-10-07)
+
+### Fixes
+
+- Increase the local and remote data track event buffers so a burst of track lifecycle events cannot fill the channel and deadlock room disconnect.
+
 ## 0.2.1 (2026-09-24)
 
 ### Fixes
