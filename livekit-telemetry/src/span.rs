@@ -215,6 +215,8 @@ impl Spans {
         self.open.values().any(|span| names.contains(&span.name.as_str()))
     }
 
+    /// Record a checkpoint on an open span. Ignored once the span ended, as OTel ignores any call
+    /// on an ended span; a log record carrying its id still lands in its session.
     pub fn add_event(&mut self, id: u64, name: &str) {
         if self.revoked() {
             return;

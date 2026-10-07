@@ -78,7 +78,7 @@ counters! {
     uploads_sent,
     /// Compressed bytes the collector accepted — what telemetry actually cost the uplink.
     upload_bytes,
-    /// Upload attempts that failed transiently (no answer, 429, 5xx).
+    /// Upload attempts that failed transiently before the timeout (a network error, 429, 5xx).
     upload_failures,
     /// Upload attempts that hit `export_timeout_ms` (a slow network, or a stalled collector).
     upload_timeouts,
@@ -240,9 +240,9 @@ pub struct TelemetryStats {
     pub uploads_sent: u64,
     /// Compressed bytes the collector accepted.
     pub upload_bytes: u64,
-    /// Upload attempts that failed transiently (no answer, 429, 5xx).
+    /// Upload attempts that failed transiently before the timeout (a network error, 429, 5xx).
     pub upload_failures: u64,
-    /// Upload attempts that timed out.
+    /// Upload attempts that got no answer within `export_timeout_ms`; not counted as failures.
     pub upload_timeouts: u64,
     /// Tokens the collector refused (401/403).
     pub uploads_unauthorized: u64,

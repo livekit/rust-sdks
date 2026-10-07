@@ -127,8 +127,10 @@ impl Store {
         before < self.flush_threshold && queue.bytes >= self.flush_threshold
     }
 
-    /// Remove and return the oldest events: at most `max` of them and about `max_bytes` in total
-    /// (always at least one, so an oversized event still ships).
+    /// Remove and return the oldest events: at most `min(max, len)` of them and about `max_bytes`
+    /// in total. Each pass stops or removes one event, so there is at most one extra, stopping
+    /// pass. `max == 0` returns nothing; on a non-empty queue with `max > 0`, `max_bytes == 0`
+    /// returns one event, and an oversized head event goes out alone.
     pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<QueuedEvent> {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         queue.full_warned = false;
