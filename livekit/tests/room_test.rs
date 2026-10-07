@@ -140,3 +140,29 @@ async fn test_close_releases_room_session() -> Result<()> {
     assert!(session_dropped(), "room callbacks retained the room session after close");
     Ok(())
 }
+
+/// `close()` must leave the room Disconnected and report it, every time.
+///
+/// The room's event task used to be the only place that applied the engine's `Disconnected`
+/// event, and it races that event against the close signal `close()` sends right after; when
+/// both are ready the close can win and the event is dropped, leaving the room in its previous
+/// state. Each iteration hits that race with roughly even odds.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_close_leaves_room_disconnected() -> Result<()> {
+    for _ in 0..5 {
+        let (room, mut events) = test_rooms(1).await?.pop().unwrap();
+        room.close().await?;
+
+        assert_eq!(room.connection_state(), ConnectionState::Disconnected);
+        let mut disconnected = false;
+        while let Some(event) = events.try_recv().ok() {
+            disconnected |= matches!(
+                event,
+                RoomEvent::Disconnected { reason: livekit::DisconnectReason::ClientInitiated }
+            );
+        }
+        assert!(disconnected, "close() did not emit RoomEvent::Disconnected");
+    }
+    Ok(())
+}

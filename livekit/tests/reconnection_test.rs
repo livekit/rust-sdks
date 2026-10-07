@@ -38,7 +38,10 @@
 #[cfg(feature = "__lk-e2e-test")]
 use {
     anyhow::{anyhow, bail, Result},
-    common::test_rooms,
+    common::{
+        audio::{SineParameters, SineTrack},
+        test_rooms,
+    },
     libwebrtc::{
         native::create_random_uuid,
         prelude::{RtcVideoSource, VideoResolution},
@@ -51,7 +54,7 @@ use {
     },
     livekit_api::services::room::RoomClient,
     livekit_token::{AccessToken, VideoGrants},
-    std::{env, net::SocketAddr, time::Duration},
+    std::{env, net::SocketAddr, sync::Arc, time::Duration},
     tokio::{
         net::{TcpListener, TcpStream},
         sync::{mpsc::UnboundedReceiver, watch},
@@ -124,6 +127,42 @@ async fn test_signal_reconnect_resumes() -> Result<()> {
 async fn test_full_reconnect_recovers() -> Result<()> {
     let (room, events) = test_rooms(1).await?.pop().unwrap();
     assert_recovers(room, events, SimulateScenario::FullReconnect).await
+}
+
+/// A full reconnect republishes tracks from a detached task that marks the room `Connected` when
+/// it finishes. Closing the room while that task waits on the server must not let it bring the
+/// room back: once closed, the room stays `Disconnected`.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_close_during_republish_stays_disconnected() -> Result<()> {
+    let (room, mut events) = test_rooms(1).await?.pop().unwrap();
+    let room = Arc::new(room);
+    let params =
+        SineParameters { sample_rate: 48_000, freq: 440.0, amplitude: 1.0, num_channels: 1 };
+    SineTrack::new(room.clone(), params).publish().await?;
+
+    room.simulate_scenario(SimulateScenario::FullReconnect)
+        .await
+        .map_err(|e| anyhow!("simulate_scenario failed: {e:?}"))?;
+
+    // The republish task unpublishes first, then waits for the new publication.
+    timeout(Duration::from_secs(15), async {
+        while let Some(event) = events.recv().await {
+            if matches!(event, RoomEvent::LocalTrackUnpublished { .. }) {
+                return;
+            }
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("the full reconnect never started republishing"))?;
+    room.close().await?;
+
+    // Past the 10 s publish timeout, when the orphaned republish gives up and finishes.
+    for _ in 0..120 {
+        assert_eq!(room.connection_state(), ConnectionState::Disconnected);
+        time::sleep(Duration::from_millis(100)).await;
+    }
+    Ok(())
 }
 
 // The server drops the signalling link during the resume, so the resume cannot
