@@ -315,10 +315,24 @@ impl GStreamerVideoSource {
                 .map_err(SourceError::new)?;
             let discovered = sample_format_from_negotiated_caps(caps)
                 .map_err(|err| SourceError::new(GStreamerVideoSourceError::Layout(err)))?;
-            if config.resolution.is_none() {
-                resolution = resolution_from_caps(caps)
-                    .ok_or(GStreamerVideoSourceError::MissingResolutionCaps)
-                    .map_err(SourceError::new)?;
+            match config.resolution {
+                None => {
+                    resolution = resolution_from_caps(caps)
+                        .ok_or(GStreamerVideoSourceError::MissingResolutionCaps)
+                        .map_err(SourceError::new)?;
+                }
+                Some(declared) => {
+                    if let Some(actual) = resolution_from_caps(caps) {
+                        if actual != declared {
+                            return Err(SourceError::new(
+                                GStreamerVideoSourceError::ResolutionMismatch {
+                                    configured: declared,
+                                    actual,
+                                },
+                            ));
+                        }
+                    }
+                }
             }
             if let Some(interval_us) = frame_interval_from_caps(caps) {
                 frame_interval_us = interval_us;
