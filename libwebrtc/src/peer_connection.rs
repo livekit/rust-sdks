@@ -78,6 +78,28 @@ pub struct OfferOptions {
 #[derive(Debug, Clone, Default)]
 pub struct AnswerOptions {}
 
+/// Send bitrate limits for a whole connection, applied with [`PeerConnection::set_bitrate`].
+///
+/// Values are in bits per second. A `None` min or max sets no limit of its own, so only the
+/// SDP limit applies. A `None` start keeps the current estimate. To cap one encoding of a
+/// single sender instead, set [`RtpEncodingParameters::max_bitrate`].
+///
+/// [`RtpEncodingParameters::max_bitrate`]: crate::rtp_parameters::RtpEncodingParameters::max_bitrate
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BitrateSettings {
+    /// Floor for the bandwidth estimator. Its target send rate stays at or above this value,
+    /// even when it measures less bandwidth. The higher of this and the SDP minimum applies.
+    /// If that is above the effective max, it is lowered to the max.
+    pub min_bitrate_bps: Option<u64>,
+    /// Value the bandwidth estimate restarts from, clamped to the effective min and max. It is
+    /// stored and given to the estimator again when a network route change restarts it.
+    pub start_bitrate_bps: Option<u64>,
+    /// Cap for the bandwidth estimator. Its target send rate stays at or below this value,
+    /// unless the streams' own minimum bitrates add up to more. The lower of this and the SDP
+    /// maximum applies.
+    pub max_bitrate_bps: Option<u64>,
+}
+
 #[derive(Debug, Clone)]
 pub struct IceCandidateError {
     pub address: String,
@@ -113,6 +135,22 @@ pub struct PeerConnection {
 impl PeerConnection {
     pub fn set_configuration(&self, config: RtcConfiguration) -> Result<(), RtcError> {
         self.handle.set_configuration(config)
+    }
+
+    /// Applies [`BitrateSettings`] to the bandwidth estimator shared by all RTP streams of this
+    /// connection.
+    ///
+    /// Each call replaces the previous call's settings, so an omitted min or max is cleared.
+    /// Limits from the SDP, such as `b=AS`, still apply. A start resets the current estimate,
+    /// even one that has converged, so a caller normally sets it once. Values above `i32::MAX` are
+    /// treated as `i32::MAX`.
+    ///
+    /// Returns an error if start is below min, if max is below start or min, or if the
+    /// connection is closed. A closed connection gives [`RtcErrorType::InvalidState`].
+    ///
+    /// [`RtcErrorType::InvalidState`]: crate::RtcErrorType::InvalidState
+    pub fn set_bitrate(&self, settings: BitrateSettings) -> Result<(), RtcError> {
+        self.handle.set_bitrate(settings)
     }
 
     pub async fn create_offer(
