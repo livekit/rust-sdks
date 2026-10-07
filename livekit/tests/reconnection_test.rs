@@ -42,15 +42,23 @@ use {
         audio::{SineParameters, SineTrack},
         test_rooms,
     },
-    libwebrtc::native::create_random_uuid,
-    livekit::{ConnectionState, Room, RoomEvent, RoomOptions, SimulateScenario},
+    libwebrtc::{
+        native::create_random_uuid,
+        prelude::{RtcVideoSource, VideoResolution},
+        video_source::native::NativeVideoSource,
+    },
+    livekit::{
+        options::TrackPublishOptions,
+        track::{LocalTrack, LocalVideoTrack},
+        ConnectionState, Room, RoomEvent, RoomOptions, SimulateScenario,
+    },
     livekit_api::services::room::RoomClient,
     livekit_token::{AccessToken, VideoGrants},
     std::{env, net::SocketAddr, sync::Arc, time::Duration},
     tokio::{
         net::{TcpListener, TcpStream},
         sync::{mpsc::UnboundedReceiver, watch},
-        time::{sleep, timeout},
+        time::{self, timeout},
     },
 };
 
@@ -152,7 +160,7 @@ async fn test_close_during_republish_stays_disconnected() -> Result<()> {
     // Past the 10 s publish timeout, when the orphaned republish gives up and finishes.
     for _ in 0..120 {
         assert_eq!(room.connection_state(), ConnectionState::Disconnected);
-        sleep(Duration::from_millis(100)).await;
+        time::sleep(Duration::from_millis(100)).await;
     }
     Ok(())
 }
@@ -435,6 +443,19 @@ async fn test_room_deleted_disconnects_without_reconnect() -> Result<()> {
     let (room, mut events) = Room::connect(&server_url, &token, RoomOptions::default()).await?;
     assert_eq!(room.connection_state(), ConnectionState::Connected);
 
+    let session_dropped = room.drop_probe();
+
+    let source = NativeVideoSource::new(VideoResolution { width: 16, height: 16 }, false);
+    let track = LocalVideoTrack::create_video_track(
+        "server-deleted-track",
+        RtcVideoSource::Native(source.clone()),
+    );
+    let publication = room
+        .local_participant()
+        .publish_track(LocalTrack::Video(track), TrackPublishOptions::default())
+        .await?;
+    assert!(publication.track().is_some());
+
     let http_url = server_url.replacen("ws", "http", 1);
     RoomClient::with_api_key(&http_url, &api_key, &api_secret).delete_room(&room_name).await?;
 
@@ -452,5 +473,26 @@ async fn test_room_deleted_disconnects_without_reconnect() -> Result<()> {
 
     assert_eq!(reason, livekit::DisconnectReason::RoomDeleted);
     assert_eq!(room.connection_state(), ConnectionState::Disconnected);
+
+    timeout(Duration::from_secs(5), async {
+        while publication.track().is_some() {
+            time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("server deletion did not detach the published local track"))?;
+
+    drop(publication);
+    drop(source);
+    drop(events);
+    drop(room);
+
+    timeout(Duration::from_secs(5), async {
+        while !session_dropped() {
+            time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("published track retained the room session after server deletion"))?;
     Ok(())
 }

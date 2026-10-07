@@ -70,29 +70,31 @@ then
   gclient sync -D --no-history
 fi
 
+source "$COMMAND_DIR/apply_patch.sh"
+
 cd src
-git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_license_json_parsing.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/add_licenses.patch"
+apply_patch "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
+apply_patch "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
+apply_patch "$COMMAND_DIR/patches/add_deps.patch"
+apply_patch "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch"
+apply_patch "$COMMAND_DIR/patches/external_audio_source.patch"
+apply_patch "$COMMAND_DIR/patches/fix_pipewire_utils_compile.patch"
 
 # Disable CREL (compact relocations). Chromium's build enables experimental
 # CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
 # broken on arm32 and s390x too).
 # See: https://crbug.com/376278218
 # See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
-git -C build apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/disable_crel.patch" build
 
 cd third_party
 
-git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch"
 
 cd libyuv
 
-git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch"
 
 cd ../../..
 
