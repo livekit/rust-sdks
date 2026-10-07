@@ -865,6 +865,12 @@ pub enum GStreamerPipelineError {
     /// Pad caps advertise no supported encoded video codec.
     #[error("unlinked GStreamer pad '{0}' does not advertise supported encoded video caps")]
     UnsupportedPadCaps(String),
+    /// More than one unlinked source pad advertises a supported encoded video codec.
+    #[error(
+        "GStreamer pipeline has multiple unlinked encoded video source pads ({0}); leave exactly \
+         one unlinked or name the appsink `{ENCODED_APPSINK_NAME}`"
+    )]
+    AmbiguousEncodedPads(String),
     /// Caps advertise a stream layout the encoded sources cannot consume.
     #[error("unsupported GStreamer caps: {0}")]
     UnsupportedCaps(String),
@@ -958,11 +964,7 @@ fn ensure_encoded_appsink(
         return Ok((appsink, sample_format));
     }
 
-    let src_pad = pipeline
-        .find_unlinked_pad(gst::PadDirection::Src)
-        .ok_or(GStreamerPipelineError::MissingAppSink)?;
-    let inferred_codec = codec_from_pad_caps(&src_pad)
-        .ok_or_else(|| GStreamerPipelineError::UnsupportedPadCaps(src_pad.name().to_string()))?;
+    let (src_pad, inferred_codec) = find_unlinked_encoded_src_pad(pipeline)?;
     let codec = match requested_codec {
         Some(requested_codec) if requested_codec != inferred_codec => {
             return Err(GStreamerPipelineError::CodecMismatch {
@@ -1204,6 +1206,46 @@ fn h264_avc_nal_length_size_from_caps(structure: &gst::StructureRef) -> u8 {
 fn h264_avc_nal_length_size_from_codec_data(codec_data: &[u8]) -> Option<u8> {
     let length_size = (codec_data.get(4)? & 0x03) + 1;
     (1..=4).contains(&length_size).then_some(length_size)
+}
+
+/// Selects the single unlinked source pad that advertises a supported
+/// encoded video codec.
+///
+/// Other unlinked pads (for example audio) are ignored. Zero eligible pads
+/// or more than one are errors.
+fn find_unlinked_encoded_src_pad(
+    pipeline: &gst::Pipeline,
+) -> Result<(gst::Pad, EncodedVideoCodec), GStreamerPipelineError> {
+    let mut eligible = Vec::new();
+    let mut first_unlinked: Option<gst::Pad> = None;
+
+    for element in pipeline.iterate_recurse() {
+        let Ok(element) = element else {
+            continue;
+        };
+        for pad in element.src_pads() {
+            if pad.is_linked() {
+                continue;
+            }
+            if first_unlinked.is_none() {
+                first_unlinked = Some(pad.clone());
+            }
+            if let Some(codec) = codec_from_pad_caps(&pad) {
+                eligible.push((pad, codec));
+            }
+        }
+    }
+
+    match eligible.as_slice() {
+        [(pad, codec)] => Ok((pad.clone(), *codec)),
+        [] => match first_unlinked {
+            Some(pad) => Err(GStreamerPipelineError::UnsupportedPadCaps(pad.name().to_string())),
+            None => Err(GStreamerPipelineError::MissingAppSink),
+        },
+        pads => Err(GStreamerPipelineError::AmbiguousEncodedPads(
+            pads.iter().map(|(pad, _)| pad.name().to_string()).collect::<Vec<_>>().join(", "),
+        )),
+    }
 }
 
 /// Infers the encoded codec advertised by a pad's caps.
