@@ -20,7 +20,7 @@
 {"t":"health","at":1760000149000,"dur_ms":5000,"worker":0,"cpu_cores":1.4,"lag_max_ms":3.0,"hottest_thread":{"name":"worker_thread","util":0.14}}
 {"t":"health","at":1760000149000,"dur_ms":5000,"worker":1,"cpu_cores":1.4,"lag_max_ms":3.0,"hottest_thread":{"name":"worker_thread","util":0.19}}
 {"t":"uplink","at":1760000149000,"dur_ms":5000,"id":0,"kind":"video","layers":[{"rid":"f","bitrate_bps":1700000,"fps":30.0,"height":720,"limitation":"none","remote_loss":0.0,"rtt_ms":31.0},{"rid":"h","bitrate_bps":520000,"fps":20.0,"height":360,"limitation":"none","remote_loss":0.0,"rtt_ms":31.0},{"rid":"q","bitrate_bps":130000,"fps":15.0,"height":180,"limitation":"none","remote_loss":0.0,"rtt_ms":31.0}]}
-{"t":"step","index":1,"participants":4,"first_new":0,"measure_start":1760000120000,"measure_end":1760000150000,"aborted":false}
+{"t":"step","index":1,"participants":4,"first_new":0,"measure_start":1760000120000,"measure_end":1760000150000}
 {"t":"join","at":1760000200000,"id":4,"outcome":{"status":"joined","connect_ms":424}}
 {"t":"join","at":1760000200150,"id":5,"outcome":{"status":"joined","connect_ms":435}}
 {"t":"join","at":1760000200300,"id":6,"outcome":{"status":"joined","connect_ms":446}}
@@ -61,7 +61,7 @@
 {"t":"event","at":1760000248000,"id":2,"event":{"kind":"server_quality","about":6,"quality":"poor"}}
 {"t":"event","at":1760000248000,"id":2,"event":{"kind":"server_quality","about":7,"quality":"lost"}}
 {"t":"event","at":1760000248000,"id":2,"event":{"kind":"server_quality","about":5,"quality":"poor"}}
-{"t":"step","index":2,"participants":8,"first_new":4,"measure_start":1760000220000,"measure_end":1760000250000,"aborted":false}
+{"t":"step","index":2,"participants":8,"first_new":4,"measure_start":1760000220000,"measure_end":1760000250000}
 {"t":"join","at":1760000300000,"id":8,"outcome":{"status":"joined","connect_ms":468}}
 {"t":"join","at":1760000300150,"id":9,"outcome":{"status":"joined","connect_ms":479}}
 {"t":"join","at":1760000300300,"id":10,"outcome":{"status":"joined","connect_ms":490}}
@@ -115,4 +115,4 @@
 {"t":"health","at":1760000349000,"dur_ms":5000,"worker":0,"cpu_cores":3.8,"lag_max_ms":3.0,"hottest_thread":{"name":"worker_thread","util":0.42000000000000004}}
 {"t":"health","at":1760000349000,"dur_ms":5000,"worker":1,"cpu_cores":3.8,"lag_max_ms":34.0,"hottest_thread":{"name":"worker_thread","util":0.97}}
 {"t":"uplink","at":1760000349000,"dur_ms":5000,"id":0,"kind":"video","layers":[{"rid":"f","bitrate_bps":1700000,"fps":30.0,"height":720,"limitation":"none","remote_loss":0.0,"rtt_ms":31.0},{"rid":"h","bitrate_bps":520000,"fps":20.0,"height":360,"limitation":"none","remote_loss":0.0,"rtt_ms":31.0},{"rid":"q","bitrate_bps":130000,"fps":15.0,"height":180,"limitation":"none","remote_loss":0.0,"rtt_ms":31.0}]}
-{"t":"step","index":3,"participants":12,"first_new":8,"measure_start":1760000320000,"measure_end":1760000350000,"aborted":false}
+{"t":"step","index":3,"participants":12,"first_new":8,"measure_start":1760000320000,"measure_end":1760000350000}

@@ -12,7 +12,7 @@ use anyhow::Context;
 use livekit_token::{AccessToken, VideoGrants};
 use load_tester::{
     record::{
-        now_ms, JoinCommand, ParticipantId, Record, RunHeader, Settings, StepRecord,
+        now_ms, Abort, JoinCommand, ParticipantId, Record, RunHeader, Settings, StepRecord,
         WorkerExitRecord, WorkerInit,
     },
     report::{self, Ledger, RunReport, StepReport, Verdict},
@@ -72,9 +72,10 @@ pub async fn run(cfg: RunConfig) -> anyhow::Result<()> {
     let mut joined = 0;
     for (i, &target) in cfg.settings.steps.iter().enumerate() {
         let mut measure_start = None;
-        if workers.join(&cfg, joined..target, &mut recorder).await? && !workers.aborting {
+        workers.join(&cfg, joined..target, &mut recorder).await?;
+        if workers.abort.is_none() {
             workers.forward(Instant::now() + settle, exited, &mut recorder).await?;
-            if !workers.aborting {
+            if workers.abort.is_none() {
                 measure_start = Some(now_ms());
                 workers.forward(Instant::now() + hold, exited, &mut recorder).await?;
             }
@@ -87,7 +88,7 @@ pub async fn run(cfg: RunConfig) -> anyhow::Result<()> {
             first_new: joined,
             measure_start: measure_start.unwrap_or(measure_end),
             measure_end,
-            aborted: measure_start.is_none() || workers.aborting,
+            abort: workers.abort,
         };
         joined = target;
         let report = recorder.step(step)?;
@@ -155,7 +156,7 @@ struct Workers {
     readers: JoinSet<()>,
     records: mpsc::Receiver<Record>,
     ctrl_c: Signal,
-    aborting: bool,
+    abort: Option<Abort>,
 }
 
 impl Workers {
@@ -180,16 +181,15 @@ impl Workers {
             readers.spawn(read_records(worker, child, stdout, tx.clone()));
         }
         let ctrl_c = signal(SignalKind::interrupt())?;
-        Ok(Self { stdins, readers, records, ctrl_c, aborting: false })
+        Ok(Self { stdins, readers, records, ctrl_c, abort: None })
     }
 
-    /// Sends the new ids at the join rate and returns whether every one of them reported a join.
     async fn join(
         &mut self,
         cfg: &RunConfig,
         ids: Range<u32>,
         recorder: &mut Recorder,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<()> {
         let mut pending: BTreeSet<ParticipantId> = ids.clone().map(ParticipantId).collect();
         let mut done = |record: &Record| {
             exited(record)
@@ -199,7 +199,7 @@ impl Workers {
         let mut next = Instant::now();
         for id in ids.map(ParticipantId) {
             self.forward(next, &mut done, recorder).await?;
-            if self.aborting {
+            if self.abort.is_some() {
                 break;
             }
             let mut line = serde_json::to_vec(&JoinCommand { id, token: cfg.token(id)? })?;
@@ -210,14 +210,15 @@ impl Workers {
             }
             next += period;
         }
-        if !self.aborting {
+        if self.abort.is_none() {
             self.forward(Instant::now() + JOIN_BACKSTOP, &mut done, recorder).await?;
+            if !pending.is_empty() {
+                self.abort.get_or_insert(Abort::JoinTimeout);
+            }
         }
-        Ok(pending.is_empty())
+        Ok(())
     }
 
-    /// Forwards worker records to the recorder until one satisfies `done`, the deadline passes,
-    /// every reader has finished, or Ctrl-C arrives.
     async fn forward(
         &mut self,
         deadline: Instant,
@@ -228,18 +229,17 @@ impl Workers {
             let record = tokio::select! {
                 _ = tokio::time::sleep_until(deadline) => return Ok(()),
                 _ = self.ctrl_c.recv() => {
-                    if self.aborting {
+                    if self.abort == Some(Abort::Interrupted) {
                         std::process::exit(130);
                     }
-                    self.aborting = true;
+                    self.abort = Some(Abort::Interrupted);
                     return Ok(());
                 }
                 record = self.records.recv() => record,
             };
             let Some(record) = record else { return Ok(()) };
-            // a worker that exits before it was told to ends the run
-            if exited(&record) && !self.stdins.is_empty() {
-                self.aborting = true;
+            if exited(&record) {
+                self.abort.get_or_insert(Abort::WorkerExited);
             }
             let finished = done(&record);
             recorder.push(record)?;

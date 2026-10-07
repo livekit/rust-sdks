@@ -213,7 +213,16 @@ pub struct StepRecord {
     pub first_new: u32,
     pub measure_start: UnixMs,
     pub measure_end: UnixMs,
-    pub aborted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abort: Option<Abort>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Abort {
+    Interrupted,
+    WorkerExited,
+    JoinTimeout,
 }
 
 impl StepRecord {

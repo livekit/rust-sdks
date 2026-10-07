@@ -9,7 +9,7 @@ use anyhow::{bail, Context};
 
 use crate::{
     record::{
-        HealthRecord, JoinOutcome, Limitation, MediaKind, MediaWindow, ParticipantEvent,
+        Abort, HealthRecord, JoinOutcome, Limitation, MediaKind, MediaWindow, ParticipantEvent,
         ParticipantId, Record, RunHeader, ServerQuality, Settings, Slo, StepRecord, TesterLimits,
         ThreadLoad, WorkerExitRecord, NULL_DECODER,
     },
@@ -360,8 +360,10 @@ fn breaches(report: &StepReport, slo: &Slo) -> Vec<String> {
 
 fn tester_issues(report: &StepReport, limits: &TesterLimits) -> Vec<String> {
     let mut issues = Vec::new();
-    if report.step.aborted {
-        issues.push("run aborted mid-step".to_string());
+    match report.step.abort {
+        Some(Abort::Interrupted) => issues.push("run interrupted with Ctrl-C".to_string()),
+        Some(Abort::JoinTimeout) => issues.push("some join results never arrived".to_string()),
+        Some(Abort::WorkerExited) | None => {}
     }
     for w in &report.worker_exits {
         issues.push(format!("worker {} exited ({})", w.worker, w.status));
@@ -461,7 +463,7 @@ pub fn step_header() -> String {
         "audio MOS p50/p95/worst",
         "video score p50/p95/worst",
         "stall p95",
-        "hottest thread",
+        "tester load",
     ])
 }
 
@@ -513,17 +515,17 @@ impl RunReport {
         let capacity = self.capacity.as_ref()?;
         Some(match capacity {
             Capacity::SfuLimited { ok: Some(ok), failed_at } => format!(
-                "Capacity: {ok} participants. Step {failed_at} breached SLOs; the tester stayed healthy."
+                "Capacity: {ok} participants. At {failed_at} participants, SLOs broke while the tester stayed healthy."
             ),
             Capacity::SfuLimited { ok: None, failed_at } => format!(
-                "Capacity: fewer than {failed_at} participants. The first step breached SLOs; the tester stayed healthy."
+                "Capacity: fewer than {failed_at} participants. SLOs broke at the first step while the tester stayed healthy."
             ),
             Capacity::TesterLimited { ok, invalid_at } => {
                 let floor = ok.map_or("no participants verified".to_string(), |n| {
                     format!("at least {n} participants")
                 });
                 format!(
-                    "Capacity: {floor}. Step {invalid_at} was invalid because the tester, not the SFU, hit a limit. Rerun with more --workers."
+                    "Capacity: {floor}. At {invalid_at} participants, the step was INVALID, so it says nothing about the SFU. The line under that step says why."
                 )
             }
             Capacity::NotReached { ok } => {
