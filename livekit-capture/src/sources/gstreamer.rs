@@ -294,6 +294,7 @@ impl GStreamerVideoSource {
                 "failed to start pipeline: {err}"
             )))
         })?;
+        let pipeline = PlayingPipeline::new(pipeline);
 
         let start_timestamp_us = wall_clock_now_us();
         let mut sample_format = maybe_sample_format;
@@ -348,7 +349,7 @@ impl GStreamerVideoSource {
         };
 
         let mut source = Self {
-            pipeline,
+            pipeline: pipeline.into_inner(),
             bus,
             appsink,
             sample_format,
@@ -580,6 +581,29 @@ impl Drop for GStreamerVideoSource {
         // Returning the pipeline to `Null` releases its resources; GStreamer
         // does not stop a running pipeline on the last unref.
         let _ = self.pipeline.set_state(gst::State::Null);
+    }
+}
+
+/// Playing pipeline that returns to `Null` unless consumed into a source.
+struct PlayingPipeline {
+    pipeline: Option<gst::Pipeline>,
+}
+
+impl PlayingPipeline {
+    fn new(pipeline: gst::Pipeline) -> Self {
+        Self { pipeline: Some(pipeline) }
+    }
+
+    fn into_inner(mut self) -> gst::Pipeline {
+        self.pipeline.take().expect("PlayingPipeline already consumed")
+    }
+}
+
+impl Drop for PlayingPipeline {
+    fn drop(&mut self) {
+        if let Some(pipeline) = self.pipeline.take() {
+            let _ = pipeline.set_state(gst::State::Null);
+        }
     }
 }
 
