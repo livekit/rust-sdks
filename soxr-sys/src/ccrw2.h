@@ -9,7 +9,9 @@
 #endif
 
 /* The FFT caches are shared even when OpenMP is disabled.  Static lock
- * initialization also makes concurrent first use safe. */
+ * initialization also makes concurrent first use safe.
+ * Native rwlocks do not guarantee the writer preference of upstream's
+ * ccrw2 implementation (glibc's default prefers readers). */
 #if defined _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
