@@ -84,15 +84,18 @@ impl TelemetryEvent {
     /// attributes keep the caller's namespace (`acme.checkout.step`).
     pub fn custom(name: &str, attributes: Vec<Attribute>) -> Self {
         let name = format!("custom.{}", name.trim_start_matches("custom."));
-        Self { attributes, body: Some(name.clone()), ..Self::new(name) }
+        Self { attributes, ..Self::new(name) }
     }
 
-    /// Rough encoded size in bytes — strings plus a fixed overhead per field. Drives the byte
-    /// bounds on queue flushing and request size; cheaper than encoding and close enough for both.
+    /// Rough encoded size in bytes — strings plus a fixed overhead per record and per attribute.
+    /// Drives the byte bounds on queue flushing and request size; cheaper than encoding and close
+    /// enough for both. The name is counted twice (`event_name` and `otel.event.name`), and again
+    /// when it doubles as the body.
     pub fn size_hint(&self) -> usize {
-        32 + self.name.len()
-            + self.body.as_ref().map_or(0, String::len)
-            + self.attributes.iter().map(|a| 4 + a.key.len() + a.value.size_hint()).sum::<usize>()
+        RECORD_OVERHEAD_BYTES
+            + 2 * self.name.len()
+            + self.body.as_ref().map_or(self.name.len(), String::len)
+            + attributes_size_hint(&self.attributes)
     }
 }
 
@@ -264,10 +267,15 @@ pub(crate) const MAX_VALUE_BYTES: usize = 1024;
 /// Custom attributes per room, and per custom event.
 pub(crate) const MAX_CUSTOM_ATTRIBUTES: usize = 64;
 
-/// Keys the SDK owns: an app can neither set nor override them (`lk.*` — room, participant,
-/// track, outcome —, `session.id` and `error.type`).
+/// Keys the SDK owns: an app can neither set nor override them — `lk.*` (room, participant,
+/// track, outcome), `otel.*` (OTel's own, `otel.event.name` among them), `code.*` (where a log
+/// line was written), `session.id` and `error.type`.
 pub(crate) fn reserved(key: &str) -> bool {
-    key.starts_with("lk.") || key == "session.id" || key == "error.type"
+    key.starts_with("lk.")
+        || key.starts_with("otel.")
+        || key.starts_with("code.")
+        || key == "session.id"
+        || key == "error.type"
 }
 
 /// Whether an app-provided attribute is within the limits and outside the SDK's namespace.
@@ -279,9 +287,21 @@ pub(crate) fn valid_custom(key: &str, value: Option<&AttributeValue>) -> bool {
     !key.is_empty() && key.len() <= MAX_KEY_BYTES && !reserved(key) && value_ok
 }
 
+/// Encoded bytes of a log record beyond its strings: timestamps, severity, trace id, the
+/// `otel.event.name` key and the `session.id` attribute every record gets at export. Calibrated
+/// against the encoder, like the other overheads (the `size_hints_track_the_encoded_size` test).
+const RECORD_OVERHEAD_BYTES: usize = 128;
+/// Encoded bytes of an attribute beyond its key and string value: tags, lengths and wrappers.
+const ATTRIBUTE_OVERHEAD_BYTES: usize = 8;
+
+/// Rough encoded size of `attributes`.
+pub(crate) fn attributes_size_hint(attributes: &[Attribute]) -> usize {
+    attributes.iter().map(|a| ATTRIBUTE_OVERHEAD_BYTES + a.key.len() + a.value.size_hint()).sum()
+}
+
 impl AttributeValue {
-    /// Rough encoded size of the value.
-    pub(crate) fn size_hint(&self) -> usize {
+    /// Rough encoded size of the value: a string's bytes, or a 64-bit number's.
+    fn size_hint(&self) -> usize {
         match self {
             AttributeValue::Str(s) => s.len(),
             _ => 8,

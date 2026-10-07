@@ -15,7 +15,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use crate::{event::now_unix_nanos, scope::ScopeState, Attribute, AttributeValue};
+use crate::{
+    event::{attributes_size_hint, now_unix_nanos},
+    scope::ScopeState,
+    Attribute, AttributeValue,
+};
 
 /// OTel span kind, restricted to what client operations need; implied by [`crate::SpanName`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +79,12 @@ pub(crate) struct SpanRecord {
     /// The session's project when the span ended (see `Queued::route`).
     pub route: Option<String>,
 }
+
+/// Encoded bytes of a span beyond its strings: ids, timestamps, kind, status and the
+/// `session.id`, `lk.outcome` and `error.type` attributes (calibrated like `TelemetryEvent`'s).
+const SPAN_OVERHEAD_BYTES: usize = 144;
+/// Encoded bytes of a span event beyond its name: its timestamp and framing.
+const SPAN_EVENT_OVERHEAD_BYTES: usize = 13;
 
 /// OTel default span limits.
 const MAX_EVENTS_PER_SPAN: usize = 128;
@@ -296,6 +306,7 @@ impl Spans {
         self.finished.clear();
         self.sessions.clear();
         self.session_order.clear();
+        self.full_warned = false;
         n as u64
     }
 
@@ -305,24 +316,26 @@ impl Spans {
 }
 
 impl SpanRecord {
-    /// Rough encoded size, like `TelemetryEvent::size_hint`.
+    /// Rough encoded size, like [`TelemetryEvent::size_hint`](crate::TelemetryEvent::size_hint).
     pub(crate) fn size_hint(&self) -> usize {
-        let attributes = |attributes: &[Attribute]| {
-            attributes.iter().map(|a| 4 + a.key.len() + a.value.size_hint()).sum::<usize>()
-        };
-        64 + self.name.len()
-            + attributes(&self.attributes)
+        SPAN_OVERHEAD_BYTES
+            + self.name.len()
+            + self.error_type.as_ref().map_or(0, String::len)
+            + attributes_size_hint(&self.attributes)
             + self
                 .events
                 .iter()
-                .map(|e| 16 + e.name.len() + attributes(&e.attributes))
+                .map(|e| {
+                    SPAN_EVENT_OVERHEAD_BYTES + e.name.len() + attributes_size_hint(&e.attributes)
+                })
                 .sum::<usize>()
     }
 
-    /// `lk.outcome` and `error.type`, the attributes every span carries beyond the caller's.
+    /// `lk.outcome`, plus `error.type` when the span failed: the attributes every span carries
+    /// beyond the caller's.
     pub(crate) fn outcome_attributes(&self) -> Vec<Attribute> {
         let mut attributes = vec![Attribute::new("lk.outcome", self.outcome.as_str())];
-        if let Some(error_type) = &self.error_type {
+        if let (SpanOutcome::Error, Some(error_type)) = (self.outcome, &self.error_type) {
             attributes.push(Attribute::new("error.type", AttributeValue::Str(error_type.clone())));
         }
         attributes
@@ -401,6 +414,18 @@ mod tests {
         }
         assert_eq!(spans.drain(10, usize::MAX).len(), 1);
         assert_eq!(spans.take_dropped(), 1);
+    }
+
+    #[test]
+    fn clear_starts_a_new_warning_episode() {
+        let mut spans = Spans::new(1);
+        for _ in 0..2 {
+            let id = spans.begin("lk.publish", SpanKind::Internal, None);
+            spans.end(id, SpanOutcome::Ok, None, vec![]);
+        }
+        assert!(spans.full_warned);
+        assert_eq!(spans.clear(), 1);
+        assert!(!spans.full_warned);
     }
 
     #[test]

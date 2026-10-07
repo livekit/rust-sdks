@@ -74,14 +74,16 @@ struct Queue {
 }
 
 impl Store {
+    /// A queue holding at most `capacity` events that asks for a flush at `flush_threshold`
+    /// bytes (at least one of each: zero is treated as one).
     pub fn new(capacity: usize, flush_threshold: usize, counters: Arc<Counters>) -> Self {
         Self {
             queue: Mutex::new(Queue::default()),
             revoked: Arc::default(),
             #[cfg(test)]
             pause: Mutex::new(None),
-            capacity,
-            flush_threshold,
+            capacity: capacity.max(1),
+            flush_threshold: flush_threshold.max(1),
             counters,
         }
     }
@@ -153,6 +155,7 @@ impl Store {
     pub fn clear(&self) -> u64 {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         queue.bytes = 0;
+        queue.full_warned = false;
         queue.events.drain(..).count() as u64
     }
 }
@@ -179,13 +182,34 @@ mod tests {
     }
 
     #[test]
+    fn zero_capacity_and_threshold_are_treated_as_one() {
+        let counters = Arc::new(Counters::default());
+        let store = Store::new(0, 0, counters.clone());
+        assert!(store.push(queued(TelemetryEvent::new("a"))), "any record crosses one byte");
+        store.push(queued(TelemetryEvent::new("b")));
+        assert_eq!(store.drain(10, usize::MAX).len(), 1);
+        assert_eq!(counters.snapshot().queue_full, 1, "no drop counted for an empty queue");
+    }
+
+    #[test]
+    fn clear_starts_a_new_warning_episode() {
+        let store = Store::new(1, usize::MAX, Arc::default());
+        for name in ["a", "b"] {
+            store.push(queued(TelemetryEvent::new(name)));
+        }
+        assert!(store.queue.lock().unwrap().full_warned);
+        assert_eq!(store.clear(), 1);
+        assert!(!store.queue.lock().unwrap().full_warned);
+    }
+
+    #[test]
     fn reports_the_threshold_crossing_once_and_drains_by_bytes() {
-        let store = Store::new(100, 100, Arc::default());
-        let event = || queued(TelemetryEvent::new("e").with_body("x".repeat(30))); // 63 bytes
-        assert!(!store.push(event()), "63 < 100");
-        assert!(store.push(event()), "126 crosses 100");
+        let store = Store::new(100, 200, Arc::default());
+        let event = || queued(TelemetryEvent::new("e").with_body("x".repeat(30))); // 160 bytes
+        assert!(!store.push(event()), "160 < 200");
+        assert!(store.push(event()), "320 crosses 200");
         assert!(!store.push(event()), "already above: no second wake-up");
-        assert_eq!(store.drain(10, 130).len(), 2, "two fit in 130 bytes");
+        assert_eq!(store.drain(10, 330).len(), 2, "two fit in 330 bytes");
         assert_eq!(store.drain(10, 1).len(), 1, "an oversized event still ships alone");
         assert!(store.drain(10, usize::MAX).is_empty());
     }

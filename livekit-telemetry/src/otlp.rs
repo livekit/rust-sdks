@@ -126,7 +126,8 @@ fn log_record(Queued { mut event, session, .. }: Queued, global: &[Attribute]) -
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
     // Events carry a display body (OTel: "a string display message of the event"); the name is
     // the last resort so no event ever renders as an empty line. `otel.event.name` (semconv 1.39)
-    // duplicates `EventName` for backends that do not surface the field yet.
+    // duplicates `EventName` for backends that do not read the field yet (Loki); an app cannot
+    // set it (`otel.*` is reserved).
     let body = event.body.or_else(|| (!event.name.is_empty()).then(|| event.name.clone()));
     if !event.name.is_empty() {
         event.attributes.push(Attribute::new("otel.event.name", event.name.clone()));
@@ -172,13 +173,13 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
             })
             .collect(),
         // OTel: instrumentation should not set `Ok`; success and cancellation stay `Unset` and
-        // are told apart by `lk.outcome`.
+        // are told apart by `lk.outcome`. No message: `error.type` already says what failed.
         status: Some(Status {
             code: match record.outcome {
                 SpanOutcome::Error => status::StatusCode::Error,
                 SpanOutcome::Ok | SpanOutcome::Cancelled => status::StatusCode::Unset,
             } as i32,
-            message: record.error_type.unwrap_or_default(),
+            ..Default::default()
         }),
         ..Default::default()
     }
@@ -286,25 +287,93 @@ mod tests {
     }
 
     #[test]
-    fn spans_carry_the_cores_outcome_and_error_type_once() {
-        let mut spans = crate::span::Spans::new(1);
-        let id = spans.begin("lk.connect", SpanKind::Client, None);
+    fn spans_carry_the_cores_outcome_and_an_error_type_only_on_failure() {
+        let mut spans = crate::span::Spans::new(2);
+        let failed = spans.begin("lk.connect", SpanKind::Client, None);
         let own = vec![Attribute::new("lk.outcome", "ok"), Attribute::new("error.type", "spoof")];
-        spans.end(id, SpanOutcome::Error, Some("timeout".into()), own);
-        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
+        spans.end(failed, SpanOutcome::Error, Some("timeout".into()), own);
+        let cancelled = spans.begin("lk.connect", SpanKind::Client, None);
+        spans.end(cancelled, SpanOutcome::Cancelled, Some("CancellationError".into()), vec![]);
+        let bytes = encode_spans(&[], &[], spans.drain(2, usize::MAX));
         let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
-        let exported = &decoded.resource_spans[0].scope_spans[0].spans[0];
-        assert_eq!(exported.kind, span::SpanKind::Client as i32);
-        let values = |key: &str| -> Vec<_> {
-            exported
-                .attributes
+        let [failed, cancelled] = &decoded.resource_spans[0].scope_spans[0].spans[..] else {
+            panic!("two spans")
+        };
+        assert_eq!(failed.kind, span::SpanKind::Client as i32);
+        let values = |span: &Span, key: &str| -> Vec<_> {
+            span.attributes
                 .iter()
                 .filter(|kv| kv.key == key)
                 .filter_map(|kv| kv.value.clone()?.value)
                 .collect()
         };
-        assert_eq!(values("lk.outcome"), [any_value::Value::StringValue("error".into())]);
-        assert_eq!(values("error.type"), [any_value::Value::StringValue("timeout".into())]);
+        let text = |s: &str| any_value::Value::StringValue(s.into());
+        assert_eq!(values(failed, "lk.outcome"), [text("error")]);
+        assert_eq!(values(failed, "error.type"), [text("timeout")]);
+        let status = failed.status.clone().expect("status");
+        assert_eq!(status.code, status::StatusCode::Error as i32);
+        assert_eq!(status.message, "", "error.type already says what failed");
+        assert_eq!(values(cancelled, "lk.outcome"), [text("cancelled")]);
+        assert!(values(cancelled, "error.type").is_empty(), "a cancellation is not a failure");
+        assert_eq!(
+            cancelled.status.clone().expect("status").code,
+            status::StatusCode::Unset as i32
+        );
+    }
+
+    #[test]
+    fn size_hints_track_the_encoded_size() {
+        let session = crate::scope::ScopeState::new();
+        // The bytes one record adds to a batch.
+        let encoded = |event: &TelemetryEvent| {
+            let one = vec![Queued::new(event.clone(), session.clone())];
+            encode_logs(&[], &[], one).len() - encode_logs(&[], &[], vec![]).len()
+        };
+        let log_line = TelemetryEvent::from(crate::LogRecord {
+            severity: Severity::Warn,
+            source: crate::LogSource::Sdk,
+            body: "x".repeat(200),
+            logger: Some("livekit::rtc_engine".into()),
+            function: Some("handle_signal".into()),
+            file: Some("src/rtc_engine/mod.rs".into()),
+            line: Some(412),
+            timestamp_ns: None,
+            span_id: Some(42),
+        });
+        let numeric = (0..20).fold(TelemetryEvent::new("lk.rtc.stats.sample"), |event, i| {
+            event.with_attribute(format!("lk.rtc.stat_{i}"), i as f64)
+        });
+        let custom = TelemetryEvent::custom(
+            "checkout",
+            (0..64).map(|i| Attribute::new(format!("acme.key_{i}"), "x".repeat(16))).collect(),
+        );
+        let mut ratios: Vec<_> = [
+            TelemetryEvent::new("lk.ping"),
+            TelemetryEvent::new("lk.ping").with_body("x".repeat(30)),
+            log_line,
+            numeric,
+            custom,
+        ]
+        .iter()
+        .map(|event| (event.name.clone(), encoded(event) as f64 / event.size_hint() as f64))
+        .collect();
+
+        let mut spans = crate::span::Spans::new(1);
+        let id = spans.begin("lk.connect", SpanKind::Client, None);
+        for checkpoint in ["ws_open", "join_recv", "pc_connected"] {
+            spans.add_event(id, checkpoint, vec![]);
+        }
+        let attempt = vec![Attribute::new("lk.connect.attempt", 1i64)];
+        spans.end(id, SpanOutcome::Error, Some("timeout".into()), attempt);
+        let span = spans.drain(1, usize::MAX).remove(0);
+        let hint = span.size_hint();
+        let encoded =
+            encode_spans(&[], &[], vec![span]).len() - encode_spans(&[], &[], vec![]).len();
+        ratios.push(("span".into(), encoded as f64 / hint as f64));
+
+        for (record, ratio) in ratios {
+            assert!((0.8..=1.25).contains(&ratio), "{record}: encoded/hint = {ratio:.2}");
+        }
     }
 
     #[test]

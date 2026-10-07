@@ -175,7 +175,14 @@ mod tests {
 
     #[test]
     fn custom_attributes_reject_sdk_keys_and_fit_replacements_at_capacity() {
-        for key in ["lk.room.sid", "session.id", "error.type"] {
+        for key in [
+            "lk.room.sid",
+            "otel.event.name",
+            "otel.scope.name",
+            "code.function.name",
+            "session.id",
+            "error.type",
+        ] {
             assert!(!crate::event::valid_custom(key, None), "{key} is the SDK's");
         }
         let scope = ScopeState::new();
