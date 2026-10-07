@@ -49,6 +49,15 @@ impl LocalTrackPublication {
         }
     }
 
+    /// Test-only: returns a probe that reports whether this publication's internals have
+    /// been dropped. The publication holds its track and the track holds the publication
+    /// back through the mute callbacks, so only unregistering them releases either.
+    #[cfg(feature = "__lk-e2e-test")]
+    pub fn drop_probe(&self) -> impl Fn() -> bool + Send + Sync + 'static {
+        let inner = Arc::downgrade(&self.inner);
+        move || inner.upgrade().is_none()
+    }
+
     pub(crate) fn on_muted(&self, f: impl Fn(TrackPublication) + Send + 'static) {
         *self.inner.events.muted.lock() = Some(Box::new(f));
     }
