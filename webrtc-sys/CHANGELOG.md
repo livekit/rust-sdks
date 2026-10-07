@@ -165,6 +165,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.48 (2026-10-07)
+
+### Fixes
+
+- Manage VAAPI displays across capability probes and encoder lifecycles so driver resources and threads are released without invalidating active encoders.
+
 ## 0.3.47 (2026-09-24)
 
 ### Fixes
