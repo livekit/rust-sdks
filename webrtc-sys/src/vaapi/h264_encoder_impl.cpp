@@ -147,10 +147,14 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
       ReportError();
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
-    encoder_->Initialize(codec_.width, codec_.height,
-                         codec_.startBitrate * 1000, keyFrameInterval,
-                         keyFrameInterval, 1, codec_.maxFramerate,
-                         va_profile, VA_RC_CBR);
+    if (!encoder_->Initialize(codec_.width, codec_.height,
+                              codec_.startBitrate * 1000, keyFrameInterval,
+                              keyFrameInterval, 1, codec_.maxFramerate,
+                              va_profile, VA_RC_CBR)) {
+      RTC_LOG(LS_ERROR) << "Failed to initialize VAAPI H264 encoder";
+      ReportError();
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
   }
 
   SimulcastRateAllocator init_allocator(env_, codec_);

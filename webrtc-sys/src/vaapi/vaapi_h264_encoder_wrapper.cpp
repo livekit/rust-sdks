@@ -712,10 +712,8 @@ static std::string rc_to_string(int rcmode) {
 static int init_va(VA264Context* context, VADisplay va_dpy) {
   VAProfile profile_list[] = {VAProfileH264High, VAProfileH264Main,
                               VAProfileH264ConstrainedBaseline};
-  VAEntrypoint* entrypoints;
-  int num_entrypoints, slice_entrypoint;
+  int slice_entrypoint;
   int support_encode = 0;
-  int major_ver, minor_ver;
   VAStatus va_status;
   uint32_t i;
 
@@ -724,19 +722,12 @@ static int init_va(VA264Context* context, VADisplay va_dpy) {
     return VA_STATUS_ERROR_INVALID_DISPLAY;
   }
 
-  va_status = vaInitialize(context->va_dpy, &major_ver, &minor_ver);
-
-  if (major_ver < 0 || minor_ver < 0 || va_status != VA_STATUS_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "vaInitialize failed";
+  const int max_entrypoints = vaMaxNumEntrypoints(context->va_dpy);
+  if (max_entrypoints <= 0) {
+    RTC_LOG(LS_ERROR) << "VAAPI reported no entrypoints";
     return VA_STATUS_ERROR_INVALID_DISPLAY;
   }
-
-  num_entrypoints = vaMaxNumEntrypoints(context->va_dpy);
-  entrypoints = new VAEntrypoint[num_entrypoints * sizeof(*entrypoints)];
-  if (!entrypoints) {
-    RTC_LOG(LS_ERROR) << "failed to allocate VA entrypoints";
-    return VA_STATUS_ERROR_INVALID_DISPLAY;
-  }
+  std::vector<VAEntrypoint> entrypoints(max_entrypoints);
 
   /* use the highest profile */
   for (i = 0; i < sizeof(profile_list) / sizeof(profile_list[0]); i++) {
@@ -745,8 +736,9 @@ static int init_va(VA264Context* context, VADisplay va_dpy) {
       continue;
 
     context->config.h264_profile = profile_list[i];
+    int num_entrypoints = max_entrypoints;
     vaQueryConfigEntrypoints(context->va_dpy, context->config.h264_profile,
-                             entrypoints, &num_entrypoints);
+                             entrypoints.data(), &num_entrypoints);
     for (slice_entrypoint = 0; slice_entrypoint < num_entrypoints;
          slice_entrypoint++) {
       if (context->requested_entrypoint == -1) {
@@ -813,7 +805,6 @@ static int init_va(VA264Context* context, VADisplay va_dpy) {
                             &context->attrib[0], VAConfigAttribTypeMax);
   if (va_status != VA_STATUS_SUCCESS) {
     RTC_LOG(LS_ERROR) << "vaGetConfigAttributes failed";
-    delete[] entrypoints;
     return va_status;
   }
 
@@ -978,8 +969,6 @@ static int init_va(VA264Context* context, VADisplay va_dpy) {
       VA_ATTRIB_NOT_SUPPORTED) {
     RTC_LOG(LS_INFO) << "Support VAConfigAttribEncMacroblockInfo";
   }
-
-  delete[] entrypoints;
 
   return 0;
 }
@@ -1648,40 +1637,63 @@ static int render_slice(VA264Context* context) {
 
 namespace livekit_ffi {
 
+static void reset_context(VA264Context* context) {
+  memset(context, 0, sizeof(VA264Context));
+  context->config_id = VA_INVALID_ID;
+  context->context_id = VA_INVALID_ID;
+  context->requested_entrypoint = -1;
+  context->selected_entrypoint = -1;
+  for (int i = 0; i < SURFACE_NUM; ++i) {
+    context->src_surface[i] = VA_INVALID_SURFACE;
+    context->ref_surface[i] = VA_INVALID_SURFACE;
+    context->coded_buf[i] = VA_INVALID_ID;
+  }
+}
+
 VaapiH264EncoderWrapper::VaapiH264EncoderWrapper()
     : va_display_(std::make_unique<VaapiDisplay>()) {
   context_ = std::make_unique<VA264Context>();
-  memset((void*)context_.get(), 0, sizeof(VA264Context));
+  reset_context(context_.get());
 }
 
-VaapiH264EncoderWrapper::~VaapiH264EncoderWrapper() {}
+VaapiH264EncoderWrapper::~VaapiH264EncoderWrapper() {
+  Destroy();
+}
 
 void VaapiH264EncoderWrapper::Destroy() {
+  // Release VAAPI resources in reverse initialization order.
   if (context_->va_dpy) {
-    vaDestroySurfaces(context_->va_dpy, &context_->src_surface[0], SURFACE_NUM);
-    vaDestroySurfaces(context_->va_dpy, &context_->ref_surface[0], SURFACE_NUM);
+    for (int i = 0; i < SURFACE_NUM; ++i) {
+      if (context_->coded_buf[i] != VA_INVALID_ID) {
+        vaDestroyBuffer(context_->va_dpy, context_->coded_buf[i]);
+      }
+    }
+    if (context_->context_id != VA_INVALID_ID) {
+      vaDestroyContext(context_->va_dpy, context_->context_id);
+    }
+    if (context_->src_surface[0] != VA_INVALID_SURFACE) {
+      vaDestroySurfaces(context_->va_dpy, &context_->src_surface[0],
+                        SURFACE_NUM);
+    }
+    if (context_->ref_surface[0] != VA_INVALID_SURFACE) {
+      vaDestroySurfaces(context_->va_dpy, &context_->ref_surface[0],
+                        SURFACE_NUM);
+    }
+    if (context_->config_id != VA_INVALID_ID) {
+      vaDestroyConfig(context_->va_dpy, context_->config_id);
+    }
   }
 
+  // Release the host-side encoded frame buffer.
   if (context_->encoded_buffer) {
     free(context_->encoded_buffer);
-    context_->encoded_buffer = nullptr;
   }
 
-  for (int i = 0; i < SURFACE_NUM; i++) {
-    vaDestroyBuffer(context_->va_dpy, context_->coded_buf[i]);
-  }
+  // Terminate VAAPI and close the underlying display.
+  va_display_->Close();
 
-  vaDestroyContext(context_->va_dpy, context_->context_id);
-  vaDestroyConfig(context_->va_dpy, context_->config_id);
-
-  if (va_display_->isOpen()) {
-    vaTerminate(va_display_->display());
-    va_display_->Close();
-  }
-
-  context_->va_dpy = nullptr;
-  context_->context_id = VA_INVALID_ID;
-  memset((void*)context_.get(), 0, sizeof(VA264Context));
+  // Return the wrapper to a reusable uninitialized state.
+  reset_context(context_.get());
   initialized_ = false;
 }
 
@@ -1694,6 +1706,9 @@ bool VaapiH264EncoderWrapper::Initialize(int width,
                                          int frame_rate,
                                          VAProfile profile,
                                          int rc_mode) {
+  // Release any previous or partially initialized encoder before reinitializing.
+  Destroy();
+
   context_->config.h264_entropy_mode = 1;  // cabac
   context_->config.frame_width = width;
   context_->config.frame_height = height;
@@ -1747,24 +1762,23 @@ bool VaapiH264EncoderWrapper::Initialize(int width,
   // the buffer to receive the encoded frames from encodeImage
   context_->encoded_buffer = (uint8_t*)malloc(
       context_->frame_width_mbaligned * context_->frame_height_mbaligned * 3);
+  if (!context_->encoded_buffer) {
+    RTC_LOG(LS_ERROR) << "failed to allocate encoded frame buffer";
+    return false;
+  }
 
-  if (!va_display_->isOpen()) {
-    if (!va_display_->Open()) {
-      free(context_->encoded_buffer);
-      context_->encoded_buffer = nullptr;
-      return false;
-    }
+  if (!va_display_->Open()) {
+    Destroy();
+    return false;
   }
 
   if (init_va(context_.get(), va_display_->display()) != VA_STATUS_SUCCESS) {
-    free(context_->encoded_buffer);
-    context_->encoded_buffer = nullptr;
+    Destroy();
     return false;
   }
 
   if (setup_encode(context_.get()) != VA_STATUS_SUCCESS) {
-    free(context_->encoded_buffer);
-    context_->encoded_buffer = nullptr;
+    Destroy();
     return false;
   }
 
