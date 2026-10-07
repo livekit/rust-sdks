@@ -12,23 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Internals the pipeline (`Telemetry`, `Exporter`) consumes once it is in place.
-#![allow(dead_code)]
-
 /// Event data model: what SDKs push in.
 mod event;
 
 /// Bounded in-memory queue between `emit` and the exporter.
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
 mod store;
 
 /// Pipeline health counters and the `lk.telemetry.report` event.
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
 mod stats;
 
 /// Spans: one attempt at an operation, with explicit handles across the FFI.
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
 mod scope;
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
 mod span;
 
 /// OTLP/HTTP protobuf encoding of a batch.
+#[expect(
+    dead_code,
+    reason = "consumed by the pipeline (`Telemetry`, `Exporter`), not in place yet"
+)]
 mod otlp;
 
 /// OTLP protobuf types (re-exported from `opentelemetry-proto`).

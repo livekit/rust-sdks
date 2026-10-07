@@ -25,7 +25,7 @@ use crate::{
         trace::v1::{span, status, ResourceSpans, ScopeSpans, Span, Status},
     },
     span::SpanRecord,
-    store::Queued,
+    store::QueuedEvent,
     Attribute, AttributeValue, Severity, SpanOutcome,
 };
 
@@ -52,7 +52,7 @@ fn scope() -> Option<InstrumentationScope> {
 pub(crate) fn encode_logs(
     resource_attributes: &[Attribute],
     global: &[Attribute],
-    events: Vec<Queued>,
+    events: Vec<QueuedEvent>,
 ) -> Vec<u8> {
     ExportLogsServiceRequest {
         resource_logs: vec![ResourceLogs {
@@ -120,9 +120,12 @@ pub(crate) fn split_spans(encoded: &[u8]) -> Halves {
     Some([(first, (n / 2) as u64), (request.encode_to_vec(), (n - n / 2) as u64)])
 }
 
-fn log_record(Queued { mut event, session, .. }: Queued, global: &[Attribute]) -> LogRecord {
+fn log_record(
+    QueuedEvent { mut event, session, .. }: QueuedEvent,
+    global: &[Attribute],
+) -> LogRecord {
     session.decorate(&mut event.attributes, global);
-    // `Queued::new` stamps capture time; this fallback covers only a `Queued` built by hand.
+    // `QueuedEvent::new` stamps capture time; this fallback covers only one built by hand.
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
     // Events carry a display body (OTel: "a string display message of the event"); the name is
     // the last resort so no event ever renders as an empty line. `otel.event.name` (semconv 1.39)
@@ -165,12 +168,7 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
         events: record
             .events
             .into_iter()
-            .map(|e| span::Event {
-                time_unix_nano: e.time_ns,
-                name: e.name,
-                attributes: e.attributes.iter().map(KeyValue::from).collect(),
-                ..Default::default()
-            })
+            .map(|e| span::Event { time_unix_nano: e.time_ns, name: e.name, ..Default::default() })
             .collect(),
         // OTel: instrumentation should not set `Ok`; success and cancellation stay `Unset` and
         // are told apart by `lk.outcome`. No message: `error.type` already says what failed.
@@ -246,7 +244,7 @@ mod tests {
             .with_body("hi")
             .with_attribute("lk.ping.seq", 7i64);
         let session = crate::scope::ScopeState::with_trace_id([7u8; 16]);
-        let bytes = encode_logs(&resource, &[], vec![Queued::new(event, session)]);
+        let bytes = encode_logs(&resource, &[], vec![QueuedEvent::new(event, session)]);
 
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let resource_logs = &decoded.resource_logs[0];
@@ -274,9 +272,9 @@ mod tests {
         let store = crate::store::Store::new(10, usize::MAX, Default::default());
         let session = crate::scope::ScopeState::new();
         let captured = now_unix_nanos();
-        store.push(Queued::new(TelemetryEvent::new("unstamped"), session.clone()));
+        store.push(QueuedEvent::new(TelemetryEvent::new("unstamped"), session.clone()));
         let own = TelemetryEvent { timestamp_ns: Some(7), ..TelemetryEvent::new("stamped") };
-        store.push(Queued::new(own, session));
+        store.push(QueuedEvent::new(own, session));
         // An hour in the queue (an outage) before the exporter encodes the batch.
         crate::event::CLOCK_JUMP_NS.with(|jump| jump.set(HOUR_NS as i64));
         let bytes = encode_logs(&[], &[], store.drain(10, usize::MAX));
@@ -326,7 +324,7 @@ mod tests {
         let session = crate::scope::ScopeState::new();
         // The bytes one record adds to a batch.
         let encoded = |event: &TelemetryEvent| {
-            let one = vec![Queued::new(event.clone(), session.clone())];
+            let one = vec![QueuedEvent::new(event.clone(), session.clone())];
             encode_logs(&[], &[], one).len() - encode_logs(&[], &[], vec![]).len()
         };
         let log_line = TelemetryEvent::from(crate::LogRecord {
@@ -361,7 +359,7 @@ mod tests {
         let mut spans = crate::span::Spans::new(1);
         let id = spans.begin("lk.connect", SpanKind::Client, None);
         for checkpoint in ["ws_open", "join_recv", "pc_connected"] {
-            spans.add_event(id, checkpoint, vec![]);
+            spans.add_event(id, checkpoint);
         }
         let attempt = vec![Attribute::new("lk.connect.attempt", 1i64)];
         spans.end(id, SpanOutcome::Error, Some("timeout".into()), attempt);
@@ -380,7 +378,7 @@ mod tests {
     fn events_without_a_body_carry_their_name_as_body() {
         let session = crate::scope::ScopeState::with_trace_id([7u8; 16]);
         let event = TelemetryEvent::new("lk.rtc.stats.sample");
-        let bytes = encode_logs(&[], &[], vec![Queued::new(event, session)]);
+        let bytes = encode_logs(&[], &[], vec![QueuedEvent::new(event, session)]);
         let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
         let record = &decoded.resource_logs[0].scope_logs[0].log_records[0];
         assert_eq!(record.event_name, "lk.rtc.stats.sample");

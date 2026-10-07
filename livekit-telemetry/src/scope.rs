@@ -139,6 +139,7 @@ impl ScopeState {
             own.retain(|a| a.key != attribute.key);
             own.push(attribute.clone());
         }
+        drop(session);
         for attribute in global {
             if !own.iter().any(|a| a.key == attribute.key) {
                 own.push(attribute.clone());

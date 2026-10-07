@@ -24,7 +24,7 @@ use crate::{event::now_unix_nanos, scope::ScopeState, stats::Counters, Telemetry
 
 /// An event waiting for export, filed under the session whose trace id and attributes it
 /// will carry.
-pub(crate) struct Queued {
+pub(crate) struct QueuedEvent {
     pub event: TelemetryEvent,
     pub session: Arc<ScopeState>,
     /// The project the session was routed to when the record was captured: immutable, so a Room
@@ -33,7 +33,7 @@ pub(crate) struct Queued {
     pub route: Option<String>,
 }
 
-impl Queued {
+impl QueuedEvent {
     /// Capture a record for `session`, with its owner as of now: the session's project and its
     /// correlation attributes (the record's own win). An unstamped record is stamped here, so
     /// time spent queued never shifts it to its export time.
@@ -67,7 +67,7 @@ pub(crate) struct Store {
 
 #[derive(Default)]
 struct Queue {
-    events: VecDeque<Queued>,
+    events: VecDeque<QueuedEvent>,
     bytes: usize,
     /// The first drop since the last drain logs a warning; the rest are only counted.
     full_warned: bool,
@@ -96,7 +96,7 @@ impl Store {
 
     /// Queue an event. Returns `true` when this push carried the queue across
     /// `flush_threshold` bytes — the caller should wake the exporter.
-    pub fn push(&self, queued: Queued) -> bool {
+    pub fn push(&self, queued: QueuedEvent) -> bool {
         #[cfg(test)]
         {
             let pause = self.pause.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -129,7 +129,7 @@ impl Store {
 
     /// Remove and return the oldest events: at most `max` of them and about `max_bytes` in total
     /// (always at least one, so an oversized event still ships).
-    pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<Queued> {
+    pub fn drain(&self, max: usize, max_bytes: usize) -> Vec<QueuedEvent> {
         let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
         queue.full_warned = false;
         let mut out = Vec::new();
@@ -164,8 +164,8 @@ impl Store {
 mod tests {
     use super::*;
 
-    fn queued(event: TelemetryEvent) -> Queued {
-        Queued::new(event, ScopeState::new())
+    fn queued(event: TelemetryEvent) -> QueuedEvent {
+        QueuedEvent::new(event, ScopeState::new())
     }
 
     #[test]

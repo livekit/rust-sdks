@@ -58,7 +58,6 @@ impl SpanOutcome {
 pub(crate) struct SpanEvent {
     pub name: String,
     pub time_ns: u64,
-    pub attributes: Vec<Attribute>,
 }
 
 /// One attempt at an operation, from `begin_span` to `end_span`.
@@ -76,7 +75,7 @@ pub(crate) struct SpanRecord {
     pub events: Vec<SpanEvent>,
     /// The session (trace) the span belongs to.
     pub session: Arc<ScopeState>,
-    /// The session's project when the span ended (see `Queued::route`).
+    /// The session's project when the span ended (see `QueuedEvent::route`).
     pub route: Option<String>,
 }
 
@@ -216,7 +215,7 @@ impl Spans {
         self.open.values().any(|span| names.contains(&span.name.as_str()))
     }
 
-    pub fn add_event(&mut self, id: u64, name: &str, attributes: Vec<Attribute>) {
+    pub fn add_event(&mut self, id: u64, name: &str) {
         if self.revoked() {
             return;
         }
@@ -224,11 +223,7 @@ impl Spans {
         if span.events.len() >= MAX_EVENTS_PER_SPAN {
             return;
         }
-        span.events.push(SpanEvent {
-            name: name.to_owned(),
-            time_ns: now_unix_nanos(),
-            attributes,
-        });
+        span.events.push(SpanEvent { name: name.to_owned(), time_ns: now_unix_nanos() });
     }
 
     /// Close a span; the finished record waits for the next export. Unknown ids are ignored
@@ -322,13 +317,7 @@ impl SpanRecord {
             + self.name.len()
             + self.error_type.as_ref().map_or(0, String::len)
             + attributes_size_hint(&self.attributes)
-            + self
-                .events
-                .iter()
-                .map(|e| {
-                    SPAN_EVENT_OVERHEAD_BYTES + e.name.len() + attributes_size_hint(&e.attributes)
-                })
-                .sum::<usize>()
+            + self.events.iter().map(|e| SPAN_EVENT_OVERHEAD_BYTES + e.name.len()).sum::<usize>()
     }
 
     /// `lk.outcome`, plus `error.type` when the span failed: the attributes every span carries
@@ -351,7 +340,7 @@ mod tests {
         let mut spans = Spans::new(8);
         let parent = spans.begin("lk.connect", SpanKind::Client, None);
         let child = spans.begin("lk.publish", SpanKind::Internal, Some(parent));
-        spans.add_event(parent, "ws_open", vec![]);
+        spans.add_event(parent, "ws_open");
         spans.end(child, SpanOutcome::Cancelled, None, vec![]);
         spans.end(
             parent,

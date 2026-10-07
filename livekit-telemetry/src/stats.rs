@@ -115,17 +115,29 @@ impl Snapshot {
             + self.purged
     }
 
-    /// Anything worth telling the backend about: data lost (other than by policy: a project
-    /// that receives nothing, an opt-out), uploads failing or refused, holds starving uploads,
-    /// the disk refusing writes.
+    /// Records lost other than by policy (a project that receives nothing, an opt-out).
+    pub fn problem_drops(&self) -> u64 {
+        self.queue_full
+            + self.cache_error
+            + self.cache_full
+            + self.expired
+            + self.corrupt
+            + self.invalid
+            + self.rejected
+            + self.oversized
+            + self.throttled
+            + self.rate_limited
+    }
+
+    /// Anything worth telling the backend about: data lost (other than by policy), uploads
+    /// failing or refused, holds starving uploads, the disk refusing writes.
     pub fn has_problems(&self) -> bool {
-        self.dropped() - self.disabled - self.purged
-            + self.upload_failures
-            + self.upload_timeouts
-            + self.auth_denied
-            + self.hold_cap_hits
-            + self.cache_write_errors
-            > 0
+        self.problem_drops() > 0
+            || self.upload_failures > 0
+            || self.upload_timeouts > 0
+            || self.auth_denied > 0
+            || self.hold_cap_hits > 0
+            || self.cache_write_errors > 0
     }
 
     /// The `lk.telemetry.report` event: what this pipeline sent, dropped or failed to upload
@@ -139,7 +151,7 @@ impl Snapshot {
                 self.uploads_sent,
                 self.upload_bytes,
                 self.upload_failures + self.upload_timeouts,
-                self.dropped() - self.disabled - self.purged,
+                self.problem_drops(),
                 cached_batches
             ))
             .with_attribute("lk.telemetry.uploads.sent", self.uploads_sent as i64)
