@@ -1,0 +1,15 @@
+# Shared supply-chain policy. The Makefile copies or concatenates this into each
+# generated pnpm-workspace.yaml so the rules do not drift between spots.
+
+# These dropped the provenance attestations earlier versions had, tripping the
+# global trust-policy=no-downgrade. Verified benign, so allow the downgrade.
+trustPolicyExclude:
+  - chokidar
+  - slow-redact
+  - pino
+
+# tsup and tsx both pull in esbuild, which has a postinstall script. pnpm's
+# default build-script sandboxing ignores it and fails installs non-
+# interactively with ERR_PNPM_IGNORED_BUILDS unless it's explicitly allowed.
+allowBuilds:
+  esbuild: true

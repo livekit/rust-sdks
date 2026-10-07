@@ -26,12 +26,35 @@ See [support/swift/README.md](./support/swift/README.md) for debugging vs. relea
 
 ### Node
 
-Generate Node bindings:
+Generate the node packages:
 ```
 cargo make node-package
+cargo make node-native-package
+cargo make node-setup-workspace
 ```
 
-To test them out, run `cd node_test && npx tsx index.ts`
+Each is a separate invocation: `cargo make` takes one task name, and any further words are
+passed to it as arguments rather than run as tasks.
+
+This produces `target/packages/node` (`@livekit/uniffi`) and
+`target/packages/node-native/<triple>` (`@livekit/uniffi-<node-triple>`), sharing
+a generated pnpm workspace. Both paths are relative to the **workspace root**,
+not to this crate — `target/` belongs to the workspace, and there is no
+`livekit-uniffi/target/`. The main package resolves the native library through
+its per-arch sibling, so both are needed.
+
+To exercise them:
+```
+cargo make node-package-test
+```
+
+To check the published shape — `files`, `exports`, and platform-package
+resolution, none of which a workspace link goes through:
+```
+cargo make node-pack-test
+```
+
+CI (`.github/workflows/uniffi-node-test.yml`) runs both.
 
 ### Android
 

@@ -13,3 +13,17 @@ publish = false
 # `--library`, so they never depend on the crates they generate for.
 [dependencies]
 uniffi = { workspace = true, features = ["cli"] }
+
+# `default-features = false` is load-bearing, not tidiness. ubrn's `wasm` feature
+# pulls `wasm-bindgen-cli-support`, which pins the wasm-bindgen family to its own
+# exact version — unsatisfiable against the `wasm-bindgen` this workspace resolves
+# through `livekit -> libwebrtc`, since those crates cross-pin with `=`.
+#
+# Pinned by commit rather than branch or tag: this is the released line's `main`,
+# which carries #453 — without it a non-wasm build silently generates JSI bindings
+# instead of NAPI, exit 0 and no warning. There is no tag past 0.31.0-5 containing
+# that fix yet; move to one when it ships. A `rev` keeps `cargo update` from
+# sweeping the generator forward on its own, since what it emits has to stay in
+# step with the @ubjs/* runtime UBRN_VERSION names.
+uniffi-bindgen-react-native = { git = "https://github.com/jhugman/uniffi-bindgen-react-native", rev = "e8be09d125ad260bb46715f46e49667201326a81", default-features = false }
+clap = { version = "4", features = ["derive"] }
