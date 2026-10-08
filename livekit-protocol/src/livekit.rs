@@ -94,6 +94,14 @@ pub struct MetricsRecordingHeader {
     pub room_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="7")]
     pub room_start_time: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(string, tag="8")]
+    pub job_id: ::prost::alloc::string::String,
+    /// session is a simulation; the collector skips PII redaction for it unless redaction_enabled is set
+    #[prost(bool, tag="9")]
+    pub simulated: bool,
+    /// force PII redaction on for this session (only ever enables, never disables)
+    #[prost(bool, tag="10")]
+    pub redaction_enabled: bool,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -471,8 +479,9 @@ pub mod participant_info {
         Forwarded = 1,
         ConnectorWhatsapp = 2,
         ConnectorTwilio = 3,
-        /// NEXT_ID: 5
         BridgeRtsp = 4,
+        /// NEXT_ID: 6
+        Simulation = 5,
     }
     impl KindDetail {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -486,6 +495,7 @@ pub mod participant_info {
                 KindDetail::ConnectorWhatsapp => "CONNECTOR_WHATSAPP",
                 KindDetail::ConnectorTwilio => "CONNECTOR_TWILIO",
                 KindDetail::BridgeRtsp => "BRIDGE_RTSP",
+                KindDetail::Simulation => "SIMULATION",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -496,6 +506,7 @@ pub mod participant_info {
                 "CONNECTOR_WHATSAPP" => Some(Self::ConnectorWhatsapp),
                 "CONNECTOR_TWILIO" => Some(Self::ConnectorTwilio),
                 "BRIDGE_RTSP" => Some(Self::BridgeRtsp),
+                "SIMULATION" => Some(Self::Simulation),
                 _ => None,
             }
         }
@@ -1315,6 +1326,7 @@ pub mod client_info {
         Node = 12,
         Unreal = 13,
         Esp32 = 14,
+        Dotnet = 15,
     }
     impl Sdk {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -1338,6 +1350,7 @@ pub mod client_info {
                 Sdk::Node => "NODE",
                 Sdk::Unreal => "UNREAL",
                 Sdk::Esp32 => "ESP32",
+                Sdk::Dotnet => "DOTNET",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1358,6 +1371,7 @@ pub mod client_info {
                 "NODE" => Some(Self::Node),
                 "UNREAL" => Some(Self::Unreal),
                 "ESP32" => Some(Self::Esp32),
+                "DOTNET" => Some(Self::Dotnet),
                 _ => None,
             }
         }
@@ -1540,9 +1554,17 @@ pub struct RtpStats {
     pub ntp_report_drift: ::core::option::Option<RtpDrift>,
     #[prost(message, optional, tag="46")]
     pub rebased_report_drift: ::core::option::Option<RtpDrift>,
-    /// NEXT_ID: 48
     #[prost(message, optional, tag="47")]
     pub received_report_drift: ::core::option::Option<RtpDrift>,
+    #[prost(uint32, tag="48")]
+    pub fec_packets: u32,
+    #[prost(uint64, tag="49")]
+    pub fec_bytes: u64,
+    #[prost(uint32, tag="50")]
+    pub fec_packets_discarded: u32,
+    /// NEXT_ID: 52
+    #[prost(uint32, tag="51")]
+    pub fec_packets_recovered: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2031,7 +2053,8 @@ impl TrackSource {
 #[repr(i32)]
 pub enum DataTrackExtensionId {
     DteiInvalid = 0,
-    DteiParticipantSid = 1,
+    DteiParticipantSidLow = 1,
+    DteiParticipantSid = 255,
 }
 impl DataTrackExtensionId {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2041,6 +2064,7 @@ impl DataTrackExtensionId {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             DataTrackExtensionId::DteiInvalid => "DTEI_INVALID",
+            DataTrackExtensionId::DteiParticipantSidLow => "DTEI_PARTICIPANT_SID_LOW",
             DataTrackExtensionId::DteiParticipantSid => "DTEI_PARTICIPANT_SID",
         }
     }
@@ -2048,6 +2072,7 @@ impl DataTrackExtensionId {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "DTEI_INVALID" => Some(Self::DteiInvalid),
+            "DTEI_PARTICIPANT_SID_LOW" => Some(Self::DteiParticipantSidLow),
             "DTEI_PARTICIPANT_SID" => Some(Self::DteiParticipantSid),
             _ => None,
         }
@@ -2229,6 +2254,50 @@ impl DisconnectReason {
             "CONNECTION_TIMEOUT" => Some(Self::ConnectionTimeout),
             "MEDIA_FAILURE" => Some(Self::MediaFailure),
             "AGENT_ERROR" => Some(Self::AgentError),
+            _ => None,
+        }
+    }
+}
+/// why a room ended, reported on room-ended telemetry
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RoomEndReason {
+    RoomEndUnknown = 0,
+    /// RoomService.DeleteRoom was called
+    RoomEndApiDelete = 1,
+    /// the room sat empty past its empty or departure timeout
+    RoomEndIdleTimeout = 2,
+    /// the server instance is shutting down
+    RoomEndServerShutdown = 3,
+    /// the room was restarted or replaced elsewhere
+    RoomEndSuperseded = 4,
+    /// the room failed to finish opening
+    RoomEndOpenFailed = 5,
+}
+impl RoomEndReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            RoomEndReason::RoomEndUnknown => "ROOM_END_UNKNOWN",
+            RoomEndReason::RoomEndApiDelete => "ROOM_END_API_DELETE",
+            RoomEndReason::RoomEndIdleTimeout => "ROOM_END_IDLE_TIMEOUT",
+            RoomEndReason::RoomEndServerShutdown => "ROOM_END_SERVER_SHUTDOWN",
+            RoomEndReason::RoomEndSuperseded => "ROOM_END_SUPERSEDED",
+            RoomEndReason::RoomEndOpenFailed => "ROOM_END_OPEN_FAILED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ROOM_END_UNKNOWN" => Some(Self::RoomEndUnknown),
+            "ROOM_END_API_DELETE" => Some(Self::RoomEndApiDelete),
+            "ROOM_END_IDLE_TIMEOUT" => Some(Self::RoomEndIdleTimeout),
+            "ROOM_END_SERVER_SHUTDOWN" => Some(Self::RoomEndServerShutdown),
+            "ROOM_END_SUPERSEDED" => Some(Self::RoomEndSuperseded),
+            "ROOM_END_OPEN_FAILED" => Some(Self::RoomEndOpenFailed),
             _ => None,
         }
     }
@@ -2847,20 +2916,6 @@ pub struct ListEgressResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateEgressRequest {
-    #[prost(string, tag="1")]
-    pub egress_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub url: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub layout: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag="4")]
-    pub add_stream_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, repeated, tag="5")]
-    pub remove_stream_urls: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StopEgressRequest {
     #[prost(string, tag="1")]
     pub egress_id: ::prost::alloc::string::String,
@@ -3473,6 +3528,8 @@ pub enum EncodingOptionsPreset {
     PortraitH2641080p30 = 6,
     /// 1080x1920, 60fps, 6000kbps, H.264_MAIN / OPUS
     PortraitH2641080p60 = 7,
+    /// Skip transcoding. Valid only when specifying a single track with MediaSource
+    Passthrough = 8,
 }
 impl EncodingOptionsPreset {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -3489,6 +3546,7 @@ impl EncodingOptionsPreset {
             EncodingOptionsPreset::PortraitH264720p60 => "PORTRAIT_H264_720P_60",
             EncodingOptionsPreset::PortraitH2641080p30 => "PORTRAIT_H264_1080P_30",
             EncodingOptionsPreset::PortraitH2641080p60 => "PORTRAIT_H264_1080P_60",
+            EncodingOptionsPreset::Passthrough => "PASSTHROUGH",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3502,6 +3560,7 @@ impl EncodingOptionsPreset {
             "PORTRAIT_H264_720P_60" => Some(Self::PortraitH264720p60),
             "PORTRAIT_H264_1080P_30" => Some(Self::PortraitH2641080p30),
             "PORTRAIT_H264_1080P_60" => Some(Self::PortraitH2641080p60),
+            "PASSTHROUGH" => Some(Self::Passthrough),
             _ => None,
         }
     }
@@ -4515,6 +4574,8 @@ pub struct SyncState {
     pub datachannel_receive_states: ::prost::alloc::vec::Vec<DataChannelReceiveState>,
     #[prost(message, repeated, tag="8")]
     pub publish_data_tracks: ::prost::alloc::vec::Vec<PublishDataTrackResponse>,
+    #[prost(message, optional, tag="9")]
+    pub data_subscription: ::core::option::Option<UpdateDataSubscription>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4911,6 +4972,11 @@ pub struct Job {
     pub deployment: ::prost::alloc::string::String,
     #[prost(map="string, string", tag="12")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    #[prost(bool, tag="13")]
+    pub enable_redaction: bool,
+    /// the thread ("AT_...") this job continues; empty when dispatch made none
+    #[prost(string, tag="14")]
+    pub thread_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4936,7 +5002,7 @@ pub struct JobState {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerMessage {
-    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7, 8")]
     pub message: ::core::option::Option<worker_message::Message>,
 }
 /// Nested message and enum types in `WorkerMessage`.
@@ -4962,13 +5028,16 @@ pub mod worker_message {
         SimulateJob(super::SimulateJobRequest),
         #[prost(message, tag="7")]
         MigrateJob(super::MigrateJobRequest),
+        /// the worker holds or released a thread
+        #[prost(message, tag="8")]
+        UpdateThread(super::UpdateThreadStatus),
     }
 }
 /// from Server to Worker
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4")]
+    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4, 6")]
     pub message: ::core::option::Option<server_message::Message>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -4988,6 +5057,10 @@ pub mod server_message {
         Termination(super::JobTermination),
         #[prost(message, tag="4")]
         Pong(super::WorkerPong),
+        /// the server is draining this control connection: re-register elsewhere,
+        /// in-flight agent HTTP streams run to completion
+        #[prost(message, tag="6")]
+        GoAway(super::agent_http::GoAway),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -5021,10 +5094,8 @@ pub struct RegisterWorkerRequest {
     pub r#type: i32,
     #[prost(string, tag="8")]
     pub agent_name: ::prost::alloc::string::String,
-    /// string worker_id = 2;
     #[prost(string, tag="3")]
     pub version: ::prost::alloc::string::String,
-    /// string name = 4 \[deprecated = true\];
     #[prost(uint32, tag="5")]
     pub ping_interval: u32,
     #[prost(string, optional, tag="6")]
@@ -5033,6 +5104,17 @@ pub struct RegisterWorkerRequest {
     pub allowed_permissions: ::core::option::Option<ParticipantPermission>,
     #[prost(string, tag="9")]
     pub deployment: ::prost::alloc::string::String,
+    /// HTTP endpoints this worker serves through the data plane, in route order.
+    /// Empty means the worker exposes no endpoints and needs no data connections.
+    #[prost(message, repeated, tag="10")]
+    pub endpoints: ::prost::alloc::vec::Vec<agent_http::AgentEndpoint>,
+    /// random per process; a re-registration with a new instance_id supersedes the
+    /// previous epoch and closes its remaining connections
+    #[prost(string, tag="11")]
+    pub instance_id: ::prost::alloc::string::String,
+    /// highest data-plane protocol version the worker supports; 0 = unsupported
+    #[prost(uint32, tag="12")]
+    pub endpoint_protocol: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5041,6 +5123,9 @@ pub struct RegisterWorkerResponse {
     pub worker_id: ::prost::alloc::string::String,
     #[prost(message, optional, tag="3")]
     pub server_info: ::core::option::Option<ServerInfo>,
+    /// present iff the registration carried endpoints and the server supports the data plane
+    #[prost(message, optional, tag="4")]
+    pub endpoint_settings: ::core::option::Option<agent_http::AgentEndpointSettings>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5092,16 +5177,36 @@ pub struct UpdateJobStatus {
     #[prost(string, tag="3")]
     pub error: ::prost::alloc::string::String,
 }
+/// Which threads a worker holds, so a thread's requests reach the worker that
+/// has it loaded. Applied per worker in seq order; a dropped control stream
+/// releases every binding of the worker.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UpdateThreadStatus {
+    #[prost(string, tag="1")]
+    pub thread_id: ::prost::alloc::string::String,
+    #[prost(enumeration="ThreadStatus", tag="2")]
+    pub status: i32,
+    /// monotonic per worker; a late TS_ACTIVE never revives a TS_RELEASED binding
+    #[prost(uint64, tag="3")]
+    pub seq: u64,
+}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UpdateWorkerStatus {
     #[prost(enumeration="WorkerStatus", optional, tag="1")]
     pub status: ::core::option::Option<i32>,
-    /// optional string metadata = 2 \[deprecated=true\];
     #[prost(float, tag="3")]
     pub load: f32,
     #[prost(uint32, tag="4")]
     pub job_count: u32,
+    /// worker wants no new streams; existing streams run to completion
+    #[prost(bool, tag="5")]
+    pub draining: bool,
+    /// monotonic per registration; status updates may interleave across connections
+    /// and a stale report must not regress newer state
+    #[prost(uint64, tag="6")]
+    pub seq: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5118,6 +5223,235 @@ pub struct JobAssignment {
 pub struct JobTermination {
     #[prost(string, tag="1")]
     pub job_id: ::prost::alloc::string::String,
+}
+/// ----- agent HTTP endpoints data plane -----
+///
+/// AgentHttp namespaces the data plane: workers expose HTTP endpoints served at
+/// /agents/{agent_name}/{deployment}/{path} without binding any local listener.
+/// The worker opens ONE WebTransport (QUIC) session to /agent that carries both
+/// its control stream (the same WorkerMessage/ServerMessage exchange as the
+/// WebSocket control connection, length-delimited) and every HTTP exchange: the
+/// node opens one bidirectional QUIC stream per request. QUIC provides the
+/// multiplexing and per-stream flow control, so there is no credit accounting
+/// and no attach handshake.
+///
+/// Each exchange stream is:
+///
+///    [len:u32be][StreamPreamble]   the only LiveKit framing
+///    \[ ... opaque bytes ... \]      one HTTP/1.1 exchange, to FIN or RESET_STREAM
+///
+/// After the preamble the stream is byte-transparent: the node writes a
+/// canonical HTTP/1.1 request and the worker replies with an HTTP/1.1 response,
+/// each parsed by whatever HTTP implementation the side already has. A WebSocket
+/// upgrade is therefore an ordinary request whose response is a 101, after which
+/// the stream is a byte pipe. The protocol evolves by version negotiation at
+/// registration, so the preamble carries no version of its own.
+///
+/// Bodies use ordinary HTTP/1.1 framing, Content-Length or chunked, and are
+/// unbounded: a body may be many gigabytes and must be streamed. Request and
+/// response size limits are policy for the layer above.
+///
+/// How one direction ends:
+///
+///    success             end of message per the body's own framing, then FIN.
+///    failed mid-body     chunked trailer fields x-lk-completion and x-lk-error,
+///                        in band, so the outcome cannot race the bytes it
+///                        describes.
+///    failed before any   RESET_STREAM carrying an HttpStreamResetCode, sound
+///    bytes               only here, where nothing is in flight.
+///
+/// FIN before the body's own framing says it is complete is truncation, and a
+/// receiver must surface it as such.
+///
+/// The x-lk- header prefix is reserved for this signalling in both directions.
+/// A node strips it from client-supplied request headers, so a client cannot
+/// forge one, and strips it from responses, so it never reaches the end client.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AgentHttp {
+}
+/// Nested message and enum types in `AgentHttp`.
+pub mod agent_http {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AgentEndpoint {
+        /// starlette-style path template rooted at '/': {name} (one segment, default),
+        /// {name:int}, {name:float}, {name:uuid} (constrained single segments),
+        /// {name:path} (multi-segment). Custom converters are rejected.
+        #[prost(string, tag="1")]
+        pub path: ::prost::alloc::string::String,
+        /// uppercase, exactly as the application routes them (FastAPI does not imply
+        /// HEAD from GET)
+        #[prost(string, repeated, tag="2")]
+        pub methods: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        #[prost(enumeration="AgentEndpointKind", tag="3")]
+        pub kind: i32,
+        /// reachable without a project token
+        #[prost(bool, tag="4")]
+        pub public: bool,
+    }
+    /// registration-level settings negotiated on the control connection, returned
+    /// in RegisterWorkerResponse when the worker declares endpoints and the server
+    /// supports the data plane.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AgentEndpointSettings {
+        /// the negotiated data-plane protocol version; the worker speaks exactly this
+        /// or closes the session
+        #[prost(uint32, tag="1")]
+        pub protocol: u32,
+    }
+    /// the first thing on every exchange stream, node -> worker. It carries only
+    /// what the worker cannot derive from the HTTP bytes that follow and what it
+    /// must not infer from client-supplied headers - identity above all.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct StreamPreamble {
+        /// what the bytes after this preamble are. A field rather than a framing
+        /// tag, so a new stream semantic costs no new mechanism.
+        #[prost(enumeration="AgentEndpointKind", tag="1")]
+        pub kind: i32,
+        #[prost(string, tag="2")]
+        pub request_id: ::prost::alloc::string::String,
+        /// the caller holds agent-endpoint call permission for this agent and
+        /// deployment. Always true on a non-public route.
+        #[prost(bool, tag="3")]
+        pub authorized: bool,
+        /// the manifest template that matched, e.g. "/items/{id}"
+        #[prost(string, tag="4")]
+        pub route: ::prost::alloc::string::String,
+        /// relative, because node and worker clocks are not synchronized. 0 imposes
+        /// no deadline.
+        #[prost(uint32, tag="5")]
+        pub timeout_ms: u32,
+        /// end client address, host only
+        #[prost(string, tag="6")]
+        pub client_addr: ::prost::alloc::string::String,
+        /// "http" or "https" as the end client saw it; not derivable worker-side
+        #[prost(string, tag="7")]
+        pub scheme: ::prost::alloc::string::String,
+        /// the thread ("AT_...") the node resolved for this request; empty when
+        /// none, and the worker resolves it from the body
+        #[prost(string, tag="8")]
+        pub thread_id: ::prost::alloc::string::String,
+        /// the verified agentThread claim of the caller's token, which never
+        /// reaches the worker; the worker enforces it on the addressed thread
+        ///
+        /// NEXT_ID: 10
+        #[prost(message, optional, tag="9")]
+        pub thread_grant: ::core::option::Option<AgentThreadGrant>,
+    }
+    /// auth.AgentThreadGrant on the wire: one agent's threads, by subject or by
+    /// id, with per-action flags
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AgentThreadGrant {
+        #[prost(string, tag="1")]
+        pub agent_name: ::prost::alloc::string::String,
+        #[prost(string, tag="2")]
+        pub sub: ::prost::alloc::string::String,
+        #[prost(string, repeated, tag="3")]
+        pub thread_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        #[prost(bool, tag="4")]
+        pub list: bool,
+        #[prost(bool, tag="5")]
+        pub create: bool,
+        #[prost(bool, tag="6")]
+        pub send: bool,
+        #[prost(bool, tag="7")]
+        pub read: bool,
+        #[prost(bool, tag="8")]
+        pub delete: bool,
+        /// endpoints of the agent the holder may call; empty is all
+        #[prost(string, repeated, tag="9")]
+        pub endpoints: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    }
+    /// the server is draining: the worker should re-register elsewhere; in-flight
+    /// HTTP exchanges run to completion
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct GoAway {
+        #[prost(string, tag="1")]
+        pub reason: ::prost::alloc::string::String,
+    }
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum AgentEndpointKind {
+        AekHttp = 0,
+        /// reserved for future text-mode endpoints
+        AekText = 1,
+    }
+    impl AgentEndpointKind {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                AgentEndpointKind::AekHttp => "AEK_HTTP",
+                AgentEndpointKind::AekText => "AEK_TEXT",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "AEK_HTTP" => Some(Self::AekHttp),
+                "AEK_TEXT" => Some(Self::AekText),
+                _ => None,
+            }
+        }
+    }
+    /// why a stream was reset before any HTTP bytes flowed. This travels as the
+    /// QUIC RESET_STREAM / STOP_SENDING error code, so it is a number with no room
+    /// for detail: the reason string is logged by the side that reset and joined
+    /// to this by request_id. An outcome after bytes have flowed travels in
+    /// trailers instead, where it cannot race them.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum HttpStreamResetCode {
+        /// no information. The ordinary cancel code, sent whenever a stream is torn
+        /// down without a specific outcome, so it must stay the zero value and must
+        /// not imply that anything was or was not applied.
+        HsrAbort = 0,
+        /// the worker aborted before any application code observed the request, so
+        /// nothing was applied and the exchange is safe to retry. Requires that the
+        /// application was never entered; a 404 it returned is an ordinary response.
+        HsrRefused = 1,
+        /// the application was entered and then failed before producing a response
+        /// head; side effects may already have happened, so this is not safe to
+        /// retry.
+        HsrInternal = 2,
+        /// the deadline elapsed before a response head was produced
+        HsrTimeout = 3,
+        /// the peer's bytes were not valid HTTP/1.1
+        HsrProtocol = 4,
+    }
+    impl HttpStreamResetCode {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                HttpStreamResetCode::HsrAbort => "HSR_ABORT",
+                HttpStreamResetCode::HsrRefused => "HSR_REFUSED",
+                HttpStreamResetCode::HsrInternal => "HSR_INTERNAL",
+                HttpStreamResetCode::HsrTimeout => "HSR_TIMEOUT",
+                HttpStreamResetCode::HsrProtocol => "HSR_PROTOCOL",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "HSR_ABORT" => Some(Self::HsrAbort),
+                "HSR_REFUSED" => Some(Self::HsrRefused),
+                "HSR_INTERNAL" => Some(Self::HsrInternal),
+                "HSR_TIMEOUT" => Some(Self::HsrTimeout),
+                "HSR_PROTOCOL" => Some(Self::HsrProtocol),
+                _ => None,
+            }
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -5202,6 +5536,34 @@ impl JobStatus {
             "JS_RUNNING" => Some(Self::JsRunning),
             "JS_SUCCESS" => Some(Self::JsSuccess),
             "JS_FAILED" => Some(Self::JsFailed),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ThreadStatus {
+    /// the server routes the thread's requests to this worker
+    TsActive = 0,
+    /// the worker evicted the thread with everything persisted; final for this worker
+    TsReleased = 1,
+}
+impl ThreadStatus {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ThreadStatus::TsActive => "TS_ACTIVE",
+            ThreadStatus::TsReleased => "TS_RELEASED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TS_ACTIVE" => Some(Self::TsActive),
+            "TS_RELEASED" => Some(Self::TsReleased),
             _ => None,
         }
     }
@@ -5552,7 +5914,7 @@ pub struct RoomConfiguration {
     /// number of seconds to keep the room open after everyone leaves
     #[prost(uint32, tag="3")]
     pub departure_timeout: u32,
-    /// limit number of participants that can be in a room, excluding Egress and Ingress participants
+    /// limit number of participants that can be in a room, excluding Egress and Agent participants
     #[prost(uint32, tag="4")]
     pub max_participants: u32,
     /// metadata of room
@@ -6049,7 +6411,7 @@ impl IngressVideoEncodingPreset {
 pub struct WebhookEvent {
     /// one of room_started, room_finished, participant_joined, participant_left, participant_connection_aborted,
     /// track_published, track_unpublished, egress_started, egress_updated, egress_ended,
-    /// ingress_started, ingress_ended
+    /// ingress_started, ingress_ended, agent_job_started, agent_job_ended
     #[prost(string, tag="1")]
     pub event: ::prost::alloc::string::String,
     #[prost(message, optional, tag="2")]
@@ -6066,6 +6428,9 @@ pub struct WebhookEvent {
     /// set when event is track_*
     #[prost(message, optional, tag="8")]
     pub track: ::core::option::Option<TrackInfo>,
+    /// set when event is agent_job_*
+    #[prost(message, optional, tag="12")]
+    pub job: ::core::option::Option<Job>,
     /// unique event uuid
     #[prost(string, tag="6")]
     pub id: ::prost::alloc::string::String,
@@ -6075,6 +6440,9 @@ pub struct WebhookEvent {
     #[deprecated]
     #[prost(int32, tag="11")]
     pub num_dropped: i32,
+    /// set when event is room_finished
+    #[prost(enumeration="RoomEndReason", tag="13")]
+    pub room_end_reason: i32,
 }
 /// SIPStatus is returned as an error detail in CreateSIPParticipant.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -6313,6 +6681,9 @@ pub struct SipInboundTrunkInfo {
     /// Max time for the caller to wait for track subscription.
     #[prost(message, optional, tag="11")]
     pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+    /// SIP status code if ringing_timeout elapses. Unset means using system default.
+    #[prost(enumeration="SipStatusCode", tag="21")]
+    pub ringing_timeout_status: i32,
     /// Max call duration.
     #[prost(message, optional, tag="12")]
     pub max_call_duration: ::core::option::Option<::pbjson_types::Duration>,
@@ -6811,6 +7182,9 @@ pub struct CreateSipParticipantRequest {
     /// INVITE <uri>
     #[prost(message, optional, tag="24")]
     pub sip_request_uri: ::core::option::Option<SipRequestDest>,
+    /// Currently not usable with CreateSIPParticipant: sip_call_to is required, and
+    /// the two cannot be combined. Use to_user_override to change the To header user.
+    ///
     /// To:   "Name" <uri>
     #[prost(message, optional, tag="25")]
     pub sip_to_header: ::core::option::Option<SipNamedDest>,
@@ -6820,6 +7194,16 @@ pub struct CreateSipParticipantRequest {
     /// What number should be dialed via SIP
     #[prost(string, tag="2")]
     pub sip_call_to: ::prost::alloc::string::String,
+    /// Replaces the user part of the To header, leaving its host, port and transport
+    /// as they would otherwise be. The request URI is not affected, so the call is
+    /// still placed to sip_call_to. Empty means no override.
+    ///
+    /// Use this when the callee expects a To header that differs from the number
+    /// being dialed. Setting "To" in the headers map is not a valid alternative:
+    /// it adds a second To header rather than replacing the existing one, which
+    /// makes the INVITE malformed.
+    #[prost(string, tag="27")]
+    pub to_user_override: ::prost::alloc::string::String,
     /// Optional SIP From number to use. If empty, trunk number is used.
     #[prost(string, tag="15")]
     pub sip_number: ::prost::alloc::string::String,
@@ -6888,7 +7272,7 @@ pub struct CreateSipParticipantRequest {
     /// 3) Non-empty: Use the specified value as the display name.
     #[prost(string, optional, tag="21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
-    /// NEXT ID: 27
+    /// NEXT ID: 28
     #[prost(message, optional, tag="22")]
     pub destination: ::core::option::Option<Destination>,
 }
@@ -6922,6 +7306,34 @@ pub struct TransferSipParticipantRequest {
     /// Max time for the transfer destination to answer the call.
     #[prost(message, optional, tag="6")]
     pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+}
+/// Added in <https://github.com/livekit/protocol/pull/1730.> Not needed after all:
+/// will be rolled back to an empty message once STR_CALL_ENDED is reported as an
+/// error like every other failed transfer.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TransferSipParticipantResponse {
+    #[prost(string, tag="1")]
+    pub transfer_id: ::prost::alloc::string::String,
+    #[prost(enumeration="SipTransferStatus", tag="2")]
+    pub status: i32,
+    #[prost(enumeration="SipTransferReason", tag="3")]
+    pub reason: i32,
+    /// Set when the outcome was reported by a SIP response.
+    #[prost(message, optional, tag="4")]
+    pub sip_status: ::core::option::Option<SipStatus>,
+}
+/// Details of a failed SIP transfer, attached to the error.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SipTransferError {
+    #[prost(string, tag="1")]
+    pub transfer_id: ::prost::alloc::string::String,
+    #[prost(enumeration="SipTransferReason", tag="2")]
+    pub reason: i32,
+    /// Set when the outcome was reported by a SIP response.
+    #[prost(message, optional, tag="3")]
+    pub sip_status: ::core::option::Option<SipStatus>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -7006,6 +7418,8 @@ pub struct SipTransferInfo {
     pub error: ::prost::alloc::string::String,
     #[prost(message, optional, tag="8")]
     pub transfer_status_code: ::core::option::Option<SipStatus>,
+    #[prost(enumeration="SipTransferReason", tag="9")]
+    pub reason: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -7515,6 +7929,54 @@ impl SipTransferStatus {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum SipTransferReason {
+    /// No reason reported
+    StrUnspecified = 0,
+    /// The transferee answered and the transfer completed
+    StrCompleted = 1,
+    /// The call ended before the transfer completed: remote BYE, room deleted or local hangup
+    StrCallEnded = 2,
+    /// The transferee, or its provider, rejected the transfer
+    StrRejected = 3,
+    /// The transferee did not answer in time
+    StrRingingTimeout = 4,
+    /// The provider stopped reporting the transfer status without a final response
+    StrSubscriptionTerminated = 5,
+    /// Canceled through the API
+    StrCanceled = 6,
+}
+impl SipTransferReason {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            SipTransferReason::StrUnspecified => "STR_UNSPECIFIED",
+            SipTransferReason::StrCompleted => "STR_COMPLETED",
+            SipTransferReason::StrCallEnded => "STR_CALL_ENDED",
+            SipTransferReason::StrRejected => "STR_REJECTED",
+            SipTransferReason::StrRingingTimeout => "STR_RINGING_TIMEOUT",
+            SipTransferReason::StrSubscriptionTerminated => "STR_SUBSCRIPTION_TERMINATED",
+            SipTransferReason::StrCanceled => "STR_CANCELED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "STR_UNSPECIFIED" => Some(Self::StrUnspecified),
+            "STR_COMPLETED" => Some(Self::StrCompleted),
+            "STR_CALL_ENDED" => Some(Self::StrCallEnded),
+            "STR_REJECTED" => Some(Self::StrRejected),
+            "STR_RINGING_TIMEOUT" => Some(Self::StrRingingTimeout),
+            "STR_SUBSCRIPTION_TERMINATED" => Some(Self::StrSubscriptionTerminated),
+            "STR_CANCELED" => Some(Self::StrCanceled),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum SipFeature {
     None = 0,
     KrispEnabled = 1,
@@ -7686,6 +8148,9 @@ pub struct ConnectWhatsAppCallRequest {
     /// It is the answer SDP for a business initiated call
     #[prost(message, optional, tag="2")]
     pub sdp: ::core::option::Option<SessionDescription>,
+    /// Wait for the answer for the call before returning.
+    #[prost(bool, tag="3")]
+    pub wait_until_answered: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -8068,6 +8533,8 @@ pub struct AnalyticsEvent {
     pub api_call: ::core::option::Option<ApiCallInfo>,
     #[prost(message, optional, tag="35")]
     pub webhook: ::core::option::Option<WebhookInfo>,
+    #[prost(enumeration="RoomEndReason", tag="37")]
+    pub room_end_reason: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -8313,6 +8780,9 @@ pub struct WebhookInfo {
     pub service_error: ::prost::alloc::string::String,
     #[prost(string, tag="22")]
     pub send_error: ::prost::alloc::string::String,
+    /// HTTP response status code for the delivery attempt (0 if no response).
+    #[prost(int32, tag="23")]
+    pub http_status_code: i32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -8492,6 +8962,400 @@ impl AnalyticsEventType {
             "API_CALL" => Some(Self::ApiCall),
             "WEBHOOK" => Some(Self::Webhook),
             _ => None,
+        }
+    }
+}
+/// Nested so that names like Value and Ping need not be unique across the
+/// livekit package. `tip` throughout is the latest durable commit sequence.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AgentDb {
+}
+/// Nested message and enum types in `AgentDB`.
+pub mod agent_db {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct CreateRequest {
+        /// Unset: never expires, and expires_at is then 0 everywhere.
+        /// Otherwise clamped to the server cap, and never extended.
+        #[prost(int64, tag="2")]
+        pub ttl_seconds: i64,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct CreateResponse {
+        /// "DB_..."
+        #[prost(string, tag="1")]
+        pub database_id: ::prost::alloc::string::String,
+        #[prost(int64, tag="2")]
+        pub expires_at: i64,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct GetRequest {
+        #[prost(string, tag="1")]
+        pub database_id: ::prost::alloc::string::String,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ListRequest {
+        /// server-clamped
+        #[prost(int32, tag="1")]
+        pub page_size: i32,
+        #[prost(string, tag="2")]
+        pub page_token: ::prost::alloc::string::String,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ListResponse {
+        #[prost(message, repeated, tag="1")]
+        pub databases: ::prost::alloc::vec::Vec<AgentDatabase>,
+        /// empty when exhausted
+        #[prost(string, tag="2")]
+        pub next_page_token: ::prost::alloc::string::String,
+    }
+    /// One database, as get and list both report it.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct AgentDatabase {
+        #[prost(string, tag="1")]
+        pub database_id: ::prost::alloc::string::String,
+        #[prost(string, tag="2")]
+        pub region: ::prost::alloc::string::String,
+        #[prost(int64, tag="3")]
+        pub created_at: i64,
+        #[prost(int64, tag="4")]
+        pub expires_at: i64,
+        #[prost(int64, tag="5")]
+        pub tip: i64,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct DeleteRequest {
+        #[prost(string, tag="1")]
+        pub database_id: ::prost::alloc::string::String,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct DeleteResponse {
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct DumpRequest {
+        #[prost(string, tag="1")]
+        pub database_id: ::prost::alloc::string::String,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct DumpResponse {
+        /// pre-authenticated object-storage URL
+        #[prost(string, tag="1")]
+        pub download_url: ::prost::alloc::string::String,
+        /// of the URL, not the database
+        #[prost(int64, tag="2")]
+        pub expires_at: i64,
+        /// what the dump is consistent at
+        #[prost(int64, tag="3")]
+        pub tip: i64,
+    }
+    /// Data plane: one WebSocket per database, one message per frame, correlated
+    /// by a client-chosen request_id. Result batches are paced by Credit, so the
+    /// server never sends more un-consumed batches than granted.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Wire {
+    }
+    /// Nested message and enum types in `Wire`.
+    pub mod wire {
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ClientMessage {
+            #[prost(uint32, tag="1")]
+            pub request_id: u32,
+            #[prost(oneof="client_message::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+            pub message: ::core::option::Option<client_message::Message>,
+        }
+        /// Nested message and enum types in `ClientMessage`.
+        pub mod client_message {
+            #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+            pub enum Message {
+                /// must be first on the socket
+                #[prost(message, tag="2")]
+                Hello(super::Hello),
+                /// answers ExecResult
+                #[prost(message, tag="3")]
+                Exec(super::Statement),
+                /// answers Columns + ColumnBatch* + Done
+                #[prost(message, tag="4")]
+                Query(super::Statement),
+                #[prost(message, tag="5")]
+                Batch(super::Batch),
+                #[prost(message, tag="6")]
+                Begin(super::Begin),
+                #[prost(message, tag="7")]
+                Commit(super::Commit),
+                #[prost(message, tag="8")]
+                Rollback(super::Rollback),
+                #[prost(message, tag="9")]
+                Cancel(super::Cancel),
+                #[prost(message, tag="10")]
+                Credit(super::Credit),
+                #[prost(message, tag="11")]
+                Ping(super::Ping),
+            }
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ServerMessage {
+            #[prost(uint32, tag="1")]
+            pub request_id: u32,
+            #[prost(oneof="server_message::Message", tags="2, 3, 4, 5, 6, 7, 8")]
+            pub message: ::core::option::Option<server_message::Message>,
+        }
+        /// Nested message and enum types in `ServerMessage`.
+        pub mod server_message {
+            #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+            pub enum Message {
+                #[prost(message, tag="2")]
+                HelloOk(super::HelloOk),
+                #[prost(message, tag="3")]
+                Columns(super::Columns),
+                #[prost(message, tag="4")]
+                ColumnBatch(super::ColumnBatch),
+                #[prost(message, tag="5")]
+                ExecResult(super::ExecResult),
+                #[prost(message, tag="6")]
+                Done(super::Done),
+                #[prost(message, tag="7")]
+                Error(super::Error),
+                #[prost(message, tag="8")]
+                Pong(super::Pong),
+            }
+        }
+        /// SQLite's five storage classes.
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Value {
+            #[prost(oneof="value::Value", tags="1, 2, 3, 4, 5")]
+            pub value: ::core::option::Option<value::Value>,
+        }
+        /// Nested message and enum types in `Value`.
+        pub mod value {
+            #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+            pub enum Value {
+                /// always true when set
+                #[prost(bool, tag="1")]
+                NullValue(bool),
+                #[prost(int64, tag="2")]
+                IntValue(i64),
+                #[prost(double, tag="3")]
+                DoubleValue(f64),
+                #[prost(string, tag="4")]
+                TextValue(::prost::alloc::string::String),
+                #[prost(bytes, tag="5")]
+                BlobValue(::prost::alloc::vec::Vec<u8>),
+            }
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Statement {
+            #[prost(string, tag="1")]
+            pub sql: ::prost::alloc::string::String,
+            /// positional
+            #[prost(message, repeated, tag="2")]
+            pub params: ::prost::alloc::vec::Vec<Value>,
+            #[prost(enumeration="QueryLang", tag="3")]
+            pub lang: i32,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Batch {
+            /// applied atomically, in order
+            #[prost(message, repeated, tag="1")]
+            pub statements: ::prost::alloc::vec::Vec<Statement>,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Begin {
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Commit {
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Rollback {
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Cancel {
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Credit {
+            /// additional batches the client can absorb
+            #[prost(uint32, tag="1")]
+            pub batches: u32,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Ping {
+            #[prost(int64, tag="1")]
+            pub timestamp_ms: i64,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Pong {
+            #[prost(int64, tag="1")]
+            pub last_ping_timestamp_ms: i64,
+            #[prost(int64, tag="2")]
+            pub timestamp_ms: i64,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Hello {
+            #[prost(string, tag="1")]
+            pub token: ::prost::alloc::string::String,
+            #[prost(string, tag="2")]
+            pub database_id: ::prost::alloc::string::String,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct HelloOk {
+            #[prost(int64, tag="1")]
+            pub tip: i64,
+            #[prost(uint32, tag="2")]
+            pub ping_interval_ms: u32,
+            #[prost(uint32, tag="3")]
+            pub ping_timeout_ms: u32,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Columns {
+            #[prost(string, repeated, tag="1")]
+            pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+        }
+        /// Values are typed per row, as SQLite types them, so a column may mix
+        /// classes: walk `types` and take the next entry from the matching array. Text
+        /// and blobs are concatenated with one exclusive end offset each, so value i
+        /// is data\[ends[i-1\]:ends\[i]\] with 0 implied before the first. A NULL occupies
+        /// a tag only.
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Column {
+            /// one ValueType per row
+            #[prost(bytes="vec", tag="1")]
+            pub types: ::prost::alloc::vec::Vec<u8>,
+            #[prost(sint64, repeated, tag="2")]
+            pub ints: ::prost::alloc::vec::Vec<i64>,
+            #[prost(double, repeated, tag="3")]
+            pub doubles: ::prost::alloc::vec::Vec<f64>,
+            #[prost(bytes="vec", tag="4")]
+            pub text_data: ::prost::alloc::vec::Vec<u8>,
+            #[prost(uint32, repeated, tag="5")]
+            pub text_ends: ::prost::alloc::vec::Vec<u32>,
+            #[prost(bytes="vec", tag="6")]
+            pub blob_data: ::prost::alloc::vec::Vec<u8>,
+            #[prost(uint32, repeated, tag="7")]
+            pub blob_ends: ::prost::alloc::vec::Vec<u32>,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ColumnBatch {
+            /// one per name in Columns
+            #[prost(message, repeated, tag="1")]
+            pub columns: ::prost::alloc::vec::Vec<Column>,
+            #[prost(uint32, tag="2")]
+            pub rows: u32,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct ExecResult {
+            #[prost(int64, tag="1")]
+            pub rows_affected: i64,
+            #[prost(int64, tag="2")]
+            pub last_insert_id: i64,
+            #[prost(int64, tag="3")]
+            pub tip: i64,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Done {
+            /// the snapshot the query ran at
+            #[prost(int64, tag="1")]
+            pub tip: i64,
+            #[prost(uint64, tag="2")]
+            pub total_rows: u64,
+        }
+        #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Error {
+            /// stable, machine-readable
+            #[prost(string, tag="1")]
+            pub code: ::prost::alloc::string::String,
+            #[prost(string, tag="2")]
+            pub message: ::prost::alloc::string::String,
+        }
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum QueryLang {
+            Sql = 0,
+        }
+        impl QueryLang {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    QueryLang::Sql => "SQL",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "SQL" => Some(Self::Sql),
+                    _ => None,
+                }
+            }
+        }
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+        #[repr(i32)]
+        pub enum ValueType {
+            Null = 0,
+            Int = 1,
+            Double = 2,
+            Text = 3,
+            Blob = 4,
+        }
+        impl ValueType {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    ValueType::Null => "NULL",
+                    ValueType::Int => "INT",
+                    ValueType::Double => "DOUBLE",
+                    ValueType::Text => "TEXT",
+                    ValueType::Blob => "BLOB",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "NULL" => Some(Self::Null),
+                    "INT" => Some(Self::Int),
+                    "DOUBLE" => Some(Self::Double),
+                    "TEXT" => Some(Self::Text),
+                    "BLOB" => Some(Self::Blob),
+                    _ => None,
+                }
+            }
         }
     }
 }
