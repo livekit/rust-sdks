@@ -1928,18 +1928,40 @@ pub(crate) mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn entering_background_flushes_immediately() {
-        let transport = FakeTransport::scripted([]);
-        let telemetry = pipeline(transport.clone());
-        telemetry.emit(TelemetryEvent::new("lk.ping"));
-        telemetry.set_device_state(DeviceState {
-            app_state: AppState::Background,
-            ..DeviceState::default()
-        });
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        let sent = transport.sent();
-        assert_eq!(sent.len(), 1, "flushed on the state change, not on the tick");
-        assert!(event_names(&sent[0]).contains(&"lk.ping".to_owned()));
+    async fn background_transition_flushes_while_foreground_waits_for_the_tick() {
+        assert_eq!(DeviceState::default().app_state, AppState::Foreground);
+        assert_eq!(TelemetryConfig::default().flush_interval_ms, 60_000);
+        for app_state in [AppState::Foreground, AppState::Background] {
+            let transport = FakeTransport::scripted([]);
+            let telemetry = start(TelemetryConfig::default(), transport.clone());
+            telemetry.set_device_state(DeviceState::default());
+            telemetry.flush().await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let initial = transport.sent().len();
+            let background = app_state == AppState::Background;
+            let names = || transport.sent().iter().flat_map(event_names).collect::<Vec<_>>();
+
+            telemetry.emit(TelemetryEvent::new("lk.ping"));
+            telemetry.set_device_state(DeviceState { app_state, ..Default::default() });
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            assert_eq!(transport.sent().len(), initial + usize::from(background), "{app_state:?}");
+            assert_eq!(names().contains(&"lk.ping".to_owned()), background, "{app_state:?}");
+
+            telemetry.emit(TelemetryEvent::new("lk.next"));
+            telemetry.set_device_state(DeviceState { app_state, ..Default::default() });
+            tokio::time::sleep(Duration::from_secs(59)).await;
+            assert!(!names().contains(&"lk.next".to_owned()), "{app_state:?}: before the tick");
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert!(names().contains(&"lk.ping".to_owned()), "{app_state:?}");
+            assert_eq!(
+                names().contains(&"lk.next".to_owned()),
+                !background,
+                "{app_state:?}: the background cadence is doubled"
+            );
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            assert!(names().contains(&"lk.next".to_owned()), "{app_state:?}: periodic flush");
+            telemetry.shutdown().await;
+        }
     }
 
     /// Finding 12: more finished spans than one batch holds all reach the cache (and the wire)
