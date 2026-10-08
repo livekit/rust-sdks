@@ -20,11 +20,11 @@ use std::{
 use crate::{Attribute, AttributeValue};
 
 /// One session's identity: the trace id every one of its records carries, and the attributes
-/// attached to them at export time (`lk.room.sid`, `lk.participant.identity`, …).
+/// copied into them when they are captured (`lk.room.sid`, `lk.participant.identity`, …).
 pub(crate) struct ScopeState {
     pub trace_id: [u8; 16],
-    /// SDK-owned attributes (`lk.room.*`, `lk.participant.*`), attached at export: late-known
-    /// identity (the room sid arrives after join) still reaches the records captured before.
+    /// SDK-owned attributes (`lk.room.*`, `lk.participant.*`), copied into each record when it is
+    /// captured (see [`ScopeState::decorate`]).
     attributes: Mutex<Vec<Attribute>>,
     /// The app's correlation attributes, copied into each record when it is captured, so a
     /// later change never rewrites what is already queued.
@@ -129,22 +129,19 @@ impl ScopeState {
         }
     }
 
-    /// At export: the session's SDK-owned attributes win over anything the record carries
-    /// (an app cannot spoof them), then the pipeline-wide ones (`global`) fill in, and
+    /// At capture, like [`snapshot_custom`](Self::snapshot_custom): the session's SDK-owned
+    /// attributes win over anything the record carries (an app cannot spoof them), then
     /// `session.id` (OTel semconv) — the trace id, so a record can be joined to its session even
-    /// where a backend drops trace ids from logs.
-    pub fn decorate(&self, own: &mut Vec<Attribute>, global: &[Attribute]) {
+    /// where a backend drops trace ids from logs. Taken now rather than at export, so a record
+    /// keeps the room it was captured in after the platform clears it (a disconnect), and its
+    /// size hint counts them; one captured before the room sid arrived goes without it.
+    pub fn decorate(&self, own: &mut Vec<Attribute>) {
         let session = self.attributes.lock().unwrap_or_else(|e| e.into_inner());
         for attribute in session.iter() {
             own.retain(|a| a.key != attribute.key);
             own.push(attribute.clone());
         }
         drop(session);
-        for attribute in global {
-            if !own.iter().any(|a| a.key == attribute.key) {
-                own.push(attribute.clone());
-            }
-        }
         own.retain(|a| a.key != "session.id");
         own.push(Attribute::new("session.id", self.hex()));
     }

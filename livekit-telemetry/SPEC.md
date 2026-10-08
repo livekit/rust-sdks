@@ -5,10 +5,12 @@ Additive-only by convention; LiveKit-defined names carry the `lk.` prefix, every
 follows [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions).
 
 Every record carries a wall-clock timestamp: one without `timestamp_ns` is stamped when it is
-captured (queued), never at export; an explicit `timestamp_ns` is kept. Attribute keys the SDK
-owns are `lk.*`, `otel.*`, `code.*`, `session.id` and `error.type`: an app's attributes and
-custom events cannot set them, and on a span only the core writes `lk.outcome` and `error.type`
-(see [Spans](#spans)).
+captured (queued), never at export; an explicit `timestamp_ns` is kept. Its attributes, like its
+owner and timestamp, are taken at capture, its session's (`lk.room.*`, `lk.participant.*`,
+`session.id`) included, so a record captured before a disconnect keeps its room; only
+pipeline-wide attributes are added at export. Attribute keys the SDK owns are `lk.*`, `otel.*`,
+`code.*`, `session.id` and `error.type`: an app's attributes and custom events cannot set them,
+and on a span only the core writes `lk.outcome` and `error.type` (see [Spans](#spans)).
 
 ## Resource attributes
 

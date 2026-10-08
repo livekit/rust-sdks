@@ -22,8 +22,8 @@ use std::{
 
 use crate::{event::now_unix_nanos, scope::ScopeState, stats::Counters, TelemetryEvent};
 
-/// An event waiting for export, filed under the session whose trace id and attributes it
-/// will carry.
+/// An event waiting for export, filed under the session whose trace id it will carry; it
+/// already carries the session's attributes.
 pub(crate) struct QueuedEvent {
     pub event: TelemetryEvent,
     pub session: Arc<ScopeState>,
@@ -34,13 +34,15 @@ pub(crate) struct QueuedEvent {
 }
 
 impl QueuedEvent {
-    /// Capture a record for `session`, with its owner as of now: the session's project and its
-    /// correlation attributes (the record's own win). An unstamped record is stamped here, so
-    /// time spent queued never shifts it to its export time.
+    /// Capture a record for `session`, with its owner as of now: the session's project, its
+    /// SDK-owned attributes and `session.id` (which win), and its correlation attributes (the
+    /// record's own win). An unstamped record is stamped here, so time spent queued never shifts
+    /// it to its export time.
     pub fn new(mut event: TelemetryEvent, session: Arc<ScopeState>) -> Self {
         event.timestamp_ns.get_or_insert_with(now_unix_nanos);
         let route = session.route();
         session.snapshot_custom(&mut event.attributes);
+        session.decorate(&mut event.attributes);
         Self { event, session, route }
     }
 }
@@ -202,6 +204,17 @@ mod tests {
         assert!(store.queue.lock().unwrap().full_warned);
         assert_eq!(store.clear(), 1);
         assert!(!store.queue.lock().unwrap().full_warned);
+    }
+
+    #[test]
+    fn queued_bytes_count_the_sessions_attributes() {
+        let session = ScopeState::new();
+        session.set_attribute("lk.room.name", Some("r".repeat(100).into()));
+        let store = Store::new(10, usize::MAX, Arc::default());
+        store.push(QueuedEvent::new(TelemetryEvent::new("lk.ping"), session));
+        let bare = TelemetryEvent::new("lk.ping").size_hint();
+        let bytes = store.queue.lock().unwrap().bytes;
+        assert!(bytes >= bare + 100 + 32, "the room name and session.id: {bytes} vs {bare}");
     }
 
     #[test]

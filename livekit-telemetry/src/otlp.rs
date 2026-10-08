@@ -47,8 +47,9 @@ fn scope() -> Option<InstrumentationScope> {
 }
 
 /// Encode one batch as an OTLP `ExportLogsServiceRequest`: one resource, one instrumentation
-/// scope (this crate), one log record per event. Every record carries its session's trace id and
-/// attributes; records emitted inside a span carry its span id too.
+/// scope (this crate), one log record per event. Every record carries its session's trace id
+/// and the attributes it got at capture, with `global` filling in (see [`fill_in_global`]);
+/// records emitted inside a span carry its span id too.
 pub(crate) fn encode_logs(
     resource_attributes: &[Attribute],
     global: &[Attribute],
@@ -124,7 +125,7 @@ fn log_record(
     QueuedEvent { mut event, session, .. }: QueuedEvent,
     global: &[Attribute],
 ) -> LogRecord {
-    session.decorate(&mut event.attributes, global);
+    fill_in_global(&mut event.attributes, global);
     // `QueuedEvent::new` stamps capture time; this fallback covers only one built by hand.
     let time_unix_nano = event.timestamp_ns.unwrap_or_else(now_unix_nanos);
     // Events carry a display body (OTel: "a string display message of the event"); the name is
@@ -151,7 +152,7 @@ fn log_record(
 
 fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
     let session = record.session.clone();
-    session.decorate(&mut record.attributes, global);
+    fill_in_global(&mut record.attributes, global);
     // The outcome is the core's, as `session.id` is: a span's own copies never ship.
     record.attributes.retain(|a| a.key != "lk.outcome" && a.key != "error.type");
     let mut attributes: Vec<KeyValue> = record.attributes.iter().map(KeyValue::from).collect();
@@ -180,6 +181,16 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
             ..Default::default()
         }),
         ..Default::default()
+    }
+}
+
+/// The pipeline-wide attributes fill in under a record's own and its session's, which it got at
+/// capture. Added at export because the queues never see them, so a size hint leaves them out.
+fn fill_in_global(own: &mut Vec<Attribute>, global: &[Attribute]) {
+    for attribute in global {
+        if !own.iter().any(|a| a.key == attribute.key) {
+            own.push(attribute.clone());
+        }
     }
 }
 
@@ -298,13 +309,7 @@ mod tests {
             panic!("two spans")
         };
         assert_eq!(failed.kind, span::SpanKind::Client as i32);
-        let values = |span: &Span, key: &str| -> Vec<_> {
-            span.attributes
-                .iter()
-                .filter(|kv| kv.key == key)
-                .filter_map(|kv| kv.value.clone()?.value)
-                .collect()
-        };
+        let values = |span: &Span, key: &str| values(&span.attributes, key);
         let text = |s: &str| any_value::Value::StringValue(s.into());
         assert_eq!(values(failed, "lk.outcome"), [text("error")]);
         assert_eq!(values(failed, "error.type"), [text("timeout")]);
@@ -319,13 +324,73 @@ mod tests {
         );
     }
 
+    /// The attributes `Scope::set_room` gives a session in a call.
+    fn in_room(session: &crate::scope::ScopeState) {
+        for (key, value) in [
+            ("lk.room.sid", "RM_UpE3vYzFmJp8"),
+            ("lk.room.name", "standup-2026-10-08"),
+            ("lk.participant.sid", "PA_kQ2Fv8sWbE3n"),
+            ("lk.participant.identity", "user-4f1c2a"),
+        ] {
+            session.set_attribute(key, Some(value.into()));
+        }
+    }
+
+    /// The values of `key` on an encoded record or span.
+    fn values(attributes: &[KeyValue], key: &str) -> Vec<any_value::Value> {
+        attributes
+            .iter()
+            .filter(|kv| kv.key == key)
+            .filter_map(|kv| kv.value.clone()?.value)
+            .collect()
+    }
+
+    #[test]
+    fn records_keep_the_session_attributes_they_were_captured_with() {
+        let session = crate::scope::ScopeState::new();
+        in_room(&session);
+        let spoofed =
+            TelemetryEvent::new("lk.room.disconnected").with_attribute("lk.room.sid", "x");
+        let queued = QueuedEvent::new(spoofed, session.clone());
+        // The platform clears the room right after the disconnect, before the next export.
+        session.set_attribute("lk.room.sid", None);
+        let global = [Attribute::new("lk.room.sid", "global"), Attribute::new("acme.tenant", "t1")];
+        let bytes = encode_logs(&[], &global, vec![queued]);
+        let decoded = ExportLogsServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let record = &decoded.resource_logs[0].scope_logs[0].log_records[0];
+        let text = |s: &str| any_value::Value::StringValue(s.into());
+        assert_eq!(values(&record.attributes, "lk.room.sid"), [text("RM_UpE3vYzFmJp8")]);
+        assert_eq!(values(&record.attributes, "session.id"), [text(&session.hex())]);
+        assert_eq!(values(&record.attributes, "acme.tenant"), [text("t1")], "globals fill in");
+    }
+
+    #[test]
+    fn spans_keep_the_session_attributes_they_ended_with() {
+        let session = crate::scope::ScopeState::new();
+        in_room(&session);
+        let mut spans = crate::span::Spans::new(1);
+        let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
+        spans.end(id, SpanOutcome::Ok, None, vec![Attribute::new("lk.room.sid", "x")]);
+        session.set_attribute("lk.room.sid", None);
+        let bytes = encode_spans(&[], &[], spans.drain(1, usize::MAX));
+        let decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        let span = &decoded.resource_spans[0].scope_spans[0].spans[0];
+        let text = |s: &str| any_value::Value::StringValue(s.into());
+        assert_eq!(values(&span.attributes, "lk.room.sid"), [text("RM_UpE3vYzFmJp8")]);
+        assert_eq!(values(&span.attributes, "session.id"), [text(&session.hex())]);
+    }
+
     #[test]
     fn size_hints_track_the_encoded_size() {
         let session = crate::scope::ScopeState::new();
-        // The bytes one record adds to a batch.
-        let encoded = |event: &TelemetryEvent| {
-            let one = vec![QueuedEvent::new(event.clone(), session.clone())];
-            encode_logs(&[], &[], one).len() - encode_logs(&[], &[], vec![]).len()
+        in_room(&session);
+        // A record as queued (decorated), its hint, and the bytes it adds to a batch.
+        let measure = |event: &TelemetryEvent| {
+            let queued = QueuedEvent::new(event.clone(), session.clone());
+            let hint = queued.event.size_hint();
+            let encoded =
+                encode_logs(&[], &[], vec![queued]).len() - encode_logs(&[], &[], vec![]).len();
+            encoded as f64 / hint as f64
         };
         let log_line = TelemetryEvent::from(crate::LogRecord {
             severity: Severity::Warn,
@@ -353,11 +418,11 @@ mod tests {
             custom,
         ]
         .iter()
-        .map(|event| (event.name.clone(), encoded(event) as f64 / event.size_hint() as f64))
+        .map(|event| (event.name.clone(), measure(event)))
         .collect();
 
         let mut spans = crate::span::Spans::new(1);
-        let id = spans.begin("lk.connect", SpanKind::Client, None);
+        let id = spans.begin_in("lk.connect", SpanKind::Client, None, session.clone());
         for checkpoint in ["ws_open", "join_recv", "pc_connected"] {
             spans.add_event(id, checkpoint);
         }

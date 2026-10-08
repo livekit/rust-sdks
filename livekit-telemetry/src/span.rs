@@ -80,8 +80,8 @@ pub(crate) struct SpanRecord {
 }
 
 /// Encoded bytes of a span beyond its strings: ids, timestamps, kind, status and the
-/// `session.id`, `lk.outcome` and `error.type` attributes (calibrated like `TelemetryEvent`'s).
-const SPAN_OVERHEAD_BYTES: usize = 144;
+/// `lk.outcome` and `error.type` attributes (calibrated like `TelemetryEvent`'s).
+const SPAN_OVERHEAD_BYTES: usize = 94;
 /// Encoded bytes of a span event beyond its name: its timestamp and framing.
 const SPAN_EVENT_OVERHEAD_BYTES: usize = 13;
 
@@ -248,6 +248,7 @@ impl Spans {
         span.session.snapshot_custom(&mut attributes);
         span.route = span.session.route();
         attributes.truncate(MAX_ATTRIBUTES_PER_SPAN);
+        span.session.decorate(&mut attributes);
         span.attributes = attributes;
         self.retire(id);
         if self.finished.len() >= self.finished_capacity {

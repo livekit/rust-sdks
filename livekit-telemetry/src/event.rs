@@ -91,6 +91,10 @@ impl TelemetryEvent {
     /// Drives the byte bounds on queue flushing and request size; cheaper than encoding and close
     /// enough for both. The name is counted twice (`event_name` and `otel.event.name`), and again
     /// when it doubles as the body.
+    ///
+    /// Counts the attributes the record carries: once queued, that includes its session's
+    /// (`lk.room.*`, `lk.participant.*`, `session.id`) and the app's correlation attributes, all
+    /// taken at capture. Pipeline-wide attributes are added at export and are not counted.
     pub fn size_hint(&self) -> usize {
         RECORD_OVERHEAD_BYTES
             + 2 * self.name.len()
@@ -288,10 +292,10 @@ pub(crate) fn valid_custom(key: &str, value: Option<&AttributeValue>) -> bool {
     !key.is_empty() && key.len() <= MAX_KEY_BYTES && !reserved(key) && value_ok
 }
 
-/// Encoded bytes of a log record beyond its strings: timestamps, severity, trace id, the
-/// `otel.event.name` key and the `session.id` attribute every record gets at export. Calibrated
-/// against the encoder, like the other overheads (the `size_hints_track_the_encoded_size` test).
-const RECORD_OVERHEAD_BYTES: usize = 128;
+/// Encoded bytes of a log record beyond its strings: timestamps, severity, trace id and the
+/// `otel.event.name` key. Calibrated against the encoder, like the other overheads (the
+/// `size_hints_track_the_encoded_size` test).
+const RECORD_OVERHEAD_BYTES: usize = 78;
 /// Encoded bytes of an attribute beyond its key and string value: tags, lengths and wrappers.
 const ATTRIBUTE_OVERHEAD_BYTES: usize = 8;
 
