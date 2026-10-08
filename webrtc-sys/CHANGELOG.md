@@ -165,6 +165,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.49 (2026-10-08)
+
+### Features
+
+- Add `PeerConnection::set_bitrate` to set the send bitrate limits of a peer connection.
+
 ## 0.3.48 (2026-10-07)
 
 ### Fixes
