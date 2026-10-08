@@ -4974,9 +4974,6 @@ pub struct Job {
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     #[prost(bool, tag="13")]
     pub enable_redaction: bool,
-    /// the thread ("AT_...") this job continues; empty when dispatch made none
-    #[prost(string, tag="14")]
-    pub thread_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5002,7 +4999,7 @@ pub struct JobState {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerMessage {
-    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7, 8")]
+    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7")]
     pub message: ::core::option::Option<worker_message::Message>,
 }
 /// Nested message and enum types in `WorkerMessage`.
@@ -5028,9 +5025,6 @@ pub mod worker_message {
         SimulateJob(super::SimulateJobRequest),
         #[prost(message, tag="7")]
         MigrateJob(super::MigrateJobRequest),
-        /// the worker holds or released a thread
-        #[prost(message, tag="8")]
-        UpdateThread(super::UpdateThreadStatus),
     }
 }
 /// from Server to Worker
@@ -5177,20 +5171,6 @@ pub struct UpdateJobStatus {
     #[prost(string, tag="3")]
     pub error: ::prost::alloc::string::String,
 }
-/// Which threads a worker holds, so a thread's requests reach the worker that
-/// has it loaded. Applied per worker in seq order; a dropped control stream
-/// releases every binding of the worker.
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateThreadStatus {
-    #[prost(string, tag="1")]
-    pub thread_id: ::prost::alloc::string::String,
-    #[prost(enumeration="ThreadStatus", tag="2")]
-    pub status: i32,
-    /// monotonic per worker; a late TS_ACTIVE never revives a TS_RELEASED binding
-    #[prost(uint64, tag="3")]
-    pub seq: u64,
-}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UpdateWorkerStatus {
@@ -5328,43 +5308,10 @@ pub mod agent_http {
         #[prost(string, tag="6")]
         pub client_addr: ::prost::alloc::string::String,
         /// "http" or "https" as the end client saw it; not derivable worker-side
+        ///
+        /// NEXT_ID: 8
         #[prost(string, tag="7")]
         pub scheme: ::prost::alloc::string::String,
-        /// the thread ("AT_...") the node resolved for this request; empty when
-        /// none, and the worker resolves it from the body
-        #[prost(string, tag="8")]
-        pub thread_id: ::prost::alloc::string::String,
-        /// the verified agentThread claim of the caller's token, which never
-        /// reaches the worker; the worker enforces it on the addressed thread
-        ///
-        /// NEXT_ID: 10
-        #[prost(message, optional, tag="9")]
-        pub thread_grant: ::core::option::Option<AgentThreadGrant>,
-    }
-    /// auth.AgentThreadGrant on the wire: one agent's threads, by subject or by
-    /// id, with per-action flags
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AgentThreadGrant {
-        #[prost(string, tag="1")]
-        pub agent_name: ::prost::alloc::string::String,
-        #[prost(string, tag="2")]
-        pub sub: ::prost::alloc::string::String,
-        #[prost(string, repeated, tag="3")]
-        pub thread_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-        #[prost(bool, tag="4")]
-        pub list: bool,
-        #[prost(bool, tag="5")]
-        pub create: bool,
-        #[prost(bool, tag="6")]
-        pub send: bool,
-        #[prost(bool, tag="7")]
-        pub read: bool,
-        #[prost(bool, tag="8")]
-        pub delete: bool,
-        /// endpoints of the agent the holder may call; empty is all
-        #[prost(string, repeated, tag="9")]
-        pub endpoints: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     }
     /// the server is draining: the worker should re-register elsewhere; in-flight
     /// HTTP exchanges run to completion
@@ -5536,34 +5483,6 @@ impl JobStatus {
             "JS_RUNNING" => Some(Self::JsRunning),
             "JS_SUCCESS" => Some(Self::JsSuccess),
             "JS_FAILED" => Some(Self::JsFailed),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum ThreadStatus {
-    /// the server routes the thread's requests to this worker
-    TsActive = 0,
-    /// the worker evicted the thread with everything persisted; final for this worker
-    TsReleased = 1,
-}
-impl ThreadStatus {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            ThreadStatus::TsActive => "TS_ACTIVE",
-            ThreadStatus::TsReleased => "TS_RELEASED",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "TS_ACTIVE" => Some(Self::TsActive),
-            "TS_RELEASED" => Some(Self::TsReleased),
             _ => None,
         }
     }
@@ -8976,10 +8895,10 @@ pub mod agent_db {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct CreateRequest {
-        /// Unset: never expires, and expires_at is then 0 everywhere.
+        /// Unset: never expires, and expires_at is then unset everywhere.
         /// Otherwise clamped to the server cap, and never extended.
-        #[prost(int64, tag="2")]
-        pub ttl_seconds: i64,
+        #[prost(message, optional, tag="2")]
+        pub ttl: ::core::option::Option<::pbjson_types::Duration>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -8987,8 +8906,8 @@ pub mod agent_db {
         /// "DB_..."
         #[prost(string, tag="1")]
         pub database_id: ::prost::alloc::string::String,
-        #[prost(int64, tag="2")]
-        pub expires_at: i64,
+        #[prost(message, optional, tag="2")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -9022,10 +8941,10 @@ pub mod agent_db {
         pub database_id: ::prost::alloc::string::String,
         #[prost(string, tag="2")]
         pub region: ::prost::alloc::string::String,
-        #[prost(int64, tag="3")]
-        pub created_at: i64,
-        #[prost(int64, tag="4")]
-        pub expires_at: i64,
+        #[prost(message, optional, tag="3")]
+        pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        #[prost(message, optional, tag="4")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
         #[prost(int64, tag="5")]
         pub tip: i64,
     }
@@ -9052,8 +8971,8 @@ pub mod agent_db {
         #[prost(string, tag="1")]
         pub download_url: ::prost::alloc::string::String,
         /// of the URL, not the database
-        #[prost(int64, tag="2")]
-        pub expires_at: i64,
+        #[prost(message, optional, tag="2")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
         /// what the dump is consistent at
         #[prost(int64, tag="3")]
         pub tip: i64,

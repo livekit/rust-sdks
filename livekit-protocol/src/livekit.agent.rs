@@ -1246,7 +1246,6 @@ impl TextMessageErrorCode {
         }
     }
 }
-/// Times are unix seconds.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AgentThread {
@@ -1255,28 +1254,19 @@ pub struct AgentThread {
 pub mod agent_thread {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AgentKey {
-        #[prost(string, tag="1")]
-        pub agent_name: ::prost::alloc::string::String,
-        #[prost(string, tag="2")]
-        pub key: ::prost::alloc::string::String,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct CreateRequest {
-        #[prost(string, tag="1")]
-        pub agent_name: ::prost::alloc::string::String,
-        /// When set, create is get-or-create on (agent_name, key).
+        /// When set, create is get-or-create on key.
         #[prost(string, tag="2")]
         pub key: ::prost::alloc::string::String,
-        /// The subject the thread belongs to, as scoped by an AgentThreadGrant.
+        /// Groups threads, e.g. by user: an application-defined value, typically the
+        /// user's identity. An AgentThreadGrant is scoped by it.
         #[prost(string, tag="3")]
-        pub sub: ::prost::alloc::string::String,
+        pub scope: ::prost::alloc::string::String,
         #[prost(map="string, string", tag="4")]
         pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-        /// 0 takes the server default.
-        #[prost(int64, tag="5")]
-        pub idle_ttl_seconds: i64,
+        /// Unset takes the server default.
+        #[prost(message, optional, tag="5")]
+        pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1300,18 +1290,16 @@ pub mod agent_thread {
         pub enum Lookup {
             #[prost(string, tag="1")]
             ThreadId(::prost::alloc::string::String),
-            #[prost(message, tag="2")]
-            ByKey(super::AgentKey),
+            #[prost(string, tag="2")]
+            Key(::prost::alloc::string::String),
         }
     }
-    /// The threads of one subject under one agent, newest first.
+    /// The threads of one scope, newest first.
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ListRequest {
-        #[prost(string, tag="1")]
-        pub agent_name: ::prost::alloc::string::String,
         #[prost(string, tag="2")]
-        pub sub: ::prost::alloc::string::String,
+        pub scope: ::prost::alloc::string::String,
         /// Cursor from the previous ListResponse; empty for the first page.
         #[prost(string, tag="3")]
         pub before: ::prost::alloc::string::String,
@@ -1335,8 +1323,8 @@ pub mod agent_thread {
         /// Merged; an empty value deletes the entry.
         #[prost(map="string, string", tag="2")]
         pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-        #[prost(int64, optional, tag="3")]
-        pub idle_ttl_seconds: ::core::option::Option<i64>,
+        #[prost(message, optional, tag="3")]
+        pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1347,8 +1335,8 @@ pub mod agent_thread {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct TouchResponse {
-        #[prost(int64, tag="1")]
-        pub expires_at: i64,
+        #[prost(message, optional, tag="1")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1357,10 +1345,10 @@ pub mod agent_thread {
         pub thread_id: ::prost::alloc::string::String,
         #[prost(string, tag="2")]
         pub key: ::prost::alloc::string::String,
-        /// 0 keeps the key for the life of the thread.
-        #[prost(int64, tag="3")]
-        pub ttl_seconds: i64,
-        /// Move the key here when another thread of the same agent holds it.
+        /// Unset keeps the key for the life of the thread.
+        #[prost(message, optional, tag="3")]
+        pub ttl: ::core::option::Option<::pbjson_types::Duration>,
+        /// Move the key here when another thread holds it.
         #[prost(bool, tag="4")]
         pub replace: bool,
     }
@@ -1385,48 +1373,49 @@ pub mod agent_thread {
     /// Creates the thread's database if it has none. Idempotent.
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct EnsureStateDatabaseRequest {
+    pub struct CreateThreadDatabaseRequest {
         #[prost(string, tag="1")]
         pub thread_id: ::prost::alloc::string::String,
     }
-    /// Marks a thread as merged into redirect_to.
+    /// Marks thread_id as merged into another thread, after its items were copied
+    /// there.
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct RedirectRequest {
+    pub struct MergeThreadRequest {
         #[prost(string, tag="1")]
         pub thread_id: ::prost::alloc::string::String,
         #[prost(string, tag="2")]
-        pub redirect_to: ::prost::alloc::string::String,
+        pub into: ::prost::alloc::string::String,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Thread {
         #[prost(string, tag="1")]
         pub thread_id: ::prost::alloc::string::String,
-        #[prost(string, tag="2")]
-        pub agent_name: ::prost::alloc::string::String,
         /// Keys themselves are never returned.
         #[prost(uint32, tag="3")]
         pub key_count: u32,
         #[prost(string, tag="4")]
-        pub sub: ::prost::alloc::string::String,
+        pub scope: ::prost::alloc::string::String,
         #[prost(map="string, string", tag="5")]
         pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-        #[prost(int64, tag="6")]
-        pub created_at: i64,
-        #[prost(int64, tag="7")]
-        pub last_active: i64,
-        #[prost(int64, tag="8")]
-        pub expires_at: i64,
-        #[prost(int64, tag="9")]
-        pub idle_ttl_seconds: i64,
-        /// "DB_..."; empty until the first write or EnsureStateDatabase.
+        #[prost(message, optional, tag="6")]
+        pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        #[prost(message, optional, tag="7")]
+        pub last_active: ::core::option::Option<::pbjson_types::Timestamp>,
+        /// last_active + idle_ttl; every touch or send pushes it out. The thread is
+        /// deleted once it passes.
+        #[prost(message, optional, tag="8")]
+        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
+        #[prost(message, optional, tag="9")]
+        pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
+        /// "DB_..."; empty until the first write or CreateThreadDatabase.
         #[prost(string, tag="10")]
         pub database_id: ::prost::alloc::string::String,
         /// Set when merged into another thread; calls on it then fail with
         /// FailedPrecondition.
         #[prost(string, tag="11")]
-        pub redirect_to: ::prost::alloc::string::String,
+        pub merged_into: ::prost::alloc::string::String,
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

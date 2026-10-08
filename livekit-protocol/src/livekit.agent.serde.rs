@@ -4184,7 +4184,7 @@ impl serde::Serialize for agent_thread::AddKeyRequest {
         if !self.key.is_empty() {
             len += 1;
         }
-        if self.ttl_seconds != 0 {
+        if self.ttl.is_some() {
             len += 1;
         }
         if self.replace {
@@ -4197,10 +4197,8 @@ impl serde::Serialize for agent_thread::AddKeyRequest {
         if !self.key.is_empty() {
             struct_ser.serialize_field("key", &self.key)?;
         }
-        if self.ttl_seconds != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("ttlSeconds", ToString::to_string(&self.ttl_seconds).as_str())?;
+        if let Some(v) = self.ttl.as_ref() {
+            struct_ser.serialize_field("ttl", v)?;
         }
         if self.replace {
             struct_ser.serialize_field("replace", &self.replace)?;
@@ -4218,8 +4216,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::AddKeyRequest {
             "thread_id",
             "threadId",
             "key",
-            "ttl_seconds",
-            "ttlSeconds",
+            "ttl",
             "replace",
         ];
 
@@ -4227,7 +4224,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::AddKeyRequest {
         enum GeneratedField {
             ThreadId,
             Key,
-            TtlSeconds,
+            Ttl,
             Replace,
             __SkipField__,
         }
@@ -4253,7 +4250,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::AddKeyRequest {
                         match value {
                             "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             "key" => Ok(GeneratedField::Key),
-                            "ttlSeconds" | "ttl_seconds" => Ok(GeneratedField::TtlSeconds),
+                            "ttl" => Ok(GeneratedField::Ttl),
                             "replace" => Ok(GeneratedField::Replace),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -4276,7 +4273,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::AddKeyRequest {
             {
                 let mut thread_id__ = None;
                 let mut key__ = None;
-                let mut ttl_seconds__ = None;
+                let mut ttl__ = None;
                 let mut replace__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -4292,13 +4289,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::AddKeyRequest {
                             }
                             key__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::TtlSeconds => {
-                            if ttl_seconds__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("ttlSeconds"));
+                        GeneratedField::Ttl => {
+                            if ttl__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("ttl"));
                             }
-                            ttl_seconds__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            ttl__ = map_.next_value()?;
                         }
                         GeneratedField::Replace => {
                             if replace__.is_some() {
@@ -4314,125 +4309,12 @@ impl<'de> serde::Deserialize<'de> for agent_thread::AddKeyRequest {
                 Ok(agent_thread::AddKeyRequest {
                     thread_id: thread_id__.unwrap_or_default(),
                     key: key__.unwrap_or_default(),
-                    ttl_seconds: ttl_seconds__.unwrap_or_default(),
+                    ttl: ttl__,
                     replace: replace__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("livekit.agent.AgentThread.AddKeyRequest", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for agent_thread::AgentKey {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.agent_name.is_empty() {
-            len += 1;
-        }
-        if !self.key.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.AgentKey", len)?;
-        if !self.agent_name.is_empty() {
-            struct_ser.serialize_field("agentName", &self.agent_name)?;
-        }
-        if !self.key.is_empty() {
-            struct_ser.serialize_field("key", &self.key)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for agent_thread::AgentKey {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "agent_name",
-            "agentName",
-            "key",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            AgentName,
-            Key,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
-                            "key" => Ok(GeneratedField::Key),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = agent_thread::AgentKey;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.agent.AgentThread.AgentKey")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_thread::AgentKey, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut agent_name__ = None;
-                let mut key__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::AgentName => {
-                            if agent_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("agentName"));
-                            }
-                            agent_name__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Key => {
-                            if key__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("key"));
-                            }
-                            key__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(agent_thread::AgentKey {
-                    agent_name: agent_name__.unwrap_or_default(),
-                    key: key__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("livekit.agent.AgentThread.AgentKey", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_thread::CreateRequest {
@@ -4443,38 +4325,30 @@ impl serde::Serialize for agent_thread::CreateRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.agent_name.is_empty() {
-            len += 1;
-        }
         if !self.key.is_empty() {
             len += 1;
         }
-        if !self.sub.is_empty() {
+        if !self.scope.is_empty() {
             len += 1;
         }
         if !self.attributes.is_empty() {
             len += 1;
         }
-        if self.idle_ttl_seconds != 0 {
+        if self.idle_ttl.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.CreateRequest", len)?;
-        if !self.agent_name.is_empty() {
-            struct_ser.serialize_field("agentName", &self.agent_name)?;
-        }
         if !self.key.is_empty() {
             struct_ser.serialize_field("key", &self.key)?;
         }
-        if !self.sub.is_empty() {
-            struct_ser.serialize_field("sub", &self.sub)?;
+        if !self.scope.is_empty() {
+            struct_ser.serialize_field("scope", &self.scope)?;
         }
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
-        if self.idle_ttl_seconds != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("idleTtlSeconds", ToString::to_string(&self.idle_ttl_seconds).as_str())?;
+        if let Some(v) = self.idle_ttl.as_ref() {
+            struct_ser.serialize_field("idleTtl", v)?;
         }
         struct_ser.end()
     }
@@ -4486,22 +4360,19 @@ impl<'de> serde::Deserialize<'de> for agent_thread::CreateRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "agent_name",
-            "agentName",
             "key",
-            "sub",
+            "scope",
             "attributes",
-            "idle_ttl_seconds",
-            "idleTtlSeconds",
+            "idle_ttl",
+            "idleTtl",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            AgentName,
             Key,
-            Sub,
+            Scope,
             Attributes,
-            IdleTtlSeconds,
+            IdleTtl,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4524,11 +4395,10 @@ impl<'de> serde::Deserialize<'de> for agent_thread::CreateRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "key" => Ok(GeneratedField::Key),
-                            "sub" => Ok(GeneratedField::Sub),
+                            "scope" => Ok(GeneratedField::Scope),
                             "attributes" => Ok(GeneratedField::Attributes),
-                            "idleTtlSeconds" | "idle_ttl_seconds" => Ok(GeneratedField::IdleTtlSeconds),
+                            "idleTtl" | "idle_ttl" => Ok(GeneratedField::IdleTtl),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4548,30 +4418,23 @@ impl<'de> serde::Deserialize<'de> for agent_thread::CreateRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut agent_name__ = None;
                 let mut key__ = None;
-                let mut sub__ = None;
+                let mut scope__ = None;
                 let mut attributes__ = None;
-                let mut idle_ttl_seconds__ = None;
+                let mut idle_ttl__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::AgentName => {
-                            if agent_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("agentName"));
-                            }
-                            agent_name__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::Key => {
                             if key__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("key"));
                             }
                             key__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Sub => {
-                            if sub__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sub"));
+                        GeneratedField::Scope => {
+                            if scope__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("scope"));
                             }
-                            sub__ = Some(map_.next_value()?);
+                            scope__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Attributes => {
                             if attributes__.is_some() {
@@ -4581,13 +4444,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::CreateRequest {
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
-                        GeneratedField::IdleTtlSeconds => {
-                            if idle_ttl_seconds__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("idleTtlSeconds"));
+                        GeneratedField::IdleTtl => {
+                            if idle_ttl__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("idleTtl"));
                             }
-                            idle_ttl_seconds__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            idle_ttl__ = map_.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -4595,11 +4456,10 @@ impl<'de> serde::Deserialize<'de> for agent_thread::CreateRequest {
                     }
                 }
                 Ok(agent_thread::CreateRequest {
-                    agent_name: agent_name__.unwrap_or_default(),
                     key: key__.unwrap_or_default(),
-                    sub: sub__.unwrap_or_default(),
+                    scope: scope__.unwrap_or_default(),
                     attributes: attributes__.unwrap_or_default(),
-                    idle_ttl_seconds: idle_ttl_seconds__.unwrap_or_default(),
+                    idle_ttl: idle_ttl__,
                 })
             }
         }
@@ -4716,6 +4576,102 @@ impl<'de> serde::Deserialize<'de> for agent_thread::CreateResponse {
             }
         }
         deserializer.deserialize_struct("livekit.agent.AgentThread.CreateResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for agent_thread::CreateThreadDatabaseRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.thread_id.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.CreateThreadDatabaseRequest", len)?;
+        if !self.thread_id.is_empty() {
+            struct_ser.serialize_field("threadId", &self.thread_id)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for agent_thread::CreateThreadDatabaseRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "thread_id",
+            "threadId",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ThreadId,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = agent_thread::CreateThreadDatabaseRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.agent.AgentThread.CreateThreadDatabaseRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_thread::CreateThreadDatabaseRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut thread_id__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ThreadId => {
+                            if thread_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("threadId"));
+                            }
+                            thread_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(agent_thread::CreateThreadDatabaseRequest {
+                    thread_id: thread_id__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.agent.AgentThread.CreateThreadDatabaseRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_thread::DeleteRequest {
@@ -4886,102 +4842,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::DeleteResponse {
         deserializer.deserialize_struct("livekit.agent.AgentThread.DeleteResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for agent_thread::EnsureStateDatabaseRequest {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.thread_id.is_empty() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.EnsureStateDatabaseRequest", len)?;
-        if !self.thread_id.is_empty() {
-            struct_ser.serialize_field("threadId", &self.thread_id)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for agent_thread::EnsureStateDatabaseRequest {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "thread_id",
-            "threadId",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            ThreadId,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = agent_thread::EnsureStateDatabaseRequest;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.agent.AgentThread.EnsureStateDatabaseRequest")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_thread::EnsureStateDatabaseRequest, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut thread_id__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::ThreadId => {
-                            if thread_id__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("threadId"));
-                            }
-                            thread_id__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(agent_thread::EnsureStateDatabaseRequest {
-                    thread_id: thread_id__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("livekit.agent.AgentThread.EnsureStateDatabaseRequest", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for agent_thread::GetRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -4999,8 +4859,8 @@ impl serde::Serialize for agent_thread::GetRequest {
                 agent_thread::get_request::Lookup::ThreadId(v) => {
                     struct_ser.serialize_field("threadId", v)?;
                 }
-                agent_thread::get_request::Lookup::ByKey(v) => {
-                    struct_ser.serialize_field("byKey", v)?;
+                agent_thread::get_request::Lookup::Key(v) => {
+                    struct_ser.serialize_field("key", v)?;
                 }
             }
         }
@@ -5016,14 +4876,13 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetRequest {
         const FIELDS: &[&str] = &[
             "thread_id",
             "threadId",
-            "by_key",
-            "byKey",
+            "key",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ThreadId,
-            ByKey,
+            Key,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5047,7 +4906,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetRequest {
                     {
                         match value {
                             "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
-                            "byKey" | "by_key" => Ok(GeneratedField::ByKey),
+                            "key" => Ok(GeneratedField::Key),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5076,12 +4935,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetRequest {
                             }
                             lookup__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_thread::get_request::Lookup::ThreadId);
                         }
-                        GeneratedField::ByKey => {
+                        GeneratedField::Key => {
                             if lookup__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("byKey"));
+                                return Err(serde::de::Error::duplicate_field("key"));
                             }
-                            lookup__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_thread::get_request::Lookup::ByKey)
-;
+                            lookup__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_thread::get_request::Lookup::Key);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -5104,10 +4962,7 @@ impl serde::Serialize for agent_thread::ListRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.agent_name.is_empty() {
-            len += 1;
-        }
-        if !self.sub.is_empty() {
+        if !self.scope.is_empty() {
             len += 1;
         }
         if !self.before.is_empty() {
@@ -5117,11 +4972,8 @@ impl serde::Serialize for agent_thread::ListRequest {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.ListRequest", len)?;
-        if !self.agent_name.is_empty() {
-            struct_ser.serialize_field("agentName", &self.agent_name)?;
-        }
-        if !self.sub.is_empty() {
-            struct_ser.serialize_field("sub", &self.sub)?;
+        if !self.scope.is_empty() {
+            struct_ser.serialize_field("scope", &self.scope)?;
         }
         if !self.before.is_empty() {
             struct_ser.serialize_field("before", &self.before)?;
@@ -5139,17 +4991,14 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "agent_name",
-            "agentName",
-            "sub",
+            "scope",
             "before",
             "limit",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            AgentName,
-            Sub,
+            Scope,
             Before,
             Limit,
             __SkipField__,
@@ -5174,8 +5023,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
-                            "sub" => Ok(GeneratedField::Sub),
+                            "scope" => Ok(GeneratedField::Scope),
                             "before" => Ok(GeneratedField::Before),
                             "limit" => Ok(GeneratedField::Limit),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -5197,23 +5045,16 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut agent_name__ = None;
-                let mut sub__ = None;
+                let mut scope__ = None;
                 let mut before__ = None;
                 let mut limit__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::AgentName => {
-                            if agent_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("agentName"));
+                        GeneratedField::Scope => {
+                            if scope__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("scope"));
                             }
-                            agent_name__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Sub => {
-                            if sub__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sub"));
-                            }
-                            sub__ = Some(map_.next_value()?);
+                            scope__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Before => {
                             if before__.is_some() {
@@ -5235,8 +5076,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                     }
                 }
                 Ok(agent_thread::ListRequest {
-                    agent_name: agent_name__.unwrap_or_default(),
-                    sub: sub__.unwrap_or_default(),
+                    scope: scope__.unwrap_or_default(),
                     before: before__.unwrap_or_default(),
                     limit: limit__.unwrap_or_default(),
                 })
@@ -5357,7 +5197,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListResponse {
         deserializer.deserialize_struct("livekit.agent.AgentThread.ListResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for agent_thread::RedirectRequest {
+impl serde::Serialize for agent_thread::MergeThreadRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -5368,20 +5208,20 @@ impl serde::Serialize for agent_thread::RedirectRequest {
         if !self.thread_id.is_empty() {
             len += 1;
         }
-        if !self.redirect_to.is_empty() {
+        if !self.into.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.RedirectRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.MergeThreadRequest", len)?;
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
         }
-        if !self.redirect_to.is_empty() {
-            struct_ser.serialize_field("redirectTo", &self.redirect_to)?;
+        if !self.into.is_empty() {
+            struct_ser.serialize_field("into", &self.into)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for agent_thread::RedirectRequest {
+impl<'de> serde::Deserialize<'de> for agent_thread::MergeThreadRequest {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -5390,14 +5230,13 @@ impl<'de> serde::Deserialize<'de> for agent_thread::RedirectRequest {
         const FIELDS: &[&str] = &[
             "thread_id",
             "threadId",
-            "redirect_to",
-            "redirectTo",
+            "into",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ThreadId,
-            RedirectTo,
+            Into,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5421,7 +5260,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::RedirectRequest {
                     {
                         match value {
                             "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
-                            "redirectTo" | "redirect_to" => Ok(GeneratedField::RedirectTo),
+                            "into" => Ok(GeneratedField::Into),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5431,18 +5270,18 @@ impl<'de> serde::Deserialize<'de> for agent_thread::RedirectRequest {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = agent_thread::RedirectRequest;
+            type Value = agent_thread::MergeThreadRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.agent.AgentThread.RedirectRequest")
+                formatter.write_str("struct livekit.agent.AgentThread.MergeThreadRequest")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_thread::RedirectRequest, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_thread::MergeThreadRequest, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
                 let mut thread_id__ = None;
-                let mut redirect_to__ = None;
+                let mut into__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ThreadId => {
@@ -5451,24 +5290,24 @@ impl<'de> serde::Deserialize<'de> for agent_thread::RedirectRequest {
                             }
                             thread_id__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::RedirectTo => {
-                            if redirect_to__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("redirectTo"));
+                        GeneratedField::Into => {
+                            if into__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("into"));
                             }
-                            redirect_to__ = Some(map_.next_value()?);
+                            into__ = Some(map_.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
                     }
                 }
-                Ok(agent_thread::RedirectRequest {
+                Ok(agent_thread::MergeThreadRequest {
                     thread_id: thread_id__.unwrap_or_default(),
-                    redirect_to: redirect_to__.unwrap_or_default(),
+                    into: into__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("livekit.agent.AgentThread.RedirectRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("livekit.agent.AgentThread.MergeThreadRequest", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_thread::RemoveKeyRequest {
@@ -5595,77 +5434,63 @@ impl serde::Serialize for agent_thread::Thread {
         if !self.thread_id.is_empty() {
             len += 1;
         }
-        if !self.agent_name.is_empty() {
-            len += 1;
-        }
         if self.key_count != 0 {
             len += 1;
         }
-        if !self.sub.is_empty() {
+        if !self.scope.is_empty() {
             len += 1;
         }
         if !self.attributes.is_empty() {
             len += 1;
         }
-        if self.created_at != 0 {
+        if self.created_at.is_some() {
             len += 1;
         }
-        if self.last_active != 0 {
+        if self.last_active.is_some() {
             len += 1;
         }
-        if self.expires_at != 0 {
+        if self.expires_at.is_some() {
             len += 1;
         }
-        if self.idle_ttl_seconds != 0 {
+        if self.idle_ttl.is_some() {
             len += 1;
         }
         if !self.database_id.is_empty() {
             len += 1;
         }
-        if !self.redirect_to.is_empty() {
+        if !self.merged_into.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.Thread", len)?;
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
         }
-        if !self.agent_name.is_empty() {
-            struct_ser.serialize_field("agentName", &self.agent_name)?;
-        }
         if self.key_count != 0 {
             struct_ser.serialize_field("keyCount", &self.key_count)?;
         }
-        if !self.sub.is_empty() {
-            struct_ser.serialize_field("sub", &self.sub)?;
+        if !self.scope.is_empty() {
+            struct_ser.serialize_field("scope", &self.scope)?;
         }
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
-        if self.created_at != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("createdAt", ToString::to_string(&self.created_at).as_str())?;
+        if let Some(v) = self.created_at.as_ref() {
+            struct_ser.serialize_field("createdAt", v)?;
         }
-        if self.last_active != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("lastActive", ToString::to_string(&self.last_active).as_str())?;
+        if let Some(v) = self.last_active.as_ref() {
+            struct_ser.serialize_field("lastActive", v)?;
         }
-        if self.expires_at != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("expiresAt", ToString::to_string(&self.expires_at).as_str())?;
+        if let Some(v) = self.expires_at.as_ref() {
+            struct_ser.serialize_field("expiresAt", v)?;
         }
-        if self.idle_ttl_seconds != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("idleTtlSeconds", ToString::to_string(&self.idle_ttl_seconds).as_str())?;
+        if let Some(v) = self.idle_ttl.as_ref() {
+            struct_ser.serialize_field("idleTtl", v)?;
         }
         if !self.database_id.is_empty() {
             struct_ser.serialize_field("databaseId", &self.database_id)?;
         }
-        if !self.redirect_to.is_empty() {
-            struct_ser.serialize_field("redirectTo", &self.redirect_to)?;
+        if !self.merged_into.is_empty() {
+            struct_ser.serialize_field("mergedInto", &self.merged_into)?;
         }
         struct_ser.end()
     }
@@ -5679,11 +5504,9 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
         const FIELDS: &[&str] = &[
             "thread_id",
             "threadId",
-            "agent_name",
-            "agentName",
             "key_count",
             "keyCount",
-            "sub",
+            "scope",
             "attributes",
             "created_at",
             "createdAt",
@@ -5691,27 +5514,26 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
             "lastActive",
             "expires_at",
             "expiresAt",
-            "idle_ttl_seconds",
-            "idleTtlSeconds",
+            "idle_ttl",
+            "idleTtl",
             "database_id",
             "databaseId",
-            "redirect_to",
-            "redirectTo",
+            "merged_into",
+            "mergedInto",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ThreadId,
-            AgentName,
             KeyCount,
-            Sub,
+            Scope,
             Attributes,
             CreatedAt,
             LastActive,
             ExpiresAt,
-            IdleTtlSeconds,
+            IdleTtl,
             DatabaseId,
-            RedirectTo,
+            MergedInto,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5735,16 +5557,15 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                     {
                         match value {
                             "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
-                            "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "keyCount" | "key_count" => Ok(GeneratedField::KeyCount),
-                            "sub" => Ok(GeneratedField::Sub),
+                            "scope" => Ok(GeneratedField::Scope),
                             "attributes" => Ok(GeneratedField::Attributes),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
                             "lastActive" | "last_active" => Ok(GeneratedField::LastActive),
                             "expiresAt" | "expires_at" => Ok(GeneratedField::ExpiresAt),
-                            "idleTtlSeconds" | "idle_ttl_seconds" => Ok(GeneratedField::IdleTtlSeconds),
+                            "idleTtl" | "idle_ttl" => Ok(GeneratedField::IdleTtl),
                             "databaseId" | "database_id" => Ok(GeneratedField::DatabaseId),
-                            "redirectTo" | "redirect_to" => Ok(GeneratedField::RedirectTo),
+                            "mergedInto" | "merged_into" => Ok(GeneratedField::MergedInto),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5765,16 +5586,15 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut thread_id__ = None;
-                let mut agent_name__ = None;
                 let mut key_count__ = None;
-                let mut sub__ = None;
+                let mut scope__ = None;
                 let mut attributes__ = None;
                 let mut created_at__ = None;
                 let mut last_active__ = None;
                 let mut expires_at__ = None;
-                let mut idle_ttl_seconds__ = None;
+                let mut idle_ttl__ = None;
                 let mut database_id__ = None;
-                let mut redirect_to__ = None;
+                let mut merged_into__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ThreadId => {
@@ -5782,12 +5602,6 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                                 return Err(serde::de::Error::duplicate_field("threadId"));
                             }
                             thread_id__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::AgentName => {
-                            if agent_name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("agentName"));
-                            }
-                            agent_name__ = Some(map_.next_value()?);
                         }
                         GeneratedField::KeyCount => {
                             if key_count__.is_some() {
@@ -5797,11 +5611,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
-                        GeneratedField::Sub => {
-                            if sub__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sub"));
+                        GeneratedField::Scope => {
+                            if scope__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("scope"));
                             }
-                            sub__ = Some(map_.next_value()?);
+                            scope__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Attributes => {
                             if attributes__.is_some() {
@@ -5815,33 +5629,25 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                             if created_at__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("createdAt"));
                             }
-                            created_at__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            created_at__ = map_.next_value()?;
                         }
                         GeneratedField::LastActive => {
                             if last_active__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("lastActive"));
                             }
-                            last_active__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            last_active__ = map_.next_value()?;
                         }
                         GeneratedField::ExpiresAt => {
                             if expires_at__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("expiresAt"));
                             }
-                            expires_at__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            expires_at__ = map_.next_value()?;
                         }
-                        GeneratedField::IdleTtlSeconds => {
-                            if idle_ttl_seconds__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("idleTtlSeconds"));
+                        GeneratedField::IdleTtl => {
+                            if idle_ttl__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("idleTtl"));
                             }
-                            idle_ttl_seconds__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            idle_ttl__ = map_.next_value()?;
                         }
                         GeneratedField::DatabaseId => {
                             if database_id__.is_some() {
@@ -5849,11 +5655,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                             }
                             database_id__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::RedirectTo => {
-                            if redirect_to__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("redirectTo"));
+                        GeneratedField::MergedInto => {
+                            if merged_into__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mergedInto"));
                             }
-                            redirect_to__ = Some(map_.next_value()?);
+                            merged_into__ = Some(map_.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -5862,16 +5668,15 @@ impl<'de> serde::Deserialize<'de> for agent_thread::Thread {
                 }
                 Ok(agent_thread::Thread {
                     thread_id: thread_id__.unwrap_or_default(),
-                    agent_name: agent_name__.unwrap_or_default(),
                     key_count: key_count__.unwrap_or_default(),
-                    sub: sub__.unwrap_or_default(),
+                    scope: scope__.unwrap_or_default(),
                     attributes: attributes__.unwrap_or_default(),
-                    created_at: created_at__.unwrap_or_default(),
-                    last_active: last_active__.unwrap_or_default(),
-                    expires_at: expires_at__.unwrap_or_default(),
-                    idle_ttl_seconds: idle_ttl_seconds__.unwrap_or_default(),
+                    created_at: created_at__,
+                    last_active: last_active__,
+                    expires_at: expires_at__,
+                    idle_ttl: idle_ttl__,
                     database_id: database_id__.unwrap_or_default(),
-                    redirect_to: redirect_to__.unwrap_or_default(),
+                    merged_into: merged_into__.unwrap_or_default(),
                 })
             }
         }
@@ -5982,14 +5787,12 @@ impl serde::Serialize for agent_thread::TouchResponse {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.expires_at != 0 {
+        if self.expires_at.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.TouchResponse", len)?;
-        if self.expires_at != 0 {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("expiresAt", ToString::to_string(&self.expires_at).as_str())?;
+        if let Some(v) = self.expires_at.as_ref() {
+            struct_ser.serialize_field("expiresAt", v)?;
         }
         struct_ser.end()
     }
@@ -6057,9 +5860,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::TouchResponse {
                             if expires_at__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("expiresAt"));
                             }
-                            expires_at__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
+                            expires_at__ = map_.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -6067,7 +5868,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::TouchResponse {
                     }
                 }
                 Ok(agent_thread::TouchResponse {
-                    expires_at: expires_at__.unwrap_or_default(),
+                    expires_at: expires_at__,
                 })
             }
         }
@@ -6088,7 +5889,7 @@ impl serde::Serialize for agent_thread::UpdateRequest {
         if !self.attributes.is_empty() {
             len += 1;
         }
-        if self.idle_ttl_seconds.is_some() {
+        if self.idle_ttl.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.UpdateRequest", len)?;
@@ -6098,10 +5899,8 @@ impl serde::Serialize for agent_thread::UpdateRequest {
         if !self.attributes.is_empty() {
             struct_ser.serialize_field("attributes", &self.attributes)?;
         }
-        if let Some(v) = self.idle_ttl_seconds.as_ref() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("idleTtlSeconds", ToString::to_string(&v).as_str())?;
+        if let Some(v) = self.idle_ttl.as_ref() {
+            struct_ser.serialize_field("idleTtl", v)?;
         }
         struct_ser.end()
     }
@@ -6116,15 +5915,15 @@ impl<'de> serde::Deserialize<'de> for agent_thread::UpdateRequest {
             "thread_id",
             "threadId",
             "attributes",
-            "idle_ttl_seconds",
-            "idleTtlSeconds",
+            "idle_ttl",
+            "idleTtl",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ThreadId,
             Attributes,
-            IdleTtlSeconds,
+            IdleTtl,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -6149,7 +5948,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::UpdateRequest {
                         match value {
                             "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             "attributes" => Ok(GeneratedField::Attributes),
-                            "idleTtlSeconds" | "idle_ttl_seconds" => Ok(GeneratedField::IdleTtlSeconds),
+                            "idleTtl" | "idle_ttl" => Ok(GeneratedField::IdleTtl),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -6171,7 +5970,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::UpdateRequest {
             {
                 let mut thread_id__ = None;
                 let mut attributes__ = None;
-                let mut idle_ttl_seconds__ = None;
+                let mut idle_ttl__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ThreadId => {
@@ -6188,13 +5987,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::UpdateRequest {
                                 map_.next_value::<std::collections::HashMap<_, _>>()?
                             );
                         }
-                        GeneratedField::IdleTtlSeconds => {
-                            if idle_ttl_seconds__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("idleTtlSeconds"));
+                        GeneratedField::IdleTtl => {
+                            if idle_ttl__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("idleTtl"));
                             }
-                            idle_ttl_seconds__ = 
-                                map_.next_value::<::std::option::Option<::pbjson::private::NumberDeserialize<_>>>()?.map(|x| x.0)
-                            ;
+                            idle_ttl__ = map_.next_value()?;
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -6204,7 +6001,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::UpdateRequest {
                 Ok(agent_thread::UpdateRequest {
                     thread_id: thread_id__.unwrap_or_default(),
                     attributes: attributes__.unwrap_or_default(),
-                    idle_ttl_seconds: idle_ttl_seconds__,
+                    idle_ttl: idle_ttl__,
                 })
             }
         }
