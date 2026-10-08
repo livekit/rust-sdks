@@ -174,15 +174,22 @@ mod tests {
 
     #[test]
     fn drops_oldest_when_full() {
+        crate::test_log::capture();
         let counters = Arc::new(Counters::default());
         let store = Store::new(2, usize::MAX, counters.clone());
-        for name in ["a", "b", "c"] {
+        for name in ["a", "b", "c", "d"] {
             store.push(queued(TelemetryEvent::new(name)));
         }
+        let warning = "queue full (2 records): dropping oldest until the exporter drains";
+        assert_eq!(crate::test_log::take(), [warning], "two drops, one warning");
         let names: Vec<_> = store.drain(10, usize::MAX).into_iter().map(|q| q.event.name).collect();
-        assert_eq!(names, ["b", "c"]);
-        assert_eq!(counters.snapshot().queue_full, 1);
+        assert_eq!(names, ["c", "d"]);
+        assert_eq!(counters.snapshot().queue_full, 2);
         assert!(store.drain(10, usize::MAX).is_empty());
+        for name in ["e", "f", "g"] {
+            store.push(queued(TelemetryEvent::new(name)));
+        }
+        assert_eq!(crate::test_log::take(), [warning], "a drain starts a new episode");
     }
 
     #[test]

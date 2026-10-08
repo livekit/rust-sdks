@@ -72,7 +72,11 @@ pub(crate) struct SpanRecord {
     pub outcome: SpanOutcome,
     pub error_type: Option<String>,
     pub attributes: Vec<Attribute>,
+    /// Attributes cut by [`MAX_ATTRIBUTES_PER_SPAN`] (OTLP `dropped_attributes_count`).
+    pub dropped_attributes: u32,
     pub events: Vec<SpanEvent>,
+    /// Checkpoints past [`MAX_EVENTS_PER_SPAN`] (OTLP `dropped_events_count`).
+    pub dropped_events: u32,
     /// The session (trace) the span belongs to.
     pub session: Arc<ScopeState>,
     /// The session's project when the span ended (see `QueuedEvent::route`).
@@ -111,10 +115,27 @@ pub(crate) struct Spans {
     session_order: VecDeque<u64>,
     next_id: u64,
     pub dropped: u64,
-    /// The first drop since the last drain logs a warning; the rest are only counted.
-    full_warned: bool,
+    warned: Warned,
     /// The opt-out, checked under the lock that guards the registry (see `Store`).
     revoked: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Which limits were hit since the last drain: each one's first hit logs a warning, the rest are
+/// only counted. One flag per limit, so hitting one never silences another.
+#[derive(Default)]
+struct Warned {
+    /// A full buffer (open or finished spans).
+    full: bool,
+    attributes: bool,
+    events: bool,
+}
+
+/// Log `warning` unless this limit's flag says it already did.
+fn warn_once(warned: &mut bool, warning: std::fmt::Arguments<'_>) {
+    if !*warned {
+        *warned = true;
+        log::warn!("{warning}");
+    }
 }
 
 /// Ended spans whose session stays resolvable.
@@ -138,7 +159,7 @@ impl Spans {
             // platform whose integers are signed (Dart) must be able to hand an id back.
             next_id: (rand::random::<u64>() >> 1) | 1,
             dropped: 0,
-            full_warned: false,
+            warned: Warned::default(),
             revoked: Arc::default(),
         }
     }
@@ -184,7 +205,9 @@ impl Spans {
             outcome: SpanOutcome::Ok,
             error_type: None,
             attributes: Vec::new(),
+            dropped_attributes: 0,
             events: Vec::new(),
+            dropped_events: 0,
             session,
             route: None,
         };
@@ -216,13 +239,23 @@ impl Spans {
     }
 
     /// Record a checkpoint on an open span. Ignored once the span ended, as OTel ignores any call
-    /// on an ended span; a log record carrying its id still lands in its session.
+    /// on an ended span; a log record carrying its id still lands in its session. Past
+    /// [`MAX_EVENTS_PER_SPAN`] it is dropped, counted in [`SpanRecord::dropped_events`] and
+    /// warned about once per drain.
     pub fn add_event(&mut self, id: u64, name: &str) {
         if self.revoked() {
             return;
         }
         let Some(span) = self.open.get_mut(&id) else { return };
         if span.events.len() >= MAX_EVENTS_PER_SPAN {
+            span.dropped_events = span.dropped_events.saturating_add(1);
+            warn_once(
+                &mut self.warned.events,
+                format_args!(
+                    "{} over {MAX_EVENTS_PER_SPAN} checkpoints: dropping the rest",
+                    span.name
+                ),
+            );
             return;
         }
         span.events.push(SpanEvent { name: name.to_owned(), time_ns: now_unix_nanos() });
@@ -230,6 +263,12 @@ impl Spans {
 
     /// Close a span; the finished record waits for the next export. Unknown ids are ignored
     /// (double `end` is harmless, like OTel's).
+    ///
+    /// Its attributes are taken now, like a log record's when it is queued: `attributes`, then
+    /// the app's correlation attributes, cut to [`MAX_ATTRIBUTES_PER_SPAN`] — the app's go first,
+    /// then the tail of `attributes` — counted in [`SpanRecord::dropped_attributes`] and warned
+    /// about once per drain. The session's own (`lk.room.*`, `session.id`) and the outcome are
+    /// added past the cap and always ship.
     pub fn end(
         &mut self,
         id: u64,
@@ -247,7 +286,18 @@ impl Spans {
         span.error_type = error_type;
         span.session.snapshot_custom(&mut attributes);
         span.route = span.session.route();
-        attributes.truncate(MAX_ATTRIBUTES_PER_SPAN);
+        let excess = attributes.len().saturating_sub(MAX_ATTRIBUTES_PER_SPAN);
+        if excess > 0 {
+            attributes.truncate(MAX_ATTRIBUTES_PER_SPAN);
+            span.dropped_attributes = u32::try_from(excess).unwrap_or(u32::MAX);
+            warn_once(
+                &mut self.warned.attributes,
+                format_args!(
+                    "{} over {MAX_ATTRIBUTES_PER_SPAN} attributes: dropping {excess}",
+                    span.name
+                ),
+            );
+        }
         span.session.decorate(&mut attributes);
         span.attributes = attributes;
         self.retire(id);
@@ -270,20 +320,19 @@ impl Spans {
     }
 
     /// Count a span dropped from a full buffer.
-    /// The first drop since the last drain logs a warning; the rest are only counted.
     fn count_drop(&mut self, buffer: &str, capacity: usize) {
         self.dropped += 1;
-        if !self.full_warned {
-            self.full_warned = true;
-            log::warn!("{buffer} spans full ({capacity}): dropping the oldest");
-        }
+        warn_once(
+            &mut self.warned.full,
+            format_args!("{buffer} spans full ({capacity}): dropping the oldest"),
+        );
     }
 
     /// Take the finished spans, oldest first.
     /// At most `max` spans and about `max_bytes` (always at least one, so an oversized span
     /// still ships).
     pub fn drain(&mut self, max: usize, max_bytes: usize) -> Vec<SpanRecord> {
-        self.full_warned = false;
+        self.warned = Warned::default();
         let (mut n, mut bytes) = (0, 0);
         for span in self.finished.iter().take(max) {
             let size = span.size_hint();
@@ -304,7 +353,7 @@ impl Spans {
         self.finished.clear();
         self.sessions.clear();
         self.session_order.clear();
-        self.full_warned = false;
+        self.warned = Warned::default();
         n as u64
     }
 
@@ -384,17 +433,20 @@ mod tests {
 
     #[test]
     fn abandoned_spans_are_counted_warned_once_and_age_out() {
+        crate::test_log::capture();
         let mut spans = Spans::new(8);
         let ids: Vec<_> = (0..MAX_OPEN_SPANS + REMEMBERED_SPANS + 1)
             .map(|_| spans.begin("lk.publish", SpanKind::Internal, None))
             .collect();
         assert_eq!(spans.open_count(), MAX_OPEN_SPANS);
         assert_eq!(spans.take_dropped(), REMEMBERED_SPANS as u64 + 1);
-        assert!(spans.full_warned, "the first drop logged, the rest only counted");
+        let warning = "open spans full (256): dropping the oldest";
+        assert_eq!(crate::test_log::take(), [warning], "the first drop logged, the rest counted");
         assert!(spans.scope_of(ids[0]).is_none());
         assert_eq!(spans.sessions.len(), MAX_OPEN_SPANS + REMEMBERED_SPANS);
         spans.drain(10, usize::MAX);
-        assert!(!spans.full_warned, "a drain starts a new episode");
+        spans.begin("lk.publish", SpanKind::Internal, None);
+        assert_eq!(crate::test_log::take(), [warning], "a drain starts a new episode");
     }
 
     #[test]
@@ -415,9 +467,93 @@ mod tests {
             let id = spans.begin("lk.publish", SpanKind::Internal, None);
             spans.end(id, SpanOutcome::Ok, None, vec![]);
         }
-        assert!(spans.full_warned);
+        assert!(spans.warned.full);
         assert_eq!(spans.clear(), 1);
-        assert!(!spans.full_warned);
+        assert!(!spans.warned.full);
+    }
+
+    /// The finished spans, drained and encoded as OTLP.
+    fn encoded(spans: &mut Spans) -> Vec<crate::proto::opentelemetry::proto::trace::v1::Span> {
+        use crate::proto::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
+        use prost::Message;
+
+        let bytes = crate::otlp::encode_spans(&[], &[], spans.drain(10, usize::MAX));
+        let mut decoded = ExportTraceServiceRequest::decode(&bytes[..]).expect("valid OTLP");
+        std::mem::take(&mut decoded.resource_spans[0].scope_spans[0].spans)
+    }
+
+    #[test]
+    fn attributes_over_the_cap_are_counted_warned_once_and_spare_the_sessions() {
+        crate::test_log::capture();
+        let mut spans = Spans::new(8);
+        let session = ScopeState::new();
+        session.set_attribute("lk.room.sid", Some("RM_1".into()));
+        assert!(session.set_custom("app.call_id", Some("c1".into())));
+        let overflow = |spans: &mut Spans| {
+            let id = spans.begin_in("lk.publish", SpanKind::Internal, None, session.clone());
+            let own = (0..MAX_ATTRIBUTES_PER_SPAN)
+                .map(|i| Attribute::new(format!("lk.publish.k{i}"), i as i64))
+                .collect();
+            spans.end(id, SpanOutcome::Ok, None, own);
+        };
+        overflow(&mut spans);
+        overflow(&mut spans);
+        let warning = "lk.publish over 128 attributes: dropping 1";
+        assert_eq!(crate::test_log::take(), [warning], "two overflows, one warning");
+        for span in encoded(&mut spans) {
+            assert_eq!(span.dropped_attributes_count, 1, "the app's call id");
+            let keys: Vec<_> = span.attributes.iter().map(|kv| kv.key.as_str()).collect();
+            assert!(!keys.contains(&"app.call_id"), "the app's own go first");
+            for key in ["lk.publish.k127", "lk.room.sid", "session.id", "lk.outcome"] {
+                assert!(keys.contains(&key), "{key} survives the cap");
+            }
+        }
+        overflow(&mut spans);
+        assert_eq!(crate::test_log::take(), [warning], "a drain starts a new episode");
+        assert_eq!(spans.take_dropped(), 0, "no span was lost");
+    }
+
+    #[test]
+    fn an_attribute_overflow_does_not_silence_a_full_buffer() {
+        crate::test_log::capture();
+        let mut spans = Spans::new(1);
+        let first = spans.begin("lk.publish", SpanKind::Internal, None);
+        spans.end(first, SpanOutcome::Ok, None, vec![]);
+        let id = spans.begin("lk.connect", SpanKind::Client, None);
+        let own = (0..=MAX_ATTRIBUTES_PER_SPAN).map(|i| Attribute::new(format!("k{i}"), 1i64));
+        spans.end(id, SpanOutcome::Ok, None, own.collect());
+        assert_eq!(
+            crate::test_log::take(),
+            [
+                "lk.connect over 128 attributes: dropping 1",
+                "finished spans full (1): dropping the oldest"
+            ],
+            "one `end`, two limits, two warnings"
+        );
+    }
+
+    #[test]
+    fn checkpoints_over_the_cap_are_counted_and_warned_once() {
+        crate::test_log::capture();
+        let mut spans = Spans::new(8);
+        let overflow = |spans: &mut Spans| {
+            let id = spans.begin("lk.connect", SpanKind::Client, None);
+            for i in 0..=MAX_EVENTS_PER_SPAN {
+                spans.add_event(id, &format!("step {i}"));
+            }
+            spans.end(id, SpanOutcome::Ok, None, vec![]);
+        };
+        overflow(&mut spans);
+        overflow(&mut spans);
+        let warning = "lk.connect over 128 checkpoints: dropping the rest";
+        assert_eq!(crate::test_log::take(), [warning], "two overflows, one warning");
+        for span in encoded(&mut spans) {
+            assert_eq!(span.dropped_events_count, 1);
+            assert_eq!(span.events.len(), MAX_EVENTS_PER_SPAN);
+            assert_eq!(span.events.last().map(|e| e.name.as_str()), Some("step 127"));
+        }
+        overflow(&mut spans);
+        assert_eq!(crate::test_log::take(), [warning], "a drain starts a new episode");
     }
 
     #[test]

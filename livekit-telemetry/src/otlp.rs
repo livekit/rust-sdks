@@ -166,11 +166,13 @@ fn otlp_span(mut record: SpanRecord, global: &[Attribute]) -> Span {
         start_time_unix_nano: record.start_ns,
         end_time_unix_nano: record.end_ns,
         attributes,
+        dropped_attributes_count: record.dropped_attributes,
         events: record
             .events
             .into_iter()
             .map(|e| span::Event { time_unix_nano: e.time_ns, name: e.name, ..Default::default() })
             .collect(),
+        dropped_events_count: record.dropped_events,
         // OTel: instrumentation should not set `Ok`; success and cancellation stay `Unset` and
         // are told apart by `lk.outcome`. No message: `error.type` already says what failed.
         status: Some(Status {

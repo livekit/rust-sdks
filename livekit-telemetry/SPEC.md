@@ -199,7 +199,7 @@ every span and log record. Spans are exported when they end — never a long-liv
 | `lk.outcome` | exactly once on every span: `ok` \| `error` \| `cancelled` — rollups read this, never the status. The core writes it and `error.type` from how the span ended, dropping span attributes of either name; `error.type` appears at most once, only when the span failed with an error type |
 | `error.type` | platform-defined, a type name (≤ 128 bytes), never a message: e.g. Swift sends `LiveKitError.<numeric code>`, `CancellationError` or the Swift error type; dashboards group by it per `service.name` |
 | Checkpoints | span events in the span's envelope (`ws_open`, `join_recv`, `pc_connected`, `attempt 2 full`, …); real events stay log records pointing at the span via `span_id` |
-| Limits | 128 events and 128 attributes per span (OTel defaults); 256 open spans per pipeline |
+| Limits | 128 checkpoints and 128 attributes per span (OTel defaults); 256 open spans per pipeline. Later checkpoints are dropped, counted in `dropped_events_count`; past 128 attributes the app's correlation attributes go first, then the span's own tail, counted in `dropped_attributes_count`; the session's and `lk.outcome` / `error.type` always ship. Each limit warns once per export |
 
 ```yaml
 span: lk.connect
