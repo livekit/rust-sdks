@@ -3721,6 +3721,8 @@ dependencies = [
  "link-cplusplus",
  "livekit",
  "livekit-capture",
+ "livekit-common",
+ "livekit-datatrack",
  "livekit-protocol",
  "livekit-token",
  "log",
