@@ -32,12 +32,16 @@ use livekit_capture::sources::clock::ClockVideoSource;
 use livekit_capture::sources::gstreamer::GStreamerVideoSource;
 #[cfg(feature = "capture-pattern")]
 use livekit_capture::sources::pattern::PatternVideoSource;
+#[cfg(feature = "capture-rtsp")]
+use livekit_capture::sources::rtsp::RtspVideoSource;
 
 use super::{video_source::FfiVideoSource, FfiHandle, FfiServer};
 #[cfg(feature = "capture-gstreamer")]
 use crate::conversion::capture::gstreamer_config_from_proto;
 #[cfg(feature = "capture-pattern")]
 use crate::conversion::capture::pattern_config_from_proto;
+#[cfg(feature = "capture-rtsp")]
+use crate::conversion::capture::rtsp_config_from_proto;
 use crate::{conversion::capture::video_codec_to_proto, proto, FfiError, FfiHandleId, FfiResult};
 
 /// A capture pump of either kind, boxed at the FFI edge.
@@ -115,6 +119,14 @@ async fn create_capture_source(
         #[cfg(feature = "capture-gstreamer")]
         proto::new_capture_source_request::Config::Gstreamer(config) => {
             let source = GStreamerVideoSource::new(gstreamer_config_from_proto(config)?)
+                .await
+                .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
+            let source: Box<dyn EncodedVideoSource> = Box::new(source);
+            CapturePump::Encoded(EncodedVideoPump::new(source))
+        }
+        #[cfg(feature = "capture-rtsp")]
+        proto::new_capture_source_request::Config::Rtsp(config) => {
+            let source = RtspVideoSource::new(rtsp_config_from_proto(config)?)
                 .await
                 .map_err(|err| FfiError::InvalidRequest(err.to_string().into()))?;
             let source: Box<dyn EncodedVideoSource> = Box::new(source);
