@@ -300,6 +300,7 @@ mod tests {
         &FFI_SERVER
     }
 
+    #[serial_test::parallel]
     #[test]
     fn pattern_capture_lifecycle() {
         let request = proto::NewCaptureSourceRequest {

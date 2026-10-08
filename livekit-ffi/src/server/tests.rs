@@ -368,6 +368,13 @@ impl Drop for DropsHandle {
     }
 }
 
+/// `dispose` empties the whole handle map, and `FFI_SERVER` is a process-wide
+/// static, so this test is destructive to every other test holding a handle.
+/// It runs alone. Every live test that stores a handle carries a `serial_test`
+/// marker to stay out of that window — `parallel` where it only needs to avoid
+/// this test, `serial` for the resampler tests, which also fail among
+/// themselves. Mark new ones the same way.
+#[serial_test::serial]
 #[test]
 fn dispose_cleans_up_resources() {
     let did_attempt_drop = Arc::new(AtomicBool::new(false));

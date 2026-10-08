@@ -359,6 +359,7 @@ mod migration_tests {
 
     /// 30ms of 48kHz mono in, 30ms of 16kHz mono out, once the filter has been
     /// drained by `flush`.
+    #[serial_test::serial]
     #[test]
     fn push_then_flush_conserves_duration() {
         let mut resampler =
@@ -377,6 +378,7 @@ mod migration_tests {
 
     /// A steady level comes out at the same level, i.e. the sample data really is
     /// being resampled rather than reinterpreted or truncated.
+    #[serial_test::serial]
     #[test]
     fn steady_level_survives_resampling() {
         let mut resampler =
@@ -394,6 +396,7 @@ mod migration_tests {
 
     /// Interleaved channels are resampled independently: a stereo frame of
     /// (+8000, -8000) must not average out into silence.
+    #[serial_test::serial]
     #[test]
     fn interleaved_channels_stay_separate() {
         let mut resampler =
