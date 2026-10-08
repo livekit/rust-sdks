@@ -1200,7 +1200,7 @@ impl RoomSession {
 
         // remove published tracks
         for (sid, _) in self.local_participant.track_publications().iter() {
-            let _ = self.local_participant.unpublish_track(sid).await;
+            let _ = self.local_participant.unpublish_track_on_close(sid).await;
         }
 
         self.rtc_engine.close(reason).await;
