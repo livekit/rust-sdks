@@ -37,6 +37,41 @@ import "video_frame.proto";
 // 3. The capture runs until StopCaptureRequest, end of stream, or an error;
 //    a CaptureSourceEvent is delivered exactly once when it ends.
 
+// Bitrate unit expected by a GStreamer encoder property.
+enum GstreamerBitrateUnit {
+  GSTREAMER_BITRATE_UNIT_BPS = 0;
+  GSTREAMER_BITRATE_UNIT_KBPS = 1;
+}
+
+// Binding from WebRTC rate-control targets to a GStreamer encoder property.
+message GstreamerRateControl {
+  // Name of the encoder element in the pipeline (e.g. `lk_encoder`).
+  required string element = 1;
+  // Bitrate property to set on the element (e.g. `bitrate` for x264enc,
+  // `target-bitrate` for vp8enc/vp9enc).
+  required string property = 2;
+  // Unit the property expects.
+  required GstreamerBitrateUnit unit = 3;
+}
+
+// Encoded ingest from a GStreamer pipeline.
+message GstreamerVideoSourceConfig {
+  // GStreamer launch description for the encoded producer pipeline.
+  // Must contain `appsink name=lk_appsink`, or leave exactly one encoded
+  // video source pad unlinked for the source to attach one to.
+  required string pipeline = 1;
+  // Codec expected from the pipeline; inferred from pipeline caps when
+  // omitted.
+  optional VideoCodec codec = 2;
+  // Encoded frame resolution. When omitted, it is discovered from the
+  // pipeline's negotiated caps; when set, the pipeline output is verified
+  // against it.
+  optional VideoSourceResolution resolution = 3;
+  // Forwards WebRTC rate-control targets to an encoder element's bitrate
+  // property. Without this, the pipeline encodes at a fixed bitrate.
+  optional GstreamerRateControl rate_control = 4;
+}
+
 // Test patterns built into livekit-capture.
 enum Pattern {
   // Animated color gradient.
@@ -99,6 +134,7 @@ message OwnedCaptureSource {
 // settings.
 message NewCaptureSourceRequest {
   oneof config {
+    GstreamerVideoSourceConfig gstreamer = 1;
     PatternVideoSourceConfig pattern = 2;
     ClockVideoSourceConfig clock = 5;
   }

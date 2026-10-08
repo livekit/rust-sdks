@@ -56,6 +56,7 @@ named `source-<module>`. Each module documents its source.
 
 | Feature            | Source                 | Kind    |
 | ------------------ | ---------------------- | ------- |
+| `source-gstreamer` | `GStreamerVideoSource` | encoded |
 | `source-pattern`   | `PatternVideoSource`   | pixel   |
 | `source-clock`     | `ClockVideoSource`     | pixel   |
 
