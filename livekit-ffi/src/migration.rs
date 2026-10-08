@@ -120,6 +120,7 @@ macro_rules! migrate_from_ffi {
 /// What cannot live here is the `handle_id` field the bridge needs, and the `pub(crate)`
 /// on whatever internals these files reach. Both go the same way.
 mod data_track;
+mod video_stream;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MigrationError {
