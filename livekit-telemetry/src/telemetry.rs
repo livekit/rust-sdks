@@ -1101,6 +1101,19 @@ pub(crate) mod tests {
         ThermalState, TrackKind,
     };
 
+    /// Fail a test wait that could otherwise hang, naming the line that waited. The bound
+    /// outlasts one export timeout, which a flush through a hanging transport waits out.
+    #[track_caller]
+    pub(crate) fn bounded<F: std::future::Future>(
+        future: F,
+    ) -> impl std::future::Future<Output = F::Output> {
+        let caller = std::panic::Location::caller();
+        let bound = Duration::from_millis(test_config().export_timeout_ms) + Duration::from_secs(5);
+        async move {
+            timeout(bound, future).await.unwrap_or_else(|_| panic!("{caller}: hung for {bound:?}"))
+        }
+    }
+
     #[derive(Default)]
     pub(crate) struct FakeTransport {
         requests: Mutex<Vec<ExportRequest>>,
@@ -1620,7 +1633,7 @@ pub(crate) mod tests {
         telemetry.override_endpoint("http://collector");
         tokio::spawn(exporter.run());
         telemetry.emit(TelemetryEvent::new("lk.ping"));
-        telemetry.flush().await; // one attempt, bounded by export_timeout under paused time
+        bounded(telemetry.flush()).await; // one attempt, bounded by export_timeout in paused time
         let stats = telemetry.stats();
         assert_eq!(stats.upload_timeouts, 1);
         assert_eq!(stats.status, TelemetryStatus::Paused, "backing off");

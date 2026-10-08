@@ -23,7 +23,7 @@ use prost::Message;
 use crate::{
     destination::tests::{granted, grantless},
     telemetry::tests::{
-        answer, event_names, offline, start, start_cloud, test_config, FakeTransport,
+        answer, bounded, event_names, offline, start, start_cloud, test_config, FakeTransport,
     },
     ExportError, Scope, Telemetry, TelemetryEvent, TelemetryStatus,
 };
@@ -350,18 +350,27 @@ async fn no_answer_backs_off_exponentially_with_full_jitter() {
     let transport = FakeTransport::scripted(std::iter::repeat_with(offline).take(8));
     let (telemetry, room) = connected(&transport);
     ping(&telemetry, &room).await;
+    let backoffs = [1.0_f64, 2.0, 4.0, 8.0, 16.0, 32.0, 60.0, 60.0];
     let mut at = Vec::new();
     let start = tokio::time::Instant::now();
-    while transport.sent().len() < 9 {
-        let before = transport.sent().len();
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        if transport.sent().len() > before {
-            at.push(start.elapsed().as_secs_f64());
+    // Twice all eight full backoffs: every retry is due well before, so past it they stopped.
+    let deadline = Duration::from_secs_f64(2.0 * backoffs.iter().sum::<f64>());
+    tokio::time::timeout(deadline, async {
+        while transport.sent().len() < 9 {
+            let before = transport.sent().len();
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            if transport.sent().len() > before {
+                at.push(start.elapsed().as_secs_f64());
+            }
         }
-    }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!("retry loop: {} of 9 requests by {deadline:?}", transport.sent().len())
+    });
     // The flush tick (1 s here) retries too once a wait is over; waits never exceed the backoff.
     let gaps: Vec<f64> = std::iter::once(at[0]).chain(at.windows(2).map(|w| w[1] - w[0])).collect();
-    for (gap, full) in gaps.iter().zip([1.0_f64, 2.0, 4.0, 8.0, 16.0, 32.0, 60.0, 60.0]) {
+    for (gap, full) in gaps.iter().zip(backoffs) {
         assert!(*gap <= full.max(1.0) + 1.05, "gap {gap} over {full} ({gaps:?})");
     }
     let stats = telemetry.stats();
@@ -442,12 +451,12 @@ async fn a_real_http_collector_throttles_and_recovers() {
     tokio::spawn(exporter.run());
     telemetry.emit(TelemetryEvent::new("lk.ping"));
     telemetry.flush().await;
-    let head = seen.recv().await.expect("first request");
+    let head = bounded(seen.recv()).await.expect("first request");
     assert!(head.starts_with("POST /v1/logs"), "{head}");
     assert!(head.to_ascii_lowercase().contains("content-encoding: gzip"));
     assert_eq!(telemetry.stats().status, TelemetryStatus::Throttled);
 
-    tokio::time::timeout(Duration::from_secs(5), seen.recv()).await.expect("retried").expect("req");
+    bounded(seen.recv()).await.expect("retried request");
     tokio::time::sleep(Duration::from_millis(200)).await;
     let stats = telemetry.stats();
     assert_eq!((stats.uploads_sent, stats.dropped, stats.cached_batches), (1, 0, 0));
@@ -736,11 +745,8 @@ async fn redirects_to_another_host_or_port_never_carry_the_token() {
             headers: [("Authorization".to_owned(), "Bearer secret".to_owned())].into(),
             body: vec![1, 2, 3],
         };
-        let _ = transport.send(request).await;
-        let head = tokio::time::timeout(Duration::from_secs(5), seen.recv())
-            .await
-            .expect("followed")
-            .expect("head");
+        let _ = bounded(transport.send(request)).await;
+        let head = bounded(seen.recv()).await.expect("followed request head");
         assert!(!head.to_ascii_lowercase().contains("authorization"), "{location}: {head}");
     }
 
@@ -762,13 +768,10 @@ async fn redirects_to_another_host_or_port_never_carry_the_token() {
         headers: [("Authorization".to_owned(), "Bearer secret".to_owned())].into(),
         body: vec![1, 2, 3],
     };
-    let _ = transport.send(request).await;
-    let first = heads.recv().await.expect("the origin request");
+    let _ = bounded(transport.send(request)).await;
+    let first = bounded(heads.recv()).await.expect("the origin request");
     assert!(first.to_ascii_lowercase().contains("authorization"), "sent to the origin");
-    let second = tokio::time::timeout(Duration::from_secs(5), heads.recv())
-        .await
-        .expect("followed")
-        .expect("head");
+    let second = bounded(heads.recv()).await.expect("followed request head");
     assert!(!second.to_ascii_lowercase().contains("authorization"), "{second}");
 }
 
@@ -899,8 +902,8 @@ async fn a_crash_while_binding_still_replays_to_the_rooms_project() {
             Ok(())
         });
         room.set_server("wss://a.livekit.cloud", &granted(3600));
-        let _ = tokio::time::timeout(Duration::from_secs(5), first.flush()).await;
-        assert!(task.await.is_err(), "{crash_at:?}: killed mid-bind");
+        bounded(first.flush()).await;
+        assert!(bounded(task).await.is_err(), "{crash_at:?}: killed mid-bind");
         assert!(rewriting(&dir), "{crash_at:?}: the bound copy is journaled");
         drop((room, first));
 
