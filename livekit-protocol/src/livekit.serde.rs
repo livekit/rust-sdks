@@ -3508,12 +3508,18 @@ impl serde::Serialize for agent_db::wire::ColumnBatch {
         if self.rows != 0 {
             len += 1;
         }
+        if self.statement != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.Wire.ColumnBatch", len)?;
         if !self.columns.is_empty() {
             struct_ser.serialize_field("columns", &self.columns)?;
         }
         if self.rows != 0 {
             struct_ser.serialize_field("rows", &self.rows)?;
+        }
+        if self.statement != 0 {
+            struct_ser.serialize_field("statement", &self.statement)?;
         }
         struct_ser.end()
     }
@@ -3527,12 +3533,14 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ColumnBatch {
         const FIELDS: &[&str] = &[
             "columns",
             "rows",
+            "statement",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Columns,
             Rows,
+            Statement,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3557,6 +3565,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ColumnBatch {
                         match value {
                             "columns" => Ok(GeneratedField::Columns),
                             "rows" => Ok(GeneratedField::Rows),
+                            "statement" => Ok(GeneratedField::Statement),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3578,6 +3587,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ColumnBatch {
             {
                 let mut columns__ = None;
                 let mut rows__ = None;
+                let mut statement__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Columns => {
@@ -3594,6 +3604,14 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ColumnBatch {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Statement => {
+                            if statement__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("statement"));
+                            }
+                            statement__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3602,6 +3620,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ColumnBatch {
                 Ok(agent_db::wire::ColumnBatch {
                     columns: columns__.unwrap_or_default(),
                     rows: rows__.unwrap_or_default(),
+                    statement: statement__.unwrap_or_default(),
                 })
             }
         }
@@ -3619,9 +3638,15 @@ impl serde::Serialize for agent_db::wire::Columns {
         if !self.names.is_empty() {
             len += 1;
         }
+        if self.statement != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.Wire.Columns", len)?;
         if !self.names.is_empty() {
             struct_ser.serialize_field("names", &self.names)?;
+        }
+        if self.statement != 0 {
+            struct_ser.serialize_field("statement", &self.statement)?;
         }
         struct_ser.end()
     }
@@ -3634,11 +3659,13 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Columns {
     {
         const FIELDS: &[&str] = &[
             "names",
+            "statement",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Names,
+            Statement,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3662,6 +3689,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Columns {
                     {
                         match value {
                             "names" => Ok(GeneratedField::Names),
+                            "statement" => Ok(GeneratedField::Statement),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3682,6 +3710,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Columns {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut names__ = None;
+                let mut statement__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Names => {
@@ -3690,6 +3719,14 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Columns {
                             }
                             names__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Statement => {
+                            if statement__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("statement"));
+                            }
+                            statement__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3697,6 +3734,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::Columns {
                 }
                 Ok(agent_db::wire::Columns {
                     names: names__.unwrap_or_default(),
+                    statement: statement__.unwrap_or_default(),
                 })
             }
         }
@@ -4122,6 +4160,9 @@ impl serde::Serialize for agent_db::wire::ExecResult {
         if self.tip != 0 {
             len += 1;
         }
+        if self.statement != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.Wire.ExecResult", len)?;
         if self.rows_affected != 0 {
             #[allow(clippy::needless_borrow)]
@@ -4138,6 +4179,9 @@ impl serde::Serialize for agent_db::wire::ExecResult {
             #[allow(clippy::needless_borrows_for_generic_args)]
             struct_ser.serialize_field("tip", ToString::to_string(&self.tip).as_str())?;
         }
+        if self.statement != 0 {
+            struct_ser.serialize_field("statement", &self.statement)?;
+        }
         struct_ser.end()
     }
 }
@@ -4153,6 +4197,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ExecResult {
             "last_insert_id",
             "lastInsertId",
             "tip",
+            "statement",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4160,6 +4205,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ExecResult {
             RowsAffected,
             LastInsertId,
             Tip,
+            Statement,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4185,6 +4231,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ExecResult {
                             "rowsAffected" | "rows_affected" => Ok(GeneratedField::RowsAffected),
                             "lastInsertId" | "last_insert_id" => Ok(GeneratedField::LastInsertId),
                             "tip" => Ok(GeneratedField::Tip),
+                            "statement" => Ok(GeneratedField::Statement),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4207,6 +4254,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ExecResult {
                 let mut rows_affected__ = None;
                 let mut last_insert_id__ = None;
                 let mut tip__ = None;
+                let mut statement__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RowsAffected => {
@@ -4233,6 +4281,14 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ExecResult {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Statement => {
+                            if statement__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("statement"));
+                            }
+                            statement__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4242,6 +4298,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::wire::ExecResult {
                     rows_affected: rows_affected__.unwrap_or_default(),
                     last_insert_id: last_insert_id__.unwrap_or_default(),
                     tip: tip__.unwrap_or_default(),
+                    statement: statement__.unwrap_or_default(),
                 })
             }
         }

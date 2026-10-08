@@ -9089,6 +9089,7 @@ pub mod agent_db {
                 /// answers Columns + ColumnBatch* + Done
                 #[prost(message, tag="4")]
                 Query(super::Statement),
+                /// answers one result per statement, then Done
                 #[prost(message, tag="5")]
                 Batch(super::Batch),
                 #[prost(message, tag="6")]
@@ -9170,10 +9171,15 @@ pub mod agent_db {
             #[prost(enumeration="QueryLang", tag="3")]
             pub lang: i32,
         }
+        /// Applied atomically, in order, and answered with one result per
+        /// statement, in order: Columns then ColumnBatch frames for a statement
+        /// that returns rows, one ExecResult for one that does not, each tagged
+        /// with the statement's 0-based index, then a single Done for the whole
+        /// batch. A statement that returns no rows still sends its Columns. Credit
+        /// paces the ColumnBatch frames of the batch as a whole.
         #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Batch {
-            /// applied atomically, in order
             #[prost(message, repeated, tag="1")]
             pub statements: ::prost::alloc::vec::Vec<Statement>,
         }
@@ -9237,6 +9243,9 @@ pub mod agent_db {
         pub struct Columns {
             #[prost(string, repeated, tag="1")]
             pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+            /// index within a Batch; 0 and unused for a Query
+            #[prost(uint32, tag="2")]
+            pub statement: u32,
         }
         /// Values are typed per row, as SQLite types them, so a column may mix
         /// classes: walk `types` and take the next entry from the matching array. Text
@@ -9270,6 +9279,9 @@ pub mod agent_db {
             pub columns: ::prost::alloc::vec::Vec<Column>,
             #[prost(uint32, tag="2")]
             pub rows: u32,
+            /// index within a Batch; 0 and unused for a Query
+            #[prost(uint32, tag="3")]
+            pub statement: u32,
         }
         #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -9280,6 +9292,9 @@ pub mod agent_db {
             pub last_insert_id: i64,
             #[prost(int64, tag="3")]
             pub tip: i64,
+            /// index within a Batch; 0 and unused for an Exec
+            #[prost(uint32, tag="4")]
+            pub statement: u32,
         }
         #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
