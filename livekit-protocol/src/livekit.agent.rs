@@ -350,7 +350,7 @@ pub struct DebugMessage {
 pub struct AgentSessionEvent {
     #[prost(message, optional, tag="1")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(oneof="agent_session_event::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
+    #[prost(oneof="agent_session_event::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub event: ::core::option::Option<agent_session_event::Event>,
 }
 /// Nested message and enum types in `AgentSessionEvent`.
@@ -528,6 +528,41 @@ pub mod agent_session_event {
         #[prost(bool, tag="1")]
         pub resumed: bool,
     }
+    /// Written by the framework when a run begins, before any application code
+    /// runs. A RunStarted with no matching RunEnded is an interrupted run.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct RunStarted {
+        #[prost(string, tag="1")]
+        pub run_id: ::prost::alloc::string::String,
+        /// the A2A task the run serves; also the id of its answer stream
+        #[prost(string, tag="2")]
+        pub task_id: ::prost::alloc::string::String,
+        /// the durable stream ("AST_...") the run's answer is appended to
+        #[prost(string, tag="3")]
+        pub stream_id: ::prost::alloc::string::String,
+        /// the registered agent whose lane the run writes
+        #[prost(string, tag="4")]
+        pub lane: ::prost::alloc::string::String,
+        /// the channel the input arrived on: "sms", "whatsapp", "email", "a2a",
+        /// "voice"; empty when the ingress tagged none
+        #[prost(string, tag="5")]
+        pub channel: ::prost::alloc::string::String,
+    }
+    /// Written by the framework when a run commits or fails.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct RunEnded {
+        #[prost(string, tag="1")]
+        pub run_id: ::prost::alloc::string::String,
+        #[prost(enumeration="super::RunOutcome", tag="2")]
+        pub outcome: i32,
+        /// the word from the shared reason list for a failed or cancelled run:
+        /// "worker-lost", "lease-timeout", "session-not-found",
+        /// "storage-unavailable", "timeout"; empty when completed
+        #[prost(string, tag="3")]
+        pub reason: ::prost::alloc::string::String,
+    }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Event {
@@ -559,6 +594,10 @@ pub mod agent_session_event {
         ToolExecutionUpdated(ToolExecutionUpdated),
         #[prost(message, tag="23")]
         AgentFalseInterruption(AgentFalseInterruption),
+        #[prost(message, tag="24")]
+        RunStarted(RunStarted),
+        #[prost(message, tag="25")]
+        RunEnded(RunEnded),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1007,6 +1046,38 @@ impl ToolReplyStatus {
             "TR_COMPLETED" => Some(Self::TrCompleted),
             "TR_INTERRUPTED" => Some(Self::TrInterrupted),
             "TR_SKIPPED" => Some(Self::TrSkipped),
+            _ => None,
+        }
+    }
+}
+/// How a run ended. A run is one input to one result, tools included, on
+/// any channel: a text message, a voice turn, a background task.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum RunOutcome {
+    RoCompleted = 0,
+    RoFailed = 1,
+    /// the run yielded to a newer message or was cancelled by the caller
+    RoCancelled = 2,
+}
+impl RunOutcome {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            RunOutcome::RoCompleted => "RO_COMPLETED",
+            RunOutcome::RoFailed => "RO_FAILED",
+            RunOutcome::RoCancelled => "RO_CANCELLED",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "RO_COMPLETED" => Some(Self::RoCompleted),
+            "RO_FAILED" => Some(Self::RoFailed),
+            "RO_CANCELLED" => Some(Self::RoCancelled),
             _ => None,
         }
     }

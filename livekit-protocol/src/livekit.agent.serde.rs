@@ -505,6 +505,12 @@ impl serde::Serialize for AgentSessionEvent {
                 agent_session_event::Event::AgentFalseInterruption(v) => {
                     struct_ser.serialize_field("agentFalseInterruption", v)?;
                 }
+                agent_session_event::Event::RunStarted(v) => {
+                    struct_ser.serialize_field("runStarted", v)?;
+                }
+                agent_session_event::Event::RunEnded(v) => {
+                    struct_ser.serialize_field("runEnded", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -546,6 +552,10 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
             "toolExecutionUpdated",
             "agent_false_interruption",
             "agentFalseInterruption",
+            "run_started",
+            "runStarted",
+            "run_ended",
+            "runEnded",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -565,6 +575,8 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
             DebugMessage,
             ToolExecutionUpdated,
             AgentFalseInterruption,
+            RunStarted,
+            RunEnded,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -602,6 +614,8 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
                             "debugMessage" | "debug_message" => Ok(GeneratedField::DebugMessage),
                             "toolExecutionUpdated" | "tool_execution_updated" => Ok(GeneratedField::ToolExecutionUpdated),
                             "agentFalseInterruption" | "agent_false_interruption" => Ok(GeneratedField::AgentFalseInterruption),
+                            "runStarted" | "run_started" => Ok(GeneratedField::RunStarted),
+                            "runEnded" | "run_ended" => Ok(GeneratedField::RunEnded),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -727,6 +741,20 @@ impl<'de> serde::Deserialize<'de> for AgentSessionEvent {
                                 return Err(serde::de::Error::duplicate_field("agentFalseInterruption"));
                             }
                             event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::AgentFalseInterruption)
+;
+                        }
+                        GeneratedField::RunStarted => {
+                            if event__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("runStarted"));
+                            }
+                            event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::RunStarted)
+;
+                        }
+                        GeneratedField::RunEnded => {
+                            if event__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("runEnded"));
+                            }
+                            event__ = map_.next_value::<::std::option::Option<_>>()?.map(agent_session_event::Event::RunEnded)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -1823,6 +1851,304 @@ impl<'de> serde::Deserialize<'de> for agent_session_event::OverlappingSpeech {
             }
         }
         deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.OverlappingSpeech", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for agent_session_event::RunEnded {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.run_id.is_empty() {
+            len += 1;
+        }
+        if self.outcome != 0 {
+            len += 1;
+        }
+        if !self.reason.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentSessionEvent.RunEnded", len)?;
+        if !self.run_id.is_empty() {
+            struct_ser.serialize_field("runId", &self.run_id)?;
+        }
+        if self.outcome != 0 {
+            let v = RunOutcome::try_from(self.outcome)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.outcome)))?;
+            struct_ser.serialize_field("outcome", &v)?;
+        }
+        if !self.reason.is_empty() {
+            struct_ser.serialize_field("reason", &self.reason)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for agent_session_event::RunEnded {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "run_id",
+            "runId",
+            "outcome",
+            "reason",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RunId,
+            Outcome,
+            Reason,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "runId" | "run_id" => Ok(GeneratedField::RunId),
+                            "outcome" => Ok(GeneratedField::Outcome),
+                            "reason" => Ok(GeneratedField::Reason),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = agent_session_event::RunEnded;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.agent.AgentSessionEvent.RunEnded")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_session_event::RunEnded, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut run_id__ = None;
+                let mut outcome__ = None;
+                let mut reason__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RunId => {
+                            if run_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("runId"));
+                            }
+                            run_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Outcome => {
+                            if outcome__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("outcome"));
+                            }
+                            outcome__ = Some(map_.next_value::<RunOutcome>()? as i32);
+                        }
+                        GeneratedField::Reason => {
+                            if reason__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reason"));
+                            }
+                            reason__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(agent_session_event::RunEnded {
+                    run_id: run_id__.unwrap_or_default(),
+                    outcome: outcome__.unwrap_or_default(),
+                    reason: reason__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.RunEnded", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for agent_session_event::RunStarted {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.run_id.is_empty() {
+            len += 1;
+        }
+        if !self.task_id.is_empty() {
+            len += 1;
+        }
+        if !self.stream_id.is_empty() {
+            len += 1;
+        }
+        if !self.lane.is_empty() {
+            len += 1;
+        }
+        if !self.channel.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentSessionEvent.RunStarted", len)?;
+        if !self.run_id.is_empty() {
+            struct_ser.serialize_field("runId", &self.run_id)?;
+        }
+        if !self.task_id.is_empty() {
+            struct_ser.serialize_field("taskId", &self.task_id)?;
+        }
+        if !self.stream_id.is_empty() {
+            struct_ser.serialize_field("streamId", &self.stream_id)?;
+        }
+        if !self.lane.is_empty() {
+            struct_ser.serialize_field("lane", &self.lane)?;
+        }
+        if !self.channel.is_empty() {
+            struct_ser.serialize_field("channel", &self.channel)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for agent_session_event::RunStarted {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "run_id",
+            "runId",
+            "task_id",
+            "taskId",
+            "stream_id",
+            "streamId",
+            "lane",
+            "channel",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RunId,
+            TaskId,
+            StreamId,
+            Lane,
+            Channel,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "runId" | "run_id" => Ok(GeneratedField::RunId),
+                            "taskId" | "task_id" => Ok(GeneratedField::TaskId),
+                            "streamId" | "stream_id" => Ok(GeneratedField::StreamId),
+                            "lane" => Ok(GeneratedField::Lane),
+                            "channel" => Ok(GeneratedField::Channel),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = agent_session_event::RunStarted;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.agent.AgentSessionEvent.RunStarted")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_session_event::RunStarted, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut run_id__ = None;
+                let mut task_id__ = None;
+                let mut stream_id__ = None;
+                let mut lane__ = None;
+                let mut channel__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RunId => {
+                            if run_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("runId"));
+                            }
+                            run_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::TaskId => {
+                            if task_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("taskId"));
+                            }
+                            task_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::StreamId => {
+                            if stream_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("streamId"));
+                            }
+                            stream_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Lane => {
+                            if lane__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lane"));
+                            }
+                            lane__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Channel => {
+                            if channel__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("channel"));
+                            }
+                            channel__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(agent_session_event::RunStarted {
+                    run_id: run_id__.unwrap_or_default(),
+                    task_id: task_id__.unwrap_or_default(),
+                    stream_id: stream_id__.unwrap_or_default(),
+                    lane: lane__.unwrap_or_default(),
+                    channel: channel__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.agent.AgentSessionEvent.RunStarted", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_session_event::SessionUsageUpdated {
@@ -10981,6 +11307,80 @@ impl<'de> serde::Deserialize<'de> for ModelUsage {
             }
         }
         deserializer.deserialize_struct("livekit.agent.ModelUsage", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for RunOutcome {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::RoCompleted => "RO_COMPLETED",
+            Self::RoFailed => "RO_FAILED",
+            Self::RoCancelled => "RO_CANCELLED",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for RunOutcome {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "RO_COMPLETED",
+            "RO_FAILED",
+            "RO_CANCELLED",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = RunOutcome;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "RO_COMPLETED" => Ok(RunOutcome::RoCompleted),
+                    "RO_FAILED" => Ok(RunOutcome::RoFailed),
+                    "RO_CANCELLED" => Ok(RunOutcome::RoCancelled),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for RunningAgentJobInfo {
