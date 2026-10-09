@@ -116,10 +116,6 @@ class VideoTrackSource {
         const {
       return rate_control_state_;
     }
-    // Numbers encoded frames in capture order.
-    uint64_t next_encoded_sequence_number() {
-      return encoded_sequence_number_.fetch_add(1, std::memory_order_relaxed);
-    }
 
    private:
     mutable webrtc::Mutex mutex_;
@@ -130,7 +126,8 @@ class VideoTrackSource {
         std::make_shared<std::atomic<bool>>(false);
     std::shared_ptr<livekit::EncodedRateControlState> rate_control_state_ =
         std::make_shared<livekit::EncodedRateControlState>();
-    std::atomic<uint64_t> encoded_sequence_number_{0};
+    // Numbers encoded frames in delivery order; guarded by `mutex_`.
+    uint64_t encoded_sequence_number_ = 0;
     bool is_screencast_;
   };
 
@@ -166,6 +163,13 @@ class VideoTrackSource {
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(
     const VideoResolution& resolution, bool is_screencast);
+
+#ifdef LIVEKIT_TEST
+// Captures encoded frames from several threads at once and returns the
+// sequence numbers in the order a sink received them.
+rust::Vec<uint64_t> encoded_capture_order_for_test(uint32_t threads,
+                                                   uint32_t frames_per_thread);
+#endif
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

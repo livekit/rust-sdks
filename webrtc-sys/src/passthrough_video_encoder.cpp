@@ -514,8 +514,8 @@ rust::Vec<uint8_t> passthrough_chain_guard_for_test(
         64, 64, livekit::EncodedVideoCodec::kH264,
         kind == kChainTestKey ? livekit::EncodedFrameType::kKey
                               : livekit::EncodedFrameType::kDelta,
-        EncodedImageBuffer::Create(payload, sizeof(payload)), keyframe_request,
-        nullptr, &stream, sequence);
+        EncodedImageBuffer::Create(payload, sizeof(payload)), keyframe_request);
+    buffer->set_stream_position(&stream, sequence);
     VideoFrame frame = VideoFrame::Builder()
                            .set_video_frame_buffer(buffer)
                            .set_rtp_timestamp(rtp_timestamp += 3000)

@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <iostream>
 #include <memory>
+#include <mutex>
+#include <thread>
 
 #include "api/media_stream_interface.h"
 #include "api/video/video_frame.h"
@@ -193,7 +195,11 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   // Pre-encoded access units bypass the adapter entirely: frame-rate and
   // resolution adaptation operate on raw frames, and dropping or scaling an
   // encoded delta frame would corrupt the bitstream for every receiver.
-  if (livekit::EncodedVideoFrameBuffer::FromNative(buffer.get())) {
+  if (auto* encoded =
+          livekit::EncodedVideoFrameBuffer::FromNative(buffer.get())) {
+    // Numbered under `mutex_`, which also serializes OnFrame, so the
+    // pass-through encoder sees the numbers in delivery order.
+    encoded->set_stream_position(this, encoded_sequence_number_++);
     if (packet_trailer_handler_) {
       packet_trailer_handler_->emit_publish_timing(
           VideoPublishTimingStage::EncoderUpload,
@@ -278,8 +284,7 @@ bool VideoTrackSource::capture_encoded_frame(
       width, height, ToNativeEncodedCodec(encoded_frame.codec),
       ToNativeEncodedFrameType(encoded_frame.frame_type),
       webrtc::EncodedImageBuffer::Create(payload.data(), payload.size()),
-      source_->keyframe_request_flag(), source_->rate_control_state(),
-      source_.get(), source_->next_encoded_sequence_number());
+      source_->keyframe_request_flag(), source_->rate_control_state());
 
   auto frame = webrtc::VideoFrame::Builder()
                    .set_video_frame_buffer(std::move(buffer))
@@ -316,5 +321,59 @@ std::shared_ptr<VideoTrackSource> new_video_track_source(
     const VideoResolution& resolution, bool is_screencast) {
   return std::make_shared<VideoTrackSource>(resolution, is_screencast);
 }
+
+#ifdef LIVEKIT_TEST
+namespace {
+
+class SequenceRecorder : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
+ public:
+  void OnFrame(const webrtc::VideoFrame& frame) override {
+    auto buffer = frame.video_frame_buffer();
+    if (auto* encoded =
+            livekit::EncodedVideoFrameBuffer::FromNative(buffer.get())) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      sequence_numbers_.push_back(encoded->sequence_number());
+    }
+  }
+  rust::Vec<uint64_t> take() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::move(sequence_numbers_);
+  }
+
+ private:
+  std::mutex mutex_;
+  rust::Vec<uint64_t> sequence_numbers_;
+};
+
+}  // namespace
+
+rust::Vec<uint64_t> encoded_capture_order_for_test(uint32_t threads,
+                                                   uint32_t frames_per_thread) {
+  VideoTrackSource source(VideoResolution{64, 64}, false);
+  SequenceRecorder recorder;
+  webrtc::VideoTrackSourceInterface* track_source = source.get().get();
+  track_source->AddOrUpdateSink(&recorder, webrtc::VideoSinkWants());
+
+  const uint8_t payload[] = {0, 0, 0, 1, 0x41, 0x9a};
+  std::vector<std::thread> workers;
+  for (uint32_t t = 0; t < threads; ++t) {
+    workers.emplace_back([&] {
+      for (uint32_t i = 0; i < frames_per_thread; ++i) {
+        EncodedVideoFrameData data{EncodedVideoCodec::H264,
+                                   EncodedFrameType::Delta, 0};
+        FrameMetadata metadata{};
+        source.capture_encoded_frame(
+            64, 64, data, rust::Slice<const uint8_t>(payload, sizeof(payload)),
+            metadata);
+      }
+    });
+  }
+  for (auto& worker : workers) {
+    worker.join();
+  }
+  track_source->RemoveSink(&recorder);
+  return recorder.take();
+}
+#endif
 
 }  // namespace livekit_ffi

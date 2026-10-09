@@ -71,9 +71,7 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
       EncodedFrameType frame_type,
       webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
       std::shared_ptr<std::atomic<bool>> keyframe_request_flag = nullptr,
-      std::shared_ptr<EncodedRateControlState> rate_control_state = nullptr,
-      const void* stream_id = nullptr,
-      uint64_t sequence_number = 0);
+      std::shared_ptr<EncodedRateControlState> rate_control_state = nullptr);
   ~EncodedVideoFrameBuffer() override = default;
 
   Type type() const override;
@@ -99,11 +97,16 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   const uint8_t* payload_data() const { return payload_->data(); }
   size_t payload_size() const { return payload_->size(); }
 
-  // Identifies the source that captured this frame.
+  // Identifies the source that delivered this frame.
   const void* stream_id() const { return stream_id_; }
-  // Capture order within `stream_id()`; the pass-through encoder uses it to
+  // Delivery order within `stream_id()`; the pass-through encoder uses it to
   // detect frames WebRTC dropped before they reached it.
   uint64_t sequence_number() const { return sequence_number_; }
+  // Set by the source as it delivers the frame, before anything else sees it.
+  void set_stream_position(const void* stream_id, uint64_t sequence_number) {
+    stream_id_ = stream_id;
+    sequence_number_ = sequence_number;
+  }
 
   // Asks the capture side to produce a keyframe (e.g. on PLI/FIR).
   void request_keyframe() const;
@@ -122,8 +125,8 @@ class EncodedVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload_;
   std::shared_ptr<std::atomic<bool>> keyframe_request_flag_;
   std::shared_ptr<EncodedRateControlState> rate_control_state_;
-  const void* stream_id_;
-  uint64_t sequence_number_;
+  const void* stream_id_ = nullptr;
+  uint64_t sequence_number_ = 0;
 };
 
 }  // namespace livekit

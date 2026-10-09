@@ -191,6 +191,10 @@ mod tests {
             include!("livekit/passthrough_video_encoder.h");
 
             fn passthrough_chain_guard_for_test(frames: &[u8]) -> Vec<u8>;
+
+            include!("livekit/video_track.h");
+
+            fn encoded_capture_order_for_test(threads: u32, frames_per_thread: u32) -> Vec<u64>;
         }
     }
 
@@ -216,5 +220,13 @@ mod tests {
     fn passthrough_waits_for_first_keyframe() {
         let results = ffi_tests::passthrough_chain_guard_for_test(&[DELTA, KEY, DELTA]);
         assert_eq!(results, [KEY_REQUESTED, SENT, SENT]);
+    }
+
+    /// Concurrent captures are numbered in the order they are delivered, so
+    /// the pass-through encoder never sees a false gap.
+    #[test]
+    fn concurrent_encoded_captures_are_numbered_in_delivery_order() {
+        let order = ffi_tests::encoded_capture_order_for_test(8, 500);
+        assert_eq!(order, (0..4000).collect::<Vec<u64>>());
     }
 }
