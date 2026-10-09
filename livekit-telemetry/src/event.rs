@@ -18,8 +18,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///
 /// Exported as one OTLP log record whose `event_name` is [`name`](Self::name), following the
 /// OTel logs data model (events are log records with a top-level event name).
+///
+/// An unnamed `Info` record: a plain log record once it has a body (see `SPEC.md`).
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct TelemetryEvent {
     /// Event name. LiveKit-defined events use the `lk.` prefix (e.g. `lk.ping`); see `SPEC.md`.
     pub name: String,
@@ -103,19 +105,13 @@ impl TelemetryEvent {
     }
 }
 
-impl Default for TelemetryEvent {
-    /// An unnamed `Info` record: a plain log record once it has a body (see `SPEC.md`).
-    fn default() -> Self {
-        Self::new("")
-    }
-}
-
 /// Event severity, mapped onto the OTel severity numbers (`TRACE`=1 … `ERROR`=17).
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum Severity {
     Trace,
     Debug,
+    #[default]
     Info,
     Warn,
     Error,
