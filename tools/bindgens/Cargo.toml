@@ -8,8 +8,30 @@ description = "Foreign-binding generator CLIs for the LiveKit Rust crates"
 publish = false
 
 # Tooling crate: each bin is a code-generation CLI shared across the workspace's
-# uniffi-exposing crates (livekit-ffi, livekit-uniffi, ...). It has no library
-# target — the bindgens read metadata from an already-compiled cdylib via
+# uniffi-exposing crates (livekit-ffi, ...). It has no library target beyond
+# these bins — they read metadata from an already-compiled cdylib via
 # `--library`, so they never depend on the crates they generate for.
 [dependencies]
 uniffi = { workspace = true, features = ["cli"] }
+# Dart binding generator. Not published to crates.io, so pinned by git rev. The
+# rev must target the same uniffi-rs release (0.31) as the `uniffi` dependency
+# above, or it cannot read the compiled metadata.
+#
+# Pinned to upstream main rather than a release: the newest release
+# (v0.2.1+v0.31.2) predates the three fixes this needs -- custom types leaking
+# into FFI signatures (#154), object converter statics colliding with Rust
+# methods named `write` (#156), and each crate re-declaring the runtime
+# scaffolding, which kept livekit-datatrack's types from crossing over (#150).
+# Move to a version requirement once a release carries them.
+uniffi-dart = { git = "https://github.com/Uniffi-Dart/uniffi-dart", rev = "67547701d849c9ef6302f79bb2189bb6075f69fa", optional = true }
+camino = { version = "1", optional = true }
+
+[features]
+# Enables the `uniffi-bindgen-dart` bin. Off by default so a plain
+# `cargo build --workspace` does not fetch or compile the git dependency.
+dart-bindgen = ["dep:uniffi-dart", "dep:camino"]
+
+[[bin]]
+name = "uniffi-bindgen-dart"
+path = "src/bin/uniffi-bindgen-dart.rs"
+required-features = ["dart-bindgen"]
