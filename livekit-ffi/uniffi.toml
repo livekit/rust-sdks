@@ -1,0 +1,16 @@
+[bindings.kotlin]
+# The Kotlin checksum test is off because it fails on ARM devices.
+#
+# UniFFI gives each checksum function a return type in the Kotlin bindings. The bindings then
+# compare the result with the expected checksum. Every uniffi release this workspace can use gets
+# that comparison wrong on one ARM ABI or the other (mozilla/uniffi-rs#2740 on 32-bit,
+# mozilla/uniffi-rs#2897 on 64-bit), so any AAR containing both arm64-v8a and armeabi-v7a hits one
+# of them. See the longer write-up in livekit-uniffi/uniffi.toml.
+#
+# Nothing generates Kotlin bindings for this crate yet -- only Python, from
+# .github/workflows/ffi-builds.yml -- so this is a forward guard: a crate that exports uniffi items
+# is expected to carry it, and the failure it prevents shows up only once Kotlin generation is
+# wired up.
+#
+# Remove this line when a uniffi release contains mozilla/uniffi-rs#2935.
+omit_checksums = true
