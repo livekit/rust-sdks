@@ -305,6 +305,13 @@ message AudioEncoding {
   required uint64 max_bitrate = 1;
 }
 
+// A video preset describing a simulcast layer.
+message VideoPreset {
+  required uint32 width = 1;
+  required uint32 height = 2;
+  required VideoEncoding encoding = 3;
+} 
+
 message TrackPublishOptions {
   // encodings are optional
   optional VideoEncoding video_encoding = 1;
