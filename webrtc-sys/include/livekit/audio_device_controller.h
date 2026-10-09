@@ -57,6 +57,12 @@ class AudioDeviceController {
   bool start_playout() const;
   bool playout_is_initialized() const;
 
+  // Mute mode (Apple AudioEngine ADM only)
+  // mode: 0 = VoiceProcessing, 1 = RestartEngine, 2 = InputMixer
+  bool set_mute_mode(int32_t mode) const;
+  // Returns the current mode value, or -1 when unsupported
+  int32_t mute_mode() const;
+
   // Built-in audio processing
   bool builtin_aec_is_available() const;
   bool builtin_agc_is_available() const;
