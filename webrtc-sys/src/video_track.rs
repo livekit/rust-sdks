@@ -182,3 +182,39 @@ impl VideoSinkWrapper {
         self.observer.on_constraints_changed(constraints);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[cxx::bridge(namespace = "livekit_ffi")]
+    pub mod ffi_tests {
+        unsafe extern "C++" {
+            include!("livekit/passthrough_video_encoder.h");
+
+            fn passthrough_chain_guard_for_test(frames: &[u8]) -> Vec<u8>;
+        }
+    }
+
+    // Frame kinds and result bits, mirrored from passthrough_video_encoder.h.
+    const KEY: u8 = 0;
+    const DELTA: u8 = 1;
+    const DROPPED: u8 = 2;
+    const SENT: u8 = 1;
+    const KEY_REQUESTED: u8 = 2;
+
+    /// Delta frames after a frame dropped before the encoder are held, with a
+    /// keyframe request, until the next keyframe restores the chain.
+    #[test]
+    fn passthrough_holds_deltas_after_gap() {
+        let results = ffi_tests::passthrough_chain_guard_for_test(&[
+            KEY, DELTA, DROPPED, DELTA, DELTA, KEY, DELTA,
+        ]);
+        assert_eq!(results, [SENT, SENT, KEY_REQUESTED, KEY_REQUESTED, SENT, SENT],);
+    }
+
+    /// Delta frames before the first keyframe cannot be decoded and are held.
+    #[test]
+    fn passthrough_waits_for_first_keyframe() {
+        let results = ffi_tests::passthrough_chain_guard_for_test(&[DELTA, KEY, DELTA]);
+        assert_eq!(results, [KEY_REQUESTED, SENT, SENT]);
+    }
+}

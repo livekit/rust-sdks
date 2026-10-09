@@ -40,6 +40,10 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/synchronization/mutex.h"
 
+#ifdef LIVEKIT_TEST
+#include "api/environment/environment_factory.h"
+#endif
+
 namespace livekit_ffi {
 namespace {
 
@@ -252,8 +256,17 @@ class PassthroughVideoEncoder final : public VideoEncoder {
       encoded_buffer->request_keyframe();
     }
 
+    if (!ContinuesChain(*encoded_buffer, is_keyframe)) {
+      encoded_buffer->request_keyframe();
+      encoded_image_callback_->OnFrameDropped(frame.rtp_timestamp(),
+                                              /*spatial_id=*/0,
+                                              /*is_end_of_temporal_unit=*/true);
+      return WEBRTC_VIDEO_CODEC_OK;
+    }
+
     if (encoded_buffer->payload_size() == 0) {
       RTC_LOG(LS_ERROR) << "PassthroughVideoEncoder received an empty frame";
+      chain_intact_ = false;
       return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
     }
 
@@ -280,6 +293,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
         RTC_LOG(LS_ERROR)
             << "PassthroughVideoEncoder received an AV1 frame that WebRTC "
                "cannot packetize";
+        chain_intact_ = false;
         return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
       }
       encoded_data = EncodedImageBuffer::Create(payload.data(), payload.size());
@@ -315,6 +329,7 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     if (result.error != EncodedImageCallback::Result::OK) {
       RTC_LOG(LS_ERROR) << "PassthroughVideoEncoder callback failed "
                         << result.error;
+      chain_intact_ = false;
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
     return WEBRTC_VIDEO_CODEC_OK;
@@ -332,12 +347,36 @@ class PassthroughVideoEncoder final : public VideoEncoder {
     info.implementation_name = "LiveKit pre-encoded passthrough";
     info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
     info.is_hardware_accelerated = false;
+    // The upstream encoder owns the bitrate. WebRTC's frame dropper would
+    // otherwise drop access units and break the reference chain.
+    info.has_trusted_rate_controller = true;
     info.supports_simulcast = false;
     info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative};
     return info;
   }
 
  private:
+  // A delta frame decodes only if every frame since the last keyframe reached
+  // the receiver. WebRTC can drop frames before Encode() (congestion window,
+  // paused encoder, newer frame queued) and the receiver cannot see that gap,
+  // so after a gap hold delta frames until the next keyframe.
+  bool ContinuesChain(const EncodedVideoFrameBuffer& buffer, bool is_keyframe) {
+    const bool follows_previous =
+        has_previous_frame_ && buffer.stream_id() == previous_stream_id_ &&
+        buffer.sequence_number() == previous_sequence_number_ + 1;
+    has_previous_frame_ = true;
+    previous_stream_id_ = buffer.stream_id();
+    previous_sequence_number_ = buffer.sequence_number();
+
+    const bool was_intact = chain_intact_;
+    chain_intact_ = is_keyframe || (chain_intact_ && follows_previous);
+    if (was_intact && !chain_intact_) {
+      RTC_LOG(LS_INFO) << "PassthroughVideoEncoder: frame gap before encoder; "
+                          "holding delta frames until the next keyframe";
+    }
+    return chain_intact_;
+  }
+
   void ForwardPendingRateControl(
       EncodedVideoFrameBuffer* encoded_buffer) {
     std::optional<livekit::EncodedRateControlRequest> request;
@@ -361,6 +400,12 @@ class PassthroughVideoEncoder final : public VideoEncoder {
   std::vector<uint8_t> cached_sequence_header_obu_;
   webrtc::Mutex rate_control_mutex_;
   std::optional<livekit::EncodedRateControlRequest> latest_rate_control_request_;
+  // Reference-chain state, see ContinuesChain(). Starts broken so the first
+  // frame sent is a keyframe.
+  bool chain_intact_ = false;
+  bool has_previous_frame_ = false;
+  const void* previous_stream_id_ = nullptr;
+  uint64_t previous_sequence_number_ = 0;
 };
 
 }  // namespace
@@ -422,5 +467,72 @@ std::unique_ptr<VideoEncoder> PassthroughVideoEncoderFactory::Create(
   }
   return nullptr;
 }
+
+#ifdef LIVEKIT_TEST
+namespace {
+
+class RecordingCallback final : public EncodedImageCallback {
+ public:
+  Result OnEncodedImage(const EncodedImage& /* image */,
+                        const CodecSpecificInfo* /* info */) override {
+    ++sent;
+    return Result(Result::OK);
+  }
+  void OnFrameDropped(uint32_t /* rtp_timestamp */,
+                      int /* spatial_id */,
+                      bool /* is_end_of_temporal_unit */) override {}
+  int sent = 0;
+};
+
+}  // namespace
+
+rust::Vec<uint8_t> passthrough_chain_guard_for_test(
+    rust::Slice<const uint8_t> frames) {
+  PassthroughVideoEncoder encoder(webrtc::CreateEnvironment(),
+                                  SdpVideoFormat("H264"));
+  VideoCodec codec;
+  codec.codecType = webrtc::kVideoCodecH264;
+  codec.width = 64;
+  codec.height = 64;
+  encoder.InitEncode(
+      &codec, VideoEncoder::Settings(VideoEncoder::Capabilities(false), 1, 0));
+  RecordingCallback callback;
+  encoder.RegisterEncodeCompleteCallback(&callback);
+
+  const uint8_t stream = 0;
+  auto keyframe_request = std::make_shared<std::atomic<bool>>(false);
+  const uint8_t payload[] = {0, 0, 0, 1, 0x65, 0x88};
+  uint64_t sequence_number = 0;
+  uint32_t rtp_timestamp = 0;
+  rust::Vec<uint8_t> results;
+  for (uint8_t kind : frames) {
+    const uint64_t sequence = sequence_number++;
+    if (kind == kChainTestDroppedBeforeEncoder) {
+      continue;
+    }
+    auto buffer = webrtc::make_ref_counted<EncodedVideoFrameBuffer>(
+        64, 64, livekit::EncodedVideoCodec::kH264,
+        kind == kChainTestKey ? livekit::EncodedFrameType::kKey
+                              : livekit::EncodedFrameType::kDelta,
+        EncodedImageBuffer::Create(payload, sizeof(payload)), keyframe_request,
+        nullptr, &stream, sequence);
+    VideoFrame frame = VideoFrame::Builder()
+                           .set_video_frame_buffer(buffer)
+                           .set_rtp_timestamp(rtp_timestamp += 3000)
+                           .build();
+    const int sent_before = callback.sent;
+    encoder.Encode(frame, nullptr);
+    uint8_t result = 0;
+    if (callback.sent > sent_before) {
+      result |= kChainTestSent;
+    }
+    if (keyframe_request->exchange(false)) {
+      result |= kChainTestKeyframeRequested;
+    }
+    results.push_back(result);
+  }
+  return results;
+}
+#endif
 
 }  // namespace livekit_ffi

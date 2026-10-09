@@ -45,14 +45,18 @@ EncodedVideoFrameBuffer::EncodedVideoFrameBuffer(
     EncodedFrameType frame_type,
     webrtc::scoped_refptr<webrtc::EncodedImageBuffer> payload,
     std::shared_ptr<std::atomic<bool>> keyframe_request_flag,
-    std::shared_ptr<EncodedRateControlState> rate_control_state)
+    std::shared_ptr<EncodedRateControlState> rate_control_state,
+    const void* stream_id,
+    uint64_t sequence_number)
     : width_(width),
       height_(height),
       codec_(codec),
       frame_type_(frame_type),
       payload_(std::move(payload)),
       keyframe_request_flag_(std::move(keyframe_request_flag)),
-      rate_control_state_(std::move(rate_control_state)) {}
+      rate_control_state_(std::move(rate_control_state)),
+      stream_id_(stream_id),
+      sequence_number_(sequence_number) {}
 
 webrtc::VideoFrameBuffer::Type EncodedVideoFrameBuffer::type() const {
   return Type::kNative;

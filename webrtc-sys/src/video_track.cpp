@@ -278,7 +278,8 @@ bool VideoTrackSource::capture_encoded_frame(
       width, height, ToNativeEncodedCodec(encoded_frame.codec),
       ToNativeEncodedFrameType(encoded_frame.frame_type),
       webrtc::EncodedImageBuffer::Create(payload.data(), payload.size()),
-      source_->keyframe_request_flag(), source_->rate_control_state());
+      source_->keyframe_request_flag(), source_->rate_control_state(),
+      source_.get(), source_->next_encoded_sequence_number());
 
   auto frame = webrtc::VideoFrame::Builder()
                    .set_video_frame_buffer(std::move(buffer))
