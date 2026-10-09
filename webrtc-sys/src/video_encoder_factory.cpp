@@ -21,6 +21,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -32,6 +33,7 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "livekit/encoded_video_frame_buffer.h"
+#include "livekit/fec_controller.h"
 #include "livekit/objc_video_factory.h"
 #include "livekit/passthrough_video_encoder.h"
 #include "livekit/webrtc.h"
@@ -69,6 +71,7 @@ namespace livekit_ffi {
 namespace {
 
 constexpr char kBackendParameter[] = "x-livekit-video-encoder-backend";
+constexpr char kFecRateParameter[] = "x-livekit-fec-rate";
 constexpr char kPreferredHwEncoderEnv[] = "LIVEKIT_PREFERRED_HW_ENCODER";
 
 enum class PreferredHwEncoder {
@@ -149,10 +152,34 @@ std::optional<VideoEncoderBackend> BackendFromFormat(
   return std::nullopt;
 }
 
-webrtc::SdpVideoFormat StripBackendParameter(
+std::optional<int> FecRateFromFormat(
+    const webrtc::SdpVideoFormat& format) {
+  auto it = format.parameters.find(kFecRateParameter);
+  if (it == format.parameters.end()) {
+    return std::nullopt;
+  }
+
+  char* end = nullptr;
+  long rate = std::strtol(it->second.c_str(), &end, 10);
+  if (end != it->second.c_str() + it->second.size() || rate < 0 ||
+      rate > 255) {
+    return std::nullopt;
+  }
+  return static_cast<int>(rate);
+}
+
+webrtc::SdpVideoFormat StripSenderParameters(
     const webrtc::SdpVideoFormat& format) {
   webrtc::SdpVideoFormat stripped = format;
   stripped.parameters.erase(kBackendParameter);
+  stripped.parameters.erase(kFecRateParameter);
+  return stripped;
+}
+
+webrtc::SdpVideoFormat StripFecRateParameter(
+    const webrtc::SdpVideoFormat& format) {
+  webrtc::SdpVideoFormat stripped = format;
+  stripped.parameters.erase(kFecRateParameter);
   return stripped;
 }
 
@@ -444,7 +471,7 @@ VideoEncoderFactory::InternalFactory::QueryCodecSupport(
     const webrtc::SdpVideoFormat& format,
     std::optional<std::string> scalability_mode) const {
   auto requested_backend = BackendFromFormat(format);
-  auto stripped_format = StripBackendParameter(format);
+  auto stripped_format = StripSenderParameters(format);
   if (requested_backend == VideoEncoderBackend::Software) {
     auto original_format =
         webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(),
@@ -512,7 +539,7 @@ VideoEncoderFactory::InternalFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
   auto requested_backend = BackendFromFormat(format);
-  auto stripped_format = StripBackendParameter(format);
+  auto stripped_format = StripSenderParameters(format);
   bool requested_backend_unavailable = false;
 
   if (requested_backend == VideoEncoderBackend::Software) {
@@ -620,14 +647,19 @@ namespace {
 // garbage pointer), so forwarding such a frame is a crash, not a graceful
 // failure. Drop it instead: the selector switches shortly after, and the
 // pass-through encoder requests a fresh keyframe when it takes over.
-class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
+class ConfiguredVideoEncoder final : public webrtc::VideoEncoder {
  public:
-  explicit EncodedFrameGuardEncoder(
-      std::unique_ptr<webrtc::VideoEncoder> encoder)
-      : encoder_(std::move(encoder)) {}
+  ConfiguredVideoEncoder(std::unique_ptr<webrtc::VideoEncoder> encoder,
+                         bool guard_encoded_frames,
+                         int fec_rate)
+      : encoder_(std::move(encoder)),
+        guard_encoded_frames_(guard_encoded_frames),
+        fec_rate_(fec_rate) {}
 
   void SetFecControllerOverride(
       webrtc::FecControllerOverride* fec_controller_override) override {
+    FecGlobalState::Instance().ConfigureController(fec_controller_override,
+                                                   fec_rate_);
     encoder_->SetFecControllerOverride(fec_controller_override);
   }
 
@@ -646,7 +678,8 @@ class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
   int32_t Encode(
       const webrtc::VideoFrame& frame,
       const std::vector<webrtc::VideoFrameType>* frame_types) override {
-    if (livekit::EncodedVideoFrameBuffer::FromNative(
+    if (guard_encoded_frames_ &&
+        livekit::EncodedVideoFrameBuffer::FromNative(
             frame.video_frame_buffer().get())) {
       static std::atomic<bool> logged{false};
       if (!logged.exchange(true)) {
@@ -680,6 +713,8 @@ class EncodedFrameGuardEncoder final : public webrtc::VideoEncoder {
 
  private:
   std::unique_ptr<webrtc::VideoEncoder> encoder_;
+  bool guard_encoded_frames_;
+  int fec_rate_;
 };
 
 }  // namespace
@@ -688,14 +723,19 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
   std::unique_ptr<webrtc::VideoEncoder> encoder;
-  if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
+  const auto format_without_fec = StripFecRateParameter(format);
+  if (format_without_fec.IsCodecInList(
+          internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
         env, internal_factory_.get(), nullptr, format);
   }
 
-  if (encoder &&
-      BackendFromFormat(format) != VideoEncoderBackend::PreEncoded) {
-    encoder = std::make_unique<EncodedFrameGuardEncoder>(std::move(encoder));
+  if (encoder) {
+    const bool guard_encoded_frames =
+        BackendFromFormat(format) != VideoEncoderBackend::PreEncoded;
+    encoder = std::make_unique<ConfiguredVideoEncoder>(
+        std::move(encoder), guard_encoded_frames,
+        FecRateFromFormat(format).value_or(0));
   }
 
   return encoder;

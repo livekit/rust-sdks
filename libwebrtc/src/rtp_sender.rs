@@ -91,6 +91,13 @@ impl RtpSender {
     pub fn set_video_encoder_backend(&self, backend: VideoEncoderBackend) {
         self.handle.set_video_encoder_backend(backend)
     }
+
+    /// Configures internal options for a video sender.
+    #[doc(hidden)]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_video_sender_options(&self, backend: VideoEncoderBackend, fec_rate: u8) {
+        self.handle.set_video_sender_options(backend, fec_rate)
+    }
 }
 
 impl Debug for RtpSender {

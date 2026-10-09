@@ -51,6 +51,7 @@ pub mod ffi {
         fn get_parameters(self: &RtpSender) -> RtpParameters;
         fn set_parameters(self: &RtpSender, parameters: RtpParameters) -> Result<()>;
         fn set_video_encoder_backend(self: &RtpSender, backend: VideoEncoderBackend);
+        fn set_video_sender_options(self: &RtpSender, backend: VideoEncoderBackend, fec_rate: u8);
 
         fn _shared_rtp_sender() -> SharedPtr<RtpSender>;
     }

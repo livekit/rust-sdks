@@ -85,6 +85,19 @@ const DegradationPreference = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * @generated from enum livekit.proto.FecProtection
+ */
+const FecProtection = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.FecProtection",
+  [
+    {no: 0, name: "FEC_PROTECTION_DISABLED", localName: "DISABLED"},
+    {no: 1, name: "FEC_PROTECTION_LOW", localName: "LOW"},
+    {no: 2, name: "FEC_PROTECTION_MEDIUM", localName: "MEDIUM"},
+    {no: 3, name: "FEC_PROTECTION_HIGH", localName: "HIGH"},
+  ],
+);
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 const IceTransportType = /*@__PURE__*/ proto2.makeEnum(
@@ -750,6 +763,7 @@ const TrackPublishOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 11, name: "scalability_mode", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 12, name: "video_encoder", kind: "enum", T: proto2.getEnumType(VideoEncoderBackend), opt: true },
     { no: 13, name: "degradation_preference", kind: "enum", T: proto2.getEnumType(DegradationPreference), opt: true },
+    { no: 14, name: "fec", kind: "enum", T: proto2.getEnumType(FecProtection), opt: true },
   ],
 );
 
@@ -807,6 +821,7 @@ const RoomOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 9, name: "connect_timeout_ms", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 10, name: "data_stream", kind: "message", T: RoomDataStreamOptions, opt: true },
     { no: 11, name: "other_sdks", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 12, name: "fec_enabled", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
   ],
 );
 
@@ -1668,6 +1683,7 @@ const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
 exports.SimulateScenarioKind = SimulateScenarioKind;
 exports.VideoEncoderBackend = VideoEncoderBackend;
 exports.DegradationPreference = DegradationPreference;
+exports.FecProtection = FecProtection;
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;
