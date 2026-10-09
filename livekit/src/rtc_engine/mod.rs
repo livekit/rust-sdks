@@ -242,6 +242,8 @@ pub enum EngineEvent {
     SubscribedQualityUpdate {
         update: proto::SubscribedQualityUpdate,
     },
+    /// A publisher answer was applied; dynacast layers must be re-applied.
+    RefreshPublishingLayers,
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -782,6 +784,9 @@ impl EngineInner {
             }
             SessionEvent::SubscribedQualityUpdate { update } => {
                 let _ = self.engine_tx.send(EngineEvent::SubscribedQualityUpdate { update });
+            }
+            SessionEvent::RefreshPublishingLayers => {
+                let _ = self.engine_tx.send(EngineEvent::RefreshPublishingLayers);
             }
             SessionEvent::LocalDataTrackInput(event) => {
                 let _ = self.engine_tx.send(EngineEvent::LocalDataTrackInput(event));
