@@ -3994,11 +3994,19 @@ dependencies = [
 name = "livekit-telemetry"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "livekit-net",
  "log",
  "opentelemetry-proto",
  "prost 0.14.4",
+ "prost-types 0.14.4",
  "rand 0.9.5",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
  "uniffi",
+ "url",
 ]
 
 [[package]]

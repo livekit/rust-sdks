@@ -24,6 +24,55 @@ Set once per pipeline (`TelemetryConfig.resource`):
 | `device.model.identifier` | platform SDK | `iPhone16,1` |
 | `telemetry.sdk.name/language/version` | core | `livekit-telemetry`, `rust`, `0.1.0` |
 
+## Pipeline, scopes and destination
+
+### Destination and credentials
+
+The platform passes exactly two things per room, through `Scope::set_server(url, token)`: the
+LiveKit server URL the room connects to and the participant token it connects with — at connect,
+and again with **every** refreshed token (the SFU sends one right after join, then every few
+minutes). The call is cheap and idempotent. There is no client-side endpoint, header or sink.
+
+- **Ingest URL:** derived from the server URL's host, `https://<host>/observability/client/{logs,traces}/otlp/v0`,
+  for LiveKit Cloud hosts only (`*.livekit.cloud`, including `*.staging.livekit.cloud`). Any other
+  host (self-hosted, OSS) has no ingest: one local warning, and that room's records are dropped
+  at the door instead of cached.
+- **Token:** `Authorization: Bearer <token>`. The core reads the token's *unverified* claims: the
+  observability grant (`observability.write` or `observability.clientWrite`) and `exp`. It never
+  sends a token known to be expired or refused; batches wait for the next token instead
+  (a hard hold). A project whose first token has no grant never opted in: nothing is collected
+  for it. A refreshed token without the grant (today's SFU drops it) does not replace a granted
+  one that is still valid. Tokens live in memory only — never in a batch, never on disk.
+- **Server URL validation:** parsed with WHATWG URL rules, never string-matched. A token is only
+  sent to `https://<project>.livekit.cloud/…` built from the parsed host alone: TLS scheme
+  (`wss`/`https`), a domain under the Cloud suffix with a label of its own, the default port, no
+  userinfo.
+- **Ownership:** every record captures its owner when it is captured — its session and the
+  project that session is routed to at that moment — and keeps it: a Room that reconnects to
+  another project takes nothing queued or cached along. Credentials are keyed by (project,
+  session): a live Room uploads with its **own** latest token for that project, never another
+  Room's. A Room's records captured before it had a server go to its own first project, never to
+  another Room's. Process-level records (device state, pre-room errors, self-telemetry) go to
+  the project most recently handed a token, with that project's latest token; so do batches from
+  a previous launch, which wait — up to the 24 h age limit — for a token of the same project.
+  The answer to a request is attributed to the project it was sent to — its 404, disable or
+  pause never lands on another project. A session's credentials stay while the session is alive
+  (its Room, or records, windows or spans still referencing it) — for every project it was routed
+  to, so records captured for an earlier project can still be sent; that is the residual: a live
+  Room keeps one credential per project it has used — and while cached batches need them;
+  project-level copies only while a live session is routed there or the backlog has batches for
+  it. A token the collector refused is recorded by identity (a hash) and never sent again from
+  any slot, until it expires (a token without `exp` stays refused for the process; like the
+  per-host project table, which keeps one small entry per host ever seen, that grows only with
+  what a process meets — bounded in practice, not by a cap). A past,
+  negative or non-numeric `exp` counts as expired.
+- **Waiting** for a first destination or a usable token is uncapped, bounded only by the cache.
+
+Local end-to-end tests point everything at an OpenTelemetry collector of their own with the
+`LK_TELEMETRY_ENDPOINT` environment variable, read by the core at start (a base URL gets
+`/v1/logs` and `/v1/traces`; a URL ending in `logs` is used as is). It is not part of any platform
+API. With it, every batch goes there without Cloud rules or tokens.
+
 ## Events
 
 An event with no `body` is exported with its name as the body as well as in `event_name`: log

@@ -51,9 +51,17 @@ mod otlp;
 /// OTLP protobuf types (re-exported from `opentelemetry-proto`).
 mod proto;
 
+/// Transport seam: how encoded batches leave the device.
+mod transport;
+
+/// Where batches go: server URL + token → ingest URL, grant, expiry, per-project routing.
+mod destination;
+
+pub use destination::ENDPOINT_OVERRIDE_ENV;
 pub use event::*;
 pub use span::SpanOutcome;
 pub use stats::{TelemetryStats, TelemetryStatus};
+pub use transport::*;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
