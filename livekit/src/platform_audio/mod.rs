@@ -598,11 +598,11 @@ impl PlatformAudio {
     }
 
     fn recording_device_count(&self) -> usize {
-        self.handle.runtime.recording_devices() as usize
+        device_count(self.handle.runtime.recording_devices())
     }
 
     fn playout_device_count(&self) -> usize {
-        self.handle.runtime.playout_devices() as usize
+        device_count(self.handle.runtime.playout_devices())
     }
 
     fn recording_device_info(&self, index: usize) -> Option<RecordingDeviceInfo> {
@@ -1225,9 +1225,29 @@ pub fn reset_platform_audio() {
     *handle_ref = Weak::new();
 }
 
+/// Converts the device count reported by the ADM to a `usize`. The ADM returns a
+/// negative value when it is not initialized or fails to enumerate, which must
+/// read as "no devices" rather than wrapping to `usize::MAX`.
+fn device_count(reported: i16) -> usize {
+    usize::try_from(reported).unwrap_or(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn negative_device_count_is_zero() {
+        assert_eq!(device_count(-1), 0);
+        assert_eq!(device_count(i16::MIN), 0);
+    }
+
+    #[test]
+    fn non_negative_device_count_is_unchanged() {
+        assert_eq!(device_count(0), 0);
+        assert_eq!(device_count(5), 5);
+        assert_eq!(device_count(i16::MAX), i16::MAX as usize);
+    }
 
     #[test]
     fn rtc_audio_source_device_variant() {
