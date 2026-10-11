@@ -2144,7 +2144,7 @@ impl<'de> serde::Deserialize<'de> for agent_db::DeleteResponse {
         deserializer.deserialize_struct("livekit.AgentDB.DeleteResponse", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for agent_db::DumpRequest {
+impl serde::Serialize for agent_db::ExportRequest {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -2155,14 +2155,14 @@ impl serde::Serialize for agent_db::DumpRequest {
         if !self.database_id.is_empty() {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.DumpRequest", len)?;
+        let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.ExportRequest", len)?;
         if !self.database_id.is_empty() {
             struct_ser.serialize_field("databaseId", &self.database_id)?;
         }
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for agent_db::DumpRequest {
+impl<'de> serde::Deserialize<'de> for agent_db::ExportRequest {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -2208,13 +2208,13 @@ impl<'de> serde::Deserialize<'de> for agent_db::DumpRequest {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = agent_db::DumpRequest;
+            type Value = agent_db::ExportRequest;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.AgentDB.DumpRequest")
+                formatter.write_str("struct livekit.AgentDB.ExportRequest")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_db::DumpRequest, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_db::ExportRequest, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -2232,15 +2232,15 @@ impl<'de> serde::Deserialize<'de> for agent_db::DumpRequest {
                         }
                     }
                 }
-                Ok(agent_db::DumpRequest {
+                Ok(agent_db::ExportRequest {
                     database_id: database_id__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("livekit.AgentDB.DumpRequest", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("livekit.AgentDB.ExportRequest", FIELDS, GeneratedVisitor)
     }
 }
-impl serde::Serialize for agent_db::DumpResponse {
+impl serde::Serialize for agent_db::ExportResponse {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -2257,7 +2257,7 @@ impl serde::Serialize for agent_db::DumpResponse {
         if self.tip != 0 {
             len += 1;
         }
-        let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.DumpResponse", len)?;
+        let mut struct_ser = serializer.serialize_struct("livekit.AgentDB.ExportResponse", len)?;
         if !self.download_url.is_empty() {
             struct_ser.serialize_field("downloadUrl", &self.download_url)?;
         }
@@ -2272,7 +2272,7 @@ impl serde::Serialize for agent_db::DumpResponse {
         struct_ser.end()
     }
 }
-impl<'de> serde::Deserialize<'de> for agent_db::DumpResponse {
+impl<'de> serde::Deserialize<'de> for agent_db::ExportResponse {
     #[allow(deprecated)]
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
@@ -2325,13 +2325,13 @@ impl<'de> serde::Deserialize<'de> for agent_db::DumpResponse {
         }
         struct GeneratedVisitor;
         impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = agent_db::DumpResponse;
+            type Value = agent_db::ExportResponse;
 
             fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.AgentDB.DumpResponse")
+                formatter.write_str("struct livekit.AgentDB.ExportResponse")
             }
 
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_db::DumpResponse, V::Error>
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<agent_db::ExportResponse, V::Error>
                 where
                     V: serde::de::MapAccess<'de>,
             {
@@ -2365,14 +2365,14 @@ impl<'de> serde::Deserialize<'de> for agent_db::DumpResponse {
                         }
                     }
                 }
-                Ok(agent_db::DumpResponse {
+                Ok(agent_db::ExportResponse {
                     download_url: download_url__.unwrap_or_default(),
                     expires_at: expires_at__,
                     tip: tip__.unwrap_or_default(),
                 })
             }
         }
-        deserializer.deserialize_struct("livekit.AgentDB.DumpResponse", FIELDS, GeneratedVisitor)
+        deserializer.deserialize_struct("livekit.AgentDB.ExportResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_db::GetRequest {

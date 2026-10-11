@@ -350,7 +350,7 @@ pub struct DebugMessage {
 pub struct AgentSessionEvent {
     #[prost(message, optional, tag="1")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(oneof="agent_session_event::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
+    #[prost(oneof="agent_session_event::Event", tags="10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23")]
     pub event: ::core::option::Option<agent_session_event::Event>,
 }
 /// Nested message and enum types in `AgentSessionEvent`.
@@ -528,41 +528,6 @@ pub mod agent_session_event {
         #[prost(bool, tag="1")]
         pub resumed: bool,
     }
-    /// Written by the framework when a run begins, before any application code
-    /// runs. A RunStarted with no matching RunEnded is an interrupted run.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct RunStarted {
-        #[prost(string, tag="1")]
-        pub run_id: ::prost::alloc::string::String,
-        /// the A2A task the run serves; also the id of its answer stream
-        #[prost(string, tag="2")]
-        pub task_id: ::prost::alloc::string::String,
-        /// the durable stream ("AST_...") the run's answer is appended to
-        #[prost(string, tag="3")]
-        pub stream_id: ::prost::alloc::string::String,
-        /// the registered agent whose lane the run writes
-        #[prost(string, tag="4")]
-        pub lane: ::prost::alloc::string::String,
-        /// the channel the input arrived on: "sms", "whatsapp", "email", "a2a",
-        /// "voice"; empty when the ingress tagged none
-        #[prost(string, tag="5")]
-        pub channel: ::prost::alloc::string::String,
-    }
-    /// Written by the framework when a run commits or fails.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct RunEnded {
-        #[prost(string, tag="1")]
-        pub run_id: ::prost::alloc::string::String,
-        #[prost(enumeration="super::RunOutcome", tag="2")]
-        pub outcome: i32,
-        /// the word from the shared reason list for a failed or cancelled run:
-        /// "worker-lost", "lease-timeout", "session-not-found",
-        /// "storage-unavailable", "timeout"; empty when completed
-        #[prost(string, tag="3")]
-        pub reason: ::prost::alloc::string::String,
-    }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Event {
@@ -594,10 +559,6 @@ pub mod agent_session_event {
         ToolExecutionUpdated(ToolExecutionUpdated),
         #[prost(message, tag="23")]
         AgentFalseInterruption(AgentFalseInterruption),
-        #[prost(message, tag="24")]
-        RunStarted(RunStarted),
-        #[prost(message, tag="25")]
-        RunEnded(RunEnded),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1050,38 +1011,6 @@ impl ToolReplyStatus {
         }
     }
 }
-/// How a run ended. A run is one input to one result, tools included, on
-/// any channel: a text message, a voice turn, a background task.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum RunOutcome {
-    RoCompleted = 0,
-    RoFailed = 1,
-    /// the run yielded to a newer message or was cancelled by the caller
-    RoCancelled = 2,
-}
-impl RunOutcome {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            RunOutcome::RoCompleted => "RO_COMPLETED",
-            RunOutcome::RoFailed => "RO_FAILED",
-            RunOutcome::RoCancelled => "RO_CANCELLED",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "RO_COMPLETED" => Some(Self::RoCompleted),
-            "RO_FAILED" => Some(Self::RoFailed),
-            "RO_CANCELLED" => Some(Self::RoCancelled),
-            _ => None,
-        }
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum AmdCategory {
@@ -1255,55 +1184,32 @@ pub mod agent_thread {
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct CreateRequest {
-        /// When set, create is get-or-create on key.
-        #[prost(string, tag="2")]
-        pub key: ::prost::alloc::string::String,
         /// Groups threads, e.g. by user: an application-defined value, typically the
         /// user's identity. An AgentThreadGrant is scoped by it.
-        #[prost(string, tag="3")]
+        #[prost(string, tag="1")]
         pub scope: ::prost::alloc::string::String,
-        #[prost(map="string, string", tag="4")]
+        #[prost(map="string, string", tag="2")]
         pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
         /// Unset takes the server default.
-        #[prost(message, optional, tag="5")]
+        #[prost(message, optional, tag="3")]
         pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct CreateResponse {
-        #[prost(message, optional, tag="1")]
-        pub thread: ::core::option::Option<Thread>,
-        /// False when the key already named a thread, which is returned as is.
-        #[prost(bool, tag="2")]
-        pub created: bool,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GetRequest {
-        #[prost(oneof="get_request::Lookup", tags="1, 2")]
-        pub lookup: ::core::option::Option<get_request::Lookup>,
-    }
-    /// Nested message and enum types in `GetRequest`.
-    pub mod get_request {
-        #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-        pub enum Lookup {
-            #[prost(string, tag="1")]
-            ThreadId(::prost::alloc::string::String),
-            #[prost(string, tag="2")]
-            Key(::prost::alloc::string::String),
-        }
+        #[prost(string, tag="1")]
+        pub thread_id: ::prost::alloc::string::String,
     }
     /// The threads of one scope, newest first.
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ListRequest {
-        #[prost(string, tag="2")]
+        #[prost(string, tag="1")]
         pub scope: ::prost::alloc::string::String,
         /// Cursor from the previous ListResponse; empty for the first page.
-        #[prost(string, tag="3")]
+        #[prost(string, tag="2")]
         pub before: ::prost::alloc::string::String,
-        #[prost(int32, tag="4")]
+        #[prost(int32, tag="3")]
         pub limit: i32,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -1320,45 +1226,12 @@ pub mod agent_thread {
     pub struct UpdateRequest {
         #[prost(string, tag="1")]
         pub thread_id: ::prost::alloc::string::String,
-        /// Merged; an empty value deletes the entry.
+        /// Added to the existing attributes; an empty value deletes the entry.
         #[prost(map="string, string", tag="2")]
         pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+        /// Every update counts as activity and pushes expires_at out by idle_ttl.
         #[prost(message, optional, tag="3")]
         pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct TouchRequest {
-        #[prost(string, tag="1")]
-        pub thread_id: ::prost::alloc::string::String,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct TouchResponse {
-        #[prost(message, optional, tag="1")]
-        pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct AddKeyRequest {
-        #[prost(string, tag="1")]
-        pub thread_id: ::prost::alloc::string::String,
-        #[prost(string, tag="2")]
-        pub key: ::prost::alloc::string::String,
-        /// Unset keeps the key for the life of the thread.
-        #[prost(message, optional, tag="3")]
-        pub ttl: ::core::option::Option<::pbjson_types::Duration>,
-        /// Move the key here when another thread holds it.
-        #[prost(bool, tag="4")]
-        pub replace: bool,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct RemoveKeyRequest {
-        #[prost(string, tag="1")]
-        pub thread_id: ::prost::alloc::string::String,
-        #[prost(string, tag="2")]
-        pub key: ::prost::alloc::string::String,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1370,52 +1243,144 @@ pub mod agent_thread {
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct DeleteResponse {
     }
-    /// Creates the thread's database if it has none. Idempotent.
+    /// The thread's chat items, oldest first.
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct CreateThreadDatabaseRequest {
+    pub struct GetItemsRequest {
         #[prost(string, tag="1")]
         pub thread_id: ::prost::alloc::string::String,
-    }
-    /// Marks thread_id as merged into another thread, after its items were copied
-    /// there.
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct MergeThreadRequest {
-        #[prost(string, tag="1")]
-        pub thread_id: ::prost::alloc::string::String,
+        /// One agent's items; empty for every agent's.
         #[prost(string, tag="2")]
-        pub into: ::prost::alloc::string::String,
+        pub agent: ::prost::alloc::string::String,
+        /// Cursor from the previous GetItemsResponse; empty for the first page.
+        #[prost(string, tag="3")]
+        pub after: ::prost::alloc::string::String,
+        #[prost(int32, tag="4")]
+        pub limit: i32,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct GetItemsResponse {
+        #[prost(message, repeated, tag="1")]
+        pub items: ::prost::alloc::vec::Vec<Item>,
+        /// Empty at the end.
+        #[prost(string, tag="2")]
+        pub after: ::prost::alloc::string::String,
+    }
+    /// One chat item of an agent. Stored as the JSON of
+    /// ChatContext.ChatItem (items.payload in thread_schema_v1.sql).
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Item {
+        #[prost(string, tag="1")]
+        pub agent: ::prost::alloc::string::String,
+        /// Position in the agent's history.
+        #[prost(int64, tag="2")]
+        pub seq: i64,
+        /// The A2A message the item came from.
+        #[prost(string, tag="3")]
+        pub message_id: ::prost::alloc::string::String,
+        #[prost(message, optional, tag="4")]
+        pub item: ::core::option::Option<super::chat_context::ChatItem>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Thread {
         #[prost(string, tag="1")]
         pub thread_id: ::prost::alloc::string::String,
-        /// Keys themselves are never returned.
-        #[prost(uint32, tag="3")]
-        pub key_count: u32,
-        #[prost(string, tag="4")]
+        #[prost(string, tag="2")]
         pub scope: ::prost::alloc::string::String,
-        #[prost(map="string, string", tag="5")]
+        #[prost(map="string, string", tag="3")]
         pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-        #[prost(message, optional, tag="6")]
+        #[prost(message, optional, tag="4")]
         pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-        #[prost(message, optional, tag="7")]
+        #[prost(message, optional, tag="5")]
         pub last_active: ::core::option::Option<::pbjson_types::Timestamp>,
-        /// last_active + idle_ttl; every touch or send pushes it out. The thread is
-        /// deleted once it passes.
-        #[prost(message, optional, tag="8")]
+        /// last_active + idle_ttl; every update pushes it out. The thread and its
+        /// database are deleted once it passes.
+        #[prost(message, optional, tag="6")]
         pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
-        #[prost(message, optional, tag="9")]
+        #[prost(message, optional, tag="7")]
         pub idle_ttl: ::core::option::Option<::pbjson_types::Duration>,
-        /// "DB_..."; empty until the first write or CreateThreadDatabase.
-        #[prost(string, tag="10")]
+        /// The thread's database ("DB_..."), created with the thread.
+        #[prost(string, tag="8")]
         pub database_id: ::prost::alloc::string::String,
-        /// Set when merged into another thread; calls on it then fail with
-        /// FailedPrecondition.
-        #[prost(string, tag="11")]
-        pub merged_into: ::prost::alloc::string::String,
+    }
+}
+/// AgentTask: background work an agent runs within a thread, such as a booking
+/// that takes minutes.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AgentTask {
+}
+/// Nested message and enum types in `AgentTask`.
+pub mod agent_task {
+    /// A thread's tasks, oldest first.
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct GetTasksRequest {
+        #[prost(string, tag="1")]
+        pub thread_id: ::prost::alloc::string::String,
+        /// Unset for every status.
+        #[prost(enumeration="Status", optional, tag="2")]
+        pub status: ::core::option::Option<i32>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct GetTasksResponse {
+        #[prost(message, repeated, tag="1")]
+        pub tasks: ::prost::alloc::vec::Vec<Task>,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Task {
+        #[prost(string, tag="1")]
+        pub task_id: ::prost::alloc::string::String,
+        #[prost(string, tag="2")]
+        pub thread_id: ::prost::alloc::string::String,
+        /// The task's name, as the agent defines it.
+        #[prost(string, tag="3")]
+        pub name: ::prost::alloc::string::String,
+        #[prost(enumeration="Status", tag="4")]
+        pub status: i32,
+        #[prost(message, optional, tag="5")]
+        pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    }
+    /// A task is never UNSPECIFIED.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Status {
+        Unspecified = 0,
+        Running = 1,
+        Completed = 2,
+        Failed = 3,
+        Canceled = 4,
+    }
+    impl Status {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Status::Unspecified => "UNSPECIFIED",
+                Status::Running => "RUNNING",
+                Status::Completed => "COMPLETED",
+                Status::Failed => "FAILED",
+                Status::Canceled => "CANCELED",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "UNSPECIFIED" => Some(Self::Unspecified),
+                "RUNNING" => Some(Self::Running),
+                "COMPLETED" => Some(Self::Completed),
+                "FAILED" => Some(Self::Failed),
+                "CANCELED" => Some(Self::Canceled),
+                _ => None,
+            }
+        }
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

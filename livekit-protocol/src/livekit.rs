@@ -8897,7 +8897,7 @@ pub mod agent_db {
     pub struct CreateRequest {
         /// Unset: never expires, and expires_at is then unset everywhere.
         /// Otherwise clamped to the server cap, and never extended.
-        #[prost(message, optional, tag="2")]
+        #[prost(message, optional, tag="1")]
         pub ttl: ::core::option::Option<::pbjson_types::Duration>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
@@ -8960,20 +8960,20 @@ pub mod agent_db {
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct DumpRequest {
+    pub struct ExportRequest {
         #[prost(string, tag="1")]
         pub database_id: ::prost::alloc::string::String,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct DumpResponse {
+    pub struct ExportResponse {
         /// pre-authenticated object-storage URL
         #[prost(string, tag="1")]
         pub download_url: ::prost::alloc::string::String,
         /// of the URL, not the database
         #[prost(message, optional, tag="2")]
         pub expires_at: ::core::option::Option<::pbjson_types::Timestamp>,
-        /// what the dump is consistent at
+        /// what the export is consistent at
         #[prost(int64, tag="3")]
         pub tip: i64,
     }
