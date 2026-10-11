@@ -418,3 +418,609 @@ mod tests {
         assert_eq!(t.observe(1, 3, true, false), OK);
     }
 }
+
+/// T3: a pre-encoded sender and a pass-through receiver in one process,
+/// connected over host candidates.
+#[cfg(test)]
+mod loopback_tests {
+    use std::time::Duration;
+
+    use tokio::{
+        sync::mpsc,
+        time::{timeout, Instant, MissedTickBehavior},
+    };
+    use tokio_stream::StreamExt;
+
+    use super::{NativeEncodedVideoStream, NativeEncodedVideoStreamOptions, ReceivedEncodedFrame};
+    use crate::{
+        media_stream_track::MediaStreamTrack,
+        peer_connection::{AnswerOptions, OfferOptions, PeerConnection, TrackEvent},
+        peer_connection_factory::{
+            native::PeerConnectionFactoryExt, ContinualGatheringPolicy, PeerConnectionFactory,
+            RtcConfiguration, VideoDecoderBackend,
+        },
+        rtp_sender::VideoEncoderBackend,
+        rtp_transceiver::{RtpTransceiverDirection, RtpTransceiverInit},
+        video_frame::{
+            EncodedFrameType, EncodedVideoCodec, EncodedVideoFrame, I420Buffer, VideoFrame,
+            VideoRotation,
+        },
+        video_source::{native::NativeVideoSource, VideoResolution},
+        video_track::RtcVideoTrack,
+        MediaType,
+    };
+
+    include!("../../../webrtc-sys/test/fixtures/passthrough_streams.rs");
+
+    const FRAME_INTERVAL: Duration = Duration::from_micros(33_333);
+    const RECEIVE_TIMEOUT: Duration = Duration::from_secs(5);
+    /// 90 kHz RTP clock at 30 fps.
+    const RTP_TICKS_PER_FRAME: i64 = 3000;
+
+    fn codec_of(stream: &TestStream) -> EncodedVideoCodec {
+        match stream.codec {
+            "H264" => EncodedVideoCodec::H264,
+            "H265" => EncodedVideoCodec::H265,
+            "VP8" => EncodedVideoCodec::VP8,
+            "VP9" => EncodedVideoCodec::VP9,
+            "AV1" => EncodedVideoCodec::AV1,
+            other => panic!("unknown fixture codec {other}"),
+        }
+    }
+
+    type Unit = (bool, &'static [u8]);
+
+    /// One access unit as sent, for comparison with what arrives.
+    #[derive(Clone, Copy)]
+    struct Sent {
+        stream: &'static TestStream,
+        unit: Unit,
+    }
+
+    #[derive(Default)]
+    struct LoopbackConfig {
+        /// The receiver's `RtcConfiguration::prerenderer_smoothing`.
+        prerenderer_smoothing: Option<bool>,
+        options: NativeEncodedVideoStreamOptions,
+        /// The receiving peer connection also sends (raw) video back.
+        receiver_sends: bool,
+    }
+
+    struct Loopback {
+        source: NativeVideoSource,
+        /// The receiving side's raw source, with `receiver_sends`.
+        back_source: Option<NativeVideoSource>,
+        stream: NativeEncodedVideoStream,
+        remote_track: RtcVideoTrack,
+        sender_pc: PeerConnection,
+        receiver_pc: PeerConnection,
+        _factories: (PeerConnectionFactory, PeerConnectionFactory),
+    }
+
+    impl Loopback {
+        /// Connects a pre-encoded sender to a pass-through receiver for the
+        /// codec of `stream`. Returns `None` when this build cannot negotiate
+        /// the codec: libwebrtc only offers pass-through formats for codecs a
+        /// real encoder supports, so H265 needs a hardware encoder.
+        async fn new(stream: &'static TestStream, config: LoopbackConfig) -> Option<Self> {
+            let LoopbackConfig { prerenderer_smoothing, options, receiver_sends } = config;
+            let _ = env_logger::builder().is_test(true).try_init();
+            let sender_factory = PeerConnectionFactory::default();
+            let receiver_factory =
+                PeerConnectionFactory::with_video_decoder_backend(VideoDecoderBackend::PassThrough);
+
+            let mime = format!("video/{}", stream.codec);
+            let mut codecs: Vec<_> = sender_factory
+                .get_rtp_sender_capabilities(MediaType::Video)
+                .codecs
+                .into_iter()
+                .filter(|c| c.mime_type.eq_ignore_ascii_case(&mime))
+                .collect();
+            if codecs.is_empty() {
+                eprintln!("skipping: {mime} cannot be negotiated without a real encoder");
+                return None;
+            }
+            // The fixtures are Constrained Baseline, packetization mode 1.
+            codecs.sort_by_key(|c| {
+                !c.sdp_fmtp_line.as_deref().is_some_and(|f| {
+                    f.contains("profile-level-id=42e01f") && f.contains("packetization-mode=1")
+                })
+            });
+
+            let config = |prerenderer_smoothing| RtcConfiguration {
+                continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+                prerenderer_smoothing,
+                ..Default::default()
+            };
+            let sender_pc = sender_factory.create_peer_connection(config(None)).unwrap();
+            let receiver_pc =
+                receiver_factory.create_peer_connection(config(prerenderer_smoothing)).unwrap();
+
+            let source = NativeVideoSource::new_encoded(VideoResolution {
+                width: stream.width,
+                height: stream.height,
+            });
+            let track = sender_factory.create_video_track("video", source.clone());
+            let transceiver = sender_pc
+                .add_transceiver(
+                    MediaStreamTrack::Video(track),
+                    RtpTransceiverInit {
+                        direction: if receiver_sends {
+                            RtpTransceiverDirection::SendRecv
+                        } else {
+                            RtpTransceiverDirection::SendOnly
+                        },
+                        stream_ids: vec!["stream".into()],
+                        send_encodings: vec![],
+                    },
+                )
+                .unwrap();
+            transceiver.sender().set_video_encoder_backend(VideoEncoderBackend::PreEncoded);
+            transceiver.set_codec_preferences(codecs).unwrap();
+
+            let back_source = receiver_sends.then(|| {
+                let back_source = NativeVideoSource::new(
+                    VideoResolution { width: stream.width, height: stream.height },
+                    false,
+                );
+                let back = receiver_factory.create_video_track("back", back_source.clone());
+                receiver_pc.add_track(MediaStreamTrack::Video(back), &["back"]).unwrap();
+                back_source
+            });
+
+            let (track_tx, mut track_rx) = mpsc::unbounded_channel();
+            receiver_pc.on_track(Some(Box::new(move |event: TrackEvent| {
+                let _ = track_tx.send(event.track);
+            })));
+            connect(&sender_pc, &receiver_pc).await;
+            let remote_track = match timeout(RECEIVE_TIMEOUT, track_rx.recv()).await {
+                Ok(Some(MediaStreamTrack::Video(track))) => track,
+                other => panic!("no remote video track: {other:?}"),
+            };
+            let stream = NativeEncodedVideoStream::new(remote_track.clone(), options);
+
+            Some(Self {
+                source,
+                back_source,
+                stream,
+                remote_track,
+                sender_pc,
+                receiver_pc,
+                _factories: (sender_factory, receiver_factory),
+            })
+        }
+
+        fn send(&self, sent: Sent) {
+            if let Some(back_source) = &self.back_source {
+                back_source.capture_frame(&VideoFrame::new(
+                    VideoRotation::VideoRotation0,
+                    I420Buffer::new(sent.stream.width, sent.stream.height),
+                ));
+            }
+            let (is_key, payload) = sent.unit;
+            self.source.capture_encoded_frame(&EncodedVideoFrame {
+                codec: codec_of(sent.stream),
+                payload,
+                timestamp_us: 0,
+                frame_type: EncodedFrameType::from_keyframe(is_key),
+                resolution: VideoResolution {
+                    width: sent.stream.width,
+                    height: sent.stream.height,
+                },
+                frame_metadata: None,
+            });
+        }
+
+        /// Sends keyframes until one arrives, then waits until nothing more is
+        /// in flight, so that tests start from a connected, idle loopback.
+        async fn start(&mut self, stream: &'static TestStream) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                self.send(Sent { stream, unit: stream.units[0] });
+                match timeout(Duration::from_millis(100), self.stream.next()).await {
+                    Ok(Some(_)) => break,
+                    Ok(None) => panic!("stream ended during warm-up"),
+                    Err(_) => assert!(Instant::now() < deadline, "no frame within 10 s"),
+                }
+            }
+            while let Ok(Some(_)) = timeout(Duration::from_millis(300), self.stream.next()).await {}
+            while self.source.take_keyframe_request() {}
+        }
+
+        async fn receive(&mut self, count: usize) -> Vec<ReceivedEncodedFrame> {
+            let mut frames = Vec::with_capacity(count);
+            while frames.len() < count {
+                match timeout(RECEIVE_TIMEOUT, self.stream.next()).await {
+                    Ok(Some(frame)) => frames.push(frame),
+                    Ok(None) => panic!("stream ended after {} of {count} frames", frames.len()),
+                    Err(_) => panic!("only {} of {count} frames arrived", frames.len()),
+                }
+            }
+            frames
+        }
+
+        /// Frames that arrive within `wait` of each other.
+        async fn receive_until_idle(&mut self, wait: Duration) -> Vec<ReceivedEncodedFrame> {
+            let mut frames = Vec::new();
+            while let Ok(Some(frame)) = timeout(wait, self.stream.next()).await {
+                frames.push(frame);
+            }
+            frames
+        }
+    }
+
+    impl Drop for Loopback {
+        fn drop(&mut self) {
+            // The ICE forwarding tasks hold the peer connections; clearing the
+            // callbacks ends them.
+            for pc in [&self.sender_pc, &self.receiver_pc] {
+                pc.on_ice_candidate(None);
+                pc.on_track(None);
+                pc.close();
+            }
+        }
+    }
+
+    async fn connect(offerer: &PeerConnection, answerer: &PeerConnection) {
+        let (offerer_tx, mut offerer_rx) = mpsc::unbounded_channel();
+        let (answerer_tx, mut answerer_rx) = mpsc::unbounded_channel();
+        offerer.on_ice_candidate(Some(Box::new(move |c| {
+            let _ = offerer_tx.send(c);
+        })));
+        answerer.on_ice_candidate(Some(Box::new(move |c| {
+            let _ = answerer_tx.send(c);
+        })));
+
+        // `offer_to_receive_video: false` would strip the receive direction
+        // from every video transceiver (`sdp_offer_answer.cc`).
+        let options = OfferOptions { offer_to_receive_video: true, ..Default::default() };
+        let offer = offerer.create_offer(options).await.unwrap();
+        offerer.set_local_description(offer.clone()).await.unwrap();
+        answerer.set_remote_description(offer).await.unwrap();
+        let answer = answerer.create_answer(AnswerOptions::default()).await.unwrap();
+        answerer.set_local_description(answer.clone()).await.unwrap();
+        offerer.set_remote_description(answer).await.unwrap();
+
+        let (o, a) = (offerer.clone(), answerer.clone());
+        tokio::spawn(async move {
+            while let Some(c) = offerer_rx.recv().await {
+                let _ = a.add_ice_candidate(c).await;
+            }
+        });
+        tokio::spawn(async move {
+            while let Some(c) = answerer_rx.recv().await {
+                let _ = o.add_ice_candidate(c).await;
+            }
+        });
+    }
+
+    fn cycle(stream: &'static TestStream, count: usize) -> Vec<Sent> {
+        stream.units.iter().cycle().take(count).map(|&unit| Sent { stream, unit }).collect()
+    }
+
+    async fn send_paced(lb: &Loopback, sent: &[Sent], interval: Duration) {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        for &s in sent {
+            ticker.tick().await;
+            lb.send(s);
+        }
+    }
+
+    fn assert_contiguous(frames: &[ReceivedEncodedFrame]) {
+        for pair in frames.windows(2) {
+            assert_eq!(pair[1].sequence, pair[0].sequence + 1, "{:?} -> {:?}", pair[0], pair[1]);
+        }
+        assert!(frames.iter().all(|f| !f.after_gap), "{frames:?}");
+    }
+
+    fn assert_same_units(sent: &[Sent], received: &[ReceivedEncodedFrame]) {
+        assert_eq!(received.len(), sent.len());
+        for (i, (s, r)) in sent.iter().zip(received).enumerate() {
+            assert_eq!(r.codec, codec_of(s.stream), "frame {i}");
+            assert_eq!(r.frame_type, EncodedFrameType::from_keyframe(s.unit.0), "frame {i}");
+            assert_eq!((r.width, r.height), (s.stream.width, s.stream.height), "frame {i}");
+            assert!(r.payload() == s.unit.1, "frame {i}: payload differs");
+        }
+    }
+
+    // T3 #25: every codec arrives byte-exact, in order, with its RTP timing.
+    async fn roundtrip(stream: &'static TestStream) {
+        let Some(mut lb) = Loopback::new(stream, Default::default()).await else {
+            return;
+        };
+        lb.start(stream).await;
+        let sent = cycle(stream, 3 * stream.units.len());
+        send_paced(&lb, &sent, FRAME_INTERVAL).await;
+        let received = lb.receive(sent.len()).await;
+
+        assert_same_units(&sent, &received);
+        assert_contiguous(&received);
+        // Capture times are aligned to the sender's clock and rounded to
+        // milliseconds before becoming RTP timestamps, so single deltas jitter;
+        // their mean is the frame interval.
+        let deltas: Vec<i64> = received
+            .windows(2)
+            .map(|p| p[1].rtp_timestamp.wrapping_sub(p[0].rtp_timestamp) as i32 as i64)
+            .collect();
+        assert!(deltas.iter().all(|d| *d > 0 && *d < 2 * RTP_TICKS_PER_FRAME), "{deltas:?}");
+        let mean = deltas.iter().sum::<i64>() / deltas.len() as i64;
+        assert!((mean - RTP_TICKS_PER_FRAME).abs() < RTP_TICKS_PER_FRAME / 10, "{deltas:?}");
+    }
+
+    #[tokio::test]
+    async fn roundtrip_h264() {
+        roundtrip(&H264).await;
+    }
+
+    #[tokio::test]
+    async fn roundtrip_h265() {
+        roundtrip(&H265).await;
+    }
+
+    #[tokio::test]
+    async fn roundtrip_vp8() {
+        roundtrip(&VP8).await;
+    }
+
+    #[tokio::test]
+    async fn roundtrip_vp9() {
+        roundtrip(&VP9).await;
+    }
+
+    #[tokio::test]
+    async fn roundtrip_av1() {
+        roundtrip(&AV1).await;
+    }
+
+    fn nal_units(access_unit: &[u8]) -> Vec<&[u8]> {
+        let mut nals = Vec::new();
+        let mut rest = access_unit;
+        while let Some(start) = rest.windows(4).position(|w| w == [0, 0, 0, 1]) {
+            rest = &rest[start + 4..];
+            let end = rest.windows(4).position(|w| w == [0, 0, 0, 1]).unwrap_or(rest.len());
+            nals.push(&rest[..end]);
+        }
+        nals
+    }
+
+    /// T3 #26: an SPS without the VUI bitstream restriction is rewritten by
+    /// libwebrtc (`SpsVuiRewriter`); every other NAL unit arrives unchanged.
+    #[tokio::test]
+    async fn h264_sps_without_vui_restriction_is_rewritten_only_in_sps() {
+        const SPS: u8 = 7;
+        let stream = &H264_NO_VUI;
+        let mut lb = Loopback::new(stream, Default::default()).await.unwrap();
+        lb.start(stream).await;
+        let sent = cycle(stream, stream.units.len());
+        send_paced(&lb, &sent, FRAME_INTERVAL).await;
+        let received = lb.receive(sent.len()).await;
+
+        for (i, (s, r)) in sent.iter().zip(&received).enumerate() {
+            assert_eq!((r.width, r.height), (stream.width, stream.height), "frame {i}");
+            let (sent_nals, received_nals) = (nal_units(s.unit.1), nal_units(r.payload()));
+            assert_eq!(sent_nals.len(), received_nals.len(), "frame {i}");
+            for (sn, rn) in sent_nals.iter().zip(&received_nals) {
+                if sn[0] & 0x1F == SPS {
+                    assert_ne!(sn, rn, "frame {i}: SPS was not rewritten");
+                } else {
+                    assert_eq!(sn, rn, "frame {i}: NAL type {} differs", sn[0] & 0x1F);
+                }
+            }
+        }
+        assert!(received.iter().any(|r| r.frame_type == EncodedFrameType::Key));
+    }
+
+    const BURSTS: usize = 5;
+    const BURST_LEN: usize = 30;
+    /// Fast enough that frames reach the receiver far faster than their
+    /// capture rate, slow enough that the sender does not drop them: libwebrtc
+    /// drops a captured frame when the next one is posted before the encoder
+    /// queue picked it up, or when two share a capture millisecond
+    /// (`frame_cadence_adapter.cc`, `video_stream_encoder.cc`).
+    const BURST_INTERVAL: Duration = Duration::from_millis(5);
+
+    async fn send_bursts(
+        lb: &mut Loopback,
+        stream: &'static TestStream,
+    ) -> Vec<ReceivedEncodedFrame> {
+        let mut received = Vec::new();
+        for _ in 0..BURSTS {
+            send_paced(lb, &cycle(stream, BURST_LEN), BURST_INTERVAL).await;
+            received.extend(lb.receive_until_idle(Duration::from_secs(1)).await);
+        }
+        assert!(
+            !lb.source.take_keyframe_request(),
+            "the sender dropped frames; the burst interval is too short for this machine"
+        );
+        received
+    }
+
+    /// T3 #27: frames that arrive in bursts all reach the stream.
+    #[tokio::test]
+    async fn burst_delivery_loses_nothing() {
+        let mut lb = Loopback::new(&VP8, Default::default()).await.unwrap();
+        lb.start(&VP8).await;
+        let received = send_bursts(&mut lb, &VP8).await;
+        assert_eq!(received.len(), BURSTS * BURST_LEN);
+        assert_contiguous(&received);
+    }
+
+    /// T3 #29: a reader that stops polling loses nothing.
+    #[tokio::test]
+    async fn slow_consumer_loses_nothing() {
+        let mut lb = Loopback::new(&VP8, Default::default()).await.unwrap();
+        lb.start(&VP8).await;
+        let sent = cycle(&VP8, 60);
+        send_paced(&lb, &sent, FRAME_INTERVAL).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let received = lb.receive(sent.len()).await;
+        assert_same_units(&sent, &received);
+        assert_contiguous(&received);
+    }
+
+    /// Sends deltas until the sender sees a keyframe request, answers it with a
+    /// keyframe, and returns the frames received meanwhile. `request` runs once,
+    /// on the first received frame.
+    async fn keyframe_request_roundtrip(
+        lb: &mut Loopback,
+        request: impl FnOnce(&Loopback, &ReceivedEncodedFrame),
+    ) {
+        let stream = &VP8;
+        let deltas = &stream.units[1..];
+        let mut request = Some(request);
+        let mut ticker = tokio::time::interval(FRAME_INTERVAL);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut requested = false;
+        let mut i = 0;
+        while !requested {
+            assert!(Instant::now() < deadline, "the sender saw no keyframe request within 2 s");
+            ticker.tick().await;
+            lb.send(Sent { stream, unit: deltas[i % deltas.len()] });
+            i += 1;
+            if let Ok(Some(frame)) = timeout(Duration::from_millis(1), lb.stream.next()).await {
+                if let Some(request) = request.take() {
+                    request(lb, &frame);
+                }
+            }
+            requested = lb.source.take_keyframe_request();
+        }
+        // On the next tick: a capture in the same millisecond as the last one
+        // would be dropped by the sender.
+        ticker.tick().await;
+        lb.send(Sent { stream, unit: stream.units[0] });
+        let deadline = Instant::now() + RECEIVE_TIMEOUT;
+        loop {
+            let frame = timeout(deadline - Instant::now(), lb.stream.next())
+                .await
+                .expect("the requested keyframe did not arrive")
+                .unwrap();
+            if frame.frame_type == EncodedFrameType::Key {
+                break;
+            }
+        }
+    }
+
+    /// T3 #30: `RtcVideoTrack::request_keyframe` reaches the sender.
+    #[tokio::test]
+    async fn receiver_request_keyframe_reaches_sender() {
+        let mut lb = Loopback::new(&VP8, Default::default()).await.unwrap();
+        lb.start(&VP8).await;
+        keyframe_request_roundtrip(&mut lb, |lb, _| lb.remote_track.request_keyframe()).await;
+    }
+
+    /// T3 #31: a request raised on a received frame reaches the sender through
+    /// the decoder (`WEBRTC_VIDEO_CODEC_OK_REQUEST_KEYFRAME`).
+    #[tokio::test]
+    async fn decoder_flag_request_reaches_sender() {
+        let mut lb = Loopback::new(&VP8, Default::default()).await.unwrap();
+        lb.start(&VP8).await;
+        keyframe_request_roundtrip(&mut lb, |_, frame| frame.request_keyframe()).await;
+    }
+
+    /// T3 #32: a keyframe at a new size switches the reported size without a
+    /// new decoder or a gap.
+    #[tokio::test]
+    async fn resolution_change_mid_stream() {
+        let mut lb = Loopback::new(&H264, Default::default()).await.unwrap();
+        lb.start(&H264).await;
+        let mut sent = cycle(&H264, H264.units.len());
+        sent.extend(cycle(&H264_128X72, H264_128X72.units.len()));
+        send_paced(&lb, &sent, FRAME_INTERVAL).await;
+        let received = lb.receive(sent.len()).await;
+        assert_same_units(&sent, &received);
+        assert_contiguous(&received);
+    }
+
+    /// Sends VP8 at 30 fps for `duration` and returns the received frames.
+    async fn stream_for(lb: &mut Loopback, duration: Duration) -> Vec<ReceivedEncodedFrame> {
+        let count = (duration.as_millis() / FRAME_INTERVAL.as_millis()) as usize;
+        let mut ticker = tokio::time::interval(FRAME_INTERVAL);
+        let mut received = Vec::new();
+        for sent in cycle(&VP8, count) {
+            ticker.tick().await;
+            lb.send(sent);
+            while let Ok(Some(frame)) = timeout(Duration::ZERO, lb.stream.next()).await {
+                received.push(frame);
+            }
+        }
+        received
+    }
+
+    /// T3 #33: the capture time in the receiver's NTP clock needs an RTT on
+    /// the receive stream (`rtp_video_stream_receiver2.cc`). A receive-only
+    /// peer connection gets none unless RTCP XR RRTR or abs-capture-time is
+    /// negotiated, and neither is by default.
+    #[tokio::test]
+    async fn ntp_time_unknown_on_receive_only_connection() {
+        let mut lb = Loopback::new(&VP8, Default::default()).await.unwrap();
+        lb.start(&VP8).await;
+        let received = stream_for(&mut lb, Duration::from_secs(3)).await;
+        assert!(!received.is_empty());
+        assert!(received.iter().all(|f| f.ntp_time_ms.is_none()), "{received:?}");
+    }
+
+    /// T3 #33b: when the receiving peer connection also sends video, the RTT
+    /// comes from the sender's reports and the NTP time becomes known.
+    #[tokio::test]
+    async fn ntp_time_becomes_available_when_receiver_also_sends() {
+        let config = LoopbackConfig { receiver_sends: true, ..Default::default() };
+        let mut lb = Loopback::new(&VP8, config).await.unwrap();
+        lb.start(&VP8).await;
+        let received = stream_for(&mut lb, Duration::from_secs(5)).await;
+        assert!(received.iter().any(|f| f.ntp_time_ms.is_some()), "no NTP time within 5 s");
+    }
+
+    /// T3 #34: factories without pass-through decoding still decode.
+    #[tokio::test]
+    async fn default_factory_still_decodes() {
+        use crate::video_stream::native::NativeVideoStream;
+
+        let _ = env_logger::builder().is_test(true).try_init();
+        let (sender_factory, receiver_factory) =
+            (PeerConnectionFactory::default(), PeerConnectionFactory::default());
+        let config = RtcConfiguration {
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ..Default::default()
+        };
+        let sender_pc = sender_factory.create_peer_connection(config.clone()).unwrap();
+        let receiver_pc = receiver_factory.create_peer_connection(config).unwrap();
+        let source = NativeVideoSource::new(VideoResolution { width: 64, height: 64 }, false);
+        let track = sender_factory.create_video_track("video", source.clone());
+        sender_pc.add_track(MediaStreamTrack::Video(track), &["stream"]).unwrap();
+        let (track_tx, mut track_rx) = mpsc::unbounded_channel();
+        receiver_pc.on_track(Some(Box::new(move |event: TrackEvent| {
+            let _ = track_tx.send(event.track);
+        })));
+        connect(&sender_pc, &receiver_pc).await;
+        let Ok(Some(MediaStreamTrack::Video(remote))) =
+            timeout(RECEIVE_TIMEOUT, track_rx.recv()).await
+        else {
+            panic!("no remote video track");
+        };
+        let mut stream = NativeVideoStream::new(remote);
+
+        let mut ticker = tokio::time::interval(FRAME_INTERVAL);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let frame = loop {
+            assert!(Instant::now() < deadline, "no decoded frame within 10 s");
+            ticker.tick().await;
+            source.capture_frame(&VideoFrame::new(
+                VideoRotation::VideoRotation0,
+                I420Buffer::new(64, 64),
+            ));
+            if let Ok(Some(frame)) = timeout(Duration::from_millis(1), stream.next()).await {
+                break frame;
+            }
+        };
+        assert_eq!((frame.buffer.width(), frame.buffer.height()), (64, 64));
+        assert!(frame.buffer.as_native().and_then(|n| n.encoded()).is_none());
+        assert!(frame.buffer.to_i420().data().0.len() >= 64 * 64);
+
+        for pc in [&sender_pc, &receiver_pc] {
+            pc.on_ice_candidate(None);
+            pc.on_track(None);
+            pc.close();
+        }
+    }
+}

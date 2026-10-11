@@ -23,6 +23,10 @@ form the passthrough encoder forwards unchanged, so a loopback can compare bytes
 - AV1: low-overhead OBUs without temporal delimiters (the sender strips them).
 - VP8/VP9: one frame per access unit (no alt-ref, no superframes).
 
+`H264_NO_VUI` is `H264` with the VUI removed from its SPS. libwebrtc rewrites such an
+SPS to add a bitstream restriction (`SpsVuiRewriter`, `sps_vui_rewriter.cc`), so it
+exercises the one case where a received H264 access unit differs from the sent one.
+
 Usage: python3 gen_passthrough_streams.py > passthrough_streams.rs
 Requires ffmpeg/ffprobe with libx264, libx265, libvpx and libaom.
 """
@@ -146,6 +150,95 @@ def strip_temporal_delimiters(tu):
     return out
 
 
+class BitReader:
+    def __init__(self, data):
+        self.data, self.pos = data, 0
+
+    def bit(self):
+        b = (self.data[self.pos // 8] >> (7 - self.pos % 8)) & 1
+        self.pos += 1
+        return b
+
+    def bits(self, n):
+        v = 0
+        for _ in range(n):
+            v = (v << 1) | self.bit()
+        return v
+
+    def ue(self):
+        zeros = 0
+        while self.bit() == 0:
+            zeros += 1
+        return (1 << zeros) - 1 + self.bits(zeros)
+
+
+def unescape_rbsp(data):
+    out, zeros = bytearray(), 0
+    for b in data:
+        if zeros >= 2 and b == 3:
+            zeros = 0
+            continue
+        out.append(b)
+        zeros = zeros + 1 if b == 0 else 0
+    return bytes(out)
+
+
+def escape_rbsp(data):
+    out, zeros = bytearray(), 0
+    for b in data:
+        if zeros >= 2 and b <= 3:
+            out.append(3)
+            zeros = 0
+        out.append(b)
+        zeros = zeros + 1 if b == 0 else 0
+    return bytes(out)
+
+
+def h264_sps_without_vui(nal):
+    """Returns the SPS NAL unit `nal` with vui_parameters_present_flag cleared.
+
+    Supports the profiles the generator uses (Baseline: no chroma/scaling fields) and
+    POC types 0 and 2."""
+    rbsp = unescape_rbsp(nal[1:])
+    r = BitReader(rbsp)
+    profile_idc = r.bits(8)
+    assert profile_idc == 66, f"unsupported profile {profile_idc}"
+    r.bits(16)  # constraint flags, level_idc
+    r.ue()  # seq_parameter_set_id
+    r.ue()  # log2_max_frame_num_minus4
+    poc_type = r.ue()
+    assert poc_type in (0, 2), f"unsupported POC type {poc_type}"
+    if poc_type == 0:
+        r.ue()  # log2_max_pic_order_cnt_lsb_minus4
+    r.ue()  # max_num_ref_frames
+    r.bit()  # gaps_in_frame_num_value_allowed_flag
+    r.ue()  # pic_width_in_mbs_minus1
+    r.ue()  # pic_height_in_map_units_minus1
+    if not r.bit():  # frame_mbs_only_flag
+        r.bit()  # mb_adaptive_frame_field_flag
+    r.bit()  # direct_8x8_inference_flag
+    if r.bit():  # frame_cropping_flag
+        for _ in range(4):
+            r.ue()
+    assert r.bit() == 1, "SPS has no VUI to remove"
+    # Keep everything before vui_parameters_present_flag, then write the flag (0) and
+    # rbsp_trailing_bits.
+    kept = r.pos - 1
+    bits = [(rbsp[i // 8] >> (7 - i % 8)) & 1 for i in range(kept)] + [0, 1]
+    bits += [0] * (-len(bits) % 8)
+    out = bytes(int("".join(map(str, bits[i:i + 8])), 2) for i in range(0, len(bits), 8))
+    return nal[:1] + escape_rbsp(out)
+
+
+def without_vui(units):
+    out = []
+    for is_key, unit in units:
+        nals = [n for n in unit.split(b"\x00\x00\x00\x01") if n]
+        nals = [h264_sps_without_vui(n) if n[0] & 0x1F == 7 else n for n in nals]
+        out.append((is_key, b"".join(b"\x00\x00\x00\x01" + n for n in nals)))
+    return out
+
+
 def key_flags(path):
     out = run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
                "packet=flags", "-of", "csv=p=0", str(path)]).decode().split()
@@ -192,8 +285,13 @@ def main():
     print("}")
     names = []
     with tempfile.TemporaryDirectory() as tmp:
+        streams = []
         for name, codec, width, height, args, container in STREAMS:
             units = generate(name, codec, width, height, args, container, tmp)
+            streams.append((name, codec, width, height, units))
+            if name == "H264":
+                streams.append(("H264_NO_VUI", codec, width, height, without_vui(units)))
+        for name, codec, width, height, units in streams:
             names.append(name)
             print()
             print("#[allow(dead_code)]")
