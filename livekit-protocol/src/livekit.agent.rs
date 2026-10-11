@@ -151,6 +151,8 @@ pub struct FunctionCall {
     pub name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="5")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="6")]
+    pub extra: ::core::option::Option<::pbjson_types::Struct>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1206,9 +1208,9 @@ pub mod agent_thread {
     pub struct ListRequest {
         #[prost(string, tag="1")]
         pub scope: ::prost::alloc::string::String,
-        /// Cursor from the previous ListResponse; empty for the first page.
+        /// next_page_token of the previous ListResponse; empty for the first page.
         #[prost(string, tag="2")]
-        pub before: ::prost::alloc::string::String,
+        pub page_token: ::prost::alloc::string::String,
         #[prost(int32, tag="3")]
         pub limit: i32,
     }
@@ -1217,9 +1219,9 @@ pub mod agent_thread {
     pub struct ListResponse {
         #[prost(message, repeated, tag="1")]
         pub threads: ::prost::alloc::vec::Vec<Thread>,
-        /// Empty at the end.
+        /// Empty when exhausted.
         #[prost(string, tag="2")]
-        pub before: ::prost::alloc::string::String,
+        pub next_page_token: ::prost::alloc::string::String,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1243,7 +1245,7 @@ pub mod agent_thread {
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct DeleteResponse {
     }
-    /// The thread's chat items, oldest first.
+    /// The thread's chat items, oldest first unless sort_order says otherwise.
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GetItemsRequest {
@@ -1252,20 +1254,24 @@ pub mod agent_thread {
         /// One agent's items; empty for every agent's.
         #[prost(string, tag="2")]
         pub agent: ::prost::alloc::string::String,
-        /// Cursor from the previous GetItemsResponse; empty for the first page.
+        /// next_page_token of the previous GetItemsResponse; empty for the first page.
         #[prost(string, tag="3")]
-        pub after: ::prost::alloc::string::String,
+        pub page_token: ::prost::alloc::string::String,
         #[prost(int32, tag="4")]
         pub limit: i32,
+        /// Unset or ASC is oldest first. DESC starts from the latest item and each
+        /// next_page_token walks back through older ones.
+        #[prost(enumeration="SortOrder", tag="5")]
+        pub sort_order: i32,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GetItemsResponse {
         #[prost(message, repeated, tag="1")]
         pub items: ::prost::alloc::vec::Vec<Item>,
-        /// Empty at the end.
+        /// Empty when exhausted.
         #[prost(string, tag="2")]
-        pub after: ::prost::alloc::string::String,
+        pub next_page_token: ::prost::alloc::string::String,
     }
     /// One chat item of an agent. Stored as the JSON of
     /// ChatContext.ChatItem (items.payload in thread_schema_v1.sql).
@@ -1306,6 +1312,36 @@ pub mod agent_thread {
         #[prost(string, tag="8")]
         pub database_id: ::prost::alloc::string::String,
     }
+    /// Direction of a listing. Each request documents what unset means.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum SortOrder {
+        Unspecified = 0,
+        Asc = 1,
+        Desc = 2,
+    }
+    impl SortOrder {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                SortOrder::Unspecified => "SORT_ORDER_UNSPECIFIED",
+                SortOrder::Asc => "SORT_ORDER_ASC",
+                SortOrder::Desc => "SORT_ORDER_DESC",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "SORT_ORDER_UNSPECIFIED" => Some(Self::Unspecified),
+                "SORT_ORDER_ASC" => Some(Self::Asc),
+                "SORT_ORDER_DESC" => Some(Self::Desc),
+                _ => None,
+            }
+        }
+    }
 }
 /// AgentTask: background work an agent runs within a thread, such as a booking
 /// that takes minutes.
@@ -1324,12 +1360,20 @@ pub mod agent_task {
         /// Unset for every status.
         #[prost(enumeration="Status", optional, tag="2")]
         pub status: ::core::option::Option<i32>,
+        /// next_page_token of the previous GetTasksResponse; empty for the first page.
+        #[prost(string, tag="3")]
+        pub page_token: ::prost::alloc::string::String,
+        #[prost(int32, tag="4")]
+        pub limit: i32,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GetTasksResponse {
         #[prost(message, repeated, tag="1")]
         pub tasks: ::prost::alloc::vec::Vec<Task>,
+        /// Empty when exhausted.
+        #[prost(string, tag="2")]
+        pub next_page_token: ::prost::alloc::string::String,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

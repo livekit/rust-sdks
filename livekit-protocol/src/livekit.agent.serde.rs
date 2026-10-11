@@ -3858,6 +3858,12 @@ impl serde::Serialize for agent_task::GetTasksRequest {
         if self.status.is_some() {
             len += 1;
         }
+        if !self.page_token.is_empty() {
+            len += 1;
+        }
+        if self.limit != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentTask.GetTasksRequest", len)?;
         if !self.thread_id.is_empty() {
             struct_ser.serialize_field("threadId", &self.thread_id)?;
@@ -3866,6 +3872,12 @@ impl serde::Serialize for agent_task::GetTasksRequest {
             let v = agent_task::Status::try_from(*v)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
             struct_ser.serialize_field("status", &v)?;
+        }
+        if !self.page_token.is_empty() {
+            struct_ser.serialize_field("pageToken", &self.page_token)?;
+        }
+        if self.limit != 0 {
+            struct_ser.serialize_field("limit", &self.limit)?;
         }
         struct_ser.end()
     }
@@ -3880,12 +3892,17 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksRequest {
             "thread_id",
             "threadId",
             "status",
+            "page_token",
+            "pageToken",
+            "limit",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ThreadId,
             Status,
+            PageToken,
+            Limit,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3910,6 +3927,8 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksRequest {
                         match value {
                             "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             "status" => Ok(GeneratedField::Status),
+                            "pageToken" | "page_token" => Ok(GeneratedField::PageToken),
+                            "limit" => Ok(GeneratedField::Limit),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3931,6 +3950,8 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksRequest {
             {
                 let mut thread_id__ = None;
                 let mut status__ = None;
+                let mut page_token__ = None;
+                let mut limit__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ThreadId => {
@@ -3945,6 +3966,20 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksRequest {
                             }
                             status__ = map_.next_value::<::std::option::Option<agent_task::Status>>()?.map(|x| x as i32);
                         }
+                        GeneratedField::PageToken => {
+                            if page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pageToken"));
+                            }
+                            page_token__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Limit => {
+                            if limit__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("limit"));
+                            }
+                            limit__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3953,6 +3988,8 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksRequest {
                 Ok(agent_task::GetTasksRequest {
                     thread_id: thread_id__.unwrap_or_default(),
                     status: status__,
+                    page_token: page_token__.unwrap_or_default(),
+                    limit: limit__.unwrap_or_default(),
                 })
             }
         }
@@ -3970,9 +4007,15 @@ impl serde::Serialize for agent_task::GetTasksResponse {
         if !self.tasks.is_empty() {
             len += 1;
         }
+        if !self.next_page_token.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentTask.GetTasksResponse", len)?;
         if !self.tasks.is_empty() {
             struct_ser.serialize_field("tasks", &self.tasks)?;
+        }
+        if !self.next_page_token.is_empty() {
+            struct_ser.serialize_field("nextPageToken", &self.next_page_token)?;
         }
         struct_ser.end()
     }
@@ -3985,11 +4028,14 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksResponse {
     {
         const FIELDS: &[&str] = &[
             "tasks",
+            "next_page_token",
+            "nextPageToken",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Tasks,
+            NextPageToken,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4013,6 +4059,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksResponse {
                     {
                         match value {
                             "tasks" => Ok(GeneratedField::Tasks),
+                            "nextPageToken" | "next_page_token" => Ok(GeneratedField::NextPageToken),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4033,6 +4080,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksResponse {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut tasks__ = None;
+                let mut next_page_token__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Tasks => {
@@ -4041,6 +4089,12 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksResponse {
                             }
                             tasks__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::NextPageToken => {
+                            if next_page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nextPageToken"));
+                            }
+                            next_page_token__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4048,6 +4102,7 @@ impl<'de> serde::Deserialize<'de> for agent_task::GetTasksResponse {
                 }
                 Ok(agent_task::GetTasksResponse {
                     tasks: tasks__.unwrap_or_default(),
+                    next_page_token: next_page_token__.unwrap_or_default(),
                 })
             }
         }
@@ -4688,10 +4743,13 @@ impl serde::Serialize for agent_thread::GetItemsRequest {
         if !self.agent.is_empty() {
             len += 1;
         }
-        if !self.after.is_empty() {
+        if !self.page_token.is_empty() {
             len += 1;
         }
         if self.limit != 0 {
+            len += 1;
+        }
+        if self.sort_order != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.GetItemsRequest", len)?;
@@ -4701,11 +4759,16 @@ impl serde::Serialize for agent_thread::GetItemsRequest {
         if !self.agent.is_empty() {
             struct_ser.serialize_field("agent", &self.agent)?;
         }
-        if !self.after.is_empty() {
-            struct_ser.serialize_field("after", &self.after)?;
+        if !self.page_token.is_empty() {
+            struct_ser.serialize_field("pageToken", &self.page_token)?;
         }
         if self.limit != 0 {
             struct_ser.serialize_field("limit", &self.limit)?;
+        }
+        if self.sort_order != 0 {
+            let v = agent_thread::SortOrder::try_from(self.sort_order)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.sort_order)))?;
+            struct_ser.serialize_field("sortOrder", &v)?;
         }
         struct_ser.end()
     }
@@ -4720,16 +4783,20 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
             "thread_id",
             "threadId",
             "agent",
-            "after",
+            "page_token",
+            "pageToken",
             "limit",
+            "sort_order",
+            "sortOrder",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             ThreadId,
             Agent,
-            After,
+            PageToken,
             Limit,
+            SortOrder,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4754,8 +4821,9 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
                         match value {
                             "threadId" | "thread_id" => Ok(GeneratedField::ThreadId),
                             "agent" => Ok(GeneratedField::Agent),
-                            "after" => Ok(GeneratedField::After),
+                            "pageToken" | "page_token" => Ok(GeneratedField::PageToken),
                             "limit" => Ok(GeneratedField::Limit),
+                            "sortOrder" | "sort_order" => Ok(GeneratedField::SortOrder),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4777,8 +4845,9 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
             {
                 let mut thread_id__ = None;
                 let mut agent__ = None;
-                let mut after__ = None;
+                let mut page_token__ = None;
                 let mut limit__ = None;
+                let mut sort_order__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::ThreadId => {
@@ -4793,11 +4862,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
                             }
                             agent__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::After => {
-                            if after__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("after"));
+                        GeneratedField::PageToken => {
+                            if page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pageToken"));
                             }
-                            after__ = Some(map_.next_value()?);
+                            page_token__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Limit => {
                             if limit__.is_some() {
@@ -4807,6 +4876,12 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::SortOrder => {
+                            if sort_order__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sortOrder"));
+                            }
+                            sort_order__ = Some(map_.next_value::<agent_thread::SortOrder>()? as i32);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -4815,8 +4890,9 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsRequest {
                 Ok(agent_thread::GetItemsRequest {
                     thread_id: thread_id__.unwrap_or_default(),
                     agent: agent__.unwrap_or_default(),
-                    after: after__.unwrap_or_default(),
+                    page_token: page_token__.unwrap_or_default(),
                     limit: limit__.unwrap_or_default(),
+                    sort_order: sort_order__.unwrap_or_default(),
                 })
             }
         }
@@ -4834,15 +4910,15 @@ impl serde::Serialize for agent_thread::GetItemsResponse {
         if !self.items.is_empty() {
             len += 1;
         }
-        if !self.after.is_empty() {
+        if !self.next_page_token.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.GetItemsResponse", len)?;
         if !self.items.is_empty() {
             struct_ser.serialize_field("items", &self.items)?;
         }
-        if !self.after.is_empty() {
-            struct_ser.serialize_field("after", &self.after)?;
+        if !self.next_page_token.is_empty() {
+            struct_ser.serialize_field("nextPageToken", &self.next_page_token)?;
         }
         struct_ser.end()
     }
@@ -4855,13 +4931,14 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsResponse {
     {
         const FIELDS: &[&str] = &[
             "items",
-            "after",
+            "next_page_token",
+            "nextPageToken",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Items,
-            After,
+            NextPageToken,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4885,7 +4962,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsResponse {
                     {
                         match value {
                             "items" => Ok(GeneratedField::Items),
-                            "after" => Ok(GeneratedField::After),
+                            "nextPageToken" | "next_page_token" => Ok(GeneratedField::NextPageToken),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4906,7 +4983,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsResponse {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut items__ = None;
-                let mut after__ = None;
+                let mut next_page_token__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Items => {
@@ -4915,11 +4992,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsResponse {
                             }
                             items__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::After => {
-                            if after__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("after"));
+                        GeneratedField::NextPageToken => {
+                            if next_page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nextPageToken"));
                             }
-                            after__ = Some(map_.next_value()?);
+                            next_page_token__ = Some(map_.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -4928,7 +5005,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::GetItemsResponse {
                 }
                 Ok(agent_thread::GetItemsResponse {
                     items: items__.unwrap_or_default(),
-                    after: after__.unwrap_or_default(),
+                    next_page_token: next_page_token__.unwrap_or_default(),
                 })
             }
         }
@@ -5193,7 +5270,7 @@ impl serde::Serialize for agent_thread::ListRequest {
         if !self.scope.is_empty() {
             len += 1;
         }
-        if !self.before.is_empty() {
+        if !self.page_token.is_empty() {
             len += 1;
         }
         if self.limit != 0 {
@@ -5203,8 +5280,8 @@ impl serde::Serialize for agent_thread::ListRequest {
         if !self.scope.is_empty() {
             struct_ser.serialize_field("scope", &self.scope)?;
         }
-        if !self.before.is_empty() {
-            struct_ser.serialize_field("before", &self.before)?;
+        if !self.page_token.is_empty() {
+            struct_ser.serialize_field("pageToken", &self.page_token)?;
         }
         if self.limit != 0 {
             struct_ser.serialize_field("limit", &self.limit)?;
@@ -5220,14 +5297,15 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
     {
         const FIELDS: &[&str] = &[
             "scope",
-            "before",
+            "page_token",
+            "pageToken",
             "limit",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Scope,
-            Before,
+            PageToken,
             Limit,
             __SkipField__,
         }
@@ -5252,7 +5330,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                     {
                         match value {
                             "scope" => Ok(GeneratedField::Scope),
-                            "before" => Ok(GeneratedField::Before),
+                            "pageToken" | "page_token" => Ok(GeneratedField::PageToken),
                             "limit" => Ok(GeneratedField::Limit),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -5274,7 +5352,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut scope__ = None;
-                let mut before__ = None;
+                let mut page_token__ = None;
                 let mut limit__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -5284,11 +5362,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                             }
                             scope__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Before => {
-                            if before__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("before"));
+                        GeneratedField::PageToken => {
+                            if page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pageToken"));
                             }
-                            before__ = Some(map_.next_value()?);
+                            page_token__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Limit => {
                             if limit__.is_some() {
@@ -5305,7 +5383,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListRequest {
                 }
                 Ok(agent_thread::ListRequest {
                     scope: scope__.unwrap_or_default(),
-                    before: before__.unwrap_or_default(),
+                    page_token: page_token__.unwrap_or_default(),
                     limit: limit__.unwrap_or_default(),
                 })
             }
@@ -5324,15 +5402,15 @@ impl serde::Serialize for agent_thread::ListResponse {
         if !self.threads.is_empty() {
             len += 1;
         }
-        if !self.before.is_empty() {
+        if !self.next_page_token.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.AgentThread.ListResponse", len)?;
         if !self.threads.is_empty() {
             struct_ser.serialize_field("threads", &self.threads)?;
         }
-        if !self.before.is_empty() {
-            struct_ser.serialize_field("before", &self.before)?;
+        if !self.next_page_token.is_empty() {
+            struct_ser.serialize_field("nextPageToken", &self.next_page_token)?;
         }
         struct_ser.end()
     }
@@ -5345,13 +5423,14 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListResponse {
     {
         const FIELDS: &[&str] = &[
             "threads",
-            "before",
+            "next_page_token",
+            "nextPageToken",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Threads,
-            Before,
+            NextPageToken,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5375,7 +5454,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListResponse {
                     {
                         match value {
                             "threads" => Ok(GeneratedField::Threads),
-                            "before" => Ok(GeneratedField::Before),
+                            "nextPageToken" | "next_page_token" => Ok(GeneratedField::NextPageToken),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5396,7 +5475,7 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListResponse {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut threads__ = None;
-                let mut before__ = None;
+                let mut next_page_token__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Threads => {
@@ -5405,11 +5484,11 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListResponse {
                             }
                             threads__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Before => {
-                            if before__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("before"));
+                        GeneratedField::NextPageToken => {
+                            if next_page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nextPageToken"));
                             }
-                            before__ = Some(map_.next_value()?);
+                            next_page_token__ = Some(map_.next_value()?);
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -5418,11 +5497,85 @@ impl<'de> serde::Deserialize<'de> for agent_thread::ListResponse {
                 }
                 Ok(agent_thread::ListResponse {
                     threads: threads__.unwrap_or_default(),
-                    before: before__.unwrap_or_default(),
+                    next_page_token: next_page_token__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("livekit.agent.AgentThread.ListResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for agent_thread::SortOrder {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "SORT_ORDER_UNSPECIFIED",
+            Self::Asc => "SORT_ORDER_ASC",
+            Self::Desc => "SORT_ORDER_DESC",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for agent_thread::SortOrder {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "SORT_ORDER_UNSPECIFIED",
+            "SORT_ORDER_ASC",
+            "SORT_ORDER_DESC",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = agent_thread::SortOrder;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "SORT_ORDER_UNSPECIFIED" => Ok(agent_thread::SortOrder::Unspecified),
+                    "SORT_ORDER_ASC" => Ok(agent_thread::SortOrder::Asc),
+                    "SORT_ORDER_DESC" => Ok(agent_thread::SortOrder::Desc),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for agent_thread::Thread {
@@ -7897,6 +8050,9 @@ impl serde::Serialize for FunctionCall {
         if self.created_at.is_some() {
             len += 1;
         }
+        if self.extra.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.FunctionCall", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -7912,6 +8068,9 @@ impl serde::Serialize for FunctionCall {
         }
         if let Some(v) = self.created_at.as_ref() {
             struct_ser.serialize_field("createdAt", v)?;
+        }
+        if let Some(v) = self.extra.as_ref() {
+            struct_ser.serialize_field("extra", v)?;
         }
         struct_ser.end()
     }
@@ -7930,6 +8089,7 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
             "name",
             "created_at",
             "createdAt",
+            "extra",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -7939,6 +8099,7 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
             Arguments,
             Name,
             CreatedAt,
+            Extra,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -7966,6 +8127,7 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                             "arguments" => Ok(GeneratedField::Arguments),
                             "name" => Ok(GeneratedField::Name),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
+                            "extra" => Ok(GeneratedField::Extra),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -7990,6 +8152,7 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                 let mut arguments__ = None;
                 let mut name__ = None;
                 let mut created_at__ = None;
+                let mut extra__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -8022,6 +8185,12 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                             }
                             created_at__ = map_.next_value()?;
                         }
+                        GeneratedField::Extra => {
+                            if extra__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("extra"));
+                            }
+                            extra__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -8033,6 +8202,7 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                     arguments: arguments__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     created_at: created_at__,
+                    extra: extra__,
                 })
             }
         }
