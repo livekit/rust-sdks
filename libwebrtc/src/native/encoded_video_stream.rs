@@ -137,6 +137,7 @@ impl NativeEncodedVideoStream {
         let weak_observer = Arc::downgrade(&observer);
         let native_sink =
             sys_vt::ffi::new_native_video_sink(Box::new(sys_vt::VideoSinkWrapper::new(observer)));
+        // SAFETY: `video_track` is an `RtcVideoTrack`, so its handle is a video track.
         let video = unsafe { sys_vt::ffi::media_to_video(video_track.sys_handle()) };
         video.add_sink(&native_sink);
         Self {
@@ -155,6 +156,7 @@ impl NativeEncodedVideoStream {
 
     /// Stops receiving; frames still queued are discarded.
     pub fn close(&mut self) {
+        // SAFETY: `video_track` is an `RtcVideoTrack`, so its handle is a video track.
         let video = unsafe { sys_vt::ffi::media_to_video(self.video_track.sys_handle()) };
         video.remove_sink(&self.native_sink);
         self.queue.close();
@@ -187,6 +189,7 @@ impl sys_vt::VideoSink for EncodedTrackObserver {
         let Some(queue) = self.queue.upgrade() else {
             return;
         };
+        // SAFETY: `frame` is a valid frame owned by this call.
         let buffer = new_video_frame_buffer(unsafe { frame.video_frame_buffer() });
         let Some(encoded) = buffer.as_native().and_then(|native| native.encoded()) else {
             log::warn!("NativeEncodedVideoStream received a decoded frame; is the factory using VideoDecoderBackend::PassThrough?");
