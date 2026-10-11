@@ -51,6 +51,12 @@ mod tests {
             /// Stream identities of two decoder instances, each after one decode.
             fn passthrough_decoder_identities_for_test() -> Vec<usize>;
 
+            /// Probes a buffer the decoder emitted the way an incidental sink
+            /// would: `[to_i420 width, to_i420 height, to_i420 first Y byte,
+            /// crop_and_scale returned the same buffer (0/1), request_keyframe
+            /// on a buffer without a flag did not crash (1)]`.
+            fn encoded_buffer_receive_side_for_test() -> Vec<i32>;
+
             include!("livekit/video_decoder_factory.h");
 
             /// Implementation name of the decoder `livekit_ffi::VideoDecoderFactory`
@@ -224,5 +230,13 @@ mod tests {
         for codec in ["H264", "H265", "VP8", "VP9", "AV1"] {
             assert!(formats.iter().any(|f| f == codec), "{codec} missing from {formats:?}");
         }
+    }
+
+    /// A sink that converts whatever it receives (e.g. a preview) gets a black
+    /// frame of the right size instead of a crash, and scaling is a no-op.
+    #[test]
+    fn receive_side_buffer_is_safe_for_incidental_sinks() {
+        let probe = ffi_tests::encoded_buffer_receive_side_for_test();
+        assert_eq!(probe, [64, 64, 0, 1, 1]);
     }
 }

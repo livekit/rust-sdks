@@ -300,6 +300,41 @@ rust::Vec<DecodeForTest> passthrough_decode_for_test(
   return results;
 }
 
+rust::Vec<int32_t> encoded_buffer_receive_side_for_test() {
+  PassthroughVideoDecoder decoder(livekit::EncodedVideoCodec::kH264);
+  CapturingCallback callback;
+  decoder.RegisterDecodeCompleteCallback(&callback);
+  const uint8_t payload[] = {0, 0, 0, 1, 0x65, 0x88};
+  webrtc::EncodedImage image;
+  image.SetEncodedData(
+      webrtc::EncodedImageBuffer::Create(payload, sizeof(payload)));
+  image._frameType = webrtc::VideoFrameType::kVideoFrameKey;
+  image._encodedWidth = 64;
+  image._encodedHeight = 64;
+  decoder.Decode(image, 0);
+
+  rust::Vec<int32_t> probe;
+  if (callback.frames.empty()) {
+    return probe;
+  }
+  auto buffer = callback.frames.back().video_frame_buffer();
+  auto i420 = buffer->ToI420();
+  probe.push_back(i420->width());
+  probe.push_back(i420->height());
+  probe.push_back(i420->DataY()[0]);
+  auto scaled = buffer->CropAndScale(0, 0, 64, 64, 32, 32);
+  probe.push_back(scaled.get() == buffer.get() ? 1 : 0);
+  // A buffer built without a flag (e.g. by another producer) ignores the
+  // request instead of crashing.
+  auto unflagged = webrtc::make_ref_counted<livekit::EncodedVideoFrameBuffer>(
+      64, 64, livekit::EncodedVideoCodec::kH264,
+      livekit::EncodedFrameType::kKey,
+      webrtc::EncodedImageBuffer::Create(payload, sizeof(payload)));
+  unflagged->request_keyframe();
+  probe.push_back(1);
+  return probe;
+}
+
 rust::String passthrough_decoder_info_for_test() {
   PassthroughVideoDecoder decoder(livekit::EncodedVideoCodec::kH264);
   auto info = decoder.GetDecoderInfo();
