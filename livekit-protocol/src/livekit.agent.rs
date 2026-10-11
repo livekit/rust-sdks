@@ -151,8 +151,11 @@ pub struct FunctionCall {
     pub name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="5")]
     pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(message, optional, tag="6")]
-    pub extra: ::core::option::Option<::pbjson_types::Struct>,
+    /// Framework metadata recorded on the call, kept with the history. A delegating call records
+    /// where the request went: lk.delegation.task_id, lk.delegation.endpoint,
+    /// lk.delegation.transport and lk.delegation.profile.
+    #[prost(map="string, string", tag="6")]
+    pub extra: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

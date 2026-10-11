@@ -8050,7 +8050,7 @@ impl serde::Serialize for FunctionCall {
         if self.created_at.is_some() {
             len += 1;
         }
-        if self.extra.is_some() {
+        if !self.extra.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.agent.FunctionCall", len)?;
@@ -8069,8 +8069,8 @@ impl serde::Serialize for FunctionCall {
         if let Some(v) = self.created_at.as_ref() {
             struct_ser.serialize_field("createdAt", v)?;
         }
-        if let Some(v) = self.extra.as_ref() {
-            struct_ser.serialize_field("extra", v)?;
+        if !self.extra.is_empty() {
+            struct_ser.serialize_field("extra", &self.extra)?;
         }
         struct_ser.end()
     }
@@ -8189,7 +8189,9 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                             if extra__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("extra"));
                             }
-                            extra__ = map_.next_value()?;
+                            extra__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
@@ -8202,7 +8204,7 @@ impl<'de> serde::Deserialize<'de> for FunctionCall {
                     arguments: arguments__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
                     created_at: created_at__,
-                    extra: extra__,
+                    extra: extra__.unwrap_or_default(),
                 })
             }
         }
