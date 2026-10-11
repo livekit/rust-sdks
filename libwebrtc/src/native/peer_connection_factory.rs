@@ -442,4 +442,17 @@ mod tests {
         assert!(pc.handle.sys_handle.prerenderer_smoothing());
         pc.close();
     }
+
+    #[test]
+    fn video_decoder_backend_maps_to_native_enum() {
+        use crate::peer_connection_factory::VideoDecoderBackend;
+        let cases = [
+            (VideoDecoderBackend::Auto, sys_rtc::ffi::VideoDecoderBackend::Auto),
+            (VideoDecoderBackend::PassThrough, sys_rtc::ffi::VideoDecoderBackend::PassThrough),
+        ];
+        for (backend, expected) in cases {
+            assert_eq!(sys_rtc::ffi::VideoDecoderBackend::from(backend), expected);
+            assert_eq!(VideoDecoderBackend::from(expected), backend);
+        }
+    }
 }

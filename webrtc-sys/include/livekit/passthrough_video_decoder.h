@@ -106,6 +106,8 @@ rust::Vec<DecodeForTest> passthrough_decode_for_test(
     rust::Slice<const uint8_t> payload);
 rust::String passthrough_decoder_info_for_test();
 rust::Vec<int32_t> encoded_buffer_receive_side_for_test();
+rust::Vec<int64_t> encoded_accessors_for_test(
+    rust::Slice<const uint8_t> payload);
 rust::Vec<size_t> passthrough_decoder_identities_for_test();
 #endif
 

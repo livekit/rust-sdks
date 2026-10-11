@@ -57,6 +57,12 @@ mod tests {
             /// on a buffer without a flag did not crash (1)]`.
             fn encoded_buffer_receive_side_for_test() -> Vec<i32>;
 
+            /// Reads a decoder-emitted buffer through the `VideoFrameBuffer`
+            /// accessors Rust uses: `[is_encoded, codec, keyframe, sequence,
+            /// payload equals input, request_encoded_keyframe made the next
+            /// Decode return OK_REQUEST_KEYFRAME]`.
+            fn encoded_accessors_for_test(payload: &[u8]) -> Vec<i64>;
+
             include!("livekit/video_decoder_factory.h");
 
             /// Implementation name of the decoder `livekit_ffi::VideoDecoderFactory`
@@ -238,5 +244,16 @@ mod tests {
     fn receive_side_buffer_is_safe_for_incidental_sinks() {
         let probe = ffi_tests::encoded_buffer_receive_side_for_test();
         assert_eq!(probe, [64, 64, 0, 1, 1]);
+    }
+
+    /// The accessors Rust reads received encoded frames through report the
+    /// buffer's fields, the exact payload, and route a keyframe request back
+    /// to the decoder.
+    #[test]
+    fn encoded_accessors_report_buffer_fields() {
+        let (_, keyframe) = AV1.units[0];
+        let probe = ffi_tests::encoded_accessors_for_test(keyframe);
+        // is_encoded, codec (AV1 = 4), keyframe, sequence, payload ok, request ok
+        assert_eq!(probe, [1, 4, 1, 0, 1, 1]);
     }
 }

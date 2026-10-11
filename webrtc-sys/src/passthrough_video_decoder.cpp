@@ -33,6 +33,7 @@
 #include <string_view>
 
 #include "api/environment/environment_factory.h"
+#include "livekit/video_frame_buffer.h"
 #include "webrtc-sys/src/passthrough_video_decoder.rs.h"
 #endif
 
@@ -332,6 +333,40 @@ rust::Vec<int32_t> encoded_buffer_receive_side_for_test() {
       webrtc::EncodedImageBuffer::Create(payload, sizeof(payload)));
   unflagged->request_keyframe();
   probe.push_back(1);
+  return probe;
+}
+
+rust::Vec<int64_t> encoded_accessors_for_test(
+    rust::Slice<const uint8_t> payload) {
+  PassthroughVideoDecoder decoder(livekit::EncodedVideoCodec::kAV1);
+  CapturingCallback callback;
+  decoder.RegisterDecodeCompleteCallback(&callback);
+  webrtc::EncodedImage image;
+  image.SetEncodedData(
+      webrtc::EncodedImageBuffer::Create(payload.data(), payload.size()));
+  image._frameType = webrtc::VideoFrameType::kVideoFrameKey;
+  decoder.Decode(image, 0);
+
+  rust::Vec<int64_t> probe;
+  if (callback.frames.empty()) {
+    return probe;
+  }
+  VideoFrameBuffer buffer(callback.frames.back().video_frame_buffer());
+  EncodedBufferInfo info = buffer.encoded_info();
+  rust::Slice<const uint8_t> data = buffer.encoded_payload();
+  probe.push_back(info.is_encoded ? 1 : 0);
+  probe.push_back(info.codec);
+  probe.push_back(info.keyframe ? 1 : 0);
+  probe.push_back(static_cast<int64_t>(info.sequence_number));
+  probe.push_back(data.size() == payload.size() &&
+                          std::equal(data.begin(), data.end(), payload.begin())
+                      ? 1
+                      : 0);
+  buffer.request_encoded_keyframe();
+  image._frameType = webrtc::VideoFrameType::kVideoFrameDelta;
+  probe.push_back(
+      decoder.Decode(image, 0) == WEBRTC_VIDEO_CODEC_OK_REQUEST_KEYFRAME ? 1
+                                                                         : 0);
   return probe;
 }
 
