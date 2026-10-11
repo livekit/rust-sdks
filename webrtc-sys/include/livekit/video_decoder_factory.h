@@ -20,10 +20,19 @@
 #include "api/video_codecs/video_decoder_factory.h"
 #include "absl/strings/match.h"
 
+#ifdef LIVEKIT_TEST
+#include "rust/cxx.h"
+#endif
+
 namespace livekit_ffi {
+enum class VideoDecoderBackend : std::int32_t;
+
 class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
  public:
   VideoDecoderFactory();
+  // With VideoDecoderBackend::PassThrough every decoder is a
+  // PassthroughVideoDecoder, and a codec it does not support gets none.
+  explicit VideoDecoderFactory(VideoDecoderBackend backend);
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
 
@@ -35,6 +44,14 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
 
  private:
   std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
+  std::unique_ptr<webrtc::VideoDecoderFactory> passthrough_factory_;
   const bool internal_h264_decoder_works_;
 };
+
+#ifdef LIVEKIT_TEST
+rust::String decoder_factory_create_for_test(int32_t backend,
+                                             rust::Str codec,
+                                             rust::Str params);
+rust::Vec<rust::String> decoder_factory_formats_for_test(int32_t backend);
+#endif
 }  // namespace livekit_ffi

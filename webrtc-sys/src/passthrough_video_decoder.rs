@@ -50,8 +50,23 @@ mod tests {
 
             /// Stream identities of two decoder instances, each after one decode.
             fn passthrough_decoder_identities_for_test() -> Vec<usize>;
+
+            include!("livekit/video_decoder_factory.h");
+
+            /// Implementation name of the decoder `livekit_ffi::VideoDecoderFactory`
+            /// creates for `codec` with fmtp `params` (`key=value;...`), or an
+            /// empty string when it creates none. `backend` is a
+            /// `VideoDecoderBackend` value.
+            fn decoder_factory_create_for_test(backend: i32, codec: &str, params: &str) -> String;
+
+            /// Codec names the factory advertises for `backend`.
+            fn decoder_factory_formats_for_test(backend: i32) -> Vec<String>;
         }
     }
+
+    const AUTO: i32 = 0;
+    const PASS_THROUGH: i32 = 1;
+    const PASSTHROUGH_NAME: &str = "LiveKit encoded passthrough";
 
     // Script op codes, mirrored from passthrough_video_decoder.h.
     const KEY_64X64: u8 = 0;
@@ -160,5 +175,54 @@ mod tests {
     #[test]
     fn decoder_info_reports_passthrough() {
         assert_eq!(ffi_tests::passthrough_decoder_info_for_test(), "LiveKit encoded passthrough|0");
+    }
+
+    /// With the pass-through backend every supported codec gets the
+    /// pass-through decoder, whatever its SDP parameters.
+    #[test]
+    fn passthrough_backend_creates_only_passthrough_decoders() {
+        let cases = [
+            ("H264", "profile-level-id=42e01f;packetization-mode=1"),
+            ("H264", "profile-level-id=42001f;packetization-mode=1"),
+            ("H264", "profile-level-id=4d001f;packetization-mode=1"),
+            ("H264", "profile-level-id=640c1f;packetization-mode=1"),
+            ("H264", "profile-level-id=42e01f;packetization-mode=0"),
+            ("H265", ""),
+            ("VP8", ""),
+            ("VP9", "profile-id=0"),
+            ("AV1", "profile=0"),
+        ];
+        for (codec, params) in cases {
+            assert_eq!(
+                ffi_tests::decoder_factory_create_for_test(PASS_THROUGH, codec, params),
+                PASSTHROUGH_NAME,
+                "{codec} {params}"
+            );
+        }
+    }
+
+    /// With the pass-through backend a codec it does not support gets no
+    /// decoder at all: never a real one, which would hand pixels to an
+    /// application expecting bitstream.
+    #[test]
+    fn passthrough_backend_refuses_unknown_codec() {
+        assert_eq!(ffi_tests::decoder_factory_create_for_test(PASS_THROUGH, "FOO", ""), "");
+    }
+
+    /// The default backend still creates real decoders.
+    #[test]
+    fn auto_backend_is_unchanged() {
+        let name = ffi_tests::decoder_factory_create_for_test(AUTO, "VP8", "");
+        assert!(!name.is_empty());
+        assert_ne!(name, PASSTHROUGH_NAME);
+    }
+
+    /// The pass-through factory advertises all five codecs.
+    #[test]
+    fn passthrough_factory_advertises_all_five_codecs() {
+        let formats = ffi_tests::decoder_factory_formats_for_test(PASS_THROUGH);
+        for codec in ["H264", "H265", "VP8", "VP9", "AV1"] {
+            assert!(formats.iter().any(|f| f == codec), "{codec} missing from {formats:?}");
+        }
     }
 }

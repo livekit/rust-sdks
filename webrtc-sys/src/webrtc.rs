@@ -66,6 +66,16 @@ pub mod ffi {
         PreEncoded,
     }
 
+    /// Video decoder selection for a peer connection factory.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum VideoDecoderBackend {
+        /// Decode with the SDK's decoders.
+        Auto,
+        /// Do not decode: hand each received access unit to the sink unchanged.
+        PassThrough,
+    }
+
     unsafe extern "C++" {
         include!("livekit/webrtc.h");
 

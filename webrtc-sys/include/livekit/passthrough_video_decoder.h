@@ -80,6 +80,8 @@ class PassthroughVideoDecoderFactory final
   ~PassthroughVideoDecoderFactory() override = default;
 
   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
+  CodecSupport QueryCodecSupport(const webrtc::SdpVideoFormat& format,
+                                 bool reference_scaling) const override;
   std::unique_ptr<webrtc::VideoDecoder> Create(
       const webrtc::Environment& env,
       const webrtc::SdpVideoFormat& format) override;

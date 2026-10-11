@@ -18,9 +18,12 @@
 
 #include <modules/video_coding/codecs/av1/av1_svc_config.h>
 #include "api/environment/environment.h"
+#include "api/environment/environment_factory.h"
 #include "api/video_codecs/av1_profile.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "livekit/objc_video_factory.h"
+#include "livekit/passthrough_video_decoder.h"
+#include "livekit/webrtc.h"
 #include "media/base/media_constants.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
 #include "modules/video_coding/codecs/vp8/include/vp8.h"
@@ -70,7 +73,18 @@ bool IsInternalH264DecoderAvailable() {
 }  // namespace
 
 VideoDecoderFactory::VideoDecoderFactory()
-    : internal_h264_decoder_works_(IsInternalH264DecoderAvailable()) {
+    : VideoDecoderFactory(VideoDecoderBackend::Auto) {}
+
+VideoDecoderFactory::VideoDecoderFactory(VideoDecoderBackend backend)
+    : internal_h264_decoder_works_(backend == VideoDecoderBackend::Auto &&
+                                   IsInternalH264DecoderAvailable()) {
+  if (backend == VideoDecoderBackend::PassThrough) {
+    passthrough_factory_ = std::make_unique<PassthroughVideoDecoderFactory>();
+    RTC_LOG(LS_INFO) << "Video decoding disabled: received access units are "
+                        "passed through undecoded";
+    return;
+  }
+
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
 #endif
@@ -93,6 +107,9 @@ VideoDecoderFactory::VideoDecoderFactory()
 
 std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
     const {
+  if (passthrough_factory_) {
+    return passthrough_factory_->GetSupportedFormats();
+  }
   std::vector<webrtc::SdpVideoFormat> formats;
 
   for (const auto& factory : factories_) {
@@ -121,6 +138,9 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
 VideoDecoderFactory::CodecSupport VideoDecoderFactory::QueryCodecSupport(
     const webrtc::SdpVideoFormat& format,
     bool reference_scaling) const {
+  if (passthrough_factory_) {
+    return passthrough_factory_->QueryCodecSupport(format, reference_scaling);
+  }
   if (reference_scaling) {
     webrtc::VideoCodecType codec =
         webrtc::PayloadStringToCodecType(format.name);
@@ -136,6 +156,15 @@ VideoDecoderFactory::CodecSupport VideoDecoderFactory::QueryCodecSupport(
 
 std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
     const webrtc::Environment& env, const webrtc::SdpVideoFormat& format) {
+  if (passthrough_factory_) {
+    // Never fall back to a real decoder: the application expects bitstream.
+    auto decoder = passthrough_factory_->Create(env, format);
+    if (!decoder) {
+      RTC_LOG(LS_ERROR) << "Pass-through decoding is enabled but "
+                        << format.name << " is not supported; no decoder";
+    }
+    return decoder;
+  }
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format))
@@ -183,5 +212,50 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
   RTC_LOG(LS_ERROR) << "No VideoDecoder found for " << format.name;
   return nullptr;
 }
+
+#ifdef LIVEKIT_TEST
+namespace {
+
+webrtc::SdpVideoFormat FormatForTest(rust::Str codec, rust::Str params) {
+  webrtc::SdpVideoFormat format(std::string(codec.data(), codec.size()));
+  std::string rest(params.data(), params.size());
+  size_t start = 0;
+  while (start < rest.size()) {
+    size_t end = rest.find(';', start);
+    if (end == std::string::npos)
+      end = rest.size();
+    std::string item = rest.substr(start, end - start);
+    size_t eq = item.find('=');
+    if (eq != std::string::npos) {
+      format.parameters[item.substr(0, eq)] = item.substr(eq + 1);
+    }
+    start = end + 1;
+  }
+  return format;
+}
+
+}  // namespace
+
+rust::String decoder_factory_create_for_test(int32_t backend,
+                                             rust::Str codec,
+                                             rust::Str params) {
+  VideoDecoderFactory factory(static_cast<VideoDecoderBackend>(backend));
+  auto decoder =
+      factory.Create(webrtc::CreateEnvironment(), FormatForTest(codec, params));
+  if (!decoder) {
+    return rust::String();
+  }
+  return rust::String(decoder->GetDecoderInfo().implementation_name);
+}
+
+rust::Vec<rust::String> decoder_factory_formats_for_test(int32_t backend) {
+  VideoDecoderFactory factory(static_cast<VideoDecoderBackend>(backend));
+  rust::Vec<rust::String> names;
+  for (const auto& format : factory.GetSupportedFormats()) {
+    names.push_back(rust::String(format.name));
+  }
+  return names;
+}
+#endif
 
 }  // namespace livekit_ffi

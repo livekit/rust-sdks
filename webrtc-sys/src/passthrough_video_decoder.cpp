@@ -16,8 +16,16 @@
 
 #include "livekit/passthrough_video_decoder.h"
 
+#include <algorithm>
+#include <cctype>
+#include <optional>
+#include <string_view>
+
 #include "api/video/video_frame.h"
+#include "api/video_codecs/h264_profile_level_id.h"
 #include "av1_bitstream.h"
+#include "media/base/media_constants.h"
+#include "modules/video_coding/codecs/h264/include/h264.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "rtc_base/logging.h"
 
@@ -130,17 +138,77 @@ const char* PassthroughVideoDecoder::ImplementationName() const {
   return "LiveKit encoded passthrough";
 }
 
-PassthroughVideoDecoderFactory::PassthroughVideoDecoderFactory() = default;
+namespace {
+
+bool EqualsIgnoreAsciiCase(std::string_view a, std::string_view b) {
+  return a.size() == b.size() &&
+         std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) {
+           return std::tolower(static_cast<unsigned char>(x)) ==
+                  std::tolower(static_cast<unsigned char>(y));
+         });
+}
+
+std::optional<livekit::EncodedVideoCodec> CodecFromName(std::string_view name) {
+  if (EqualsIgnoreAsciiCase(name, "H264"))
+    return livekit::EncodedVideoCodec::kH264;
+  if (EqualsIgnoreAsciiCase(name, "H265") ||
+      EqualsIgnoreAsciiCase(name, "HEVC"))
+    return livekit::EncodedVideoCodec::kH265;
+  if (EqualsIgnoreAsciiCase(name, "VP8"))
+    return livekit::EncodedVideoCodec::kVP8;
+  if (EqualsIgnoreAsciiCase(name, "VP9"))
+    return livekit::EncodedVideoCodec::kVP9;
+  if (EqualsIgnoreAsciiCase(name, "AV1"))
+    return livekit::EncodedVideoCodec::kAV1;
+  return std::nullopt;
+}
+
+}  // namespace
+
+PassthroughVideoDecoderFactory::PassthroughVideoDecoderFactory() {
+  // H264: every profile a sender may offer, in both packetization modes. The
+  // level is the highest, since a pass-through never runs out of decode
+  // capacity (level-asymmetry-allowed lets the sender pick its own).
+  for (const char* packetization_mode : {"1", "0"}) {
+    for (auto profile : {webrtc::H264Profile::kProfileConstrainedBaseline,
+                         webrtc::H264Profile::kProfileBaseline,
+                         webrtc::H264Profile::kProfileMain,
+                         webrtc::H264Profile::kProfileConstrainedHigh,
+                         webrtc::H264Profile::kProfileHigh}) {
+      supported_formats_.push_back(webrtc::CreateH264Format(
+          profile, webrtc::H264Level::kLevel5_2, packetization_mode));
+    }
+  }
+  supported_formats_.push_back(webrtc::SdpVideoFormat::H265());
+  supported_formats_.push_back(webrtc::SdpVideoFormat::VP8());
+  supported_formats_.push_back(webrtc::SdpVideoFormat::VP9Profile0());
+  supported_formats_.push_back(webrtc::SdpVideoFormat::AV1Profile0());
+}
 
 std::vector<webrtc::SdpVideoFormat>
 PassthroughVideoDecoderFactory::GetSupportedFormats() const {
   return supported_formats_;
 }
 
+webrtc::VideoDecoderFactory::CodecSupport
+PassthroughVideoDecoderFactory::QueryCodecSupport(
+    const webrtc::SdpVideoFormat& format,
+    bool /* reference_scaling */) const {
+  CodecSupport support;
+  support.is_supported = CodecFromName(format.name).has_value();
+  return support;
+}
+
 std::unique_ptr<webrtc::VideoDecoder> PassthroughVideoDecoderFactory::Create(
     const webrtc::Environment& /* env */,
-    const webrtc::SdpVideoFormat& /* format */) {
-  return nullptr;
+    const webrtc::SdpVideoFormat& format) {
+  // Matched by codec name only: SDP profile parameters do not constrain a
+  // decoder that does not decode.
+  auto codec = CodecFromName(format.name);
+  if (!codec) {
+    return nullptr;
+  }
+  return std::make_unique<PassthroughVideoDecoder>(*codec);
 }
 
 #ifdef LIVEKIT_TEST
