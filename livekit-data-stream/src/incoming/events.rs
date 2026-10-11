@@ -47,7 +47,8 @@ pub enum InputEvent {
     /// enqueued before it.
     #[from_variants(skip)]
     QueryOpenStreamCount(tokio::sync::oneshot::Sender<usize>),
-    /// Stop the run loop.
+    /// Stop the run loop, aborting every still-open stream as [`InputEvent::AbortAllStreams`]
+    /// does.
     Shutdown,
 }
 
