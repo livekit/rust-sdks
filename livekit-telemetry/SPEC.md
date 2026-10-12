@@ -212,6 +212,30 @@ cadence: on failure
 platforms: all — ios: authorization status, capture interruptions; android: permission checks, camera callbacks; web: DOMException names
 ```
 
+## Cadence policy
+
+`flush_interval × factor` and `stats_window × factor`, capped at 4× (60 s → 4 min at the default
+cadence: one export and one RTC window per minute, conservative for the collector's shared
+per-project quota). Factors multiply; a change applies at the next tick, and a *shorter* period
+applies at once (pressure relieved → no waiting out a stretched period).
+
+| Condition | factor | source |
+|---|---|---|
+| thermal `serious` | 2 | host, `DeviceState.thermal` |
+| thermal `critical` | 4 | host |
+| memory pressure `warning` | 2 | host, `DeviceState.memory` |
+| memory pressure `critical` | 4 | host |
+| low-power mode | 2 | host |
+| background | 2 | host |
+| battery ≤ 20 % and unplugged | 2 | host, `DeviceState.battery_*` |
+| constrained network (Low Data Mode / Data Saver) | 2 | host, `DeviceState.network_constrained` |
+| encoder CPU-limited: an outbound track's `qualityLimitationDurations.cpu` grew within the last 60 s | 2 | core, from `record_stats` |
+
+CPU is never measured by the pipeline itself (measuring CPU costs CPU): thermal state is the OS's
+judgement and `qualityLimitationReason` is WebRTC's. The core also paces the platform's
+`getStats()` polling (`Scope::stats_poll_interval_ms`): every second while a subscribe waits for
+its first media, else twice per (stretched) window — 30 s by default.
+
 ## Log records
 
 A `TelemetryEvent` with an empty `name` is a plain log record (OTLP log without `event_name`):
