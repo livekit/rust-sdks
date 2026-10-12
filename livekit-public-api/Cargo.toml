@@ -1,0 +1,29 @@
+[package]
+name = "livekit-public-api"
+version = "0.1.0"
+license.workspace = true
+description = "Client for the LiveKit Cloud Public API, generated from its OpenAPI spec"
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+# The generated docs carry the spec's descriptions, whose indented text rustdoc reads as code.
+doctest = false
+
+[features]
+default = ["rustls"]
+rustls = ["reqwest/rustls"]
+native-tls = ["reqwest/native-tls"]
+
+[dependencies]
+livekit-protocol = { workspace = true }
+livekit-token = { workspace = true }
+pbjson-types = "0.6"
+chrono = { version = "0.4", default-features = false, features = ["serde"] }
+progenitor-client = "0.15.1"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "query", "stream", "http2"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "net", "io-util"] }
