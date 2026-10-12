@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //! Everything holding [`crate::server::data_track`]'s objects onto the protobuf path: the
-//! handle bridges, the request handlers, and the subscription task that pumps stream
-//! events.
+//! handle bridges, the request handlers, the subscription handle, and the task that pumps
+//! stream events.
 //!
 //! This whole file goes when the protobuf path does. What it leaves behind over there is
 //! the `handle_id` field on each struct, and the `pub(crate)` these reach through.
@@ -23,15 +23,13 @@ use livekit::data_track::{self as dt, DataTrackSubscribeError};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::{oneshot, Notify};
 
-use crate::server::data_track::{DataTrackStream, LocalDataTrack, RemoteDataTrack};
-use crate::server::FfiServer;
+use crate::server::data_track::{LocalDataTrack, RemoteDataTrack};
+use crate::server::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 
 crate::migrate_from_ffi!(LocalDataTrack);
 
 crate::migrate_from_ffi!(RemoteDataTrack);
-
-crate::migrate_from_ffi!(DataTrackStream);
 
 impl LocalDataTrack {
     pub fn from_track(track: dt::LocalDataTrack) -> proto::OwnedLocalDataTrack {
@@ -68,8 +66,6 @@ impl LocalDataTrack {
     }
 }
 
-// `subscribe` stays on the FFI path until DataTrackStream migrates: exporting it would
-// mean handing the foreign side a stream handle uniffi does not own yet.
 impl RemoteDataTrack {
     pub fn from_track(track: dt::RemoteDataTrack) -> proto::OwnedRemoteDataTrack {
         let info = track.info().clone();
@@ -82,22 +78,22 @@ impl RemoteDataTrack {
         }
     }
 
-    pub fn subscribe(
+    pub fn subscribe_ffi(
         &self,
         server: &'static FfiServer,
         request: proto::SubscribeDataTrackRequest,
     ) -> FfiResult<proto::SubscribeDataTrackResponse> {
+        let handle_id = server.next_id();
         let (drop_tx, drop_rx) = oneshot::channel();
         let notify_read = Arc::new(Notify::new());
         let eos_event = Arc::new(OnceLock::new());
 
-        let stream = Arc::new(DataTrackStream {
+        let subscription = DataTrackSubscription {
             notify_read: notify_read.clone(),
             eos_event: eos_event.clone(),
             drop_tx,
-            handle_id: OnceLock::new(),
-        });
-        let handle_id = stream.ffi_handle_id();
+        };
+        server.store_handle(handle_id, subscription);
 
         let task = SubscriptionTask { server, handle_id, notify_read, eos_event, drop_rx };
         let task_handle =
@@ -125,7 +121,24 @@ impl RemoteDataTrack {
     }
 }
 
-impl DataTrackStream {
+/// What the protobuf path hands out in place of [`crate::server::data_track::DataTrackStream`].
+///
+/// Its `subscribe` returns a handle before the subscription has resolved, so there is no
+/// stream to wrap yet: [`SubscriptionTask`] owns that and pushes frames out as events,
+/// while this holds the pair that drives it. Over uniffi the stream is owned directly and
+/// none of this is needed.
+pub struct DataTrackSubscription {
+    notify_read: Arc<Notify>,
+    // Populated with the end-of-stream event once the stream has ended.
+    eos_event: Arc<OnceLock<proto::DataTrackStreamEos>>,
+    /// Used to drop the associated task when self is dropped
+    #[allow(dead_code)]
+    drop_tx: oneshot::Sender<()>,
+}
+
+impl FfiHandle for DataTrackSubscription {}
+
+impl DataTrackSubscription {
     pub fn read(
         &self,
         _request: proto::DataTrackStreamReadRequest,
@@ -197,5 +210,69 @@ impl SubscriptionTask {
             detail: Some(eos_event.into()),
         };
         let _ = self.server.send_event(event.into());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::FFI_SERVER;
+
+    fn store_subscription() -> (FfiHandleId, Arc<Notify>, Arc<OnceLock<proto::DataTrackStreamEos>>)
+    {
+        let handle_id = FFI_SERVER.next_id();
+        let (drop_tx, _drop_rx) = oneshot::channel();
+        let notify_read = Arc::new(Notify::new());
+        let eos_event = Arc::new(OnceLock::new());
+        FFI_SERVER.store_handle(
+            handle_id,
+            DataTrackSubscription {
+                notify_read: notify_read.clone(),
+                eos_event: eos_event.clone(),
+                drop_tx,
+            },
+        );
+        (handle_id, notify_read, eos_event)
+    }
+
+    /// The handle map is typed by downcast, so `requests::on_data_track_stream_read` naming
+    /// a different type than `subscribe_ffi` stored would only fail at runtime.
+    #[serial_test::parallel]
+    #[test]
+    fn a_stored_subscription_comes_back_under_the_type_requests_asks_for() {
+        let (handle_id, notify_read, _eos) = store_subscription();
+        let notified = notify_read.notified();
+
+        let subscription = FFI_SERVER
+            .retrieve_handle::<DataTrackSubscription>(handle_id)
+            .expect("subscription handle not found");
+        let response = subscription.read(proto::DataTrackStreamReadRequest::default());
+
+        assert!(response.eos_event.is_none(), "a live subscription reports no end-of-stream");
+        assert!(
+            futures_util::FutureExt::now_or_never(notified).is_some(),
+            "read wakes the subscription task"
+        );
+    }
+
+    /// Once the task has ended, `read` must answer from the stored event rather than wake a
+    /// task that is no longer there.
+    #[serial_test::parallel]
+    #[test]
+    fn a_finished_subscription_replays_its_end_of_stream() {
+        let (handle_id, notify_read, eos_event) = store_subscription();
+        eos_event.set(proto::DataTrackStreamEos { error: None }).expect("eos set twice");
+        let notified = notify_read.notified();
+
+        let subscription = FFI_SERVER
+            .retrieve_handle::<DataTrackSubscription>(handle_id)
+            .expect("subscription handle not found");
+        let response = subscription.read(proto::DataTrackStreamReadRequest::default());
+
+        assert!(response.eos_event.is_some(), "the stored end-of-stream is replayed");
+        assert!(
+            futures_util::FutureExt::now_or_never(notified).is_none(),
+            "a finished subscription is not woken again"
+        );
     }
 }
