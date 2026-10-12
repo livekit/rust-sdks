@@ -12,6 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! The UniFFI core surface.
+//!
+//! Business logic that client SDKs adopt incrementally over UniFFI: the Swift,
+//! Android and Flutter SDKs already have their own WebRTC stack, so this
+//! surface deliberately depends on none of `livekit`, `libwebrtc`, `soxr-sys`
+//! or `imgproc` -- which is what lets it build for visionOS, tvOS and Mac
+//! Catalyst.
+//!
+//! Gated behind the `core-modules` feature, which is mutually exclusive with
+//! `room-apis`.
+
 /// Data tracks core from [`livekit-datatrack`].
 pub mod data_track;
 
@@ -24,15 +35,12 @@ pub mod access_token;
 /// Forward log messages from Rust.
 pub mod log_forward;
 
-/// Information about the build such as version.
-pub mod build_info;
-
 /// Shared exports and utilities.
 pub mod common;
 
 /// Global async runtime.
 pub mod runtime;
 
+// Forces livekit-net's UniFFI scaffolding into the cdylib. Nothing in this
+// crate names livekit-net by path, so without this its exports go missing.
 extern crate livekit_net;
-
-uniffi::setup_scaffolding!();

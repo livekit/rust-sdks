@@ -1,13 +1,15 @@
 name: UniFFI Dart package
 
 # Publishes the generated livekit_uniffi Dart package to pub.dev on a
-# livekit-uniffi release, together with the native libraries it loads.
+# livekit-ffi release, together with the native libraries it loads.
 #
 # This is a separate workflow from uniffi-packages.yml because pub.dev's
 # automated publishing only accepts workflows triggered by a tag push matching
-# the tag pattern configured on the package (livekit-uniffi/v{{version}});
-# a release-event-triggered workflow is rejected. knope-bot creates the tag via
-# the API, and App-created events do trigger workflows here (see the note in
+# the tag pattern configured on the package (livekit-ffi/v{{version}});
+# a release-event-triggered workflow is rejected. livekit-ffi uses knope's
+# draft-release flow, so the tag is created by ffi-builds.yml with the
+# livekit-repo-writer App rather than by knope-bot; App-created events do
+# trigger workflows here, GITHUB_TOKEN-created ones do not (see the note in
 # uniffi-packages.yml / #1256).
 #
 # The package's hook/build.dart downloads build-<triple>.zip assets from the
@@ -20,11 +22,12 @@ name: UniFFI Dart package
 # Publishing is enabled. A tag push runs the whole pipeline and publishes to
 # pub.dev through OIDC (dart-lang/setup-dart exchanges the job token). pub.dev
 # accepts that token only because automated publishing is configured on the
-# package for livekit/rust-sdks with tag pattern `livekit-uniffi/v{{version}}`;
+# package for livekit/rust-sdks with tag pattern `livekit-ffi/v{{version}}`;
 # if that setting is removed the publish step fails and nothing else changes.
 # The package was created by a manual first publish of 0.1.10 (pub.dev only
-# automates existing packages), and knope-bot's API-created tag was confirmed
-# to fire this push trigger on that release.
+# automates existing packages). NOTE: the configured tag pattern must be
+# updated to `livekit-ffi/v{{version}}` on pub.dev before the first release
+# after the livekit-uniffi merge, or the publish step will be rejected.
 #
 # Recovery: if a run fails, fix the cause and re-run the failed jobs, or
 # dispatch this workflow with the tag. A dispatch rebuilds and re-attaches the
@@ -34,11 +37,11 @@ name: UniFFI Dart package
 
 on:
   push:
-    tags: ["livekit-uniffi/v*"]
+    tags: ["livekit-ffi/v*"]
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag (e.g. livekit-uniffi/v0.1.9)"
+        description: "Release tag (e.g. livekit-ffi/v0.13.0)"
         required: true
         type: string
       dry_run:
@@ -75,11 +78,11 @@ jobs:
         run: |
           TAG="${INPUT_TAG:-$PUSHED_TAG}"
           case "$TAG" in
-            livekit-uniffi/v*) ;;
+            livekit-ffi/v*) ;;
             *) echo "Unexpected tag: $TAG"; exit 1 ;;
           esac
           echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#livekit-uniffi/v}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#livekit-ffi/v}" >> "$GITHUB_OUTPUT"
 
       # Fast fail on a mis-pointed tag before spending runner time on the
       # cdylib matrix: the tag version must match the crate version the tag
@@ -88,16 +91,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ steps.tag.outputs.tag_name }}
-          sparse-checkout: livekit-uniffi/Cargo.toml
+          sparse-checkout: livekit-ffi/Cargo.toml
           sparse-checkout-cone-mode: false
 
       - name: Check tag matches crate version
         env:
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
-          crate_version=$(grep -m1 '^version = ' livekit-uniffi/Cargo.toml | cut -d'"' -f2)
+          crate_version=$(grep -m1 '^version = ' livekit-ffi/Cargo.toml | cut -d'"' -f2)
           if [ "$crate_version" != "$VERSION" ]; then
-            echo "Tag version $VERSION does not match livekit-uniffi crate version $crate_version." >&2
+            echo "Tag version $VERSION does not match livekit-ffi crate version $crate_version." >&2
             exit 1
           fi
 
@@ -169,7 +172,7 @@ jobs:
           sdk: 3.13.1
 
       - name: Build Dart package (release)
-        working-directory: livekit-uniffi
+        working-directory: livekit-ffi
         run: cargo make --profile release dart-package
 
       # pub builds the publish archive from git's file listing, and the
@@ -182,8 +185,8 @@ jobs:
       - name: Stage package outside the work tree
         run: |
           rm -rf "$RUNNER_TEMP/livekit_uniffi"
-          cp -R livekit-uniffi/packages/dart "$RUNNER_TEMP/livekit_uniffi"
-          if find "$RUNNER_TEMP/livekit_uniffi" \( -name 'liblivekit_uniffi.*' -o -name 'livekit_uniffi.dll' \) | grep -q .; then
+          cp -R livekit-ffi/packages/dart "$RUNNER_TEMP/livekit_uniffi"
+          if find "$RUNNER_TEMP/livekit_uniffi" \( -name 'liblivekit_ffi.*' -o -name 'livekit_uniffi.dll' \) | grep -q .; then
             echo "Staged package contains a local native library; refusing to publish." >&2
             exit 1
           fi
