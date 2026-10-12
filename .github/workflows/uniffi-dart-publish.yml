@@ -1,6 +1,6 @@
 name: UniFFI Dart package
 
-# Publishes the generated livekit_uniffi Dart package to pub.dev on a
+# Publishes the generated livekit_ffi Dart package to pub.dev on a
 # livekit-ffi release, together with the native libraries it loads.
 #
 # This is a separate workflow from uniffi-packages.yml because pub.dev's
@@ -184,20 +184,20 @@ jobs:
       # consumer, and pub.dev versions cannot be unpublished.
       - name: Stage package outside the work tree
         run: |
-          rm -rf "$RUNNER_TEMP/livekit_uniffi"
-          cp -R livekit-ffi/packages/dart "$RUNNER_TEMP/livekit_uniffi"
-          if find "$RUNNER_TEMP/livekit_uniffi" \( -name 'liblivekit_ffi.*' -o -name 'livekit_uniffi.dll' \) | grep -q .; then
+          rm -rf "$RUNNER_TEMP/livekit_ffi"
+          cp -R livekit-ffi/packages/dart "$RUNNER_TEMP/livekit_ffi"
+          if find "$RUNNER_TEMP/livekit_ffi" \( -name 'liblivekit_ffi.*' -o -name 'livekit_ffi.dll' \) | grep -q .; then
             echo "Staged package contains a local native library; refusing to publish." >&2
             exit 1
           fi
 
       - name: Validate package
-        working-directory: ${{ runner.temp }}/livekit_uniffi
+        working-directory: ${{ runner.temp }}/livekit_ffi
         run: |
           dart pub get
           dart pub publish --dry-run
 
       - name: Publish to pub.dev
         if: ${{ env.PUBLISH_ENABLED == 'true' && github.event_name == 'push' }}
-        working-directory: ${{ runner.temp }}/livekit_uniffi
+        working-directory: ${{ runner.temp }}/livekit_ffi
         run: dart pub publish --force
