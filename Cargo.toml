@@ -11,6 +11,7 @@ members = [
     "livekit-ffi",
     "livekit-uniffi",
     "livekit-datatrack",
+    "livekit-telemetry",
     "livekit-token",
     "livekit-token-source",
     "livekit-ffi-node-bindings",
@@ -60,6 +61,7 @@ livekit-api = { version = "0.8.2", path = "livekit-api" }
 livekit-capture = { version = "0.1.4", path = "livekit-capture" }
 livekit-ffi = { version = "0.12.82", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.2.2", path = "livekit-datatrack" }
+livekit-telemetry = { version = "0.1.0", path = "livekit-telemetry" }
 livekit-signaling = { version = "0.1.5", path = "livekit-signaling" }
 livekit-token = { version = "0.2.1", path = "livekit-token" }
 livekit-token-source = { version = "0.1.3", path = "livekit-token-source" }
