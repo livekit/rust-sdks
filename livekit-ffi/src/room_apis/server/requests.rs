@@ -1353,7 +1353,7 @@ fn on_subscribe_local_data_track(
 ) -> FfiResult<proto::SubscribeDataTrackResponse> {
     let track =
         server.retrieve_handle::<Arc<data_track::RemoteDataTrack>>(request.track_handle)?.clone();
-    track.subscribe(server, request)
+    track.subscribe_ffi(server, request)
 }
 
 fn on_remote_data_track_is_published(
@@ -1378,8 +1378,9 @@ fn on_data_track_stream_read(
     server: &'static FfiServer,
     request: proto::DataTrackStreamReadRequest,
 ) -> FfiResult<proto::DataTrackStreamReadResponse> {
-    let stream =
-        server.retrieve_handle::<Arc<data_track::DataTrackStream>>(request.stream_handle)?;
+    let stream = server.retrieve_handle::<crate::migration::data_track::DataTrackSubscription>(
+        request.stream_handle,
+    )?;
     Ok(stream.read(request))
 }
 

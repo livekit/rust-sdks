@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{proto, FfiHandleId};
+use crate::FfiHandleId;
 use bytes::Bytes;
-use livekit::data_track::{self as dt, PushFrameErrorReason};
-use std::sync::{Arc, OnceLock};
-use tokio::sync::{oneshot, Notify};
-
-// Borrowed rather than registered here: a remote type can carry only one converter per
-// UniFFI component, and livekit-common owns it.
-uniffi::use_remote_type!(livekit_common::Bytes);
+use futures_util::StreamExt;
+use livekit::data_track::{self as dt, DataTrackSubscribeError, PushFrameErrorReason};
+use std::sync::OnceLock;
+use tokio::sync::Mutex;
 
 /// A frame published on a data track.
 ///
@@ -104,7 +101,23 @@ impl From<RemoteDataTrackPipelineOptions> for dt::RemoteDataTrackPipelineOptions
     }
 }
 
-#[uniffi::export]
+/// Subscription-level options.
+///
+/// Mirrors [`dt::DataTrackSubscribeOptions`], whose fields are private behind a builder.
+#[derive(uniffi::Record)]
+pub struct DataTrackSubscribeOptions {
+    /// Maximum number of received frames buffered internally. Zero is clamped to one.
+    #[uniffi(default = 16)]
+    pub buffer_size: u32,
+}
+
+impl From<DataTrackSubscribeOptions> for dt::DataTrackSubscribeOptions {
+    fn from(options: DataTrackSubscribeOptions) -> Self {
+        dt::DataTrackSubscribeOptions::default().with_buffer_size(options.buffer_size as usize)
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
 impl RemoteDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
@@ -123,26 +136,42 @@ impl RemoteDataTrack {
     pub fn set_pipeline_options(&self, options: RemoteDataTrackPipelineOptions) {
         self.inner.set_pipeline_options(options.into())
     }
+
+    /// Subscribes to the data track.
+    pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
+        self.inner.subscribe().await.map(DataTrackStream::new)
+    }
+
+    /// Subscribes to the data track with custom options.
+    pub async fn subscribe_with_options(
+        &self,
+        options: DataTrackSubscribeOptions,
+    ) -> Result<DataTrackStream, DataTrackSubscribeError> {
+        self.inner.subscribe_with_options(options.into()).await.map(DataTrackStream::new)
+    }
 }
 
-/// FFI wrapper around [`dt::DataTrackStream`].
+/// A stream of frames received from a [`RemoteDataTrack`].
 ///
-/// The read/notify pair and the event round-trip exist only because the FFI boundary is
-/// sync-request/async-event. Over uniffi that collapses to an async `next()` owning the
-/// stream directly.
+/// The protobuf path does not hand this out: its `subscribe` returns a handle before the
+/// subscription has resolved, so it gets [`crate::migration::data_track::DataTrackSubscription`]
+/// instead and pumps frames out as events.
 ///
-/// TODO: delete this in favour of livekit-uniffi's DataTrackStream, which already has
-/// that shape, when the two crates merge. Inverting this one in place would be rewriting
-/// code the merge then throws away.
+/// TODO: this duplicates `livekit-uniffi`'s `DataTrackStream`; the two collapse once both
+/// FFI surfaces draw their data-track types from one place.
 #[derive(uniffi::Object)]
-pub struct DataTrackStream {
-    pub(crate) notify_read: Arc<Notify>,
-    // Populated with the end-of-stream event once the stream has ended.
-    pub(crate) eos_event: Arc<OnceLock<proto::DataTrackStreamEos>>,
-    /// Used to drop the associated task when self is dropped
-    #[allow(dead_code)]
-    pub(crate) drop_tx: oneshot::Sender<()>,
-    /// Reached by [`crate::migration::data_track`], which is where the rest of the
-    /// protobuf path lives. Goes when that file does.
-    pub(crate) handle_id: OnceLock<FfiHandleId>,
+pub struct DataTrackStream(Mutex<dt::DataTrackStream>);
+
+impl DataTrackStream {
+    fn new(stream: dt::DataTrackStream) -> Self {
+        Self(Mutex::new(stream))
+    }
+}
+
+#[uniffi::export(async_runtime = "tokio")]
+impl DataTrackStream {
+    /// Returns the next received frame, or `None` once the subscription has ended.
+    pub async fn next(&self) -> Option<DataTrackFrame> {
+        self.0.lock().await.next().await.map(Into::into)
+    }
 }
