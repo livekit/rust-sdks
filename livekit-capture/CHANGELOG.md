@@ -1,3 +1,23 @@
+## 0.1.5 (2026-10-12)
+
+### Features
+
+- Add a capture source that ingests encoded video from a GStreamer pipeline.
+
+### Fixes
+
+- In-flight incoming data streams now error with `AbnormalEnd` when the room closes. Before, the stream readers ended cleanly, so `read_all()` returned truncated content as if it were complete.
+- Keep pre-encoded video decodable when WebRTC drops frames: the passthrough encoder disables WebRTC's frame dropper, and after a frame is dropped before it, holds delta frames and requests a keyframe until the next keyframe arrives.
+- Add `PeerConnection::set_bitrate` to set the send bitrate limits of a peer connection.
+- Public API tokens minted from an API key and secret now grant every thread action (list, create, read, write, delete) across the project. Before, they carried only `all`, so creating or reading a thread was refused.
+- Re-apply dynacast publishing layers after every publisher answer, so that layers paused by dynacast stay paused after a renegotiation.
+- `Room::close` now leaves the room `Disconnected` and emits `RoomEvent::Disconnected` before it returns, and `Disconnected` is final: a reconnect still finishing in the background (a queued resume, or the republish after a full reconnect) can no longer bring a closed room back to `Connected` or emit `Reconnected` after `Disconnected`. Before, the room's event task could drop the engine's `Disconnected` event when the close signal won the race, so a closed room kept reporting `Connected` (or `Reconnecting`) about half the time.
+
+#### `livekit-protocol` carries the `livekit.agent` package (`AgentSessionEvent`,
+
+`SessionRequest`, the EOT inference messages), the agent threads messages
+and the agent-db service; the crates that depend on it follow its bump.
+
 ## 0.1.4 (2026-10-07)
 
 ### Fixes
