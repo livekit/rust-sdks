@@ -12,56 +12,70 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Client for the LiveKit Cloud Public API, generated from its OpenAPI spec
-//! (`public-api/openapi.yaml`, see `public-api/generate.sh`). [`PublicApi`] authenticates every
-//! request with a token minted from an API key and secret and addresses the key's own project.
-//!
-//! Requires the `services` feature: the client is built on reqwest and tokio.
-//!
-//! ```no_run
-//! # async fn run() -> Result<(), livekit_api::public_api::Error> {
-//! use livekit_api::public_api::{types, PublicApi};
-//!
-//! let api = PublicApi::new("https://api.livekit.cloud", "key", "secret");
-//! let created = api.threads().create(&types::ThreadServiceCreateThreadBody::default()).await?;
-//! # Ok(()) }
-//! ```
+//! The LiveKit Cloud Public API client generated from its OpenAPI spec
+//! (`public-api/openapi.yaml`, see `public-api/generate.sh`). Internal: the
+//! [`ThreadClient`](crate::services::threads::ThreadClient) and
+//! [`DatabaseClient`](crate::services::databases::DatabaseClient) services wrap it.
 
-#[allow(clippy::all, unused_mut, clippy::needless_lifetimes)]
+#[allow(clippy::all, dead_code, unused_mut, clippy::needless_lifetimes)]
 mod generated;
 
 use std::time::Duration;
 
-pub use generated::{types, Client, ResponseValue};
-use livekit_protocol::agent::agent_task;
+pub(crate) use generated::{types, Client};
 use livekit_token::{AccessToken, AgentGrants, AgentThreadGrants};
-use progenitor_client::{ClientHooks, ClientInfo, OperationInfo};
+use progenitor_client::{ClientHooks, OperationInfo};
 use reqwest::header::{HeaderValue, AUTHORIZATION};
+use serde::Deserialize;
 
-pub type Error = progenitor_client::Error<()>;
-pub type Result<T> = std::result::Result<T, Error>;
+use crate::services::{ServerError, ServerErrorCode, ServiceBase, ServiceError, ServiceResult};
 
 /// The project id that names the project of the request's token.
-pub const CURRENT_PROJECT: &str = "p_";
+pub(crate) const PROJECT: &str = "p_";
 
 const TOKEN_TTL: Duration = Duration::from_secs(60);
-const TIMEOUT: Duration = Duration::from_secs(15);
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+const STAGING_URL: &str = "https://beta-api.staging.livekit.cloud";
+const PRODUCTION_URL: &str = "https://beta-api.livekit.cloud";
 
-/// The API key and secret the generated [`Client`] signs each request with.
+/// The Public API base URL of a project URL: LiveKit Cloud projects use the Cloud
+/// Public API, any other host (self-hosted, local) serves it itself.
+pub(crate) fn base_url(host: &str) -> String {
+    let http = if let Some(rest) = host.strip_prefix("wss://") {
+        format!("https://{rest}")
+    } else if let Some(rest) = host.strip_prefix("ws://") {
+        format!("http://{rest}")
+    } else {
+        host.to_owned()
+    };
+    let hostname = url::Url::parse(&http).ok().and_then(|u| u.host_str().map(str::to_owned));
+    match hostname.as_deref() {
+        Some(h) if h.ends_with(".staging.livekit.cloud") => STAGING_URL.to_owned(),
+        Some(h) if h.ends_with(".livekit.cloud") => PRODUCTION_URL.to_owned(),
+        _ => http.trim_end_matches('/').to_owned(),
+    }
+}
+
+/// What the generated [`Client`] signs and times each request with.
 #[derive(Clone, Debug)]
 pub struct Credentials {
-    api_key: String,
-    api_secret: String,
+    base: ServiceBase,
+    pub(crate) timeout: Duration,
 }
 
 impl Credentials {
-    fn bearer(&self) -> std::result::Result<String, livekit_token::AccessTokenError> {
-        let jwt = AccessToken::with_api_key(&self.api_key, &self.api_secret)
-            .with_ttl(TOKEN_TTL)
-            .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
-            .with_agent_thread_grants(AgentThreadGrants { all: true, ..Default::default() })
-            .to_jwt()?;
-        Ok(format!("Bearer {jwt}"))
+    fn bearer(&self) -> Result<String, livekit_token::AccessTokenError> {
+        let token = match &self.base {
+            ServiceBase::Token(token) => token.clone(),
+            ServiceBase::ApiKeySecret { api_key, api_secret } => {
+                AccessToken::with_api_key(api_key, api_secret)
+                    .with_ttl(TOKEN_TTL)
+                    .with_agent_grants(AgentGrants { database_admin: true, ..Default::default() })
+                    .with_agent_thread_grants(AgentThreadGrants { all: true, ..Default::default() })
+                    .to_jwt()?
+            }
+        };
+        Ok(format!("Bearer {token}"))
     }
 }
 
@@ -70,187 +84,103 @@ impl ClientHooks<Credentials> for Client {
         &self,
         request: &mut reqwest::Request,
         _: &OperationInfo,
-    ) -> std::result::Result<(), progenitor_client::Error<E>> {
+    ) -> Result<(), progenitor_client::Error<E>> {
         let bearer =
-            self.inner().bearer().map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
+            self.inner.bearer().map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
         let value = HeaderValue::from_str(&bearer)
             .map_err(|e| progenitor_client::Error::Custom(e.to_string()))?;
         request.headers_mut().insert(AUTHORIZATION, value);
+        *request.timeout_mut() = Some(self.inner.timeout);
         Ok(())
     }
 }
 
-/// The Public API of one project, [`CURRENT_PROJECT`] unless set with [`Self::with_project`].
-#[derive(Clone, Debug)]
-pub struct PublicApi {
-    client: Client,
-    project: String,
+pub(crate) fn client(host: &str, base: ServiceBase, http: crate::http_client::Client) -> Client {
+    Client::new_with_client(&base_url(host), http, Credentials { base, timeout: DEFAULT_TIMEOUT })
 }
 
-impl PublicApi {
-    pub fn new(base_url: &str, api_key: &str, api_secret: &str) -> Self {
-        let credentials =
-            Credentials { api_key: api_key.to_owned(), api_secret: api_secret.to_owned() };
-        let http = crate::http_client::builder()
-            .connect_timeout(TIMEOUT)
-            .timeout(TIMEOUT)
-            .build()
-            .expect("http client");
-        let client = Client::new_with_client(base_url, http, credentials);
-        Self { client, project: CURRENT_PROJECT.to_owned() }
-    }
-
-    pub fn with_project(mut self, project_id: &str) -> Self {
-        self.project = project_id.to_owned();
-        self
-    }
-
-    /// The whole generated API.
-    pub fn client(&self) -> &Client {
-        &self.client
-    }
-
-    pub fn threads(&self) -> Threads<'_> {
-        Threads(self)
-    }
-
-    pub fn databases(&self) -> Databases<'_> {
-        Databases(self)
-    }
+/// Maps a generated-client error onto the service errors every client returns.
+pub(crate) async fn error(err: progenitor_client::Error<()>) -> ServiceError {
+    use progenitor_client::Error as E;
+    let code = |code: &str, msg: String| ServerErrorCode {
+        code: code.to_owned(),
+        msg,
+        meta: Default::default(),
+    };
+    let err = match err {
+        E::CommunicationError(e) | E::ResponseBodyError(e) | E::InvalidUpgrade(e) => {
+            ServerError::Request(e)
+        }
+        E::UnexpectedResponse(resp) => {
+            #[derive(Deserialize)]
+            struct Body {
+                #[serde(default)]
+                code: serde_json::Value,
+                #[serde(default)]
+                message: String,
+            }
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            let body = serde_json::from_str::<Body>(&text).ok();
+            let named = body.as_ref().and_then(|b| b.code.as_str()).map(str::to_owned);
+            let msg = body.map(|b| b.message).filter(|m| !m.is_empty()).unwrap_or(text);
+            let fallback = match status.as_u16() {
+                400 => ServerErrorCode::INVALID_ARGUMENT,
+                401 => ServerErrorCode::UNAUTHENTICATED,
+                403 => ServerErrorCode::PERMISSION_DENIED,
+                404 => ServerErrorCode::NOT_FOUND,
+                409 => ServerErrorCode::ALREADY_EXISTS,
+                429 => ServerErrorCode::RESOURCE_EXHAUSTED,
+                501 => ServerErrorCode::UNIMPLEMENTED,
+                503 => ServerErrorCode::UNAVAILABLE,
+                504 => ServerErrorCode::DEADLINE_EXCEEDED,
+                s if s >= 500 => ServerErrorCode::INTERNAL,
+                _ => ServerErrorCode::UNKNOWN,
+            };
+            ServerError::Twirp(code(named.as_deref().unwrap_or(fallback), msg))
+        }
+        other => ServerError::Twirp(code(ServerErrorCode::INTERNAL, other.to_string())),
+    };
+    ServiceError::Twirp(err)
 }
 
-pub struct Threads<'a>(&'a PublicApi);
-
-impl Threads<'_> {
-    pub async fn create(
-        &self,
-        body: &types::ThreadServiceCreateThreadBody,
-    ) -> Result<types::LivekitPublicapiThreadsV1ThreadsCreateResponse> {
-        let api = self.0;
-        Ok(api.client.thread_service_create_thread(&api.project, body).await?.into_inner())
-    }
-
-    pub async fn get(
-        &self,
-        thread_id: &str,
-    ) -> Result<types::LivekitPublicapiThreadsV1ThreadsGetResponse> {
-        let api = self.0;
-        Ok(api.client.thread_service_get_thread(&api.project, thread_id).await?.into_inner())
-    }
-
-    pub async fn list(
-        &self,
-        scope: Option<&str>,
-        cursor: Option<&str>,
-        page_size: Option<i32>,
-    ) -> Result<types::LivekitPublicapiThreadsV1ThreadsListResponse> {
-        let api = self.0;
-        let resp = api.client.thread_service_list_threads(&api.project, cursor, page_size, scope);
-        Ok(resp.await?.into_inner())
-    }
-
-    pub async fn update(
-        &self,
-        thread_id: &str,
-        body: &types::ThreadServiceUpdateThreadBody,
-    ) -> Result<types::LivekitPublicapiThreadsV1ThreadsUpdateResponse> {
-        let api = self.0;
-        let resp = api.client.thread_service_update_thread(&api.project, thread_id, body);
-        Ok(resp.await?.into_inner())
-    }
-
-    pub async fn delete(
-        &self,
-        thread_id: &str,
-    ) -> Result<types::LivekitPublicapiThreadsV1ThreadsDeleteResponse> {
-        let api = self.0;
-        Ok(api.client.thread_service_delete_thread(&api.project, thread_id).await?.into_inner())
-    }
-
-    pub async fn items(
-        &self,
-        thread_id: &str,
-        agent: Option<&str>,
-        cursor: Option<&str>,
-        page_size: Option<i32>,
-        sort_order: Option<types::LivekitPublicapiCommonV1SortOrder>,
-    ) -> Result<types::LivekitPublicapiThreadsV1ThreadsItemsResponse> {
-        let api = self.0;
-        let resp = api.client.thread_service_get_thread_items(
-            &api.project,
-            thread_id,
-            agent,
-            cursor,
-            page_size,
-            sort_order,
-        );
-        Ok(resp.await?.into_inner())
-    }
-
-    pub async fn tasks(
-        &self,
-        thread_id: &str,
-        status: Option<agent_task::Status>,
-        cursor: Option<&str>,
-        page_size: Option<i32>,
-    ) -> Result<types::LivekitPublicapiThreadsV1ThreadsTasksResponse> {
-        let api = self.0;
-        let resp = api.client.thread_service_get_thread_tasks(
-            &api.project,
-            thread_id,
-            cursor,
-            page_size,
-            status.as_ref(),
-        );
-        Ok(resp.await?.into_inner())
+/// Awaits a generated call, mapping its error.
+pub(crate) async fn call<T>(
+    fut: impl std::future::Future<
+        Output = Result<progenitor_client::ResponseValue<T>, progenitor_client::Error<()>>,
+    >,
+) -> ServiceResult<T> {
+    match fut.await {
+        Ok(v) => Ok(v.into_inner()),
+        Err(e) => Err(error(e).await),
     }
 }
 
-pub struct Databases<'a>(&'a PublicApi);
+/// An empty string or zero limit is unset.
+pub(crate) fn opt(s: &str) -> Option<&str> {
+    (!s.is_empty()).then_some(s)
+}
 
-impl Databases<'_> {
-    pub async fn create(
-        &self,
-        body: &types::DatabaseServiceCreateDatabaseBody,
-    ) -> Result<types::LivekitPublicapiDatabasesV1DatabasesCreateResponse> {
-        let api = self.0;
-        Ok(api.client.database_service_create_database(&api.project, body).await?.into_inner())
-    }
+pub(crate) fn page_size(limit: i32) -> Option<i32> {
+    (limit > 0).then_some(limit)
+}
 
-    pub async fn get(
-        &self,
-        database_id: &str,
-    ) -> Result<types::LivekitPublicapiDatabasesV1DatabasesGetResponse> {
-        let api = self.0;
-        let resp = api.client.database_service_get_database(&api.project, database_id);
-        Ok(resp.await?.into_inner())
-    }
+pub(crate) fn next_cursor(page: Option<types::LivekitPublicapiCommonV1PageInfo>) -> String {
+    page.and_then(|p| p.next_cursor).unwrap_or_default()
+}
 
-    pub async fn list(
-        &self,
-        cursor: Option<&str>,
-        page_size: Option<i32>,
-    ) -> Result<types::LivekitPublicapiDatabasesV1DatabasesListResponse> {
-        let api = self.0;
-        let resp = api.client.database_service_list_databases(&api.project, cursor, page_size);
-        Ok(resp.await?.into_inner())
-    }
+#[cfg(test)]
+mod tests {
+    use super::base_url;
 
-    pub async fn delete(
-        &self,
-        database_id: &str,
-    ) -> Result<types::LivekitPublicapiDatabasesV1DatabasesDeleteResponse> {
-        let api = self.0;
-        let resp = api.client.database_service_delete_database(&api.project, database_id);
-        Ok(resp.await?.into_inner())
-    }
-
-    pub async fn export(
-        &self,
-        database_id: &str,
-    ) -> Result<types::LivekitPublicapiDatabasesV1DatabasesExportResponse> {
-        let api = self.0;
-        let resp = api.client.database_service_export_database(&api.project, database_id);
-        Ok(resp.await?.into_inner())
+    #[test]
+    fn base_url_from_project_url() {
+        let staging = "https://beta-api.staging.livekit.cloud";
+        assert_eq!(base_url("wss://my-app-abc.staging.livekit.cloud"), staging);
+        assert_eq!(base_url("https://my-app-abc.staging.livekit.cloud/"), staging);
+        assert_eq!(base_url("wss://my-app-abc.livekit.cloud"), "https://beta-api.livekit.cloud");
+        assert_eq!(base_url("ws://localhost:7880"), "http://localhost:7880");
+        assert_eq!(base_url("http://127.0.0.1:8080/"), "http://127.0.0.1:8080");
+        assert_eq!(base_url("https://livekit.example.com"), "https://livekit.example.com");
     }
 }

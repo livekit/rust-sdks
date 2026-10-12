@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use livekit_api::access_token::Claims;
-use livekit_api::public_api::PublicApi;
+use livekit_api::services::threads::ThreadClient;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -36,8 +36,8 @@ async fn get_thread_request() {
         String::from_utf8_lossy(&buf[..n]).into_owned()
     });
 
-    let api = PublicApi::new(&base_url, "key", "secret");
-    api.threads().get("AT_1").await.unwrap();
+    let threads = ThreadClient::with_api_key(&base_url, "key", "secret");
+    threads.get("AT_1").await.unwrap();
 
     let request = server.await.unwrap();
     assert!(request.starts_with("GET /v0/projects/p_/threads/AT_1 HTTP/1.1\r\n"), "{request}");

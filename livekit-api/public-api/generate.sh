@@ -35,4 +35,7 @@ fi
 
 OUT=../src/public_api/generated.rs
 cargo run --quiet --manifest-path generate/Cargo.toml --target-dir ../../target -- openapi.yaml "$OUT"
+# The module is internal: its docs become plain comments, which rustdoc would otherwise test
+# (the spec's indented text reads as code).
+sed -i.bak -e 's#/\*\*#/*#' -e 's#^\([[:space:]]*\)///#\1//#' "$OUT" && rm "$OUT.bak"
 rustfmt --edition 2021 "$OUT"

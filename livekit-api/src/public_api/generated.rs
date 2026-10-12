@@ -4,10 +4,10 @@
 use progenitor_client::{encode_path, ClientHooks, OperationInfo, RequestBuilderExt};
 #[allow(unused_imports)]
 pub use progenitor_client::{ByteStream, ClientInfo, Error, ResponseValue};
-/// Types used as operation parameters and responses.
+// Types used as operation parameters and responses.
 #[allow(clippy::all)]
 pub mod types {
-    /**PIIRedactionCategory is the canonical taxonomy of PII entity types a project
+    /*PIIRedactionCategory is the canonical taxonomy of PII entity types a project
     may select for redaction. It is the shared contract across Cloud, backend,
     and the dashboard so none of them need to import the redaction library.
 
@@ -331,20 +331,20 @@ pub mod types {
             value.parse()
         }
     }
-    ///`DatabaseServiceCreateDatabaseBody`
+    //`DatabaseServiceCreateDatabaseBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct DatabaseServiceCreateDatabaseBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub ttl: ::std::option::Option<::pbjson_types::Duration>,
     }
-    ///Represents a JSON array.
+    //Represents a JSON array.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct GoogleProtobufListValue {
-        ///Repeated field of dynamically typed values.
+        //Repeated field of dynamically typed values.
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub values: ::std::vec::Vec<GoogleProtobufValue>,
     }
-    /**Represents a JSON `null`.
+    /*Represents a JSON `null`.
 
     `NullValue` is a sentinel, using an enum with only one value to represent
     the null value for the `Value` type union.
@@ -399,7 +399,7 @@ pub mod types {
             value.parse()
         }
     }
-    /**Represents a JSON object.
+    /*Represents a JSON object.
 
     An unordered key-value map, intending to perfectly capture the semantics of a
     JSON object. This enables parsing any arbitrary JSON payload as a message
@@ -443,7 +443,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`GoogleProtobufStructFieldsEntry`
+    //`GoogleProtobufStructFieldsEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct GoogleProtobufStructFieldsEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -451,7 +451,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<GoogleProtobufValue>,
     }
-    /**Represents a JSON value.
+    /*Represents a JSON value.
 
     `Value` represents a dynamically typed value which can be either
     null, a number, a string, a boolean, a recursive struct value, or a
@@ -476,7 +476,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitAgentAgentConfigUpdate`
+    //`LivekitAgentAgentConfigUpdate`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentAgentConfigUpdate {
         #[serde(rename = "createdAt", skip_serializing_if = "::std::option::Option::is_none")]
@@ -494,7 +494,7 @@ pub mod types {
         )]
         pub tools_removed: ::std::vec::Vec<::std::string::String>,
     }
-    ///`LivekitAgentAgentHandoff`
+    //`LivekitAgentAgentHandoff`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentAgentHandoff {
         #[serde(rename = "createdAt", skip_serializing_if = "::std::option::Option::is_none")]
@@ -506,7 +506,7 @@ pub mod types {
         #[serde(rename = "oldAgentId", skip_serializing_if = "::std::option::Option::is_none")]
         pub old_agent_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitAgentAgentThreadThreadAttributesEntry`
+    //`LivekitAgentAgentThreadThreadAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentAgentThreadThreadAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -514,13 +514,13 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitAgentChatContext`
+    //`LivekitAgentChatContext`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentChatContext {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub items: ::std::vec::Vec<LivekitAgentChatContextChatItem>,
     }
-    ///`LivekitAgentChatContextChatItem`
+    //`LivekitAgentChatContextChatItem`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub enum LivekitAgentChatContextChatItem {
         #[serde(rename = "agentConfigUpdate")]
@@ -559,7 +559,7 @@ pub mod types {
             Self::Message(value)
         }
     }
-    ///`LivekitAgentChatMessage`
+    //`LivekitAgentChatMessage`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentChatMessage {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -582,7 +582,7 @@ pub mod types {
         )]
         pub transcript_confidence: ::std::option::Option<f64>,
     }
-    ///`LivekitAgentChatMessageChatContent`
+    //`LivekitAgentChatMessageChatContent`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitAgentChatMessageChatContent(pub ::std::option::Option<Text>);
@@ -602,7 +602,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitAgentChatMessageExtraEntry`
+    //`LivekitAgentChatMessageExtraEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentChatMessageExtraEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -610,7 +610,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitAgentChatRole`
+    //`LivekitAgentChatRole`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -669,7 +669,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitAgentFunctionCall`
+    //`LivekitAgentFunctionCall`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentFunctionCall {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -683,7 +683,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitAgentFunctionCallOutput`
+    //`LivekitAgentFunctionCallOutput`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentFunctionCallOutput {
         #[serde(rename = "callId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -699,7 +699,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub output: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitAgentMetricsReport`
+    //`LivekitAgentMetricsReport`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAgentMetricsReport {
         #[serde(rename = "e2eLatency", skip_serializing_if = "::std::option::Option::is_none")]
@@ -735,7 +735,7 @@ pub mod types {
         #[serde(rename = "ttsNodeTtfb", skip_serializing_if = "::std::option::Option::is_none")]
         pub tts_node_ttfb: ::std::option::Option<f64>,
     }
-    ///`LivekitAliOssUpload`
+    //`LivekitAliOssUpload`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAliOssUpload {
         #[serde(rename = "accessKey", skip_serializing_if = "::std::option::Option::is_none")]
@@ -749,7 +749,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub secret: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitAudioCodec`
+    //`LivekitAudioCodec`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -808,7 +808,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitAudioMixing`
+    //`LivekitAudioMixing`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -863,7 +863,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitAutoParticipantEgress`
+    //`LivekitAutoParticipantEgress`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitAutoParticipantEgress {
@@ -898,61 +898,61 @@ pub mod types {
             segment_outputs: ::std::vec::Vec<LivekitSegmentedFileOutput>,
         },
     }
-    ///`LivekitAutoTrackEgress`
+    //`LivekitAutoTrackEgress`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitAutoTrackEgress {
         Variant0 {
             #[serde(rename = "aliOSS")]
             ali_oss: LivekitAliOssUpload,
-            ///disables upload of json manifest file (default false)
+            //disables upload of json manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///see docs for templating (default {track_id}-{time})
+            //see docs for templating (default {track_id}-{time})
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             filepath: ::std::option::Option<::std::string::String>,
         },
         Variant1 {
             azure: LivekitAzureBlobUpload,
-            ///disables upload of json manifest file (default false)
+            //disables upload of json manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///see docs for templating (default {track_id}-{time})
+            //see docs for templating (default {track_id}-{time})
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             filepath: ::std::option::Option<::std::string::String>,
         },
         Variant2 {
-            ///disables upload of json manifest file (default false)
+            //disables upload of json manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///see docs for templating (default {track_id}-{time})
+            //see docs for templating (default {track_id}-{time})
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             filepath: ::std::option::Option<::std::string::String>,
             gcp: LivekitGcpUpload,
         },
         Variant3 {
-            ///disables upload of json manifest file (default false)
+            //disables upload of json manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///see docs for templating (default {track_id}-{time})
+            //see docs for templating (default {track_id}-{time})
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             filepath: ::std::option::Option<::std::string::String>,
             s3: LivekitS3Upload,
         },
     }
-    ///`LivekitAzureBlobUpload`
+    //`LivekitAzureBlobUpload`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitAzureBlobUpload {
         #[serde(rename = "accountKey", skip_serializing_if = "::std::option::Option::is_none")]
@@ -962,7 +962,7 @@ pub mod types {
         #[serde(rename = "containerName", skip_serializing_if = "::std::option::Option::is_none")]
         pub container_name: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitEncodedFileOutput`
+    //`LivekitEncodedFileOutput`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitEncodedFileOutput {
@@ -1016,7 +1016,7 @@ pub mod types {
             s3: LivekitS3Upload,
         },
     }
-    ///`LivekitEncodedFileType`
+    //`LivekitEncodedFileType`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -1075,48 +1075,48 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitEncodingOptions`
+    //`LivekitEncodingOptions`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitEncodingOptions {
-        ///(default 128)
+        //(default 128)
         #[serde(rename = "audioBitrate", skip_serializing_if = "::std::option::Option::is_none")]
         pub audio_bitrate: ::std::option::Option<i32>,
         #[serde(rename = "audioCodec", skip_serializing_if = "::std::option::Option::is_none")]
         pub audio_codec: ::std::option::Option<LivekitAudioCodec>,
-        ///(default 44100)
+        //(default 44100)
         #[serde(rename = "audioFrequency", skip_serializing_if = "::std::option::Option::is_none")]
         pub audio_frequency: ::std::option::Option<i32>,
-        ///--- Deprecated --- quality setting on audio encoder
+        //--- Deprecated --- quality setting on audio encoder
         #[serde(rename = "audioQuality", skip_serializing_if = "::std::option::Option::is_none")]
         pub audio_quality: ::std::option::Option<i32>,
-        ///(default 24)
+        //(default 24)
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub depth: ::std::option::Option<i32>,
-        ///(default 30)
+        //(default 30)
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub framerate: ::std::option::Option<i32>,
-        ///(default 1080)
+        //(default 1080)
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub height: ::std::option::Option<i32>,
-        ///in seconds (default 4s for streaming, segment duration for segmented output, encoder default for files)
+        //in seconds (default 4s for streaming, segment duration for segmented output, encoder default for files)
         #[serde(
             rename = "keyFrameInterval",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub key_frame_interval: ::std::option::Option<f64>,
-        ///(default 4500)
+        //(default 4500)
         #[serde(rename = "videoBitrate", skip_serializing_if = "::std::option::Option::is_none")]
         pub video_bitrate: ::std::option::Option<i32>,
         #[serde(rename = "videoCodec", skip_serializing_if = "::std::option::Option::is_none")]
         pub video_codec: ::std::option::Option<LivekitVideoCodec>,
-        ///quality setting on video encoder
+        //quality setting on video encoder
         #[serde(rename = "videoQuality", skip_serializing_if = "::std::option::Option::is_none")]
         pub video_quality: ::std::option::Option<i32>,
-        ///(default 1920)
+        //(default 1920)
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub width: ::std::option::Option<i32>,
     }
-    ///`LivekitEncodingOptionsPreset`
+    //`LivekitEncodingOptionsPreset`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -1195,7 +1195,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitFilterParams`
+    //`LivekitFilterParams`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitFilterParams {
         #[serde(
@@ -1211,18 +1211,18 @@ pub mod types {
         )]
         pub include_events: ::std::vec::Vec<::std::string::String>,
     }
-    ///`LivekitGcpUpload`
+    //`LivekitGcpUpload`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitGcpUpload {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub bucket: ::std::option::Option<::std::string::String>,
-        ///service account credentials serialized in JSON "credentials.json"
+        //service account credentials serialized in JSON "credentials.json"
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub credentials: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub proxy: ::std::option::Option<LivekitProxyConfig>,
     }
-    ///`LivekitImageCodec`
+    //`LivekitImageCodec`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -1273,7 +1273,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitImageFileSuffix`
+    //`LivekitImageFileSuffix`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -1328,26 +1328,26 @@ pub mod types {
             value.parse()
         }
     }
-    ///Capture images at a specified interval
+    //Capture images at a specified interval
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitImageOutput {
         Variant0 {
             #[serde(rename = "aliOSS")]
             ali_oss: LivekitAliOssUpload,
-            ///in seconds (required)
+            //in seconds (required)
             #[serde(
                 rename = "captureInterval",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             capture_interval: ::std::option::Option<i64>,
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -1358,30 +1358,30 @@ pub mod types {
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             filename_suffix: ::std::option::Option<LivekitImageFileSuffix>,
-            ///(optional, defaults to track height)
+            //(optional, defaults to track height)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             height: ::std::option::Option<i32>,
             #[serde(rename = "imageCodec", skip_serializing_if = "::std::option::Option::is_none")]
             image_codec: ::std::option::Option<LivekitImageCodec>,
-            ///(optional, defaults to track width)
+            //(optional, defaults to track width)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             width: ::std::option::Option<i32>,
         },
         Variant1 {
             azure: LivekitAzureBlobUpload,
-            ///in seconds (required)
+            //in seconds (required)
             #[serde(
                 rename = "captureInterval",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             capture_interval: ::std::option::Option<i64>,
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -1392,29 +1392,29 @@ pub mod types {
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             filename_suffix: ::std::option::Option<LivekitImageFileSuffix>,
-            ///(optional, defaults to track height)
+            //(optional, defaults to track height)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             height: ::std::option::Option<i32>,
             #[serde(rename = "imageCodec", skip_serializing_if = "::std::option::Option::is_none")]
             image_codec: ::std::option::Option<LivekitImageCodec>,
-            ///(optional, defaults to track width)
+            //(optional, defaults to track width)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             width: ::std::option::Option<i32>,
         },
         Variant2 {
-            ///in seconds (required)
+            //in seconds (required)
             #[serde(
                 rename = "captureInterval",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             capture_interval: ::std::option::Option<i64>,
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -1426,29 +1426,29 @@ pub mod types {
             )]
             filename_suffix: ::std::option::Option<LivekitImageFileSuffix>,
             gcp: LivekitGcpUpload,
-            ///(optional, defaults to track height)
+            //(optional, defaults to track height)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             height: ::std::option::Option<i32>,
             #[serde(rename = "imageCodec", skip_serializing_if = "::std::option::Option::is_none")]
             image_codec: ::std::option::Option<LivekitImageCodec>,
-            ///(optional, defaults to track width)
+            //(optional, defaults to track width)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             width: ::std::option::Option<i32>,
         },
         Variant3 {
-            ///in seconds (required)
+            //in seconds (required)
             #[serde(
                 rename = "captureInterval",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             capture_interval: ::std::option::Option<i64>,
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -1459,18 +1459,18 @@ pub mod types {
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             filename_suffix: ::std::option::Option<LivekitImageFileSuffix>,
-            ///(optional, defaults to track height)
+            //(optional, defaults to track height)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             height: ::std::option::Option<i32>,
             #[serde(rename = "imageCodec", skip_serializing_if = "::std::option::Option::is_none")]
             image_codec: ::std::option::Option<LivekitImageCodec>,
             s3: LivekitS3Upload,
-            ///(optional, defaults to track width)
+            //(optional, defaults to track width)
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             width: ::std::option::Option<i32>,
         },
     }
-    ///`LivekitJobRestartPolicy`
+    //`LivekitJobRestartPolicy`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -1521,7 +1521,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitPresignedPostRequest`
+    //`LivekitPresignedPostRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPresignedPostRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1529,7 +1529,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
         pub values: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
     }
-    ///`LivekitPresignedPostRequestValuesEntry`
+    //`LivekitPresignedPostRequestValuesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPresignedPostRequestValuesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1537,7 +1537,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitProxyConfig`
+    //`LivekitProxyConfig`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitProxyConfig {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1547,7 +1547,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub username: ::std::option::Option<::std::string::String>,
     }
-    /**AgentAnalytics is one agent's analytics over a time range. Common concerns are
+    /*AgentAnalytics is one agent's analytics over a time range. Common concerns are
     grouped so they read the same whether you fetch one agent or the whole roster:
     `sessions`, `performance`, and `usage` are always found under those names.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -1568,10 +1568,10 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub usage: ::std::option::Option<LivekitPublicapiAnalyticsV1AgentAnalyticsUsage>,
     }
-    ///`LivekitPublicapiAnalyticsV1AgentAnalyticsPerformance`
+    //`LivekitPublicapiAnalyticsV1AgentAnalyticsPerformance`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1AgentAnalyticsPerformance {
-        ///Fraction 0..1 of turns the user interrupted the agent.
+        //Fraction 0..1 of turns the user interrupted the agent.
         #[serde(
             rename = "interruptedRate",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -1584,7 +1584,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub turns: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1AgentAnalyticsSessions`
+    //`LivekitPublicapiAnalyticsV1AgentAnalyticsSessions`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1AgentAnalyticsSessions {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1596,7 +1596,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub total: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1AgentAnalyticsUsage`
+    //`LivekitPublicapiAnalyticsV1AgentAnalyticsUsage`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1AgentAnalyticsUsage {
         #[serde(
@@ -1607,7 +1607,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub models: ::std::vec::Vec<LivekitPublicapiAnalyticsV1ModelUsage>,
     }
-    ///`LivekitPublicapiAnalyticsV1AgentsGetRequest`
+    //`LivekitPublicapiAnalyticsV1AgentsGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1AgentsGetRequest {
         #[serde(rename = "agentId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -1617,13 +1617,13 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub range: ::std::option::Option<LivekitPublicapiAnalyticsV1TimeRange>,
     }
-    ///`LivekitPublicapiAnalyticsV1AgentsGetResponse`
+    //`LivekitPublicapiAnalyticsV1AgentsGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1AgentsGetResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub analytics: ::std::option::Option<LivekitPublicapiAnalyticsV1AgentAnalytics>,
     }
-    ///`LivekitPublicapiAnalyticsV1AgentsListRequest`
+    //`LivekitPublicapiAnalyticsV1AgentsListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1AgentsListRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1633,7 +1633,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub range: ::std::option::Option<LivekitPublicapiAnalyticsV1TimeRange>,
     }
-    ///`LivekitPublicapiAnalyticsV1AgentsListResponse`
+    //`LivekitPublicapiAnalyticsV1AgentsListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1AgentsListResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -1641,7 +1641,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///CountryCount is a per-country connection count for the top-countries breakdown.
+    //CountryCount is a per-country connection count for the top-countries breakdown.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1CountryCount {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1649,7 +1649,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
     }
-    ///DataPoint is one point of a per-session time series (quality, bandwidth, fps).
+    //DataPoint is one point of a per-session time series (quality, bandwidth, fps).
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1DataPoint {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1657,17 +1657,17 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<f64>,
     }
-    /**Estimate flags a value that is approximate over large windows, with its
+    /*Estimate flags a value that is approximate over large windows, with its
     tolerance. A consumer should not treat an estimated value as exact.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1Estimate {
-        ///Fractional tolerance (e.g. 0.01 for +/-1%). Zero when unknown.
+        //Fractional tolerance (e.g. 0.01 for +/-1%). Zero when unknown.
         #[serde(rename = "errorMargin", skip_serializing_if = "::std::option::Option::is_none")]
         pub error_margin: ::std::option::Option<f64>,
         #[serde(rename = "isEstimate", skip_serializing_if = "::std::option::Option::is_none")]
         pub is_estimate: ::std::option::Option<bool>,
     }
-    ///LatencyBreakdown is where an average agent reply's time goes, in milliseconds.
+    //LatencyBreakdown is where an average agent reply's time goes, in milliseconds.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1LatencyBreakdown {
         #[serde(rename = "avgReplyMs", skip_serializing_if = "::std::option::Option::is_none")]
@@ -1681,7 +1681,7 @@ pub mod types {
         #[serde(rename = "ttsTtfbMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub tts_ttfb_ms: ::std::option::Option<f64>,
     }
-    /**ModelUsage is per-model usage over the window. `component` is the stage the
+    /*ModelUsage is per-model usage over the window. `component` is the stage the
     model served (llm, tts, realtime); latency is TTFT for llm/realtime rows and
     TTFB for tts rows.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -1709,7 +1709,7 @@ pub mod types {
         #[serde(rename = "ttsChars", skip_serializing_if = "::std::option::Option::is_none")]
         pub tts_chars: ::std::option::Option<::std::string::String>,
     }
-    /**ParticipantInfo is one participant identity of a room session, as the
+    /*ParticipantInfo is one participant identity of a room session, as the
     dashboard's participants table shows it.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1ParticipantInfo {
@@ -1717,7 +1717,7 @@ pub mod types {
         pub joined_at: ::std::option::Option<::pbjson_types::Timestamp>,
         #[serde(rename = "leftAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub left_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///Country name, e.g. "United States"; "Unknown" when the rollup has none.
+        //Country name, e.g. "United States"; "Unknown" when the rollup has none.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub location: ::std::option::Option<::std::string::String>,
         #[serde(
@@ -1735,39 +1735,39 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub published_sources: ::std::option::Option<LivekitPublicapiAnalyticsV1PublishedSources>,
-        ///LiveKit region display name; "Unknown" when the region isn't recognized.
+        //LiveKit region display name; "Unknown" when the region isn't recognized.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub region: ::std::option::Option<::std::string::String>,
-        /**The participant's participant sessions, oldest join first: one per
+        /*The participant's participant sessions, oldest join first: one per
         connection, so each reconnect adds one. At most 50: a participant that
         reconnected more often has its oldest 50 here. Empty when they couldn't be
         read; the rest of the row still returns.*/
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub sessions: ::std::vec::Vec<LivekitPublicapiAnalyticsV1ParticipantSession>,
     }
-    /**ParticipantSession is one participant session of a participant: one
+    /*ParticipantSession is one participant session of a participant: one
     join-to-leave stretch, identified by its participant session id (PA_...),
     with the client it connected from. A participant that reconnects, from the
     same device or another, has several.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1ParticipantSession {
-        ///Client browser, e.g. "chrome".
+        //Client browser, e.g. "chrome".
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub browser: ::std::option::Option<::std::string::String>,
-        ///Milliseconds the client took to connect.
+        //Milliseconds the client took to connect.
         #[serde(
             rename = "connectionTimeMs",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub connection_time_ms: ::std::option::Option<i32>,
-        /**Transport the client connected over: "UDP", "TCP" or "TURN"; empty when
+        /*Transport the client connected over: "UDP", "TCP" or "TURN"; empty when
         not reported.*/
         #[serde(rename = "connectionType", skip_serializing_if = "::std::option::Option::is_none")]
         pub connection_type: ::std::option::Option<::std::string::String>,
-        ///Client device model, e.g. "iPhone 15".
+        //Client device model, e.g. "iPhone 15".
         #[serde(rename = "deviceModel", skip_serializing_if = "::std::option::Option::is_none")]
         pub device_model: ::std::option::Option<::std::string::String>,
-        /**Seconds from joined_at to left_at, as the dashboard counts them. While no
+        /*Seconds from joined_at to left_at, as the dashboard counts them. While no
         leave is recorded, to the session's end once it has one, else to now.*/
         #[serde(
             rename = "durationSeconds",
@@ -1778,27 +1778,27 @@ pub mod types {
         pub joined_at: ::std::option::Option<::pbjson_types::Timestamp>,
         #[serde(rename = "leftAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub left_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///Country name, e.g. "United States"; "Unknown" when the rollup has none.
+        //Country name, e.g. "United States"; "Unknown" when the rollup has none.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub location: ::std::option::Option<::std::string::String>,
-        /**Client operating system: "ios", "android", "windows", "mac" or "linux";
+        /*Client operating system: "ios", "android", "windows", "mac" or "linux";
         empty when not reported.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub os: ::std::option::Option<::std::string::String>,
-        ///The participant session id (PA_...).
+        //The participant session id (PA_...).
         #[serde(
             rename = "participantSessionId",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub participant_session_id: ::std::option::Option<::std::string::String>,
-        ///LiveKit region display name; "Unknown" when the region isn't recognized.
+        //LiveKit region display name; "Unknown" when the region isn't recognized.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub region: ::std::option::Option<::std::string::String>,
-        ///LiveKit client SDK version, e.g. "2.6.1". The SDK's name isn't recorded.
+        //LiveKit client SDK version, e.g. "2.6.1". The SDK's name isn't recorded.
         #[serde(rename = "sdkVersion", skip_serializing_if = "::std::option::Option::is_none")]
         pub sdk_version: ::std::option::Option<::std::string::String>,
     }
-    ///ParticipantSortField is the column a participant listing is ordered by.
+    //ParticipantSortField is the column a participant listing is ordered by.
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -1859,7 +1859,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///Percentiles is a p50/p90/p99 triple in milliseconds.
+    //Percentiles is a p50/p90/p99 triple in milliseconds.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1Percentiles {
         #[serde(rename = "p50Ms", skip_serializing_if = "::std::option::Option::is_none")]
@@ -1869,7 +1869,7 @@ pub mod types {
         #[serde(rename = "p99Ms", skip_serializing_if = "::std::option::Option::is_none")]
         pub p99_ms: ::std::option::Option<f64>,
     }
-    ///PlatformShare is a per-platform share of connections (fraction 0..1).
+    //PlatformShare is a per-platform share of connections (fraction 0..1).
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1PlatformShare {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -1877,7 +1877,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub share: ::std::option::Option<f64>,
     }
-    /**ProjectAnalytics is the project overview over a time range, grouped the same
+    /*ProjectAnalytics is the project overview over a time range, grouped the same
     way: `sessions` and `participants`.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1ProjectAnalytics {
@@ -1887,7 +1887,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub sessions: ::std::option::Option<LivekitPublicapiAnalyticsV1ProjectAnalyticsSessions>,
     }
-    ///`LivekitPublicapiAnalyticsV1ProjectAnalyticsParticipants`
+    //`LivekitPublicapiAnalyticsV1ProjectAnalyticsParticipants`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1ProjectAnalyticsParticipants {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -1901,7 +1901,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub total: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1ProjectAnalyticsSessions`
+    //`LivekitPublicapiAnalyticsV1ProjectAnalyticsSessions`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1ProjectAnalyticsSessions {
         #[serde(rename = "agentMinutes", skip_serializing_if = "::std::option::Option::is_none")]
@@ -1918,7 +1918,7 @@ pub mod types {
         #[serde(rename = "withTelephony", skip_serializing_if = "::std::option::Option::is_none")]
         pub with_telephony: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1ProjectOverviewGetRequest`
+    //`LivekitPublicapiAnalyticsV1ProjectOverviewGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1ProjectOverviewGetRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -1926,13 +1926,13 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub range: ::std::option::Option<LivekitPublicapiAnalyticsV1TimeRange>,
     }
-    ///`LivekitPublicapiAnalyticsV1ProjectOverviewGetResponse`
+    //`LivekitPublicapiAnalyticsV1ProjectOverviewGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1ProjectOverviewGetResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub analytics: ::std::option::Option<LivekitPublicapiAnalyticsV1ProjectAnalytics>,
     }
-    ///PublishedSources is which track sources a participant published.
+    //PublishedSources is which track sources a participant published.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1PublishedSources {
         #[serde(rename = "cameraTrack", skip_serializing_if = "::std::option::Option::is_none")]
@@ -1953,20 +1953,20 @@ pub mod types {
         )]
         pub screen_share_track: ::std::option::Option<bool>,
     }
-    /**Session is one room-session list row. Bandwidth and connection time are on
+    /*Session is one room-session list row. Bandwidth and connection time are on
     GetSession's detail only.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1Session {
         #[serde(rename = "endedAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub ended_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**False while the session's full detail (end time, participant counts,
+        /*False while the session's full detail (end time, participant counts,
         duration) is still being finalized; the detail endpoints are complete once
         it is true.*/
         #[serde(rename = "hasDetailData", skip_serializing_if = "::std::option::Option::is_none")]
         pub has_detail_data: ::std::option::Option<bool>,
         #[serde(rename = "lastActive", skip_serializing_if = "::std::option::Option::is_none")]
         pub last_active: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**Distinct participants (by identity) connected for more than zero seconds
+        /*Distinct participants (by identity) connected for more than zero seconds
         during the session. Not a live count: a closed session keeps its total.*/
         #[serde(
             rename = "numParticipants",
@@ -1984,19 +1984,19 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub tags: ::std::vec::Vec<::std::string::String>,
     }
-    /**SessionDetail is the richer per-session view: a superset of Session with the
+    /*SessionDetail is the richer per-session view: a superset of Session with the
     room id, totals, the first page of participants, and per-metric timelines.
     The timelines share one grid sized from the session's length, the
     dashboard's: one point per bucket, 0 where a bucket has no data.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionDetail {
-        ///Bytes participants published, all track types.
+        //Bytes participants published, all track types.
         #[serde(rename = "bandwidthIn", skip_serializing_if = "::std::option::Option::is_none")]
         pub bandwidth_in: ::std::option::Option<::std::string::String>,
-        ///Bytes participants subscribed to, all track types.
+        //Bytes participants subscribed to, all track types.
         #[serde(rename = "bandwidthOut", skip_serializing_if = "::std::option::Option::is_none")]
         pub bandwidth_out: ::std::option::Option<::std::string::String>,
-        /**WebRTC connection time in seconds, summed over standard participants and
+        /*WebRTC connection time in seconds, summed over standard participants and
         self-hosted agents (cloud agents excluded), as the dashboard counts it.*/
         #[serde(
             rename = "connectionSeconds",
@@ -2005,13 +2005,13 @@ pub mod types {
         pub connection_seconds: ::std::option::Option<::std::string::String>,
         #[serde(rename = "endedAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub ended_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///Same count as Session.num_participants.
+        //Same count as Session.num_participants.
         #[serde(
             rename = "numParticipants",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub num_participants: ::std::option::Option<i32>,
-        /**The first page of participants, newest join first (at most 50). When
+        /*The first page of participants, newest join first (at most 50). When
         participants_page.has_more, continue with ListSessionParticipants: pass
         participants_page.next_cursor as page.cursor, with sort_by and sort_order
         unset (or joined_at descending, the same thing).*/
@@ -2022,13 +2022,13 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub participants_page: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
-        ///Published audio plus video bitrate, in bits per second.
+        //Published audio plus video bitrate, in bits per second.
         #[serde(rename = "publishBps", default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub publish_bps: ::std::vec::Vec<LivekitPublicapiAnalyticsV1DataPoint>,
-        ///Published video frame rate.
+        //Published video frame rate.
         #[serde(rename = "publishFps", default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub publish_fps: ::std::vec::Vec<LivekitPublicapiAnalyticsV1DataPoint>,
-        ///Average connection quality as a 0-1 fraction of the 0-5 track score.
+        //Average connection quality as a 0-1 fraction of the 0-5 track score.
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub quality: ::std::vec::Vec<LivekitPublicapiAnalyticsV1DataPoint>,
         #[serde(rename = "roomName", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2039,36 +2039,36 @@ pub mod types {
         pub started_at: ::std::option::Option<::pbjson_types::Timestamp>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub status: ::std::option::Option<LivekitPublicapiAnalyticsV1SessionStatus>,
-        ///Subscribed audio plus video bitrate, in bits per second.
+        //Subscribed audio plus video bitrate, in bits per second.
         #[serde(
             rename = "subscribeBps",
             default,
             skip_serializing_if = "::std::vec::Vec::is_empty"
         )]
         pub subscribe_bps: ::std::vec::Vec<LivekitPublicapiAnalyticsV1DataPoint>,
-        ///Subscribed video frame rate.
+        //Subscribed video frame rate.
         #[serde(
             rename = "subscribeFps",
             default,
             skip_serializing_if = "::std::vec::Vec::is_empty"
         )]
         pub subscribe_fps: ::std::vec::Vec<LivekitPublicapiAnalyticsV1DataPoint>,
-        ///The session's tags, as on Session.
+        //The session's tags, as on Session.
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub tags: ::std::vec::Vec<::std::string::String>,
     }
-    /**SessionEvent is one event of a room session, such as a participant joining
+    /*SessionEvent is one event of a room session, such as a participant joining
     or a track being published.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionEvent {
-        /**The identity of the participant the event is about; empty for a room
+        /*The identity of the participant the event is about; empty for a room
         event, or an API call that names no participant.*/
         #[serde(
             rename = "participantIdentity",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub participant_identity: ::std::option::Option<::std::string::String>,
-        /**The participant session (PA_...) the event is about; empty when
+        /*The participant session (PA_...) the event is about; empty when
         participant_identity is.*/
         #[serde(
             rename = "participantSessionId",
@@ -2079,16 +2079,16 @@ pub mod types {
         pub payload: ::std::option::Option<GoogleProtobufStruct>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub timestamp: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///The event's type, an AnalyticsEventType name such as PARTICIPANT_JOINED.
+        //The event's type, an AnalyticsEventType name such as PARTICIPANT_JOINED.
         #[serde(rename = "type", skip_serializing_if = "::std::option::Option::is_none")]
         pub type_: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1SessionEventsListRequest`
+    //`LivekitPublicapiAnalyticsV1SessionEventsListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionEventsListRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
-        /**Only the events of this participant session (PA_...), as the
+        /*Only the events of this participant session (PA_...), as the
         participants list's ParticipantSession.participant_session_id names
         it. Room events and API calls name no participant session, so they
         are left out. Anything but a PA_ id is InvalidArgument.*/
@@ -2103,7 +2103,7 @@ pub mod types {
         pub session_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "sortOrder", skip_serializing_if = "::std::option::Option::is_none")]
         pub sort_order: ::std::option::Option<LivekitPublicapiCommonV1SortOrder>,
-        /**Event types to return, by name, such as TRACK_PUBLISHED: the names of
+        /*Event types to return, by name, such as TRACK_PUBLISHED: the names of
         LiveKit's AnalyticsEventType. Each matches exactly. Empty returns the
         dashboard's seven defaults, or with participant_session_id its eleven
         participant defaults, track events included (see ListSessionEvents).
@@ -2111,7 +2111,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub types: ::std::vec::Vec<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1SessionEventsListResponse`
+    //`LivekitPublicapiAnalyticsV1SessionEventsListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionEventsListResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -2119,30 +2119,30 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    /**SessionFilter narrows a session listing. Only these fields are filterable
+    /*SessionFilter narrows a session listing. Only these fields are filterable
     upstream (the rest are rollup-stage values that would break keyset paging).*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionFilter {
-        ///Cloud agent id (CA_...) — return only sessions this agent served. Duration is not filterable in v1.
+        //Cloud agent id (CA_...) — return only sessions this agent served. Duration is not filterable in v1.
         #[serde(rename = "agentId", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_id: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub range: ::std::option::Option<LivekitPublicapiAnalyticsV1TimeRange>,
-        /**Room-name prefix match (case-sensitive): returns sessions whose room name
+        /*Room-name prefix match (case-sensitive): returns sessions whose room name
         starts with this value, e.g. `demo-` matches `demo-1` and `demo-lobby`.*/
         #[serde(rename = "roomName", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_name: ::std::option::Option<::std::string::String>,
-        ///Exact room-session id match (RM_...).
+        //Exact room-session id match (RM_...).
         #[serde(rename = "sessionId", skip_serializing_if = "::std::option::Option::is_none")]
         pub session_id: ::std::option::Option<::std::string::String>,
-        ///OR semantics; empty matches any status.
+        //OR semantics; empty matches any status.
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub statuses: ::std::vec::Vec<LivekitPublicapiAnalyticsV1SessionStatus>,
-        ///OR semantics.
+        //OR semantics.
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub tags: ::std::vec::Vec<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1SessionParticipantsListRequest`
+    //`LivekitPublicapiAnalyticsV1SessionParticipantsListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionParticipantsListRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2156,7 +2156,7 @@ pub mod types {
         #[serde(rename = "sortOrder", skip_serializing_if = "::std::option::Option::is_none")]
         pub sort_order: ::std::option::Option<LivekitPublicapiCommonV1SortOrder>,
     }
-    ///`LivekitPublicapiAnalyticsV1SessionParticipantsListResponse`
+    //`LivekitPublicapiAnalyticsV1SessionParticipantsListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionParticipantsListResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -2164,7 +2164,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///SessionStatus is the lifecycle state of a session.
+    //SessionStatus is the lifecycle state of a session.
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -2219,7 +2219,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitPublicapiAnalyticsV1SessionsGetRequest`
+    //`LivekitPublicapiAnalyticsV1SessionsGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionsGetRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2227,17 +2227,17 @@ pub mod types {
         #[serde(rename = "sessionId", skip_serializing_if = "::std::option::Option::is_none")]
         pub session_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiAnalyticsV1SessionsGetResponse`
+    //`LivekitPublicapiAnalyticsV1SessionsGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionsGetResponse {
-        /**Absent while the session's detail is still being finalized (see
+        /*Absent while the session's detail is still being finalized (see
         Session.has_detail_data on the list row).*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub detail: ::std::option::Option<LivekitPublicapiAnalyticsV1SessionDetail>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub session: ::std::option::Option<LivekitPublicapiAnalyticsV1Session>,
     }
-    ///`LivekitPublicapiAnalyticsV1SessionsListRequest`
+    //`LivekitPublicapiAnalyticsV1SessionsListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionsListRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2249,7 +2249,7 @@ pub mod types {
         #[serde(rename = "sortOrder", skip_serializing_if = "::std::option::Option::is_none")]
         pub sort_order: ::std::option::Option<LivekitPublicapiCommonV1SortOrder>,
     }
-    ///`LivekitPublicapiAnalyticsV1SessionsListResponse`
+    //`LivekitPublicapiAnalyticsV1SessionsListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiAnalyticsV1SessionsListResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -2257,7 +2257,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    /**TimeRange is a half-open window [start_time, end_time). An unset end means
+    /*TimeRange is a half-open window [start_time, end_time). An unset end means
     "now"; an unset start means "end minus a service default" (24h for session
     lists, 7d for stats). Windows are bounded server-side (stats: 62 days).*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -2267,29 +2267,29 @@ pub mod types {
         #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
         pub start_time: ::std::option::Option<::pbjson_types::Timestamp>,
     }
-    ///PageInfo is the cursor-pagination metadata shared by every list response.
+    //PageInfo is the cursor-pagination metadata shared by every list response.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiCommonV1PageInfo {
         #[serde(rename = "hasMore", skip_serializing_if = "::std::option::Option::is_none")]
         pub has_more: ::std::option::Option<bool>,
-        /**Pass as `cursor` on the next request to fetch the following page. Empty on
+        /*Pass as `cursor` on the next request to fetch the following page. Empty on
         the last page.*/
         #[serde(rename = "nextCursor", skip_serializing_if = "::std::option::Option::is_none")]
         pub next_cursor: ::std::option::Option<::std::string::String>,
     }
-    /**PageRequest is the shared cursor-pagination request fragment. Embed it in a
+    /*PageRequest is the shared cursor-pagination request fragment. Embed it in a
     list request.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiCommonV1PageRequest {
-        /**Opaque cursor returned by a prior page (PageInfo.next_cursor). Empty starts
+        /*Opaque cursor returned by a prior page (PageInfo.next_cursor). Empty starts
         from the beginning.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub cursor: ::std::option::Option<::std::string::String>,
-        ///Maximum items to return; 0 lets the server pick a default.
+        //Maximum items to return; 0 lets the server pick a default.
         #[serde(rename = "pageSize", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_size: ::std::option::Option<i32>,
     }
-    /**SortOrder is the direction of a list request's sort. A list that lets the
+    /*SortOrder is the direction of a list request's sort. A list that lets the
     caller pick a direction takes it as `sort_order` and documents its default
     column and direction; one that can also sort on more than one column adds
     its own `<X>SortField sort_by`.*/
@@ -2347,7 +2347,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesCreateRequest`
+    //`LivekitPublicapiDatabasesV1DatabasesCreateRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesCreateRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2355,7 +2355,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub ttl: ::std::option::Option<::pbjson_types::Duration>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesCreateResponse`
+    //`LivekitPublicapiDatabasesV1DatabasesCreateResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesCreateResponse {
         #[serde(rename = "databaseId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2363,7 +2363,7 @@ pub mod types {
         #[serde(rename = "expiresAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub expires_at: ::std::option::Option<::pbjson_types::Timestamp>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesDeleteRequest`
+    //`LivekitPublicapiDatabasesV1DatabasesDeleteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesDeleteRequest {
         #[serde(rename = "databaseId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2371,7 +2371,7 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesDeleteResponse`
+    //`LivekitPublicapiDatabasesV1DatabasesDeleteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiDatabasesV1DatabasesDeleteResponse(
@@ -2397,7 +2397,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesExportRequest`
+    //`LivekitPublicapiDatabasesV1DatabasesExportRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesExportRequest {
         #[serde(rename = "databaseId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2405,19 +2405,19 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesExportResponse`
+    //`LivekitPublicapiDatabasesV1DatabasesExportResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesExportResponse {
-        ///Pre-authenticated object-storage URL.
+        //Pre-authenticated object-storage URL.
         #[serde(rename = "downloadUrl", skip_serializing_if = "::std::option::Option::is_none")]
         pub download_url: ::std::option::Option<::std::string::String>,
         #[serde(rename = "expiresAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub expires_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///The commit sequence the export is consistent at.
+        //The commit sequence the export is consistent at.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub tip: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesGetRequest`
+    //`LivekitPublicapiDatabasesV1DatabasesGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesGetRequest {
         #[serde(rename = "databaseId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2425,13 +2425,13 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesGetResponse`
+    //`LivekitPublicapiDatabasesV1DatabasesGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesGetResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub database: ::std::option::Option<::livekit_protocol::agent_db::AgentDatabase>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesListRequest`
+    //`LivekitPublicapiDatabasesV1DatabasesListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesListRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2439,7 +2439,7 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiDatabasesV1DatabasesListResponse`
+    //`LivekitPublicapiDatabasesV1DatabasesListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiDatabasesV1DatabasesListResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -2447,7 +2447,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    /**LogLevel is a log record's level, as the dashboard's logs panel shows and
+    /*LogLevel is a log record's level, as the dashboard's logs panel shows and
     filters it. Agents name levels differently by runtime, such as Python's
     CRITICAL and Node's FATAL, so a record's level comes from its OpenTelemetry
     severity number, or from its level name when it has none; a level means the
@@ -2522,16 +2522,16 @@ pub mod types {
             value.parse()
         }
     }
-    ///LogRecord is one log record a session's agent exported.
+    //LogRecord is one log record a session's agent exported.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1LogRecord {
-        /**The record's attributes, typed and nested as the agent recorded them,
+        /*The record's attributes, typed and nested as the agent recorded them,
         with its resource's and scope's attributes merged in; the record's own
         value wins. An integer beyond ±2^53 is its decimal string, and bytes are
         base64.*/
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
         pub attributes: ::std::collections::HashMap<::std::string::String, GoogleProtobufValue>,
-        /**A structured logger's body fields other than its message; empty for a
+        /*A structured logger's body fields other than its message; empty for a
         plain text body.*/
         #[serde(
             rename = "bodyFields",
@@ -2539,33 +2539,33 @@ pub mod types {
             skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
         )]
         pub body_fields: ::std::collections::HashMap<::std::string::String, GoogleProtobufValue>,
-        ///The record's id, the same on every read.
+        //The record's id, the same on every read.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub id: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub level: ::std::option::Option<LivekitPublicapiObservabilityV1LogLevel>,
-        ///The logger that wrote the record (its logger.name attribute).
+        //The logger that wrote the record (its logger.name attribute).
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub logger: ::std::option::Option<::std::string::String>,
-        /**The record's text. A structured logger's body keeps it under its event,
+        /*The record's text. A structured logger's body keeps it under its event,
         message or msg field; a structured body with none of them is written
         here whole, as JSON.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub message: ::std::option::Option<::std::string::String>,
-        ///The level's name as the agent logged it, such as "WARN" or "CRITICAL".
+        //The level's name as the agent logged it, such as "WARN" or "CRITICAL".
         #[serde(rename = "severityText", skip_serializing_if = "::std::option::Option::is_none")]
         pub severity_text: ::std::option::Option<::std::string::String>,
         #[serde(rename = "spanId", skip_serializing_if = "::std::option::Option::is_none")]
         pub span_id: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub timestamp: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**The trace and span the record was logged in, as lowercase hex; empty when
+        /*The trace and span the record was logged in, as lowercase hex; empty when
         it was logged outside one. They link the record to its span in
         GetSessionTraces.*/
         #[serde(rename = "traceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub trace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiObservabilityV1LogRecordAttributesEntry`
+    //`LivekitPublicapiObservabilityV1LogRecordAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1LogRecordAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2573,7 +2573,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<GoogleProtobufValue>,
     }
-    ///`LivekitPublicapiObservabilityV1LogRecordBodyFieldsEntry`
+    //`LivekitPublicapiObservabilityV1LogRecordBodyFieldsEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1LogRecordBodyFieldsEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2581,10 +2581,10 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<GoogleProtobufValue>,
     }
-    ///`LivekitPublicapiObservabilityV1LogsGetRequest`
+    //`LivekitPublicapiObservabilityV1LogsGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1LogsGetRequest {
-        /**Only records at these levels, as the dashboard's logs filter selects
+        /*Only records at these levels, as the dashboard's logs filter selects
         them, for example only TRACE and FATAL. Empty returns every record,
         including those with no level, such as a passed evaluation.
         LOG_LEVEL_UNSPECIFIED is InvalidArgument.*/
@@ -2594,13 +2594,13 @@ pub mod types {
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///The session's RM_ id.
+        //The session's RM_ id.
         #[serde(rename = "sessionId", skip_serializing_if = "::std::option::Option::is_none")]
         pub session_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "sortOrder", skip_serializing_if = "::std::option::Option::is_none")]
         pub sort_order: ::std::option::Option<LivekitPublicapiCommonV1SortOrder>,
     }
-    ///`LivekitPublicapiObservabilityV1LogsGetResponse`
+    //`LivekitPublicapiObservabilityV1LogsGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1LogsGetResponse {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2608,10 +2608,10 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub records: ::std::vec::Vec<LivekitPublicapiObservabilityV1LogRecord>,
     }
-    ///MetricHistogram summarizes the values a histogram point recorded.
+    //MetricHistogram summarizes the values a histogram point recorded.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1MetricHistogram {
-        /**A histogram's buckets, with one more count than bounds: bucket_counts[0]
+        /*A histogram's buckets, with one more count than bounds: bucket_counts[0]
         counts the values up to bucket_bounds[0], bucket_counts[i] those in
         (bucket_bounds[i-1], bucket_bounds[i]], and the last count those above
         the last bound. Both are empty for an exponential histogram.*/
@@ -2627,18 +2627,18 @@ pub mod types {
             skip_serializing_if = "::std::vec::Vec::is_empty"
         )]
         pub bucket_counts: ::std::vec::Vec<::std::string::String>,
-        ///How many values were recorded.
+        //How many values were recorded.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub count: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub max: ::std::option::Option<f64>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub min: ::std::option::Option<f64>,
-        ///Their sum, minimum and maximum; unset when the agent didn't record them.
+        //Their sum, minimum and maximum; unset when the agent didn't record them.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub sum: ::std::option::Option<f64>,
     }
-    ///MetricKind is the OpenTelemetry data type a metric point was exported as.
+    //MetricKind is the OpenTelemetry data type a metric point was exported as.
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -2703,7 +2703,7 @@ pub mod types {
             value.parse()
         }
     }
-    /**MetricPoint is one OpenTelemetry metric data point a session's agent
+    /*MetricPoint is one OpenTelemetry metric data point a session's agent
     exported. It is the raw metric the agent emits, so it won't exactly match
     the dashboard's metrics panel, which derives its numbers from the transcript
     and traces. Only agents that export OpenTelemetry metrics to LiveKit Cloud
@@ -2713,7 +2713,7 @@ pub mod types {
     #[serde(untagged)]
     pub enum LivekitPublicapiObservabilityV1MetricPoint {
         Variant0 {
-            /**The point's attributes, typed and nested as the agent recorded them, with
+            /*The point's attributes, typed and nested as the agent recorded them, with
             its resource's and scope's attributes merged in, such as room_id, job_id,
             lk.agent_name and the model's model_name; the point's own value wins. With
             two agents in one session, the resource's can be the other agent's. An
@@ -2725,20 +2725,20 @@ pub mod types {
             histogram: LivekitPublicapiObservabilityV1MetricHistogram,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             kind: ::std::option::Option<LivekitPublicapiObservabilityV1MetricKind>,
-            /**The metric's name, such as lk.agents.turn.e2e_latency or
+            /*The metric's name, such as lk.agents.turn.e2e_latency or
             gen_ai.client.token.usage. The upstream aggregator can file several
             metrics that share their attributes under one name (GetSessionMetrics).*/
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             name: ::std::option::Option<::std::string::String>,
             #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
             start_time: ::std::option::Option<::pbjson_types::Timestamp>,
-            /**The metric's unit as the agent declared it, such as "s" or "{token}";
+            /*The metric's unit as the agent declared it, such as "s" or "{token}";
             empty when it declared none.*/
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             unit: ::std::option::Option<::std::string::String>,
         },
         Variant1 {
-            /**The point's attributes, typed and nested as the agent recorded them, with
+            /*The point's attributes, typed and nested as the agent recorded them, with
             its resource's and scope's attributes merged in, such as room_id, job_id,
             lk.agent_name and the model's model_name; the point's own value wins. With
             two agents in one session, the resource's can be the other agent's. An
@@ -2749,22 +2749,22 @@ pub mod types {
             end_time: ::std::option::Option<::pbjson_types::Timestamp>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             kind: ::std::option::Option<LivekitPublicapiObservabilityV1MetricKind>,
-            /**The metric's name, such as lk.agents.turn.e2e_latency or
+            /*The metric's name, such as lk.agents.turn.e2e_latency or
             gen_ai.client.token.usage. The upstream aggregator can file several
             metrics that share their attributes under one name (GetSessionMetrics).*/
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             name: ::std::option::Option<::std::string::String>,
             #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
             start_time: ::std::option::Option<::pbjson_types::Timestamp>,
-            /**The metric's unit as the agent declared it, such as "s" or "{token}";
+            /*The metric's unit as the agent declared it, such as "s" or "{token}";
             empty when it declared none.*/
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             unit: ::std::option::Option<::std::string::String>,
-            ///A gauge's or sum's value.
+            //A gauge's or sum's value.
             value: f64,
         },
     }
-    ///`LivekitPublicapiObservabilityV1MetricPointAttributesEntry`
+    //`LivekitPublicapiObservabilityV1MetricPointAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1MetricPointAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -2772,10 +2772,10 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<GoogleProtobufValue>,
     }
-    ///`LivekitPublicapiObservabilityV1MetricsGetRequest`
+    //`LivekitPublicapiObservabilityV1MetricsGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1MetricsGetRequest {
-        /**Only the points of these metrics, matched exactly, such as
+        /*Only the points of these metrics, matched exactly, such as
         lk.agents.turn.e2e_latency. Empty returns every metric. At most 50
         names, each 1 to 256 characters.*/
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -2784,16 +2784,16 @@ pub mod types {
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///The session's RM_ id.
+        //The session's RM_ id.
         #[serde(rename = "sessionId", skip_serializing_if = "::std::option::Option::is_none")]
         pub session_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiObservabilityV1MetricsGetResponse`
+    //`LivekitPublicapiObservabilityV1MetricsGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1MetricsGetResponse {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
-        /**By end time, oldest first; points that end together are ordered by
+        /*By end time, oldest first; points that end together are ordered by
         start time, a point with none first, then by kind and a hash of what
         they recorded, not by name. A page continues
         after the previous page's last point, so on an ACTIVE session a point
@@ -2802,7 +2802,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub points: ::std::vec::Vec<LivekitPublicapiObservabilityV1MetricPoint>,
     }
-    /**RecordingFileType is the recording requested from GetSessionRecordingURL.
+    /*RecordingFileType is the recording requested from GetSessionRecordingURL.
     The session's conversation as typed items comes from GetSessionTranscript,
     not from a recording.*/
     #[derive(
@@ -2865,10 +2865,10 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitPublicapiObservabilityV1RecordingGetUrlRequest`
+    //`LivekitPublicapiObservabilityV1RecordingGetUrlRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1RecordingGetUrlRequest {
-        /**How long the URL stays valid, in seconds. Unset or 0 is 900 (15
+        /*How long the URL stays valid, in seconds. Unset or 0 is 900 (15
         minutes), and anything longer is clamped to 900 without an error;
         expires_at says what was granted.*/
         #[serde(rename = "expirySeconds", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2880,7 +2880,7 @@ pub mod types {
         #[serde(rename = "sessionId", skip_serializing_if = "::std::option::Option::is_none")]
         pub session_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiObservabilityV1RecordingGetUrlResponse`
+    //`LivekitPublicapiObservabilityV1RecordingGetUrlResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1RecordingGetUrlResponse {
         #[serde(rename = "expiresAt", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2890,14 +2890,14 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub recording_started_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**A signed URL that downloads the recording straight from the object
+        /*A signed URL that downloads the recording straight from the object
         store in the project's data region, without credentials, until
         expires_at. Audio is Ogg; chat history is JSON served with
         Content-Encoding: gzip.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub url: ::std::option::Option<::std::string::String>,
     }
-    ///Role is who a transcript message is from.
+    //Role is who a transcript message is from.
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -2960,11 +2960,11 @@ pub mod types {
             value.parse()
         }
     }
-    /**Span is one unit of work in the session's trace, such as an agent turn or
+    /*Span is one unit of work in the session's trace, such as an agent turn or
     an LLM request.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1Span {
-        /**The span's attributes, typed and nested as the agent recorded them, with
+        /*The span's attributes, typed and nested as the agent recorded them, with
         its resource's and scope's attributes merged in, such as lk.agent_name;
         the span's own value wins. An integer beyond ±2^53 is its decimal string,
         and bytes are base64.*/
@@ -2978,11 +2978,11 @@ pub mod types {
         pub kind: ::std::option::Option<LivekitPublicapiObservabilityV1SpanKind>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        /**Empty for a root span. A span whose parent isn't among the session's
+        /*Empty for a root span. A span whose parent isn't among the session's
         spans is a root too, as the dashboard shows it.*/
         #[serde(rename = "parentSpanId", skip_serializing_if = "::std::option::Option::is_none")]
         pub parent_span_id: ::std::option::Option<::std::string::String>,
-        ///The span's ids, as lowercase hex.
+        //The span's ids, as lowercase hex.
         #[serde(rename = "spanId", skip_serializing_if = "::std::option::Option::is_none")]
         pub span_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
@@ -2994,7 +2994,7 @@ pub mod types {
         #[serde(rename = "traceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub trace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiObservabilityV1SpanAttributesEntry`
+    //`LivekitPublicapiObservabilityV1SpanAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1SpanAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3002,11 +3002,11 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<GoogleProtobufValue>,
     }
-    /**SpanEvent is a timestamped event recorded within a Span, such as an
+    /*SpanEvent is a timestamped event recorded within a Span, such as an
     exception.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1SpanEvent {
-        ///The event's own attributes, typed and nested as the agent recorded them.
+        //The event's own attributes, typed and nested as the agent recorded them.
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
         pub attributes: ::std::collections::HashMap<::std::string::String, GoogleProtobufValue>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3014,7 +3014,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub timestamp: ::std::option::Option<::pbjson_types::Timestamp>,
     }
-    ///`LivekitPublicapiObservabilityV1SpanEventAttributesEntry`
+    //`LivekitPublicapiObservabilityV1SpanEventAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1SpanEventAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3022,7 +3022,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<GoogleProtobufValue>,
     }
-    ///SpanKind is a span's OpenTelemetry kind.
+    //SpanKind is a span's OpenTelemetry kind.
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -3089,7 +3089,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///SpanStatus is a span's OpenTelemetry status code.
+    //SpanStatus is a span's OpenTelemetry status code.
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -3144,23 +3144,23 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitPublicapiObservabilityV1TracesGetRequest`
+    //`LivekitPublicapiObservabilityV1TracesGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TracesGetRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///The session's RM_ id.
+        //The session's RM_ id.
         #[serde(rename = "sessionId", skip_serializing_if = "::std::option::Option::is_none")]
         pub session_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiObservabilityV1TracesGetResponse`
+    //`LivekitPublicapiObservabilityV1TracesGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TracesGetResponse {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
-        /**By start time, oldest first. Spans that start together are ordered by
+        /*By start time, oldest first. Spans that start together are ordered by
         span id as the aggregator stores it: the id's 8 bytes read as a
         little-endian unsigned integer, which isn't the order of its hex
         string. The pages read the spans the first page found, so a span
@@ -3171,32 +3171,32 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub spans: ::std::vec::Vec<LivekitPublicapiObservabilityV1Span>,
     }
-    ///`LivekitPublicapiObservabilityV1TranscriptGetRequest`
+    //`LivekitPublicapiObservabilityV1TranscriptGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TranscriptGetRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///The session's RM_ id.
+        //The session's RM_ id.
         #[serde(rename = "sessionId", skip_serializing_if = "::std::option::Option::is_none")]
         pub session_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiObservabilityV1TranscriptGetResponse`
+    //`LivekitPublicapiObservabilityV1TranscriptGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TranscriptGetResponse {
-        ///Oldest first, in the order the agent recorded them.
+        //Oldest first, in the order the agent recorded them.
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub items: ::std::vec::Vec<LivekitPublicapiObservabilityV1TranscriptItem>,
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
-        /**How many of this page's records couldn't be read as transcript items
+        /*How many of this page's records couldn't be read as transcript items
         and were left out, such as an item kind newer than this server. Zero
         when the page is complete.*/
         #[serde(rename = "skippedRecords", skip_serializing_if = "::std::option::Option::is_none")]
         pub skipped_records: ::std::option::Option<i64>,
     }
-    /**TranscriptItem is one ordered entry in a session's conversation. Exactly one
+    /*TranscriptItem is one ordered entry in a session's conversation. Exactly one
     of the `item` variants is set.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
@@ -3204,7 +3204,7 @@ pub mod types {
         Variant0 {
             #[serde(rename = "agentHandoff")]
             agent_handoff: LivekitPublicapiObservabilityV1TranscriptItemAgentHandoff,
-            ///The item's id, as the agent assigned it (item_...).
+            //The item's id, as the agent assigned it (item_...).
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             id: ::std::option::Option<::std::string::String>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3213,14 +3213,14 @@ pub mod types {
         Variant1 {
             #[serde(rename = "configUpdate")]
             config_update: LivekitPublicapiObservabilityV1TranscriptItemConfigUpdate,
-            ///The item's id, as the agent assigned it (item_...).
+            //The item's id, as the agent assigned it (item_...).
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             id: ::std::option::Option<::std::string::String>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             timestamp: ::std::option::Option<::pbjson_types::Timestamp>,
         },
         Variant2 {
-            ///The item's id, as the agent assigned it (item_...).
+            //The item's id, as the agent assigned it (item_...).
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             id: ::std::option::Option<::std::string::String>,
             message: LivekitPublicapiObservabilityV1TranscriptItemMessage,
@@ -3228,7 +3228,7 @@ pub mod types {
             timestamp: ::std::option::Option<::pbjson_types::Timestamp>,
         },
         Variant3 {
-            ///The item's id, as the agent assigned it (item_...).
+            //The item's id, as the agent assigned it (item_...).
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             id: ::std::option::Option<::std::string::String>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3237,7 +3237,7 @@ pub mod types {
             tool_call: LivekitPublicapiObservabilityV1TranscriptItemToolCall,
         },
         Variant4 {
-            ///The item's id, as the agent assigned it (item_...).
+            //The item's id, as the agent assigned it (item_...).
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             id: ::std::option::Option<::std::string::String>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3246,20 +3246,20 @@ pub mod types {
             tool_result: LivekitPublicapiObservabilityV1TranscriptItemToolResult,
         },
     }
-    ///AgentHandoff is the session passing from one agent to another.
+    //AgentHandoff is the session passing from one agent to another.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TranscriptItemAgentHandoff {
-        ///Unset for the session's first agent.
+        //Unset for the session's first agent.
         #[serde(rename = "fromAgentId", skip_serializing_if = "::std::option::Option::is_none")]
         pub from_agent_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "toAgentId", skip_serializing_if = "::std::option::Option::is_none")]
         pub to_agent_id: ::std::option::Option<::std::string::String>,
     }
-    /**ConfigUpdate is a change to the agent's instructions or tools during the
+    /*ConfigUpdate is a change to the agent's instructions or tools during the
     session.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TranscriptItemConfigUpdate {
-        ///The agent's new instructions; empty when they didn't change.
+        //The agent's new instructions; empty when they didn't change.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub instructions: ::std::option::Option<::std::string::String>,
         #[serde(rename = "toolsAdded", default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -3271,10 +3271,10 @@ pub mod types {
         )]
         pub tools_removed: ::std::vec::Vec<::std::string::String>,
     }
-    ///Message is something said, or added to the conversation as text.
+    //Message is something said, or added to the conversation as text.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TranscriptItemMessage {
-        /**The turn's latencies in milliseconds, converted from the seconds the
+        /*The turn's latencies in milliseconds, converted from the seconds the
         agent recorded; unset when the agent didn't record one. An agent message
         carries the first three, a user message the last three.
 
@@ -3282,27 +3282,27 @@ pub mod types {
         agent began responding (the agent's e2e_latency).*/
         #[serde(rename = "e2eLatencyMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub e2e_latency_ms: ::std::option::Option<f64>,
-        /**From the end of the user's speech to the agent deciding the turn ended
+        /*From the end of the user's speech to the agent deciding the turn ended
         (end_of_turn_delay).*/
         #[serde(
             rename = "endOfTurnDelayMs",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub end_of_turn_delay_ms: ::std::option::Option<f64>,
-        ///Set on an agent message the user talked over before it finished.
+        //Set on an agent message the user talked over before it finished.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub interrupted: ::std::option::Option<bool>,
-        ///LLM time to first token (llm_node_ttft).
+        //LLM time to first token (llm_node_ttft).
         #[serde(rename = "llmTtftMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub llm_ttft_ms: ::std::option::Option<f64>,
-        /**Time spent in the agent's on_user_turn_completed callback
+        /*Time spent in the agent's on_user_turn_completed callback
         (on_user_turn_completed_delay).*/
         #[serde(
             rename = "onUserTurnCompletedDelayMs",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub on_user_turn_completed_delay_ms: ::std::option::Option<f64>,
-        ///Set when the project's PII redaction rewrote the text.
+        //Set when the project's PII redaction rewrote the text.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub redacted: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3317,47 +3317,47 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub stopped_speaking_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**The message's text. Text the agent recorded in several parts is joined
+        /*The message's text. Text the agent recorded in several parts is joined
         with newlines. When redacted is set, PII in it is replaced with
         <redaction type="..."/> markers.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub text: ::std::option::Option<::std::string::String>,
-        ///The speech-to-text confidence of a spoken user message, from 0 to 1.
+        //The speech-to-text confidence of a spoken user message, from 0 to 1.
         #[serde(
             rename = "transcriptConfidence",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub transcript_confidence: ::std::option::Option<f64>,
-        /**From the end of the user's speech to its final transcript
+        /*From the end of the user's speech to its final transcript
         (transcription_delay).*/
         #[serde(
             rename = "transcriptionDelayMs",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub transcription_delay_ms: ::std::option::Option<f64>,
-        ///TTS time to first byte of audio (tts_node_ttfb).
+        //TTS time to first byte of audio (tts_node_ttfb).
         #[serde(rename = "ttsTtfbMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub tts_ttfb_ms: ::std::option::Option<f64>,
     }
-    ///ToolCall is the agent calling a tool.
+    //ToolCall is the agent calling a tool.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TranscriptItemToolCall {
-        ///The call's arguments as a JSON string.
+        //The call's arguments as a JSON string.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub arguments: ::std::option::Option<::std::string::String>,
-        ///Pairs the call with its ToolResult.
+        //Pairs the call with its ToolResult.
         #[serde(rename = "callId", skip_serializing_if = "::std::option::Option::is_none")]
         pub call_id: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
     }
-    ///ToolResult is the output a tool returned for a ToolCall.
+    //ToolResult is the output a tool returned for a ToolCall.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiObservabilityV1TranscriptItemToolResult {
-        ///The call_id of the ToolCall it answers.
+        //The call_id of the ToolCall it answers.
         #[serde(rename = "callId", skip_serializing_if = "::std::option::Option::is_none")]
         pub call_id: ::std::option::Option<::std::string::String>,
-        ///Set when the tool failed; output then describes the error.
+        //Set when the tool failed; output then describes the error.
         #[serde(rename = "isError", skip_serializing_if = "::std::option::Option::is_none")]
         pub is_error: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3365,11 +3365,11 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub output: ::std::option::Option<::std::string::String>,
     }
-    /**AccessKey is project API-key metadata. The secret is never included on list
+    /*AccessKey is project API-key metadata. The secret is never included on list
     RPCs; it is returned only from GenerateKey.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1AccessKey {
-        ///Set for programmatically-created cloud agent keys.
+        //Set for programmatically-created cloud agent keys.
         #[serde(rename = "agentId", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "apiKey", skip_serializing_if = "::std::option::Option::is_none")]
@@ -3380,13 +3380,13 @@ pub mod types {
         pub description: ::std::option::Option<::std::string::String>,
         #[serde(rename = "ownerEmail", skip_serializing_if = "::std::option::Option::is_none")]
         pub owner_email: ::std::option::Option<::std::string::String>,
-        ///Empty for service-account / legacy unowned keys.
+        //Empty for service-account / legacy unowned keys.
         #[serde(rename = "ownerId", skip_serializing_if = "::std::option::Option::is_none")]
         pub owner_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "updatedAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub updated_at: ::std::option::Option<::pbjson_types::Timestamp>,
     }
-    ///`LivekitPublicapiProjectsV1AddWorkspaceMembersToProjectRequest`
+    //`LivekitPublicapiProjectsV1AddWorkspaceMembersToProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1AddWorkspaceMembersToProjectRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -3396,13 +3396,13 @@ pub mod types {
         #[serde(rename = "userIds", default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub user_ids: ::std::vec::Vec<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1AddWorkspaceMembersToProjectResponse`
+    //`LivekitPublicapiProjectsV1AddWorkspaceMembersToProjectResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1AddWorkspaceMembersToProjectResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub items: ::std::vec::Vec<LivekitPublicapiProjectsV1ProjectMember>,
     }
-    ///`LivekitPublicapiProjectsV1AnswerInvitationRequest`
+    //`LivekitPublicapiProjectsV1AnswerInvitationRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1AnswerInvitationRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3410,70 +3410,70 @@ pub mod types {
         #[serde(rename = "inviteToken", skip_serializing_if = "::std::option::Option::is_none")]
         pub invite_token: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1AnswerInvitationResponse`
+    //`LivekitPublicapiProjectsV1AnswerInvitationResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1AnswerInvitationResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub member: ::std::option::Option<LivekitPublicapiProjectsV1ProjectMember>,
     }
-    ///TODO: Add more parts that allow for a full project creation, not just the name
+    //TODO: Add more parts that allow for a full project creation, not just the name
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1CreateProjectMember {
-        ///Matches cloud_protocol.ProjectMemberRole: INVITED=0, READ=1, WRITE=2, ADMIN=3.
+        //Matches cloud_protocol.ProjectMemberRole: INVITED=0, READ=1, WRITE=2, ADMIN=3.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1CreateProjectRequest`
+    //`LivekitPublicapiProjectsV1CreateProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1CreateProjectRequest {
         #[serde(rename = "isPrivate", skip_serializing_if = "::std::option::Option::is_none")]
         pub is_private: ::std::option::Option<bool>,
-        ///private projects only
+        //private projects only
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub members: ::std::vec::Vec<LivekitPublicapiProjectsV1CreateProjectMember>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        ///optional; generated from name when empty
+        //optional; generated from name when empty
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub subdomain: ::std::option::Option<::std::string::String>,
-        ///create-only; empty keeps the deployment default
+        //create-only; empty keeps the deployment default
         #[serde(rename = "userDataRegion", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_data_region: ::std::option::Option<::std::string::String>,
-        ///optional; when empty a new workspace is created
+        //optional; when empty a new workspace is created
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1CreateProjectResponse`
+    //`LivekitPublicapiProjectsV1CreateProjectResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1CreateProjectResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub project: ::std::option::Option<LivekitPublicapiProjectsV1Project>,
     }
-    ///`LivekitPublicapiProjectsV1CreateTokenRequest`
+    //`LivekitPublicapiProjectsV1CreateTokenRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1CreateTokenRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub grants: ::std::option::Option<LivekitPublicapiProjectsV1TokenGrants>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        /**Requested lifetime in seconds. 0 means the default (10 minutes); at most
+        /*Requested lifetime in seconds. 0 means the default (10 minutes); at most
         86400 (24 hours).*/
         #[serde(rename = "ttlSeconds", skip_serializing_if = "::std::option::Option::is_none")]
         pub ttl_seconds: ::std::option::Option<i64>,
     }
-    ///`LivekitPublicapiProjectsV1CreateTokenResponse`
+    //`LivekitPublicapiProjectsV1CreateTokenResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1CreateTokenResponse {
         #[serde(rename = "expiresAt", skip_serializing_if = "::std::option::Option::is_none")]
         pub expires_at: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**Signed JWT, sent as `Authorization: Bearer` to the project's server APIs
+        /*Signed JWT, sent as `Authorization: Bearer` to the project's server APIs
         or used to join a room, depending on the grants.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub token: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1DeleteInviteRequest`
+    //`LivekitPublicapiProjectsV1DeleteInviteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1DeleteInviteRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3481,7 +3481,7 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1DeleteInviteResponse`
+    //`LivekitPublicapiProjectsV1DeleteInviteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiProjectsV1DeleteInviteResponse(
@@ -3507,7 +3507,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiProjectsV1DeleteKeyRequest`
+    //`LivekitPublicapiProjectsV1DeleteKeyRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1DeleteKeyRequest {
         #[serde(rename = "apiKey", skip_serializing_if = "::std::option::Option::is_none")]
@@ -3515,7 +3515,7 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1DeleteKeyResponse`
+    //`LivekitPublicapiProjectsV1DeleteKeyResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiProjectsV1DeleteKeyResponse(
@@ -3541,13 +3541,13 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiProjectsV1DeleteProjectRequest`
+    //`LivekitPublicapiProjectsV1DeleteProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1DeleteProjectRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1DeleteProjectResponse`
+    //`LivekitPublicapiProjectsV1DeleteProjectResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiProjectsV1DeleteProjectResponse(
@@ -3573,12 +3573,12 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiProjectsV1GenerateKeyRequest`
+    //`LivekitPublicapiProjectsV1GenerateKeyRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GenerateKeyRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub description: ::std::option::Option<::std::string::String>,
-        /**When true, the key is created without an owner (project-owned). It is not
+        /*When true, the key is created without an owner (project-owned). It is not
         listed as anyone's personal key and survives the generating user leaving.*/
         #[serde(
             rename = "isServiceAccount",
@@ -3588,7 +3588,7 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1GenerateKeyResponse`
+    //`LivekitPublicapiProjectsV1GenerateKeyResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GenerateKeyResponse {
         #[serde(rename = "apiKey", skip_serializing_if = "::std::option::Option::is_none")]
@@ -3596,19 +3596,19 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub secret: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1GetInviteRequest`
+    //`LivekitPublicapiProjectsV1GetInviteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GetInviteRequest {
         #[serde(rename = "inviteToken", skip_serializing_if = "::std::option::Option::is_none")]
         pub invite_token: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1GetInviteResponse`
+    //`LivekitPublicapiProjectsV1GetInviteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GetInviteResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub invite: ::std::option::Option<LivekitPublicapiProjectsV1ProjectInvite>,
     }
-    ///`LivekitPublicapiProjectsV1GetMemberRequest`
+    //`LivekitPublicapiProjectsV1GetMemberRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GetMemberRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -3616,25 +3616,25 @@ pub mod types {
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1GetMemberResponse`
+    //`LivekitPublicapiProjectsV1GetMemberResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GetMemberResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub member: ::std::option::Option<LivekitPublicapiProjectsV1ProjectMember>,
     }
-    ///`LivekitPublicapiProjectsV1GetProjectRequest`
+    //`LivekitPublicapiProjectsV1GetProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GetProjectRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1GetProjectResponse`
+    //`LivekitPublicapiProjectsV1GetProjectResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1GetProjectResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub project: ::std::option::Option<LivekitPublicapiProjectsV1Project>,
     }
-    ///InviteMember creates or refreshes a token invite (cloud InviteMember2).
+    //InviteMember creates or refreshes a token invite (cloud InviteMember2).
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1InviteMemberRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3644,7 +3644,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    ///`LivekitPublicapiProjectsV1InviteMemberResponse`
+    //`LivekitPublicapiProjectsV1InviteMemberResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1InviteMemberResponse {
         #[serde(rename = "inviteToken", skip_serializing_if = "::std::option::Option::is_none")]
@@ -3652,22 +3652,22 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ListInvitesRequest`
+    //`LivekitPublicapiProjectsV1ListInvitesRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListInvitesRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ListInvitesResponse`
+    //`LivekitPublicapiProjectsV1ListInvitesResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListInvitesResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub items: ::std::vec::Vec<LivekitPublicapiProjectsV1ProjectInvite>,
     }
-    ///`LivekitPublicapiProjectsV1ListKeysRequest`
+    //`LivekitPublicapiProjectsV1ListKeysRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListKeysRequest {
-        ///Agent keys are hidden by default, matching cloud-api-server.
+        //Agent keys are hidden by default, matching cloud-api-server.
         #[serde(
             rename = "includeAgentKeys",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -3676,38 +3676,38 @@ pub mod types {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ListKeysResponse`
+    //`LivekitPublicapiProjectsV1ListKeysResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListKeysResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub keys: ::std::vec::Vec<LivekitPublicapiProjectsV1AccessKey>,
     }
-    ///`LivekitPublicapiProjectsV1ListMembersRequest`
+    //`LivekitPublicapiProjectsV1ListMembersRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListMembersRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ListMembersResponse`
+    //`LivekitPublicapiProjectsV1ListMembersResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListMembersResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub items: ::std::vec::Vec<LivekitPublicapiProjectsV1ProjectMember>,
     }
-    ///`LivekitPublicapiProjectsV1ListProjectsRequest`
+    //`LivekitPublicapiProjectsV1ListProjectsRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListProjectsRequest {
-        ///if member_id is set, list projects for the member
+        //if member_id is set, list projects for the member
         #[serde(rename = "memberId", skip_serializing_if = "::std::option::Option::is_none")]
         pub member_id: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
-        /**Mutually exclusive: only one of workspace_id or member_id can be set
+        /*Mutually exclusive: only one of workspace_id or member_id can be set
         if workspace_id is set, list projects for the workspace*/
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ListProjectsResponse`
+    //`LivekitPublicapiProjectsV1ListProjectsResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListProjectsResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -3715,13 +3715,13 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///`LivekitPublicapiProjectsV1ListScopedKeysRequest`
+    //`LivekitPublicapiProjectsV1ListScopedKeysRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListScopedKeysRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ListScopedKeysResponse`
+    //`LivekitPublicapiProjectsV1ListScopedKeysResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ListScopedKeysResponse {
         #[serde(rename = "otherKeys", default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -3733,7 +3733,7 @@ pub mod types {
         )]
         pub personal_keys: ::std::vec::Vec<LivekitPublicapiProjectsV1AccessKey>,
     }
-    /**PinnedRegions wraps the region pin set so an explicit empty list can clear
+    /*PinnedRegions wraps the region pin set so an explicit empty list can clear
     the pins, which a bare repeated field cannot express (mirrors cloud
     AdminSetProjectSettingsRequest.pinned_regions).*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -3741,7 +3741,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub regions: ::std::vec::Vec<::std::string::String>,
     }
-    /**Project is a LiveKit Cloud project (owned by cloud-api-server).
+    /*Project is a LiveKit Cloud project (owned by cloud-api-server).
     Field set mirrors backend-common model.Project (most config fields);
     members/domains are separate list resources and are not embedded here.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -3824,7 +3824,7 @@ pub mod types {
         pub is_private: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        /**Categories to redact when enable_pii_redaction is on. Empty on read means
+        /*Categories to redact when enable_pii_redaction is on. Empty on read means
         the stored set (or defaults applied at enable time) — never "redact nothing".
         Same taxonomy as cloud-api UpdateProject (cloud_protocol.PIIRedactionCategory).*/
         #[serde(
@@ -3848,7 +3848,7 @@ pub mod types {
         pub require_explicit_dispatch: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub subdomain: ::std::option::Option<::std::string::String>,
-        ///The project's LiveKit server URL (wss://), derived from its subdomain.
+        //The project's LiveKit server URL (wss://), derived from its subdomain.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub url: ::std::option::Option<::std::string::String>,
         #[serde(
@@ -3863,7 +3863,7 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///ProjectInvite is a pending email invite to a project (token-based, cloud InviteMember2).
+    //ProjectInvite is a pending email invite to a project (token-based, cloud InviteMember2).
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ProjectInvite {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3877,20 +3877,20 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    ///ProjectMember is a user's membership on a project.
+    //ProjectMember is a user's membership on a project.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ProjectMember {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub email: ::std::option::Option<::std::string::String>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///Matches cloud_protocol.ProjectMemberRole: INVITED=0, READ=1, WRITE=2, ADMIN=3.
+        //Matches cloud_protocol.ProjectMemberRole: INVITED=0, READ=1, WRITE=2, ADMIN=3.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_id: ::std::option::Option<::std::string::String>,
     }
-    /**ProjectPreferences holds per-project UI/feature settings (mirrors
+    /*ProjectPreferences holds per-project UI/feature settings (mirrors
     backend-common ProjectPreferences).*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ProjectPreferences {
@@ -3950,7 +3950,7 @@ pub mod types {
         )]
         pub token_endpoint_key: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ProjectPreferencesFeatureFlagsEntry`
+    //`LivekitPublicapiProjectsV1ProjectPreferencesFeatureFlagsEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ProjectPreferencesFeatureFlagsEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3958,7 +3958,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1ProjectPreferencesRoomConfigurationsEntry`
+    //`LivekitPublicapiProjectsV1ProjectPreferencesRoomConfigurationsEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1ProjectPreferencesRoomConfigurationsEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -3966,7 +3966,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<LivekitRoomConfiguration>,
     }
-    ///`LivekitPublicapiProjectsV1RemoveMemberRequest`
+    //`LivekitPublicapiProjectsV1RemoveMemberRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1RemoveMemberRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -3974,7 +3974,7 @@ pub mod types {
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1RemoveMemberResponse`
+    //`LivekitPublicapiProjectsV1RemoveMemberResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiProjectsV1RemoveMemberResponse(
@@ -4000,7 +4000,7 @@ pub mod types {
             Self(value)
         }
     }
-    /**TokenGrants are the claims of a LiveKit access token. Field names match the
+    /*TokenGrants are the claims of a LiveKit access token. Field names match the
     token's JSON claims (protocol auth.ClaimGrants), so a token's claims JSON is
     a valid TokenGrants in JSON form.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -4014,12 +4014,12 @@ pub mod types {
         pub agent_thread: ::std::option::Option<LivekitPublicapiProjectsV1TokenGrantsAgentThread>,
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
         pub attributes: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
-        ///Participant identity (the token's subject).
+        //Participant identity (the token's subject).
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub identity: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub inference: ::std::option::Option<LivekitPublicapiProjectsV1TokenGrantsInference>,
-        ///Participant kind: "standard", "ingress", "egress", "sip", or "agent".
+        //Participant kind: "standard", "ingress", "egress", "sip", or "agent".
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub kind: ::std::option::Option<::std::string::String>,
         #[serde(
@@ -4030,7 +4030,7 @@ pub mod types {
         pub kind_details: ::std::vec::Vec<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub metadata: ::std::option::Option<::std::string::String>,
-        ///Participant display name.
+        //Participant display name.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4038,7 +4038,7 @@ pub mod types {
             ::std::option::Option<LivekitPublicapiProjectsV1TokenGrantsObservability>,
         #[serde(rename = "roomConfig", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_config: ::std::option::Option<LivekitRoomConfiguration>,
-        ///Cloud room configuration preset; fields in room_config override it.
+        //Cloud room configuration preset; fields in room_config override it.
         #[serde(rename = "roomPreset", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_preset: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4046,7 +4046,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub video: ::std::option::Option<LivekitPublicapiProjectsV1TokenGrantsVideo>,
     }
-    ///Agent server API permissions.
+    //Agent server API permissions.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1TokenGrantsAgent {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4061,19 +4061,19 @@ pub mod types {
         )]
         pub simulation_admin: ::std::option::Option<bool>,
     }
-    ///Calling an agent's non-public HTTP endpoints.
+    //Calling an agent's non-public HTTP endpoints.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1TokenGrantsAgentEndpoint {
-        ///One agent; empty for every agent of the project.
+        //One agent; empty for every agent of the project.
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub call: ::std::option::Option<bool>,
-        ///One deployment; empty for every deployment.
+        //One deployment; empty for every deployment.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub deployment: ::std::option::Option<::std::string::String>,
     }
-    /**A thread token: list and create in scope; read, write and delete the
+    /*A thread token: list and create in scope; read, write and delete the
     threads in thread_ids, e.g. for a frontend rendering one conversation.
     all extends it to every thread of the project; the action flags still
     apply.*/
@@ -4096,7 +4096,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub write: ::std::option::Option<bool>,
     }
-    ///`LivekitPublicapiProjectsV1TokenGrantsAttributesEntry`
+    //`LivekitPublicapiProjectsV1TokenGrantsAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1TokenGrantsAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4104,19 +4104,19 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1TokenGrantsInference`
+    //`LivekitPublicapiProjectsV1TokenGrantsInference`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1TokenGrantsInference {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub perform: ::std::option::Option<bool>,
     }
-    ///`LivekitPublicapiProjectsV1TokenGrantsObservability`
+    //`LivekitPublicapiProjectsV1TokenGrantsObservability`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1TokenGrantsObservability {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub write: ::std::option::Option<bool>,
     }
-    ///SIP server API permissions.
+    //SIP server API permissions.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1TokenGrantsSip {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4124,7 +4124,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub call: ::std::option::Option<bool>,
     }
-    ///Room and participant permissions.
+    //Room and participant permissions.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1TokenGrantsVideo {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4134,12 +4134,12 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub can_manage_agent_session: ::std::option::Option<bool>,
-        ///Unset means allowed.
+        //Unset means allowed.
         #[serde(rename = "canPublish", skip_serializing_if = "::std::option::Option::is_none")]
         pub can_publish: ::std::option::Option<bool>,
         #[serde(rename = "canPublishData", skip_serializing_if = "::std::option::Option::is_none")]
         pub can_publish_data: ::std::option::Option<bool>,
-        ///Restrict publishing to these sources ("camera", "microphone", …).
+        //Restrict publishing to these sources ("camera", "microphone", …).
         #[serde(
             rename = "canPublishSources",
             default,
@@ -4158,7 +4158,7 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub can_update_own_metadata: ::std::option::Option<bool>,
-        ///Room to move or forward participants to.
+        //Room to move or forward participants to.
         #[serde(
             rename = "destinationRoom",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -4166,30 +4166,30 @@ pub mod types {
         pub destination_room: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub hidden: ::std::option::Option<bool>,
-        ///Server API: manage ingress.
+        //Server API: manage ingress.
         #[serde(rename = "ingressAdmin", skip_serializing_if = "::std::option::Option::is_none")]
         pub ingress_admin: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub recorder: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub room: ::std::option::Option<::std::string::String>,
-        ///Server API: manage `room` (or any room when unset).
+        //Server API: manage `room` (or any room when unset).
         #[serde(rename = "roomAdmin", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_admin: ::std::option::Option<bool>,
-        ///Server API: create rooms.
+        //Server API: create rooms.
         #[serde(rename = "roomCreate", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_create: ::std::option::Option<bool>,
-        ///Join `room`.
+        //Join `room`.
         #[serde(rename = "roomJoin", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_join: ::std::option::Option<bool>,
-        ///Server API: list rooms.
+        //Server API: list rooms.
         #[serde(rename = "roomList", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_list: ::std::option::Option<bool>,
-        ///Server API: start and manage egress.
+        //Server API: start and manage egress.
         #[serde(rename = "roomRecord", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_record: ::std::option::Option<bool>,
     }
-    ///`LivekitPublicapiProjectsV1UpdateInviteRequest`
+    //`LivekitPublicapiProjectsV1UpdateInviteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1UpdateInviteRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4199,13 +4199,13 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    ///`LivekitPublicapiProjectsV1UpdateInviteResponse`
+    //`LivekitPublicapiProjectsV1UpdateInviteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1UpdateInviteResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub invite: ::std::option::Option<LivekitPublicapiProjectsV1ProjectInvite>,
     }
-    ///`LivekitPublicapiProjectsV1UpdateMemberRequest`
+    //`LivekitPublicapiProjectsV1UpdateMemberRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1UpdateMemberRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4215,13 +4215,13 @@ pub mod types {
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1UpdateMemberResponse`
+    //`LivekitPublicapiProjectsV1UpdateMemberResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1UpdateMemberResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub member: ::std::option::Option<LivekitPublicapiProjectsV1ProjectMember>,
     }
-    /**UpdateProjectRequest patches a project. Unset optional fields are left
+    /*UpdateProjectRequest patches a project. Unset optional fields are left
     unchanged (proto3 optional). Mirrors cloud-api UpdateProject for local mode;
     webhooks are separate RPCs (not included here).*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -4238,7 +4238,7 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub discoverable_by_domain: ::std::option::Option<bool>,
-        ///LK-admin only
+        //LK-admin only
         #[serde(
             rename = "egressClusterId",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -4264,7 +4264,7 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub enable_egress_backup_storage: ::std::option::Option<bool>,
-        ///LK-admin only
+        //LK-admin only
         #[serde(
             rename = "enableHostedAgents",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -4303,7 +4303,7 @@ pub mod types {
         )]
         pub feature_flags:
             ::std::collections::HashMap<::std::string::String, ::std::string::String>,
-        ///Preferences (flat, matching cloud-api UpdateProjectRequest).
+        //Preferences (flat, matching cloud-api UpdateProjectRequest).
         #[serde(rename = "hideOnboarding", skip_serializing_if = "::std::option::Option::is_none")]
         pub hide_onboarding: ::std::option::Option<bool>,
         #[serde(
@@ -4318,12 +4318,12 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub joinable_by_domain: ::std::option::Option<bool>,
-        ///Used when becoming private: explicit member set (actor kept as ADMIN).
+        //Used when becoming private: explicit member set (actor kept as ADMIN).
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub members: ::std::vec::Vec<LivekitPublicapiProjectsV1CreateProjectMember>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        /**Non-empty list replaces the stored set (validated via Canonical).
+        /*Non-empty list replaces the stored set (validated via Canonical).
         Empty is ignored (cannot clear). When enabling with nothing stored,
         defaults are applied server-side — same as cloud-api UpdateProject.*/
         #[serde(
@@ -4347,7 +4347,7 @@ pub mod types {
             skip_serializing_if = "::std::vec::Vec::is_empty"
         )]
         pub room_configs_to_delete: ::std::vec::Vec<::std::string::String>,
-        ///RoomConfiguration management (stored on project preferences).
+        //RoomConfiguration management (stored on project preferences).
         #[serde(
             rename = "roomConfigsToUpsert",
             default,
@@ -4364,7 +4364,7 @@ pub mod types {
         )]
         pub token_endpoint_key: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1UpdateProjectRequestFeatureFlagsEntry`
+    //`LivekitPublicapiProjectsV1UpdateProjectRequestFeatureFlagsEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1UpdateProjectRequestFeatureFlagsEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4372,13 +4372,13 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiProjectsV1UpdateProjectResponse`
+    //`LivekitPublicapiProjectsV1UpdateProjectResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1UpdateProjectResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub project: ::std::option::Option<LivekitPublicapiProjectsV1Project>,
     }
-    ///Webhook is a project webhook destination (mirrors backend-common Webhook).
+    //Webhook is a project webhook destination (mirrors backend-common Webhook).
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiProjectsV1Webhook {
         #[serde(rename = "filterParams", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4392,25 +4392,25 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub url: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiSimulationsV1ScenariosGenerateFromSessionRequest`
+    //`LivekitPublicapiSimulationsV1ScenariosGenerateFromSessionRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1ScenariosGenerateFromSessionRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///Unused today: the session's recording is found by project and room.
+        //Unused today: the session's recording is found by project and room.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub region: ::std::option::Option<::std::string::String>,
-        ///Room session (RM_...) to derive the scenario from.
+        //Room session (RM_...) to derive the scenario from.
         #[serde(rename = "roomId", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiSimulationsV1ScenariosGenerateFromSessionResponse`
+    //`LivekitPublicapiSimulationsV1ScenariosGenerateFromSessionResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1ScenariosGenerateFromSessionResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub scenario: ::std::option::Option<LivekitScenario>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsCancelRequest`
+    //`LivekitPublicapiSimulationsV1SimulationRunsCancelRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsCancelRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4421,7 +4421,7 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsCancelResponse`
+    //`LivekitPublicapiSimulationsV1SimulationRunsCancelResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsCancelResponse(
@@ -4447,10 +4447,10 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsConfirmSourceUploadRequest`
+    //`LivekitPublicapiSimulationsV1SimulationRunsConfirmSourceUploadRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsConfirmSourceUploadRequest {
-        ///Entrypoint of the uploaded source, for example "agent.py".
+        //Entrypoint of the uploaded source, for example "agent.py".
         #[serde(rename = "codeEntrypoint", skip_serializing_if = "::std::option::Option::is_none")]
         pub code_entrypoint: ::std::option::Option<::std::string::String>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4461,7 +4461,7 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsConfirmSourceUploadResponse`
+    //`LivekitPublicapiSimulationsV1SimulationRunsConfirmSourceUploadResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsConfirmSourceUploadResponse(
@@ -4490,29 +4490,29 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsCountsRequest`
+    //`LivekitPublicapiSimulationsV1SimulationRunsCountsRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsCountsRequest {
-        ///Only runs of this agent (exact name).
+        //Only runs of this agent (exact name).
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
         #[serde(rename = "endTime", skip_serializing_if = "::std::option::Option::is_none")]
         pub end_time: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///Only runs in this conversation mode.
+        //Only runs in this conversation mode.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub mode: ::std::option::Option<LivekitSimulationMode>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
         pub start_time: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///Only runs in this status.
+        //Only runs in this status.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub status: ::std::option::Option<LivekitSimulationRunStatus>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsCountsResponse`
+    //`LivekitPublicapiSimulationsV1SimulationRunsCountsResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsCountsResponse {
-        /**Buckets holding at least one run, ascending by bucket_start. Empty
+        /*Buckets holding at least one run, ascending by bucket_start. Empty
         buckets are omitted; each run lands in exactly one bucket, so the
         counts sum to the number of runs in the window.*/
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -4520,26 +4520,26 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub interval: ::std::option::Option<::pbjson_types::Duration>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsCreateRequest`
+    //`LivekitPublicapiSimulationsV1SimulationRunsCreateRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsCreateRequest {
-        /**Name the agent under test is registered under; every job dispatches it
+        /*Name the agent under test is registered under; every job dispatches it
         into the simulation room, so it must already be deployed or running as
         a worker. Empty uses the project's default agent. Recorded on the run
         and usable as a ListSimulationRuns filter.*/
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
-        ///Audio impairments applied to the simulated user; AUDIO mode only.
+        //Audio impairments applied to the simulated user; AUDIO mode only.
         #[serde(
             rename = "backgroundNoise",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub background_noise: ::std::option::Option<bool>,
-        /**The CI pipeline this run came from, so runs can be linked back to
+        /*The CI pipeline this run came from, so runs can be linked back to
         commits.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub ci: ::std::option::Option<LivekitSimulationRunCi>,
-        /**Maximum jobs running in parallel, at most 20; above that the request is
+        /*Maximum jobs running in parallel, at most 20; above that the request is
         InvalidArgument. The project's concurrency quota can run fewer at once.
         Unset uses the server default.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4551,7 +4551,7 @@ pub mod types {
         pub low_quality_microphone: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub mode: ::std::option::Option<LivekitSimulationMode>,
-        /**Number of scenarios to generate from the agent source when
+        /*Number of scenarios to generate from the agent source when
         scenario_group is unset.*/
         #[serde(rename = "numSimulations", skip_serializing_if = "::std::option::Option::is_none")]
         pub num_simulations: ::std::option::Option<i32>,
@@ -4559,16 +4559,16 @@ pub mod types {
         pub packet_loss: ::std::option::Option<bool>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///Reserved: must be empty, and the service chooses where the run happens.
+        //Reserved: must be empty, and the service chooses where the run happens.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub region: ::std::option::Option<::std::string::String>,
-        /**Run exactly these scenarios (the contents of a scenarios.yaml) instead
+        /*Run exactly these scenarios (the contents of a scenarios.yaml) instead
         of generating num_simulations of them; the run then needs no source
         upload and starts immediately.*/
         #[serde(rename = "scenarioGroup", skip_serializing_if = "::std::option::Option::is_none")]
         pub scenario_group: ::std::option::Option<LivekitScenarioGroup>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsCreateResponse`
+    //`LivekitPublicapiSimulationsV1SimulationRunsCreateResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsCreateResponse {
         #[serde(
@@ -4582,7 +4582,7 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsGetRequest`
+    //`LivekitPublicapiSimulationsV1SimulationRunsGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsGetRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4593,13 +4593,13 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsGetResponse`
+    //`LivekitPublicapiSimulationsV1SimulationRunsGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsGetResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub run: ::std::option::Option<LivekitSimulationRun>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsGetSummaryRequest`
+    //`LivekitPublicapiSimulationsV1SimulationRunsGetSummaryRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsGetSummaryRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4610,21 +4610,21 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsGetSummaryResponse`
+    //`LivekitPublicapiSimulationsV1SimulationRunsGetSummaryResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsGetSummaryResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub summary: ::std::option::Option<LivekitSimulationRunSummary>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsListRequest`
+    //`LivekitPublicapiSimulationsV1SimulationRunsListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsListRequest {
-        ///Only runs of this agent (exact name).
+        //Only runs of this agent (exact name).
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
         #[serde(rename = "endTime", skip_serializing_if = "::std::option::Option::is_none")]
         pub end_time: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///Only runs in this conversation mode.
+        //Only runs in this conversation mode.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub mode: ::std::option::Option<LivekitSimulationMode>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4633,11 +4633,11 @@ pub mod types {
         pub project_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
         pub start_time: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///Only runs in this status.
+        //Only runs in this status.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub status: ::std::option::Option<LivekitSimulationRunStatus>,
     }
-    ///`LivekitPublicapiSimulationsV1SimulationRunsListResponse`
+    //`LivekitPublicapiSimulationsV1SimulationRunsListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiSimulationsV1SimulationRunsListResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -4645,7 +4645,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsCreateRequest`
+    //`LivekitPublicapiThreadsV1ThreadsCreateRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsCreateRequest {
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
@@ -4654,12 +4654,12 @@ pub mod types {
         pub idle_ttl: ::std::option::Option<::pbjson_types::Duration>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        /**Optional scope grouping the thread (typically the user's identity),
+        /*Optional scope grouping the thread (typically the user's identity),
         at most 256 bytes.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub scope: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsCreateRequestAttributesEntry`
+    //`LivekitPublicapiThreadsV1ThreadsCreateRequestAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsCreateRequestAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4667,13 +4667,13 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsCreateResponse`
+    //`LivekitPublicapiThreadsV1ThreadsCreateResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsCreateResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub thread: ::std::option::Option<::livekit_protocol::agent::agent_thread::Thread>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsDeleteRequest`
+    //`LivekitPublicapiThreadsV1ThreadsDeleteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsDeleteRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4681,7 +4681,7 @@ pub mod types {
         #[serde(rename = "threadId", skip_serializing_if = "::std::option::Option::is_none")]
         pub thread_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsDeleteResponse`
+    //`LivekitPublicapiThreadsV1ThreadsDeleteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiThreadsV1ThreadsDeleteResponse(
@@ -4707,7 +4707,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiThreadsV1ThreadsGetRequest`
+    //`LivekitPublicapiThreadsV1ThreadsGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsGetRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4715,16 +4715,16 @@ pub mod types {
         #[serde(rename = "threadId", skip_serializing_if = "::std::option::Option::is_none")]
         pub thread_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsGetResponse`
+    //`LivekitPublicapiThreadsV1ThreadsGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsGetResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub thread: ::std::option::Option<::livekit_protocol::agent::agent_thread::Thread>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsItemsRequest`
+    //`LivekitPublicapiThreadsV1ThreadsItemsRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsItemsRequest {
-        ///One agent's items; empty for every agent's.
+        //One agent's items; empty for every agent's.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub agent: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4736,7 +4736,7 @@ pub mod types {
         #[serde(rename = "threadId", skip_serializing_if = "::std::option::Option::is_none")]
         pub thread_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsItemsResponse`
+    //`LivekitPublicapiThreadsV1ThreadsItemsResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsItemsResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -4744,7 +4744,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsListRequest`
+    //`LivekitPublicapiThreadsV1ThreadsListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsListRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4754,7 +4754,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub scope: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsListResponse`
+    //`LivekitPublicapiThreadsV1ThreadsListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsListResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -4762,20 +4762,20 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsTasksRequest`
+    //`LivekitPublicapiThreadsV1ThreadsTasksRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsTasksRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///Only tasks in this status; unset for every status.
+        //Only tasks in this status; unset for every status.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub status: ::std::option::Option<::livekit_protocol::agent::agent_task::Status>,
         #[serde(rename = "threadId", skip_serializing_if = "::std::option::Option::is_none")]
         pub thread_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsTasksResponse`
+    //`LivekitPublicapiThreadsV1ThreadsTasksResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsTasksResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -4783,7 +4783,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsUpdateRequest`
+    //`LivekitPublicapiThreadsV1ThreadsUpdateRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsUpdateRequest {
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
@@ -4795,7 +4795,7 @@ pub mod types {
         #[serde(rename = "threadId", skip_serializing_if = "::std::option::Option::is_none")]
         pub thread_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsUpdateRequestAttributesEntry`
+    //`LivekitPublicapiThreadsV1ThreadsUpdateRequestAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsUpdateRequestAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4803,13 +4803,13 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiThreadsV1ThreadsUpdateResponse`
+    //`LivekitPublicapiThreadsV1ThreadsUpdateResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiThreadsV1ThreadsUpdateResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub thread: ::std::option::Option<::livekit_protocol::agent::agent_thread::Thread>,
     }
-    ///`LivekitPublicapiUsersV1GetCurrentUserRequest`
+    //`LivekitPublicapiUsersV1GetCurrentUserRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiUsersV1GetCurrentUserRequest(
@@ -4835,30 +4835,30 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiUsersV1GetCurrentUserResponse`
+    //`LivekitPublicapiUsersV1GetCurrentUserResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiUsersV1GetCurrentUserResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub user: ::std::option::Option<LivekitPublicapiUsersV1User>,
     }
-    ///`LivekitPublicapiUsersV1GetUserRequest`
+    //`LivekitPublicapiUsersV1GetUserRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiUsersV1GetUserRequest {
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiUsersV1GetUserResponse`
+    //`LivekitPublicapiUsersV1GetUserResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiUsersV1GetUserResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub user: ::std::option::Option<LivekitPublicapiUsersV1User>,
     }
-    ///`LivekitPublicapiUsersV1ListUsersRequest`
+    //`LivekitPublicapiUsersV1ListUsersRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiUsersV1ListUsersRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
-        /**At least one of project_id or workspace_id is required.
+        /*At least one of project_id or workspace_id is required.
         If both are set, project_id must belong to workspace_id; members are
         the project's members.*/
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4866,7 +4866,7 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiUsersV1ListUsersResponse`
+    //`LivekitPublicapiUsersV1ListUsersResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiUsersV1ListUsersResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -4874,7 +4874,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///User is a LiveKit Cloud user (owned by cloud-api-server).
+    //User is a LiveKit Cloud user (owned by cloud-api-server).
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiUsersV1User {
         #[serde(rename = "createdAt", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4884,7 +4884,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1AnswerInviteRequest`
+    //`LivekitPublicapiWorkspacesV1AnswerInviteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1AnswerInviteRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4892,13 +4892,13 @@ pub mod types {
         #[serde(rename = "inviteToken", skip_serializing_if = "::std::option::Option::is_none")]
         pub invite_token: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1AnswerInviteResponse`
+    //`LivekitPublicapiWorkspacesV1AnswerInviteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1AnswerInviteResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub member: ::std::option::Option<LivekitPublicapiWorkspacesV1WorkspaceMember>,
     }
-    ///`LivekitPublicapiWorkspacesV1CreateInviteRequest`
+    //`LivekitPublicapiWorkspacesV1CreateInviteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1CreateInviteRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4908,7 +4908,7 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1CreateInviteResponse`
+    //`LivekitPublicapiWorkspacesV1CreateInviteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1CreateInviteResponse {
         #[serde(rename = "inviteToken", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4916,7 +4916,7 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1CreateProjectRequest`
+    //`LivekitPublicapiWorkspacesV1CreateProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1CreateProjectRequest {
         #[serde(rename = "isPrivate", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4925,33 +4925,33 @@ pub mod types {
         pub members: ::std::vec::Vec<LivekitPublicapiProjectsV1CreateProjectMember>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        ///optional; generated from name when empty
+        //optional; generated from name when empty
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub subdomain: ::std::option::Option<::std::string::String>,
-        ///create-only; empty keeps the deployment default
+        //create-only; empty keeps the deployment default
         #[serde(rename = "userDataRegion", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_data_region: ::std::option::Option<::std::string::String>,
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1CreateWorkspaceRequest`
+    //`LivekitPublicapiWorkspacesV1CreateWorkspaceRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1CreateWorkspaceRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        /**Optional organization association. from_project_id and preferences are intentionally omitted: cloud treats
+        /*Optional organization association. from_project_id and preferences are intentionally omitted: cloud treats
         from_project_id as admin-only, and hipaa_compliant preferences cascade to
         every project (AdminService.UpdateWorkspace only).*/
         #[serde(rename = "organizationId", skip_serializing_if = "::std::option::Option::is_none")]
         pub organization_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1CreateWorkspaceResponse`
+    //`LivekitPublicapiWorkspacesV1CreateWorkspaceResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1CreateWorkspaceResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace: ::std::option::Option<LivekitPublicapiWorkspacesV1Workspace>,
     }
-    ///`LivekitPublicapiWorkspacesV1DeleteInviteRequest`
+    //`LivekitPublicapiWorkspacesV1DeleteInviteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1DeleteInviteRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -4959,7 +4959,7 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1DeleteInviteResponse`
+    //`LivekitPublicapiWorkspacesV1DeleteInviteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiWorkspacesV1DeleteInviteResponse(
@@ -4985,7 +4985,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiWorkspacesV1DeleteMemberRequest`
+    //`LivekitPublicapiWorkspacesV1DeleteMemberRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1DeleteMemberRequest {
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -4993,7 +4993,7 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1DeleteMemberResponse`
+    //`LivekitPublicapiWorkspacesV1DeleteMemberResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiWorkspacesV1DeleteMemberResponse(
@@ -5019,7 +5019,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiWorkspacesV1DeleteProjectRequest`
+    //`LivekitPublicapiWorkspacesV1DeleteProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1DeleteProjectRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -5027,13 +5027,13 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1DeleteWorkspaceRequest`
+    //`LivekitPublicapiWorkspacesV1DeleteWorkspaceRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1DeleteWorkspaceRequest {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1DeleteWorkspaceResponse`
+    //`LivekitPublicapiWorkspacesV1DeleteWorkspaceResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitPublicapiWorkspacesV1DeleteWorkspaceResponse(
@@ -5059,19 +5059,19 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitPublicapiWorkspacesV1GetInviteRequest`
+    //`LivekitPublicapiWorkspacesV1GetInviteRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1GetInviteRequest {
         #[serde(rename = "inviteToken", skip_serializing_if = "::std::option::Option::is_none")]
         pub invite_token: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1GetInviteResponse`
+    //`LivekitPublicapiWorkspacesV1GetInviteResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1GetInviteResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub invite: ::std::option::Option<LivekitPublicapiWorkspacesV1WorkspaceInvite>,
     }
-    ///`LivekitPublicapiWorkspacesV1GetMemberRequest`
+    //`LivekitPublicapiWorkspacesV1GetMemberRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1GetMemberRequest {
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -5079,13 +5079,13 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1GetMemberResponse`
+    //`LivekitPublicapiWorkspacesV1GetMemberResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1GetMemberResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub member: ::std::option::Option<LivekitPublicapiWorkspacesV1WorkspaceMember>,
     }
-    ///`LivekitPublicapiWorkspacesV1GetProjectRequest`
+    //`LivekitPublicapiWorkspacesV1GetProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1GetProjectRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -5093,43 +5093,43 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1GetWorkspaceRequest`
+    //`LivekitPublicapiWorkspacesV1GetWorkspaceRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1GetWorkspaceRequest {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1GetWorkspaceResponse`
+    //`LivekitPublicapiWorkspacesV1GetWorkspaceResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1GetWorkspaceResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace: ::std::option::Option<LivekitPublicapiWorkspacesV1Workspace>,
     }
-    ///`LivekitPublicapiWorkspacesV1ListInvitesRequest`
+    //`LivekitPublicapiWorkspacesV1ListInvitesRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1ListInvitesRequest {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1ListInvitesResponse`
+    //`LivekitPublicapiWorkspacesV1ListInvitesResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1ListInvitesResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub items: ::std::vec::Vec<LivekitPublicapiWorkspacesV1WorkspaceInvite>,
     }
-    ///`LivekitPublicapiWorkspacesV1ListMembersRequest`
+    //`LivekitPublicapiWorkspacesV1ListMembersRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1ListMembersRequest {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1ListMembersResponse`
+    //`LivekitPublicapiWorkspacesV1ListMembersResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1ListMembersResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub items: ::std::vec::Vec<LivekitPublicapiWorkspacesV1WorkspaceMember>,
     }
-    /**Workspace-scoped project RPCs: requests are owned here (required
+    /*Workspace-scoped project RPCs: requests are owned here (required
     workspace_id); responses reuse projects.v1.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1ListProjectsRequest {
@@ -5138,13 +5138,13 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1ListWorkspacesRequest`
+    //`LivekitPublicapiWorkspacesV1ListWorkspacesRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1ListWorkspacesRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub page: ::std::option::Option<LivekitPublicapiCommonV1PageRequest>,
     }
-    ///`LivekitPublicapiWorkspacesV1ListWorkspacesResponse`
+    //`LivekitPublicapiWorkspacesV1ListWorkspacesResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1ListWorkspacesResponse {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -5152,7 +5152,7 @@ pub mod types {
         #[serde(rename = "pageInfo", skip_serializing_if = "::std::option::Option::is_none")]
         pub page_info: ::std::option::Option<LivekitPublicapiCommonV1PageInfo>,
     }
-    ///`LivekitPublicapiWorkspacesV1UpdateMemberRequest`
+    //`LivekitPublicapiWorkspacesV1UpdateMemberRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1UpdateMemberRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5162,13 +5162,13 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1UpdateMemberResponse`
+    //`LivekitPublicapiWorkspacesV1UpdateMemberResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1UpdateMemberResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub member: ::std::option::Option<LivekitPublicapiWorkspacesV1WorkspaceMember>,
     }
-    ///`LivekitPublicapiWorkspacesV1UpdateProjectRequest`
+    //`LivekitPublicapiWorkspacesV1UpdateProjectRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1UpdateProjectRequest {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5176,7 +5176,7 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    /**Mirrors cloud-api WorkspaceService.UpdateWorkspace, which only accepts a
+    /*Mirrors cloud-api WorkspaceService.UpdateWorkspace, which only accepts a
     name: workspace preferences (hipaa_compliant) cascade to every project in the
     workspace and are LK-admin-only there (AdminService.UpdateWorkspace), so they
     are deliberately not settable on this path.*/
@@ -5187,13 +5187,13 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitPublicapiWorkspacesV1UpdateWorkspaceResponse`
+    //`LivekitPublicapiWorkspacesV1UpdateWorkspaceResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1UpdateWorkspaceResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace: ::std::option::Option<LivekitPublicapiWorkspacesV1Workspace>,
     }
-    /**Workspace is a LiveKit Cloud workspace (owned by cloud-api-server).
+    /*Workspace is a LiveKit Cloud workspace (owned by cloud-api-server).
     Field set mirrors backend-common model.Workspace.ToProto(); members/invites
     are separate list resources and are not embedded here.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -5211,7 +5211,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub preferences: ::std::option::Option<LivekitPublicapiWorkspacesV1WorkspacePreferences>,
     }
-    ///WorkspaceInvite is a pending email invite to a workspace.
+    //WorkspaceInvite is a pending email invite to a workspace.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1WorkspaceInvite {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5225,12 +5225,12 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    ///WorkspaceMember is a user's membership on a workspace.
+    //WorkspaceMember is a user's membership on a workspace.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1WorkspaceMember {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub email: ::std::option::Option<::std::string::String>,
-        ///Matches cloud_protocol.ProjectMemberRole: INVITED=0, READ=1, WRITE=2, ADMIN=3.
+        //Matches cloud_protocol.ProjectMemberRole: INVITED=0, READ=1, WRITE=2, ADMIN=3.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
         #[serde(rename = "userId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -5238,14 +5238,14 @@ pub mod types {
         #[serde(rename = "workspaceId", skip_serializing_if = "::std::option::Option::is_none")]
         pub workspace_id: ::std::option::Option<::std::string::String>,
     }
-    /**WorkspacePreferences holds per-workspace settings (mirrors backend-common
+    /*WorkspacePreferences holds per-workspace settings (mirrors backend-common
     WorkspacePreferences).*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitPublicapiWorkspacesV1WorkspacePreferences {
         #[serde(rename = "hipaaCompliant", skip_serializing_if = "::std::option::Option::is_none")]
         pub hipaa_compliant: ::std::option::Option<bool>,
     }
-    ///`LivekitRoomAgentDispatch`
+    //`LivekitRoomAgentDispatch`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitRoomAgentDispatch {
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
@@ -5259,7 +5259,7 @@ pub mod types {
         #[serde(rename = "restartPolicy", skip_serializing_if = "::std::option::Option::is_none")]
         pub restart_policy: ::std::option::Option<LivekitJobRestartPolicy>,
     }
-    ///`LivekitRoomAgentDispatchAttributesEntry`
+    //`LivekitRoomAgentDispatchAttributesEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitRoomAgentDispatchAttributesEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5267,7 +5267,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitRoomCompositeEgressRequest`
+    //`LivekitRoomCompositeEgressRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitRoomCompositeEgressRequest {
@@ -5296,7 +5296,7 @@ pub mod types {
             Self::Variant2(value)
         }
     }
-    ///`LivekitRoomCompositeEgressRequestVariant0`
+    //`LivekitRoomCompositeEgressRequestVariant0`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitRoomCompositeEgressRequestVariant0 {
@@ -5397,7 +5397,7 @@ pub mod types {
             webhooks: ::std::vec::Vec<LivekitWebhookConfig>,
         },
     }
-    ///`LivekitRoomCompositeEgressRequestVariant1`
+    //`LivekitRoomCompositeEgressRequestVariant1`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitRoomCompositeEgressRequestVariant1 {
@@ -5498,7 +5498,7 @@ pub mod types {
             webhooks: ::std::vec::Vec<LivekitWebhookConfig>,
         },
     }
-    ///`LivekitRoomCompositeEgressRequestVariant2`
+    //`LivekitRoomCompositeEgressRequestVariant2`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitRoomCompositeEgressRequestVariant2 {
@@ -5599,13 +5599,13 @@ pub mod types {
             webhooks: ::std::vec::Vec<LivekitWebhookConfig>,
         },
     }
-    ///`LivekitRoomConfiguration`
+    //`LivekitRoomConfiguration`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitRoomConfiguration {
-        ///Define agents that should be dispatched to this room
+        //Define agents that should be dispatched to this room
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub agents: ::std::vec::Vec<LivekitRoomAgentDispatch>,
-        ///number of seconds to keep the room open after everyone leaves
+        //number of seconds to keep the room open after everyone leaves
         #[serde(
             rename = "departureTimeout",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -5613,10 +5613,10 @@ pub mod types {
         pub departure_timeout: ::std::option::Option<i64>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub egress: ::std::option::Option<LivekitRoomEgress>,
-        ///number of seconds to keep the room open if no one joins
+        //number of seconds to keep the room open if no one joins
         #[serde(rename = "emptyTimeout", skip_serializing_if = "::std::option::Option::is_none")]
         pub empty_timeout: ::std::option::Option<i64>,
-        ///limit number of participants that can be in a room, excluding Egress and Agent participants
+        //limit number of participants that can be in a room, excluding Egress and Agent participants
         #[serde(
             rename = "maxParticipants",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -5627,27 +5627,27 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub max_playout_delay: ::std::option::Option<i64>,
-        ///metadata of room
+        //metadata of room
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub metadata: ::std::option::Option<::std::string::String>,
-        ///playout delay of subscriber
+        //playout delay of subscriber
         #[serde(
             rename = "minPlayoutDelay",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub min_playout_delay: ::std::option::Option<i64>,
-        ///Used as ID, must be unique
+        //Used as ID, must be unique
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        /**improves A/V sync when playout_delay set to a value larger than 200ms. It will disables transceiver re-use
+        /*improves A/V sync when playout_delay set to a value larger than 200ms. It will disables transceiver re-use
         so not recommended for rooms with frequent subscription changes*/
         #[serde(rename = "syncStreams", skip_serializing_if = "::std::option::Option::is_none")]
         pub sync_streams: ::std::option::Option<bool>,
-        ///Tags to attach to the room
+        //Tags to attach to the room
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
         pub tags: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
     }
-    ///`LivekitRoomConfigurationTagsEntry`
+    //`LivekitRoomConfigurationTagsEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitRoomConfigurationTagsEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5655,7 +5655,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitRoomEgress`
+    //`LivekitRoomEgress`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitRoomEgress {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5665,15 +5665,15 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub tracks: ::std::option::Option<LivekitAutoTrackEgress>,
     }
-    ///`LivekitS3Upload`
+    //`LivekitS3Upload`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitS3Upload {
         #[serde(rename = "accessKey", skip_serializing_if = "::std::option::Option::is_none")]
         pub access_key: ::std::option::Option<::std::string::String>,
-        ///ARN of the role to assume for file upload. Egress will make an AssumeRole API call using the provided access_key and secret to assume that role. On LiveKit cloud, this is only available on accounts that have the feature enabled
+        //ARN of the role to assume for file upload. Egress will make an AssumeRole API call using the provided access_key and secret to assume that role. On LiveKit cloud, this is only available on accounts that have the feature enabled
         #[serde(rename = "assumeRoleArn", skip_serializing_if = "::std::option::Option::is_none")]
         pub assume_role_arn: ::std::option::Option<::std::string::String>,
-        ///ExternalID to use when assuming role for upload
+        //ExternalID to use when assuming role for upload
         #[serde(
             rename = "assumeRoleExternalId",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -5681,7 +5681,7 @@ pub mod types {
         pub assume_role_external_id: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub bucket: ::std::option::Option<::std::string::String>,
-        ///Content-Disposition header
+        //Content-Disposition header
         #[serde(
             rename = "contentDisposition",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -5704,7 +5704,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub tagging: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitS3UploadMetadataEntry`
+    //`LivekitS3UploadMetadataEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitS3UploadMetadataEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5712,7 +5712,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    /**A single scenario, mirroring one entry in a scenarios.yaml file. Scenarios
+    /*A single scenario, mirroring one entry in a scenarios.yaml file. Scenarios
     are no longer stored server-side; the yaml file is the source of truth.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitScenario {
@@ -5721,7 +5721,7 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub agent_expectations: ::std::option::Option<::std::string::String>,
-        /**SCN_-prefixed guid. Stable across edits to label, instructions, or
+        /*SCN_-prefixed guid. Stable across edits to label, instructions, or
         expectations, so runs of the same scenario can be correlated over time.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub id: ::std::option::Option<::std::string::String>,
@@ -5729,15 +5729,15 @@ pub mod types {
         pub instructions: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub label: ::std::option::Option<::std::string::String>,
-        ///Set as participant attributes on the simulation participant's access token.
+        //Set as participant attributes on the simulation participant's access token.
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
         pub tags: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
-        /**Arbitrary JSON-encoded object, surfaced to the agent under test as
+        /*Arbitrary JSON-encoded object, surfaced to the agent under test as
         SimulationContext userdata (e.g. inputs and benchmark target state).*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub userdata: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitScenarioCreateFromSession`
+    //`LivekitScenarioCreateFromSession`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitScenarioCreateFromSession(
@@ -5763,7 +5763,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitScenarioCreateFromSessionRequest`
+    //`LivekitScenarioCreateFromSessionRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitScenarioCreateFromSessionRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -5773,16 +5773,16 @@ pub mod types {
         #[serde(rename = "roomId", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitScenarioCreateFromSessionResponse`
+    //`LivekitScenarioCreateFromSessionResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitScenarioCreateFromSessionResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub scenario: ::std::option::Option<LivekitScenario>,
     }
-    ///A named group of scenarios, mirroring a whole scenarios.yaml file.
+    //A named group of scenarios, mirroring a whole scenarios.yaml file.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitScenarioGroup {
-        /**SCNG_-prefixed guid. Stable identity of the scenarios file, independent
+        /*SCNG_-prefixed guid. Stable identity of the scenarios file, independent
         of its name.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub id: ::std::option::Option<::std::string::String>,
@@ -5791,7 +5791,7 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub scenarios: ::std::vec::Vec<LivekitScenario>,
     }
-    ///`LivekitScenarioTagsEntry`
+    //`LivekitScenarioTagsEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitScenarioTagsEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -5799,20 +5799,20 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<::std::string::String>,
     }
-    ///Used to generate HLS segments or other kind of segmented output
+    //Used to generate HLS segments or other kind of segmented output
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(untagged)]
     pub enum LivekitSegmentedFileOutput {
         Variant0 {
             #[serde(rename = "aliOSS")]
             ali_oss: LivekitAliOssUpload,
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5823,13 +5823,13 @@ pub mod types {
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             filename_suffix: ::std::option::Option<LivekitSegmentedFileSuffix>,
-            ///(optional, disabled if not provided). Path of a live playlist
+            //(optional, disabled if not provided). Path of a live playlist
             #[serde(
                 rename = "livePlaylistName",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             live_playlist_name: ::std::option::Option<::std::string::String>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "playlistName",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5837,7 +5837,7 @@ pub mod types {
             playlist_name: ::std::option::Option<::std::string::String>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             protocol: ::std::option::Option<LivekitSegmentedFileProtocol>,
-            ///in seconds (optional)
+            //in seconds (optional)
             #[serde(
                 rename = "segmentDuration",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5846,13 +5846,13 @@ pub mod types {
         },
         Variant1 {
             azure: LivekitAzureBlobUpload,
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5863,13 +5863,13 @@ pub mod types {
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             filename_suffix: ::std::option::Option<LivekitSegmentedFileSuffix>,
-            ///(optional, disabled if not provided). Path of a live playlist
+            //(optional, disabled if not provided). Path of a live playlist
             #[serde(
                 rename = "livePlaylistName",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             live_playlist_name: ::std::option::Option<::std::string::String>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "playlistName",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5877,7 +5877,7 @@ pub mod types {
             playlist_name: ::std::option::Option<::std::string::String>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             protocol: ::std::option::Option<LivekitSegmentedFileProtocol>,
-            ///in seconds (optional)
+            //in seconds (optional)
             #[serde(
                 rename = "segmentDuration",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5885,13 +5885,13 @@ pub mod types {
             segment_duration: ::std::option::Option<i64>,
         },
         Variant2 {
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5903,13 +5903,13 @@ pub mod types {
             )]
             filename_suffix: ::std::option::Option<LivekitSegmentedFileSuffix>,
             gcp: LivekitGcpUpload,
-            ///(optional, disabled if not provided). Path of a live playlist
+            //(optional, disabled if not provided). Path of a live playlist
             #[serde(
                 rename = "livePlaylistName",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             live_playlist_name: ::std::option::Option<::std::string::String>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "playlistName",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5917,7 +5917,7 @@ pub mod types {
             playlist_name: ::std::option::Option<::std::string::String>,
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             protocol: ::std::option::Option<LivekitSegmentedFileProtocol>,
-            ///in seconds (optional)
+            //in seconds (optional)
             #[serde(
                 rename = "segmentDuration",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5925,13 +5925,13 @@ pub mod types {
             segment_duration: ::std::option::Option<i64>,
         },
         Variant3 {
-            ///disable upload of manifest file (default false)
+            //disable upload of manifest file (default false)
             #[serde(
                 rename = "disableManifest",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             disable_manifest: ::std::option::Option<bool>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "filenamePrefix",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5942,13 +5942,13 @@ pub mod types {
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             filename_suffix: ::std::option::Option<LivekitSegmentedFileSuffix>,
-            ///(optional, disabled if not provided). Path of a live playlist
+            //(optional, disabled if not provided). Path of a live playlist
             #[serde(
                 rename = "livePlaylistName",
                 skip_serializing_if = "::std::option::Option::is_none"
             )]
             live_playlist_name: ::std::option::Option<::std::string::String>,
-            ///(optional)
+            //(optional)
             #[serde(
                 rename = "playlistName",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5957,7 +5957,7 @@ pub mod types {
             #[serde(skip_serializing_if = "::std::option::Option::is_none")]
             protocol: ::std::option::Option<LivekitSegmentedFileProtocol>,
             s3: LivekitS3Upload,
-            ///in seconds (optional)
+            //in seconds (optional)
             #[serde(
                 rename = "segmentDuration",
                 skip_serializing_if = "::std::option::Option::is_none"
@@ -5965,7 +5965,7 @@ pub mod types {
             segment_duration: ::std::option::Option<i64>,
         },
     }
-    ///`LivekitSegmentedFileProtocol`
+    //`LivekitSegmentedFileProtocol`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -6018,7 +6018,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitSegmentedFileSuffix`
+    //`LivekitSegmentedFileSuffix`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -6069,7 +6069,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///How the simulated user interacts with the agent under test.
+    //How the simulated user interacts with the agent under test.
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -6124,7 +6124,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitSimulationRun`
+    //`LivekitSimulationRun`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRun {
         #[serde(
@@ -6134,10 +6134,10 @@ pub mod types {
         pub agent_description: ::std::option::Option<::std::string::String>,
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
-        ///The pipeline this run came from; unset when it did not come from one.
+        //The pipeline this run came from; unset when it did not come from one.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub ci: ::std::option::Option<LivekitSimulationRunCi>,
-        ///Maximum simulate jobs running in parallel for this run (0 = server default).
+        //Maximum simulate jobs running in parallel for this run (0 = server default).
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub concurrency: ::std::option::Option<i32>,
         #[serde(rename = "createdAt", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6150,7 +6150,7 @@ pub mod types {
         pub failed_count: ::std::option::Option<i32>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub id: ::std::option::Option<::std::string::String>,
-        /**How many issues the stored summary flagged. Present only once a summary
+        /*How many issues the stored summary flagged. Present only once a summary
         landed — absent and 0 differ ("never summarized" vs "no issues") — and
         List responses carry it without the summary blob itself.*/
         #[serde(rename = "issueCount", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6169,21 +6169,21 @@ pub mod types {
         pub passed_count: ::std::option::Option<i32>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        ///Absent when the run ran each scenario once and required it to pass.
+        //Absent when the run ran each scenario once and required it to pass.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub sampling: ::std::option::Option<LivekitSimulationRunSamplingOptions>,
         #[serde(rename = "scenarioGroup", skip_serializing_if = "::std::option::Option::is_none")]
         pub scenario_group: ::std::option::Option<LivekitScenarioGroup>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub status: ::std::option::Option<LivekitSimulationRunStatus>,
-        /**zstd-compressed SimulationRunSummary: decompress, then proto.Unmarshal.
+        /*zstd-compressed SimulationRunSummary: decompress, then proto.Unmarshal.
         Compressed by default so the blob ships as-is on every hop.*/
         #[serde(rename = "summaryZstd", skip_serializing_if = "::std::option::Option::is_none")]
         pub summary_zstd: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub usage: ::std::option::Option<LivekitSimulationRunUsage>,
     }
-    ///`LivekitSimulationRunCancel`
+    //`LivekitSimulationRunCancel`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitSimulationRunCancel(
@@ -6209,7 +6209,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitSimulationRunCancelRequest`
+    //`LivekitSimulationRunCancelRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunCancelRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6220,7 +6220,7 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunCancelResponse`
+    //`LivekitSimulationRunCancelResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitSimulationRunCancelResponse(
@@ -6246,7 +6246,7 @@ pub mod types {
             Self(value)
         }
     }
-    /**The pipeline this run came from. Set by the client from its CI
+    /*The pipeline this run came from. Set by the client from its CI
     environment; absent for runs not started by a pipeline.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunCi {
@@ -6254,19 +6254,19 @@ pub mod types {
         pub actor: ::std::option::Option<::std::string::String>,
         #[serde(rename = "commitSha", skip_serializing_if = "::std::option::Option::is_none")]
         pub commit_sha: ::std::option::Option<::std::string::String>,
-        ///e.g. "github_actions"
+        //e.g. "github_actions"
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub provider: ::std::option::Option<::std::string::String>,
         #[serde(rename = "pullRequest", skip_serializing_if = "::std::option::Option::is_none")]
         pub pull_request: ::std::option::Option<::std::string::String>,
-        ///branch or tag
+        //branch or tag
         #[serde(rename = "ref", skip_serializing_if = "::std::option::Option::is_none")]
         pub ref_: ::std::option::Option<::std::string::String>,
-        ///link back to the CI job
+        //link back to the CI job
         #[serde(rename = "runUrl", skip_serializing_if = "::std::option::Option::is_none")]
         pub run_url: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunConfirmSourceUpload`
+    //`LivekitSimulationRunConfirmSourceUpload`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitSimulationRunConfirmSourceUpload(
@@ -6292,7 +6292,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitSimulationRunConfirmSourceUploadRequest`
+    //`LivekitSimulationRunConfirmSourceUploadRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunConfirmSourceUploadRequest {
         #[serde(rename = "codeEntrypoint", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6305,7 +6305,7 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunConfirmSourceUploadResponse`
+    //`LivekitSimulationRunConfirmSourceUploadResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitSimulationRunConfirmSourceUploadResponse(
@@ -6331,7 +6331,7 @@ pub mod types {
             Self(value)
         }
     }
-    /**Counts of the runs `List` would return over the same window, bucketed by
+    /*Counts of the runs `List` would return over the same window, bucketed by
     created_at instead of paginated.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
@@ -6358,7 +6358,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitSimulationRunCountsBucket`
+    //`LivekitSimulationRunCountsBucket`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunCountsBucket {
         #[serde(rename = "bucketStart", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6366,7 +6366,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub count: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunCountsRequest`
+    //`LivekitSimulationRunCountsRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunCountsRequest {
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6379,15 +6379,15 @@ pub mod types {
         pub project_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
         pub start_time: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**Applied as `List` applies it: a filter the rows honour and the bars
+        /*Applied as `List` applies it: a filter the rows honour and the bars
         above them drop would make the histogram an answer about a wider set.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub status: ::std::option::Option<LivekitSimulationRunStatus>,
     }
-    ///`LivekitSimulationRunCountsResponse`
+    //`LivekitSimulationRunCountsResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunCountsResponse {
-        /**Buckets holding at least one run, ascending by bucket_start. Empty
+        /*Buckets holding at least one run, ascending by bucket_start. Empty
         buckets are omitted; each run lands in exactly one bucket, so the
         counts sum to the number of runs in the window.*/
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
@@ -6395,7 +6395,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub interval: ::std::option::Option<::pbjson_types::Duration>,
     }
-    ///`LivekitSimulationRunCreate`
+    //`LivekitSimulationRunCreate`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitSimulationRunCreate(
@@ -6421,12 +6421,12 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitSimulationRunCreateRequest`
+    //`LivekitSimulationRunCreateRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunCreateRequest {
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
-        ///Impairments applied to the simulated user's audio; AUDIO mode only.
+        //Impairments applied to the simulated user's audio; AUDIO mode only.
         #[serde(
             rename = "backgroundNoise",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -6434,7 +6434,7 @@ pub mod types {
         pub background_noise: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub ci: ::std::option::Option<LivekitSimulationRunCi>,
-        /**Maximum simulate jobs running in parallel for this run. Clamped to the
+        /*Maximum simulate jobs running in parallel for this run. Clamped to the
         project's concurrency quota; 0/unset uses the server default.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub concurrency: ::std::option::Option<i32>,
@@ -6453,17 +6453,17 @@ pub mod types {
         pub project_id: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub region: ::std::option::Option<::std::string::String>,
-        /**Absent runs each scenario once and requires it to pass. Requires
+        /*Absent runs each scenario once and requires it to pass. Requires
         scenario_group. The run fails if any scenario fails; pass@k and
         pass^k report over scenarios and neither gates.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub sampling: ::std::option::Option<LivekitSimulationRunSamplingOptions>,
-        /**When set, run these scenarios (loaded from a scenarios.yaml).
+        /*When set, run these scenarios (loaded from a scenarios.yaml).
         When unset, generate num_simulations scenarios from the uploaded agent source.*/
         #[serde(rename = "scenarioGroup", skip_serializing_if = "::std::option::Option::is_none")]
         pub scenario_group: ::std::option::Option<LivekitScenarioGroup>,
     }
-    ///`LivekitSimulationRunCreateResponse`
+    //`LivekitSimulationRunCreateResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunCreateResponse {
         #[serde(
@@ -6477,7 +6477,7 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunGet`
+    //`LivekitSimulationRunGet`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitSimulationRunGet(
@@ -6503,7 +6503,7 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitSimulationRunGetRequest`
+    //`LivekitSimulationRunGetRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunGetRequest {
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6514,13 +6514,13 @@ pub mod types {
         )]
         pub simulation_run_id: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunGetResponse`
+    //`LivekitSimulationRunGetResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunGetResponse {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub run: ::std::option::Option<LivekitSimulationRun>,
     }
-    ///`LivekitSimulationRunJob`
+    //`LivekitSimulationRunJob`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJob {
         #[serde(
@@ -6544,11 +6544,11 @@ pub mod types {
         pub room_id: ::std::option::Option<::std::string::String>,
         #[serde(rename = "roomName", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_name: ::std::option::Option<::std::string::String>,
-        /**1-based sample of that scenario within the run; always 1 when the run's
+        /*1-based sample of that scenario within the run; always 1 when the run's
         samples is 1.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub sample: ::std::option::Option<i32>,
-        /**The Scenario.id this job ran; empty for generated runs. Every sample
+        /*The Scenario.id this job ran; empty for generated runs. Every sample
         of one scenario shares it, so a run's jobs group back into scenarios.*/
         #[serde(rename = "scenarioId", skip_serializing_if = "::std::option::Option::is_none")]
         pub scenario_id: ::std::option::Option<::std::string::String>,
@@ -6561,21 +6561,21 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub usage: ::std::option::Option<LivekitSimulationRunJobUsage>,
     }
-    ///`LivekitSimulationRunJobMetrics`
+    //`LivekitSimulationRunJobMetrics`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJobMetrics {
-        ///Judged over the authored dialog (text and audio); needs the text judge. judged {0, 0.5, 1} per agent turn; job = mean
+        //Judged over the authored dialog (text and audio); needs the text judge. judged {0, 0.5, 1} per agent turn; job = mean
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub conciseness: ::std::option::Option<f32>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub conversation: ::std::option::Option<LivekitSimulationRunJobMetricsConversation>,
-        ///0-1, derived from the flags above
+        //0-1, derived from the flags above
         #[serde(
             rename = "conversationProgression",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub conversation_progression: ::std::option::Option<f32>,
-        ///false = waveform-only capture (e.g. SIP)
+        //false = waveform-only capture (e.g. SIP)
         #[serde(
             rename = "hasRemoteSession",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -6586,12 +6586,12 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub information_loss: ::std::option::Option<bool>,
-        ///text judge for judged scores; "" if none ran
+        //text judge for judged scores; "" if none ran
         #[serde(rename = "judgeModel", skip_serializing_if = "::std::option::Option::is_none")]
         pub judge_model: ::std::option::Option<::std::string::String>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub llm: ::std::option::Option<LivekitSimulationRunJobMetricsLlm>,
-        ///weighted mean of the judged and heard scores
+        //weighted mean of the judged and heard scores
         #[serde(rename = "overallScore", skip_serializing_if = "::std::option::Option::is_none")]
         pub overall_score: ::std::option::Option<f32>,
         #[serde(
@@ -6608,46 +6608,46 @@ pub mod types {
         pub stt: ::std::option::Option<LivekitSimulationRunJobMetricsStt>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub t0: ::std::option::Option<::pbjson_types::Timestamp>,
-        ///the scenario verdict as 1/0
+        //the scenario verdict as 1/0
         #[serde(rename = "taskCompletion", skip_serializing_if = "::std::option::Option::is_none")]
         pub task_completion: ::std::option::Option<f32>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub tts: ::std::option::Option<LivekitSimulationRunJobMetricsTts>,
-        ///One entry per turn, both speakers.
+        //One entry per turn, both speakers.
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub turns: ::std::vec::Vec<LivekitSimulationRunJobMetricsTurn>,
-        ///Whole-call issue flags; true = present, absent = not judged.
+        //Whole-call issue flags; true = present, absent = not judged.
         #[serde(
             rename = "unnecessaryToolCalls",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub unnecessary_tool_calls: ::std::option::Option<bool>,
     }
-    ///Audio only.
+    //Audio only.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJobMetricsConversation {
-        ///gaps past the natural-pause threshold
+        //gaps past the natural-pause threshold
         #[serde(
             rename = "awkwardSilenceCount",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub awkward_silence_count: ::std::option::Option<i64>,
-        ///needs the RemoteSession; the agent's own claim
+        //needs the RemoteSession; the agent's own claim
         #[serde(rename = "e2eLatencyMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub e2e_latency_ms: ::std::option::Option<i64>,
-        ///agent started before the caller's turn ended
+        //agent started before the caller's turn ended
         #[serde(
             rename = "eotMispredictionCount",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub eot_misprediction_count: ::std::option::Option<i64>,
-        ///needs the RemoteSession; agent paused for a non-interruption
+        //needs the RemoteSession; agent paused for a non-interruption
         #[serde(
             rename = "falseInterruptionCount",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub false_interruption_count: ::std::option::Option<i64>,
-        ///floor-transfer offset; a gap is > 0, an overlap < 0
+        //floor-transfer offset; a gap is > 0, an overlap < 0
         #[serde(
             rename = "heardE2eLatencyP50Ms",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -6663,59 +6663,59 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub heard_e2e_latency_p99_ms: ::std::option::Option<i32>,
-        ///overlapping speech / total speech
+        //overlapping speech / total speech
         #[serde(rename = "overlapRatio", skip_serializing_if = "::std::option::Option::is_none")]
         pub overlap_ratio: ::std::option::Option<f32>,
-        ///pooling stats for overlap_ratio
+        //pooling stats for overlap_ratio
         #[serde(
             rename = "overlapSpeechMs",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub overlap_speech_ms: ::std::option::Option<i64>,
-        ///agent audio continuing past a barge-in
+        //agent audio continuing past a barge-in
         #[serde(rename = "timeToYieldMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub time_to_yield_ms: ::std::option::Option<i64>,
         #[serde(rename = "totalSpeechMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub total_speech_ms: ::std::option::Option<i64>,
-        ///0-1
+        //0-1
         #[serde(
             rename = "turnTakingScore",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub turn_taking_score: ::std::option::Option<f32>,
-        ///the simulated party spoke, the agent never responded
+        //the simulated party spoke, the agent never responded
         #[serde(
             rename = "unansweredTurns",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub unanswered_turns: ::std::option::Option<i64>,
     }
-    ///`LivekitSimulationRunJobMetricsLlm`
+    //`LivekitSimulationRunJobMetricsLlm`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJobMetricsLlm {
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(
             rename = "tokensPerSecond",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub tokens_per_second: ::std::option::Option<f32>,
-        ///needs the RemoteSession; time to first sentence, the smallest speakable unit
+        //needs the RemoteSession; time to first sentence, the smallest speakable unit
         #[serde(rename = "ttfsMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub ttfs_ms: ::std::option::Option<i64>,
-        ///needs the RemoteSession; time to first token
+        //needs the RemoteSession; time to first token
         #[serde(rename = "ttftMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub ttft_ms: ::std::option::Option<i64>,
     }
-    ///The agent's perception of the caller. Audio only.
+    //The agent's perception of the caller. Audio only.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJobMetricsStt {
-        ///needs the RemoteSession; char_errors / chars
+        //needs the RemoteSession; char_errors / chars
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub cer: ::std::option::Option<f32>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "charErrors", skip_serializing_if = "::std::option::Option::is_none")]
         pub char_errors: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub chars: ::std::option::Option<i64>,
         #[serde(
@@ -6738,40 +6738,40 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub entities_uttered: ::std::option::Option<i64>,
-        /**Retention: an entity is acquired at the first saying heard right, and
+        /*Retention: an entity is acquired at the first saying heard right, and
         these count only the sayings after that, so recall separates keeping an
         entity from ever getting it. acquired_recognized / acquired_uttered*/
         #[serde(rename = "entityRecall", skip_serializing_if = "::std::option::Option::is_none")]
         pub entity_recall: ::std::option::Option<f32>,
-        ///Key entities (names, IDs, amounts) the caller said. Needs the text judge. recognized / uttered
+        //Key entities (names, IDs, amounts) the caller said. Needs the text judge. recognized / uttered
         #[serde(
             rename = "entityRecognition",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub entity_recognition: ::std::option::Option<f32>,
-        ///needs the RemoteSession; agent-reported STT/endpointing delay
+        //needs the RemoteSession; agent-reported STT/endpointing delay
         #[serde(rename = "sttDelayMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub stt_delay_ms: ::std::option::Option<i64>,
-        ///needs the RemoteSession; word_errors / words
+        //needs the RemoteSession; word_errors / words
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub wer: ::std::option::Option<f32>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "wordErrors", skip_serializing_if = "::std::option::Option::is_none")]
         pub word_errors: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub words: ::std::option::Option<i64>,
     }
-    ///The agent's voice. Audio only.
+    //The agent's voice. Audio only.
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJobMetricsTts {
-        ///needs the RemoteSession; char_errors / chars
+        //needs the RemoteSession; char_errors / chars
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub cer: ::std::option::Option<f32>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "charErrors", skip_serializing_if = "::std::option::Option::is_none")]
         pub char_errors: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub chars: ::std::option::Option<i64>,
         #[serde(
@@ -6794,41 +6794,41 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub entities_uttered: ::std::option::Option<i64>,
-        ///acquired_recognized / acquired_uttered
+        //acquired_recognized / acquired_uttered
         #[serde(rename = "entityRecall", skip_serializing_if = "::std::option::Option::is_none")]
         pub entity_recall: ::std::option::Option<f32>,
-        ///Key entities the agent said, as the caller heard them. Needs the text judge. recognized / uttered
+        //Key entities the agent said, as the caller heard them. Needs the text judge. recognized / uttered
         #[serde(
             rename = "entityRecognition",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub entity_recognition: ::std::option::Option<f32>,
-        ///needs the RemoteSession; provider byte-level TTFB
+        //needs the RemoteSession; provider byte-level TTFB
         #[serde(rename = "ttfbMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub ttfb_ms: ::std::option::Option<i64>,
-        ///needs the RemoteSession; word_errors / words
+        //needs the RemoteSession; word_errors / words
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub wer: ::std::option::Option<f32>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "wordErrors", skip_serializing_if = "::std::option::Option::is_none")]
         pub word_errors: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub words: ::std::option::Option<i64>,
     }
-    /**Rows exist for text and audio. The groups above hold the means and pools
+    /*Rows exist for text and audio. The groups above hold the means and pools
     over these; anything not measured for a turn stays unset.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJobMetricsTurn {
         #[serde(rename = "awkwardSilence", skip_serializing_if = "::std::option::Option::is_none")]
         pub awkward_silence: ::std::option::Option<bool>,
-        ///needs the text judge
+        //needs the text judge
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub conciseness: ::std::option::Option<f32>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "e2eLatencyMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub e2e_latency_ms: ::std::option::Option<i64>,
-        ///audio only
+        //audio only
         #[serde(rename = "endMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub end_ms: ::std::option::Option<i64>,
         #[serde(
@@ -6841,29 +6841,29 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub heard_e2e_latency_ms: ::std::option::Option<i32>,
-        ///1-based, conversation order
+        //1-based, conversation order
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub index: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "llmTps", skip_serializing_if = "::std::option::Option::is_none")]
         pub llm_tps: ::std::option::Option<f32>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "llmTtfsMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub llm_ttfs_ms: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "llmTtftMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub llm_ttft_ms: ::std::option::Option<i64>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<LivekitAgentChatRole>,
-        ///audio only; relative to t0; unset if the turn could not be aligned to the audio
+        //audio only; relative to t0; unset if the turn could not be aligned to the audio
         #[serde(rename = "startMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub start_ms: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "sttDelayMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub stt_delay_ms: ::std::option::Option<i64>,
         #[serde(rename = "timeToYieldMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub time_to_yield_ms: ::std::option::Option<i64>,
-        ///needs the RemoteSession
+        //needs the RemoteSession
         #[serde(rename = "ttsTtfbMs", skip_serializing_if = "::std::option::Option::is_none")]
         pub tts_ttfb_ms: ::std::option::Option<i64>,
         #[serde(
@@ -6874,7 +6874,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub unanswered: ::std::option::Option<bool>,
     }
-    ///`LivekitSimulationRunJobStatus`
+    //`LivekitSimulationRunJobStatus`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -6937,7 +6937,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitSimulationRunJobUsage`
+    //`LivekitSimulationRunJobUsage`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunJobUsage {
         #[serde(
@@ -6948,7 +6948,7 @@ pub mod types {
         #[serde(rename = "textTurnsCount", skip_serializing_if = "::std::option::Option::is_none")]
         pub text_turns_count: ::std::option::Option<i32>,
     }
-    ///`LivekitSimulationRunList`
+    //`LivekitSimulationRunList`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     #[serde(transparent)]
     pub struct LivekitSimulationRunList(
@@ -6974,16 +6974,16 @@ pub mod types {
             Self(value)
         }
     }
-    ///`LivekitSimulationRunListRequest`
+    //`LivekitSimulationRunListRequest`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunListRequest {
-        /**Exact agent name. Unset means every agent — including the runs whose
+        /*Exact agent name. Unset means every agent — including the runs whose
         name is empty, which a bare string could not tell from no filter.*/
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
         #[serde(rename = "endTime", skip_serializing_if = "::std::option::Option::is_none")]
         pub end_time: ::std::option::Option<::pbjson_types::Timestamp>,
-        /**Absent applies no mode filter. TEXT matches runs stored as TEXT or
+        /*Absent applies no mode filter. TEXT matches runs stored as TEXT or
         UNSPECIFIED, which `SimulationRun.mode` defines as the same mode.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub mode: ::std::option::Option<LivekitSimulationMode>,
@@ -6991,7 +6991,7 @@ pub mod types {
         pub page_token: ::std::option::Option<LivekitTokenPagination>,
         #[serde(rename = "projectId", skip_serializing_if = "::std::option::Option::is_none")]
         pub project_id: ::std::option::Option<::std::string::String>,
-        /**Half-open window [start_time, end_time) on created_at, the leading key
+        /*Half-open window [start_time, end_time) on created_at, the leading key
         of this list's keyset. Unset bounds mean no window, so existing callers
         keep their unbounded scan; the histogram's selected range sets both.*/
         #[serde(rename = "startTime", skip_serializing_if = "::std::option::Option::is_none")]
@@ -6999,7 +6999,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub status: ::std::option::Option<LivekitSimulationRunStatus>,
     }
-    ///`LivekitSimulationRunListResponse`
+    //`LivekitSimulationRunListResponse`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunListResponse {
         #[serde(rename = "nextPageToken", skip_serializing_if = "::std::option::Option::is_none")]
@@ -7007,11 +7007,11 @@ pub mod types {
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub runs: ::std::vec::Vec<LivekitSimulationRun>,
     }
-    /**Aggregates over this run's jobs, so a run summary does not have to pull
+    /*Aggregates over this run's jobs, so a run summary does not have to pull
     every job and turn. Reuses the JobMetrics group shapes.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunRunMetrics {
-        ///Means over the jobs that report them.
+        //Means over the jobs that report them.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub conciseness: ::std::option::Option<f32>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7023,10 +7023,10 @@ pub mod types {
         pub conversation_progression: ::std::option::Option<f32>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub llm: ::std::option::Option<LivekitSimulationRunJobMetricsLlm>,
-        ///mean over scored jobs
+        //mean over scored jobs
         #[serde(rename = "overallScore", skip_serializing_if = "::std::option::Option::is_none")]
         pub overall_score: ::std::option::Option<f32>,
-        ///share of jobs whose scenario verdict passed
+        //share of jobs whose scenario verdict passed
         #[serde(
             rename = "scenarioPassRate",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -7037,21 +7037,21 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub tts: ::std::option::Option<LivekitSimulationRunJobMetricsTts>,
     }
-    /**Runs each scenario more than once, so a flaky sample is distinguishable
+    /*Runs each scenario more than once, so a flaky sample is distinguishable
     from a broken scenario. Both fields are required when it is present.*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunSamplingOptions {
-        /**The share of a scenario's samples that must pass for that scenario to
+        /*The share of a scenario's samples that must pass for that scenario to
         pass, 0-1. A scenario needs round(rate × samples) of them, so 1
         requires every sample and 0.67 of 3 requires 2.*/
         #[serde(rename = "passRate", skip_serializing_if = "::std::option::Option::is_none")]
         pub pass_rate: ::std::option::Option<f64>,
-        /**Samples per scenario, > 1. The run holds scenarios × samples jobs,
+        /*Samples per scenario, > 1. The run holds scenarios × samples jobs,
         subject to the usual job cap.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub samples: ::std::option::Option<i32>,
     }
-    ///`LivekitSimulationRunStatus`
+    //`LivekitSimulationRunStatus`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -7122,7 +7122,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitSimulationRunSummary`
+    //`LivekitSimulationRunSummary`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunSummary {
         #[serde(
@@ -7143,7 +7143,7 @@ pub mod types {
         #[serde(rename = "toImprove", skip_serializing_if = "::std::option::Option::is_none")]
         pub to_improve: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunSummaryChatHistoryEntry`
+    //`LivekitSimulationRunSummaryChatHistoryEntry`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunSummaryChatHistoryEntry {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7151,7 +7151,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub value: ::std::option::Option<LivekitAgentChatContext>,
     }
-    ///`LivekitSimulationRunSummaryIssue`
+    //`LivekitSimulationRunSummaryIssue`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunSummaryIssue {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7161,7 +7161,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub suggestion: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitSimulationRunUsage`
+    //`LivekitSimulationRunUsage`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitSimulationRunUsage {
         #[serde(
@@ -7172,16 +7172,16 @@ pub mod types {
         #[serde(rename = "textTurnsCount", skip_serializing_if = "::std::option::Option::is_none")]
         pub text_turns_count: ::std::option::Option<i32>,
     }
-    ///`LivekitStreamOutput`
+    //`LivekitStreamOutput`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitStreamOutput {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub protocol: ::std::option::Option<LivekitStreamProtocol>,
-        ///required
+        //required
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub urls: ::std::vec::Vec<::std::string::String>,
     }
-    ///`LivekitStreamProtocol`
+    //`LivekitStreamProtocol`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -7240,13 +7240,13 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitTokenPagination`
+    //`LivekitTokenPagination`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitTokenPagination {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub token: ::std::option::Option<::std::string::String>,
     }
-    ///`LivekitVideoCodec`
+    //`LivekitVideoCodec`
     #[derive(
         ::serde::Deserialize,
         ::serde::Serialize,
@@ -7309,7 +7309,7 @@ pub mod types {
             value.parse()
         }
     }
-    ///`LivekitWebhookConfig`
+    //`LivekitWebhookConfig`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct LivekitWebhookConfig {
         #[serde(rename = "filterParams", skip_serializing_if = "::std::option::Option::is_none")]
@@ -7319,7 +7319,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub url: ::std::option::Option<::std::string::String>,
     }
-    ///`ProjectServiceAddWorkspaceMembersToProjectBody`
+    //`ProjectServiceAddWorkspaceMembersToProjectBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ProjectServiceAddWorkspaceMembersToProjectBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7327,28 +7327,28 @@ pub mod types {
         #[serde(rename = "userIds", default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub user_ids: ::std::vec::Vec<::std::string::String>,
     }
-    ///`ProjectServiceAnswerInvitationBody`
+    //`ProjectServiceAnswerInvitationBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ProjectServiceAnswerInvitationBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub accept: ::std::option::Option<bool>,
     }
-    ///`ProjectServiceCreateTokenBody`
+    //`ProjectServiceCreateTokenBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ProjectServiceCreateTokenBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub grants: ::std::option::Option<LivekitPublicapiProjectsV1TokenGrants>,
-        /**Requested lifetime in seconds. 0 means the default (10 minutes); at most
+        /*Requested lifetime in seconds. 0 means the default (10 minutes); at most
         86400 (24 hours).*/
         #[serde(rename = "ttlSeconds", skip_serializing_if = "::std::option::Option::is_none")]
         pub ttl_seconds: ::std::option::Option<i64>,
     }
-    ///`ProjectServiceGenerateKeyBody`
+    //`ProjectServiceGenerateKeyBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ProjectServiceGenerateKeyBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub description: ::std::option::Option<::std::string::String>,
-        /**When true, the key is created without an owner (project-owned). It is not
+        /*When true, the key is created without an owner (project-owned). It is not
         listed as anyone's personal key and survives the generating user leaving.*/
         #[serde(
             rename = "isServiceAccount",
@@ -7356,7 +7356,7 @@ pub mod types {
         )]
         pub is_service_account: ::std::option::Option<bool>,
     }
-    ///InviteMember creates or refreshes a token invite (cloud InviteMember2).
+    //InviteMember creates or refreshes a token invite (cloud InviteMember2).
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ProjectServiceInviteMemberBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7364,19 +7364,19 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    ///`ProjectServiceUpdateInviteBody`
+    //`ProjectServiceUpdateInviteBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ProjectServiceUpdateInviteBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    ///`ProjectServiceUpdateMemberBody`
+    //`ProjectServiceUpdateMemberBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ProjectServiceUpdateMemberBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    /**UpdateProjectRequest patches a project. Unset optional fields are left
+    /*UpdateProjectRequest patches a project. Unset optional fields are left
     unchanged (proto3 optional). Mirrors cloud-api UpdateProject for local mode;
     webhooks are separate RPCs (not included here).*/
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
@@ -7393,7 +7393,7 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub discoverable_by_domain: ::std::option::Option<bool>,
-        ///LK-admin only
+        //LK-admin only
         #[serde(
             rename = "egressClusterId",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -7419,7 +7419,7 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub enable_egress_backup_storage: ::std::option::Option<bool>,
-        ///LK-admin only
+        //LK-admin only
         #[serde(
             rename = "enableHostedAgents",
             skip_serializing_if = "::std::option::Option::is_none"
@@ -7458,7 +7458,7 @@ pub mod types {
         )]
         pub feature_flags:
             ::std::collections::HashMap<::std::string::String, ::std::string::String>,
-        ///Preferences (flat, matching cloud-api UpdateProjectRequest).
+        //Preferences (flat, matching cloud-api UpdateProjectRequest).
         #[serde(rename = "hideOnboarding", skip_serializing_if = "::std::option::Option::is_none")]
         pub hide_onboarding: ::std::option::Option<bool>,
         #[serde(
@@ -7473,12 +7473,12 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub joinable_by_domain: ::std::option::Option<bool>,
-        ///Used when becoming private: explicit member set (actor kept as ADMIN).
+        //Used when becoming private: explicit member set (actor kept as ADMIN).
         #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
         pub members: ::std::vec::Vec<LivekitPublicapiProjectsV1CreateProjectMember>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        /**Non-empty list replaces the stored set (validated via Canonical).
+        /*Non-empty list replaces the stored set (validated via Canonical).
         Empty is ignored (cannot clear). When enabling with nothing stored,
         defaults are applied server-side — same as cloud-api UpdateProject.*/
         #[serde(
@@ -7500,7 +7500,7 @@ pub mod types {
             skip_serializing_if = "::std::vec::Vec::is_empty"
         )]
         pub room_configs_to_delete: ::std::vec::Vec<::std::string::String>,
-        ///RoomConfiguration management (stored on project preferences).
+        //RoomConfiguration management (stored on project preferences).
         #[serde(
             rename = "roomConfigsToUpsert",
             default,
@@ -7517,33 +7517,33 @@ pub mod types {
         )]
         pub token_endpoint_key: ::std::option::Option<::std::string::String>,
     }
-    ///`SimulationServiceConfirmSimulationSourceUploadBody`
+    //`SimulationServiceConfirmSimulationSourceUploadBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct SimulationServiceConfirmSimulationSourceUploadBody {
-        ///Entrypoint of the uploaded source, for example "agent.py".
+        //Entrypoint of the uploaded source, for example "agent.py".
         #[serde(rename = "codeEntrypoint", skip_serializing_if = "::std::option::Option::is_none")]
         pub code_entrypoint: ::std::option::Option<::std::string::String>,
     }
-    ///`SimulationServiceCreateSimulationRunBody`
+    //`SimulationServiceCreateSimulationRunBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct SimulationServiceCreateSimulationRunBody {
-        /**Name the agent under test is registered under; every job dispatches it
+        /*Name the agent under test is registered under; every job dispatches it
         into the simulation room, so it must already be deployed or running as
         a worker. Empty uses the project's default agent. Recorded on the run
         and usable as a ListSimulationRuns filter.*/
         #[serde(rename = "agentName", skip_serializing_if = "::std::option::Option::is_none")]
         pub agent_name: ::std::option::Option<::std::string::String>,
-        ///Audio impairments applied to the simulated user; AUDIO mode only.
+        //Audio impairments applied to the simulated user; AUDIO mode only.
         #[serde(
             rename = "backgroundNoise",
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub background_noise: ::std::option::Option<bool>,
-        /**The CI pipeline this run came from, so runs can be linked back to
+        /*The CI pipeline this run came from, so runs can be linked back to
         commits.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub ci: ::std::option::Option<LivekitSimulationRunCi>,
-        /**Maximum jobs running in parallel, at most 20; above that the request is
+        /*Maximum jobs running in parallel, at most 20; above that the request is
         InvalidArgument. The project's concurrency quota can run fewer at once.
         Unset uses the server default.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7555,49 +7555,49 @@ pub mod types {
         pub low_quality_microphone: ::std::option::Option<bool>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub mode: ::std::option::Option<LivekitSimulationMode>,
-        /**Number of scenarios to generate from the agent source when
+        /*Number of scenarios to generate from the agent source when
         scenario_group is unset.*/
         #[serde(rename = "numSimulations", skip_serializing_if = "::std::option::Option::is_none")]
         pub num_simulations: ::std::option::Option<i32>,
         #[serde(rename = "packetLoss", skip_serializing_if = "::std::option::Option::is_none")]
         pub packet_loss: ::std::option::Option<bool>,
-        ///Reserved: must be empty, and the service chooses where the run happens.
+        //Reserved: must be empty, and the service chooses where the run happens.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub region: ::std::option::Option<::std::string::String>,
-        /**Run exactly these scenarios (the contents of a scenarios.yaml) instead
+        /*Run exactly these scenarios (the contents of a scenarios.yaml) instead
         of generating num_simulations of them; the run then needs no source
         upload and starts immediately.*/
         #[serde(rename = "scenarioGroup", skip_serializing_if = "::std::option::Option::is_none")]
         pub scenario_group: ::std::option::Option<LivekitScenarioGroup>,
     }
-    ///`SimulationServiceGenerateScenarioFromSessionBody`
+    //`SimulationServiceGenerateScenarioFromSessionBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct SimulationServiceGenerateScenarioFromSessionBody {
-        ///Unused today: the session's recording is found by project and room.
+        //Unused today: the session's recording is found by project and room.
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub region: ::std::option::Option<::std::string::String>,
-        ///Room session (RM_...) to derive the scenario from.
+        //Room session (RM_...) to derive the scenario from.
         #[serde(rename = "roomId", skip_serializing_if = "::std::option::Option::is_none")]
         pub room_id: ::std::option::Option<::std::string::String>,
     }
-    ///`Text`
+    //`Text`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
     pub struct Text {
         pub text: ::std::string::String,
     }
-    ///`ThreadServiceCreateThreadBody`
+    //`ThreadServiceCreateThreadBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ThreadServiceCreateThreadBody {
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
         pub attributes: ::std::collections::HashMap<::std::string::String, ::std::string::String>,
         #[serde(rename = "idleTtl", skip_serializing_if = "::std::option::Option::is_none")]
         pub idle_ttl: ::std::option::Option<::pbjson_types::Duration>,
-        /**Optional scope grouping the thread (typically the user's identity),
+        /*Optional scope grouping the thread (typically the user's identity),
         at most 256 bytes.*/
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub scope: ::std::option::Option<::std::string::String>,
     }
-    ///`ThreadServiceUpdateThreadBody`
+    //`ThreadServiceUpdateThreadBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct ThreadServiceUpdateThreadBody {
         #[serde(default, skip_serializing_if = ":: std :: collections :: HashMap::is_empty")]
@@ -7605,13 +7605,13 @@ pub mod types {
         #[serde(rename = "idleTtl", skip_serializing_if = "::std::option::Option::is_none")]
         pub idle_ttl: ::std::option::Option<::pbjson_types::Duration>,
     }
-    ///`WorkspaceServiceAnswerInviteBody`
+    //`WorkspaceServiceAnswerInviteBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct WorkspaceServiceAnswerInviteBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub accept: ::std::option::Option<bool>,
     }
-    ///`WorkspaceServiceCreateInviteBody`
+    //`WorkspaceServiceCreateInviteBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct WorkspaceServiceCreateInviteBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
@@ -7619,7 +7619,7 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    ///`WorkspaceServiceCreateProjectBody`
+    //`WorkspaceServiceCreateProjectBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct WorkspaceServiceCreateProjectBody {
         #[serde(rename = "isPrivate", skip_serializing_if = "::std::option::Option::is_none")]
@@ -7628,20 +7628,20 @@ pub mod types {
         pub members: ::std::vec::Vec<LivekitPublicapiProjectsV1CreateProjectMember>,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
-        ///optional; generated from name when empty
+        //optional; generated from name when empty
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub subdomain: ::std::option::Option<::std::string::String>,
-        ///create-only; empty keeps the deployment default
+        //create-only; empty keeps the deployment default
         #[serde(rename = "userDataRegion", skip_serializing_if = "::std::option::Option::is_none")]
         pub user_data_region: ::std::option::Option<::std::string::String>,
     }
-    ///`WorkspaceServiceUpdateMemberBody`
+    //`WorkspaceServiceUpdateMemberBody`
     #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug, Default)]
     pub struct WorkspaceServiceUpdateMemberBody {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub role: ::std::option::Option<i32>,
     }
-    /**Mirrors cloud-api WorkspaceService.UpdateWorkspace, which only accepts a
+    /*Mirrors cloud-api WorkspaceService.UpdateWorkspace, which only accepts a
     name: workspace preferences (hipaa_compliant) cascade to every project in the
     workspace and are LK-admin-only there (AdminService.UpdateWorkspace), so they
     are deliberately not settable on this path.*/
@@ -7650,9 +7650,9 @@ pub mod types {
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         pub name: ::std::option::Option<::std::string::String>,
     }
-    /// Error types.
+    // Error types.
     pub mod error {
-        /// Error from a `TryFrom` or `FromStr` implementation.
+        // Error from a `TryFrom` or `FromStr` implementation.
         pub struct ConversionError(::std::borrow::Cow<'static, str>);
         impl ::std::error::Error for ConversionError {}
         impl ::std::fmt::Display for ConversionError {
@@ -7678,7 +7678,7 @@ pub mod types {
     }
 }
 #[derive(Clone, Debug)]
-/**Client for LiveKit Public API
+/*Client for LiveKit Public API
 
 Public HTTP API for LiveKit Cloud. Generated from protobuf.
 
@@ -7689,11 +7689,11 @@ pub struct Client {
     pub(crate) inner: crate::public_api::Credentials,
 }
 impl Client {
-    /// Create a new client.
-    ///
-    /// `baseurl` is the base URL provided to the internal
-    /// `reqwest::Client`, and should include a scheme and hostname,
-    /// as well as port and a path stem if applicable.
+    // Create a new client.
+    //
+    // `baseurl` is the base URL provided to the internal
+    // `reqwest::Client`, and should include a scheme and hostname,
+    // as well as port and a path stem if applicable.
     pub fn new(baseurl: &str, inner: crate::public_api::Credentials) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         let client = {
@@ -7704,12 +7704,12 @@ impl Client {
         let client = reqwest::ClientBuilder::new();
         Self::new_with_client(baseurl, client.build().unwrap(), inner)
     }
-    /// Construct a new client with an existing `reqwest::Client`,
-    /// allowing more control over its configuration.
-    ///
-    /// `baseurl` is the base URL provided to the internal
-    /// `reqwest::Client`, and should include a scheme and hostname,
-    /// as well as port and a path stem if applicable.
+    // Construct a new client with an existing `reqwest::Client`,
+    // allowing more control over its configuration.
+    //
+    // `baseurl` is the base URL provided to the internal
+    // `reqwest::Client`, and should include a scheme and hostname,
+    // as well as port and a path stem if applicable.
     pub fn new_with_client(
         baseurl: &str,
         client: reqwest::Client,
@@ -7735,7 +7735,7 @@ impl ClientInfo<crate::public_api::Credentials> for Client {
 impl ClientHooks<crate::public_api::Credentials> for &Client {}
 #[allow(clippy::all)]
 impl Client {
-    /**GetInvite
+    /*GetInvite
 
     Sends a `GET` request to `/v0/project-invites/{inviteToken}`
 
@@ -7774,7 +7774,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**AnswerInvitation
+    /*AnswerInvitation
 
     Sends a `POST` request to `/v0/project-invites/{inviteToken}:answer`
 
@@ -7816,7 +7816,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListProjects
+    /*ListProjects
 
     Sends a `GET` request to `/v0/projects`
 
@@ -7866,7 +7866,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateProject
+    /*CreateProject
 
     Sends a `POST` request to `/v0/projects`
 
@@ -7903,7 +7903,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetProject
+    /*GetProject
 
     Sends a `GET` request to `/v0/projects/{projectId}`
 
@@ -7938,7 +7938,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteProject
+    /*DeleteProject
 
     Sends a `DELETE` request to `/v0/projects/{projectId}`
 
@@ -7974,7 +7974,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**UpdateProject
+    /*UpdateProject
 
     Sends a `PATCH` request to `/v0/projects/{projectId}`
 
@@ -8012,7 +8012,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetProjectAnalytics
+    /*GetProjectAnalytics
 
     GetProjectAnalytics returns the project overview over a time range.
 
@@ -8240,7 +8240,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListAgentAnalytics
+    /*ListAgentAnalytics
 
     ListAgentAnalytics returns the same per-agent analytics for every agent in
      the project, one AgentAnalytics row per agent — so a single agent and the
@@ -8475,7 +8475,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetAgentAnalytics
+    /*GetAgentAnalytics
 
     GetAgentAnalytics returns the analytics for one agent over a time range.
 
@@ -8703,7 +8703,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListDatabases
+    /*ListDatabases
 
     ListDatabases lists the project's databases, cursor-paginated.
 
@@ -8754,7 +8754,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateDatabase
+    /*CreateDatabase
 
     CreateDatabase creates an empty database. Not idempotent: a retried
      request creates a second database.
@@ -8799,7 +8799,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetDatabase
+    /*GetDatabase
 
     Sends a `GET` request to `/v0/projects/{projectId}/databases/{databaseId}`
 
@@ -8841,7 +8841,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteDatabase
+    /*DeleteDatabase
 
     DeleteDatabase deletes the stored data, not just the metadata.
 
@@ -8885,7 +8885,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ExportDatabase
+    /*ExportDatabase
 
     ExportDatabase exports a consistent SQLite file as a time-limited download
      URL.
@@ -8930,7 +8930,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListInvites
+    /*ListInvites
 
     Sends a `GET` request to `/v0/projects/{projectId}/invites`
 
@@ -8970,7 +8970,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**InviteMember
+    /*InviteMember
 
     Sends a `POST` request to `/v0/projects/{projectId}/invites`
 
@@ -9012,7 +9012,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteInvite
+    /*DeleteInvite
 
     Sends a `DELETE` request to `/v0/projects/{projectId}/invites/{email}`
 
@@ -9054,7 +9054,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**UpdateInvite
+    /*UpdateInvite
 
     Sends a `PATCH` request to `/v0/projects/{projectId}/invites/{email}`
 
@@ -9098,7 +9098,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListKeys
+    /*ListKeys
 
     Sends a `GET` request to `/v0/projects/{projectId}/keys`
 
@@ -9139,7 +9139,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GenerateKey
+    /*GenerateKey
 
     Access keys (mirrors cloud ProjectService GenerateKey / ListKeys /
      ListScopedKeys / DeleteKey).
@@ -9181,7 +9181,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteKey
+    /*DeleteKey
 
     Sends a `DELETE` request to `/v0/projects/{projectId}/keys/{apiKey}`
 
@@ -9222,7 +9222,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListMembers
+    /*ListMembers
 
     Members & invites (token-based; mirrors cloud ProjectService current flows).
 
@@ -9264,7 +9264,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetMember
+    /*GetMember
 
     Sends a `GET` request to `/v0/projects/{projectId}/members/{userId}`
 
@@ -9305,7 +9305,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**RemoveMember
+    /*RemoveMember
 
     Sends a `DELETE` request to `/v0/projects/{projectId}/members/{userId}`
 
@@ -9347,7 +9347,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**UpdateMember
+    /*UpdateMember
 
     Sends a `PATCH` request to `/v0/projects/{projectId}/members/{userId}`
 
@@ -9391,7 +9391,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**AddWorkspaceMembersToProject
+    /*AddWorkspaceMembersToProject
 
     Sends a `POST` request to `/v0/projects/{projectId}/members:addWorkspaceMembers`
 
@@ -9436,7 +9436,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GenerateScenarioFromSession
+    /*GenerateScenarioFromSession
 
     GenerateScenarioFromSession derives a reusable scenario (label,
      instructions and expectations) from a recorded room session, for use in a
@@ -9488,7 +9488,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListScopedKeys
+    /*ListScopedKeys
 
     Sends a `GET` request to `/v0/projects/{projectId}/scoped-keys`
 
@@ -9528,7 +9528,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListProjectSessions
+    /*ListProjectSessions
 
     ListProjectSessions lists room sessions for a project, newest first,
      cursor-paginated. Backed upstream by the ListingService room-sessions list.
@@ -9790,7 +9790,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSession
+    /*GetSession
 
     GetSession returns one room session. The response carries both the list-row
      `session` and the richer `detail` (participants, per-metric data points).
@@ -9835,7 +9835,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListSessionEvents lists one room session's events, oldest first by default,
+    /*ListSessionEvents lists one room session's events, oldest first by default,
      cursor-paginated with no total. With no `types`, it returns the seven the
      dashboard's events table shows: PARTICIPANT_JOINED, PARTICIPANT_LEFT,
      PARTICIPANT_ACTIVE, PARTICIPANT_RESUMED, ROOM_CREATED, ROOM_ENDED and
@@ -9931,7 +9931,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSessionLogs returns the log records the session's agents exported, in
+    /*GetSessionLogs returns the log records the session's agents exported, in
      time order: what the dashboard's logs panel shows. Their chat history is
      left out, since GetSessionTranscript reads it, and their evaluation
      results stay in. The session's events, such as participants joining,
@@ -10004,7 +10004,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSessionMetrics returns the OpenTelemetry metric points the session's
+    /*GetSessionMetrics returns the OpenTelemetry metric points the session's
      agents exported, by time, typed: turn latencies such as
      lk.agents.turn.e2e_latency and lk.agents.turn.llm_ttft, token and duration
      usage such as lk.agents.usage.llm_input_tokens, and the gen_ai.*
@@ -10088,7 +10088,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListSessionParticipants
+    /*ListSessionParticipants
 
     ListSessionParticipants lists the participants of one room session, one row
      per identity, cursor-paginated; newest join first by default. Each row
@@ -10153,7 +10153,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSessionRecordingURL
+    /*GetSessionRecordingURL
 
     GetSessionRecordingURL returns a short-lived signed URL for one of the
      session's recordings: its audio or its chat history. A session with no
@@ -10214,7 +10214,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSessionTraces returns the spans the session's agents exported, by
+    /*GetSessionTraces returns the spans the session's agents exported, by
      start time: what the dashboard's trace view shows. Each span names its
      parent, so the pages rebuild the span tree, and its attributes carry the
      turn and latency fields the dashboard's turn view reads, such as
@@ -10276,7 +10276,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSessionTranscript returns the session's conversation as ordered
+    /*GetSessionTranscript returns the session's conversation as ordered
      transcript items: messages, tool calls and results, agent handoffs and
      agent configuration changes. It is the conversation the dashboard's
      transcript shows
@@ -10337,7 +10337,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListSimulationRuns
+    /*ListSimulationRuns
 
     ListSimulationRuns lists a project's runs, newest first, cursor-paginated,
      optionally narrowed by status, agent, conversation mode and a time window.
@@ -10584,7 +10584,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateSimulationRun
+    /*CreateSimulationRun
 
     CreateSimulationRun registers a new run. With a scenario_group it starts
      right away and no upload target is returned. Without one it waits in
@@ -10635,7 +10635,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSimulationRun
+    /*GetSimulationRun
 
     GetSimulationRun returns one run with its jobs and aggregate metrics. The
      compressed summary blob (summary_zstd) is omitted; use
@@ -10683,7 +10683,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetSimulationRunSummary
+    /*GetSimulationRunSummary
 
     GetSimulationRunSummary returns the graded outcome of a finished run:
      pass/fail counts, what went well, what to improve, flagged issues with
@@ -10732,7 +10732,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CancelSimulationRun
+    /*CancelSimulationRun
 
     CancelSimulationRun stops a run that has not finished. Cancelling a run
      that already finished succeeds without effect.
@@ -10779,7 +10779,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ConfirmSimulationSourceUpload
+    /*ConfirmSimulationSourceUpload
 
     ConfirmSimulationSourceUpload marks the agent source as uploaded and starts
      scenario generation; the run moves to GENERATING, then RUNNING once the
@@ -10833,7 +10833,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CountSimulationRuns
+    /*CountSimulationRuns
 
     CountSimulationRuns buckets the runs ListSimulationRuns would return over
      [start_time, end_time) into a histogram. It takes the same filters over the
@@ -11073,7 +11073,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListThreads
+    /*ListThreads
 
     ListThreads lists the threads of one scope, newest first.
 
@@ -11126,7 +11126,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateThread
+    /*CreateThread
 
     CreateThread creates a thread and its database.
 
@@ -11170,7 +11170,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetThread
+    /*GetThread
 
     Sends a `GET` request to `/v0/projects/{projectId}/threads/{threadId}`
 
@@ -11211,7 +11211,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteThread
+    /*DeleteThread
 
     DeleteThread deletes the thread and its database.
 
@@ -11255,7 +11255,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**UpdateThread
+    /*UpdateThread
 
     UpdateThread merges attributes (an empty value deletes the entry) and sets
      the idle TTL. Every update counts as activity and pushes expires_at out.
@@ -11302,7 +11302,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetThreadItems
+    /*GetThreadItems
 
     GetThreadItems returns the thread's chat items, oldest first.
 
@@ -11363,7 +11363,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetThreadTasks
+    /*GetThreadTasks
 
     GetThreadTasks returns the thread's background tasks, oldest first.
 
@@ -11420,7 +11420,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateToken
+    /*CreateToken
 
     CreateToken mints a short-lived LiveKit access token for the project,
      signed server-side, so user-authenticated clients can call LiveKit server
@@ -11466,7 +11466,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListUsers
+    /*ListUsers
 
     Sends a `GET` request to `/v0/users`
 
@@ -11516,7 +11516,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetCurrentUser
+    /*GetCurrentUser
 
     Sends a `GET` request to `/v0/users/me`
 
@@ -11551,7 +11551,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetUser
+    /*GetUser
 
     Sends a `GET` request to `/v0/users/{userId}`
 
@@ -11586,7 +11586,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetInvite
+    /*GetInvite
 
     Sends a `GET` request to `/v0/workspace-invites/{inviteToken}`
 
@@ -11626,7 +11626,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**AnswerInvite
+    /*AnswerInvite
 
     Sends a `POST` request to `/v0/workspace-invites/{inviteToken}:answer`
 
@@ -11668,7 +11668,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListWorkspaces
+    /*ListWorkspaces
 
     Sends a `GET` request to `/v0/workspaces`
 
@@ -11711,7 +11711,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateWorkspace
+    /*CreateWorkspace
 
     Sends a `POST` request to `/v0/workspaces`
 
@@ -11748,7 +11748,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetWorkspace
+    /*GetWorkspace
 
     Sends a `GET` request to `/v0/workspaces/{workspaceId}`
 
@@ -11785,7 +11785,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteWorkspace
+    /*DeleteWorkspace
 
     Sends a `DELETE` request to `/v0/workspaces/{workspaceId}`
 
@@ -11822,7 +11822,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**UpdateWorkspace
+    /*UpdateWorkspace
 
     Sends a `PATCH` request to `/v0/workspaces/{workspaceId}`
 
@@ -11861,7 +11861,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListInvites
+    /*ListInvites
 
     Sends a `GET` request to `/v0/workspaces/{workspaceId}/invites`
 
@@ -11901,7 +11901,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateInvite
+    /*CreateInvite
 
     Sends a `POST` request to `/v0/workspaces/{workspaceId}/invites`
 
@@ -11943,7 +11943,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteInvite
+    /*DeleteInvite
 
     Sends a `DELETE` request to `/v0/workspaces/{workspaceId}/invites/{email}`
 
@@ -11985,7 +11985,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListMembers
+    /*ListMembers
 
     Members & invites (mirrors cloud WorkspaceService current flows).
 
@@ -12027,7 +12027,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetMember
+    /*GetMember
 
     Sends a `GET` request to `/v0/workspaces/{workspaceId}/members/{userId}`
 
@@ -12069,7 +12069,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteMember
+    /*DeleteMember
 
     Sends a `DELETE` request to `/v0/workspaces/{workspaceId}/members/{userId}`
 
@@ -12111,7 +12111,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**UpdateMember
+    /*UpdateMember
 
     Sends a `PATCH` request to `/v0/workspaces/{workspaceId}/members/{userId}`
 
@@ -12155,7 +12155,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**ListProjects
+    /*ListProjects
 
     Project CRUD scoped to a workspace — responses owned by projects.v1.
 
@@ -12206,7 +12206,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**CreateProject
+    /*CreateProject
 
     Sends a `POST` request to `/v0/workspaces/{workspaceId}/projects`
 
@@ -12248,7 +12248,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**GetProject
+    /*GetProject
 
     Sends a `GET` request to `/v0/workspaces/{workspaceId}/projects/{projectId}`
 
@@ -12289,7 +12289,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**DeleteProject
+    /*DeleteProject
 
     Sends a `DELETE` request to `/v0/workspaces/{workspaceId}/projects/{projectId}`
 
@@ -12331,7 +12331,7 @@ impl Client {
             _ => Err(Error::UnexpectedResponse(response)),
         }
     }
-    /**UpdateProject
+    /*UpdateProject
 
     Sends a `PATCH` request to `/v0/workspaces/{workspaceId}/projects/{update.projectId}`
 
@@ -12381,7 +12381,7 @@ impl Client {
         }
     }
 }
-/// Items consumers will typically use such as the Client.
+// Items consumers will typically use such as the Client.
 pub mod prelude {
     #[allow(unused_imports)]
     pub use super::Client;

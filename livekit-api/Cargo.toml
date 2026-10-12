@@ -101,7 +101,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rustls-native-certs = { version = "0.8", optional = true }
 webpki-roots = { version = "1", optional = true }
 
-# public_api
+# public API client
 progenitor-client = { version = "0.15.1", optional = true }
 chrono = { version = "0.4", default-features = false, features = ["serde"], optional = true }
 
@@ -111,5 +111,5 @@ rand = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
 
 [[test]]
-name = "public_api"
+name = "threads"
 required-features = ["services"]
