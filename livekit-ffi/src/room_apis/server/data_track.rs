@@ -15,9 +15,68 @@
 use crate::FfiHandleId;
 use bytes::Bytes;
 use futures_util::StreamExt;
-use livekit::data_track::{self as dt, DataTrackSubscribeError, PushFrameErrorReason};
+use livekit::data_track::{
+    self as dt, DataTrackFrameEncoding, DataTrackSchemaEncoding, DataTrackSid,
+    DataTrackSubscribeError, PushFrameErrorReason,
+};
 use std::sync::OnceLock;
 use tokio::sync::Mutex;
+
+// TODO: core_modules registers this converter identically; #1438 brings the two into one
+// crate, after which both collapse into a single ungated module. Registering it here is
+// safe meanwhile: the two surfaces are mutually exclusive, so only one is ever built.
+uniffi::custom_type!(DataTrackSid, String, {
+    remote,
+    lower: |s| String::from(s),
+    try_lift: |s| DataTrackSid::try_from(s).map_err(|e| uniffi::deps::anyhow::anyhow!("{e}")),
+});
+
+// TODO: core_modules defines this record identically; #1438 brings the two into one
+// crate, after which both collapse into a single ungated module.
+/// Information about a published data track.
+#[derive(uniffi::Record)]
+pub struct DataTrackInfo {
+    /// Assigned by the SFU, and reassigned when the publisher reconnects. [`Self::name`]
+    /// is the identifier that holds still.
+    pub sid: DataTrackSid,
+    pub name: String,
+    pub uses_e2ee: bool,
+    pub schema: Option<DataTrackSchemaId>,
+    pub frame_encoding: Option<DataTrackFrameEncoding>,
+}
+
+impl From<&dt::DataTrackInfo> for DataTrackInfo {
+    fn from(info: &dt::DataTrackInfo) -> Self {
+        Self {
+            sid: info.sid(),
+            name: info.name().to_string(),
+            uses_e2ee: info.uses_e2ee(),
+            schema: info.schema().cloned().map(Into::into),
+            frame_encoding: info.frame_encoding().cloned(),
+        }
+    }
+}
+
+// TODO: core_modules defines this record identically; #1438 brings the two into one
+// crate, after which both collapse into a single ungated module.
+/// Identifier for a data track schema: a name and an encoding.
+#[derive(uniffi::Record)]
+pub struct DataTrackSchemaId {
+    pub name: String,
+    pub encoding: DataTrackSchemaEncoding,
+}
+
+impl From<DataTrackSchemaId> for dt::DataTrackSchemaId {
+    fn from(source: DataTrackSchemaId) -> Self {
+        dt::DataTrackSchemaId::new(source.name, source.encoding)
+    }
+}
+
+impl From<dt::DataTrackSchemaId> for DataTrackSchemaId {
+    fn from(source: dt::DataTrackSchemaId) -> Self {
+        Self { name: source.name().to_string(), encoding: source.encoding().clone() }
+    }
+}
 
 // TODO: core_modules defines this record identically; #1438 brings the two into one
 // crate, after which both collapse into a single ungated module.
@@ -74,6 +133,14 @@ impl LocalDataTrack {
     /// Waits until the track is unpublished, returning immediately if it already is.
     pub async fn wait_for_unpublish(&self) {
         self.inner.wait_for_unpublish().await
+    }
+
+    /// Information about the data track.
+    ///
+    /// Read rather than cached: the SID is reassigned on a publisher reconnect, and the
+    /// value handed over with the protobuf handle is a snapshot from that moment.
+    pub fn info(&self) -> DataTrackInfo {
+        self.inner.info().into()
     }
 
     /// Stops publishing the track.
@@ -133,6 +200,14 @@ impl RemoteDataTrack {
     /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
         self.inner.is_published()
+    }
+
+    /// Information about the data track.
+    ///
+    /// Read rather than cached: the SID is reassigned on a publisher reconnect, and the
+    /// value handed over with the protobuf handle is a snapshot from that moment.
+    pub fn info(&self) -> DataTrackInfo {
+        self.inner.info().into()
     }
 
     /// Identity of the participant who published the track.
